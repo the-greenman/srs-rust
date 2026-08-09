@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "RFC-004 Artifact: field-nullable"
-    },
-    {
-      "fieldId": "5a000017-0000-4000-a000-000000000017",
-      "value": "field"
-    },
-    {
-      "fieldId": "5a000016-0000-4000-a000-000000000016",
-      "value": "rfcs/rfc-004/proposed-package/spec-authoring-core/fields/nullable.json"
-    },
-    {
-      "fieldId": "1a000012-0000-4000-a000-000000000012",
-      "value": "Proposed schema-member nullability field."
-    }
-  ],
+  "fieldValues": {
+    "title": "RFC-004 Artifact: field-nullable",
+    "artifact_kind": "field",
+    "proposal_artifact_path": "rfcs/rfc-004/proposed-package/spec-authoring-core/fields/nullable.json",
+    "description": "Proposed schema-member nullability field."
+  },
   "instanceId": "476e9067-bba3-5e82-89da-5c7218b8824e",
   "sourceRefs": [
     {

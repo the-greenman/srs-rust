@@ -5,9 +5,11 @@
   "name": "protocol-version",
   "version": 1,
   "description": "Version number of the protocol.",
-  "valueType": "number",
   "aiGuidance": {
     "purpose": "Capture the protocol version for compatibility and evolution tracking."
+  },
+  "fieldType": {
+    "datatype": "number"
   },
   "createdAt": "2026-05-29T00:00:00Z"
 }

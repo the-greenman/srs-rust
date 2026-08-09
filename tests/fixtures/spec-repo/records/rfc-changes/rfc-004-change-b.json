@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "RFC-004 Change B: Add ext:schema-notation"
-    },
-    {
-      "fieldId": "5a000009-0000-4000-a000-000000000009",
-      "value": "extensions table"
-    },
-    {
-      "fieldId": "5a000006-0000-4000-a000-000000000006",
-      "value": "Add `ext:schema-notation` as a target-neutral semantic schema IR for spec authoring and target projections."
-    },
-    {
-      "fieldId": "1a000004-0000-4000-a000-000000000004",
-      "value": "The extension boundary separates schema authoring from runtime extraction (`ext:schema`) and from target projections."
-    }
-  ],
+  "fieldValues": {
+    "title": "RFC-004 Change B: Add ext:schema-notation",
+    "affected_components": "extensions table",
+    "proposed_change": "Add `ext:schema-notation` as a target-neutral semantic schema IR for spec authoring and target projections.",
+    "rationale": "The extension boundary separates schema authoring from runtime extraction (`ext:schema`) and from target projections."
+  },
   "instanceId": "2925ab39-cbb1-58e2-8e56-7927d04e8890",
   "sourceRefs": [
     {

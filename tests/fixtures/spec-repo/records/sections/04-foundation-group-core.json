@@ -1,16 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Foundation Group (Core)"
-    },
-    {
-      "fieldId": "1a000002-0000-4000-a000-000000000002",
-      "value": "The Foundation group is required for all conforming implementations."
-    }
-  ],
+  "fieldValues": {
+    "title": "Foundation Group (Core)",
+    "content": "The Foundation group is required for all conforming implementations."
+  },
   "instanceId": "74746626-1a15-5430-931e-90a147961265",
   "sourceRefs": [
     {

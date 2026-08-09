@@ -5,7 +5,7 @@
 //! includes decoy files (`README.md`, `.github/workflows/ci.yml`) that no
 //! SRS code may touch, and a Type carrying `$schema`/`aiGuidance` extras.
 
-use srs_core::types::record::FieldValue;
+use srs_core::types::record::FieldValues;
 use srs_repository::json_store::JsonStore;
 use srs_repository::migration_registry_service::{list_migrations, MigrationStatus};
 use srs_repository::record_store::{
@@ -19,8 +19,6 @@ use std::path::Path;
 const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/exploded-basic");
 const RECORD_1: &str = "0ce8cbdd-5a77-4740-a34a-83b3afa63a3e";
 const TYPE_ID: &str = "33333333-3333-4333-8333-333333333331";
-const FIELD_TITLE: &str = "22222222-2222-4222-8222-222222222221";
-const FIELD_APPROVED: &str = "22222222-2222-4222-8222-222222222222";
 
 /// Load the exploded fixture as a path→bytes map (as a git-tree fetch would).
 fn fixture_map() -> BTreeMap<String, Vec<u8>> {
@@ -112,23 +110,13 @@ fn single_record_edit_single_file_diff() {
         &store,
         RECORD_1,
         UpdateRecordInput {
-            field_values: vec![
-                FieldValue {
-                    field_id: FIELD_TITLE.to_string(),
-                    value: serde_json::json!("Adopt the tree model"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-                FieldValue {
-                    field_id: FIELD_APPROVED.to_string(),
-                    value: serde_json::json!(false),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-            ],
-            group_values: None,
+            field_meta: None,
+            field_values: {
+                let mut fv = FieldValues::new();
+                fv.insert("title", serde_json::json!("Adopt the tree model"));
+                fv.insert("approved", serde_json::json!(false));
+                fv
+            },
             tags: None,
             type_version: None,
         },
@@ -138,13 +126,7 @@ fn single_record_edit_single_file_diff() {
     assert_diff_is_exactly(&base, &exported, &["records/tier-2/decision-0ce8cbdd.json"]);
     let record: serde_json::Value =
         serde_json::from_slice(&exported["records/tier-2/decision-0ce8cbdd.json"]).unwrap();
-    let approved = record["fieldValues"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|fv| fv["fieldId"] == FIELD_APPROVED)
-        .unwrap();
-    assert_eq!(approved["value"], serde_json::json!(false));
+    assert_eq!(record["fieldValues"]["approved"], serde_json::json!(false));
 }
 
 #[test]
@@ -197,14 +179,12 @@ fn decoys_untouched_after_edits() {
         &store,
         RECORD_1,
         UpdateRecordInput {
-            field_values: vec![FieldValue {
-                field_id: FIELD_TITLE.to_string(),
-                value: serde_json::json!("Retitled decision"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
-            group_values: None,
+            field_meta: None,
+            field_values: {
+                let mut fv = FieldValues::new();
+                fv.insert("title", serde_json::json!("Retitled decision"));
+                fv
+            },
             tags: None,
             type_version: None,
         },

@@ -5,9 +5,13 @@
   "name": "protocol-tags",
   "version": 1,
   "description": "Tags associated with the protocol.",
-  "valueType": "multiselect",
   "aiGuidance": {
     "purpose": "Capture classification tags used to group and discover protocols."
+  },
+  "fieldType": {
+    "datatype": "string",
+    "cardinality": "list",
+    "valueDomain": "closed"
   },
   "createdAt": "2026-05-29T00:00:00Z"
 }

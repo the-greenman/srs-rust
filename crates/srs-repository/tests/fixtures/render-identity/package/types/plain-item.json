@@ -1,0 +1,23 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "00000000-0000-4000-8000-000000000902",
+  "namespace": "fixture.render",
+  "name": "plain-item",
+  "version": 1,
+  "description": "Item with no identityFieldId",
+  "fields": [
+    {
+      "fieldId": "00000000-0000-4000-8000-000000000901",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Title"
+    },
+    {
+      "fieldId": "00000000-0000-4000-8000-000000000903",
+      "order": 1,
+      "required": false,
+      "displayLabel": "Body"
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00Z"
+}

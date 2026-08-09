@@ -8,7 +8,9 @@
   "aiGuidance": {
     "purpose": "Names should be lowercase, use hyphens or underscores for separation, and be unique within the namespace. This is the local part of the canonical key."
   },
-  "valueType": "string",
+  "fieldType": {
+    "datatype": "string"
+  },
   "editorHint": "singleline",
   "createdAt": "2026-05-27T00:00:00Z"
 }

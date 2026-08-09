@@ -1,16 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Key Invariants"
-    },
-    {
-      "fieldId": "1a000002-0000-4000-a000-000000000002",
-      "value": "Conforming implementations must uphold the following invariants."
-    }
-  ],
+  "fieldValues": {
+    "title": "Key Invariants",
+    "content": "Conforming implementations must uphold the following invariants."
+  },
   "instanceId": "df42f888-4d95-5a51-963e-60d10c36533c",
   "sourceRefs": [
     {

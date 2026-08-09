@@ -17,14 +17,12 @@ use srs_repository::repository_lifecycle::{
     RepositoryMetadata,
 };
 use srs_repository::store::FileStore;
-use std::collections::HashMap;
 
 const NS: &str = "com.example.mcptest";
 
 struct Fixture {
     dir: tempfile::TempDir,
     title_field_id: String,
-    body_field_id: String,
     type_id: String,
 }
 
@@ -113,7 +111,6 @@ fn make_fixture() -> Fixture {
     Fixture {
         dir,
         title_field_id,
-        body_field_id,
         type_id,
     }
 }
@@ -198,7 +195,7 @@ fn make_lifecycle_fixture() -> LifecycleFixture {
             created_at: None,
             updated_at: None,
             meta: None,
-            extra: HashMap::new(),
+            extra: Default::default(),
         },
     )
     .unwrap();
@@ -269,10 +266,10 @@ async fn tool_record_create_happy_then_validate() {
         "record_create",
         serde_json::json!({
             "type": format!("{NS}/decision"),
-            "fieldValues": [
-                { "fieldId": fx.title_field_id, "value": "First decision" },
-                { "fieldId": fx.body_field_id, "value": "Because reasons." }
-            ],
+            "fieldValues": {
+                "title": "First decision",
+                "body": "Because reasons."
+            },
             "tags": ["mcp-test"]
         }),
     )
@@ -310,9 +307,9 @@ async fn tool_record_create_missing_required_is_error_no_write() {
         "record_create",
         serde_json::json!({
             "type": format!("{NS}/decision"),
-            "fieldValues": [
-                { "fieldId": fx.body_field_id, "value": "No title supplied" }
-            ]
+            "fieldValues": {
+                "body": "No title supplied"
+            }
         }),
     )
     .await;
@@ -426,10 +423,10 @@ async fn tool_note_create_and_find_roundtrip() {
         "record_create",
         serde_json::json!({
             "type": format!("{NS}/decision"),
-            "fieldValues": [
-                { "fieldId": fx.title_field_id, "value": "Budget decision" },
-                { "fieldId": fx.body_field_id, "value": "We approved the quarterly budget." }
-            ]
+            "fieldValues": {
+                "title": "Budget decision",
+                "body": "We approved the quarterly budget."
+            }
         }),
     )
     .await;
@@ -518,7 +515,7 @@ async fn tool_call_malformed_args_invalid_params() {
         .call_tool(
             CallToolRequestParams::new("record_update").with_arguments(args(serde_json::json!({
                 "instanceId": "some-id",
-                "fieldValues": [],
+                "fieldValues": {},
                 "unknownExtra": true
             }))),
         )
@@ -569,11 +566,15 @@ async fn tool_type_schema_happy_and_unknown_id() {
     )
     .unwrap();
     assert_eq!(structured, &serde_json::to_value(&direct).unwrap());
-    let text = serde_json::to_string(structured).unwrap();
-    assert!(text.contains("x-srs-field-id"));
+    // RFC-039: schema keys are Field.name; x-srs-field-id is retired.
     assert!(
-        text.contains(&fx.title_field_id),
-        "fieldId discoverable in schema"
+        structured["schema"]["properties"]["title"].is_object(),
+        "schema properties must be keyed by field name: {structured}"
+    );
+    let text = serde_json::to_string(structured).unwrap();
+    assert!(
+        !text.contains("x-srs-field-id"),
+        "x-srs-field-id must not be emitted (RFC-039)"
     );
 
     // Unknown id → tool-level error, server keeps serving.
@@ -609,9 +610,7 @@ async fn tool_record_update_replaces_field_values() {
         "record_create",
         serde_json::json!({
             "type": format!("{NS}/decision"),
-            "fieldValues": [
-                { "fieldId": fx.title_field_id, "value": "Original Title" }
-            ]
+            "fieldValues": { "title": "Original Title" }
         }),
     )
     .await;
@@ -627,20 +626,13 @@ async fn tool_record_update_replaces_field_values() {
         "record_update",
         serde_json::json!({
             "instanceId": instance_id,
-            "fieldValues": [
-                { "fieldId": fx.title_field_id, "value": "Updated Title" }
-            ]
+            "fieldValues": { "title": "Updated Title" }
         }),
     )
     .await;
     assert_eq!(update.is_error, Some(false), "update failed: {update:?}");
     let updated = update.structured_content.as_ref().unwrap();
-    let updated_title = updated["fieldValues"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|fv| fv["fieldId"].as_str() == Some(fx.title_field_id.as_str()))
-        .and_then(|fv| fv["value"].as_str());
+    let updated_title = updated["fieldValues"]["title"].as_str();
     assert_eq!(
         updated_title,
         Some("Updated Title"),
@@ -652,12 +644,9 @@ async fn tool_record_update_replaces_field_values() {
     let loaded = srs_repository::record_store::get_record_by_id(&store, &instance_id)
         .unwrap()
         .unwrap();
-    assert!(
-        loaded
-            .field_values
-            .iter()
-            .any(|fv| fv.field_id == fx.title_field_id
-                && fv.value == serde_json::json!("Updated Title")),
+    assert_eq!(
+        loaded.value_str("title"),
+        Some("Updated Title"),
         "direct service read should see updated title"
     );
 
@@ -685,9 +674,7 @@ async fn tool_record_allowed_transitions_returns_initial_state() {
         "record_create",
         serde_json::json!({
             "type": format!("{NS}/proposal"),
-            "fieldValues": [
-                { "fieldId": fx.base.title_field_id, "value": "My Proposal" }
-            ]
+            "fieldValues": { "title": "My Proposal" }
         }),
     )
     .await;
@@ -738,9 +725,7 @@ async fn tool_record_transition_promotes_draft_to_active() {
         "record_create",
         serde_json::json!({
             "type": format!("{NS}/proposal"),
-            "fieldValues": [
-                { "fieldId": fx.base.title_field_id, "value": "My Proposal" }
-            ]
+            "fieldValues": { "title": "My Proposal" }
         }),
     )
     .await;
@@ -796,9 +781,7 @@ async fn tool_record_successor_creates_linked_pair() {
         "record_create",
         serde_json::json!({
             "type": format!("{NS}/decision"),
-            "fieldValues": [
-                { "fieldId": fx.base.title_field_id, "value": "Original Decision" }
-            ]
+            "fieldValues": { "title": "Original Decision" }
         }),
     )
     .await;
@@ -815,9 +798,7 @@ async fn tool_record_successor_creates_linked_pair() {
         serde_json::json!({
             "predecessorId": predecessor_id,
             "relationType": "supersedes",
-            "fieldValues": [
-                { "fieldId": fx.base.title_field_id, "value": "Revised Decision" }
-            ]
+            "fieldValues": { "title": "Revised Decision" }
         }),
     )
     .await;
@@ -891,9 +872,7 @@ async fn tool_note_graduate_promotes_to_record() {
         serde_json::json!({
             "noteId": note_id,
             "type": format!("{NS}/decision"),
-            "fieldValues": [
-                { "fieldId": fx.title_field_id, "value": "Decision from meeting" }
-            ]
+            "fieldValues": { "title": "Decision from meeting" }
         }),
     )
     .await;
@@ -934,9 +913,7 @@ async fn tool_container_member_add_then_remove() {
         "record_create",
         serde_json::json!({
             "type": format!("{NS}/decision"),
-            "fieldValues": [
-                { "fieldId": fx.base.title_field_id, "value": "Container Member" }
-            ]
+            "fieldValues": { "title": "Container Member" }
         }),
     )
     .await;

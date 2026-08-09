@@ -5,9 +5,11 @@
   "name": "tag_label",
   "version": 1,
   "description": "Human-readable display name for the tag.",
-  "valueType": "string",
-  "createdAt": "2026-05-28T00:00:00Z",
   "aiGuidance": {
     "purpose": "A human-readable display name for the tag, for use in UI and rendered output."
-  }
+  },
+  "fieldType": {
+    "datatype": "string"
+  },
+  "createdAt": "2026-05-28T00:00:00Z"
 }

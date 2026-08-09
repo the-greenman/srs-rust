@@ -1,20 +1,11 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "5a000018-0000-4000-a000-000000000018",
-      "value": 1
-    },
-    {
-      "fieldId": "5a000004-0000-4000-a000-000000000004",
-      "value": "2026-05-27"
-    },
-    {
-      "fieldId": "1a000011-0000-4000-a000-000000000011",
-      "value": "Initial draft: schema-member records with compact type-ref strings"
-    }
-  ],
+  "fieldValues": {
+    "revision_number": 1,
+    "decision_date": "2026-05-27",
+    "summary": "Initial draft: schema-member records with compact type-ref strings"
+  },
   "instanceId": "17eab013-627d-5fd2-8441-467097843508",
   "sourceRefs": [
     {

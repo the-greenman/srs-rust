@@ -52,7 +52,11 @@ pub struct ContainerRow {
 /// labeling, required-marking) is delegated to `tui_data::detail_rows` — the single
 /// implementation shared with the TUI detail pane; this function owns only CLI text
 /// formatting (skip-if-missing, wrap-if-long).
-pub fn record_detail(record_id: &str, schema_props: &Value, field_values: &[Value]) {
+pub fn record_detail(
+    record_id: &str,
+    schema_props: &Value,
+    field_values: &serde_json::Map<String, Value>,
+) {
     let rows = crate::tui_data::detail_rows(schema_props, field_values);
 
     header(&format!("Record  {}", short_id(record_id)));
@@ -338,16 +342,12 @@ mod tests {
             "properties": {
                 "title": {
                     "title": "Title",
-                    "x-srs-field-id": "field-title",
                     "x-srs-order": 1
                 }
             }
         });
-        let field_values = vec![serde_json::json!({
-            "fieldId": "field-title",
-            "value": "Short ID smoke"
-        })];
+        let field_values = serde_json::json!({ "title": "Short ID smoke" });
 
-        record_detail("abc", &schema, &field_values);
+        record_detail("abc", &schema, field_values.as_object().unwrap());
     }
 }

@@ -227,21 +227,24 @@ fn validate_source_definition(
             require_str("id")?;
             require_str("namespace")?;
             require_str("name")?;
-            let vt = value["valueType"].as_str().unwrap_or("");
-            const ALLOWED: [&str; 8] = [
+            // RFC-032/RFC-039: a Field carries an inline `fieldType`; the
+            // load-bearing key is its `datatype`.
+            let datatype = value["fieldType"]["datatype"].as_str().unwrap_or("");
+            const ALLOWED: [&str; 9] = [
                 "string",
-                "text",
                 "number",
+                "integer",
                 "boolean",
                 "date",
-                "url",
-                "select",
-                "multiselect",
+                "date-time",
+                "ref",
+                "map",
+                "dependent",
             ];
-            if !ALLOWED.contains(&vt) {
+            if !ALLOWED.contains(&datatype) {
                 return Err(RepositoryError::InvalidValueType {
                     path: path.to_path_buf(),
-                    value_type: vt.to_string(),
+                    value_type: datatype.to_string(),
                 });
             }
         }

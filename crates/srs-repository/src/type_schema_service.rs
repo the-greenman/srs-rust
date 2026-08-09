@@ -399,7 +399,6 @@ mod tests {
     use crate::package::Package;
     use crate::store::memory::MemoryStore;
     use srs_core::types::field::{AiGuidance, FieldType};
-    use std::collections::HashMap;
     use std::path::PathBuf;
 
     fn field(id: &str, name: &str, field_type: FieldType) -> Field {
@@ -429,36 +428,20 @@ mod tests {
             order,
             required,
             display_label: None,
-            repeatable: false,
-            min_items: None,
-            max_items: None,
         }
     }
 
-    /// Build a MemoryStore seeded with the given fields and a single type.
-    fn store_with(
+    fn make_package(
         fields: Vec<Field>,
-        record_type: srs_core::types::record_type::RecordType,
-    ) -> MemoryStore {
-        let manifest = Manifest {
-            instance_index: vec![],
-            container: None,
-            container_index: None,
-            federation_path: None,
-            upstream_package: None,
-            federation_events_path: None,
-            extra: std::collections::BTreeMap::new(),
-            source_documents_path: None,
-            source_document_index: None,
-            root: PathBuf::from("/memory"),
-        };
-        let package = Package {
+        record_types: Vec<srs_core::types::record_type::RecordType>,
+    ) -> Package {
+        Package {
             id: "test-pkg".to_string(),
             namespace: "com.test".to_string(),
             name: "test".to_string(),
             version: "1.0.0".to_string(),
             fields,
-            record_types: vec![record_type],
+            record_types,
             relation_type_definitions: vec![],
             views: vec![],
             document_views: vec![],
@@ -469,8 +452,15 @@ mod tests {
             dependency_refs: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
-        };
-        MemoryStore::new(manifest, package)
+        }
+    }
+
+    /// Build a MemoryStore seeded with the given fields and a single type.
+    fn store_with(
+        fields: Vec<Field>,
+        record_type: srs_core::types::record_type::RecordType,
+    ) -> MemoryStore {
+        store_with_types(fields, vec![record_type])
     }
 
     /// Build a MemoryStore seeded with the given fields and multiple types.
@@ -490,25 +480,7 @@ mod tests {
             source_document_index: None,
             root: PathBuf::from("/memory"),
         };
-        let package = Package {
-            id: "test-pkg".to_string(),
-            namespace: "com.test".to_string(),
-            name: "test".to_string(),
-            version: "1.0.0".to_string(),
-            fields,
-            record_types,
-            relation_type_definitions: vec![],
-            views: vec![],
-            document_views: vec![],
-            themes: vec![],
-            blueprints: vec![],
-            protocols: vec![],
-            root: PathBuf::from("/memory"),
-            dependency_refs: vec![],
-            vocabularies: vec![],
-            lifecycles: vec![],
-        };
-        MemoryStore::new(manifest, package)
+        MemoryStore::new(manifest, make_package(fields, record_types))
     }
 
     fn make_type(
@@ -522,7 +494,6 @@ mod tests {
             version: 1,
             description: "A test type".to_string(),
             fields: assignments,
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -614,9 +585,11 @@ mod tests {
         f.description = "Short caption.".to_string();
         f.instructions = Some("Fuller how-to-complete guidance.".to_string());
         let a = assignment("f-help", 0, false);
+        let pkg = make_package(vec![], vec![]);
+        let mut visiting = Vec::new();
         let mut diagnostics = Vec::new();
 
-        let prop = field_to_property(&f, &a, &mut diagnostics);
+        let prop = field_to_property(&f, &a, &pkg, &mut visiting, &mut diagnostics);
 
         assert_eq!(prop["x-srs-description"], json!("Short caption."));
         assert_eq!(
@@ -631,16 +604,18 @@ mod tests {
         f.description = String::new();
         f.instructions = None;
         let a = assignment("f-no-help", 0, false);
+        let pkg = make_package(vec![], vec![]);
+        let mut visiting = Vec::new();
         let mut diagnostics = Vec::new();
 
-        let prop = field_to_property(&f, &a, &mut diagnostics);
+        let prop = field_to_property(&f, &a, &pkg, &mut visiting, &mut diagnostics);
 
         assert!(prop.get("x-srs-description").is_none());
         assert!(prop.get("x-srs-instructions").is_none());
 
         // Some("") must also omit the key — empty strings carry no help text.
         f.instructions = Some(String::new());
-        let prop = field_to_property(&f, &a, &mut diagnostics);
+        let prop = field_to_property(&f, &a, &pkg, &mut visiting, &mut diagnostics);
         assert!(prop.get("x-srs-instructions").is_none());
     }
 
@@ -833,10 +808,10 @@ mod tests {
             reparsed["properties"]["title"]["default"],
             json!("untitled")
         );
-        assert_eq!(
-            reparsed["properties"]["title"]["x-srs-field-id"],
-            json!(fid(1))
-        );
+        // RFC-039: schema keys are Field.name; no id bridge key is emitted.
+        assert!(reparsed["properties"]["title"]
+            .get("x-srs-field-id")
+            .is_none());
     }
 
     #[test]
@@ -891,27 +866,40 @@ mod tests {
         assert_eq!(result.schema["required"], json!(["parent_field"]));
     }
 
+    /// RFC-039: an inline-composite list Field expands its range Type into a
+    /// nested object schema — the successor of the retired FieldGroup
+    /// projection.
     #[test]
-    fn type_schema_emits_field_groups_with_composite_renderer() {
+    fn type_schema_expands_inline_composite_range() {
+        use srs_core::types::field_type::ExactTypeRef;
+
+        const RANGE_TID: &str = "00000000-0000-4000-8000-0000000000bb";
+
         let heading = field(&fid(0), "heading", FieldType::string());
         let columns = field(&fid(1), "columns", FieldType::text());
-        let rows = field(&fid(2), "rows", FieldType::text());
+        let cells = field(&fid(2), "cells", FieldType::text());
+        let mut rows = field(
+            &fid(3),
+            "rows",
+            FieldType::inline_ref(ExactTypeRef {
+                type_id: RANGE_TID.to_string(),
+                type_version: 1,
+            })
+            .into_list(),
+        );
+        rows.description = String::new();
 
-        let mut rt = make_type(TID, vec![assignment(&fid(0), 0, false)]);
-        rt.field_groups = Some(vec![FieldGroup {
-            group_id: "tables".to_string(),
-            order: 1,
-            fields: vec![assignment(&fid(1), 0, false), assignment(&fid(2), 1, true)],
-            label: Some("Tables".to_string()),
-            description: None,
-            required: false,
-            repeatable: true,
-            min_items: None,
-            max_items: None,
-            composite_renderer: Some("table".to_string()),
-        }]);
+        let mut range_rt = make_type(
+            RANGE_TID,
+            vec![assignment(&fid(1), 0, false), assignment(&fid(2), 1, true)],
+        );
+        range_rt.name = "row".to_string();
+        let rt = make_type(
+            TID,
+            vec![assignment(&fid(0), 0, false), assignment(&fid(3), 1, false)],
+        );
 
-        let store = store_with(vec![heading, columns, rows], rt);
+        let store = store_with_types(vec![heading, columns, cells, rows], vec![rt, range_rt]);
         let result = type_schema(
             &store,
             TypeSchemaInput {
@@ -922,54 +910,123 @@ mod tests {
         .unwrap();
 
         let props = result.schema["properties"].as_object().unwrap();
-        // Flat field still present alongside the group.
+        // Flat field still present alongside the composite.
         assert!(props.contains_key("heading"));
 
-        let tables = &props["tables"];
-        assert_eq!(tables["type"], "array", "repeatable group → array");
-        assert_eq!(tables["x-srs-composite-renderer"], "table");
-        assert_eq!(tables["x-srs-repeatable"], true);
-        assert_eq!(tables["x-srs-group-id"], "tables");
-        assert_eq!(tables["title"], "Tables");
+        let rows_prop = &props["rows"];
+        assert_eq!(rows_prop["type"], "array", "list-cardinality → array");
+        let items = &rows_prop["items"];
+        assert_eq!(items["type"], "object");
+        assert_eq!(items["additionalProperties"], json!(false));
+        assert_eq!(items["x-srs-range-type-id"], json!(RANGE_TID));
 
-        let item_props = tables["items"]["properties"].as_object().unwrap();
+        let item_props = items["properties"].as_object().unwrap();
         assert!(item_props.contains_key("columns"));
-        assert!(item_props.contains_key("rows"));
+        assert!(item_props.contains_key("cells"));
 
         // Required sub-field surfaces in the item object's `required`.
-        let item_required = tables["items"]["required"].as_array().unwrap();
-        assert!(item_required.iter().any(|v| v == "rows"));
+        let item_required = items["required"].as_array().unwrap();
+        assert!(item_required.iter().any(|v| v == "cells"));
         assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
-        // heading(order=0) gets position 1; tables(order=1) gets position 2 in merged sort.
-        assert_eq!(tables["x-srs-order"], json!(2));
+        // heading(order=0) gets position 1; rows(order=1) gets position 2.
+        assert_eq!(rows_prop["x-srs-order"], json!(2));
     }
 
+    /// [R2b]: the schema's property keys are `Field.name` verbatim — no case
+    /// mapping, no slugging, no id substitution.
     #[test]
-    fn type_schema_group_order_is_positional_not_raw() {
-        // group(raw order=0) with fields at order=1 and order=2, no fieldOrder.
-        // Merged sort: group(order=0) < field(order=1) → group gets position 1.
-        // This is the bug from issue #148: previously the group would get x-srs-order=0
-        // (raw group.order), colliding with field positions 1 and 2.
-        let f1 = field(&fid(1), "alpha", FieldType::string());
-        let f2 = field(&fid(2), "beta", FieldType::string());
-        let mut rt = make_type(
-            TID,
-            vec![assignment(&fid(1), 1, false), assignment(&fid(2), 2, false)],
-        );
-        rt.field_groups = Some(vec![FieldGroup {
-            group_id: "items".to_string(),
-            order: 0,
-            fields: vec![],
-            label: None,
-            description: None,
-            required: false,
-            repeatable: true,
-            min_items: None,
-            max_items: None,
-            composite_renderer: None,
-        }]);
+    fn domain_type_keys_are_field_name_verbatim() {
+        let names = ["title", "decision_statement", "Mixed_Case-name", "città"];
+        let mut fields = Vec::new();
+        let mut assignments = Vec::new();
+        for (i, name) in names.iter().enumerate() {
+            fields.push(field(&fid(i as u8), name, FieldType::string()));
+            assignments.push(assignment(&fid(i as u8), i as u32, false));
+        }
+        let store = store_with(fields, make_type(TID, assignments));
 
-        let store = store_with(vec![f1, f2], rt);
+        let result = type_schema(
+            &store,
+            TypeSchemaInput {
+                type_id: TID.to_string(),
+                type_version: None,
+            },
+        )
+        .unwrap();
+
+        let keys: Vec<&String> = result.schema["properties"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect();
+        assert_eq!(keys, names.iter().collect::<Vec<_>>());
+    }
+
+    /// RFC-039: `x-srs-field-id` is retired — no property anywhere in the
+    /// projected schema (including expanded composite interiors) carries it.
+    #[test]
+    fn no_x_srs_field_id_emitted() {
+        use srs_core::types::field_type::ExactTypeRef;
+
+        const RANGE_TID: &str = "00000000-0000-4000-8000-0000000000bb";
+        let inner = field(&fid(1), "cells", FieldType::text());
+        let rows = field(
+            &fid(2),
+            "rows",
+            FieldType::inline_ref(ExactTypeRef {
+                type_id: RANGE_TID.to_string(),
+                type_version: 1,
+            })
+            .into_list(),
+        );
+        let title = field(&fid(3), "title", FieldType::string());
+        let range_rt = make_type(RANGE_TID, vec![assignment(&fid(1), 0, false)]);
+        let rt = make_type(
+            TID,
+            vec![assignment(&fid(3), 0, true), assignment(&fid(2), 1, false)],
+        );
+        let store = store_with_types(vec![inner, rows, title], vec![rt, range_rt]);
+
+        let result = type_schema(
+            &store,
+            TypeSchemaInput {
+                type_id: TID.to_string(),
+                type_version: None,
+            },
+        )
+        .unwrap();
+
+        fn assert_no_field_id(value: &Value) {
+            match value {
+                Value::Object(map) => {
+                    assert!(
+                        !map.contains_key("x-srs-field-id"),
+                        "x-srs-field-id must not be emitted anywhere: {map:?}"
+                    );
+                    map.values().for_each(assert_no_field_id);
+                }
+                Value::Array(items) => items.iter().for_each(assert_no_field_id),
+                _ => {}
+            }
+        }
+        assert_no_field_id(&result.schema);
+    }
+
+    /// The projected schema describes a record's `fieldValues` object only —
+    /// no envelope keys (instanceId, typeId, fieldMeta, …) appear as
+    /// properties, and `additionalProperties: false` seals the field set.
+    #[test]
+    fn projected_schema_covers_field_values_only_not_envelope() {
+        let store = store_with(
+            vec![
+                field(&fid(1), "title", FieldType::string()),
+                field(&fid(2), "body", FieldType::markdown()),
+            ],
+            make_type(
+                TID,
+                vec![assignment(&fid(1), 0, true), assignment(&fid(2), 1, false)],
+            ),
+        );
         let result = type_schema(
             &store,
             TypeSchemaInput {
@@ -980,56 +1037,27 @@ mod tests {
         .unwrap();
 
         let props = result.schema["properties"].as_object().unwrap();
-        // group at order=0 sorts before fields at order=1 and order=2 → position 1.
-        assert_eq!(
-            props["items"]["x-srs-order"],
-            json!(1),
-            "group at raw order=0 must get merged position 1, not raw 0"
-        );
-        // fields get positions 2 and 3.
-        assert_eq!(props["alpha"]["x-srs-order"], json!(2));
-        assert_eq!(props["beta"]["x-srs-order"], json!(3));
-        assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
-    }
-
-    #[test]
-    fn type_schema_field_order_interleaves_groups() {
-        // fieldOrder: [field_a, group_id, field_b] → positions 1, 2, 3.
-        let fa_field = field(&fid(1), "field_a", FieldType::string());
-        let fb_field = field(&fid(2), "field_b", FieldType::string());
-        let mut rt = make_type(
-            TID,
-            vec![assignment(&fid(1), 0, false), assignment(&fid(2), 1, false)],
-        );
-        rt.field_groups = Some(vec![FieldGroup {
-            group_id: "grp".to_string(),
-            order: 99,
-            fields: vec![],
-            label: None,
-            description: None,
-            required: false,
-            repeatable: false,
-            min_items: None,
-            max_items: None,
-            composite_renderer: None,
-        }]);
-        rt.field_order = Some(vec![fid(1), "grp".to_string(), fid(2)]);
-
-        let store = store_with(vec![fa_field, fb_field], rt);
-        let result = type_schema(
-            &store,
-            TypeSchemaInput {
-                type_id: TID.to_string(),
-                type_version: None,
-            },
-        )
-        .unwrap();
-
-        let props = result.schema["properties"].as_object().unwrap();
-        assert_eq!(props["field_a"]["x-srs-order"], json!(1));
-        assert_eq!(props["grp"]["x-srs-order"], json!(2));
-        assert_eq!(props["field_b"]["x-srs-order"], json!(3));
-        assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+        let keys: Vec<&String> = props.keys().collect();
+        assert_eq!(keys, ["title", "body"].iter().collect::<Vec<_>>());
+        for envelope_key in [
+            "instanceId",
+            "typeId",
+            "typeVersion",
+            "typeNamespace",
+            "typeName",
+            "fieldValues",
+            "fieldMeta",
+            "lifecycleState",
+            "tags",
+            "createdAt",
+            "updatedAt",
+        ] {
+            assert!(
+                !props.contains_key(envelope_key),
+                "envelope key {envelope_key} must not appear in the fieldValues schema"
+            );
+        }
+        assert_eq!(result.schema["additionalProperties"], json!(false));
     }
 
     #[test]

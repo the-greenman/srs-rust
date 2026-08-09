@@ -13,17 +13,6 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-fn repo_root() -> PathBuf {
-    // tests/ lives in crates/srs-gov/tests/; workspace root is three levels up
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..") // crates/
-        .join("..") // srs-rust/
-        .join("..") // semanticops/
-        .join("srs/docs/spec/examples/gallery-project-v2")
-        .canonicalize()
-        .expect("gallery-project-v2 not found — run from srs-rust workspace")
-}
-
 fn srs_gov_bin() -> PathBuf {
     // Same target dir as this test binary
     let exe = std::env::current_exe().expect("current_exe");
@@ -51,26 +40,6 @@ fn srs_bin() -> PathBuf {
         return candidate;
     }
     PathBuf::from("srs")
-}
-
-fn run(args: &[&str]) -> (bool, String) {
-    let repo = repo_root();
-    let gov = srs_gov_bin();
-    let srs = srs_bin();
-
-    let mut cmd = Command::new(&gov);
-    cmd.env("SRS_BIN", &srs);
-    cmd.arg("--repo").arg(&repo);
-    cmd.args(args);
-
-    let out = cmd.output().expect("failed to run srs-gov");
-    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
-    let ok = out.status.success();
-    if !ok {
-        eprintln!("srs-gov stderr:\n{stderr}");
-    }
-    (ok, stdout)
 }
 
 #[test]
@@ -133,18 +102,16 @@ fn decision_log_list_renders_decisions() {
 
 #[test]
 fn decision_log_get_shows_field_labels() {
-    // bf64442b is the decision_log root record (title: "Limoma Project Decision Log")
-    let (ok, out) = run(&[
-        "get",
-        "decision_log",
-        "bf64442b-1e2b-4597-95e7-a665439c7f6f",
-    ]);
-    assert!(ok, "decision_log get root failed\n{out}");
-    // Should show Title label and value from the core schema
+    // Self-contained repo (the spec gallery is still pre-RFC-039-cutover).
+    let repo = setup_repo("get-labels");
+    let dl = decision_log_container(&repo.path);
+    let id = create_decision(&repo.path, &dl, "Labelled decision", "value for labels");
+    let out = gov_out(&repo.path, &["get", "decision_log", &id]);
+    // Should show Title label and value from the governance schema
     assert!(out.contains("Title"), "expected Title label\n{out}");
     assert!(
-        out.contains("Limoma"),
-        "expected decision_log title value\n{out}"
+        out.contains("Labelled decision"),
+        "expected decision title value\n{out}"
     );
 }
 
@@ -165,12 +132,13 @@ fn create_decision_dry_run_emits_correct_command() {
         out.contains("--container"),
         "expected --container flag\n{out}"
     );
-    // fieldIds are governance package constants, identical across all repos
-    assert!(out.contains("d7e82557"), "expected title fieldId\n{out}"); // title
+    // RFC-039: the record-create input is name-keyed — the governance package
+    // field names appear as the fieldValues keys.
+    assert!(out.contains("\"title\""), "expected title key\n{out}");
     assert!(
-        out.contains("de1296e0"),
-        "expected statement fieldId\n{out}"
-    ); // decision_statement
+        out.contains("\"decision_statement\""),
+        "expected decision_statement key\n{out}"
+    );
 }
 
 #[test]
@@ -209,13 +177,13 @@ fn create_decision_dry_run_escapes_quoted_values() {
     let parsed: serde_json::Value =
         serde_json::from_str(body).unwrap_or_else(|err| panic!("invalid JSON body: {err}\n{body}"));
     let values = parsed["fieldValues"]
-        .as_array()
-        .expect("fieldValues should be an array");
+        .as_object()
+        .expect("fieldValues should be an object (RFC-039 name-keyed carrier)");
 
     assert!(
         values
-            .iter()
-            .any(|field| field["value"].as_str() == Some(r#"Adopt the "new" policy"#)),
+            .values()
+            .any(|value| value.as_str() == Some(r#"Adopt the "new" policy"#)),
         "expected quoted title to round-trip\n{body}"
     );
 }
@@ -303,8 +271,9 @@ fn json_flag_list_prints_raw_resolve_view_envelope() {
 
 #[test]
 fn tui_smoke_renders_first_frame() {
-    let (ok, out) = run(&["tui", "--smoke"]);
-    assert!(ok, "tui smoke failed\n{out}");
+    // Self-contained repo (the spec gallery is still pre-RFC-039-cutover).
+    let repo = setup_repo("tui-smoke");
+    let out = gov_out(&repo.path, &["tui", "--smoke"]);
     assert!(
         out.contains("srs-gov tui smoke ok"),
         "expected smoke success message\n{out}"
@@ -610,9 +579,6 @@ fn repo_create_navigation_works() {
 // change), so they prove the wiring regardless of cross-repo merge order.
 // ---------------------------------------------------------------------------
 
-const TITLE_FIELD: &str = "d7e82557-9045-5e92-a494-d99112bbec4a";
-const STMT_FIELD: &str = "de1296e0-e083-58d9-97a0-cb2b91fec02e";
-
 /// A temp `.srsj` governance repo, removed on drop.
 struct TempGovRepo {
     path: String,
@@ -676,10 +642,24 @@ fn gov_out(repo: &str, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
+/// Resolve the decision_log section container id via `srs repo navigation`.
+fn decision_log_container(repo: &str) -> String {
+    let nav = srs_json(repo, &["repo", "navigation"], None);
+    nav["payload"]["navigation"]["sections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["typeNamespace"] == "governance" && s["typeName"] == "decision_log")
+        .and_then(|s| s["sectionContainerId"].as_str())
+        .expect("decision_log section via navigation")
+        .to_string()
+}
+
 fn create_decision(repo: &str, dl: &str, title: &str, statement: &str) -> String {
-    let body = format!(
-        r#"{{"fieldValues":[{{"fieldId":"{TITLE_FIELD}","value":"{title}"}},{{"fieldId":"{STMT_FIELD}","value":"{statement}"}}]}}"#
-    );
+    let body = serde_json::json!({
+        "fieldValues": { "title": title, "decision_statement": statement }
+    })
+    .to_string();
     let v = srs_json(
         repo,
         &[
@@ -747,15 +727,7 @@ fn setup_repo(suffix: &str) -> TempGovRepo {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    let nav = srs_json(&path, &["repo", "navigation"], None);
-    let dl = nav["payload"]["navigation"]["sections"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|s| s["typeNamespace"] == "governance" && s["typeName"] == "decision_log")
-        .and_then(|s| s["sectionContainerId"].as_str())
-        .expect("decision_log section via navigation")
-        .to_string();
+    let dl = decision_log_container(&path);
 
     // draft (initial state — no transition)
     create_decision(

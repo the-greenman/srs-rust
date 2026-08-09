@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "RFC-004 Change C: Add schema-definition type"
-    },
-    {
-      "fieldId": "5a000009-0000-4000-a000-000000000009",
-      "value": "spec-authoring-core types"
-    },
-    {
-      "fieldId": "5a000006-0000-4000-a000-000000000006",
-      "value": "Add `com.semanticops.spec/schema-definition` to represent one logical data shape with namespace, schema name, version, description, semantic purpose, status, examples, deprecation, and notes."
-    },
-    {
-      "fieldId": "1a000004-0000-4000-a000-000000000004",
-      "value": "A schema-definition is not itself JSON Schema, TypeScript, or protobuf. It is the semantic source that target packages may render."
-    }
-  ],
+  "fieldValues": {
+    "title": "RFC-004 Change C: Add schema-definition type",
+    "affected_components": "spec-authoring-core types",
+    "proposed_change": "Add `com.semanticops.spec/schema-definition` to represent one logical data shape with namespace, schema name, version, description, semantic purpose, status, examples, deprecation, and notes.",
+    "rationale": "A schema-definition is not itself JSON Schema, TypeScript, or protobuf. It is the semantic source that target packages may render."
+  },
   "instanceId": "95aaa3b5-1866-5fa8-857b-026db49abaaf",
   "sourceRefs": [
     {

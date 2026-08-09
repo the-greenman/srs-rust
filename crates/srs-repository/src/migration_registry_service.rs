@@ -198,7 +198,6 @@ mod tests {
     use crate::writer::{upsert_index_entry, write_manifest, write_note};
     use srs_core::types::container::Container;
     use srs_core::types::note::{Note, NoteSection};
-    use std::collections::HashMap;
 
     fn bare_container(container_id: &str) -> Container {
         Container {
@@ -279,31 +278,31 @@ mod tests {
     fn list_migrations_returns_every_entry_for_store_with_no_identity_note() {
         let store = make_store_with_container_no_identity();
         let migrations = list_migrations(&store).unwrap();
-        assert_eq!(migrations.len(), 3);
+        assert_eq!(migrations.len(), 4);
         assert_eq!(migrations[0].id, "field-type");
-        assert_eq!(migrations[1].id, "migrate-identity");
-        assert_eq!(migrations[2].id, "repo-upgrade");
+        assert_eq!(migrations[1].id, "rfc039-carrier");
+        assert_eq!(migrations[2].id, "migrate-identity");
+        assert_eq!(migrations[3].id, "repo-upgrade");
         // Unstamped manifest → field-type Needed
         assert_eq!(migrations[0].status, MigrationStatus::Needed);
-        // Container exists but identity_instance_id is None → migrate-identity Needed
+        // Revision < 2 → rfc039-carrier Needed
         assert_eq!(migrations[1].status, MigrationStatus::Needed);
+        // Container exists but identity_instance_id is None → migrate-identity Needed
+        assert_eq!(migrations[2].status, MigrationStatus::Needed);
         // Zero instances → all paths canonical → AlreadyApplied
-        assert_eq!(migrations[2].status, MigrationStatus::AlreadyApplied);
+        assert_eq!(migrations[3].status, MigrationStatus::AlreadyApplied);
     }
 
     #[test]
     fn field_type_migration_stamps_the_manifest_and_is_idempotent() {
-        use crate::field_type_migration_service::{
-            data_model_revision, CURRENT_DATA_MODEL_REVISION,
-        };
+        use crate::field_type_migration_service::{data_model_revision, FIELD_TYPE_REVISION};
         let store = make_store_with_container_no_identity();
         assert_eq!(data_model_revision(&store).unwrap(), 0);
 
+        // field-type is migration #1: it stamps ITS revision (1), not the
+        // build's current revision (2 — that is rfc039-carrier's stamp).
         apply_migration(&store, "field-type").expect("first apply must succeed");
-        assert_eq!(
-            data_model_revision(&store).unwrap(),
-            CURRENT_DATA_MODEL_REVISION
-        );
+        assert_eq!(data_model_revision(&store).unwrap(), FIELD_TYPE_REVISION);
         assert_eq!(
             list_migrations(&store).unwrap()[0].status,
             MigrationStatus::AlreadyApplied
@@ -311,10 +310,7 @@ mod tests {
 
         // Re-running changes nothing.
         apply_migration(&store, "field-type").expect("second apply must succeed");
-        assert_eq!(
-            data_model_revision(&store).unwrap(),
-            CURRENT_DATA_MODEL_REVISION
-        );
+        assert_eq!(data_model_revision(&store).unwrap(), FIELD_TYPE_REVISION);
     }
 
     #[test]

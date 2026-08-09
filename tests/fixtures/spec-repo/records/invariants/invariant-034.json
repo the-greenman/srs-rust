@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000020-0000-4000-a000-000000000020",
-      "value": 34
-    },
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "AttentionState.containerId must reference a valid…"
-    },
-    {
-      "fieldId": "1a000003-0000-4000-a000-000000000003",
-      "value": "`AttentionState.containerId` must reference a valid `Container.containerId`. Other Address components (`recordId`, `fieldId`, `protocolRunId`, `stageId`) are optional and may be absent when focus has not yet narrowed."
-    },
-    {
-      "fieldId": "1a000021-0000-4000-a000-000000000021",
-      "value": "ext:addressability"
-    }
-  ],
+  "fieldValues": {
+    "invariant_number": 34,
+    "title": "AttentionState.containerId must reference a valid…",
+    "normative_statement": "`AttentionState.containerId` must reference a valid `Container.containerId`. Other Address components (`recordId`, `fieldId`, `protocolRunId`, `stageId`) are optional and may be absent when focus has not yet narrowed.",
+    "applies_to": "ext:addressability"
+  },
   "instanceId": "e1000034-0000-4000-a000-000000000034",
   "sourceRefs": [
     {

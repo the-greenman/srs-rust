@@ -1,16 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Graduation: when and how"
-    },
-    {
-      "fieldId": "1a000002-0000-4000-a000-000000000002",
-      "value": ""
-    }
-  ],
+  "fieldValues": {
+    "title": "Graduation: when and how",
+    "content": ""
+  },
   "instanceId": "f1000019-0000-4000-a000-000000000019",
   "sourceRefs": [
     {

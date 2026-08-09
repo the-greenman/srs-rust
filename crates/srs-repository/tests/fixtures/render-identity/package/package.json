@@ -1,0 +1,27 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+  "id": "00000000-0000-4000-8000-0000000009aa",
+  "namespace": "fixture.render",
+  "name": "render-identity",
+  "title": "Render Identity Fixture Package",
+  "description": "Local fixture for [N+37] identity heading fallback and [view-required] diagnostics.",
+  "status": "active",
+  "version": "1.0.0",
+  "dataModelRevision": 2,
+  "createdAt": "2026-01-01T00:00:00Z",
+  "fields": [
+    "fields/heading.json",
+    "fields/body.json"
+  ],
+  "types": [
+    "types/plain-item.json",
+    "types/identity-item.json"
+  ],
+  "views": [
+    "views/labeled-body-view.json"
+  ],
+  "documentViews": [
+    "document-views/identity-fallback-view.json",
+    "document-views/labeled-field-view.json"
+  ]
+}

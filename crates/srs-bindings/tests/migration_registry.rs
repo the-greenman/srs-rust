@@ -42,16 +42,19 @@ fn available_migrations_lists_the_registered_migrations_with_status() {
     let migrations =
         migration_registry_service::list_migrations(&store).expect("list_migrations must succeed");
 
-    assert_eq!(migrations.len(), 3, "expected exactly three migrations");
+    assert_eq!(migrations.len(), 4, "expected exactly four migrations");
     assert_eq!(migrations[0].id, "field-type");
-    assert_eq!(migrations[1].id, "migrate-identity");
-    assert_eq!(migrations[2].id, "repo-upgrade");
+    assert_eq!(migrations[1].id, "rfc039-carrier");
+    assert_eq!(migrations[2].id, "migrate-identity");
+    assert_eq!(migrations[3].id, "repo-upgrade");
 
-    // Unstamped manifest → field-type is Needed; no container → migrate-identity
-    // is NotApplicable; no instances → repo-upgrade is AlreadyApplied.
+    // Unstamped manifest → field-type and rfc039-carrier are Needed; no
+    // container → migrate-identity is NotApplicable; no instances →
+    // repo-upgrade is AlreadyApplied.
     assert_eq!(migrations[0].status, MigrationStatus::Needed);
-    assert_eq!(migrations[1].status, MigrationStatus::NotApplicable);
-    assert_eq!(migrations[2].status, MigrationStatus::AlreadyApplied);
+    assert_eq!(migrations[1].status, MigrationStatus::Needed);
+    assert_eq!(migrations[2].status, MigrationStatus::NotApplicable);
+    assert_eq!(migrations[3].status, MigrationStatus::AlreadyApplied);
 
     // Result serialises in camelCase for to_js.
     let json = serde_json::to_value(&migrations[0]).expect("must serialise");

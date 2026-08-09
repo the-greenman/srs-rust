@@ -1,16 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Conditional processing"
-    },
-    {
-      "fieldId": "1a000002-0000-4000-a000-000000000002",
-      "value": "\nAudience, platform, and output filtering may eventually allow one source Container to produce different projections for different readers. This is deferred because SectionSource queries already cover common projection differences, while a general condition evaluation model would add substantial complexity."
-    }
-  ],
+  "fieldValues": {
+    "title": "Conditional processing",
+    "content": "\nAudience, platform, and output filtering may eventually allow one source Container to produce different projections for different readers. This is deferred because SectionSource queries already cover common projection differences, while a general condition evaluation model would add substantial complexity."
+  },
   "instanceId": "f1000039-0000-4000-a000-000000000039",
   "sourceRefs": [
     {

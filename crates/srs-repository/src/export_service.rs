@@ -115,7 +115,6 @@ mod tests {
     use crate::store::memory::MemoryStore;
     use srs_core::types::source_document::SourceDocumentIndexEntry;
     use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
-    use std::collections::HashMap;
     use std::io::Cursor;
     use std::path::PathBuf;
     use zip::ZipArchive;
@@ -125,6 +124,7 @@ mod tests {
     /// empty rendered output (section hidden per EmptyBehavior::Hide) without erroring.
     fn minimal_package_with_view(view_id: &str) -> Package {
         let doc_view = DocumentView {
+            composite_renderers: None,
             id: view_id.to_string(),
             namespace: "test".to_string(),
             name: "export-test-view".to_string(),
@@ -133,6 +133,7 @@ mod tests {
             container_type: None,
             root_type_refs: None,
             sections: vec![DocumentSection {
+                composite_renderers: None,
                 section_id: "content".to_string(),
                 title: None,
                 description: None,
@@ -209,7 +210,7 @@ mod tests {
                     "typeVersion": 1,
                     "typeNamespace": "com.test",
                     "typeName": "decision",
-                    "fieldValues": []
+                    "fieldValues": {}
                 }),
             )
             .unwrap();
@@ -273,7 +274,7 @@ mod tests {
                     "typeVersion": 1,
                     "typeNamespace": "com.test",
                     "typeName": "decision",
-                    "fieldValues": []
+                    "fieldValues": {}
                 }),
             )
             .unwrap();
@@ -366,7 +367,7 @@ mod tests {
                     "typeVersion": 1,
                     "typeNamespace": "com.test",
                     "typeName": "decision",
-                    "fieldValues": []
+                    "fieldValues": {}
                 }),
             )
             .unwrap();
@@ -453,6 +454,7 @@ mod tests {
         };
 
         let doc_view = DocumentView {
+            composite_renderers: None,
             id: GOLDEN_VIEW_ID.to_string(),
             namespace: "com.example.golden".to_string(),
             name: "golden-export-view".to_string(),
@@ -463,6 +465,7 @@ mod tests {
             // Static preamble — no {{template}} variables — rendered output is byte-stable.
             preamble: Some("# Golden Export Bundle".to_string()),
             sections: vec![DocumentSection {
+                composite_renderers: None,
                 section_id: "content".to_string(),
                 title: None,
                 description: None,
@@ -523,7 +526,7 @@ mod tests {
                     "typeVersion": 1,
                     "typeNamespace": "com.example.golden",
                     "typeName": "placeholder",
-                    "fieldValues": []
+                    "fieldValues": {}
                 }),
             )
             .expect("save golden instance");
@@ -678,7 +681,7 @@ mod tests {
                         "typeVersion": 1,
                         "typeNamespace": "com.test",
                         "typeName": "sbn-decision",
-                        "fieldValues": []
+                        "fieldValues": {}
                     }),
                 )
                 .unwrap();

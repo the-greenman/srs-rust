@@ -289,7 +289,6 @@ mod tests {
     use crate::store::{FileStore, RepositoryStore};
     use crate::view_service::{create_document_view, CreateDocumentViewResult};
     use srs_core::types::view::{DocumentSection, SectionSource, ThemeMode, ThemeReference};
-    use std::collections::HashMap;
 
     fn setup_minimal_repo(root: &std::path::Path) {
         std::fs::create_dir_all(root.join(".srs")).unwrap();
@@ -339,6 +338,7 @@ mod tests {
         theme_id: &str,
     ) -> srs_core::types::view::DocumentView {
         srs_core::types::view::DocumentView {
+            composite_renderers: None,
             id: String::new(),
             namespace: "com.test".to_string(),
             name: name.to_string(),
@@ -347,6 +347,7 @@ mod tests {
             container_type: None,
             root_type_refs: None,
             sections: vec![DocumentSection {
+                composite_renderers: None,
                 section_id: "s1".to_string(),
                 title: None,
                 description: None,
@@ -381,6 +382,7 @@ mod tests {
 
     fn minimal_document_view_no_theme(name: &str) -> srs_core::types::view::DocumentView {
         srs_core::types::view::DocumentView {
+            composite_renderers: None,
             id: String::new(),
             namespace: "com.test".to_string(),
             name: name.to_string(),
@@ -389,6 +391,7 @@ mod tests {
             container_type: None,
             root_type_refs: None,
             sections: vec![DocumentSection {
+                composite_renderers: None,
                 section_id: "s1".to_string(),
                 title: None,
                 description: None,

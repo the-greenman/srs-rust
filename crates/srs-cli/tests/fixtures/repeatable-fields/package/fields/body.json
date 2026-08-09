@@ -5,7 +5,12 @@
   "name": "body",
   "version": 1,
   "description": "Text body used to verify View display labels.",
-  "aiGuidance": {"purpose": "capture body text"},
-  "valueType": "text",
+  "aiGuidance": {
+    "purpose": "capture body text"
+  },
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
   "createdAt": "2026-01-01T00:00:00Z"
 }

@@ -35,7 +35,8 @@
     "fields/intro.json",
     "fields/outro.json",
     "fields/columns.json",
-    "fields/cells.json"
+    "fields/cells.json",
+    "fields/rows.json"
   ],
   "types": [
     "types/specification.json",
@@ -50,7 +51,8 @@
     "types/requirement.json",
     "types/field-definition.json",
     "types/design-note.json",
-    "types/table.json"
+    "types/table.json",
+    "types/table-rows.json"
   ],
   "views": [],
   "documentViews": [
@@ -59,5 +61,6 @@
     "document-views/unified-document-view.json"
   ],
   "createdAt": "2026-05-27T00:00:00Z",
-  "updatedAt": "2026-05-29T00:00:00Z"
+  "updatedAt": "2026-05-29T00:00:00Z",
+  "dataModelRevision": 2
 }

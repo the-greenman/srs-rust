@@ -1,16 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Purpose and Scope"
-    },
-    {
-      "fieldId": "1a000002-0000-4000-a000-000000000002",
-      "value": ""
-    }
-  ],
+  "fieldValues": {
+    "title": "Purpose and Scope",
+    "content": ""
+  },
   "instanceId": "dd8920f0-458f-5b72-ad58-93229c777b87",
   "sourceRefs": [
     {

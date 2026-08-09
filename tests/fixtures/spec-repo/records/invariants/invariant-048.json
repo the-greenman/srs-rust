@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000020-0000-4000-a000-000000000020",
-      "value": 48
-    },
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "SourceReference with sourceType: \"repository-document\" must have a…"
-    },
-    {
-      "fieldId": "1a000003-0000-4000-a000-000000000003",
-      "value": "A `SourceReference` with `sourceType: \"repository-document\"` must have a `sourceId` matching a `SourceDocument.documentId` whose sidecar is present in `sourceDocumentsPath`. A reference whose `documentId` cannot be resolved within the repository is invalid."
-    },
-    {
-      "fieldId": "1a000021-0000-4000-a000-000000000021",
-      "value": "ext:repository"
-    }
-  ],
+  "fieldValues": {
+    "invariant_number": 48,
+    "title": "SourceReference with sourceType: \"repository-document\" must have a…",
+    "normative_statement": "A `SourceReference` with `sourceType: \"repository-document\"` must have a `sourceId` matching a `SourceDocument.documentId` whose sidecar is present in `sourceDocumentsPath`. A reference whose `documentId` cannot be resolved within the repository is invalid.",
+    "applies_to": "ext:repository"
+  },
   "instanceId": "e1000048-0000-4000-a000-000000000048",
   "sourceRefs": [
     {

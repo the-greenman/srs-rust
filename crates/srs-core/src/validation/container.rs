@@ -23,7 +23,6 @@ pub fn validate_container(container: &Container) -> Result<(), CoreError> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
-    use std::collections::HashMap;
 
     fn minimal() -> Container {
         Container {

@@ -50,7 +50,7 @@ fn fixture_srsj() -> String {
                 "version": 1,
                 "description": "Title",
                 "aiGuidance": {},
-                "valueType": "string",
+                "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/fields/summary.json": {
@@ -60,7 +60,7 @@ fn fixture_srsj() -> String {
                 "version": 1,
                 "description": "Summary",
                 "aiGuidance": {},
-                "valueType": "string",
+                "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "records/tier-2/33333333-3333-4333-8333-333333333333.json": {
@@ -69,7 +69,7 @@ fn fixture_srsj() -> String {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "decision",
-                "fieldValues": [{"fieldId": FIELD_TITLE, "value": "Building Authority"}]
+                "fieldValues": {"title": "Building Authority"}
             },
             "records/tier-2/55555555-5555-4555-8555-555555555555.json": {
                 "instanceId": REC_PLAIN,
@@ -77,7 +77,7 @@ fn fixture_srsj() -> String {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "decision",
-                "fieldValues": [{"fieldId": FIELD_SUMMARY, "value": "no title here"}]
+                "fieldValues": {"summary": "no title here"}
             }
         }
     })

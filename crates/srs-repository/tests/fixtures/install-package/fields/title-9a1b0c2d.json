@@ -4,6 +4,8 @@
   "id": "9a1b0c2d-0001-4aaa-8bbb-00000000f001",
   "name": "title",
   "namespace": "com.example.install",
-  "valueType": "string",
-  "version": 1
+  "version": 1,
+  "fieldType": {
+    "datatype": "string"
+  }
 }

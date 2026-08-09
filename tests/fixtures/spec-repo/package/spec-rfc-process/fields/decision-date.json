@@ -9,7 +9,9 @@
     "purpose": "The date when this RFC was accepted, rejected, or superseded.",
     "extraction": "ISO 8601 date format: YYYY-MM-DD. Leave absent for RFCs still in draft or proposed state."
   },
-  "valueType": "date",
+  "fieldType": {
+    "datatype": "date"
+  },
   "editorHint": "singleline",
   "createdAt": "2026-05-27T00:00:00Z"
 }

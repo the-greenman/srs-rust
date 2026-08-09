@@ -5,10 +5,12 @@
   "name": "term_key",
   "version": 1,
   "description": "The string that appears in instance data and identifies this vocabulary entry. Unified key field across Term, LifecycleState, and RelationTypeDefinition.",
-  "valueType": "string",
-  "createdAt": "2026-06-03T00:00:00Z",
   "aiGuidance": {
     "purpose": "The canonical key string for this vocabulary entry — the value stored in Note.tags, Relation.relationType, Record.lifecycleState, or a select field value.",
     "extraction": "Use the exact key string as it appears in usage — typically lowercase, kebab-case for tags and relation types."
-  }
+  },
+  "fieldType": {
+    "datatype": "string"
+  },
+  "createdAt": "2026-06-03T00:00:00Z"
 }

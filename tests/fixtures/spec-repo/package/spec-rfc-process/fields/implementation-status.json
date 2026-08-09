@@ -9,8 +9,16 @@
     "purpose": "Separates approval of a proposal from application of that proposal to active spec artifacts.",
     "extraction": "Use not-started until implementation begins, in-progress while applying changes, implemented when active spec artifacts have been updated, or reverted if an implementation was backed out."
   },
-  "valueType": "select",
-  "allowedValues": ["not-started", "in-progress", "implemented", "reverted"],
+  "fieldType": {
+    "datatype": "string",
+    "valueDomain": "closed",
+    "allowedValues": [
+      "not-started",
+      "in-progress",
+      "implemented",
+      "reverted"
+    ]
+  },
   "editorHint": "dropdown",
   "createdAt": "2026-05-27T00:00:00Z"
 }

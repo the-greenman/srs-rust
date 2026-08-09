@@ -9,7 +9,10 @@
     "purpose": "Other RFCs or changes that this RFC depends on or must be co-applied with.",
     "extraction": "Use RFC numbers (e.g. 'RFC-002') or names. If this RFC cannot be applied without another, state that explicitly. Co-application dependencies must both be accepted to be meaningful."
   },
-  "valueType": "text",
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
   "editorHint": "textarea",
   "createdAt": "2026-05-27T00:00:00Z"
 }

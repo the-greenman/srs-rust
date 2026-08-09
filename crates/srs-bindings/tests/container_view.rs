@@ -54,7 +54,7 @@ fn fixture_srsj() -> String {
                 "version": 1,
                 "description": "Title",
                 "aiGuidance": {},
-                "valueType": "string",
+                "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/fields/status.json": {
@@ -64,7 +64,7 @@ fn fixture_srsj() -> String {
                 "version": 1,
                 "description": "Status",
                 "aiGuidance": {},
-                "valueType": "string",
+                "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/views/decision-view.json": {
@@ -113,7 +113,7 @@ fn fixture_srsj() -> String {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "decision",
-                "fieldValues": [{"fieldId": FIELD_TITLE, "value": "Root Decision"}]
+                "fieldValues": {"title": "Root Decision"}
             },
             "records/tier-2/55555555-5555-4555-8555-555555555555.json": {
                 "instanceId": MEMBER_ID,
@@ -121,7 +121,7 @@ fn fixture_srsj() -> String {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "decision",
-                "fieldValues": [{"fieldId": FIELD_TITLE, "value": "Member Decision"}]
+                "fieldValues": {"title": "Member Decision"}
             }
         }
     })
@@ -210,7 +210,7 @@ fn fixture_srsj_with_excluded_states() -> String {
                 "version": 1,
                 "description": "Title",
                 "aiGuidance": {},
-                "valueType": "string",
+                "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/views/decision-view.json": {
@@ -261,7 +261,7 @@ fn fixture_srsj_with_excluded_states() -> String {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "decision",
-                "fieldValues": [{"fieldId": FIELD_TITLE, "value": "Root Decision"}]
+                "fieldValues": {"title": "Root Decision"}
             },
             "records/tier-2/55555555-5555-4555-8555-555555555555.json": {
                 "instanceId": MEMBER_ID,
@@ -269,7 +269,7 @@ fn fixture_srsj_with_excluded_states() -> String {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "decision",
-                "fieldValues": [{"fieldId": FIELD_TITLE, "value": "Active Member"}]
+                "fieldValues": {"title": "Active Member"}
             },
             "records/tier-2/99999999-9999-4999-8999-999999999999.json": {
                 "instanceId": SUPERSEDED_ID,
@@ -278,7 +278,7 @@ fn fixture_srsj_with_excluded_states() -> String {
                 "typeNamespace": "com.test",
                 "typeName": "decision",
                 "lifecycleState": "superseded",
-                "fieldValues": [{"fieldId": FIELD_TITLE, "value": "Superseded Decision"}]
+                "fieldValues": {"title": "Superseded Decision"}
             }
         }
     })

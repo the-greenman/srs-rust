@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000020-0000-4000-a000-000000000020",
-      "value": 26
-    },
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Within a FieldGroupEntry.fieldValues[], every fieldId must appear in…"
-    },
-    {
-      "fieldId": "1a000003-0000-4000-a000-000000000003",
-      "value": "Within a `FieldGroupEntry.fieldValues[]`, every `fieldId` must appear in the enclosing `FieldGroup.fields[].fieldId`."
-    },
-    {
-      "fieldId": "1a000021-0000-4000-a000-000000000021",
-      "value": "ext:field-groups"
-    }
-  ],
+  "fieldValues": {
+    "invariant_number": 26,
+    "title": "Within a FieldGroupEntry.fieldValues[], every fieldId must appear in…",
+    "normative_statement": "Within a `FieldGroupEntry.fieldValues[]`, every `fieldId` must appear in the enclosing `FieldGroup.fields[].fieldId`.",
+    "applies_to": "ext:field-groups"
+  },
   "instanceId": "e1000026-0000-4000-a000-000000000026",
   "sourceRefs": [
     {

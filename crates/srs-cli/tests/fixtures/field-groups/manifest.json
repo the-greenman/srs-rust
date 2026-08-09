@@ -1,12 +1,4 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
-  "srsVersion": "2.0",
-  "repositoryId": "00000000-0000-4000-8000-000000000980",
-  "title": "Field Groups Fixture",
-  "container": {
-    "containerId": "00000000-0000-4000-8000-000000000980",
-    "title": "Field Groups Fixture"
-  },
   "instanceIndex": [
     {
       "instanceId": "00000000-0000-4000-8000-000000000981",
@@ -19,5 +11,14 @@
       "path": "records/groups/missing-group.json"
     }
   ],
-  "createdAt": "2026-01-01T00:00:00Z"
+  "container": {
+    "containerId": "00000000-0000-4000-8000-000000000980",
+    "title": "Field Groups Fixture"
+  },
+  "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+  "createdAt": "2026-01-01T00:00:00Z",
+  "dataModelRevision": 2,
+  "repositoryId": "00000000-0000-4000-8000-000000000980",
+  "srsVersion": "2.0",
+  "title": "Field Groups Fixture"
 }

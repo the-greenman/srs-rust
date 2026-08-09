@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "RFC-004 Artifact: field-schema"
-    },
-    {
-      "fieldId": "5a000017-0000-4000-a000-000000000017",
-      "value": "schema"
-    },
-    {
-      "fieldId": "5a000016-0000-4000-a000-000000000016",
-      "value": "rfcs/rfc-004/proposed-schemas/field.json"
-    },
-    {
-      "fieldId": "1a000012-0000-4000-a000-000000000012",
-      "value": "Proposed root Field schema update adding `json` to Field.valueType."
-    }
-  ],
+  "fieldValues": {
+    "title": "RFC-004 Artifact: field-schema",
+    "artifact_kind": "schema",
+    "proposal_artifact_path": "rfcs/rfc-004/proposed-schemas/field.json",
+    "description": "Proposed root Field schema update adding `json` to Field.valueType."
+  },
   "instanceId": "4f3fdbd8-e155-51d6-8488-4708b2e5c1c4",
   "sourceRefs": [
     {

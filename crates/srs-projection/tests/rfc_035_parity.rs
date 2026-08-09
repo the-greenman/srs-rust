@@ -186,9 +186,6 @@ fn type_version_selects_the_version_the_caller_asked_for() {
         order: 0,
         required: false,
         display_label: None,
-        repeatable: false,
-        min_items: None,
-        max_items: None,
     };
     let mk_type = |version: u32, field_id: &str| RecordType {
         id: TID.to_string(),
@@ -197,7 +194,6 @@ fn type_version_selects_the_version_the_caller_asked_for() {
         version,
         description: format!("v{version} shape"),
         fields: vec![assign(field_id)],
-        field_groups: None,
         extends_type_id: None,
         extends_type_version: None,
         field_order: None,

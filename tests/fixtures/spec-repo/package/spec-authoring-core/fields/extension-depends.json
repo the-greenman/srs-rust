@@ -9,7 +9,10 @@
     "purpose": "Extension identifiers that this extension depends on. Only hard dependencies — not recommendations.",
     "extraction": "List only extensions that must be present for this extension to function correctly. Use comma-separated 'ext:name' values. Optional recommendations belong in the prose body, not here."
   },
-  "valueType": "text",
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
   "editorHint": "textarea",
   "createdAt": "2026-05-27T00:00:00Z"
 }

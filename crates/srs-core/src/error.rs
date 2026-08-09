@@ -77,7 +77,7 @@ pub enum CoreError {
     RetiredExtensionDeclared { extension: String },
 
     /// RFC-039 [R9]: a document of a generation this reader does not support.
-    #[error("unsupported data-model generation in {document}: expected dataModelRevision {expected_revision} (RFC-039 [R9]); migrate with `srs migrate`")]
+    #[error("unsupported data-model generation in {document}: expected dataModelRevision {expected_revision} (RFC-039 [R9]); migrate with `srs repo apply-migration --id rfc039-carrier`")]
     UnsupportedGeneration {
         document: String,
         expected_revision: u32,

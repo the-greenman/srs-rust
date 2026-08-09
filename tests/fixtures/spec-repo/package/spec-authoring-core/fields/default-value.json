@@ -9,7 +9,9 @@
     "purpose": "The default value for a field or property when not explicitly set.",
     "extraction": "State the default clearly and in the same format as the allowed values. If the default is 'absent means X', document that explicitly."
   },
-  "valueType": "string",
+  "fieldType": {
+    "datatype": "string"
+  },
   "editorHint": "singleline",
   "createdAt": "2026-05-27T00:00:00Z"
 }

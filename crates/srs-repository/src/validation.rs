@@ -2162,6 +2162,7 @@ mod tests {
         json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Test Repo",
             "container": {
@@ -2169,7 +2170,6 @@ mod tests {
                 "title": "Test Repo"
             },
             "instanceIndex": instance_index,
-            "dataModelRevision": 1,
             "createdAt": "2026-01-01T00:00:00Z"
         })
     }
@@ -2323,7 +2323,7 @@ mod tests {
             "typeVersion": 1,
             "typeNamespace": "com.test",
             "typeName": "test-type",
-            "fieldValues": [],
+            "fieldValues": {},
             "createdAt": "2026-01-01T00:00:00Z"
         });
         if !tag_value.is_null() {
@@ -2445,7 +2445,7 @@ mod tests {
             "typeVersion": 1,
             "typeNamespace": "com.test",
             "typeName": "test-type",
-            "fieldValues": [],
+            "fieldValues": {},
             "lifecycleState": lifecycle_state,
             "createdAt": "2026-01-01T00:00:00Z"
         })
@@ -4507,7 +4507,7 @@ mod tests {
                 "namespace": "com.test",
                 "name": "repeat-field",
                 "version": 1,
-                "fieldType": {"datatype": "string"},
+                "fieldType": {"datatype": "string", "cardinality": "list"},
                 "createdAt": "2026-01-01T00:00:00Z"
             }),
         );
@@ -4533,10 +4533,11 @@ mod tests {
                 "version": 1,
                 "description": "Test type",
                 "fields": [
-                    {"fieldId": "00000000-0000-4000-8000-0000000000f1", "order": 0, "required": false, "repeatable": true},
+                    {"fieldId": "00000000-0000-4000-8000-0000000000f1", "order": 0, "required": false},
                     {"fieldId": "00000000-0000-4000-8000-0000000000f2", "order": 1, "required": false}
                 ],
-                // I-94: a repeatable predicate field is not effective-single —
+                // I-94: a list-cardinality predicate field is not
+                // effective-single (cardinality-only since the #242 cutover) —
                 // ineligible as a conditional-required predicate.
                 "validationRules": [{
                     "type": "conditional-required",
@@ -4837,8 +4838,15 @@ mod tests {
 
         let store = crate::store::FileStore::new(temp.path());
         // Create a tier-2 record of the guide type via the service (keeps index valid).
-        let record =
-            crate::record_store::create_record(&store, type_id, 1, vec![], None, None).unwrap();
+        let record = crate::record_store::create_record(
+            &store,
+            type_id,
+            1,
+            srs_core::types::record::FieldValues::new(),
+            None,
+            None,
+        )
+        .unwrap();
         // Container rooted in that record, but with a stale containerType hint.
         let container = srs_core::types::container::Container {
             container_id: "00000000-0000-4000-8000-0000000000c1".to_string(),
@@ -5029,9 +5037,15 @@ mod tests {
         );
 
         let file_store = crate::store::FileStore::new(temp.path());
-        let record =
-            crate::record_store::create_record(&file_store, type_id, 1, vec![], None, None)
-                .unwrap();
+        let record = crate::record_store::create_record(
+            &file_store,
+            type_id,
+            1,
+            srs_core::types::record::FieldValues::new(),
+            None,
+            None,
+        )
+        .unwrap();
         let container = srs_core::types::container::Container {
             container_id: "00000000-0000-4000-8000-0000000000c4".to_string(),
             title: "Guide container".to_string(),
@@ -5271,6 +5285,7 @@ mod tests {
         let manifest = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "Test I-80",
             "container": {"containerId": root_id, "title": "Root"},
@@ -5308,6 +5323,7 @@ mod tests {
         let manifest = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "Test I-80 root",
             "container": {"containerId": root_id, "title": "Root"},
@@ -5346,6 +5362,7 @@ mod tests {
         let manifest = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "Test I-81 fail",
             "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
@@ -5369,7 +5386,7 @@ mod tests {
                 "typeVersion": 1,
                 "typeNamespace": "ns",
                 "typeName": "Section",
-                "fieldValues": []
+                "fieldValues": {}
             }),
         );
 
@@ -5396,6 +5413,7 @@ mod tests {
         let manifest = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "Test I-81 ok via root",
             "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
@@ -5420,7 +5438,7 @@ mod tests {
                 "typeVersion": 1,
                 "typeNamespace": "ns",
                 "typeName": "Identity",
-                "fieldValues": []
+                "fieldValues": {}
             }),
         );
 
@@ -5449,6 +5467,7 @@ mod tests {
         let manifest = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "Test I-81 ok via member",
             "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
@@ -5473,7 +5492,7 @@ mod tests {
                 "typeVersion": 1,
                 "typeNamespace": "ns",
                 "typeName": "Identity",
-                "fieldValues": []
+                "fieldValues": {}
             }),
         );
 
@@ -5504,6 +5523,7 @@ mod tests {
         let manifest_val = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "I-81 MemoryStore test",
             "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
@@ -5542,6 +5562,7 @@ mod tests {
         let manifest_val = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "I-82 suppressed test",
             "container": {"containerId": root_id, "title": "Root"},
@@ -5581,6 +5602,7 @@ mod tests {
         let manifest_val = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "I-82 warn test",
             "container": {"containerId": root_id, "title": "Root"},
@@ -5648,6 +5670,7 @@ mod tests {
         let manifest_val = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "I-82 rootInstanceIds test",
             "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
@@ -5720,6 +5743,7 @@ mod tests {
         let manifest_val = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "I-82 dedup test",
             "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
@@ -5791,6 +5815,7 @@ mod tests {
         let manifest_val = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "I-82 happy-path test",
             "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
@@ -5835,6 +5860,7 @@ mod tests {
         let manifest = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "Embed Only",
             "container": {"containerId": root_id, "title": "Root", "identityInstanceId": "99999999-9999-4999-8999-999999999999"},
@@ -5869,6 +5895,7 @@ mod tests {
         let manifest = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "Embed Only",
             "container": {
@@ -5892,7 +5919,7 @@ mod tests {
                 "typeVersion": 1,
                 "typeNamespace": "com.semanticops.core",
                 "typeName": "purpose",
-                "fieldValues": []
+                "fieldValues": {}
             }),
         );
         let store = crate::store::FileStore::new(temp.path());
@@ -5925,6 +5952,7 @@ mod tests {
         let manifest = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "Full Valid RFC-013 Repo",
             "container": {
@@ -5974,7 +6002,7 @@ mod tests {
                 "typeVersion": 1,
                 "typeNamespace": "com.semanticops.core",
                 "typeName": "purpose",
-                "fieldValues": []
+                "fieldValues": {}
             }),
         );
         write_json(
@@ -5987,7 +6015,7 @@ mod tests {
                 "typeVersion": 1,
                 "typeNamespace": "ns",
                 "typeName": "Entity",
-                "fieldValues": []
+                "fieldValues": {}
             }),
         );
 
@@ -6023,6 +6051,7 @@ mod tests {
         let manifest_val = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "Cross-Store I-80",
             "container": {"containerId": root_id, "title": "Root"},
@@ -6410,6 +6439,7 @@ mod tests {
         json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Test Repo",
             "container": {
@@ -6622,7 +6652,7 @@ mod tests {
             "typeVersion": 1,
             "typeNamespace": "com.semanticops.core",
             "typeName": "purpose",
-            "fieldValues": [],
+            "fieldValues": {},
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "records/identity.json", &purpose_record);
@@ -6663,6 +6693,11 @@ mod tests {
     }
 
     fn cfr_field_json(id: &str, name: &str, value_type: &str) -> Value {
+        let field_type = match value_type {
+            "text" => json!({"datatype": "string", "format": "plain"}),
+            "date" => json!({"datatype": "date"}),
+            other => json!({"datatype": other}),
+        };
         json!({
             "id": id,
             "namespace": "com.test",
@@ -6670,21 +6705,23 @@ mod tests {
             "version": 1,
             "description": format!("{name} field"),
             "aiGuidance": {},
-            "valueType": value_type,
+            "fieldType": field_type,
             "createdAt": "2026-01-01T00:00:00Z"
         })
     }
 
+    /// `field_values` pairs are (`Field.name`, value) — the RFC-039 carrier
+    /// keys by name.
     fn cfr_record_json(
         record_id: &str,
         type_id: &str,
         type_name: &str,
         field_values: &[(&str, Value)],
     ) -> Value {
-        let fvs: Vec<Value> = field_values
-            .iter()
-            .map(|(fid, v)| json!({"fieldId": fid, "value": v}))
-            .collect();
+        let mut fvs = serde_json::Map::new();
+        for (name, v) in field_values {
+            fvs.insert((*name).to_string(), v.clone());
+        }
         json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
             "instanceId": record_id,
@@ -6763,7 +6800,7 @@ mod tests {
                 record_id,
                 type_id,
                 "cfr-type",
-                &[(pred_field_id, json!("approved"))],
+                &[("status", json!("approved"))],
             ),
         );
 
@@ -6846,8 +6883,8 @@ mod tests {
                 type_id,
                 "cfr-type",
                 &[
-                    (pred_field_id, json!("approved")),
-                    (target_field_id, json!("LGTM")),
+                    ("status", json!("approved")),
+                    ("review-comment", json!("LGTM")),
                 ],
             ),
         );
@@ -6934,8 +6971,8 @@ mod tests {
                 type_id,
                 "cfr-type",
                 &[
-                    (start_field_id, json!("2026-06-01")),
-                    (end_field_id, json!("2026-01-01")),
+                    ("start-date", json!("2026-06-01")),
+                    ("end-date", json!("2026-01-01")),
                 ],
             ),
         );
@@ -7019,8 +7056,8 @@ mod tests {
                 type_id,
                 "cfr-type",
                 &[
-                    (start_field_id, json!("2026-01-01")),
-                    (end_field_id, json!("2026-12-01")),
+                    ("start-date", json!("2026-01-01")),
+                    ("end-date", json!("2026-12-01")),
                 ],
             ),
         );
@@ -7103,10 +7140,7 @@ mod tests {
                 record_id,
                 type_id,
                 "cfr-type",
-                &[
-                    (field_a_id, json!("value-a")),
-                    (field_b_id, json!("value-b")),
-                ],
+                &[("tag-a", json!("value-a")), ("tag-b", json!("value-b"))],
             ),
         );
 
@@ -7170,7 +7204,7 @@ mod tests {
                 record_id,
                 type_id,
                 "cfr-type",
-                &[(field_id, json!("active"))],
+                &[("status", json!("active"))],
             ),
         );
 
@@ -7197,6 +7231,7 @@ mod tests {
         // Cross-store variant: MemoryStore exercises the same CFR path as FileStore.
         // mutual-exclusion is the simplest rule (no field-type lookup required).
         use crate::manifest::Manifest;
+        use crate::package::Package;
 
         let record_id = "00000000-0000-4000-8000-000000009200";
         let type_id = "00000000-0000-4000-8000-000000009201";
@@ -7220,14 +7255,19 @@ mod tests {
             "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
+        // Field definitions are needed under RFC-039: the CFR map bridges the
+        // rule's fieldIds to the record's name-keyed carrier via Field.name.
+        let cfr_field = |id: &str, name: &str| -> srs_core::types::field::Field {
+            serde_json::from_value(cfr_field_json(id, name, "text")).unwrap()
+        };
 
         let record_json = cfr_record_json(
             record_id,
             type_id,
             "me-type",
             &[
-                (field_a, json!("val-a")),
-                (field_b, json!("val-b")), // both set → mutual-exclusion violation
+                ("field-a", json!("val-a")),
+                ("field-b", json!("val-b")), // both set → mutual-exclusion violation
             ],
         );
 
@@ -7239,10 +7279,27 @@ mod tests {
         let manifest_str = serde_json::to_string(&manifest_json).unwrap();
         let manifest: Manifest = serde_json::from_value(manifest_json).unwrap();
 
-        let store = MemoryStore::with_type(record_type)
+        let package = Package {
+            id: "00000000-0000-4000-8000-000000009000".to_string(),
+            namespace: "com.test".to_string(),
+            name: "cfr-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![cfr_field(field_a, "field-a"), cfr_field(field_b, "field-b")],
+            record_types: vec![record_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            document_views: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = MemoryStore::new(manifest, package)
             .with_data("records/cfr-me-record.json", record_json)
             .with_data("manifest.json", serde_json::Value::String(manifest_str));
-        store.save_manifest(&manifest).unwrap();
 
         let report = validate_repository(&store).unwrap();
         let cfr_err = report.diagnostics.iter().find(|d| {
@@ -7565,7 +7622,7 @@ mod tests {
                 "version": 1,
                 "description": "invariant number",
                 "aiGuidance": {},
-                "valueType": "text",
+                "fieldType": {"datatype": "string", "format": "plain"},
                 "createdAt": "2026-01-01T00:00:00Z"
             }),
         );
@@ -7579,7 +7636,7 @@ mod tests {
             "typeVersion": 1,
             "typeNamespace": "com.semanticops.spec",
             "typeName": "invariant",
-            "fieldValues": [{"fieldId": TEST_INV_NUM_FIELD_ID, "value": inv_num}],
+            "fieldValues": {"invariant_number": inv_num},
             "createdAt": "2026-01-01T00:00:00Z"
         })
     }
@@ -7702,7 +7759,7 @@ mod tests {
                     "typeVersion": 1,
                     "typeNamespace": "com.example",
                     "typeName": "not-invariant",
-                    "fieldValues": [{"fieldId": TEST_INV_NUM_FIELD_ID, "value": "I-01"}],
+                    "fieldValues": {"invariant_number": "I-01"},
                     "createdAt": "2026-01-01T00:00:00Z"
                 }),
             );
@@ -7855,7 +7912,7 @@ mod tests {
                     "typeVersion": 1,
                     "typeNamespace": "com.semanticops.spec",
                     "typeName": "invariant",
-                    "fieldValues": [{"fieldId": TEST_INV_NUM_FIELD_ID, "value": 42}],
+                    "fieldValues": {"invariant_number": 42},
                     "createdAt": "2026-01-01T00:00:00Z"
                 }),
             );
@@ -7933,7 +7990,7 @@ mod tests {
             "namespace": "com.semanticops.base",
             "name": "allowed_mime_types",
             "version": 1, "description": "allowed MIME types",
-            "aiGuidance": {}, "fieldType": {"datatype": "string", "format": "plain"}, "createdAt": "2026-01-01T00:00:00Z"
+            "aiGuidance": {}, "fieldType": {"datatype": "string", "format": "plain", "cardinality": "list"}, "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap();
         let max_per_file_field: Field = serde_json::from_value(json!({
@@ -8019,6 +8076,7 @@ mod tests {
         let manifest_json = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Policy Test Repo",
             "container": {
@@ -8036,18 +8094,18 @@ mod tests {
         let manifest: Manifest = serde_json::from_value(manifest_json).unwrap();
 
         // Build field values for the policy record
-        let mut field_values: Vec<serde_json::Value> = vec![];
+        let mut field_values = serde_json::Map::new();
         if let Some(v) = limits.max_per_file_bytes {
-            field_values.push(json!({"fieldId": POLICY_FIELD_MAX_PER_FILE, "value": v}));
+            field_values.insert("max_per_file_bytes".to_string(), json!(v));
         }
         if let Some(v) = limits.max_doc_bytes {
-            field_values.push(json!({"fieldId": POLICY_FIELD_MAX_DOC, "value": v}));
+            field_values.insert("max_doc_bytes".to_string(), json!(v));
         }
         if let Some(v) = limits.max_total_bytes {
-            field_values.push(json!({"fieldId": POLICY_FIELD_MAX_TOTAL, "value": v}));
+            field_values.insert("max_total_bytes".to_string(), json!(v));
         }
         if let Some(ref mimes) = limits.allowed_mime_types {
-            field_values.push(json!({"fieldId": POLICY_FIELD_ALLOWED_MIME, "value": mimes}));
+            field_values.insert("allowed_mime_types".to_string(), json!(mimes));
         }
 
         let policy_record_json = json!({
@@ -8304,6 +8362,7 @@ mod tests {
         let manifest_json = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Multi-policy Repo",
             "container": {
@@ -8329,7 +8388,7 @@ mod tests {
                     "typeVersion": 1,
                     "typeNamespace": "com.semanticops.base",
                     "typeName": "repo_settings",
-                    "fieldValues": [],
+                    "fieldValues": {},
                     "createdAt": "2026-01-01T00:00:00Z"
                 }),
             )
@@ -8502,6 +8561,7 @@ mod tests {
         let manifest_json = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Tombstone Test",
             "container": {"containerId": "00000000-0000-4000-8000-000000000099", "title": "Tombstone Test"},
@@ -8519,7 +8579,7 @@ mod tests {
             "instanceId": POLICY_RECORD_ID,
             "typeId": POLICY_TYPE_ID, "typeVersion": 1,
             "typeNamespace": "com.semanticops.base", "typeName": "repo_settings",
-            "fieldValues": [{"fieldId": POLICY_FIELD_MAX_PER_FILE, "value": 1}],
+            "fieldValues": {"max_per_file_bytes": 1},
             "createdAt": "2026-01-01T00:00:00Z"
         });
 
@@ -8625,6 +8685,7 @@ mod tests {
         let manifest_json = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "String MIME Test",
             "container": {"containerId": "00000000-0000-4000-8000-000000000099", "title": "String MIME Test"},
@@ -8642,7 +8703,7 @@ mod tests {
             "instanceId": POLICY_RECORD_ID,
             "typeId": POLICY_TYPE_ID, "typeVersion": 1,
             "typeNamespace": "com.semanticops.base", "typeName": "repo_settings",
-            "fieldValues": [{"fieldId": POLICY_FIELD_ALLOWED_MIME, "value": "text/plain"}],
+            "fieldValues": {"allowed_mime_types": "text/plain"},
             "createdAt": "2026-01-01T00:00:00Z"
         });
 
@@ -8908,6 +8969,7 @@ mod tests {
         let mut m = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Attaches Test Repo",
             "container": {
@@ -9159,6 +9221,7 @@ mod tests {
         let manifest_json = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Record Attaches Test",
             "container": {
@@ -9177,7 +9240,7 @@ mod tests {
             "typeVersion": 1,
             "typeNamespace": "com.test",
             "typeName": "test_type",
-            "fieldValues": [],
+            "fieldValues": {},
             "createdAt": "2026-01-01T00:00:00Z",
             "sourceRefs": [{
                 "sourceType": "repository-document",

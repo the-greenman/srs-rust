@@ -446,7 +446,7 @@ mod tests {
     use srs_core::types::blueprint::{Blueprint, RelationSpec, TypeRef};
     use srs_core::types::field::{AiGuidance, Field, FieldType};
     use srs_core::types::record_type::{FieldAssignment, RecordType};
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
     use std::path::PathBuf;
 
     /// Build a MemoryStore pre-populated with two fields and one type.
@@ -511,7 +511,7 @@ mod tests {
     }
 
     fn make_article_type() -> RecordType {
-        let mut extra = HashMap::new();
+        let mut extra = BTreeMap::new();
         extra.insert(
             "aiGuidance".to_string(),
             serde_json::json!("Extract a structured article."),
@@ -530,21 +530,14 @@ mod tests {
                     order: 2,
                     required: true,
                     display_label: None,
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
                 FieldAssignment {
                     field_id: "field-bbb".to_string(),
                     order: 1,
                     required: false,
                     display_label: None,
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
             ],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -849,9 +842,6 @@ mod tests {
                 order: i as u32,
                 required: true,
                 display_label: None,
-                repeatable: false,
-                min_items: None,
-                max_items: None,
             })
             .collect();
 
@@ -862,7 +852,6 @@ mod tests {
             version: 1,
             description: "Protocol definition type".to_string(),
             fields: assignments,
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,

@@ -21,8 +21,6 @@ const FIXTURE: &str = concat!(
     "/../srs-repository/tests/fixtures/exploded-basic"
 );
 const RECORD_1: &str = "0ce8cbdd-5a77-4740-a34a-83b3afa63a3e";
-const FIELD_TITLE: &str = "22222222-2222-4222-8222-222222222221";
-const FIELD_APPROVED: &str = "22222222-2222-4222-8222-222222222222";
 
 fn fixture_map() -> BTreeMap<String, Vec<u8>> {
     fn walk(root: &Path, dir: &Path, map: &mut BTreeMap<String, Vec<u8>>) {
@@ -50,29 +48,33 @@ fn fixture_map() -> BTreeMap<String, Vec<u8>> {
 /// the edit.
 #[test]
 fn tree_binding_flow_single_edit_single_diff() {
-    let base = fixture_map();
+    let mut base = fixture_map();
+    // update_record rewrites manifest.json through the store's writer, which
+    // emits no trailing newline; the on-disk fixture (migrated externally)
+    // carries one. Normalize that incidental byte so the diff assertion stays
+    // about the edit itself.
+    if let Some(manifest) = base.get_mut("manifest.json") {
+        while manifest.last() == Some(&b'\n') {
+            manifest.pop();
+        }
+    }
     let store = open_tree(base.clone()).expect("open_tree");
     update_record(
         &store,
         RECORD_1,
         UpdateRecordInput {
-            field_values: vec![
-                srs_core::types::record::FieldValue {
-                    field_id: FIELD_TITLE.to_string(),
-                    value: serde_json::json!("Adopt the tree model"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-                srs_core::types::record::FieldValue {
-                    field_id: FIELD_APPROVED.to_string(),
-                    value: serde_json::json!(false),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-            ],
-            group_values: None,
+            field_values: srs_core::types::record::FieldValues(
+                [
+                    (
+                        "title".to_string(),
+                        serde_json::json!("Adopt the tree model"),
+                    ),
+                    ("approved".to_string(), serde_json::json!(false)),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            field_meta: None,
             tags: None,
             type_version: None,
         },

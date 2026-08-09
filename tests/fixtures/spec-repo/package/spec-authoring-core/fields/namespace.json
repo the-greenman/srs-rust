@@ -9,7 +9,9 @@
     "purpose": "The namespace for a definition or record being documented.",
     "extraction": "Namespaces use dot-separated lowercase alphanumeric identifiers (e.g. 'com.example.app', 'com.semanticops.srs'). Reserved: 'core'."
   },
-  "valueType": "string",
+  "fieldType": {
+    "datatype": "string"
+  },
   "editorHint": "singleline",
   "createdAt": "2026-05-27T00:00:00Z"
 }

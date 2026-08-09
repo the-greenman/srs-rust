@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000020-0000-4000-a000-000000000020",
-      "value": 18
-    },
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "NoteSection.name values must be unique within a Note."
-    },
-    {
-      "fieldId": "1a000003-0000-4000-a000-000000000003",
-      "value": "`NoteSection.name` values must be unique within a `Note`."
-    },
-    {
-      "fieldId": "1a000021-0000-4000-a000-000000000021",
-      "value": "core — Note/TypedRecord"
-    }
-  ],
+  "fieldValues": {
+    "invariant_number": 18,
+    "title": "NoteSection.name values must be unique within a Note.",
+    "normative_statement": "`NoteSection.name` values must be unique within a `Note`.",
+    "applies_to": "core — Note/TypedRecord"
+  },
   "instanceId": "e1000018-0000-4000-a000-000000000018",
   "sourceRefs": [
     {

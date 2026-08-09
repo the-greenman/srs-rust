@@ -5,9 +5,11 @@
   "name": "vocabulary_ref",
   "version": 1,
   "description": "Reference to a named Vocabulary (namespace/name@version). Used on select/multiselect Fields as an alternative to inline selectOptions. Must resolve to a mode:closed Vocabulary (V3).",
-  "valueType": "string",
-  "createdAt": "2026-06-03T00:00:00Z",
   "aiGuidance": {
     "purpose": "Binds a select or multiselect field to a shared, installable Vocabulary rather than an inline string list. The referenced Vocabulary must be closed."
-  }
+  },
+  "fieldType": {
+    "datatype": "string"
+  },
+  "createdAt": "2026-06-03T00:00:00Z"
 }

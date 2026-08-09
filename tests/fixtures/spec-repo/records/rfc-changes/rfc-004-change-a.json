@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "RFC-004 Change A: Add json as a core Field value type"
-    },
-    {
-      "fieldId": "5a000009-0000-4000-a000-000000000009",
-      "value": "schemas/field.json; schemas/package.json; spec-authoring-core"
-    },
-    {
-      "fieldId": "5a000006-0000-4000-a000-000000000006",
-      "value": "`Field.valueType` gains `json` for structured JSON values whose meaning is supplied by the field definition and validating schema. This supports recursive or nested semantic values such as type expressions and portable constraints."
-    },
-    {
-      "fieldId": "1a000004-0000-4000-a000-000000000004",
-      "value": "`json` is a storage primitive for structured semantic values inside SRS records; it is not a target renderer."
-    }
-  ],
+  "fieldValues": {
+    "title": "RFC-004 Change A: Add json as a core Field value type",
+    "affected_components": "schemas/field.json; schemas/package.json; spec-authoring-core",
+    "proposed_change": "`Field.valueType` gains `json` for structured JSON values whose meaning is supplied by the field definition and validating schema. This supports recursive or nested semantic values such as type expressions and portable constraints.",
+    "rationale": "`json` is a storage primitive for structured semantic values inside SRS records; it is not a target renderer."
+  },
   "instanceId": "f3d9302c-ae06-5311-8928-54f5f01d34b1",
   "sourceRefs": [
     {

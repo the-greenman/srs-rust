@@ -826,34 +826,31 @@ mod tests {
         assert_eq!(q.tier, Some(2));
         assert_eq!(q.content_match.as_deref(), Some("text"));
 
-        // RecordCreate → CreateRecordInput (nested field/group values included)
+        // RecordCreate → CreateRecordInput (name-keyed carrier + fieldMeta)
         let rec = RecordCreateToolInput {
             type_filter: "ns/nm".into(),
             type_version: Some(3),
-            field_values: vec![FieldValueInput {
-                field_id: "f1".into(),
-                value: serde_json::Value::String("v1".into()),
-                entries: Some(vec![FieldValueEntryInput {
-                    value: serde_json::Value::String("e1".into()),
-                    source: Some("src".into()),
-                    edited_at: Some("t1".into()),
-                }]),
-                source: Some("fsrc".into()),
-                edited_at: Some("t2".into()),
-            }],
-            group_values: Some(vec![FieldGroupValueInput {
-                group_id: "g1".into(),
-                entries: vec![FieldGroupEntryInput {
-                    field_values: vec![FieldValueInput {
-                        field_id: "f2".into(),
-                        value: serde_json::Value::Bool(true),
-                        entries: None,
-                        source: None,
-                        edited_at: None,
-                    }],
-                    entry_id: Some("ge1".into()),
-                }],
-            }]),
+            field_values: [
+                ("title".to_string(), serde_json::json!("v1")),
+                (
+                    "rows".to_string(),
+                    serde_json::json!([{"cells": ["a", "b"]}]),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            field_meta: Some(
+                [(
+                    "title".to_string(),
+                    FieldMetaInput {
+                        source: Some("fsrc".into()),
+                        edited_at: Some("t2".into()),
+                        source_refs: Some(vec![serde_json::json!({"kind": "url"})]),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            ),
             tags: Some(vec!["t".into()]),
             container_id: Some("c".into()),
         };
@@ -861,20 +858,19 @@ mod tests {
         assert_eq!(rec.type_version, Some(3));
         assert_eq!(rec.container_id.as_deref(), Some("c"));
         let ci: CreateRecordInput = rec.into();
-        assert_eq!(ci.field_values.len(), 1);
-        let fv = &ci.field_values[0];
-        assert_eq!(fv.field_id, "f1");
-        assert_eq!(fv.value, serde_json::Value::String("v1".into()));
-        let entry = &fv.entries.as_ref().unwrap()[0];
-        assert_eq!(entry.value, serde_json::Value::String("e1".into()));
-        assert_eq!(entry.source.as_deref(), Some("src"));
-        assert_eq!(entry.edited_at.as_deref(), Some("t1"));
-        assert_eq!(fv.source.as_deref(), Some("fsrc"));
-        assert_eq!(fv.edited_at.as_deref(), Some("t2"));
-        let group = &ci.group_values.as_ref().unwrap()[0];
-        assert_eq!(group.group_id, "g1");
-        assert_eq!(group.entries[0].entry_id.as_deref(), Some("ge1"));
-        assert_eq!(group.entries[0].field_values[0].field_id, "f2");
+        assert_eq!(ci.field_values.len(), 2);
+        assert_eq!(ci.field_values.get("title"), Some(&serde_json::json!("v1")));
+        assert_eq!(
+            ci.field_values.get("rows"),
+            Some(&serde_json::json!([{"cells": ["a", "b"]}]))
+        );
+        let meta = &ci.field_meta.as_ref().unwrap()["title"];
+        assert_eq!(meta.source.as_deref(), Some("fsrc"));
+        assert_eq!(meta.edited_at.as_deref(), Some("t2"));
+        assert_eq!(
+            meta.source_refs,
+            Some(vec![serde_json::json!({"kind": "url"})])
+        );
         assert_eq!(ci.tags, Some(vec!["t".to_string()]));
 
         // RelationCreate → Relation
@@ -980,62 +976,48 @@ mod tests {
         // RecordUpdateToolInput → UpdateRecordInput
         let upd = RecordUpdateToolInput {
             instance_id: "iid".into(),
-            field_values: vec![FieldValueInput {
-                field_id: "f1".into(),
-                value: serde_json::Value::String("v1".into()),
-                entries: None,
-                source: Some("src".into()),
-                edited_at: Some("t".into()),
-            }],
-            group_values: Some(vec![FieldGroupValueInput {
-                group_id: "g1".into(),
-                entries: vec![FieldGroupEntryInput {
-                    field_values: vec![FieldValueInput {
-                        field_id: "f2".into(),
-                        value: serde_json::Value::Bool(false),
-                        entries: None,
-                        source: None,
-                        edited_at: None,
-                    }],
-                    entry_id: Some("e1".into()),
-                }],
-            }]),
+            field_values: [("title".to_string(), serde_json::json!("v1"))]
+                .into_iter()
+                .collect(),
+            field_meta: Some(
+                [(
+                    "title".to_string(),
+                    FieldMetaInput {
+                        source: Some("src".into()),
+                        edited_at: Some("t".into()),
+                        source_refs: None,
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            ),
             tags: Some(vec!["tag1".into()]),
             type_version: Some(2),
         };
         assert_eq!(upd.instance_id, "iid");
         let ui: UpdateRecordInput = upd.into();
-        assert_eq!(ui.field_values[0].field_id, "f1");
-        assert_eq!(ui.field_values[0].source.as_deref(), Some("src"));
-        assert_eq!(ui.field_values[0].edited_at.as_deref(), Some("t"));
-        assert_eq!(
-            ui.group_values.as_ref().unwrap()[0].entries[0]
-                .entry_id
-                .as_deref(),
-            Some("e1")
-        );
+        assert_eq!(ui.field_values.get("title"), Some(&serde_json::json!("v1")));
+        let meta = &ui.field_meta.as_ref().unwrap()["title"];
+        assert_eq!(meta.source.as_deref(), Some("src"));
+        assert_eq!(meta.edited_at.as_deref(), Some("t"));
         assert_eq!(ui.tags, Some(vec!["tag1".to_string()]));
         assert_eq!(ui.type_version, Some(2));
 
         // FulfillmentNewRecordInput → FulfillmentNewRecord
         let fnr = FulfillmentNewRecordInput {
-            field_values: vec![FieldValueInput {
-                field_id: "fx".into(),
-                value: serde_json::Value::Null,
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
+            field_values: [("fx".to_string(), serde_json::Value::Null)]
+                .into_iter()
+                .collect(),
             type_version: Some(1),
         };
         let fr: FulfillmentNewRecord = fnr.into();
-        assert_eq!(fr.field_values[0].field_id, "fx");
+        assert!(fr.field_values.contains_key("fx"));
         assert_eq!(fr.type_version, Some(1));
 
         // TransitionFulfillmentToolInput → TransitionFulfillmentInput
         let tfi = TransitionFulfillmentToolInput {
             new_record: Some(FulfillmentNewRecordInput {
-                field_values: vec![],
+                field_values: Default::default(),
                 type_version: None,
             }),
             existing_instance_id: Some("eid".into()),
@@ -1073,40 +1055,40 @@ mod tests {
         let succ = RecordSuccessorToolInput {
             predecessor_id: "pid".into(),
             relation_type: "supersedes".into(),
-            field_values: vec![FieldValueInput {
-                field_id: "f3".into(),
-                value: serde_json::Value::String("v3".into()),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
+            field_values: [("f3".to_string(), serde_json::json!("v3"))]
+                .into_iter()
+                .collect(),
             lifecycle_state: Some("draft".into()),
             type_version: Some(5),
         };
         assert_eq!(succ.predecessor_id, "pid");
         let si: CreateRecordSuccessorInput = succ.into();
         assert_eq!(si.relation_type, "supersedes");
-        assert_eq!(si.field_values[0].field_id, "f3");
+        assert_eq!(si.field_values.get("f3"), Some(&serde_json::json!("v3")));
         assert_eq!(si.lifecycle_state.as_deref(), Some("draft"));
         assert_eq!(si.type_version, Some(5));
 
         // NoteGraduateToolInput → GraduateNoteInput
-        // Key: field_values/group_values/tags land in result.record_input, not top-level.
+        // Key: field_values/field_meta/tags land in result.record_input, not top-level.
         let grad = NoteGraduateToolInput {
             note_id: "nid".into(),
             type_ref: "ns/nm".into(),
             type_version: Some(3),
-            field_values: vec![FieldValueInput {
-                field_id: "fg1".into(),
-                value: serde_json::Value::String("grad".into()),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
-            group_values: Some(vec![FieldGroupValueInput {
-                group_id: "gg1".into(),
-                entries: vec![],
-            }]),
+            field_values: [("fg1".to_string(), serde_json::json!("grad"))]
+                .into_iter()
+                .collect(),
+            field_meta: Some(
+                [(
+                    "fg1".to_string(),
+                    FieldMetaInput {
+                        source: Some("gsrc".into()),
+                        edited_at: None,
+                        source_refs: None,
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            ),
             tags: Some(vec!["gtag".into()]),
             container_id: Some("cid".into()),
         };
@@ -1116,10 +1098,15 @@ mod tests {
         assert_eq!(gi.type_version, Some(3));
         assert_eq!(gi.container_id.as_deref(), Some("cid"));
         // The three forwarded fields must be inside record_input, NOT on GraduateNoteInput:
-        assert_eq!(gi.record_input.field_values[0].field_id, "fg1");
         assert_eq!(
-            gi.record_input.group_values.as_ref().unwrap()[0].group_id,
-            "gg1"
+            gi.record_input.field_values.get("fg1"),
+            Some(&serde_json::json!("grad"))
+        );
+        assert_eq!(
+            gi.record_input.field_meta.as_ref().unwrap()["fg1"]
+                .source
+                .as_deref(),
+            Some("gsrc")
         );
         assert_eq!(gi.record_input.tags, Some(vec!["gtag".to_string()]));
 

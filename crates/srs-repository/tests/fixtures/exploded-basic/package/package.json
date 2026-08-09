@@ -20,5 +20,6 @@
     "types/decision-33333333.json"
   ],
   "version": "1.0.0",
-  "views": []
+  "views": [],
+  "dataModelRevision": 2
 }

@@ -1,16 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Distribution Group (Core)"
-    },
-    {
-      "fieldId": "1a000002-0000-4000-a000-000000000002",
-      "value": "The Distribution group is required for all conforming implementations."
-    }
-  ],
+  "fieldValues": {
+    "title": "Distribution Group (Core)",
+    "content": "The Distribution group is required for all conforming implementations."
+  },
   "instanceId": "5b507597-f824-576b-b577-fd8141f1eaf1",
   "sourceRefs": [
     {

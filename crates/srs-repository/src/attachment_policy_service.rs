@@ -253,7 +253,7 @@ mod tests {
             "typeVersion": 1,
             "typeNamespace": "com.example.other",
             "typeName": "other_type",
-            "fieldValues": [],
+            "fieldValues": {},
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let manifest_val = json!({
@@ -276,12 +276,12 @@ mod tests {
 
     #[test]
     fn read_policy_record_present_extracts_limits() {
-        let field_values = json!([
-            {"fieldId": FIELD_MAX_PER_FILE, "value": 1048576},
-            {"fieldId": FIELD_MAX_DOC, "value": 5242880},
-            {"fieldId": FIELD_MAX_TOTAL, "value": 104857600},
-            {"fieldId": FIELD_ALLOWED_MIME, "value": ["application/pdf", "text/plain"]}
-        ]);
+        let field_values = json!({
+            "max_per_file_bytes": 1048576,
+            "max_doc_bytes": 5242880,
+            "max_total_bytes": 104857600,
+            "allowed_mime_types": ["application/pdf", "text/plain"]
+        });
         let store = MemoryStore::new(manifest_with_policy_entry(), make_base_package())
             .with_data("records/policy.json", policy_record_json(field_values));
 
@@ -301,9 +301,7 @@ mod tests {
 
     #[test]
     fn read_policy_allowed_mime_types_array() {
-        let field_values = json!([
-            {"fieldId": FIELD_ALLOWED_MIME, "value": ["image/png", "image/jpeg"]}
-        ]);
+        let field_values = json!({"allowed_mime_types": ["image/png", "image/jpeg"]});
         let store = MemoryStore::new(manifest_with_policy_entry(), make_base_package())
             .with_data("records/policy.json", policy_record_json(field_values));
 
@@ -317,9 +315,7 @@ mod tests {
     #[test]
     fn read_policy_allowed_mime_types_json_string() {
         // allowed_mime_types stored as a JSON-encoded array string.
-        let field_values = json!([
-            {"fieldId": FIELD_ALLOWED_MIME, "value": "[\"application/pdf\", \"text/plain\"]"}
-        ]);
+        let field_values = json!({"allowed_mime_types": "[\"application/pdf\", \"text/plain\"]"});
         let store = MemoryStore::new(manifest_with_policy_entry(), make_base_package())
             .with_data("records/policy.json", policy_record_json(field_values));
 
@@ -337,9 +333,7 @@ mod tests {
     fn read_policy_allowed_mime_types_malformed_json_string() {
         // Malformed JSON array — service returns None silently (no diagnostic).
         // This diverges from validation.rs which pushes a Warning diagnostic.
-        let field_values = json!([
-            {"fieldId": FIELD_ALLOWED_MIME, "value": "[not valid json"}
-        ]);
+        let field_values = json!({"allowed_mime_types": "[not valid json"});
         let store = MemoryStore::new(manifest_with_policy_entry(), make_base_package())
             .with_data("records/policy.json", policy_record_json(field_values));
 
@@ -353,9 +347,7 @@ mod tests {
 
     #[test]
     fn read_policy_allowed_mime_types_single_string() {
-        let field_values = json!([
-            {"fieldId": FIELD_ALLOWED_MIME, "value": "text/plain"}
-        ]);
+        let field_values = json!({"allowed_mime_types": "text/plain"});
         let store = MemoryStore::new(manifest_with_policy_entry(), make_base_package())
             .with_data("records/policy.json", policy_record_json(field_values));
 
@@ -370,7 +362,7 @@ mod tests {
     fn read_policy_record_present_empty_field_values() {
         // Policy record exists but has no field values set — all limits return None.
         let store = MemoryStore::new(manifest_with_policy_entry(), make_base_package())
-            .with_data("records/policy.json", policy_record_json(json!([])));
+            .with_data("records/policy.json", policy_record_json(json!({})));
         let result = read_attachment_policy(&store).expect("should not error");
         assert!(result.policy_record_present);
         assert_eq!(result.policy, AttachmentPolicy::default());
@@ -381,7 +373,7 @@ mod tests {
         // Policy record is in the index but load_package() fails (e.g. corrupt package.json).
         // The service should return defaults with policy_record_present: true.
         let store = MemoryStore::new(manifest_with_policy_entry(), make_base_package())
-            .with_data("records/policy.json", policy_record_json(json!([])))
+            .with_data("records/policy.json", policy_record_json(json!({})))
             .with_fail_at(FailPoint::LoadPackage);
         let result = read_attachment_policy(&store).expect("should not error");
         assert!(result.policy_record_present);
@@ -396,7 +388,7 @@ mod tests {
             "instanceId": RECORD_ID,
             "typeId": TYPE_ID, "typeVersion": 1,
             "typeNamespace": "com.semanticops.base", "typeName": "repo_settings",
-            "fieldValues": [{"fieldId": FIELD_MAX_PER_FILE, "value": 1000}],
+            "fieldValues": {"max_per_file_bytes": 1000},
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let record_2 = json!({
@@ -404,7 +396,7 @@ mod tests {
             "instanceId": RECORD_ID_2,
             "typeId": TYPE_ID, "typeVersion": 1,
             "typeNamespace": "com.semanticops.base", "typeName": "repo_settings",
-            "fieldValues": [{"fieldId": FIELD_MAX_PER_FILE, "value": 9999}],
+            "fieldValues": {"max_per_file_bytes": 9999},
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let manifest_val = json!({
@@ -511,10 +503,10 @@ mod tests {
             json!({"$schema": "https://srs.semanticops.com/schema/2.0/record.json",
                 "instanceId": RECORD_ID, "typeId": TYPE_ID, "typeVersion": 1,
                 "typeNamespace": "com.semanticops.base", "typeName": "repo_settings",
-                "fieldValues": [
-                    {"fieldId": FIELD_MAX_PER_FILE, "value": 2097152},
-                    {"fieldId": FIELD_MAX_DOC, "value": 10485760}
-                ],
+                "fieldValues": {
+                    "max_per_file_bytes": 2097152,
+                    "max_doc_bytes": 10485760
+                },
                 "createdAt": "2026-01-01T00:00:00Z"}),
         );
 

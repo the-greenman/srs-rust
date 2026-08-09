@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000020-0000-4000-a000-000000000020",
-      "value": 6
-    },
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Record.lifecycleState, when present, must reference a name in the…"
-    },
-    {
-      "fieldId": "1a000003-0000-4000-a000-000000000003",
-      "value": "`Record.lifecycleState`, when present, must reference a `name` in the associated `Type.lifecycle.states[]`."
-    },
-    {
-      "fieldId": "1a000021-0000-4000-a000-000000000021",
-      "value": "ext:lifecycle"
-    }
-  ],
+  "fieldValues": {
+    "invariant_number": 6,
+    "title": "Record.lifecycleState, when present, must reference a name in the…",
+    "normative_statement": "`Record.lifecycleState`, when present, must reference a `name` in the associated `Type.lifecycle.states[]`.",
+    "applies_to": "ext:lifecycle"
+  },
   "instanceId": "e1000006-0000-4000-a000-000000000006",
   "sourceRefs": [
     {

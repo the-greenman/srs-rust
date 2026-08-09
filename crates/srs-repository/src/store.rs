@@ -3559,6 +3559,7 @@ pub mod memory {
 mod tests {
     use super::memory::MemoryStore;
     use super::*;
+    use srs_core::types::record::FieldValues;
     use tempfile::TempDir;
 
     fn minimal_manifest(repo_root: &std::path::Path) -> Manifest {
@@ -4034,13 +4035,13 @@ mod tests {
 
     fn minimal_record_for_store(id: &str, type_name: &str, tags: Option<Vec<String>>) -> Record {
         Record {
+            field_meta: None,
             instance_id: id.to_string(),
             type_id: "type-xyz-0001".to_string(),
             type_version: 1,
             type_namespace: "com.example".to_string(),
             type_name: type_name.to_string(),
-            field_values: vec![],
-            group_values: None,
+            field_values: FieldValues::new(),
             lifecycle_state: None,
             tags,
             created_at: None,

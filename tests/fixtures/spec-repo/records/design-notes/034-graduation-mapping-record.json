@@ -1,16 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Graduation mapping record"
-    },
-    {
-      "fieldId": "1a000002-0000-4000-a000-000000000002",
-      "value": "\nA structured artefact recording how a Note or Typed Record was mapped to its Record successors — which section or field names were matched, merged, split, or interpreted. Useful for AI-assisted graduation review and audit. Deferred pending implementation experience."
-    }
-  ],
+  "fieldValues": {
+    "title": "Graduation mapping record",
+    "content": "\nA structured artefact recording how a Note or Typed Record was mapped to its Record successors — which section or field names were matched, merged, split, or interpreted. Useful for AI-assisted graduation review and audit. Deferred pending implementation experience."
+  },
   "instanceId": "f1000034-0000-4000-a000-000000000034",
   "sourceRefs": [
     {

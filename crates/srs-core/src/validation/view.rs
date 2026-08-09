@@ -71,7 +71,6 @@ mod tests {
         ThemeVariant, View,
     };
     use std::collections::BTreeMap;
-    use std::collections::HashMap;
 
     fn minimal_view() -> View {
         View {
@@ -86,6 +85,7 @@ mod tests {
                 required: None,
                 visible: None,
                 display_label: None,
+                composite_renderer: None,
             }],
             compatible_types: None,
             protection: None,
@@ -98,6 +98,7 @@ mod tests {
 
     fn minimal_document_view() -> DocumentView {
         DocumentView {
+            composite_renderers: None,
             id: "dv-1".to_string(),
             namespace: "com.semanticops.srs".to_string(),
             name: "test-doc-view".to_string(),
@@ -106,6 +107,7 @@ mod tests {
             container_type: None,
             root_type_refs: None,
             sections: vec![DocumentSection {
+                composite_renderers: None,
                 section_id: "s1".to_string(),
                 title: None,
                 description: None,
@@ -147,6 +149,7 @@ mod tests {
     fn validate_duplicate_section_id_fails() {
         let mut dv = minimal_document_view();
         dv.sections.push(DocumentSection {
+            composite_renderers: None,
             section_id: "s1".to_string(),
             title: None,
             description: None,

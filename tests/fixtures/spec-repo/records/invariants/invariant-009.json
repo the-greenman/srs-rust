@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000020-0000-4000-a000-000000000020",
-      "value": 9
-    },
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Field.id is stable across versions."
-    },
-    {
-      "fieldId": "1a000003-0000-4000-a000-000000000003",
-      "value": "`Field.id` is stable across versions. A new `id` means a new definition, not a new version of an existing one."
-    },
-    {
-      "fieldId": "1a000021-0000-4000-a000-000000000021",
-      "value": "core — Package"
-    }
-  ],
+  "fieldValues": {
+    "invariant_number": 9,
+    "title": "Field.id is stable across versions.",
+    "normative_statement": "`Field.id` is stable across versions. A new `id` means a new definition, not a new version of an existing one.",
+    "applies_to": "core — Package"
+  },
   "instanceId": "e1000009-0000-4000-a000-000000000009",
   "sourceRefs": [
     {

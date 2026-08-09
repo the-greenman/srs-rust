@@ -474,7 +474,7 @@ mod tests {
     use crate::store::memory::MemoryStore;
     use srs_core::types::container::Container;
     use srs_core::types::field::{AiGuidance, Field, FieldType};
-    use srs_core::types::record::{FieldValue, Record};
+    use srs_core::types::record::{FieldValues, Record};
     use srs_core::types::record_type::{FieldAssignment, RecordType};
     use srs_core::types::view::{
         DocumentSection, DocumentView, ExactTypeRef, FieldView, SectionSource, View,
@@ -516,6 +516,7 @@ mod tests {
         label: Option<&str>,
     ) -> FieldView {
         FieldView {
+            composite_renderer: None,
             field_id: field_id.to_string(),
             order,
             required: None,
@@ -548,6 +549,7 @@ mod tests {
         render_view_id: Option<&str>,
     ) -> DocumentSection {
         DocumentSection {
+            composite_renderers: None,
             section_id: section_id.to_string(),
             title: None,
             description: None,
@@ -565,6 +567,7 @@ mod tests {
 
     fn document_view(id: &str, sections: Vec<DocumentSection>) -> DocumentView {
         DocumentView {
+            composite_renderers: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),
             name: format!("dv-{id}"),
@@ -588,21 +591,19 @@ mod tests {
         }
     }
 
-    fn record(instance_id: &str, title_field_id: &str, title: &str) -> Record {
+    fn record(instance_id: &str, title_field_name: &str, title: &str) -> Record {
         Record {
+            field_meta: None,
             instance_id: instance_id.to_string(),
             type_id: TYPE_ID.to_string(),
             type_version: 1,
             type_namespace: "com.test".to_string(),
             type_name: "decision".to_string(),
-            field_values: vec![FieldValue {
-                field_id: title_field_id.to_string(),
-                value: serde_json::json!(title),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
-            group_values: None,
+            field_values: {
+                let mut fv = FieldValues::new();
+                fv.insert(title_field_name, serde_json::json!(title));
+                fv
+            },
             lifecycle_state: None,
             tags: None,
             created_at: None,
@@ -711,8 +712,8 @@ mod tests {
         let fields = vec![field("f-title", "title"), field("f-status", "status")];
         let view = view_with_fields(field_views);
         let dv = document_view(DV_ID, sections);
-        let root = record("root-1", "f-title", "Root Decision");
-        let member = record("mem-1", "f-title", "Member Decision");
+        let root = record("root-1", "title", "Root Decision");
+        let member = record("mem-1", "title", "Member Decision");
         build_store(
             fields,
             vec![view],
@@ -828,7 +829,7 @@ mod tests {
                 None,
             )],
         );
-        let root = record("root-1", "f-title", "Root");
+        let root = record("root-1", "title", "Root");
         let store = build_store(
             fields,
             vec![view],
@@ -877,8 +878,8 @@ mod tests {
         // Build a store with NO document views; columns empty, members present.
         let fields = vec![field("f-title", "title")];
         let view = view_with_fields(vec![field_view("f-title", 0, None, None)]);
-        let root = record("root-1", "f-title", "Root");
-        let member = record("mem-1", "f-title", "Member");
+        let root = record("root-1", "title", "Root");
+        let member = record("mem-1", "title", "Member");
         let store = build_store(
             fields,
             vec![view],
@@ -915,7 +916,7 @@ mod tests {
                 Some(VIEW_ID),
             )],
         );
-        let root = record("root-1", "f-title", "Root");
+        let root = record("root-1", "title", "Root");
         // An instance with an unrecognised tier (99). It must be SKIPPED with a diagnostic.
         let bogus_json = serde_json::json!({ "instanceId": "bogus-1", "tier": 99 });
         let store = build_store(
@@ -1017,7 +1018,7 @@ mod tests {
                 Some(VIEW_ID),
             )],
         );
-        let root = record("root-1", "f-title", "Root Decision");
+        let root = record("root-1", "title", "Root Decision");
         let note_json = serde_json::json!({ "instanceId": "note-1", "tier": 0, "sections": [] });
         let store = build_store_titled(
             fields,
@@ -1070,7 +1071,7 @@ mod tests {
                 Some(VIEW_ID),
             )],
         );
-        let root = record("root-1", "f-title", "Root Decision");
+        let root = record("root-1", "title", "Root Decision");
         let typed_json =
             serde_json::json!({ "instanceId": "typed-1", "tier": 1, "fieldValues": [] });
         let store = build_store_titled(
@@ -1123,7 +1124,7 @@ mod tests {
                 Some(VIEW_ID),
             )],
         );
-        let root = record("root-1", "f-title", "Root Decision");
+        let root = record("root-1", "title", "Root Decision");
         let note_json = serde_json::json!({ "instanceId": "note-1", "tier": 0, "sections": [] });
         let store = build_store_titled(
             fields,
@@ -1272,8 +1273,8 @@ mod tests {
             )],
             ..document_view(DV, vec![])
         };
-        let root = record(ROOT, F_TITLE, "Root Decision");
-        let member = record(MEM, F_TITLE, "Member Decision");
+        let root = record(ROOT, "title", "Root Decision");
+        let member = record(MEM, "title", "Member Decision");
         let note_json = serde_json::json!({ "instanceId": NOTE, "tier": 0, "sections": [] });
         let store = build_store_titled(
             fields,
@@ -1461,8 +1462,8 @@ mod tests {
             )],
             ..document_view(DV, vec![])
         };
-        let root = record(ROOT, F_TITLE, "Root Decision");
-        let member = record(MEM, F_TITLE, "Member Decision");
+        let root = record(ROOT, "title", "Root Decision");
+        let member = record(MEM, "title", "Member Decision");
         let store = build_store(
             fields,
             vec![view],
@@ -1498,12 +1499,12 @@ mod tests {
         // when the section declares excludeLifecycleStates: ["superseded", "abandoned"].
         const F_TITLE: &str = "f-title";
 
-        let no_state = record("no-state", F_TITLE, "No State");
+        let no_state = record("no-state", "title", "No State");
 
-        let mut active = record("active-1", F_TITLE, "Active Record");
+        let mut active = record("active-1", "title", "Active Record");
         active.lifecycle_state = Some("active".to_string());
 
-        let mut superseded_rec = record("superseded1", F_TITLE, "Superseded Record");
+        let mut superseded_rec = record("superseded1", "title", "Superseded Record");
         superseded_rec.lifecycle_state = Some("superseded".to_string());
 
         let dv = document_view(
@@ -1581,8 +1582,8 @@ mod tests {
             )],
             ..document_view(DV, vec![])
         };
-        let root = record(ROOT, F_TITLE, "Root Decision");
-        let mut superseded_rec = record(SUPERSEDED, F_TITLE, "Superseded Decision");
+        let root = record(ROOT, "title", "Root Decision");
+        let mut superseded_rec = record(SUPERSEDED, "title", "Superseded Decision");
         superseded_rec.lifecycle_state = Some("superseded".to_string());
 
         let store = build_store(
@@ -1652,21 +1653,14 @@ mod tests {
                     order: 0,
                     required: true,
                     display_label: None,
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
                 FieldAssignment {
                     field_id: "f-status".to_string(),
                     order: 1,
                     required: false,
                     display_label: None,
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
             ],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -1693,21 +1687,14 @@ mod tests {
                     order: 0,
                     required: true,
                     display_label: None,
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
                 FieldAssignment {
                     field_id: "f-status".to_string(),
                     order: 1,
                     required: false,
                     display_label: None,
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
             ],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -1740,7 +1727,7 @@ mod tests {
         let fields = vec![field("f-title", "title"), field("f-status", "status")];
         let view = view_with_fields(fvs);
         let dv = document_view(DV_ID, sections);
-        let root = record("root-1", "f-title", "Root Decision");
+        let root = record("root-1", "title", "Root Decision");
         let store = build_store_with_types(
             fields,
             vec![record_type_with_identity(Some("f-title"))],
@@ -1792,7 +1779,7 @@ mod tests {
         let fields = vec![field("f-title", "title"), field("f-status", "status")];
         let view = view_with_fields(fvs);
         let dv = document_view(DV_ID, sections);
-        let root = record("root-1", "f-title", "Root Decision");
+        let root = record("root-1", "title", "Root Decision");
         let store = build_store_with_types(
             fields,
             vec![record_type_with_identity(None)],
@@ -1840,7 +1827,7 @@ mod tests {
                 type_version: 1,
             },
         ]);
-        let root = record("root-1", "f-title", "Root Decision");
+        let root = record("root-1", "title", "Root Decision");
         let store = build_store_with_types(
             fields,
             vec![record_type_with_identity(Some("f-title"))],
@@ -1896,7 +1883,7 @@ mod tests {
                 Some(VIEW_ID),
             )],
         );
-        let root = record("root-1", "f-title", "Root Decision");
+        let root = record("root-1", "title", "Root Decision");
         let store = build_store_with_types(
             fields,
             vec![record_type_with_identity(Some("f-title"))],
@@ -1962,7 +1949,7 @@ mod tests {
             field_view("f-status", 1, None, None),
         ]);
         let dv = multi_type_dv(two_col_sections());
-        let root = record("root-1", "f-title", "Root Decision");
+        let root = record("root-1", "title", "Root Decision");
         let store = build_store_with_types(
             fields,
             vec![
@@ -2010,7 +1997,7 @@ mod tests {
             field_view("f-status", 1, None, None),
         ]);
         let dv = multi_type_dv(two_col_sections());
-        let root = record("root-1", "f-title", "Root Decision");
+        let root = record("root-1", "title", "Root Decision");
         let store = build_store_with_types(
             fields,
             vec![
@@ -2043,7 +2030,7 @@ mod tests {
             field_view("f-status", 1, None, None),
         ]);
         let dv = multi_type_dv(two_col_sections());
-        let root = record("root-1", "f-title", "Root Decision");
+        let root = record("root-1", "title", "Root Decision");
         let store = build_store_with_types(
             fields,
             vec![
@@ -2120,11 +2107,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
-                repeatable: false,
-                min_items: None,
-                max_items: None,
             }],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -2137,19 +2120,17 @@ mod tests {
             extra: std::collections::BTreeMap::new(),
         };
         let root = Record {
+            field_meta: None,
             instance_id: ROOT.to_string(),
             type_id: TYPE_A.to_string(),
             type_version: 1,
             type_namespace: "com.test".to_string(),
             type_name: "decision".to_string(),
-            field_values: vec![srs_core::types::record::FieldValue {
-                field_id: F_TITLE.to_string(),
-                value: serde_json::json!("Root Decision"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
-            group_values: None,
+            field_values: {
+                let mut fv = FieldValues::new();
+                fv.insert("title", serde_json::json!("Root Decision"));
+                fv
+            },
             lifecycle_state: None,
             tags: None,
             created_at: None,

@@ -332,6 +332,7 @@ mod tests {
         let mut extra = BTreeMap::new();
         extra.insert("xCustom".to_string(), serde_json::json!("keep"));
         let dv = DocumentView {
+            composite_renderers: None,
             id: "ec34f54b-8636-5c8b-af5b-c9eb3df24fe6".to_string(),
             namespace: "com.semanticops.srs".to_string(),
             name: "srs-spec-document-view".to_string(),
@@ -365,6 +366,7 @@ mod tests {
                 required: Some(true),
                 empty_behavior: Some(EmptyBehavior::Hide),
                 relations_presentation: None,
+                composite_renderers: None,
             }],
             navigation_links: Some(vec![NavigationLink {
                 from_section_id: "a".to_string(),
@@ -566,6 +568,7 @@ mod tests {
     #[test]
     fn document_section_relations_presentation_round_trips() {
         let section = DocumentSection {
+            composite_renderers: None,
             section_id: "s1".to_string(),
             title: None,
             description: None,
@@ -639,6 +642,7 @@ mod tests {
             required: None,
             empty_behavior: None,
             relations_presentation: None,
+            composite_renderers: None,
         };
         let json = serde_json::to_string(&section).unwrap();
         assert!(
@@ -669,6 +673,7 @@ mod tests {
             required: None,
             empty_behavior: None,
             relations_presentation: None,
+            composite_renderers: None,
         };
         let json = serde_json::to_string(&section).unwrap();
         assert!(

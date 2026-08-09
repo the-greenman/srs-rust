@@ -383,9 +383,15 @@ fn project_section_json(
 
     if let Some(ordering) = &section.ordering {
         if let Some(field_id) = &ordering.field_id {
+            // `SectionOrdering.field_id` is a Field UUID; the RFC-039 carrier
+            // keys values by `Field.name` — bridge via the package.
+            let field_name = package
+                .resolve_field(field_id)
+                .map(|f| f.name.clone())
+                .unwrap_or_else(|| field_id.clone());
             records.sort_by(|a, b| {
-                let av = a.get_field_value_str(field_id).unwrap_or("");
-                let bv = b.get_field_value_str(field_id).unwrap_or("");
+                let av = a.get_field_value_str(&field_name).unwrap_or("");
+                let bv = b.get_field_value_str(&field_name).unwrap_or("");
                 av.cmp(bv)
             });
             if matches!(ordering.direction, Some(SortDirection::Desc)) {
@@ -1307,9 +1313,16 @@ fn render_section(
     // Apply explicit field-based ordering first if declared.
     if let Some(ordering) = &section.ordering {
         if let Some(field_id) = &ordering.field_id {
+            // `SectionOrdering.field_id` is a Field UUID; the RFC-039 carrier
+            // keys values by `Field.name` — bridge via the package.
+            let field_name = ctx
+                .package
+                .resolve_field(field_id)
+                .map(|f| f.name.clone())
+                .unwrap_or_else(|| field_id.clone());
             records.sort_by(|a, b| {
-                let av = a.get_field_value_str(field_id).unwrap_or("");
-                let bv = b.get_field_value_str(field_id).unwrap_or("");
+                let av = a.get_field_value_str(&field_name).unwrap_or("");
+                let bv = b.get_field_value_str(&field_name).unwrap_or("");
                 av.cmp(bv)
             });
             if matches!(ordering.direction, Some(SortDirection::Desc)) {
@@ -3094,6 +3107,7 @@ pub(crate) fn title_field_id_is_eligible(
 mod tests {
     use super::*;
     use crate::store::FileStore;
+    use srs_core::types::record::FieldValues;
     use std::collections::HashMap;
 
     fn srs_spec_repo() -> std::path::PathBuf {
@@ -3281,6 +3295,14 @@ mod tests {
             .join("../srs-cli/tests/fixtures/repeatable-fields")
     }
 
+    /// Local fixture (single-cardinality heading + a record missing a
+    /// view-required field) — the srs-cli repeatable-fields fixture's carrier
+    /// migration made its title field list-cardinality, which is the wrong
+    /// shape for the [N+37] identity-heading and [view-required] tests.
+    fn render_identity_fixture_root() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/render-identity")
+    }
+
     #[test]
     fn repeatable_field_entries_render_all_values() {
         let repo_root = repeatable_fixture_root();
@@ -3433,7 +3455,7 @@ mod tests {
 
     #[test]
     fn missing_required_field_view_emits_soft_diagnostic() {
-        let repo_root = repeatable_fixture_root();
+        let repo_root = render_identity_fixture_root();
         let store = FileStore::new(&repo_root);
         let result = render_document_view(RenderDocumentViewOptions {
             store: &store,
@@ -3451,7 +3473,7 @@ mod tests {
                 .iter()
                 .any(|d| d.contains("[view-required]")
                     && d.contains("00000000-0000-4000-8000-000000000992")
-                    && d.contains("00000000-0000-4000-8000-000000000903")),
+                    && d.contains("body")),
             "expected missing required FieldView diagnostic, got: {:?}",
             result.diagnostics
         );
@@ -3804,8 +3826,10 @@ mod tests {
         assert_eq!(record.type_name, "grouped-item");
     }
 
+    /// RFC-039 [R11]: a composite value is carried recursively under its own
+    /// `Field.name` key inside `fields` — no separate `fieldGroups` block.
     #[test]
-    fn json_projection_record_field_groups_populated() {
+    fn json_projection_record_composite_carried_under_field_key() {
         let repo_root = field_groups_fixture_root();
         let store = FileStore::new(&repo_root);
         let result = render_document_view(RenderDocumentViewOptions {
@@ -3823,17 +3847,14 @@ mod tests {
             .iter()
             .find(|r| r.instance_id == "00000000-0000-4000-8000-000000000981")
             .expect("valid record should be present");
-        let groups = record
-            .field_groups
-            .as_ref()
-            .expect("fieldGroups must be present for valid record");
-        assert_eq!(groups.len(), 1, "expected 1 field group");
-        let group = &groups[0];
-        assert_eq!(group.group_id, "people");
-        assert_eq!(group.entries.len(), 2, "expected 2 entries (alice, bob)");
-        let alice = &group.entries[0];
+        let people = record
+            .fields
+            .get("people")
+            .expect("composite 'people' must be carried under its Field.name key");
+        let entries = people.as_array().expect("composite list value is an array");
+        assert_eq!(entries.len(), 2, "expected 2 entries (alice, bob)");
         assert_eq!(
-            alice.fields.get("00000000-0000-4000-8000-000000000911"),
+            entries[0].get("name"),
             Some(&serde_json::Value::String("alice".to_string())),
             "first entry should have name=alice"
         );
@@ -3946,22 +3967,24 @@ mod tests {
                 "labels",
                 serde_json::json!({ "datatype": "string", "cardinality": "list" }),
             ),
-            // Single by `cardinality`, made repeatable by the assignment below.
+            // Plain single string — eligible (the retired assignment-level
+            // `repeatable` no longer affects eligibility; Change-I condition 4
+            // is cardinality-only).
             field(
                 "f-alias",
                 "alias",
                 serde_json::json!({ "datatype": "string" }),
             ),
         ];
-        let assignment = |i: usize, id: &str, repeatable: bool| serde_json::json!({ "fieldId": id, "order": i, "required": false, "repeatable": repeatable });
+        let assignment = |i: usize, id: &str| serde_json::json!({ "fieldId": id, "order": i, "required": false });
         let record_type: RecordType = serde_json::from_value(serde_json::json!({
             "id": "t-task", "namespace": "com.test", "name": "task", "version": 1,
             "description": "d",
             "fields": [
-                assignment(0, "f-status", false), assignment(1, "f-note", false),
-                assignment(2, "f-due", false), assignment(3, "f-home", false),
-                assignment(4, "f-key", false), assignment(5, "f-contact", false),
-                assignment(6, "f-labels", false), assignment(7, "f-alias", true),
+                assignment(0, "f-status"), assignment(1, "f-note"),
+                assignment(2, "f-due"), assignment(3, "f-home"),
+                assignment(4, "f-key"), assignment(5, "f-contact"),
+                assignment(6, "f-labels"), assignment(7, "f-alias"),
             ],
             "createdAt": "2026-01-01T00:00:00Z",
         }))
@@ -3969,16 +3992,16 @@ mod tests {
         let record: Record = serde_json::from_value(serde_json::json!({
             "instanceId": "i-1", "typeId": "t-task", "typeVersion": 1,
             "typeNamespace": "com.test", "typeName": "task",
-            "fieldValues": [
-                { "fieldId": "f-status", "value": "open" },
-                { "fieldId": "f-note", "value": "prose" },
-                { "fieldId": "f-due", "value": "2026-01-01" },
-                { "fieldId": "f-home", "value": "https://example.test" },
-                { "fieldId": "f-key", "value": "00000000-0000-4000-8000-000000000001" },
-                { "fieldId": "f-contact", "value": "someone@example.test" },
-                { "fieldId": "f-labels", "value": "alpha" },
-                { "fieldId": "f-alias", "value": "nickname" },
-            ],
+            "fieldValues": {
+                "status": "open",
+                "note": "prose",
+                "due": "2026-01-01",
+                "home": "https://example.test",
+                "key": "00000000-0000-4000-8000-000000000001",
+                "contact": "someone@example.test",
+                "labels": "alpha",
+                "alias": "nickname",
+            },
         }))
         .expect("record fixture should deserialize");
         let theme: Theme = serde_json::from_value(serde_json::json!({
@@ -4029,13 +4052,17 @@ mod tests {
             classes.contains("srs-field-note-prose"),
             "a markdown string must yield a class, got: {classes}"
         );
+        assert!(
+            classes.contains("srs-field-alias-nickname"),
+            "a plain single string stays eligible now the assignment-level \
+             repeatable flag is retired (Change-I condition 4), got: {classes}"
+        );
         for (label, ineligible) in [
             ("date", "srs-field-due-"),
             ("format: uri", "srs-field-home-"),
             ("format: uuid", "srs-field-key-"),
             ("format: email", "srs-field-contact-"),
             ("cardinality: list", "srs-field-labels-"),
-            ("assignment repeatable", "srs-field-alias-"),
         ] {
             assert!(
                 !classes.contains(ineligible),
@@ -4123,21 +4150,14 @@ mod tests {
                     order: 0,
                     required: true,
                     display_label: Some("Heading".to_string()),
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
                 FieldAssignment {
                     field_id: "f-body".to_string(),
                     order: 1,
                     required: false,
                     display_label: Some("Body".to_string()),
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
             ],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -4162,21 +4182,14 @@ mod tests {
                     order: 0,
                     required: true,
                     display_label: Some("Heading".to_string()),
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
                 FieldAssignment {
                     field_id: "f-caption".to_string(),
                     order: 1,
                     required: false,
                     display_label: Some("Caption".to_string()),
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
             ],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -4198,6 +4211,7 @@ mod tests {
             version: 1,
             description: "View for text sections only".to_string(),
             field_views: vec![FieldView {
+                composite_renderer: None,
                 field_id: "f-body".to_string(),
                 order: 0,
                 required: Some(true),
@@ -4214,6 +4228,7 @@ mod tests {
 
         // DocumentView: ContainerSubset section with the text-only view
         let doc_view = DocumentView {
+            composite_renderers: None,
             id: "dv-hetero".to_string(),
             namespace: "com.test".to_string(),
             name: "hetero-view".to_string(),
@@ -4222,6 +4237,7 @@ mod tests {
             container_type: None,
             root_type_refs: None,
             sections: vec![DocumentSection {
+                composite_renderers: None,
                 section_id: "body".to_string(),
                 title: Some("Body".to_string()),
                 description: None,
@@ -4327,42 +4343,16 @@ mod tests {
         .unwrap();
 
         // Create a text record (precedes the table)
-        let fv_text = vec![
-            srs_core::types::record::FieldValue {
-                field_id: "f-heading".to_string(),
-                value: serde_json::json!("Introduction"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-            srs_core::types::record::FieldValue {
-                field_id: "f-body".to_string(),
-                value: serde_json::json!("The introduction body."),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-        ];
+        let mut fv_text = srs_core::types::record::FieldValues::new();
+        fv_text.insert("heading", serde_json::json!("Introduction"));
+        fv_text.insert("body", serde_json::json!("The introduction body."));
         let text_record = create_record(&store, "t-text", 1, fv_text, None, None).unwrap();
         let text_id = text_record.instance_id.clone();
 
         // Create a table record (follows the text)
-        let fv_table = vec![
-            srs_core::types::record::FieldValue {
-                field_id: "f-heading".to_string(),
-                value: serde_json::json!("Summary Table"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-            srs_core::types::record::FieldValue {
-                field_id: "f-caption".to_string(),
-                value: serde_json::json!("Table caption here"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-        ];
+        let mut fv_table = srs_core::types::record::FieldValues::new();
+        fv_table.insert("heading", serde_json::json!("Summary Table"));
+        fv_table.insert("caption", serde_json::json!("Table caption here"));
         let table_record = create_record(&store, "t-table", 1, fv_table, None, None).unwrap();
         let table_id = table_record.instance_id.clone();
 
@@ -4545,17 +4535,17 @@ mod tests {
         // This tests the guard logic indirectly by checking sort_by_precedes_chain
         // behaviour on records without precedes edges.
         use srs_core::types::record::Record;
-        use std::collections::HashMap as StdMap;
+        use std::collections::BTreeMap as StdMap;
 
         // Create two records with different created_at — "later" has more recent timestamp.
         let make_record = |id: &str, created: &str| Record {
+            field_meta: None,
             instance_id: id.to_string(),
             type_id: "t1".to_string(),
             type_version: 1,
             type_namespace: "com.test".to_string(),
             type_name: "item".to_string(),
-            field_values: vec![],
-            group_values: None,
+            field_values: FieldValues::new(),
             lifecycle_state: None,
             tags: None,
             created_at: Some(created.to_string()),
@@ -4669,30 +4659,9 @@ mod tests {
 
     #[test]
     fn render_table_html_produces_table_element() {
-        use srs_core::types::record_type::RecordType;
-        let rt = RecordType {
-            id: "t".to_string(),
-            namespace: "n".to_string(),
-            name: "n".to_string(),
-            version: 1,
-            description: "d".to_string(),
-            fields: vec![],
-            field_groups: None,
-            extends_type_id: None,
-            extends_type_version: None,
-            field_order: None,
-            field_assignment_overrides: None,
-
-            identity_field_id: None,
-            lifecycle: None,
-            lifecycle_ref: None,
-            validation_rules: None,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
-        };
         let cols = vec!["Col A".to_string()];
         let rows = vec![vec!["val 1".to_string()]];
-        let out = render_table_html(&cols, &rows, "srs-data-table", &[], &rt);
+        let out = render_table_html(&cols, &rows, "srs-data-table", &[]);
         assert!(
             out.contains("<table class=\"srs-data-table\">"),
             "got: {out}"
@@ -4703,28 +4672,7 @@ mod tests {
 
     #[test]
     fn render_table_html_empty_class_omits_attribute() {
-        use srs_core::types::record_type::RecordType;
-        let rt = RecordType {
-            id: "t".to_string(),
-            namespace: "n".to_string(),
-            name: "n".to_string(),
-            version: 1,
-            description: "d".to_string(),
-            fields: vec![],
-            field_groups: None,
-            extends_type_id: None,
-            extends_type_version: None,
-            field_order: None,
-            field_assignment_overrides: None,
-
-            identity_field_id: None,
-            lifecycle: None,
-            lifecycle_ref: None,
-            validation_rules: None,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
-        };
-        let out = render_table_html(&[], &[], "", &[], &rt);
+        let out = render_table_html(&[], &[], "", &[]);
         assert!(
             !out.contains("class="),
             "[T-Cx2] empty tableClass must omit class attribute, got: {out}"
@@ -4733,29 +4681,8 @@ mod tests {
 
     #[test]
     fn render_table_html_widths_emit_colgroup() {
-        use srs_core::types::record_type::RecordType;
-        let rt = RecordType {
-            id: "t".to_string(),
-            namespace: "n".to_string(),
-            name: "n".to_string(),
-            version: 1,
-            description: "d".to_string(),
-            fields: vec![],
-            field_groups: None,
-            extends_type_id: None,
-            extends_type_version: None,
-            field_order: None,
-            field_assignment_overrides: None,
-
-            identity_field_id: None,
-            lifecycle: None,
-            lifecycle_ref: None,
-            validation_rules: None,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
-        };
         let widths = vec![0.3, 0.7];
-        let out = render_table_html(&[], &[], "cls", &widths, &rt);
+        let out = render_table_html(&[], &[], "cls", &widths);
         assert!(out.contains("<colgroup>"), "got: {out}");
         assert!(out.contains("width:30%"), "got: {out}");
         assert!(out.contains("width:70%"), "got: {out}");
@@ -4763,26 +4690,46 @@ mod tests {
 
     /// Build a MemoryStore with one type + TypeQuery doc_view for composite renderer tests.
     /// Creates a record pre-loaded with the given group entry and returns (store, record_id).
+    /// Build a MemoryStore for the RFC-036 composite table tests, re-based onto
+    /// the RFC-039 carrier: the Type carries an inline-composite list Field
+    /// `rows` (range Type `table-row` with a `cells` list), the record carries
+    /// the spec table shape (`columns` sibling + `rows` of `{cells}` entries),
+    /// and the renderer binds **view-side** via `FieldView.compositeRenderer`.
     fn make_composite_table_store(
         composite_renderer: Option<&str>,
         columns: serde_json::Value,
         rows: serde_json::Value,
         theme: Option<srs_core::types::theme::Theme>,
     ) -> crate::store::memory::MemoryStore {
+        make_composite_table_store_with(composite_renderer, columns, rows, theme, "markdown", None)
+    }
+
+    fn make_composite_table_store_with(
+        composite_renderer: Option<&str>,
+        columns: serde_json::Value,
+        rows: serde_json::Value,
+        theme: Option<srs_core::types::theme::Theme>,
+        format: &str,
+        label: Option<serde_json::Value>,
+    ) -> crate::store::memory::MemoryStore {
         use crate::package::Package;
         use crate::record_store::create_record;
         use srs_core::types::field::{AiGuidance, Field, FieldType};
-        use srs_core::types::record::{FieldGroupEntry, FieldGroupValue, FieldValue};
-        use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
-        use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
+        use srs_core::types::field_type::ExactTypeRef;
+        use srs_core::types::record::FieldValues;
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+        use srs_core::types::view::{
+            CompositeRendererBinding, DocumentSection, DocumentView, EmptyBehavior, FieldView,
+            SectionSource, View,
+        };
 
-        let make_field = |id: &str, name: &str| Field {
+        let make_field = |id: &str, name: &str, field_type: FieldType| Field {
             schema: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),
             name: name.to_string(),
             version: 1,
-            field_type: FieldType::string(),
+            field_type,
             description: name.to_string(),
             instructions: None,
             ai_guidance: AiGuidance::default(),
@@ -4795,55 +4742,70 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let fields = vec![
-            make_field("f-columns", "columns"),
-            make_field("f-rows", "rows"),
-            make_field("f-widths", "widths"),
-            make_field("f-subheading", "subheading"),
-            make_field("f-label", "label"),
-            make_field("f-title", "title"),
-        ];
-        let group_assignments: Vec<FieldAssignment> =
-            ["f-columns", "f-rows", "f-widths", "f-subheading", "f-label"]
-                .iter()
-                .enumerate()
-                .map(|(i, id)| FieldAssignment {
-                    field_id: id.to_string(),
-                    order: i as u32,
-                    required: false,
-                    display_label: None,
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
+            make_field("f-columns", "columns", FieldType::string().into_list()),
+            make_field(
+                "f-rows",
+                "rows",
+                FieldType::inline_ref(ExactTypeRef {
+                    type_id: "t-row".to_string(),
+                    type_version: 1,
                 })
-                .collect();
+                .into_list(),
+            ),
+            make_field("f-cells", "cells", FieldType::string().into_list()),
+            make_field("f-widths", "widths", FieldType::number().into_list()),
+            make_field("f-subheading", "subheading", FieldType::string()),
+            make_field("f-label", "label", FieldType::string()),
+            make_field("f-title", "title", FieldType::string()),
+        ];
 
+        let row_type = RecordType {
+            id: "t-row".to_string(),
+            namespace: "com.test".to_string(),
+            name: "table-row".to_string(),
+            version: 1,
+            description: "One table row".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "f-cells".to_string(),
+                order: 0,
+                required: false,
+                display_label: None,
+            }],
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+
+            identity_field_id: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: std::collections::BTreeMap::new(),
+        };
         let record_type = RecordType {
             id: "t-table-rec".to_string(),
             namespace: "com.test".to_string(),
             name: "table-record".to_string(),
             version: 1,
-            description: "Record with composite table group".to_string(),
-            fields: vec![FieldAssignment {
-                field_id: "f-title".to_string(),
-                order: 0,
+            description: "Record with an inline-composite table field".to_string(),
+            fields: [
+                "f-title",
+                "f-columns",
+                "f-rows",
+                "f-widths",
+                "f-subheading",
+                "f-label",
+            ]
+            .iter()
+            .enumerate()
+            .map(|(i, id)| FieldAssignment {
+                field_id: id.to_string(),
+                order: i as u32,
                 required: false,
                 display_label: None,
-                repeatable: false,
-                min_items: None,
-                max_items: None,
-            }],
-            field_groups: Some(vec![FieldGroup {
-                group_id: "tables".to_string(),
-                order: 0,
-                fields: group_assignments,
-                label: None,
-                description: None,
-                required: false,
-                repeatable: true,
-                min_items: None,
-                max_items: None,
-                composite_renderer: composite_renderer.map(|s| s.to_string()),
-            }]),
+            })
+            .collect(),
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -4857,7 +4819,44 @@ mod tests {
             extra: std::collections::BTreeMap::new(),
         };
 
+        // RFC-036: the renderer binding is view-owned, not Type-owned.
+        let table_view = View {
+            id: "v-table".to_string(),
+            namespace: "com.test".to_string(),
+            name: "table-view".to_string(),
+            version: 1,
+            description: "Binds the table renderer to the rows composite".to_string(),
+            field_views: vec![
+                FieldView {
+                    composite_renderer: None,
+                    field_id: "f-title".to_string(),
+                    order: 0,
+                    required: None,
+                    visible: None,
+                    display_label: None,
+                },
+                FieldView {
+                    composite_renderer: composite_renderer.map(|r| CompositeRendererBinding {
+                        renderer: r.to_string(),
+                        roles: None,
+                    }),
+                    field_id: "f-rows".to_string(),
+                    order: 1,
+                    required: None,
+                    visible: None,
+                    display_label: None,
+                },
+            ],
+            compatible_types: None,
+            protection: None,
+            export_config: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            extra: std::collections::BTreeMap::new(),
+        };
+
         let doc_view = DocumentView {
+            composite_renderers: None,
             id: "dv-table".to_string(),
             namespace: "com.test".to_string(),
             name: "table-view".to_string(),
@@ -4866,6 +4865,7 @@ mod tests {
             container_type: None,
             root_type_refs: None,
             sections: vec![DocumentSection {
+                composite_renderers: None,
                 section_id: "tables".to_string(),
                 title: None,
                 description: None,
@@ -4878,7 +4878,7 @@ mod tests {
                     exclude_lifecycle_states: None,
                     container_scope: None,
                 },
-                render_view_id: None,
+                render_view_id: Some("v-table".to_string()),
                 type_dispatch: None,
                 title_field_id: None,
                 ordering: None,
@@ -4888,7 +4888,7 @@ mod tests {
             }],
             navigation_links: None,
             preamble: None,
-            format: Some("markdown".to_string()),
+            format: Some(format.to_string()),
             depth_offset: None,
             theme_ref: theme
                 .as_ref()
@@ -4922,9 +4922,9 @@ mod tests {
             name: "table-package".to_string(),
             version: "1.0.0".to_string(),
             fields,
-            record_types: vec![record_type],
+            record_types: vec![row_type, record_type],
             relation_type_definitions: vec![],
-            views: vec![],
+            views: vec![table_view],
             document_views: vec![doc_view],
             themes: theme.into_iter().collect(),
             blueprints: vec![],
@@ -4936,37 +4936,15 @@ mod tests {
         };
         let store = crate::store::memory::MemoryStore::new(manifest, package);
 
-        let group_entry = FieldGroupEntry {
-            entry_id: Some("e-1".to_string()),
-            field_values: vec![
-                FieldValue {
-                    field_id: "f-columns".to_string(),
-                    value: columns,
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-                FieldValue {
-                    field_id: "f-rows".to_string(),
-                    value: rows,
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-            ],
-        };
-        let gv = vec![FieldGroupValue {
-            group_id: "tables".to_string(),
-            entries: vec![group_entry],
-        }];
-        let fv = vec![FieldValue {
-            field_id: "f-title".to_string(),
-            value: serde_json::json!("Table Record"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
-        create_record(&store, "t-table-rec", 1, fv, Some(gv), None).unwrap();
+        // The spec table shape: record-level `columns`, `rows` of `{cells}`.
+        let mut fv = FieldValues::new();
+        fv.insert("title", serde_json::json!("Table Record"));
+        fv.insert("columns", columns);
+        fv.insert("rows", rows);
+        if let Some(label) = label {
+            fv.insert("label", label);
+        }
+        create_record(&store, "t-table-rec", 1, fv, None, None).unwrap();
         store
     }
 
@@ -4975,7 +4953,7 @@ mod tests {
         let store = make_composite_table_store(
             Some("table"),
             serde_json::json!(["Col1", "Col2"]),
-            serde_json::json!([["A", "B"], ["C", "D"]]),
+            serde_json::json!([{"cells": ["A", "B"]}, {"cells": ["C", "D"]}]),
             None,
         );
         let result = render_document_view(RenderDocumentViewOptions {
@@ -5016,7 +4994,7 @@ mod tests {
         let store = make_composite_table_store(
             Some("table"),
             serde_json::json!(["Q", "A"]),
-            serde_json::json!([["q1", "a1"]]),
+            serde_json::json!([{"cells": ["q1", "a1"]}]),
             None,
         );
         let result = render_document_view(RenderDocumentViewOptions {
@@ -5040,11 +5018,11 @@ mod tests {
     }
 
     #[test]
-    fn unknown_composite_renderer_falls_back_and_emits_fg_cx1_diagnostic() {
+    fn unknown_composite_renderer_falls_back_and_emits_cr036_7_diagnostic() {
         let store = make_composite_table_store(
             Some("com.acme/gantt"),
             serde_json::json!(["Col"]),
-            serde_json::json!([["val"]]),
+            serde_json::json!([{"cells": ["val"]}]),
             None,
         );
         let result = render_document_view(RenderDocumentViewOptions {
@@ -5060,8 +5038,8 @@ mod tests {
             result
                 .diagnostics
                 .iter()
-                .any(|d| d.contains("[FG-Cx1]") && d.contains("com.acme/gantt")),
-            "[FG-Cx1] diagnostic expected, got: {:?}",
+                .any(|d| d.contains("[CR-036-7]") && d.contains("com.acme/gantt")),
+            "[CR-036-7] diagnostic expected, got: {:?}",
             result.diagnostics
         );
         assert!(
@@ -5073,90 +5051,8 @@ mod tests {
 
     #[test]
     fn caption_template_html_escapes_label_value() {
-        use crate::package::Package;
-        use crate::record_store::create_record;
-        use srs_core::types::field::{AiGuidance, Field, FieldType};
-        use srs_core::types::record::{FieldGroupEntry, FieldGroupValue, FieldValue};
-        use srs_core::types::record_type::{FieldAssignment, FieldGroup, RecordType};
         use srs_core::types::theme::{ElementTemplates, Theme};
-        use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
 
-        let make_field = |id: &str, name: &str| Field {
-            schema: None,
-            id: id.to_string(),
-            namespace: "com.test".to_string(),
-            name: name.to_string(),
-            version: 1,
-            field_type: FieldType::string(),
-            description: name.to_string(),
-            instructions: None,
-            ai_guidance: AiGuidance::default(),
-            default_value: None,
-            editor_hint: None,
-            tags: None,
-            lineage: None,
-            provenance: None,
-            deprecated_at: None,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-        };
-        let fields = vec![
-            make_field("f-columns", "columns"),
-            make_field("f-rows", "rows"),
-            make_field("f-label", "label"),
-            make_field("f-title", "title"),
-        ];
-        let group_assignments: Vec<FieldAssignment> = ["f-columns", "f-rows", "f-label"]
-            .iter()
-            .enumerate()
-            .map(|(i, id)| FieldAssignment {
-                field_id: id.to_string(),
-                order: i as u32,
-                required: false,
-                display_label: None,
-                repeatable: false,
-                min_items: None,
-                max_items: None,
-            })
-            .collect();
-        let record_type = RecordType {
-            id: "t-cap".to_string(),
-            namespace: "com.test".to_string(),
-            name: "cap-record".to_string(),
-            version: 1,
-            description: "d".to_string(),
-            fields: vec![FieldAssignment {
-                field_id: "f-title".to_string(),
-                order: 0,
-                required: false,
-                display_label: None,
-                repeatable: false,
-                min_items: None,
-                max_items: None,
-            }],
-            field_groups: Some(vec![FieldGroup {
-                group_id: "g".to_string(),
-                order: 0,
-                fields: group_assignments,
-                label: None,
-                description: None,
-                required: false,
-                repeatable: true,
-                min_items: None,
-                max_items: None,
-                composite_renderer: Some("table".to_string()),
-            }]),
-            extends_type_id: None,
-            extends_type_version: None,
-            field_order: None,
-            field_assignment_overrides: None,
-
-            identity_field_id: None,
-            lifecycle: None,
-            lifecycle_ref: None,
-            validation_rules: None,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
-        };
         let theme = Theme {
             id: "th-cap".to_string(),
             namespace: "com.test".to_string(),
@@ -5174,7 +5070,7 @@ mod tests {
                 record_wrapper: None,
                 record_wrapper_overrides: None,
                 field_row: None,
-                group_field_row_templates: None,
+                composite_field_row_templates: None,
                 composite_renderer_config: Some(HashMap::from([(
                     "table".to_string(),
                     serde_json::json!({ "captionTemplate": "{{field-value}}" }),
@@ -5186,123 +5082,18 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
         };
-        let doc_view = DocumentView {
-            id: "dv-cap".to_string(),
-            namespace: "com.test".to_string(),
-            name: "cap-view".to_string(),
-            version: 1,
-            description: "d".to_string(),
-            container_type: None,
-            root_type_refs: None,
-            sections: vec![DocumentSection {
-                section_id: "s".to_string(),
-                title: None,
-                description: None,
-                order: 0,
-                source: SectionSource::TypeQuery {
-                    semantic_object_type: "com.test/cap-record".to_string(),
-                    lifecycle_state: None,
-                    container_ids: None,
-                    lifecycle_states: None,
-                    exclude_lifecycle_states: None,
-                    container_scope: None,
-                },
-                render_view_id: None,
-                type_dispatch: None,
-                title_field_id: None,
-                ordering: None,
-                required: None,
-                empty_behavior: Some(EmptyBehavior::Hide),
-                relations_presentation: None,
-            }],
-            navigation_links: None,
-            preamble: None,
-            format: Some("html".to_string()),
-            depth_offset: None,
-            theme_ref: Some(srs_core::types::view::ThemeReference {
-                mode: srs_core::types::view::ThemeMode::Bundled,
-                path: None,
-                url: None,
-                theme_id: Some("th-cap".to_string()),
-            }),
-            theme_variants: None,
-            tags: None,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
-        };
-        let manifest = crate::manifest::Manifest {
-            instance_index: vec![],
-            container: None,
-            container_index: None,
-            federation_path: None,
-            upstream_package: None,
-            federation_events_path: None,
-            extra: std::collections::BTreeMap::new(),
-            source_documents_path: None,
-            source_document_index: None,
-            root: std::path::PathBuf::from("/memory"),
-        };
-        let package = Package {
-            id: "pkg-cap".to_string(),
-            namespace: "com.test".to_string(),
-            name: "cap-package".to_string(),
-            version: "1.0.0".to_string(),
-            fields,
-            record_types: vec![record_type],
-            relation_type_definitions: vec![],
-            views: vec![],
-            document_views: vec![doc_view],
-            themes: vec![theme],
-            blueprints: vec![],
-            protocols: vec![],
-            root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
-            vocabularies: vec![],
-            lifecycles: vec![],
-        };
-        let store = crate::store::memory::MemoryStore::new(manifest, package);
-        let entry = FieldGroupEntry {
-            entry_id: Some("e1".to_string()),
-            field_values: vec![
-                FieldValue {
-                    field_id: "f-columns".to_string(),
-                    value: serde_json::json!(["Col"]),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-                FieldValue {
-                    field_id: "f-rows".to_string(),
-                    value: serde_json::json!([["val"]]),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-                FieldValue {
-                    field_id: "f-label".to_string(),
-                    value: serde_json::json!("<script>alert(1)</script>"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-            ],
-        };
-        let gv = vec![FieldGroupValue {
-            group_id: "g".to_string(),
-            entries: vec![entry],
-        }];
-        let fv = vec![FieldValue {
-            field_id: "f-title".to_string(),
-            value: serde_json::json!("R"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
-        create_record(&store, "t-cap", 1, fv, Some(gv), None).unwrap();
+        let store = make_composite_table_store_with(
+            Some("table"),
+            serde_json::json!(["Col"]),
+            serde_json::json!([{"cells": ["val"]}]),
+            Some(theme),
+            "html",
+            Some(serde_json::json!("<script>alert(1)</script>")),
+        );
 
         let result = render_document_view(RenderDocumentViewOptions {
             store: &store,
-            view_id: "dv-cap",
+            view_id: "dv-table",
             format: None,
             theme_variant: None,
             container_id: None,
@@ -5321,11 +5112,13 @@ mod tests {
     }
 
     #[test]
-    fn empty_columns_and_rows_emits_fg_cx2_diagnostic_and_skips_entry() {
+    fn empty_columns_and_rows_emits_cr036_2_diagnostic_and_skips_entry() {
+        // One entry with neither cells nor columns/rows roles → skipped with
+        // the [CR-036-2] diagnostic.
         let store = make_composite_table_store(
             Some("table"),
             serde_json::json!([]),
-            serde_json::json!([]),
+            serde_json::json!([{}]),
             None,
         );
         let result = render_document_view(RenderDocumentViewOptions {
@@ -5338,8 +5131,8 @@ mod tests {
         })
         .expect("render should not hard-error");
         assert!(
-            result.diagnostics.iter().any(|d| d.contains("[FG-Cx2]")),
-            "[FG-Cx2] diagnostic expected for empty entry, got: {:?}",
+            result.diagnostics.iter().any(|d| d.contains("[CR-036-2]")),
+            "[CR-036-2] diagnostic expected for empty entry, got: {:?}",
             result.diagnostics
         );
         assert!(
@@ -5362,7 +5155,7 @@ mod tests {
         use crate::package::Package;
         use srs_core::types::container::Container;
         use srs_core::types::field::{AiGuidance, Field, FieldType};
-        use srs_core::types::record::{FieldValue, Record};
+        use srs_core::types::record::{FieldValues, Record};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
         use srs_core::types::view::{
             DocumentSection, DocumentView, SectionOrdering, SectionSource,
@@ -5398,11 +5191,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
-                repeatable: false,
-                min_items: None,
-                max_items: None,
             }],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -5417,6 +5206,7 @@ mod tests {
         };
 
         let doc_view = DocumentView {
+            composite_renderers: None,
             id: "dv-field-sort".to_string(),
             namespace: "com.test".to_string(),
             name: "field-sort-view".to_string(),
@@ -5425,6 +5215,7 @@ mod tests {
             container_type: None,
             root_type_refs: None,
             sections: vec![DocumentSection {
+                composite_renderers: None,
                 section_id: "items".to_string(),
                 title: Some("Items".to_string()),
                 description: None,
@@ -5519,19 +5310,17 @@ mod tests {
 
         for (id, title) in &records_data {
             let record = Record {
+                field_meta: None,
                 instance_id: id.to_string(),
                 type_id: "t-record".to_string(),
                 type_version: 1,
                 type_namespace: "com.test".to_string(),
                 type_name: "item".to_string(),
-                field_values: vec![FieldValue {
-                    field_id: "f-heading".to_string(),
-                    value: serde_json::json!(title),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
-                group_values: None,
+                field_values: {
+                    let mut fv = FieldValues::new();
+                    fv.insert("heading", serde_json::json!(title));
+                    fv
+                },
                 lifecycle_state: None,
                 tags: None,
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
@@ -5737,11 +5526,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
-                repeatable: false,
-                min_items: None,
-                max_items: None,
             }],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -5773,7 +5558,7 @@ mod tests {
                 record_wrapper: None,
                 record_wrapper_overrides: None,
                 field_row: Some("BASE:{{field-value}}\n".to_string()),
-                group_field_row_templates: None,
+                composite_field_row_templates: None,
                 composite_renderer_config: None,
             }),
             stylesheet: None,
@@ -5787,6 +5572,7 @@ mod tests {
         themes.extend(extra_themes);
 
         let doc_view = DocumentView {
+            composite_renderers: None,
             id: "dv-auto-select".to_string(),
             namespace: "com.test".to_string(),
             name: "auto-select-view".to_string(),
@@ -5796,6 +5582,7 @@ mod tests {
             preamble: None,
             root_type_refs: None,
             sections: vec![DocumentSection {
+                composite_renderers: None,
                 section_id: "s-auto".to_string(),
                 order: 0,
                 title: None,
@@ -5891,7 +5678,7 @@ mod tests {
                 record_wrapper: None,
                 record_wrapper_overrides: None,
                 field_row: Some(format!("<p class=\"{name}\">{{{{field-value}}}}</p>\n")),
-                group_field_row_templates: None,
+                composite_field_row_templates: None,
                 composite_renderer_config: None,
             }),
             stylesheet: None,
@@ -6173,21 +5960,14 @@ mod tests {
                     order: 0,
                     required: true,
                     display_label: Some("Heading".to_string()),
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
                 FieldAssignment {
                     field_id: "f-body".to_string(),
                     order: 1,
                     required: false,
                     display_label: Some("Body".to_string()),
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
             ],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -6212,21 +5992,14 @@ mod tests {
                     order: 0,
                     required: true,
                     display_label: Some("Heading".to_string()),
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
                 FieldAssignment {
                     field_id: "f-caption".to_string(),
                     order: 1,
                     required: false,
                     display_label: Some("Caption".to_string()),
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
             ],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -6247,6 +6020,7 @@ mod tests {
             version: 1,
             description: "View for text sections only".to_string(),
             field_views: vec![FieldView {
+                composite_renderer: None,
                 field_id: "f-body".to_string(),
                 order: 0,
                 required: Some(true),
@@ -6340,22 +6114,12 @@ mod tests {
             &store,
             "t-text",
             1,
-            vec![
-                srs_core::types::record::FieldValue {
-                    field_id: "f-heading".to_string(),
-                    value: serde_json::json!("Introduction"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-                srs_core::types::record::FieldValue {
-                    field_id: "f-body".to_string(),
-                    value: serde_json::json!("The introduction body."),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-            ],
+            {
+                let mut fv = srs_core::types::record::FieldValues::new();
+                fv.insert("heading", serde_json::json!("Introduction"));
+                fv.insert("body", serde_json::json!("The introduction body."));
+                fv
+            },
             None,
             None,
         )
@@ -6366,22 +6130,12 @@ mod tests {
             &store,
             "t-table",
             1,
-            vec![
-                srs_core::types::record::FieldValue {
-                    field_id: "f-heading".to_string(),
-                    value: serde_json::json!("Summary Table"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-                srs_core::types::record::FieldValue {
-                    field_id: "f-caption".to_string(),
-                    value: serde_json::json!("Table caption here"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-            ],
+            {
+                let mut fv = srs_core::types::record::FieldValues::new();
+                fv.insert("heading", serde_json::json!("Summary Table"));
+                fv.insert("caption", serde_json::json!("Table caption here"));
+                fv
+            },
             None,
             None,
         )
@@ -6425,6 +6179,7 @@ mod tests {
     ) -> DocumentView {
         use srs_core::types::view::EmptyBehavior;
         DocumentView {
+            composite_renderers: None,
             id: "dv-rfc008".to_string(),
             namespace: "com.test".to_string(),
             name: "rfc008-view".to_string(),
@@ -6433,6 +6188,7 @@ mod tests {
             container_type: None,
             root_type_refs: None,
             sections: vec![DocumentSection {
+                composite_renderers: None,
                 section_id: "body".to_string(),
                 title: None,
                 description: None,
@@ -6664,22 +6420,12 @@ mod tests {
             &store,
             "t-text",
             1,
-            vec![
-                srs_core::types::record::FieldValue {
-                    field_id: "f-heading".to_string(),
-                    value: serde_json::json!("Conclusion"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-                srs_core::types::record::FieldValue {
-                    field_id: "f-body".to_string(),
-                    value: serde_json::json!("The conclusion."),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-            ],
+            {
+                let mut fv = srs_core::types::record::FieldValues::new();
+                fv.insert("heading", serde_json::json!("Conclusion"));
+                fv.insert("body", serde_json::json!("The conclusion."));
+                fv
+            },
             None,
             None,
         )
@@ -6830,13 +6576,13 @@ mod tests {
 
         for (id, state) in records {
             let record = srs_core::types::record::Record {
+                field_meta: None,
                 instance_id: id.to_string(),
                 type_id: "t-decision".to_string(),
                 type_version: 1,
                 type_namespace: "com.test".to_string(),
                 type_name: "decision".to_string(),
-                field_values: vec![],
-                group_values: None,
+                field_values: FieldValues::new(),
                 lifecycle_state: state.map(|s| s.to_string()),
                 tags: None,
                 created_at: None,
@@ -6870,6 +6616,7 @@ mod tests {
         lifecycle_state: Option<String>,
     ) -> srs_core::types::view::DocumentView {
         srs_core::types::view::DocumentView {
+            composite_renderers: None,
             id: dv_id.to_string(),
             namespace: "com.test".to_string(),
             name: dv_id.to_string(),
@@ -6878,6 +6625,7 @@ mod tests {
             container_type: None,
             root_type_refs: None,
             sections: vec![srs_core::types::view::DocumentSection {
+                composite_renderers: None,
                 section_id: "s1".to_string(),
                 title: None,
                 description: None,
@@ -7286,13 +7034,13 @@ mod tests {
         let mut index_entries = Vec::new();
         for (id, state) in records {
             let record = srs_core::types::record::Record {
+                field_meta: None,
                 instance_id: id.to_string(),
                 type_id: "t-decision".to_string(),
                 type_version: 1,
                 type_namespace: "com.test".to_string(),
                 type_name: "decision".to_string(),
-                field_values: vec![],
-                group_values: None,
+                field_values: FieldValues::new(),
                 lifecycle_state: state.map(|s| s.to_string()),
                 tags: None,
                 created_at: None,
@@ -7558,6 +7306,7 @@ mod tests {
         use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
 
         let dv = DocumentView {
+            composite_renderers: None,
             id: "dv-zero-hide".to_string(),
             namespace: "com.test".to_string(),
             name: "dv-zero-hide".to_string(),
@@ -7566,6 +7315,7 @@ mod tests {
             container_type: None,
             root_type_refs: None,
             sections: vec![DocumentSection {
+                composite_renderers: None,
                 section_id: "s-hide".to_string(),
                 title: Some("Hidden Section".to_string()),
                 description: None,
@@ -7737,30 +7487,20 @@ mod tests {
                     order: 0,
                     required: true,
                     display_label: Some("Heading".to_string()),
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
                 FieldAssignment {
                     field_id: "f-other".to_string(),
                     order: 1,
                     required: false,
                     display_label: Some("Other".to_string()),
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
                 FieldAssignment {
                     field_id: "f-closed".to_string(),
                     order: 2,
                     required: false,
                     display_label: Some("Closed".to_string()),
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
             ],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -7785,11 +7525,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: Some("Heading".to_string()),
-                repeatable: false,
-                min_items: None,
-                max_items: None,
             }],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -7803,6 +7539,7 @@ mod tests {
         };
 
         let make_type_query_section = |sot: &str, title_field_id: Option<String>| DocumentSection {
+            composite_renderers: None,
             section_id: "items".to_string(),
             title: Some("Items".to_string()),
             description: None,
@@ -7825,6 +7562,7 @@ mod tests {
         };
 
         let make_dv = |id: &str, name: &str, section: DocumentSection, format: &str| DocumentView {
+            composite_renderers: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),
             name: name.to_string(),
@@ -7913,38 +7651,20 @@ mod tests {
         };
         let store = crate::store::memory::MemoryStore::new(manifest, package);
 
-        let fv_identity = vec![
-            srs_core::types::record::FieldValue {
-                field_id: "f-head".to_string(),
-                value: serde_json::json!("My Identity Heading"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-            srs_core::types::record::FieldValue {
-                field_id: "f-other".to_string(),
-                value: serde_json::json!("Other Title"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-            srs_core::types::record::FieldValue {
-                field_id: "f-closed".to_string(),
-                value: serde_json::json!("Closed Value"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-        ];
+        let fv_identity = {
+            let mut fv = srs_core::types::record::FieldValues::new();
+            fv.insert("heading", serde_json::json!("My Identity Heading"));
+            fv.insert("other", serde_json::json!("Other Title"));
+            fv.insert("closed", serde_json::json!("Closed Value"));
+            fv
+        };
         create_record(&store, "t-identity", 1, fv_identity, None, None).unwrap();
 
-        let fv_plain = vec![srs_core::types::record::FieldValue {
-            field_id: "f-head".to_string(),
-            value: serde_json::json!("Plain Record"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        let fv_plain = {
+            let mut fv = srs_core::types::record::FieldValues::new();
+            fv.insert("heading", serde_json::json!("Plain Record"));
+            fv
+        };
         create_record(&store, "t-plain", 1, fv_plain, None, None).unwrap();
 
         (
@@ -8035,11 +7755,11 @@ mod tests {
 
     #[test]
     fn identity_field_id_fallback_filestore_roundtrip() {
-        let repo_root = repeatable_fixture_root();
+        let repo_root = render_identity_fixture_root();
         let store = FileStore::new(&repo_root);
-        // identity-fallback-view: TypeQuery for fixture.repeatable/identity-item, no titleFieldId
-        // identity-item type has identityFieldId → Title field
-        // The identity record's Title = "identity heading value"
+        // identity-fallback-view: TypeQuery for fixture.render/identity-item, no titleFieldId
+        // identity-item type has identityFieldId → heading field
+        // The identity record's heading = "identity heading value"
         let result = render_document_view(RenderDocumentViewOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000985",
@@ -8128,6 +7848,7 @@ mod tests {
 
     fn minimal_document_view() -> srs_core::types::view::DocumentView {
         srs_core::types::view::DocumentView {
+            composite_renderers: None,
             id: "dv-test".to_string(),
             namespace: "com.test".to_string(),
             name: "test-view".to_string(),
@@ -8405,11 +8126,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: Some("Heading".to_string()),
-                repeatable: false,
-                min_items: None,
-                max_items: None,
             }],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -8433,6 +8150,7 @@ mod tests {
     ) -> srs_core::types::view::DocumentSection {
         use srs_core::types::view::{DocumentSection, EmptyBehavior, SectionSource};
         DocumentSection {
+            composite_renderers: None,
             section_id: section_id.to_string(),
             title: Some(title.to_string()),
             description: None,
@@ -8462,6 +8180,7 @@ mod tests {
 
         let (heading_field, item_type) = simple_field_and_type();
         let doc_view = DocumentView {
+            composite_renderers: None,
             id: "dv-degrade".to_string(),
             namespace: "com.test".to_string(),
             name: "degrade-view".to_string(),
@@ -8543,13 +8262,11 @@ mod tests {
         )
         .unwrap();
 
-        let fv = vec![srs_core::types::record::FieldValue {
-            field_id: "f-heading".to_string(),
-            value: serde_json::json!("Alpha Record"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        let fv = {
+            let mut fv = srs_core::types::record::FieldValues::new();
+            fv.insert("heading", serde_json::json!("Alpha Record"));
+            fv
+        };
         let record = create_record(&store, "t-item", 1, fv, None, None).unwrap();
         container_service::add_member(&store, GOOD_CONTAINER_ID, &record.instance_id).unwrap();
 
@@ -8662,6 +8379,7 @@ mod tests {
 
         let (heading_field, item_type) = simple_field_and_type();
         let doc_view = DocumentView {
+            composite_renderers: None,
             id: "dv-notes".to_string(),
             namespace: "com.test".to_string(),
             name: "notes-view".to_string(),
@@ -8765,13 +8483,11 @@ mod tests {
         .note;
         container_service::add_root(&store, GOOD_CONTAINER_ID, &note.instance_id).unwrap();
 
-        let fv = vec![srs_core::types::record::FieldValue {
-            field_id: "f-heading".to_string(),
-            value: serde_json::json!("Typed Member"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        let fv = {
+            let mut fv = srs_core::types::record::FieldValues::new();
+            fv.insert("heading", serde_json::json!("Typed Member"));
+            fv
+        };
         let record = create_record(&store, "t-item", 1, fv, None, None).unwrap();
         container_service::add_member(&store, GOOD_CONTAINER_ID, &record.instance_id).unwrap();
 
@@ -8854,6 +8570,7 @@ mod tests {
 
         let (heading_field, item_type) = simple_field_and_type();
         let doc_view = DocumentView {
+            composite_renderers: None,
             id: "dv-fixed-note".to_string(),
             namespace: "com.test".to_string(),
             name: "fixed-note-view".to_string(),
@@ -8864,6 +8581,7 @@ mod tests {
             sections: vec![
                 // Section under test: FixedInstances references a Tier-0 note
                 DocumentSection {
+                    composite_renderers: None,
                     section_id: "fixed-sec".to_string(),
                     title: Some("Fixed".to_string()),
                     description: None,
@@ -8881,6 +8599,7 @@ mod tests {
                 },
                 // TypeQuery section: proves typed records still render (no regression)
                 DocumentSection {
+                    composite_renderers: None,
                     section_id: "typed-sec".to_string(),
                     title: Some("Items".to_string()),
                     description: None,
@@ -8967,13 +8686,11 @@ mod tests {
         )
         .unwrap();
 
-        let fv = vec![srs_core::types::record::FieldValue {
-            field_id: "f-heading".to_string(),
-            value: serde_json::json!("Typed Item"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        let fv = {
+            let mut fv = srs_core::types::record::FieldValues::new();
+            fv.insert("heading", serde_json::json!("Typed Item"));
+            fv
+        };
         create_record(&store, "t-item", 1, fv, None, None).unwrap();
 
         let result = render_document_view(RenderDocumentViewOptions::new(&store, "dv-fixed-note"))
@@ -9021,6 +8738,7 @@ mod tests {
 
         let (heading_field, item_type) = simple_field_and_type();
         let doc_view = DocumentView {
+            composite_renderers: None,
             id: "dv-rq-note".to_string(),
             namespace: "com.test".to_string(),
             name: "rq-note-view".to_string(),
@@ -9029,6 +8747,7 @@ mod tests {
             container_type: None,
             root_type_refs: None,
             sections: vec![DocumentSection {
+                composite_renderers: None,
                 section_id: SECTION_ID.to_string(),
                 title: Some("Related".to_string()),
                 description: None,
@@ -9255,7 +8974,14 @@ mod tests {
             namespace: "com.test".to_string(),
             name: "test".to_string(),
             version: "1.0.0".to_string(),
-            fields: vec![],
+            // "f-title"/"title" bridges section.titleFieldId (a Field UUID) to
+            // the name-keyed carrier in the display-label fallback tests.
+            fields: vec![srs_core::types::field::Field::new(
+                "f-title",
+                "com.test",
+                "title",
+                srs_core::types::field::FieldType::string(),
+            )],
             record_types: vec![],
             relation_type_definitions: rtds,
             views: vec![],
@@ -9286,27 +9012,20 @@ mod tests {
         label_field: Option<(&str, &str)>,
     ) {
         use crate::index::InstanceIndexEntry;
-        use srs_core::types::record::{FieldValue, Record};
-        let field_values = label_field
-            .map(|(fid, val)| {
-                vec![FieldValue {
-                    field_id: fid.to_string(),
-                    value: serde_json::json!(val),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }]
-            })
-            .unwrap_or_default();
+        use srs_core::types::record::{FieldValues, Record};
+        let mut field_values = FieldValues::new();
+        if let Some((name, val)) = label_field {
+            field_values.insert(name, serde_json::json!(val));
+        }
 
         let record = Record {
+            field_meta: None,
             instance_id: id.to_string(),
             type_id: "t-test".to_string(),
             type_version: 1,
             type_namespace: "com.test".to_string(),
             type_name: "item".to_string(),
             field_values,
-            group_values: None,
             lifecycle_state: None,
             tags: None,
             created_at: None,
@@ -9333,6 +9052,7 @@ mod tests {
         entries: Vec<RelationPresentationEntry>,
     ) -> srs_core::types::view::DocumentSection {
         srs_core::types::view::DocumentSection {
+            composite_renderers: None,
             section_id: "s-rp".to_string(),
             title: None,
             description: None,
@@ -9355,13 +9075,13 @@ mod tests {
 
     fn src_rec(id: &str) -> srs_core::types::record::Record {
         srs_core::types::record::Record {
+            field_meta: None,
             instance_id: id.to_string(),
             type_id: "t-test".to_string(),
             type_version: 1,
             type_namespace: "com.test".to_string(),
             type_name: "item".to_string(),
-            field_values: vec![],
-            group_values: None,
+            field_values: FieldValues::new(),
             lifecycle_state: None,
             tags: None,
             created_at: None,
@@ -9638,7 +9358,7 @@ mod tests {
     fn relations_block_display_label_identity_field() {
         use crate::index::InstanceIndexEntry;
         use srs_core::types::field::{AiGuidance, Field, FieldType};
-        use srs_core::types::record::{FieldValue, Record};
+        use srs_core::types::record::Record;
         use srs_core::types::record_type::{FieldAssignment, RecordType};
 
         let field = Field {
@@ -9670,11 +9390,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
-                repeatable: false,
-                min_items: None,
-                max_items: None,
             }],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -9726,19 +9442,17 @@ mod tests {
             .unwrap();
 
         let target = Record {
+            field_meta: None,
             instance_id: "rec-named".to_string(),
             type_id: "t-named".to_string(),
             type_version: 1,
             type_namespace: "com.test".to_string(),
             type_name: "named".to_string(),
-            field_values: vec![FieldValue {
-                field_id: "f-name".to_string(),
-                value: serde_json::json!("My Identity Label"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
-            group_values: None,
+            field_values: {
+                let mut fv = srs_core::types::record::FieldValues::new();
+                fv.insert("name", serde_json::json!("My Identity Label"));
+                fv
+            },
             lifecycle_state: None,
             tags: None,
             created_at: None,
@@ -9786,7 +9500,7 @@ mod tests {
     #[test]
     fn relations_block_display_label_title_field_fallback() {
         use crate::index::InstanceIndexEntry;
-        use srs_core::types::record::{FieldValue, Record};
+        use srs_core::types::record::Record;
 
         let store = make_rp_store(
             vec![test_rtd("links-to", "Links To", None, false)],
@@ -9794,19 +9508,17 @@ mod tests {
         );
 
         let target = Record {
+            field_meta: None,
             instance_id: "rec-titled".to_string(),
             type_id: "t-test".to_string(),
             type_version: 1,
             type_namespace: "com.test".to_string(),
             type_name: "item".to_string(),
-            field_values: vec![FieldValue {
-                field_id: "f-title".to_string(),
-                value: serde_json::json!("Title Field Value"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
-            group_values: None,
+            field_values: {
+                let mut fv = srs_core::types::record::FieldValues::new();
+                fv.insert("title", serde_json::json!("Title Field Value"));
+                fv
+            },
             lifecycle_state: None,
             tags: None,
             created_at: None,
@@ -9921,6 +9633,7 @@ mod tests {
         use srs_core::types::view::{DocumentSection, DocumentView, SectionSource};
 
         let dv = DocumentView {
+            composite_renderers: None,
             id: "dv-rp-test".to_string(),
             namespace: "com.test".to_string(),
             name: "rp-test".to_string(),
@@ -9929,6 +9642,7 @@ mod tests {
             container_type: None,
             root_type_refs: None,
             sections: vec![DocumentSection {
+                composite_renderers: None,
                 section_id: "s-rp".to_string(),
                 title: None,
                 description: None,
@@ -9979,7 +9693,14 @@ mod tests {
             namespace: "com.test".to_string(),
             name: "test".to_string(),
             version: "1.0.0".to_string(),
-            fields: vec![],
+            // "f-title"/"title" bridges section.titleFieldId (a Field UUID) to
+            // the name-keyed carrier in the display-label fallback tests.
+            fields: vec![srs_core::types::field::Field::new(
+                "f-title",
+                "com.test",
+                "title",
+                srs_core::types::field::FieldType::string(),
+            )],
             record_types: vec![],
             relation_type_definitions: rtds,
             views: vec![],
@@ -10086,6 +9807,7 @@ mod tests {
             inverse_label: None,
         };
         let dv = DocumentView {
+            composite_renderers: None,
             id: dv_id.to_string(),
             namespace: "com.test".to_string(),
             name: dv_id.to_string(),
@@ -10094,6 +9816,7 @@ mod tests {
             container_type: None,
             root_type_refs: None,
             sections: vec![DocumentSection {
+                composite_renderers: None,
                 section_id: "s-rr".to_string(),
                 title: None,
                 description: None,
@@ -10190,13 +9913,13 @@ mod tests {
         std::fs::create_dir_all(repo_root.join("records")).unwrap();
         for id in &[src_id, tgt_id] {
             let record = srs_core::types::record::Record {
+                field_meta: None,
                 instance_id: id.to_string(),
                 type_id: "t-test".to_string(),
                 type_version: 1,
                 type_namespace: "com.test".to_string(),
                 type_name: "item".to_string(),
-                field_values: vec![],
-                group_values: None,
+                field_values: FieldValues::new(),
                 lifecycle_state: None,
                 tags: None,
                 created_at: None,
@@ -10343,37 +10066,6 @@ mod tests {
         format_field_row(format, RowIdentity::FieldName(name), label, value)
     }
 
-    /// A FieldValue carrying a single raw JSON value.
-    fn fv(value: serde_json::Value) -> srs_core::types::record::FieldValue {
-        srs_core::types::record::FieldValue {
-            field_id: "f".to_string(),
-            value,
-            entries: None,
-            source: None,
-            edited_at: None,
-        }
-    }
-
-    /// A FieldValue carrying a legacy `ext:repeatable-fields` sequence.
-    fn fv_entries(values: &[&str]) -> srs_core::types::record::FieldValue {
-        srs_core::types::record::FieldValue {
-            field_id: "f".to_string(),
-            value: serde_json::Value::Null,
-            entries: Some(
-                values
-                    .iter()
-                    .map(|v| srs_core::types::record::FieldValueEntry {
-                        value: serde_json::json!(v),
-                        source: None,
-                        edited_at: None,
-                    })
-                    .collect(),
-            ),
-            source: None,
-            edited_at: None,
-        }
-    }
-
     #[test]
     fn fr_037_3_scalar_row_forms_per_format() {
         assert_eq!(
@@ -10408,8 +10100,8 @@ mod tests {
         assert_eq!(
             field_row("html", "rationale", "Rationale", &scalar("because")),
             "<div class=\"srs-field srs-fieldname-rationale\">\
-             <strong class=\"srs-field-label field-label\">Rationale</strong>: \
-             <span class=\"srs-field-value field-value\">because</span></div>"
+             <strong class=\"srs-field-label\">Rationale</strong>: \
+             <span class=\"srs-field-value\">because</span></div>"
         );
     }
 
@@ -10468,9 +10160,9 @@ mod tests {
         assert_eq!(
             field_row("html", "tags", "Tags", &entries(&["alpha", "beta"])),
             "<div class=\"srs-field srs-fieldname-tags\">\
-             <strong class=\"srs-field-label field-label\">Tags</strong>:\
-             <ul><li class=\"srs-field-value field-value\">alpha</li>\
-             <li class=\"srs-field-value field-value\">beta</li></ul></div>"
+             <strong class=\"srs-field-label\">Tags</strong>:\
+             <ul><li class=\"srs-field-value\">alpha</li>\
+             <li class=\"srs-field-value\">beta</li></ul></div>"
         );
     }
 
@@ -10538,17 +10230,18 @@ mod tests {
 
     #[test]
     fn fr_037_9_entries_rendering_to_nothing_are_dropped() {
-        let fv = fv(serde_json::json!(["alpha", "", "beta"]));
         assert_eq!(
-            render_field_value(&fv, None, "markdown"),
+            render_field_value(&serde_json::json!(["alpha", "", "beta"]), None, "markdown"),
             Some(entries(&["alpha", "beta"]))
         );
     }
 
     #[test]
     fn fr_037_9_sequence_with_no_surviving_entries_is_absent() {
-        let fv = fv(serde_json::json!(["", ""]));
-        assert_eq!(render_field_value(&fv, None, "markdown"), None);
+        assert_eq!(
+            render_field_value(&serde_json::json!(["", ""]), None, "markdown"),
+            None
+        );
     }
 
     #[test]
@@ -10560,8 +10253,10 @@ mod tests {
             value_to_text_owned(&serde_json::json!(""), "markdown"),
             None
         );
-        let fv = fv(serde_json::json!(""));
-        assert_eq!(render_field_value(&fv, None, "markdown"), None);
+        assert_eq!(
+            render_field_value(&serde_json::json!(""), None, "markdown"),
+            None
+        );
     }
 
     #[test]
@@ -10585,8 +10280,8 @@ mod tests {
         assert_eq!(
             field_row("html", "owner", "Owner", &RowValue::Placeholder),
             "<div class=\"srs-field srs-fieldname-owner\">\
-             <strong class=\"srs-field-label field-label\">Owner</strong>: \
-             <span class=\"srs-field-value field-value srs-empty-value\">(empty)</span></div>"
+             <strong class=\"srs-field-label\">Owner</strong>: \
+             <span class=\"srs-field-value srs-empty-value\">(empty)</span></div>"
         );
     }
 
@@ -10629,15 +10324,16 @@ mod tests {
     }
 
     #[test]
-    fn fr_037_14_prefixed_names_ship_with_their_unprefixed_aliases() {
+    fn fr_037_14_prefixed_names_only_aliases_gone_at_cutover() {
+        // [FR-037-14]: the #242 cutover fired — the unprefixed compatibility
+        // aliases (`field-label`/`field-value`) are no longer emitted.
         let row = field_row("html", "f", "L", &scalar("v"));
+        assert!(row.contains("class=\"srs-field-label\""), "{row}");
+        assert!(row.contains("class=\"srs-field-value\""), "{row}");
+        assert!(!row.contains("field-label field-label"), "{row}");
         assert!(
-            row.contains("class=\"srs-field-label field-label\""),
-            "{row}"
-        );
-        assert!(
-            row.contains("class=\"srs-field-value field-value\""),
-            "{row}"
+            !row.contains("srs-field-label field-label"),
+            "unprefixed alias must be gone after the cutover: {row}"
         );
     }
 
@@ -10704,21 +10400,23 @@ mod tests {
     fn fr_037_18_array_value_is_multi_entry_without_a_resolvable_field() {
         // The Tier 1 shape: no FieldAssignment, no Field UUID — array-ness alone
         // makes the value a sequence.
-        let fv = fv(serde_json::json!(["a", "b"]));
         assert_eq!(
-            render_field_value(&fv, None, "markdown"),
+            render_field_value(&serde_json::json!(["a", "b"]), None, "markdown"),
             Some(entries(&["a", "b"]))
         );
     }
 
     #[test]
-    fn repeatable_entries_are_a_sequence_too() {
-        // Both mechanisms produce a sequence and the RFC covers them without
-        // preferring either: cardinality: "list" and the legacy
-        // ext:repeatable-fields entries path.
-        let fv = fv_entries(&["first", "second"]);
+    fn list_cardinality_values_are_a_sequence_too() {
+        // RFC-039 Change D: `cardinality: "list"` is the one sequence mechanism
+        // (successor of the retired ext:repeatable-fields entries path).
+        let ft = FieldType::string().into_list();
         assert_eq!(
-            render_field_value(&fv, None, "markdown"),
+            render_field_value(
+                &serde_json::json!(["first", "second"]),
+                Some(&ft),
+                "markdown"
+            ),
             Some(entries(&["first", "second"]))
         );
     }
@@ -10737,7 +10435,6 @@ mod tests {
         use crate::package::Package;
         use crate::record_store::create_record;
         use srs_core::types::field::{AiGuidance, Field, FieldType};
-        use srs_core::types::record::FieldValue;
         use srs_core::types::record_type::{FieldAssignment, RecordType};
         use srs_core::types::view::{DocumentSection, DocumentView, SectionSource};
 
@@ -10765,9 +10462,6 @@ mod tests {
                 order,
                 required,
                 display_label: label.map(|l| l.to_string()),
-                repeatable: false,
-                min_items: None,
-                max_items: None,
             };
 
         let record_type = RecordType {
@@ -10782,7 +10476,6 @@ mod tests {
                 // end to end, not only in the primitive.
                 assignment("f-summary", 1, summary_required, Some("Executive Summary")),
             ],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -10796,6 +10489,7 @@ mod tests {
         };
 
         let doc_view = DocumentView {
+            composite_renderers: None,
             id: "dv-row".to_string(),
             namespace: "com.test".to_string(),
             name: "row-view".to_string(),
@@ -10804,6 +10498,7 @@ mod tests {
             container_type: None,
             root_type_refs: None,
             sections: vec![DocumentSection {
+                composite_renderers: None,
                 section_id: "s-row".to_string(),
                 title: None,
                 description: None,
@@ -10847,6 +10542,7 @@ mod tests {
                 description: "L1 View over the row record".to_string(),
                 field_views: vec![
                     FieldView {
+                        composite_renderer: None,
                         field_id: "f-heading".to_string(),
                         order: 0,
                         required: None,
@@ -10854,6 +10550,7 @@ mod tests {
                         display_label: None,
                     },
                     FieldView {
+                        composite_renderer: None,
                         field_id: "f-summary".to_string(),
                         order: 1,
                         required: Some(true),
@@ -10912,22 +10609,12 @@ mod tests {
         };
         let store = crate::store::memory::MemoryStore::new(manifest, package);
 
-        let values = vec![
-            FieldValue {
-                field_id: "f-heading".to_string(),
-                value: serde_json::json!("Heading value"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-            FieldValue {
-                field_id: "f-summary".to_string(),
-                value: summary_value,
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-        ];
+        let values = {
+            let mut fv = srs_core::types::record::FieldValues::new();
+            fv.insert("heading", serde_json::json!("Heading value"));
+            fv.insert("summary", summary_value);
+            fv
+        };
         create_record(&store, "t-row", 1, values, None, None).unwrap();
         store
     }
@@ -10958,6 +10645,23 @@ mod tests {
         assert!(
             !out.contains(": \n") && !out.ends_with(": "),
             "no label may be emitted with an empty value; got:\n{out:?}"
+        );
+        assert!(
+            out.contains("**heading**: Heading value"),
+            "the present field must still render; got:\n{out}"
+        );
+    }
+
+    /// [R5a]: `""` is a *present* value — a required field valued `""` passes
+    /// write-time validation (`create_record` inside the store builder), yet
+    /// still emits no row ([FR-037-10]: empty renders nothing).
+    #[test]
+    fn required_empty_string_validates_and_emits_no_row() {
+        let store = make_row_baseline_store("markdown", None, true, serde_json::json!(""), false);
+        let out = render_rows(&store);
+        assert!(
+            !out.contains("Executive Summary"),
+            "a required field valued \"\" must emit no row; got:\n{out}"
         );
         assert!(
             out.contains("**heading**: Heading value"),

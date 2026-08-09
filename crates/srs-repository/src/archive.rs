@@ -1469,6 +1469,9 @@ mod tests {
     fn legacy_snapshot_archive_still_loads() {
         // Migration ramp (#688): the committed fixture was packed by the
         // pre-ADR-039 code (package.snapshot.json, no per-definition files).
+        // The archive format still LOADS; its records are revision ≤ 1, so
+        // validation now rejects them structurally with [R9] diagnostics naming
+        // dataModelRevision — the mandated disposition, not a defect.
         let bytes = std::fs::read(LEGACY).expect("legacy fixture committed?");
         let tree = crate::archive::archive_to_tree(Cursor::new(bytes)).expect("legacy load");
         let report = crate::validation::validate_repository(&tree).expect("validate");
@@ -1477,7 +1480,23 @@ mod tests {
             .iter()
             .filter(|d| format!("{d:?}").contains("Error"))
             .collect();
-        assert!(errors.is_empty(), "legacy archive invalid: {errors:?}");
+        assert!(
+            !errors.is_empty(),
+            "revision <= 1 records must be rejected ([R9])"
+        );
+        assert!(
+            errors
+                .iter()
+                .all(|d| d.message.contains("fieldValues")
+                    || d.message.contains("dataModelRevision")),
+            "every error must be the [R9] carrier rejection, got: {errors:?}"
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|d| d.message.contains("dataModelRevision")),
+            "the [R9] diagnostic must name dataModelRevision, got: {errors:?}"
+        );
     }
 
     #[test]

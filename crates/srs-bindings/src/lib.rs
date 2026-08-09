@@ -1413,6 +1413,7 @@ mod tests {
             "manifest": {
                 "repositoryId": "test-repo-bindings-graduate",
                 "srsVersion": "2.0-draft",
+                "dataModelRevision": 2,
                 "namespace": "com.test",
                 "instanceIndex": [{
                     "instanceId": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
@@ -1438,7 +1439,7 @@ mod tests {
                     "namespace": "com.test",
                     "name": "body",
                     "version": 1,
-                    "valueType": "string",
+                    "fieldType": {"datatype": "string"},
                     "description": "Body",
                     "aiGuidance": null,
                     "createdAt": "2026-01-01T00:00:00Z"
@@ -1452,8 +1453,7 @@ mod tests {
                     "fields": [{
                         "fieldId": "field-bind-00001",
                         "order": 0,
-                        "required": false,
-                        "repeatable": false
+                        "required": false
                     }],
                     "createdAt": "2026-01-01T00:00:00Z"
                 },
@@ -1477,8 +1477,8 @@ mod tests {
                 type_ref: "com.test/bind-type".to_string(),
                 type_version: None,
                 record_input: CreateRecordInput {
-                    field_values: vec![],
-                    group_values: None,
+                    field_values: Default::default(),
+                    field_meta: None,
                     tags: None,
                 },
                 container_id: None,
@@ -1509,6 +1509,7 @@ mod tests {
             "manifest": {
                 "repositoryId": "test-repo-bindings-container",
                 "srsVersion": "2.0-draft",
+                "dataModelRevision": 2,
                 "namespace": "com.test",
                 "instanceIndex": [],
                 "containerIndex": [{
@@ -1534,7 +1535,7 @@ mod tests {
                     "namespace": "com.test",
                     "name": "title",
                     "version": 1,
-                    "valueType": "string",
+                    "fieldType": {"datatype": "string"},
                     "description": "Title",
                     "aiGuidance": null,
                     "createdAt": "2026-01-01T00:00:00Z"
@@ -1548,8 +1549,7 @@ mod tests {
                     "fields": [{
                         "fieldId": "field-title-00001",
                         "order": 0,
-                        "required": true,
-                        "repeatable": false
+                        "required": true
                     }],
                     "createdAt": "2026-01-01T00:00:00Z"
                 },
@@ -1577,14 +1577,12 @@ mod tests {
                 container_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc".to_string(),
                 type_id: "type-container-001".to_string(),
                 type_version: 1,
-                field_values: vec![srs_core::types::record::FieldValue {
-                    field_id: "field-title-00001".to_string(),
-                    value: serde_json::json!("My Decision"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
-                group_values: None,
+                field_values: srs_core::types::record::FieldValues(
+                    [("title".to_string(), serde_json::json!("My Decision"))]
+                        .into_iter()
+                        .collect(),
+                ),
+                field_meta: None,
                 tags: None,
             },
         )
@@ -1634,8 +1632,8 @@ mod tests {
                 type_ref: "com.test/bind-type".to_string(),
                 type_version: None,
                 record_input: CreateRecordInput {
-                    field_values: vec![],
-                    group_values: None,
+                    field_values: Default::default(),
+                    field_meta: None,
                     tags: None,
                 },
                 container_id: None,
@@ -1714,6 +1712,7 @@ mod tests {
             "manifest": {
                 "repositoryId": "test-repo-get-field-value",
                 "srsVersion": "2.0-draft",
+                "dataModelRevision": 2,
                 "namespace": "com.test",
                 "instanceIndex": [{
                     "instanceId": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
@@ -1739,7 +1738,7 @@ mod tests {
                     "namespace": "com.test",
                     "name": "title",
                     "version": 1,
-                    "valueType": "string",
+                    "fieldType": {"datatype": "string"},
                     "description": "Title",
                     "aiGuidance": null,
                     "createdAt": "2026-01-01T00:00:00Z"
@@ -1753,8 +1752,7 @@ mod tests {
                     "fields": [{
                         "fieldId": "field-gfvbn-title",
                         "order": 0,
-                        "required": true,
-                        "repeatable": false
+                        "required": true
                     }],
                     "createdAt": "2026-01-01T00:00:00Z"
                 },
@@ -1765,10 +1763,7 @@ mod tests {
                     "typeVersion": 1,
                     "typeNamespace": "com.test",
                     "typeName": "titled-type",
-                    "fieldValues": [{
-                        "fieldId": "field-gfvbn-title",
-                        "value": "My Title"
-                    }]
+                    "fieldValues": {"title": "My Title"}
                 }
             }
         })
@@ -2147,6 +2142,7 @@ mod tests {
             "manifest": {
                 "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
                 "srsVersion": "2.0",
+                "dataModelRevision": 2,
                 "repositoryId": "00000000-0000-4000-8000-000000000099",
                 "title": "Size Warning Test",
                 "container": {
@@ -2189,7 +2185,7 @@ mod tests {
                     "version": 1,
                     "description": "max per-file bytes",
                     "aiGuidance": null,
-                    "valueType": "number",
+                    "fieldType": {"datatype": "number"},
                     "createdAt": "2026-01-01T00:00:00Z"
                 },
                 "package/types/repo_settings.json": {
@@ -2208,7 +2204,7 @@ mod tests {
                     "typeVersion": 1,
                     "typeNamespace": "com.semanticops.base",
                     "typeName": "repo_settings",
-                    "fieldValues": [{"fieldId": MAX_FILE, "value": 50}],
+                    "fieldValues": {"max_per_file_bytes": 50},
                     "createdAt": "2026-01-01T00:00:00Z"
                 }
             }
@@ -2372,7 +2368,6 @@ mod tests {
             preamble: None,
             fields: serde_json::json!({}),
             ordered_field_keys: vec![],
-            field_groups: None,
             relations: Some(vec![row]),
         };
         let json = serde_json::to_value(&record).expect("ProjectedRecord must serialize");
@@ -2409,22 +2404,11 @@ mod tests {
         );
     }
 
-    /// Verify that `ProjectedRecord.fieldGroups` serialises with the `groupId` key matching
-    /// the TypeScript interface declared in `srs-web/src/lib/srs-client.ts` (#713).
+    /// RFC-039 [R11]: a composite value is carried recursively inside `fields`
+    /// under its own key — the former `fieldGroups` projection is gone.
     #[test]
-    fn projected_record_with_field_groups_serialises() {
-        use srs_repository::render_service::{
-            ProjectedFieldGroup, ProjectedGroupEntry, ProjectedRecord,
-        };
-        let entry = ProjectedGroupEntry {
-            entry_id: Some("entry-001".to_string()),
-            fields: serde_json::json!({"title": "Test"}),
-        };
-        let group = ProjectedFieldGroup {
-            group_id: "grp-001".to_string(),
-            label: Some("Group A".to_string()),
-            entries: vec![entry],
-        };
+    fn projected_record_carries_composite_value_in_fields() {
+        use srs_repository::render_service::ProjectedRecord;
         let record = ProjectedRecord {
             instance_id: "rec-002".to_string(),
             type_id: "type-001".to_string(),
@@ -2432,36 +2416,18 @@ mod tests {
             type_name: "decision".to_string(),
             record_heading: None,
             preamble: None,
-            fields: serde_json::json!({}),
-            ordered_field_keys: vec![],
-            field_groups: Some(vec![group]),
+            fields: serde_json::json!({"rows": [{"cells": ["a", "b"]}]}),
+            ordered_field_keys: vec!["rows".to_string()],
             relations: None,
         };
         let json = serde_json::to_value(&record).expect("ProjectedRecord must serialize");
-        let groups = json["fieldGroups"]
-            .as_array()
-            .expect("fieldGroups must be array");
-        assert_eq!(groups.len(), 1, "one field group");
-        assert_eq!(json["fieldGroups"][0]["groupId"].as_str(), Some("grp-001"));
-        assert_eq!(json["fieldGroups"][0]["label"].as_str(), Some("Group A"));
-        let entries = json["fieldGroups"][0]["entries"]
-            .as_array()
-            .expect("entries must be array");
-        assert_eq!(entries.len(), 1, "one entry");
         assert_eq!(
-            json["fieldGroups"][0]["entries"][0]["entryId"].as_str(),
-            Some("entry-001")
+            json["fields"]["rows"],
+            serde_json::json!([{"cells": ["a", "b"]}])
         );
-        // Absence: when fieldGroups is None the key must be absent
-        let record_no_groups = ProjectedRecord {
-            field_groups: None,
-            ..record
-        };
-        let json2 =
-            serde_json::to_value(&record_no_groups).expect("ProjectedRecord must serialize");
         assert!(
-            json2.get("fieldGroups").is_none(),
-            "fieldGroups key must be absent when None"
+            json.get("fieldGroups").is_none(),
+            "fieldGroups key no longer exists on ProjectedRecord"
         );
     }
 }

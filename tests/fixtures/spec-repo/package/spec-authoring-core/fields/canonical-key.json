@@ -9,7 +9,9 @@
     "purpose": "A stable human-readable key for this record, used for deterministic identity and cross-referencing.",
     "extraction": "Format: 'type:namespace/name' or 'record:path/identifier'. Canonical keys must be unique within the repository and stable across exports. Used where UUIDs are too opaque for humans to work with directly."
   },
-  "valueType": "string",
+  "fieldType": {
+    "datatype": "string"
+  },
   "editorHint": "singleline",
   "createdAt": "2026-05-27T00:00:00Z"
 }

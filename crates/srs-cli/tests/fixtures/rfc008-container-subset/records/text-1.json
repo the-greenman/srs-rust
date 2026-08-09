@@ -5,10 +5,7 @@
   "typeVersion": 1,
   "typeNamespace": "fixture.rfc008",
   "typeName": "section.text",
-  "fieldValues": [
-    {
-      "fieldId": "00000000-0000-4000-8000-000000003501",
-      "value": "Text-One"
-    }
-  ]
+  "fieldValues": {
+    "title": "Text-One"
+  }
 }

@@ -42,7 +42,7 @@ fn blueprint_srsj() -> String {
                 "namespace": "com.test",
                 "name": "title",
                 "version": 1,
-                "valueType": "string",
+                "fieldType": {"datatype": "string"},
                 "description": "Title field",
                 "aiGuidance": null,
                 "createdAt": "2026-01-01T00:00:00Z"
@@ -54,7 +54,7 @@ fn blueprint_srsj() -> String {
                 "version": 1,
                 "description": "A guide root",
                 "fields": [
-                    {"fieldId": "field-title-001", "order": 0, "required": true, "repeatable": false}
+                    {"fieldId": "field-title-001", "order": 0, "required": true}
                 ],
                 "createdAt": "2026-01-01T00:00:00Z"
             },
@@ -65,7 +65,7 @@ fn blueprint_srsj() -> String {
                 "version": 1,
                 "description": "A guide section",
                 "fields": [
-                    {"fieldId": "field-title-001", "order": 0, "required": true, "repeatable": false}
+                    {"fieldId": "field-title-001", "order": 0, "required": true}
                 ],
                 "createdAt": "2026-01-01T00:00:00Z"
             },

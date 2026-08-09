@@ -5,18 +5,11 @@
   "typeVersion": 1,
   "typeNamespace": "fixture.repeatable",
   "typeName": "repeatable-item",
-  "fieldValues": [
-    {
-      "fieldId": "00000000-0000-4000-8000-000000000901",
-      "value": "first",
-      "entries": [
-        {"value": "first"},
-        {"value": "second"}
-      ]
-    },
-    {
-      "fieldId": "00000000-0000-4000-8000-000000000903",
-      "value": "body text"
-    }
-  ]
+  "fieldValues": {
+    "title": [
+      "first",
+      "second"
+    ],
+    "body": "body text"
+  }
 }

@@ -24,7 +24,6 @@ use srs_core::types::record_type::RecordType;
 use srs_core::types::relation_type_definition::{RelationTypeCategory, RelationTypeDefinition};
 use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentSection, DocumentView, FieldView, SectionSource, View};
-use std::collections::HashMap;
 
 const BOUNDARY: &str = "packages/governance";
 
@@ -69,7 +68,6 @@ fn make_type(id: &str, name: &str) -> RecordType {
         version: 1,
         description: "A test type".to_string(),
         fields: vec![],
-        field_groups: None,
         extends_type_id: None,
         extends_type_version: None,
         field_order: None,
@@ -91,6 +89,7 @@ fn make_view(name: &str) -> View {
         version: 1,
         description: "test view".to_string(),
         field_views: vec![FieldView {
+            composite_renderer: None,
             field_id: "f1".to_string(),
             order: 0,
             required: None,
@@ -108,6 +107,7 @@ fn make_view(name: &str) -> View {
 
 fn make_document_view(name: &str) -> DocumentView {
     DocumentView {
+        composite_renderers: None,
         id: String::new(),
         namespace: "com.test".to_string(),
         name: name.to_string(),
@@ -116,6 +116,7 @@ fn make_document_view(name: &str) -> DocumentView {
         container_type: None,
         root_type_refs: None,
         sections: vec![DocumentSection {
+            composite_renderers: None,
             section_id: "s1".to_string(),
             title: None,
             description: None,

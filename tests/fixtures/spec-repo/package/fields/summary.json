@@ -8,7 +8,10 @@
   "aiGuidance": {
     "purpose": "Summaries should be 1-3 sentences that capture the essence. Used in lists, indexes, and previews."
   },
-  "valueType": "text",
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
   "editorHint": "textarea",
   "createdAt": "2026-05-27T00:00:00Z"
 }

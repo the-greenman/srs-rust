@@ -1,16 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-07-22T12:06:54.802394292+00:00",
-  "fieldValues": [
-    {
-      "fieldId": "22222222-2222-4222-8222-222222222221",
-      "value": "Adopt the tree model"
-    },
-    {
-      "fieldId": "22222222-2222-4222-8222-222222222222",
-      "value": true
-    }
-  ],
+  "fieldValues": {
+    "title": "Adopt the tree model",
+    "approved": true
+  },
   "instanceId": "0ce8cbdd-5a77-4740-a34a-83b3afa63a3e",
   "typeId": "33333333-3333-4333-8333-333333333331",
   "typeName": "decision",

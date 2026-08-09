@@ -8,7 +8,7 @@
 // code paths as the WASM methods. They do not invoke the WASM wrapper itself (which requires
 // the WASM runtime).
 
-use srs_core::types::record::FieldValue;
+use srs_core::types::record::FieldValues;
 use srs_repository::record_store::{self, CreateRecordSuccessorInput, TransitionLifecycleInput};
 use srs_repository::relation_service::{self, ListRelationsFilter};
 use srs_repository::JsonStore;
@@ -67,7 +67,7 @@ fn lifecycle_srsj() -> String {
                 "namespace": "com.test.lc",
                 "name": "title",
                 "version": 1,
-                "valueType": "string"
+                "fieldType": {"datatype": "string"}
             },
             "package/types/proposal.json": {
                 "id": "type-proposal-001",
@@ -136,12 +136,7 @@ fn lifecycle_srsj() -> String {
                 "typeNamespace": "com.test.lc",
                 "typeVersion": 1,
                 "lifecycleState": "draft",
-                "fieldValues": [
-                    {
-                        "fieldId": "field-title-lc",
-                        "value": "My Proposal"
-                    }
-                ],
+                "fieldValues": {"title": "My Proposal"},
                 "createdAt": "2026-01-01T00:00:00Z",
                 "updatedAt": "2026-01-01T00:00:00Z"
             },
@@ -152,12 +147,7 @@ fn lifecycle_srsj() -> String {
                 "typeNamespace": "com.test.lc",
                 "typeVersion": 1,
                 "lifecycleState": "draft",
-                "fieldValues": [
-                    {
-                        "fieldId": "field-title-lc",
-                        "value": "Another Proposal"
-                    }
-                ],
+                "fieldValues": {"title": "Another Proposal"},
                 "createdAt": "2026-01-01T00:00:00Z",
                 "updatedAt": "2026-01-01T00:00:00Z"
             }
@@ -422,13 +412,11 @@ fn create_record_successor_supersedes() {
         "rec-lc-001",
         CreateRecordSuccessorInput {
             relation_type: "supersedes".to_string(),
-            field_values: vec![FieldValue {
-                field_id: "field-title-lc".to_string(),
-                value: serde_json::json!("Successor Proposal"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
+            field_values: FieldValues(
+                [("title".to_string(), serde_json::json!("Successor Proposal"))]
+                    .into_iter()
+                    .collect(),
+            ),
             lifecycle_state: None,
             type_version: None,
         },
@@ -465,13 +453,11 @@ fn create_record_successor_refines() {
         "rec-lc-001",
         CreateRecordSuccessorInput {
             relation_type: "refines".to_string(),
-            field_values: vec![FieldValue {
-                field_id: "field-title-lc".to_string(),
-                value: serde_json::json!("Refined Proposal"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
+            field_values: FieldValues(
+                [("title".to_string(), serde_json::json!("Refined Proposal"))]
+                    .into_iter()
+                    .collect(),
+            ),
             lifecycle_state: None,
             type_version: None,
         },

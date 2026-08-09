@@ -492,8 +492,8 @@ fn cmd_get(key: &str, id: &str, repo: &str, explain: bool, json: bool) -> Result
     let record = &record_payload["record"];
     let type_id = record["typeId"].as_str().unwrap_or("");
     let type_version = record["typeVersion"].as_u64().unwrap_or(1);
-    let field_values: Vec<serde_json::Value> = record["fieldValues"]
-        .as_array()
+    let field_values = record["fieldValues"]
+        .as_object()
         .cloned()
         .unwrap_or_default();
 
@@ -600,17 +600,14 @@ fn cmd_create(
         .unwrap_or_default();
     let required_set: HashSet<&str> = required_arr.iter().filter_map(|v| v.as_str()).collect();
 
-    // Build ordered field list
-    let mut fields: Vec<(i64, String, String, bool)> = Vec::new();
+    // Build ordered field list (RFC-039: instance keys are Field.names — the
+    // schema property keys — so no fieldId lookup is needed)
+    let mut fields: Vec<(i64, String, bool)> = Vec::new();
     if let Some(p) = props {
         for (name, prop) in p {
             let order = prop["x-srs-order"].as_i64().unwrap_or(99);
-            let fid = match prop["x-srs-field-id"].as_str() {
-                Some(s) => s.to_string(),
-                None => continue,
-            };
             let req = required_set.contains(name.as_str());
-            fields.push((order, name.clone(), fid, req));
+            fields.push((order, name.clone(), req));
         }
         fields.sort_by_key(|f| f.0);
     }
@@ -619,16 +616,16 @@ fn cmd_create(
     // flag omitted, or a required field this command has no flag for at all) is only
     // ever acceptable in the dry-run/explain preview — the real write path bails
     // instead of persisting the placeholder text into the record.
-    let mut fv_entries: Vec<serde_json::Value> = Vec::new();
+    let mut fv_entries = serde_json::Map::new();
     let mut missing_required: Vec<&str> = Vec::new();
-    for (_, name, fid, req) in &fields {
+    for (_, name, req) in &fields {
         let real_value = match name.as_str() {
             "title" => title,
             "decision_statement" => statement,
             _ => None,
         };
         if let Some(v) = real_value {
-            fv_entries.push(serde_json::json!({ "fieldId": fid, "value": v }));
+            fv_entries.insert(name.clone(), serde_json::json!(v));
             continue;
         }
         if !*req {
@@ -641,10 +638,7 @@ fn cmd_create(
                 "decision_statement" => "<DECISION STATEMENT>",
                 _ => "<REQUIRED>",
             };
-            fv_entries.push(serde_json::json!({
-                "fieldId": fid,
-                "value": placeholder,
-            }));
+            fv_entries.insert(name.clone(), serde_json::json!(placeholder));
         }
     }
 

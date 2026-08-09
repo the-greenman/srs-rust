@@ -1388,7 +1388,6 @@ mod tests {
     use crate::package_types::DefinitionKind;
     use crate::store::memory::MemoryStore;
     use srs_core::types::field::{AiGuidance, FieldType};
-    use std::collections::HashMap;
 
     fn make_field(id: &str, name: &str) -> Field {
         Field {
@@ -1419,7 +1418,6 @@ mod tests {
             version: 1,
             description: "A test type".to_string(),
             fields: vec![],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,

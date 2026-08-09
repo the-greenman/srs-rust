@@ -103,7 +103,6 @@ mod tests {
     use crate::manifest::Manifest;
     use crate::store::memory::MemoryStore;
     use srs_core::types::note::{Note, NoteSection};
-    use std::collections::HashMap;
     use std::path::PathBuf;
 
     fn make_note(id: &str, title: &str) -> Note {

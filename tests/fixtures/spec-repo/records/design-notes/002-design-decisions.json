@@ -1,16 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Design Decisions"
-    },
-    {
-      "fieldId": "1a000002-0000-4000-a000-000000000002",
-      "value": ""
-    }
-  ],
+  "fieldValues": {
+    "title": "Design Decisions",
+    "content": ""
+  },
   "instanceId": "f1000002-0000-4000-a000-000000000002",
   "sourceRefs": [
     {

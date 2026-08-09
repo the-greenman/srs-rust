@@ -111,7 +111,7 @@ where
         serde_json::Value::Array(_) => Err(serde::de::Error::custom(
             "fieldValues is an array — this is a dataModelRevision <= 1 document; \
              expected dataModelRevision 2 (object keyed by Field.name, RFC-039 [R9]). \
-             Migrate the repository with `srs migrate`",
+             Migrate the repository with `srs repo apply-migration --id rfc039-carrier`",
         )),
         other => Err(serde::de::Error::custom(format!(
             "fieldValues must be an object keyed by Field.name (RFC-039 [R1]), got {}",

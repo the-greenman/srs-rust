@@ -36,7 +36,7 @@ fn minimal_srsj() -> String {
                 "namespace": "com.test",
                 "name": "title",
                 "version": 1,
-                "valueType": "string",
+                "fieldType": {"datatype": "string"},
                 "description": "Title field",
                 "aiGuidance": null,
                 "createdAt": "2026-01-01T00:00:00Z"
@@ -51,8 +51,7 @@ fn minimal_srsj() -> String {
                     {
                         "fieldId": "field-title-001",
                         "order": 0,
-                        "required": true,
-                        "repeatable": false
+                        "required": true
                     }
                 ],
                 "createdAt": "2026-01-01T00:00:00Z"
@@ -71,9 +70,7 @@ fn repo() -> SrsRepository {
 fn create_record_returns_record_with_expected_type_id() {
     let _r = repo();
     let input = serde_json::json!({
-        "fieldValues": [
-            {"fieldId": "field-title-001", "value": "Hello Widget"}
-        ]
+        "fieldValues": {"title": "Hello Widget"}
     })
     .to_string();
 
@@ -92,13 +89,11 @@ fn create_record_returns_record_with_expected_type_id() {
         &store,
         "type-widget-001",
         1,
-        vec![srs_core::types::record::FieldValue {
-            field_id: "field-title-001".to_string(),
-            value: serde_json::json!("Hello Widget"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }],
+        srs_core::types::record::FieldValues(
+            [("title".to_string(), serde_json::json!("Hello Widget"))]
+                .into_iter()
+                .collect(),
+        ),
         None,
         None,
     )
@@ -108,12 +103,10 @@ fn create_record_returns_record_with_expected_type_id() {
     assert_eq!(record.type_version, 1);
     assert!(!record.instance_id.is_empty());
 
-    let fv = record
-        .field_values
-        .iter()
-        .find(|fv| fv.field_id == "field-title-001")
-        .expect("title field value present");
-    assert_eq!(fv.value, serde_json::json!("Hello Widget"));
+    assert_eq!(
+        record.value("title"),
+        Some(&serde_json::json!("Hello Widget"))
+    );
     let _ = input; // input JSON kept for documentation purposes
 }
 
@@ -129,13 +122,11 @@ fn update_record_changes_field_value() {
         &store,
         "type-widget-001",
         1,
-        vec![srs_core::types::record::FieldValue {
-            field_id: "field-title-001".to_string(),
-            value: serde_json::json!("Original Title"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }],
+        srs_core::types::record::FieldValues(
+            [("title".to_string(), serde_json::json!("Original Title"))]
+                .into_iter()
+                .collect(),
+        ),
         None,
         None,
     )
@@ -148,26 +139,22 @@ fn update_record_changes_field_value() {
         &store,
         &instance_id,
         record_store::UpdateRecordInput {
-            field_values: vec![srs_core::types::record::FieldValue {
-                field_id: "field-title-001".to_string(),
-                value: serde_json::json!("Updated Title"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
-            group_values: None,
+            field_values: srs_core::types::record::FieldValues(
+                [("title".to_string(), serde_json::json!("Updated Title"))]
+                    .into_iter()
+                    .collect(),
+            ),
+            field_meta: None,
             tags: None,
             type_version: None,
         },
     )
     .expect("update_record should succeed");
 
-    let fv = updated
-        .field_values
-        .iter()
-        .find(|fv| fv.field_id == "field-title-001")
-        .expect("title field value present after update");
-    assert_eq!(fv.value, serde_json::json!("Updated Title"));
+    assert_eq!(
+        updated.value("title"),
+        Some(&serde_json::json!("Updated Title"))
+    );
     assert_eq!(updated.instance_id, instance_id);
 }
 
@@ -183,13 +170,11 @@ fn delete_record_makes_get_return_none() {
         &store,
         "type-widget-001",
         1,
-        vec![srs_core::types::record::FieldValue {
-            field_id: "field-title-001".to_string(),
-            value: serde_json::json!("To Be Deleted"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }],
+        srs_core::types::record::FieldValues(
+            [("title".to_string(), serde_json::json!("To Be Deleted"))]
+                .into_iter()
+                .collect(),
+        ),
         None,
         None,
     )
@@ -224,7 +209,7 @@ fn create_record_missing_required_field_errors() {
         &store,
         "type-widget-001",
         1,
-        vec![], // no field values
+        Default::default(), // no field values
         None,
         None,
     );

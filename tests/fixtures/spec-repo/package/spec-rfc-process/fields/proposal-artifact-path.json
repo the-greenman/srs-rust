@@ -9,7 +9,9 @@
     "purpose": "Keeps draft/proposed files discoverable without loading them into active packages or schemas.",
     "extraction": "Use a relative repository path under the RFC proposal area, such as rfcs/rfc-004/proposed-package/..."
   },
-  "valueType": "string",
+  "fieldType": {
+    "datatype": "string"
+  },
   "editorHint": "singleline",
   "createdAt": "2026-05-27T00:00:00Z"
 }

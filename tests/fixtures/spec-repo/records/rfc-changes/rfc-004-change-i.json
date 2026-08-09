@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "RFC-004 Change I: Reserve protobuf compatibility for a future package"
-    },
-    {
-      "fieldId": "5a000009-0000-4000-a000-000000000009",
-      "value": "future spec-authoring-protobuf"
-    },
-    {
-      "fieldId": "5a000006-0000-4000-a000-000000000006",
-      "value": "State that protobuf can be rendered from the same semantic IR where portable constructs are used, but protobuf-specific metadata is reserved for a future projection package."
-    },
-    {
-      "fieldId": "1a000004-0000-4000-a000-000000000004",
-      "value": "Field numbers, reserved ranges, oneof names, and protobuf package names are target metadata rather than core schema meaning."
-    }
-  ],
+  "fieldValues": {
+    "title": "RFC-004 Change I: Reserve protobuf compatibility for a future package",
+    "affected_components": "future spec-authoring-protobuf",
+    "proposed_change": "State that protobuf can be rendered from the same semantic IR where portable constructs are used, but protobuf-specific metadata is reserved for a future projection package.",
+    "rationale": "Field numbers, reserved ranges, oneof names, and protobuf package names are target metadata rather than core schema meaning."
+  },
   "instanceId": "8149374a-c3ed-5efb-81cd-a99a00d61ba1",
   "sourceRefs": [
     {

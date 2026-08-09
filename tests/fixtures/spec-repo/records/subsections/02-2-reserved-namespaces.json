@@ -1,16 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Reserved namespaces"
-    },
-    {
-      "fieldId": "1a000002-0000-4000-a000-000000000002",
-      "value": "`core` is reserved for definitions maintained by the SRS standard. Implementations must not allow user-created definitions in the `core` namespace."
-    }
-  ],
+  "fieldValues": {
+    "title": "Reserved namespaces",
+    "content": "`core` is reserved for definitions maintained by the SRS standard. Implementations must not allow user-created definitions in the `core` namespace."
+  },
   "instanceId": "b3bc0140-505a-5ab6-bfe1-4271e3c6b42f",
   "sourceRefs": [
     {

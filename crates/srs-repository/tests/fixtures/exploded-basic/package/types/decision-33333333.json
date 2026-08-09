@@ -7,13 +7,11 @@
     {
       "fieldId": "22222222-2222-4222-8222-222222222221",
       "order": 1,
-      "repeatable": false,
       "required": true
     },
     {
       "fieldId": "22222222-2222-4222-8222-222222222222",
       "order": 2,
-      "repeatable": false,
       "required": false
     }
   ],

@@ -831,11 +831,10 @@ mod tests {
         let record: srs_core::types::record::Record =
             serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
 
-        let has_statement = record
-            .field_values
-            .iter()
-            .any(|fv| fv.field_id == core_purpose::STATEMENT_FIELD_ID);
-        assert!(has_statement, "purpose record must have statement field");
+        assert!(
+            record.field_values.contains_key("statement"),
+            "purpose record must have statement field"
+        );
     }
 
     #[test]
@@ -855,12 +854,11 @@ mod tests {
         let record: srs_core::types::record::Record =
             serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
 
-        let title_fv = record
-            .field_values
-            .iter()
-            .find(|fv| fv.field_id == core_purpose::TITLE_FIELD_ID)
-            .expect("title field must be present when title given");
-        assert_eq!(title_fv.value.as_str(), Some("My Project"));
+        assert_eq!(
+            record.value_str("title"),
+            Some("My Project"),
+            "title field must be present when title given"
+        );
     }
 
     #[test]
@@ -878,11 +876,10 @@ mod tests {
         let record: srs_core::types::record::Record =
             serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
 
-        let has_title = record
-            .field_values
-            .iter()
-            .any(|fv| fv.field_id == core_purpose::TITLE_FIELD_ID);
-        assert!(!has_title, "title field must be absent when no title given");
+        assert!(
+            !record.field_values.contains_key("title"),
+            "title field must be absent when no title given"
+        );
     }
 
     #[test]

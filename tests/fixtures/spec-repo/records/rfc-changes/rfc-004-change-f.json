@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "RFC-004 Change F: Define portable constraints"
-    },
-    {
-      "fieldId": "5a000009-0000-4000-a000-000000000009",
-      "value": "ext:schema-notation"
-    },
-    {
-      "fieldId": "5a000006-0000-4000-a000-000000000006",
-      "value": "Define portable constraints for required/nullability, numeric bounds, string length and pattern, array cardinality and uniqueness, enum/literal values, scalar format, map key/value shape, and target-supported cardinality."
-    },
-    {
-      "fieldId": "1a000004-0000-4000-a000-000000000004",
-      "value": "Cross-field and conditional validation remain out of scope until a later semantic rule notation exists."
-    }
-  ],
+  "fieldValues": {
+    "title": "RFC-004 Change F: Define portable constraints",
+    "affected_components": "ext:schema-notation",
+    "proposed_change": "Define portable constraints for required/nullability, numeric bounds, string length and pattern, array cardinality and uniqueness, enum/literal values, scalar format, map key/value shape, and target-supported cardinality.",
+    "rationale": "Cross-field and conditional validation remain out of scope until a later semantic rule notation exists."
+  },
   "instanceId": "29b41659-4cf6-58e3-87ad-9edf01c9309e",
   "sourceRefs": [
     {

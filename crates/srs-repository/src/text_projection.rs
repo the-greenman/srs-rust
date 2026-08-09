@@ -303,7 +303,7 @@ pub fn project_typed_record_text(value: &serde_json::Value) -> Vec<TextSegment> 
 mod tests {
     use super::*;
     use srs_core::types::field::{AiGuidance, Field, FieldType, LegacyValueType, StringFormat};
-    use srs_core::types::record::{FieldGroupEntry, FieldGroupValue, FieldValueEntry};
+    use srs_core::types::record::FieldValues;
     use std::collections::HashMap;
 
     const TITLE: &str = "00000000-0000-4000-8000-00000000f001";
@@ -332,51 +332,50 @@ mod tests {
         }
     }
 
-    fn index() -> FieldTextIndex {
-        // Built from real Fields so searchability is *derived* from `fieldType`
-        // exactly as `build_field_text_index` derives it, rather than asserted
-        // by a hand-maintained boolean that could drift from the projection.
-        let fields = [
-            field(TITLE, "title", FieldType::string()),
-            field(BODY, "body", FieldType::text()),
-            field(COUNT, "count", FieldType::number()),
-            field(TAGS_FIELD, "labels", FieldType::multiselect(["a", "b"])),
-        ];
-        let names = fields
-            .iter()
-            .map(|f| (f.id.clone(), f.name.clone()))
-            .collect();
-        let searchable = fields
-            .iter()
-            .filter(|f| f.field_type.is_text_searchable())
-            .map(|f| f.id.clone())
-            .collect();
+    /// Derive a FieldTextIndex from real Fields, exactly as
+    /// `build_field_text_index` derives it, rather than asserting searchability
+    /// by a hand-maintained boolean that could drift from the projection.
+    fn index_from(fields: &[Field]) -> FieldTextIndex {
         FieldTextIndex {
-            names,
-            searchable,
+            names: fields
+                .iter()
+                .map(|f| (f.id.clone(), f.name.clone()))
+                .collect(),
+            searchable_names: fields
+                .iter()
+                .filter(|f| f.field_type.is_text_searchable())
+                .map(|f| f.name.clone())
+                .collect(),
+            ids_by_name: fields
+                .iter()
+                .map(|f| (f.name.clone(), f.id.clone()))
+                .collect(),
             identity_field_ids: HashMap::new(),
         }
     }
 
-    fn fv(field_id: &str, value: serde_json::Value) -> FieldValue {
-        FieldValue {
-            field_id: field_id.to_string(),
-            value,
-            entries: None,
-            source: None,
-            edited_at: None,
-        }
+    fn index() -> FieldTextIndex {
+        index_from(&[
+            field(TITLE, "title", FieldType::string()),
+            field(BODY, "body", FieldType::text()),
+            field(COUNT, "count", FieldType::number()),
+            field(TAGS_FIELD, "labels", FieldType::multiselect(["a", "b"])),
+        ])
     }
 
-    fn record(field_values: Vec<FieldValue>) -> Record {
+    fn record(pairs: Vec<(&str, serde_json::Value)>) -> Record {
+        let mut field_values = FieldValues::new();
+        for (name, value) in pairs {
+            field_values.insert(name, value);
+        }
         Record {
+            field_meta: None,
             instance_id: "r1".to_string(),
             type_id: "t1".to_string(),
             type_version: 1,
             type_namespace: "example".to_string(),
             type_name: "entry".to_string(),
             field_values,
-            group_values: None,
             lifecycle_state: None,
             tags: None,
             created_at: None,
@@ -392,9 +391,9 @@ mod tests {
     #[test]
     fn projects_searchable_value_types_and_skips_non_searchable() {
         let rec = record(vec![
-            fv(TITLE, serde_json::json!("Adopt consent")),
-            fv(BODY, serde_json::json!("Use consent for changes")),
-            fv(COUNT, serde_json::json!(42)),
+            ("title", serde_json::json!("Adopt consent")),
+            ("body", serde_json::json!("Use consent for changes")),
+            ("count", serde_json::json!(42)),
         ]);
         let segments = project_text(&rec, &index());
         // Number field excluded; title + body present; label appended (= title).
@@ -405,38 +404,54 @@ mod tests {
         assert_eq!(segments.last().unwrap().field_id, LABEL_SENTINEL);
     }
 
+    /// RFC-039 Change D: a list-cardinality field's value is a plain array;
+    /// every string item projects (the successor of the retired `entries`).
     #[test]
-    fn includes_repeated_entries_and_multiselect_arrays() {
-        let mut multi = fv(TAGS_FIELD, serde_json::json!(["alpha", "beta"]));
-        multi.entries = Some(vec![FieldValueEntry {
-            value: serde_json::json!("gamma"),
-            source: None,
-            edited_at: None,
-        }]);
-        let rec = record(vec![multi]);
+    fn includes_list_cardinality_array_items() {
+        let rec = record(vec![(
+            "labels",
+            serde_json::json!(["alpha", "beta", "gamma"]),
+        )]);
         let segments = project_text(&rec, &index());
         assert!(texts(&segments).contains(&"alpha"));
         assert!(texts(&segments).contains(&"beta"));
         assert!(texts(&segments).contains(&"gamma"));
     }
 
+    /// RFC-032 Rev 7 / RFC-039: composite (`ref`) fields are excluded from the
+    /// text projection outright — no composite recursion is defined. The
+    /// interior strings of an inline-composite value contribute nothing.
     #[test]
-    fn includes_group_values() {
-        let mut rec = record(vec![fv(TITLE, serde_json::json!("Root"))]);
-        rec.group_values = Some(vec![FieldGroupValue {
-            group_id: "g1".to_string(),
-            entries: vec![FieldGroupEntry {
-                field_values: vec![fv(BODY, serde_json::json!("nested body"))],
-                entry_id: None,
-            }],
-        }]);
-        let segments = project_text(&rec, &index());
-        assert!(texts(&segments).contains(&"nested body"));
+    fn composite_field_contributes_no_segments() {
+        const ROWS: &str = "00000000-0000-4000-8000-00000000f007";
+        let index = index_from(&[
+            field(TITLE, "title", FieldType::string()),
+            field(
+                ROWS,
+                "rows",
+                FieldType::inline_ref(srs_core::types::field_type::ExactTypeRef {
+                    type_id: "00000000-0000-4000-8000-0000000000bb".to_string(),
+                    type_version: 1,
+                })
+                .into_list(),
+            ),
+        ]);
+        let rec = record(vec![
+            ("title", serde_json::json!("Root")),
+            ("rows", serde_json::json!([{"cells": ["nested body"]}])),
+        ]);
+        let segments = project_text(&rec, &index);
+        assert!(texts(&segments).contains(&"Root"));
+        assert!(
+            !texts(&segments).contains(&"nested body"),
+            "composite interiors must not project: {:?}",
+            texts(&segments)
+        );
     }
 
     #[test]
     fn appends_label_and_tag_segments() {
-        let mut rec = record(vec![fv(TITLE, serde_json::json!("Heading"))]);
+        let mut rec = record(vec![("title", serde_json::json!("Heading"))]);
         rec.tags = Some(vec!["policy".to_string(), "ops".to_string()]);
         let segments = project_text(&rec, &index());
         let tag_segs: Vec<&str> = segments
@@ -457,8 +472,8 @@ mod tests {
     #[test]
     fn deterministic_segment_order() {
         let rec = record(vec![
-            fv(BODY, serde_json::json!("b")),
-            fv(TITLE, serde_json::json!("t")),
+            ("body", serde_json::json!("b")),
+            ("title", serde_json::json!("t")),
         ]);
         let a = project_text(&rec, &index());
         let b = project_text(&rec, &index());
@@ -496,26 +511,15 @@ mod tests {
             ),
         ];
         // Derived exactly as `build_field_text_index` derives it.
-        let index = FieldTextIndex {
-            names: fields
-                .iter()
-                .map(|f| (f.id.clone(), f.name.clone()))
-                .collect(),
-            searchable: fields
-                .iter()
-                .filter(|f| f.field_type.is_text_searchable())
-                .map(|f| f.id.clone())
-                .collect(),
-            identity_field_ids: HashMap::new(),
-        };
+        let index = index_from(&fields);
 
         let rec = record(vec![
-            fv(TITLE, serde_json::json!("Adopt consent")),
-            fv(
-                KEY,
+            ("title", serde_json::json!("Adopt consent")),
+            (
+                "key",
                 serde_json::json!("00000000-0000-4000-8000-000000000001"),
             ),
-            fv(CONTACT, serde_json::json!("someone@example.test")),
+            ("contact", serde_json::json!("someone@example.test")),
         ]);
         let segments = project_text(&rec, &index);
         let projected = texts(&segments);
@@ -612,14 +616,15 @@ mod tests {
 
     #[test]
     fn typed_record_projection_orders_title_fields_then_tags() {
+        // RFC-039 [R8]: every TypedField carries an inline fieldType.
         let value = serde_json::json!({
             "instanceId": "tr1",
             "title": "Discovery Feature Planning Meeting",
             "fields": [
-                { "name": "agenda", "valueType": "string", "value": "Discuss text projection algorithm" },
-                { "name": "attendee_count", "valueType": "number", "value": 4 },
-                { "name": "labels", "valueType": "multiselect", "value": ["alpha", "beta"] },
-                { "name": "untyped_note", "value": "no valueType but string value" }
+                { "name": "agenda", "fieldType": {"datatype": "string"}, "value": "Discuss text projection algorithm" },
+                { "name": "attendee_count", "fieldType": {"datatype": "number"}, "value": 4 },
+                { "name": "labels", "fieldType": {"datatype": "string", "valueDomain": "closed", "allowedValues": ["alpha", "beta"], "cardinality": "list"}, "value": ["alpha", "beta"] },
+                { "name": "plain_note", "fieldType": {"datatype": "string"}, "value": "no valueType but string value" }
             ],
             "tags": ["searchable"]
         });
@@ -646,11 +651,11 @@ mod tests {
         let value = serde_json::json!({
             "instanceId": "tr2",
             "fields": [
-                { "name": "score", "valueType": "number", "value": 3 },
-                { "name": "done", "valueType": "boolean", "value": true },
-                { "name": "due", "valueType": "date", "value": "2026-01-01" },
-                { "name": "empty", "valueType": "string", "value": "" },
-                { "name": "no_value" }
+                { "name": "score", "fieldType": {"datatype": "number"}, "value": 3 },
+                { "name": "done", "fieldType": {"datatype": "boolean"}, "value": true },
+                { "name": "due", "fieldType": {"datatype": "date"}, "value": "2026-01-01" },
+                { "name": "empty", "fieldType": {"datatype": "string"}, "value": "" },
+                { "name": "no_value", "fieldType": {"datatype": "string"} }
             ]
         });
         assert!(project_typed_record_text(&value).is_empty());
