@@ -229,11 +229,10 @@ mod tests {
     use crate::relation_service::create_relation_auto;
     use crate::store::memory::MemoryStore;
     use srs_core::types::field::{AiGuidance, Field, FieldType};
-    use srs_core::types::record::FieldValue;
+    use srs_core::types::record::FieldValues;
     use srs_core::types::record_type::{FieldAssignment, RecordType};
     use srs_core::types::relation::Relation;
     use srs_core::types::relation_type_definition::{RelationTypeCategory, RelationTypeDefinition};
-    use std::collections::HashMap;
 
     fn make_field(id: &str, name: &str) -> Field {
         Field {
@@ -271,12 +270,8 @@ mod tests {
                     order: i as u32,
                     required: false,
                     display_label: None,
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 })
                 .collect(),
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -344,14 +339,9 @@ mod tests {
         MemoryStore::new(manifest, package)
     }
 
-    fn add_record(store: &MemoryStore, type_id: &str, field_id: &str, title: &str) -> String {
-        let fv = vec![FieldValue {
-            field_id: field_id.to_string(),
-            value: serde_json::json!(title),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+    fn add_record(store: &MemoryStore, type_id: &str, field_name: &str, title: &str) -> String {
+        let mut fv = FieldValues::new();
+        fv.insert(field_name, serde_json::json!(title));
         create_record(store, type_id, 1, fv, None, None)
             .unwrap()
             .instance_id
@@ -384,8 +374,8 @@ mod tests {
             vec![make_field("f-title", "title")],
             vec![make_type("t-node", "node", &["f-title"])],
         );
-        let root_id = add_record(&store, "t-node", "f-title", "Root");
-        let child_id = add_record(&store, "t-node", "f-title", "Child");
+        let root_id = add_record(&store, "t-node", "title", "Root");
+        let child_id = add_record(&store, "t-node", "title", "Child");
         create_relation_auto(&store, make_relation("contains", &root_id, &child_id)).unwrap();
 
         let result = build_tree(&store, TreeOptions::default()).unwrap();
@@ -403,9 +393,9 @@ mod tests {
             vec![make_field("f-title", "title")],
             vec![make_type("t-node", "node", &["f-title"])],
         );
-        let root_id = add_record(&store, "t-node", "f-title", "Root");
-        let child_id = add_record(&store, "t-node", "f-title", "Child");
-        let grandchild_id = add_record(&store, "t-node", "f-title", "Grandchild");
+        let root_id = add_record(&store, "t-node", "title", "Root");
+        let child_id = add_record(&store, "t-node", "title", "Child");
+        let grandchild_id = add_record(&store, "t-node", "title", "Grandchild");
         create_relation_auto(&store, make_relation("contains", &root_id, &child_id)).unwrap();
         create_relation_auto(&store, make_relation("contains", &child_id, &grandchild_id)).unwrap();
 
@@ -431,8 +421,8 @@ mod tests {
             vec![make_field("f-title", "title")],
             vec![make_type("t-node", "node", &["f-title"])],
         );
-        let a_id = add_record(&store, "t-node", "f-title", "A");
-        let b_id = add_record(&store, "t-node", "f-title", "B");
+        let a_id = add_record(&store, "t-node", "title", "A");
+        let b_id = add_record(&store, "t-node", "title", "B");
         create_relation_auto(&store, make_relation("contains", &a_id, &b_id)).unwrap();
         create_relation_auto(&store, make_relation("contains", &b_id, &a_id)).unwrap();
 
@@ -464,8 +454,8 @@ mod tests {
             vec![make_field("f-title", "title")],
             vec![make_type("t-node", "node", &["f-title"])],
         );
-        let a_id = add_record(&store, "t-node", "f-title", "A");
-        let b_id = add_record(&store, "t-node", "f-title", "B");
+        let a_id = add_record(&store, "t-node", "title", "A");
+        let b_id = add_record(&store, "t-node", "title", "B");
         create_relation_auto(&store, make_relation("contains", &a_id, &b_id)).unwrap();
         create_relation_auto(&store, make_relation("contains", &b_id, &a_id)).unwrap();
 
@@ -519,8 +509,8 @@ mod tests {
             ],
         );
 
-        let sec_id = add_record(&store, "t-section", "f-title", "A Section");
-        let _note_id = add_record(&store, "t-note", "f-title", "A Note");
+        let sec_id = add_record(&store, "t-section", "title", "A Section");
+        let _note_id = add_record(&store, "t-note", "title", "A Note");
 
         let result = build_tree(
             &store,

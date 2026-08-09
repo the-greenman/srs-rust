@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000020-0000-4000-a000-000000000020",
-      "value": 33
-    },
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Revision.priorRevisionId, when present, must reference a…"
-    },
-    {
-      "fieldId": "1a000003-0000-4000-a000-000000000003",
-      "value": "`Revision.priorRevisionId`, when present, must reference a `Revision.revisionId` for the same `fieldId` and `recordId`. Revision chains must be acyclic."
-    },
-    {
-      "fieldId": "1a000021-0000-4000-a000-000000000021",
-      "value": "ext:addressability"
-    }
-  ],
+  "fieldValues": {
+    "invariant_number": 33,
+    "title": "Revision.priorRevisionId, when present, must reference a…",
+    "normative_statement": "`Revision.priorRevisionId`, when present, must reference a `Revision.revisionId` for the same `fieldId` and `recordId`. Revision chains must be acyclic.",
+    "applies_to": "ext:addressability"
+  },
   "instanceId": "e1000033-0000-4000-a000-000000000033",
   "sourceRefs": [
     {

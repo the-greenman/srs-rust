@@ -5,9 +5,11 @@
   "name": "protocol-target-type",
   "version": 1,
   "description": "The record type this protocol applies to.",
-  "valueType": "string",
   "aiGuidance": {
     "purpose": "Capture the target semantic object type this protocol is designed to produce or govern."
+  },
+  "fieldType": {
+    "datatype": "string"
   },
   "createdAt": "2026-05-29T00:00:00Z"
 }

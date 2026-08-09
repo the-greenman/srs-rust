@@ -7,14 +7,26 @@
   "description": "Test fixture for typeFilter and typeDispatch in ContainerSubset document-view sections.",
   "status": "active",
   "version": "1.0.0",
-  "fields": ["fields/title.json"],
-  "types": ["types/section-text.json", "types/section-table.json"],
-  "relationTypes": ["relation-types/precedes.json"],
-  "views": ["views/text-view.json", "views/table-view.json", "views/fallback-view.json"],
+  "fields": [
+    "fields/title.json"
+  ],
+  "types": [
+    "types/section-text.json",
+    "types/section-table.json"
+  ],
+  "relationTypes": [
+    "relation-types/precedes.json"
+  ],
+  "views": [
+    "views/text-view.json",
+    "views/table-view.json",
+    "views/fallback-view.json"
+  ],
   "documentViews": [
     "document-views/type-filter-view.json",
     "document-views/type-dispatch-view.json",
     "document-views/cross-type-order-view.json"
   ],
-  "createdAt": "2026-01-01T00:00:00Z"
+  "createdAt": "2026-01-01T00:00:00Z",
+  "dataModelRevision": 2
 }

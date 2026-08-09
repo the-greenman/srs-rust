@@ -32,5 +32,6 @@
   ],
   "protocols": [
     "protocols/entry-9a1b0c90.json"
-  ]
+  ],
+  "dataModelRevision": 2
 }

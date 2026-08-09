@@ -9,7 +9,9 @@
     "purpose": "A unique identifier (typically a UUID) for a definition being documented.",
     "extraction": "Use RFC 4122 UUID v4 or v5. Identifiers must be stable — they do not change when a definition is copied or imported."
   },
-  "valueType": "string",
+  "fieldType": {
+    "datatype": "string"
+  },
   "editorHint": "singleline",
   "createdAt": "2026-05-27T00:00:00Z"
 }

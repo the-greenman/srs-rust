@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000020-0000-4000-a000-000000000020",
-      "value": 59
-    },
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "FederationEvent with event === \"merge\" or event === \"import\" must…"
-    },
-    {
-      "fieldId": "1a000003-0000-4000-a000-000000000003",
-      "value": "A `FederationEvent` with `event === \"merge\"` or `event === \"import\"` must declare `sourceRepositoryId`. A `FederationEvent` with `event === \"split\"` must declare `targetRepositoryId`. `affectedInstanceIds` must be non-empty for all event types."
-    },
-    {
-      "fieldId": "1a000021-0000-4000-a000-000000000021",
-      "value": "ext:federation"
-    }
-  ],
+  "fieldValues": {
+    "invariant_number": 59,
+    "title": "FederationEvent with event === \"merge\" or event === \"import\" must…",
+    "normative_statement": "A `FederationEvent` with `event === \"merge\"` or `event === \"import\"` must declare `sourceRepositoryId`. A `FederationEvent` with `event === \"split\"` must declare `targetRepositoryId`. `affectedInstanceIds` must be non-empty for all event types.",
+    "applies_to": "ext:federation"
+  },
   "instanceId": "e1000059-0000-4000-a000-000000000059",
   "sourceRefs": [
     {

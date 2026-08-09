@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "RFC-004 Change D: Add schema-member type"
-    },
-    {
-      "fieldId": "5a000009-0000-4000-a000-000000000009",
-      "value": "spec-authoring-core types"
-    },
-    {
-      "fieldId": "5a000006-0000-4000-a000-000000000006",
-      "value": "Add `com.semanticops.spec/schema-member` to represent one addressable member of a schema definition, including member name, type expression, requiredness, nullability, constraints, schema default value, examples, deprecation, semantic purpose, and notes."
-    },
-    {
-      "fieldId": "1a000004-0000-4000-a000-000000000004",
-      "value": "Members need identity so invariants, examples, and migrations can cite individual schema properties."
-    }
-  ],
+  "fieldValues": {
+    "title": "RFC-004 Change D: Add schema-member type",
+    "affected_components": "spec-authoring-core types",
+    "proposed_change": "Add `com.semanticops.spec/schema-member` to represent one addressable member of a schema definition, including member name, type expression, requiredness, nullability, constraints, schema default value, examples, deprecation, semantic purpose, and notes.",
+    "rationale": "Members need identity so invariants, examples, and migrations can cite individual schema properties."
+  },
   "instanceId": "2e7aee83-a9e8-57a8-89bf-08917c91a69f",
   "sourceRefs": [
     {

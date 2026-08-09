@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000020-0000-4000-a000-000000000020",
-      "value": 35
-    },
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Every DocumentSection.renderViewId in any DocumentView within…"
-    },
-    {
-      "fieldId": "1a000003-0000-4000-a000-000000000003",
-      "value": "Every `DocumentSection.renderViewId` in any `DocumentView` within `Package.documentViews[]` must reference a `View.id` that appears in `Package.views[]` or `Package.dependencyRefs`. If `mode === \"bundled\"`, that `View` must be present in `Package.views[]`."
-    },
-    {
-      "fieldId": "1a000021-0000-4000-a000-000000000021",
-      "value": "ext:views-l2 — Distribution"
-    }
-  ],
+  "fieldValues": {
+    "invariant_number": 35,
+    "title": "Every DocumentSection.renderViewId in any DocumentView within…",
+    "normative_statement": "Every `DocumentSection.renderViewId` in any `DocumentView` within `Package.documentViews[]` must reference a `View.id` that appears in `Package.views[]` or `Package.dependencyRefs`. If `mode === \"bundled\"`, that `View` must be present in `Package.views[]`.",
+    "applies_to": "ext:views-l2 — Distribution"
+  },
   "instanceId": "e1000035-0000-4000-a000-000000000035",
   "sourceRefs": [
     {

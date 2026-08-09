@@ -90,8 +90,9 @@ async fn e2e_full_session_read_write_validate() {
 
     // ── Discover: type_schema teaches the authoring contract ─────────────────
     // The session finds the type in resources/list, reads its schema, and
-    // extracts the fieldId from x-srs-field-id — the full teaching loop; the
-    // fixture's own variables are deliberately NOT used for the write below.
+    // extracts the required field NAME (RFC-039: schema keys ARE the carrier
+    // keys; x-srs-field-id is retired) — the full teaching loop; the fixture's
+    // own variables are deliberately NOT used for the write below.
     let type_res = resources
         .iter()
         .find(|r| r.name == format!("{NS}/decision"))
@@ -110,24 +111,24 @@ async fn e2e_full_session_read_write_validate() {
         .unwrap();
     assert_eq!(schema_result.is_error, Some(false));
     let schema = &schema_result.structured_content.as_ref().unwrap()["schema"];
-    let discovered_field_id = schema["properties"]["title"]["x-srs-field-id"]
-        .as_str()
-        .expect("title property carries x-srs-field-id")
-        .to_string();
-    assert_eq!(
-        discovered_field_id, title_field_id,
-        "discovery matches ground truth"
+    assert!(
+        schema["properties"]["title"]["x-srs-field-id"].is_null(),
+        "x-srs-field-id is retired (RFC-039)"
     );
+    let discovered_key = schema["required"][0]
+        .as_str()
+        .expect("required lists the field name")
+        .to_string();
+    assert_eq!(discovered_key, "title", "discovery matches ground truth");
+    let _ = title_field_id;
 
-    // ── Write: record_create using the DISCOVERED fieldId ────────────────────
+    // ── Write: record_create using the DISCOVERED field name ─────────────────
     let created = client
         .call_tool(
             CallToolRequestParams::new("record_create").with_arguments(
                 serde_json::json!({
                     "type": format!("{NS}/decision"),
-                    "fieldValues": [
-                        { "fieldId": discovered_field_id, "value": "Adopt MCP" }
-                    ]
+                    "fieldValues": { discovered_key: "Adopt MCP" }
                 })
                 .as_object()
                 .cloned()

@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000020-0000-4000-a000-000000000020",
-      "value": 36
-    },
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Every TypeRef.typeId referenced in any Blueprint.rootTypes[],…"
-    },
-    {
-      "fieldId": "1a000003-0000-4000-a000-000000000003",
-      "value": "Every `TypeRef.typeId` referenced in any `Blueprint.rootTypes[]`, `Blueprint.requiredTypes[]`, or in any `RelationSpec.sourceType` or `RelationSpec.targetType` within `Blueprint.structure[]`, for each Blueprint in `Package.blueprints[]`, must appear in `Package.dependencyRefs` with `definitionType: \"type\"`. If `mode === \"bundled\"`, each such Type must be present in `Package.types[]`."
-    },
-    {
-      "fieldId": "1a000021-0000-4000-a000-000000000021",
-      "value": "ext:blueprint — Distribution"
-    }
-  ],
+  "fieldValues": {
+    "invariant_number": 36,
+    "title": "Every TypeRef.typeId referenced in any Blueprint.rootTypes[],…",
+    "normative_statement": "Every `TypeRef.typeId` referenced in any `Blueprint.rootTypes[]`, `Blueprint.requiredTypes[]`, or in any `RelationSpec.sourceType` or `RelationSpec.targetType` within `Blueprint.structure[]`, for each Blueprint in `Package.blueprints[]`, must appear in `Package.dependencyRefs` with `definitionType: \"type\"`. If `mode === \"bundled\"`, each such Type must be present in `Package.types[]`.",
+    "applies_to": "ext:blueprint — Distribution"
+  },
   "instanceId": "e1000036-0000-4000-a000-000000000036",
   "sourceRefs": [
     {

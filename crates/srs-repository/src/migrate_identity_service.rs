@@ -315,7 +315,6 @@ mod tests {
     use crate::writer::{upsert_index_entry, write_manifest, write_note};
     use srs_core::types::container::Container;
     use srs_core::types::note::{Note, NoteSection};
-    use std::collections::HashMap;
 
     fn bare_container(container_id: &str) -> Container {
         Container {
@@ -413,20 +412,17 @@ mod tests {
             Some(result.new_identity_id.as_str())
         );
         // Regression guard for #441: migrate_identity's own purpose-record builds must
-        // use the same field IDs as the repo-create scaffold path (core_purpose module).
-        let field_ids: Vec<&str> = raw["fieldValues"]
-            .as_array()
-            .expect("fieldValues must be an array")
-            .iter()
-            .filter_map(|fv| fv["fieldId"].as_str())
-            .collect();
+        // use the same carrier keys as the repo-create scaffold path (core_purpose module).
+        let keys = raw["fieldValues"]
+            .as_object()
+            .expect("fieldValues must be a name-keyed object (RFC-039)");
         assert!(
-            field_ids.contains(&core_purpose::STATEMENT_FIELD_ID),
-            "migrated purpose record must use core_purpose::STATEMENT_FIELD_ID"
+            keys.contains_key("statement"),
+            "migrated purpose record must carry the core 'statement' key"
         );
         assert!(
-            field_ids.contains(&core_purpose::TITLE_FIELD_ID),
-            "migrated purpose record must use core_purpose::TITLE_FIELD_ID"
+            keys.contains_key("title"),
+            "migrated purpose record must carry the core 'title' key"
         );
     }
 
@@ -470,21 +466,15 @@ mod tests {
             serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
 
         // Regression guard for #441: repo create's scaffold and repo migrate-identity
-        // previously used divergent field-ID constants. This ties the scaffold's actual
-        // output to the same constants migrate_identity reads.
+        // previously used divergent purpose-record builds. This ties the scaffold's
+        // actual output to the same carrier keys migrate_identity reads.
         assert!(
-            record
-                .field_values
-                .iter()
-                .any(|fv| fv.field_id == core_purpose::STATEMENT_FIELD_ID),
-            "scaffolded record must use core_purpose::STATEMENT_FIELD_ID"
+            record.field_values.contains_key("statement"),
+            "scaffolded record must carry the core 'statement' key"
         );
         assert!(
-            record
-                .field_values
-                .iter()
-                .any(|fv| fv.field_id == core_purpose::TITLE_FIELD_ID),
-            "scaffolded record must use core_purpose::TITLE_FIELD_ID"
+            record.field_values.contains_key("title"),
+            "scaffolded record must carry the core 'title' key"
         );
 
         let err = migrate_identity(&store).unwrap_err();
@@ -629,7 +619,7 @@ mod tests {
             "typeName": "some-other-type",
             "typeId": "99999999-9999-4999-a999-999999999999",
             "typeVersion": 1,
-            "fieldValues": []
+            "fieldValues": {}
         });
         store
             .save_instance_json(&format!("records/tier-2/{instance_id}.json"), &record_json)

@@ -551,7 +551,7 @@ mod tests {
     use crate::manifest::Manifest;
     use crate::store::memory::MemoryStore;
     use srs_core::types::note::NoteSection;
-    use std::collections::HashMap;
+    use srs_core::types::record::FieldValues;
     use std::path::PathBuf;
 
     fn make_note(id: &str, title: &str) -> Note {
@@ -1216,11 +1216,7 @@ mod tests {
                 order: 0,
                 required: false,
                 display_label: None,
-                repeatable: false,
-                min_items: None,
-                max_items: None,
             }],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -1292,8 +1288,8 @@ mod tests {
                 type_ref: "com.test/simple-type".to_string(),
                 type_version: None,
                 record_input: CreateRecordInput {
-                    field_values: vec![],
-                    group_values: None,
+                    field_meta: None,
+                    field_values: FieldValues::new(),
                     tags: None,
                 },
                 container_id: None,
@@ -1329,8 +1325,8 @@ mod tests {
                 type_ref: "com.test/simple-type".to_string(),
                 type_version: None,
                 record_input: CreateRecordInput {
-                    field_values: vec![],
-                    group_values: None,
+                    field_meta: None,
+                    field_values: FieldValues::new(),
                     tags: None,
                 },
                 container_id: None,
@@ -1393,8 +1389,8 @@ mod tests {
                 type_ref: "com.test/simple-type".to_string(),
                 type_version: None,
                 record_input: CreateRecordInput {
-                    field_values: vec![],
-                    group_values: None,
+                    field_meta: None,
+                    field_values: FieldValues::new(),
                     tags: None,
                 },
                 container_id: None,
@@ -1421,8 +1417,8 @@ mod tests {
                 type_ref: "com.test/simple-type".to_string(),
                 type_version: None,
                 record_input: CreateRecordInput {
-                    field_values: vec![],
-                    group_values: None,
+                    field_meta: None,
+                    field_values: FieldValues::new(),
                     tags: None,
                 },
                 container_id: None,
@@ -1584,8 +1580,8 @@ mod tests {
                 type_ref: "com.test/simple-type".to_string(),
                 type_version: None,
                 record_input: CreateRecordInput {
-                    field_values: vec![],
-                    group_values: None,
+                    field_meta: None,
+                    field_values: FieldValues::new(),
                     tags: None,
                 },
                 container_id: None,

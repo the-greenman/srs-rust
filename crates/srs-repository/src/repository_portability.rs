@@ -1179,7 +1179,6 @@ mod tests {
     use crate::store::{FileStore, RepositoryStore};
     use crate::validation::validate_repository;
     use srs_core::types::field::AiGuidance;
-    use std::collections::HashMap;
     use tempfile::TempDir;
 
     fn make_input() -> InitializeRepositoryInput {

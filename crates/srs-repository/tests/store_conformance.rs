@@ -27,7 +27,7 @@
 
 use srs_core::types::container::Container;
 use srs_core::types::note::Note;
-use srs_core::types::record::Record;
+use srs_core::types::record::{FieldValues, Record};
 use srs_repository::index::{InstanceQuery, InstanceRef};
 use srs_repository::{
     repository_lifecycle::{
@@ -37,7 +37,7 @@ use srs_repository::{
     store::memory::{FailPoint, MemoryStore},
     FileStore, JsonStore, RepositoryStore,
 };
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
@@ -107,24 +107,24 @@ fn make_container(id: &str, title: &str) -> Container {
         created_at: None,
         updated_at: None,
         meta: None,
-        extra: HashMap::new(),
+        extra: BTreeMap::new(),
     }
 }
 
 fn make_record(id: &str, type_name: &str, tags: Option<Vec<String>>) -> Record {
     Record {
+        field_meta: None,
         instance_id: id.to_string(),
         type_id: "00000000-0000-4000-8000-000000000001".to_string(),
         type_version: 1,
         type_namespace: "com.test.conf".to_string(),
         type_name: type_name.to_string(),
-        field_values: vec![],
-        group_values: None,
+        field_values: FieldValues::new(),
         lifecycle_state: None,
         tags,
         created_at: None,
         updated_at: None,
-        extra: HashMap::new(),
+        extra: BTreeMap::new(),
     }
 }
 

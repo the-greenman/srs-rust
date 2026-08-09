@@ -1,16 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Future Extensions"
-    },
-    {
-      "fieldId": "1a000002-0000-4000-a000-000000000002",
-      "value": "\nThe following capabilities are planned but out of scope for this version."
-    }
-  ],
+  "fieldValues": {
+    "title": "Future Extensions",
+    "content": "\nThe following capabilities are planned but out of scope for this version."
+  },
   "instanceId": "f1000030-0000-4000-a000-000000000030",
   "sourceRefs": [
     {

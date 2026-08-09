@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "RFC-004 Artifact: field-deprecated"
-    },
-    {
-      "fieldId": "5a000017-0000-4000-a000-000000000017",
-      "value": "field"
-    },
-    {
-      "fieldId": "5a000016-0000-4000-a000-000000000016",
-      "value": "rfcs/rfc-004/proposed-package/spec-authoring-core/fields/deprecated.json"
-    },
-    {
-      "fieldId": "1a000012-0000-4000-a000-000000000012",
-      "value": "Proposed schema vocabulary deprecation field."
-    }
-  ],
+  "fieldValues": {
+    "title": "RFC-004 Artifact: field-deprecated",
+    "artifact_kind": "field",
+    "proposal_artifact_path": "rfcs/rfc-004/proposed-package/spec-authoring-core/fields/deprecated.json",
+    "description": "Proposed schema vocabulary deprecation field."
+  },
   "instanceId": "ea30e14e-e860-5320-8424-e3287ff53287",
   "sourceRefs": [
     {

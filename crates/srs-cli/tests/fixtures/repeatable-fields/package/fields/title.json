@@ -5,7 +5,14 @@
   "name": "title",
   "version": 1,
   "description": "Repeatable title",
-  "aiGuidance": {"purpose": "capture title entries"},
-  "valueType": "string",
+  "aiGuidance": {
+    "purpose": "capture title entries"
+  },
+  "fieldType": {
+    "datatype": "string",
+    "cardinality": "list",
+    "minItems": 1,
+    "maxItems": 3
+  },
   "createdAt": "2026-01-01T00:00:00Z"
 }

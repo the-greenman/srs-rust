@@ -349,9 +349,14 @@ async fn read_type_schema_matches_service_output() {
     .unwrap();
     // Pretty-printed byte-equality with the service result — not compact.
     assert_eq!(text, serde_json::to_string_pretty(&expected).unwrap());
+    // RFC-039: schema keys are Field.name; x-srs-field-id is retired.
     assert!(
-        text.contains("x-srs-field-id"),
-        "schema must carry fieldIds"
+        !text.contains("x-srs-field-id"),
+        "x-srs-field-id must not be emitted (RFC-039)"
+    );
+    assert!(
+        text.contains("\"title\""),
+        "schema properties are keyed by field name"
     );
     assert!(
         text.contains("x-srs-ai-guidance") || text.contains("Avoid generic phrasing"),

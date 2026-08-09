@@ -635,7 +635,6 @@ mod tests {
     use crate::store::memory::MemoryStore;
     use crate::store::{FileStore, RepositoryStore};
     use srs_core::types::view::{DocumentSection, FieldView, SectionSource};
-    use std::collections::HashMap;
 
     fn setup_minimal_repo(root: &std::path::Path) {
         std::fs::create_dir_all(root.join(".srs")).unwrap();
@@ -667,6 +666,7 @@ mod tests {
             version: 1,
             description: "test view".to_string(),
             field_views: vec![FieldView {
+                composite_renderer: None,
                 field_id: "f1".to_string(),
                 order: 0,
                 required: None,
@@ -684,6 +684,7 @@ mod tests {
 
     fn minimal_document_view(name: &str) -> DocumentView {
         DocumentView {
+            composite_renderers: None,
             id: String::new(),
             namespace: "com.test".to_string(),
             name: name.to_string(),
@@ -692,6 +693,7 @@ mod tests {
             container_type: None,
             root_type_refs: None,
             sections: vec![DocumentSection {
+                composite_renderers: None,
                 section_id: "s1".to_string(),
                 title: None,
                 description: None,
@@ -1277,6 +1279,7 @@ mod tests {
         use std::path::PathBuf;
 
         let dv = DocumentView {
+            composite_renderers: None,
             id: "dv-test-id".to_string(),
             namespace: "com.test".to_string(),
             name: "test-dv".to_string(),
@@ -1288,6 +1291,7 @@ mod tests {
                 type_version,
             }]),
             sections: vec![srs_core::types::view::DocumentSection {
+                composite_renderers: None,
                 section_id: "s1".to_string(),
                 title: None,
                 description: None,
@@ -1464,6 +1468,7 @@ mod tests {
 
         // DocumentView expects a typed instance, but instance is Tier 0 (Note — no typeId)
         let dv = DocumentView {
+            composite_renderers: None,
             id: "dv-test-id".to_string(),
             namespace: "com.test".to_string(),
             name: "test-dv".to_string(),
@@ -1475,6 +1480,7 @@ mod tests {
                 type_version: 1,
             }]),
             sections: vec![srs_core::types::view::DocumentSection {
+                composite_renderers: None,
                 section_id: "s1".to_string(),
                 title: None,
                 description: None,

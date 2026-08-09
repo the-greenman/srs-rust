@@ -1180,7 +1180,7 @@ mod tests {
                     "typeVersion": 1,
                     "typeNamespace": "com.test",
                     "typeName": "test-type",
-                    "fieldValues": []
+                    "fieldValues": {}
                 }),
             )
             .unwrap();
@@ -1348,7 +1348,7 @@ mod tests {
                     "typeVersion": 1,
                     "typeNamespace": "com.test",
                     "typeName": "test-type",
-                    "fieldValues": []
+                    "fieldValues": {}
                 }),
             )
             .unwrap();
@@ -1423,7 +1423,7 @@ mod tests {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "test-type",
-                "fieldValues": []
+                "fieldValues": {}
             })
             .to_string(),
         )
@@ -1577,7 +1577,7 @@ mod tests {
                     "typeVersion": 1,
                     "typeNamespace": "com.test",
                     "typeName": "test-type",
-                    "fieldValues": [],
+                    "fieldValues": {},
                     "sourceRefs": [{
                         "sourceType": "repository-document",
                         "sourceId": doc_id,
@@ -1632,7 +1632,7 @@ mod tests {
                     "typeVersion": 1,
                     "typeNamespace": "com.test",
                     "typeName": "test-type",
-                    "fieldValues": []
+                    "fieldValues": {}
                 }),
             )
             .unwrap();
@@ -1691,7 +1691,7 @@ mod tests {
                     "typeVersion": 1,
                     "typeNamespace": "com.test",
                     "typeName": "test-type",
-                    "fieldValues": [],
+                    "fieldValues": {},
                     "sourceRefs": [{
                         "sourceType": "repository-document",
                         "sourceId": "nonexistent-doc-id",
@@ -1812,7 +1812,7 @@ mod tests {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "test-type",
-                "fieldValues": []
+                "fieldValues": {}
             })
             .to_string(),
         )
@@ -2035,7 +2035,7 @@ mod tests {
                     "typeVersion": 1,
                     "typeNamespace": "com.test",
                     "typeName": "test-type",
-                    "fieldValues": [],
+                    "fieldValues": {},
                     "sourceRefs": [
                         {
                             "sourceType": "repository-document",
@@ -2101,7 +2101,7 @@ mod tests {
                     "typeVersion": 1,
                     "typeNamespace": "com.test",
                     "typeName": "test-type",
-                    "fieldValues": []
+                    "fieldValues": {}
                 }),
             )
             .unwrap();
@@ -2181,7 +2181,7 @@ mod tests {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "test-type",
-                "fieldValues": []
+                "fieldValues": {}
             })
             .to_string(),
         )
@@ -2261,7 +2261,7 @@ mod tests {
                     "typeVersion": 1,
                     "typeNamespace": "com.test",
                     "typeName": "test-type",
-                    "fieldValues": [],
+                    "fieldValues": {},
                     "sourceRefs": [{
                         "sourceType": "repository-document",
                         "sourceId": doc_id,
@@ -2331,7 +2331,7 @@ mod tests {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "test-type",
-                "fieldValues": [],
+                "fieldValues": {},
                 "sourceRefs": [{
                     "sourceType": "repository-document",
                     "sourceId": doc_id,

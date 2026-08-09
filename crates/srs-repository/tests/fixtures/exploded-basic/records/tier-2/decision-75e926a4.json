@@ -1,16 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-07-22T12:06:54.826054912+00:00",
-  "fieldValues": [
-    {
-      "fieldId": "22222222-2222-4222-8222-222222222221",
-      "value": "Ship the GitHub provider"
-    },
-    {
-      "fieldId": "22222222-2222-4222-8222-222222222222",
-      "value": false
-    }
-  ],
+  "fieldValues": {
+    "title": "Ship the GitHub provider",
+    "approved": false
+  },
   "instanceId": "75e926a4-2355-4571-a2de-cdeeb2279224",
   "typeId": "33333333-3333-4333-8333-333333333331",
   "typeName": "decision",

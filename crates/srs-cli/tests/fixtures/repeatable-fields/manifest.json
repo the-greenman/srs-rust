@@ -1,12 +1,4 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
-  "srsVersion": "2.0",
-  "repositoryId": "00000000-0000-4000-8000-000000000990",
-  "title": "Repeatable Fields Fixture",
-  "container": {
-    "containerId": "00000000-0000-4000-8000-000000000990",
-    "title": "Repeatable Fields Fixture"
-  },
   "instanceIndex": [
     {
       "instanceId": "00000000-0000-4000-8000-000000000991",
@@ -14,15 +6,19 @@
       "path": "records/repeatable/valid.json"
     },
     {
-      "instanceId": "00000000-0000-4000-8000-000000000992",
-      "tier": 2,
-      "path": "records/repeatable/too-many.json"
-    },
-    {
       "instanceId": "00000000-0000-4000-8000-000000000993",
       "tier": 2,
       "path": "records/identity/main.json"
     }
   ],
-  "createdAt": "2026-01-01T00:00:00Z"
+  "container": {
+    "containerId": "00000000-0000-4000-8000-000000000990",
+    "title": "Repeatable Fields Fixture"
+  },
+  "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+  "createdAt": "2026-01-01T00:00:00Z",
+  "dataModelRevision": 2,
+  "repositoryId": "00000000-0000-4000-8000-000000000990",
+  "srsVersion": "2.0",
+  "title": "Repeatable Fields Fixture"
 }

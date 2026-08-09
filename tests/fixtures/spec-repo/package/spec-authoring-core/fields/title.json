@@ -9,7 +9,9 @@
     "purpose": "The human-readable title of a spec record.",
     "extraction": "Use clear, descriptive titles that summarise the content. For sections and subsections, write the plain title without section number prefixes — ordering comes from relations."
   },
-  "valueType": "string",
+  "fieldType": {
+    "datatype": "string"
+  },
   "editorHint": "singleline",
   "createdAt": "2026-05-27T00:00:00Z"
 }

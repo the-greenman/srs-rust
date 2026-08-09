@@ -5,9 +5,11 @@
   "name": "protocol-id",
   "version": 1,
   "description": "Unique identifier for the protocol definition.",
-  "valueType": "string",
   "aiGuidance": {
     "purpose": "Capture the stable identifier of a protocol definition."
+  },
+  "fieldType": {
+    "datatype": "string"
   },
   "createdAt": "2026-05-29T00:00:00Z"
 }

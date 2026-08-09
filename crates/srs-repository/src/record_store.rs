@@ -1971,6 +1971,7 @@ mod tests {
     use crate::manifest::Manifest;
     use crate::store::memory::MemoryStore;
     use serde_json::json;
+    use srs_core::types::record::FieldMeta;
     use std::path::PathBuf;
 
     fn srs_spec_repo() -> PathBuf {
@@ -2053,21 +2054,14 @@ mod tests {
                     order: 0,
                     required: true,
                     display_label: Some("Name".to_string()),
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
                 FieldAssignment {
                     field_id: "field-status-001".to_string(),
                     order: 1,
                     required: false,
                     display_label: Some("Status".to_string()),
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
             ],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -2147,9 +2141,6 @@ mod tests {
             order,
             required: false,
             display_label: None,
-            repeatable: false,
-            min_items: None,
-            max_items: None,
         };
         let labeled_type = RecordType {
             id: "type-labeled-0001".to_string(),
@@ -2161,7 +2152,6 @@ mod tests {
                 assignment("field-title-0001", 0),
                 assignment("field-summary-0001", 1),
             ],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -2210,14 +2200,16 @@ mod tests {
         MemoryStore::new(manifest, package)
     }
 
-    fn fv(field_id: &str, value: &str) -> FieldValue {
-        FieldValue {
-            field_id: field_id.to_string(),
-            value: json!(value),
-            entries: None,
-            source: None,
-            edited_at: None,
+    fn fvs(pairs: Vec<(&str, serde_json::Value)>) -> FieldValues {
+        let mut m = FieldValues::new();
+        for (k, v) in pairs {
+            m.insert(k, v);
         }
+        m
+    }
+
+    fn fv(name: &str, value: &str) -> FieldValues {
+        fvs(vec![(name, json!(value))])
     }
 
     #[test]
@@ -2227,7 +2219,7 @@ mod tests {
             &store,
             "type-labeled-0001",
             1,
-            vec![fv("field-title-0001", "My Title")],
+            fv("title", "My Title"),
             None,
             None,
         )
@@ -2251,7 +2243,7 @@ mod tests {
             &store,
             "type-labeled-0001",
             1,
-            vec![fv("field-summary-0001", "just a summary")],
+            fv("summary", "just a summary"),
             None,
             None,
         )
@@ -2266,24 +2258,8 @@ mod tests {
     #[test]
     fn list_record_summaries_respects_filter() {
         let store = make_store_with_title_field();
-        create_record(
-            &store,
-            "type-labeled-0001",
-            1,
-            vec![fv("field-title-0001", "A")],
-            None,
-            None,
-        )
-        .unwrap();
-        create_record(
-            &store,
-            "type-labeled-0001",
-            1,
-            vec![fv("field-title-0001", "B")],
-            None,
-            None,
-        )
-        .unwrap();
+        create_record(&store, "type-labeled-0001", 1, fv("title", "A"), None, None).unwrap();
+        create_record(&store, "type-labeled-0001", 1, fv("title", "B"), None, None).unwrap();
 
         // Matching type filter returns both; the same instance_ids list_records_filtered yields.
         let filter = RecordListFilter {
@@ -2325,7 +2301,7 @@ mod tests {
             &store,
             "type-labeled-0001",
             1,
-            vec![fv("field-title-0001", "Roundtrip One")],
+            fv("title", "Roundtrip One"),
             None,
             None,
         )
@@ -2334,7 +2310,7 @@ mod tests {
             &store,
             "type-labeled-0001",
             1,
-            vec![fv("field-summary-0001", "no title here")],
+            fv("summary", "no title here"),
             None,
             None,
         )
@@ -2364,7 +2340,7 @@ mod tests {
             &store,
             "type-labeled-0001",
             1,
-            vec![fv("field-title-0001", "My Summary Title")],
+            fv("title", "My Summary Title"),
             None,
             None,
         )
@@ -2392,7 +2368,7 @@ mod tests {
             &store,
             "type-labeled-0001",
             1,
-            vec![fv("field-title-0001", "Roundtrip Title")],
+            fv("title", "Roundtrip Title"),
             None,
             None,
         )
@@ -2477,22 +2453,10 @@ mod tests {
     #[test]
     fn create_record_in_temp_repo() {
         let store = make_store_with_package();
-        let field_values = vec![
-            FieldValue {
-                field_id: "field-name-001".to_string(),
-                value: json!("Test Record"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-            FieldValue {
-                field_id: "field-status-001".to_string(),
-                value: json!("active"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-        ];
+        let field_values = fvs(vec![
+            ("test-name", json!("Test Record")),
+            ("test-status", json!("active")),
+        ]);
 
         let record = create_record(&store, "type-test-001", 1, field_values, None, None)
             .expect("should create record");
@@ -2523,13 +2487,7 @@ mod tests {
             &store,
             "type-test-001",
             1,
-            vec![FieldValue {
-                field_id: "field-name-001".to_string(),
-                value: json!("Default Dir Test"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
+            fvs(vec![("test-name", json!("Default Dir Test"))]),
             None,
             None,
         )
@@ -2551,13 +2509,7 @@ mod tests {
     #[test]
     fn create_record_missing_required_field_fails() {
         let store = make_store_with_package();
-        let field_values = vec![FieldValue {
-            field_id: "field-status-001".to_string(),
-            value: json!("active"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        let field_values = fvs(vec![("test-status", json!("active"))]);
 
         let result = create_record(&store, "type-test-001", 1, field_values, None, None);
         assert!(result.is_err());
@@ -2570,13 +2522,7 @@ mod tests {
     #[test]
     fn create_record_optional_field_absent_succeeds() {
         let store = make_store_with_package();
-        let field_values = vec![FieldValue {
-            field_id: "field-name-001".to_string(),
-            value: json!("Test Record"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        let field_values = fvs(vec![("test-name", json!("Test Record"))]);
 
         let record = create_record(&store, "type-test-001", 1, field_values, None, None)
             .expect("should create with only required field");
@@ -2589,16 +2535,10 @@ mod tests {
         let report = validate_record_input(
             &store,
             ValidateRecordInput {
+                field_meta: None,
                 type_id: "type-test-001".to_string(),
                 type_version: 1,
-                field_values: vec![FieldValue {
-                    field_id: "field-name-001".to_string(),
-                    value: json!("Valid Name"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
-                group_values: None,
+                field_values: fvs(vec![("test-name", json!("Valid Name"))]),
                 tags: None,
             },
         )
@@ -2614,16 +2554,10 @@ mod tests {
         let report = validate_record_input(
             &store,
             ValidateRecordInput {
+                field_meta: None,
                 type_id: "type-test-001".to_string(),
                 type_version: 1,
-                field_values: vec![FieldValue {
-                    field_id: "field-status-001".to_string(),
-                    value: json!("active"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
-                group_values: None,
+                field_values: fvs(vec![("test-status", json!("active"))]),
                 tags: None,
             },
         )
@@ -2638,26 +2572,13 @@ mod tests {
         let report = validate_record_input(
             &store,
             ValidateRecordInput {
+                field_meta: None,
                 type_id: "type-test-001".to_string(),
                 type_version: 1,
-                field_values: vec![
-                    FieldValue {
-                        field_id: "field-name-001".to_string(),
-                        value: json!("Valid Name"),
-                        entries: None,
-                        source: None,
-                        edited_at: None,
-                    },
-                    // Not assigned to this type.
-                    FieldValue {
-                        field_id: "field-nonexistent-999".to_string(),
-                        value: json!("stray"),
-                        entries: None,
-                        source: None,
-                        edited_at: None,
-                    },
-                ],
-                group_values: None,
+                field_values: fvs(vec![
+                    ("test-name", json!("Valid Name")),
+                    ("nonexistent-field", json!("stray")),
+                ]),
                 tags: None,
             },
         )
@@ -2674,26 +2595,14 @@ mod tests {
         let report = validate_record_input(
             &store,
             ValidateRecordInput {
+                field_meta: None,
                 type_id: "type-test-001".to_string(),
                 type_version: 1,
-                field_values: vec![
-                    // required "field-name-001" omitted
-                    FieldValue {
-                        field_id: "field-status-001".to_string(),
-                        value: json!("active"),
-                        entries: None,
-                        source: None,
-                        edited_at: None,
-                    },
-                    FieldValue {
-                        field_id: "field-nonexistent-999".to_string(),
-                        value: json!("stray"),
-                        entries: None,
-                        source: None,
-                        edited_at: None,
-                    },
-                ],
-                group_values: None,
+                // required "test-name" omitted; "nonexistent-field" is unknown
+                field_values: fvs(vec![
+                    ("test-status", json!("active")),
+                    ("nonexistent-field", json!("stray")),
+                ]),
                 tags: None,
             },
         )
@@ -2713,10 +2622,10 @@ mod tests {
         let report = validate_record_input(
             &store,
             ValidateRecordInput {
+                field_meta: None,
                 type_id: "type-does-not-exist".to_string(),
                 type_version: 1,
-                field_values: vec![],
-                group_values: None,
+                field_values: FieldValues::new(),
                 tags: None,
             },
         )
@@ -2738,16 +2647,10 @@ mod tests {
         let _ = validate_record_input(
             &store,
             ValidateRecordInput {
+                field_meta: None,
                 type_id: "type-test-001".to_string(),
                 type_version: 1,
-                field_values: vec![FieldValue {
-                    field_id: "field-status-001".to_string(),
-                    value: json!("active"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
-                group_values: None,
+                field_values: fvs(vec![("test-status", json!("active"))]),
                 tags: None,
             },
         )
@@ -2757,16 +2660,10 @@ mod tests {
         let _ = validate_record_input(
             &store,
             ValidateRecordInput {
+                field_meta: None,
                 type_id: "type-test-001".to_string(),
                 type_version: 1,
-                field_values: vec![FieldValue {
-                    field_id: "field-name-001".to_string(),
-                    value: json!("Valid Name"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
-                group_values: None,
+                field_values: fvs(vec![("test-name", json!("Valid Name"))]),
                 tags: None,
             },
         )
@@ -2782,76 +2679,46 @@ mod tests {
     #[test]
     fn record_update_validates_against_type() {
         let store = make_store_with_package();
-        let initial_values = vec![
-            FieldValue {
-                field_id: "field-name-001".to_string(),
-                value: json!("Initial Name"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-            FieldValue {
-                field_id: "field-status-001".to_string(),
-                value: json!("active"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-        ];
+        let initial_values = fvs(vec![
+            ("test-name", json!("Initial Name")),
+            ("test-status", json!("active")),
+        ]);
 
         let record = create_record(&store, "type-test-001", 1, initial_values, None, None).unwrap();
         let instance_id = record.instance_id.clone();
 
-        let updated_values = vec![
-            FieldValue {
-                field_id: "field-name-001".to_string(),
-                value: json!("Updated Name"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-            FieldValue {
-                field_id: "field-status-001".to_string(),
-                value: json!("inactive"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-        ];
+        let updated_values = fvs(vec![
+            ("test-name", json!("Updated Name")),
+            ("test-status", json!("inactive")),
+        ]);
 
         let updated = update_record(
             &store,
             &instance_id,
             UpdateRecordInput {
+                field_meta: None,
                 field_values: updated_values,
-                group_values: None,
                 tags: None,
                 type_version: None,
             },
         )
         .unwrap();
-        assert_eq!(updated.field_values[0].value, json!("Updated Name"));
+        assert_eq!(updated.value("test-name"), Some(&json!("Updated Name")));
 
         // Verify stored value
         let key = format!("records/tier-2/test-type-{}.json", &instance_id[..8]);
         let stored_val = store.load_instance_json(&key).unwrap();
         let stored: Record = serde_json::from_value(stored_val).unwrap();
-        assert_eq!(stored.field_values[0].value, json!("Updated Name"));
+        assert_eq!(stored.value("test-name"), Some(&json!("Updated Name")));
 
         // Invalid update (missing required field)
-        let invalid_values = vec![FieldValue {
-            field_id: "field-status-001".to_string(),
-            value: json!("active"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        let invalid_values = fvs(vec![("test-status", json!("active"))]);
         assert!(update_record(
             &store,
             &instance_id,
             UpdateRecordInput {
+                field_meta: None,
                 field_values: invalid_values,
-                group_values: None,
                 tags: None,
                 type_version: None,
             }
@@ -2869,13 +2736,7 @@ mod tests {
             &store,
             "type-test-001",
             1,
-            vec![FieldValue {
-                field_id: "field-name-001".to_string(),
-                value: json!("Record A"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
+            fvs(vec![("test-name", json!("Record A"))]),
             None,
             None,
         )
@@ -2885,13 +2746,7 @@ mod tests {
             &store,
             "type-test-001",
             1,
-            vec![FieldValue {
-                field_id: "field-name-001".to_string(),
-                value: json!("Record B"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
+            fvs(vec![("test-name", json!("Record B"))]),
             None,
             None,
         )
@@ -2939,13 +2794,7 @@ mod tests {
             &store,
             "type-test-001",
             1,
-            vec![FieldValue {
-                field_id: "field-name-001".to_string(),
-                value: json!("Isolated Record"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
+            fvs(vec![("test-name", json!("Isolated Record"))]),
             None,
             None,
         )
@@ -2957,22 +2806,10 @@ mod tests {
     #[test]
     fn record_delete_removes_file_and_manifest_entry() {
         let store = make_store_with_package();
-        let field_values = vec![
-            FieldValue {
-                field_id: "field-name-001".to_string(),
-                value: json!("Test Name"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-            FieldValue {
-                field_id: "field-status-001".to_string(),
-                value: json!("active"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-        ];
+        let field_values = fvs(vec![
+            ("test-name", json!("Test Name")),
+            ("test-status", json!("active")),
+        ]);
 
         let record = create_record(&store, "type-test-001", 1, field_values, None, None).unwrap();
         let instance_id = record.instance_id.clone();
@@ -3032,11 +2869,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
-                repeatable: false,
-                min_items: None,
-                max_items: None,
             }],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -3194,13 +3027,7 @@ mod tests {
             store,
             "type-lc-001",
             1,
-            vec![FieldValue {
-                field_id: "field-title-lc".to_string(),
-                value: json!("Test Item"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
+            fvs(vec![("title", json!("Test Item"))]),
             None,
             None,
         )
@@ -3310,13 +3137,7 @@ mod tests {
             &predecessor.instance_id,
             CreateRecordSuccessorInput {
                 relation_type: "supersedes".to_string(),
-                field_values: vec![FieldValue {
-                    field_id: "field-title-lc".to_string(),
-                    value: json!("Updated Item"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
+                field_values: fvs(vec![("title", json!("Updated Item"))]),
                 lifecycle_state: None,
                 type_version: None,
             },
@@ -3345,13 +3166,7 @@ mod tests {
             &predecessor.instance_id,
             CreateRecordSuccessorInput {
                 relation_type: "not-a-real-type".to_string(),
-                field_values: vec![FieldValue {
-                    field_id: "field-title-lc".to_string(),
-                    value: json!("Should Fail"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
+                field_values: fvs(vec![("title", json!("Should Fail"))]),
                 lifecycle_state: None,
                 type_version: None,
             },
@@ -3414,11 +3229,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
-                repeatable: false,
-                min_items: None,
-                max_items: None,
             }],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -3537,13 +3348,7 @@ mod tests {
             &predecessor.instance_id,
             CreateRecordSuccessorInput {
                 relation_type: "supersedes".to_string(),
-                field_values: vec![FieldValue {
-                    field_id: "field-title-lc".to_string(),
-                    value: json!("Retired Type"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
+                field_values: fvs(vec![("title", json!("Retired Type"))]),
                 lifecycle_state: None,
                 type_version: None,
             },
@@ -3573,13 +3378,7 @@ mod tests {
             &predecessor.instance_id,
             CreateRecordSuccessorInput {
                 relation_type: "supersedes".to_string(),
-                field_values: vec![FieldValue {
-                    field_id: "field-title-lc".to_string(),
-                    value: json!("Deprecated Type"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
+                field_values: fvs(vec![("title", json!("Deprecated Type"))]),
                 lifecycle_state: None,
                 type_version: None,
             },
@@ -3609,13 +3408,7 @@ mod tests {
             &predecessor.instance_id,
             CreateRecordSuccessorInput {
                 relation_type: "supersedes".to_string(),
-                field_values: vec![FieldValue {
-                    field_id: "field-title-lc".to_string(),
-                    value: json!("Tombstone Type"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
+                field_values: fvs(vec![("title", json!("Tombstone Type"))]),
                 lifecycle_state: None,
                 type_version: None,
             },
@@ -3692,13 +3485,7 @@ mod tests {
             &predecessor.instance_id,
             CreateRecordSuccessorInput {
                 relation_type: "supersedes".to_string(),
-                field_values: vec![FieldValue {
-                    field_id: "field-title-lc".to_string(),
-                    value: json!("Conflict Type"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
+                field_values: fvs(vec![("title", json!("Conflict Type"))]),
                 lifecycle_state: None,
                 type_version: None,
             },
@@ -3743,13 +3530,7 @@ mod tests {
             &original.instance_id,
             CreateRecordSuccessorInput {
                 relation_type: "supersedes".to_string(),
-                field_values: vec![FieldValue {
-                    field_id: "field-title-lc".to_string(),
-                    value: json!("Next Version"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
+                field_values: fvs(vec![("title", json!("Next Version"))]),
                 lifecycle_state: None,
                 type_version: None,
             },
@@ -3772,103 +3553,67 @@ mod tests {
         assert_eq!(result.relation.target_instance_id, original.instance_id);
     }
 
-    // group_values write path tests (Phase 1D)
+    // fieldMeta write path tests (RFC-039 Change C — successor of the retired
+    // group_values / per-value provenance write paths)
+
+    fn meta_for(name: &str, source: &str) -> indexmap::IndexMap<String, FieldMeta> {
+        let mut m = indexmap::IndexMap::new();
+        m.insert(
+            name.to_string(),
+            FieldMeta {
+                source: Some(source.to_string()),
+                ..Default::default()
+            },
+        );
+        m
+    }
 
     #[test]
-    fn create_record_with_group_values_persists_entries() {
-        use srs_core::types::record::{FieldGroupEntry, FieldGroupValue, FieldValueEntry};
-
+    fn create_record_with_field_meta_persists_meta() {
         let store = make_store_with_package();
 
-        let field_values = vec![FieldValue {
-            field_id: "field-name-001".to_string(),
-            value: json!("Grouped Record"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
-
-        let group_values = Some(vec![FieldGroupValue {
-            group_id: "rows".to_string(),
-            entries: vec![
-                FieldGroupEntry {
-                    entry_id: None,
-                    field_values: vec![FieldValue {
-                        field_id: "field-name-001".to_string(),
-                        value: json!("Row 1"),
-                        entries: Some(vec![FieldValueEntry {
-                            value: serde_json::json!("Row 1"),
-                            source: None,
-                            edited_at: None,
-                        }]),
-                        source: None,
-                        edited_at: None,
-                    }],
-                },
-                FieldGroupEntry {
-                    entry_id: None,
-                    field_values: vec![FieldValue {
-                        field_id: "field-name-001".to_string(),
-                        value: json!("Row 2"),
-                        entries: None,
-                        source: None,
-                        edited_at: None,
-                    }],
-                },
-            ],
-        }]);
-
-        let record = create_record(&store, "type-test-001", 1, field_values, group_values, None)
-            .expect("should create record with group_values");
+        let field_values = fvs(vec![("test-name", json!("Record With Meta"))]);
+        let record = create_record(
+            &store,
+            "type-test-001",
+            1,
+            field_values,
+            Some(meta_for("test-name", "human")),
+            None,
+        )
+        .expect("should create record with fieldMeta");
 
         let loaded = get_record_by_id(&store, &record.instance_id)
             .unwrap()
             .expect("should load record");
 
-        let gv = loaded
-            .group_values
-            .expect("group_values should be persisted");
-        assert_eq!(gv.len(), 1);
-        assert_eq!(gv[0].group_id, "rows");
-        assert_eq!(gv[0].entries.len(), 2);
+        let meta = loaded.field_meta.expect("fieldMeta should be persisted");
+        assert_eq!(meta["test-name"].source.as_deref(), Some("human"));
     }
 
     #[test]
-    fn update_record_with_group_values_replaces_entries() {
-        use srs_core::types::record::{FieldGroupEntry, FieldGroupValue};
-
+    fn update_record_with_field_meta_replaces_meta() {
         let store = make_store_with_package();
 
-        let fv = vec![FieldValue {
-            field_id: "field-name-001".to_string(),
-            value: json!("Initial"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
-        let record = create_record(&store, "type-test-001", 1, fv, None, None).expect("create");
+        let fv = fvs(vec![("test-name", json!("Initial"))]);
+        let record = create_record(
+            &store,
+            "type-test-001",
+            1,
+            fv,
+            Some(meta_for("test-name", "human")),
+            None,
+        )
+        .expect("create");
         let id = record.instance_id.clone();
 
-        let new_fv = vec![FieldValue {
-            field_id: "field-name-001".to_string(),
-            value: json!("Updated"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
-        let new_gv = Some(vec![FieldGroupValue {
-            group_id: "rows".to_string(),
-            entries: vec![FieldGroupEntry {
-                entry_id: None,
-                field_values: vec![],
-            }],
-        }]);
+        let new_fv = fvs(vec![("test-name", json!("Updated"))]);
         update_record(
             &store,
             &id,
             UpdateRecordInput {
                 field_values: new_fv,
-                group_values: new_gv,
+                field_meta: Some(meta_for("test-name", "agent")),
                 tags: None,
                 type_version: None,
             },
@@ -3876,50 +3621,35 @@ mod tests {
         .expect("update");
 
         let loaded = get_record_by_id(&store, &id).unwrap().unwrap();
-        assert_eq!(loaded.field_values[0].value, json!("Updated"));
-        let gv = loaded
-            .group_values
-            .expect("group_values should exist after update");
-        assert_eq!(gv[0].group_id, "rows");
+        assert_eq!(loaded.value("test-name"), Some(&json!("Updated")));
+        let meta = loaded.field_meta.expect("fieldMeta replaced on update");
+        assert_eq!(meta["test-name"].source.as_deref(), Some("agent"));
     }
 
     #[test]
-    fn update_record_without_group_values_preserves_existing() {
-        use srs_core::types::record::{FieldGroupEntry, FieldGroupValue};
-
+    fn update_record_without_field_meta_preserves_existing() {
         let store = make_store_with_package();
 
-        let fv = vec![FieldValue {
-            field_id: "field-name-001".to_string(),
-            value: json!("With Groups"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
-        let gv = Some(vec![FieldGroupValue {
-            group_id: "rows".to_string(),
-            entries: vec![FieldGroupEntry {
-                entry_id: None,
-                field_values: vec![],
-            }],
-        }]);
-        let record = create_record(&store, "type-test-001", 1, fv, gv, None).expect("create");
+        let fv = fvs(vec![("test-name", json!("With Meta"))]);
+        let record = create_record(
+            &store,
+            "type-test-001",
+            1,
+            fv,
+            Some(meta_for("test-name", "human")),
+            None,
+        )
+        .expect("create");
         let id = record.instance_id.clone();
 
-        // None outer = not supplied, preserve existing
-        let new_fv = vec![FieldValue {
-            field_id: "field-name-001".to_string(),
-            value: json!("Field Only Update"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        // None = not supplied, preserve existing
+        let new_fv = fvs(vec![("test-name", json!("Field Only Update"))]);
         update_record(
             &store,
             &id,
             UpdateRecordInput {
+                field_meta: None,
                 field_values: new_fv,
-                group_values: None,
                 tags: None,
                 type_version: None,
             },
@@ -3927,21 +3657,15 @@ mod tests {
         .expect("update");
 
         let loaded = get_record_by_id(&store, &id).unwrap().unwrap();
-        assert_eq!(loaded.field_values[0].value, json!("Field Only Update"));
+        assert_eq!(loaded.value("test-name"), Some(&json!("Field Only Update")));
         assert!(
-            loaded.group_values.is_some(),
-            "group_values preserved when not supplied"
+            loaded.field_meta.is_some(),
+            "fieldMeta preserved when not supplied"
         );
     }
 
     fn make_record_in_store(store: &MemoryStore) -> String {
-        let fv = vec![FieldValue {
-            field_id: "field-name-001".to_string(),
-            value: json!("Tagged Record"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        let fv = fvs(vec![("test-name", json!("Tagged Record"))]);
         create_record(store, "type-test-001", 1, fv, None, None)
             .expect("create")
             .instance_id
@@ -4031,19 +3755,13 @@ mod tests {
         add_record_tag(&store, &id, "concern:lifecycle").expect("add tag");
 
         // Update field values — tags must survive
-        let new_fv = vec![FieldValue {
-            field_id: "field-name-001".to_string(),
-            value: json!("Updated Name"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        let new_fv = fvs(vec![("test-name", json!("Updated Name"))]);
         update_record(
             &store,
             &id,
             UpdateRecordInput {
+                field_meta: None,
                 field_values: new_fv,
-                group_values: None,
                 tags: None,
                 type_version: None,
             },
@@ -4103,13 +3821,7 @@ mod tests {
     fn create_record_with_tags_persists_tags_in_record_and_manifest() {
         let store = make_store_with_package();
 
-        let fv = vec![FieldValue {
-            field_id: "field-name-001".to_string(),
-            value: json!("Tagged on Create"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        let fv = fvs(vec![("test-name", json!("Tagged on Create"))]);
 
         let record = create_record(
             &store,
@@ -4165,13 +3877,7 @@ mod tests {
     fn create_record_with_empty_tags_has_no_tags() {
         let store = make_store_with_package();
 
-        let fv = vec![FieldValue {
-            field_id: "field-name-001".to_string(),
-            value: json!("No Tags"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        let fv = fvs(vec![("test-name", json!("No Tags"))]);
 
         let record = create_record(
             &store,
@@ -4194,19 +3900,13 @@ mod tests {
         add_record_tag(&store, &id, "concern:lifecycle").expect("add tag");
 
         // Update with tags: None → preserve existing
-        let fv = vec![FieldValue {
-            field_id: "field-name-001".to_string(),
-            value: json!("Updated"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        let fv = fvs(vec![("test-name", json!("Updated"))]);
         update_record(
             &store,
             &id,
             UpdateRecordInput {
+                field_meta: None,
                 field_values: fv,
-                group_values: None,
                 tags: None,
                 type_version: None,
             },
@@ -4225,19 +3925,13 @@ mod tests {
         add_record_tag(&store, &id, "concern:lifecycle").expect("add tag");
 
         // Update with tags: Some([]) → clear all tags
-        let fv = vec![FieldValue {
-            field_id: "field-name-001".to_string(),
-            value: json!("Updated"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        let fv = fvs(vec![("test-name", json!("Updated"))]);
         update_record(
             &store,
             &id,
             UpdateRecordInput {
+                field_meta: None,
                 field_values: fv,
-                group_values: None,
                 tags: Some(vec![]),
                 type_version: None,
             },
@@ -4265,19 +3959,13 @@ mod tests {
         add_record_tag(&store, &id, "old-tag").expect("add old tag");
 
         // Update with Some([new]) → replace
-        let fv = vec![FieldValue {
-            field_id: "field-name-001".to_string(),
-            value: json!("Updated"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        let fv = fvs(vec![("test-name", json!("Updated"))]);
         update_record(
             &store,
             &id,
             UpdateRecordInput {
+                field_meta: None,
                 field_values: fv,
-                group_values: None,
                 tags: Some(vec!["new-tag-1".to_string(), "new-tag-2".to_string()]),
                 type_version: None,
             },
@@ -4421,11 +4109,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
-                repeatable: false,
-                min_items: None,
-                max_items: None,
             }],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -4498,13 +4182,7 @@ mod tests {
             store,
             "type-lc-ref-001",
             1,
-            vec![FieldValue {
-                field_id: "field-title-lcref".to_string(),
-                value: json!("Test Item"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
+            fvs(vec![("title", json!("Test Item"))]),
             None,
             None,
         )
@@ -4641,11 +4319,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
-                repeatable: false,
-                min_items: None,
-                max_items: None,
             }],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -4717,13 +4391,7 @@ mod tests {
             store,
             "type-rfc022-001",
             1,
-            vec![FieldValue {
-                field_id: "field-title-rfc022".to_string(),
-                value: json!(title),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
+            fvs(vec![("title", json!(title))]),
             None,
             None,
         )
@@ -4792,13 +4460,7 @@ mod tests {
             &record.instance_id,
             CreateRecordSuccessorInput {
                 relation_type: "supersedes".to_string(),
-                field_values: vec![FieldValue {
-                    field_id: "field-title-rfc022".to_string(),
-                    value: json!("Decision 1 v2"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
+                field_values: fvs(vec![("title", json!("Decision 1 v2"))]),
                 lifecycle_state: None,
                 type_version: None,
             },
@@ -4825,13 +4487,7 @@ mod tests {
             &record.instance_id,
             supersede_input(Some(TransitionFulfillmentInput {
                 new_record: Some(FulfillmentNewRecord {
-                    field_values: vec![FieldValue {
-                        field_id: "field-title-rfc022".to_string(),
-                        value: json!("Decision 1 v2"),
-                        entries: None,
-                        source: None,
-                        edited_at: None,
-                    }],
+                    field_values: fvs(vec![("title", json!("Decision 1 v2"))]),
                     type_version: None,
                 }),
                 existing_instance_id: None,
@@ -5000,7 +4656,7 @@ mod tests {
             &record.instance_id,
             CreateRecordSuccessorInput {
                 relation_type: "supersedes".to_string(),
-                field_values: vec![],
+                field_values: FieldValues::new(),
                 lifecycle_state: Some("ghost".to_string()),
                 type_version: None,
             },
@@ -5021,7 +4677,7 @@ mod tests {
             &record.instance_id,
             CreateRecordSuccessorInput {
                 relation_type: "supersedes".to_string(),
-                field_values: vec![],
+                field_values: FieldValues::new(),
                 lifecycle_state: Some("unreachable-state".to_string()),
                 type_version: None,
             },
@@ -5042,13 +4698,7 @@ mod tests {
             &record.instance_id,
             CreateRecordSuccessorInput {
                 relation_type: "supersedes".to_string(),
-                field_values: vec![FieldValue {
-                    field_id: "field-title-rfc022".to_string(),
-                    value: json!("Decision 1 v2"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
+                field_values: fvs(vec![("title", json!("Decision 1 v2"))]),
                 lifecycle_state: Some("ratified".to_string()),
                 type_version: None,
             },
@@ -5069,13 +4719,7 @@ mod tests {
             &record.instance_id,
             CreateRecordSuccessorInput {
                 relation_type: "supersedes".to_string(),
-                field_values: vec![FieldValue {
-                    field_id: "field-title-rfc022".to_string(),
-                    value: json!("Decision 1 v2"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
+                field_values: fvs(vec![("title", json!("Decision 1 v2"))]),
                 lifecycle_state: Some("superseded".to_string()),
                 type_version: None,
             },
@@ -5123,13 +4767,7 @@ mod tests {
             &record.instance_id,
             supersede_input(Some(TransitionFulfillmentInput {
                 new_record: Some(FulfillmentNewRecord {
-                    field_values: vec![FieldValue {
-                        field_id: "field-title-rfc022".to_string(),
-                        value: json!("Decision 1 v2"),
-                        entries: None,
-                        source: None,
-                        edited_at: None,
-                    }],
+                    field_values: fvs(vec![("title", json!("Decision 1 v2"))]),
                     type_version: None,
                 }),
                 existing_instance_id: None,
@@ -5192,9 +4830,6 @@ mod tests {
             order: 0,
             required: true,
             display_label: Some("Name".to_string()),
-            repeatable: false,
-            min_items: None,
-            max_items: None,
         };
         let type_v1 = RecordType {
             id: "type-test-001".to_string(),
@@ -5203,7 +4838,6 @@ mod tests {
             version: 1,
             description: "Test type v1".to_string(),
             fields: vec![field_assignment.clone()],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -5223,7 +4857,6 @@ mod tests {
             version: 2,
             description: "Test type v2".to_string(),
             fields: vec![field_assignment],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -5272,13 +4905,7 @@ mod tests {
     #[test]
     fn record_update_allows_type_version_migration() {
         let store = make_store_with_two_type_versions();
-        let fv = vec![FieldValue {
-            field_id: "field-name-001".to_string(),
-            value: json!("Original Name"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        let fv = fvs(vec![("test-name", json!("Original Name"))]);
         let record = create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
         let id = record.instance_id.clone();
 
@@ -5286,19 +4913,13 @@ mod tests {
         assert_eq!(record.type_namespace, "com.test");
         assert_eq!(record.type_name, "test-type");
 
-        let new_fv = vec![FieldValue {
-            field_id: "field-name-001".to_string(),
-            value: json!("Migrated Name"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        let new_fv = fvs(vec![("test-name", json!("Migrated Name"))]);
         let updated = update_record(
             &store,
             &id,
             UpdateRecordInput {
+                field_meta: None,
                 field_values: new_fv,
-                group_values: None,
                 tags: None,
                 type_version: Some(2),
             },
@@ -5314,53 +4935,29 @@ mod tests {
             updated.type_name, "test-type-v2",
             "type_name must reflect v2"
         );
-        assert_eq!(updated.field_values[0].value, json!("Migrated Name"));
+        assert_eq!(updated.value("test-name"), Some(&json!("Migrated Name")));
     }
 
     #[test]
     fn record_update_preserves_version_when_not_specified() {
         let store = make_store_with_package();
-        let fv = vec![
-            FieldValue {
-                field_id: "field-name-001".to_string(),
-                value: json!("Original"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-            FieldValue {
-                field_id: "field-status-001".to_string(),
-                value: json!("active"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-        ];
+        let fv = fvs(vec![
+            ("test-name", json!("Original")),
+            ("test-status", json!("active")),
+        ]);
         let record = create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
         let id = record.instance_id.clone();
 
-        let new_fv = vec![
-            FieldValue {
-                field_id: "field-name-001".to_string(),
-                value: json!("Updated"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-            FieldValue {
-                field_id: "field-status-001".to_string(),
-                value: json!("inactive"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-        ];
+        let new_fv = fvs(vec![
+            ("test-name", json!("Updated")),
+            ("test-status", json!("inactive")),
+        ]);
         let updated = update_record(
             &store,
             &id,
             UpdateRecordInput {
+                field_meta: None,
                 field_values: new_fv,
-                group_values: None,
                 tags: None,
                 type_version: None,
             },
@@ -5378,46 +4975,22 @@ mod tests {
     #[test]
     fn record_update_fails_on_invalid_incoming_version() {
         let store = make_store_with_package();
-        let fv = vec![
-            FieldValue {
-                field_id: "field-name-001".to_string(),
-                value: json!("Name"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-            FieldValue {
-                field_id: "field-status-001".to_string(),
-                value: json!("active"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-        ];
+        let fv = fvs(vec![
+            ("test-name", json!("Name")),
+            ("test-status", json!("active")),
+        ]);
         let record = create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
 
-        let new_fv = vec![
-            FieldValue {
-                field_id: "field-name-001".to_string(),
-                value: json!("Updated"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-            FieldValue {
-                field_id: "field-status-001".to_string(),
-                value: json!("active"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            },
-        ];
+        let new_fv = fvs(vec![
+            ("test-name", json!("Updated")),
+            ("test-status", json!("active")),
+        ]);
         let result = update_record(
             &store,
             &record.instance_id,
             UpdateRecordInput {
+                field_meta: None,
                 field_values: new_fv,
-                group_values: None,
                 tags: None,
                 type_version: Some(99),
             },
@@ -5435,29 +5008,17 @@ mod tests {
     #[test]
     fn record_update_type_version_migration_roundtrip_stores() {
         let store = make_store_with_two_type_versions();
-        let fv = vec![FieldValue {
-            field_id: "field-name-001".to_string(),
-            value: json!("Initial"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        let fv = fvs(vec![("test-name", json!("Initial"))]);
         let record = create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
         let id = record.instance_id.clone();
 
-        let new_fv = vec![FieldValue {
-            field_id: "field-name-001".to_string(),
-            value: json!("Migrated"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        let new_fv = fvs(vec![("test-name", json!("Migrated"))]);
         let updated = update_record(
             &store,
             &id,
             UpdateRecordInput {
+                field_meta: None,
                 field_values: new_fv,
-                group_values: None,
                 tags: None,
                 type_version: Some(2),
             },
@@ -5711,17 +5272,11 @@ mod tests {
         let result = create_record_in_container(
             &store,
             CreateRecordInContainerInput {
+                field_meta: None,
                 container_id: container_id.clone(),
                 type_id: "type-test-001".to_string(),
                 type_version: 1,
-                field_values: vec![FieldValue {
-                    field_id: "field-name-001".to_string(),
-                    value: json!("My Decision"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
-                group_values: None,
+                field_values: fvs(vec![("test-name", json!("My Decision"))]),
                 tags: None,
             },
         )
@@ -5745,17 +5300,11 @@ mod tests {
         let result = create_record_in_container(
             &store,
             CreateRecordInContainerInput {
+                field_meta: None,
                 container_id: "does-not-exist".to_string(),
                 type_id: "type-test-001".to_string(),
                 type_version: 1,
-                field_values: vec![FieldValue {
-                    field_id: "field-name-001".to_string(),
-                    value: json!("Should Not Exist"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
-                group_values: None,
+                field_values: fvs(vec![("test-name", json!("Should Not Exist"))]),
                 tags: None,
             },
         );
@@ -5781,11 +5330,11 @@ mod tests {
         let result = create_record_in_container(
             &store,
             CreateRecordInContainerInput {
+                field_meta: None,
                 container_id: container_id.clone(),
                 type_id: "type-does-not-exist".to_string(),
                 type_version: 1,
-                field_values: vec![],
-                group_values: None,
+                field_values: FieldValues::new(),
                 tags: None,
             },
         );
@@ -5807,17 +5356,11 @@ mod tests {
         let result = create_record_in_container(
             &store,
             CreateRecordInContainerInput {
+                field_meta: None,
                 container_id: container_id.clone(),
                 type_id: "type-test-001".to_string(),
                 type_version: 1,
-                field_values: vec![FieldValue {
-                    field_id: "field-name-001".to_string(),
-                    value: json!("Roundtrip Decision"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
-                group_values: None,
+                field_values: fvs(vec![("test-name", json!("Roundtrip Decision"))]),
                 tags: None,
             },
         )
@@ -5862,13 +5405,7 @@ mod tests {
             &store,
             "type-test-001",
             1,
-            vec![FieldValue {
-                field_id: "field-name-001".to_string(),
-                value: json!("Rollback Test"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
+            fvs(vec![("test-name", json!("Rollback Test"))]),
             None,
             None,
             "records/tier-2",
@@ -5905,14 +5442,8 @@ mod tests {
             "com.test/test-type",
             None,
             CreateRecordInput {
-                field_values: vec![FieldValue {
-                    field_id: "field-name-001".to_string(),
-                    value: json!("Context Success"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
-                group_values: None,
+                field_meta: None,
+                field_values: fvs(vec![("test-name", json!("Context Success"))]),
                 tags: None,
             },
             Some(container_id.clone()),
@@ -5947,14 +5478,8 @@ mod tests {
             "com.test/test-type",
             None,
             CreateRecordInput {
-                field_values: vec![FieldValue {
-                    field_id: "field-name-001".to_string(),
-                    value: json!("Roundtrip Context"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
-                group_values: None,
+                field_meta: None,
+                field_values: fvs(vec![("test-name", json!("Roundtrip Context"))]),
                 tags: None,
             },
             Some(container_id.clone()),
@@ -6055,21 +5580,14 @@ mod tests {
                     order: 0,
                     required: false,
                     display_label: None,
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
                 FieldAssignment {
                     field_id: "field-target-001".to_string(),
                     order: 1,
                     required: false,
                     display_label: None,
-                    repeatable: false,
-                    min_items: None,
-                    max_items: None,
                 },
             ],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -6122,13 +5640,7 @@ mod tests {
             &store,
             "type-cfr-test-001",
             1,
-            vec![FieldValue {
-                field_id: "field-trigger-001".to_string(),
-                value: json!("active"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
+            fvs(vec![("trigger", json!("active"))]),
             None,
             None,
             "records",
@@ -6148,22 +5660,7 @@ mod tests {
             &store,
             "type-cfr-test-001",
             1,
-            vec![
-                FieldValue {
-                    field_id: "field-trigger-001".to_string(),
-                    value: json!("active"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-                FieldValue {
-                    field_id: "field-target-001".to_string(),
-                    value: json!("x"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-            ],
+            fvs(vec![("trigger", json!("active")), ("target", json!("x"))]),
             None,
             None,
             "records",
@@ -6183,7 +5680,7 @@ mod tests {
             &store,
             "type-cfr-test-001",
             1,
-            vec![],
+            FieldValues::new(),
             None,
             None,
             "records",
@@ -6203,7 +5700,7 @@ mod tests {
             &store,
             "type-cfr-test-001",
             1,
-            vec![],
+            FieldValues::new(),
             None,
             None,
             "records",
@@ -6214,15 +5711,9 @@ mod tests {
             &store,
             &created.instance_id,
             UpdateRecordInput {
+                field_meta: None,
                 type_version: None,
-                field_values: vec![FieldValue {
-                    field_id: "field-trigger-001".to_string(),
-                    value: json!("active"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
-                group_values: None,
+                field_values: fvs(vec![("trigger", json!("active"))]),
                 tags: None,
             },
         );
@@ -6240,16 +5731,10 @@ mod tests {
         let report = validate_record_input(
             &store,
             ValidateRecordInput {
+                field_meta: None,
                 type_id: "type-cfr-test-001".to_string(),
                 type_version: 1,
-                field_values: vec![FieldValue {
-                    field_id: "field-trigger-001".to_string(),
-                    value: json!("active"),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                }],
-                group_values: None,
+                field_values: fvs(vec![("trigger", json!("active"))]),
                 tags: None,
             },
         )
@@ -6266,14 +5751,8 @@ mod tests {
 
     // --- Fault-injection tests: ADR-007 delete-ordering invariant ---
 
-    fn minimal_field_values() -> Vec<FieldValue> {
-        vec![FieldValue {
-            field_id: "field-name-001".to_string(),
-            value: json!("Fault Test Record"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }]
+    fn minimal_field_values() -> FieldValues {
+        fvs(vec![("test-name", json!("Fault Test Record"))])
     }
 
     #[test]
@@ -6445,7 +5924,7 @@ mod tests {
             &store,
             "type-test-001",
             1,
-            vec![fv("field-name-001", "Hello World")],
+            fv("test-name", "Hello World"),
             None,
             None,
         )
@@ -6474,7 +5953,7 @@ mod tests {
             &store,
             "type-test-001",
             1,
-            vec![fv("field-name-001", "Hello")],
+            fv("test-name", "Hello"),
             None,
             None,
         )
@@ -6523,7 +6002,7 @@ mod tests {
             &store,
             "type-test-001",
             1,
-            vec![fv("field-name-001", "Hello")],
+            fv("test-name", "Hello"),
             None,
             None,
         )
@@ -6553,7 +6032,7 @@ mod tests {
             &store,
             "type-test-001",
             1,
-            vec![fv("field-name-001", "Roundtrip Value")],
+            fv("test-name", "Roundtrip Value"),
             None,
             None,
         )
@@ -6595,24 +6074,18 @@ mod tests {
 
     #[test]
     fn write_record_includes_schema_header() {
-        use srs_core::types::record::{FieldValues, Record};
+        use srs_core::types::record::Record;
 
         let store = make_store_with_package();
 
         let record = Record {
+            field_meta: None,
             instance_id: "aaaabbbb-0000-4000-8000-000000000001".to_string(),
             type_id: "type-test-001".to_string(),
             type_version: 1,
             type_namespace: "com.test".to_string(),
             type_name: "test-type".to_string(),
-            field_values: vec![FieldValue {
-                field_id: "field-name-001".to_string(),
-                value: json!("schema-test"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
-            group_values: None,
+            field_values: fvs(vec![("test-name", json!("schema-test"))]),
             lifecycle_state: None,
             tags: None,
             created_at: None,

@@ -298,7 +298,6 @@ mod tests {
     use srs_core::types::blueprint::{Blueprint, RelationSpec, TypeRef};
     use srs_core::types::field::{AiGuidance, Field, FieldType};
     use srs_core::types::record_type::{FieldAssignment, RecordType};
-    use std::collections::HashMap;
     use std::path::PathBuf;
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -330,9 +329,6 @@ mod tests {
             order,
             required: false,
             display_label: None,
-            repeatable: false,
-            min_items: None,
-            max_items: None,
         }
     }
 
@@ -344,7 +340,6 @@ mod tests {
             version: 1,
             description: "test type".to_string(),
             fields: vec![assignment(field_id, 0)],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,

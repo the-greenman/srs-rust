@@ -74,6 +74,25 @@ fn ext_discovery_fixture_scenarios() {
         return;
     }
 
+    // RFC-039 gate: a revision-2 binary rejects a pre-cutover fixture with an
+    // [R9] diagnostic (see srs-rust CLAUDE.md, "RFC-039 carrier note"). Skip
+    // until the `srs` cutover PR (unit 2 of the #242 train) migrates the
+    // spec-repo-owned fixture — this test must not edit it.
+    let fixture_manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(fixture_repo.join("manifest.json")).unwrap())
+            .unwrap();
+    let fixture_revision = fixture_manifest
+        .get("dataModelRevision")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    if fixture_revision < 2 {
+        println!(
+            "Skipping: srs/conformance/discovery fixture-repo is at dataModelRevision \
+             {fixture_revision} (< 2) — pre-cutover spec repo, awaiting the srs #242 migration"
+        );
+        return;
+    }
+
     let raw = std::fs::read_to_string(&scenarios_path)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", scenarios_path.display()));
     let file: ScenariosFile = serde_json::from_str(&raw)

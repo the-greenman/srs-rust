@@ -23,7 +23,7 @@ fn minimal_srsj() -> String {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "decision",
-                "fieldValues": []
+                "fieldValues": {}
             }
         }
     })

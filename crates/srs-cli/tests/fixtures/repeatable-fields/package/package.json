@@ -7,11 +7,23 @@
   "description": "Test fixture for repeatable field entry rendering.",
   "status": "active",
   "version": "1.0.0",
-  "fields": ["fields/title.json", "fields/body.json"],
-  "types": ["types/repeatable-type.json", "types/identity-item.json"],
+  "fields": [
+    "fields/title.json",
+    "fields/body.json"
+  ],
+  "types": [
+    "types/repeatable-type.json",
+    "types/identity-item.json"
+  ],
   "relationTypes": [],
-  "views": ["views/labeled-body-view.json", "views/hidden-field-view.json"],
-  "themes": ["themes/base-theme.json", "themes/print-theme.json"],
+  "views": [
+    "views/labeled-body-view.json",
+    "views/hidden-field-view.json"
+  ],
+  "themes": [
+    "themes/base-theme.json",
+    "themes/print-theme.json"
+  ],
   "documentViews": [
     "document-views/repeatable-doc-view.json",
     "document-views/deep-offset-view.json",
@@ -23,5 +35,6 @@
     "document-views/json-hidden-field-view.json",
     "document-views/identity-fallback-view.json"
   ],
-  "createdAt": "2026-05-01T00:00:00Z"
+  "createdAt": "2026-05-01T00:00:00Z",
+  "dataModelRevision": 2
 }

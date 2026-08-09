@@ -47,7 +47,7 @@ fn write_source_package(dir: &Path) {
             "namespace": "com.cli.install",
             "name": "label",
             "version": 1,
-            "valueType": "string",
+            "fieldType": {"datatype": "string"},
             "description": "Short label.",
             "createdAt": "2026-01-01T00:00:00Z"
         }),
@@ -59,7 +59,7 @@ fn write_source_package(dir: &Path) {
             "namespace": "com.cli.install",
             "name": "notes",
             "version": 1,
-            "valueType": "text",
+            "fieldType": {"datatype": "string", "format": "markdown"},
             "description": "Free-text notes.",
             "createdAt": "2026-01-01T00:00:00Z"
         }),

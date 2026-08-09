@@ -5,9 +5,11 @@
   "name": "protocol-description",
   "version": 1,
   "description": "Description of the protocol purpose and behavior.",
-  "valueType": "string",
   "aiGuidance": {
     "purpose": "Capture a human-readable summary of what the protocol does."
+  },
+  "fieldType": {
+    "datatype": "string"
   },
   "createdAt": "2026-05-29T00:00:00Z"
 }

@@ -388,8 +388,7 @@ mod tests {
     use crate::store::RepositoryStore;
     use srs_core::types::field::{AiGuidance, Field, FieldType};
     use srs_core::types::note::{Note, NoteSection};
-    use srs_core::types::record::{FieldValue, Record};
-    use std::collections::HashMap;
+    use srs_core::types::record::{FieldValues, Record};
     use std::path::PathBuf;
 
     const TITLE: &str = "00000000-0000-4000-8000-00000000f001";
@@ -450,28 +449,18 @@ mod tests {
 
     fn record(id: &str, title: &str, statement: &str, lifecycle: &str, tags: &[&str]) -> Record {
         Record {
+            field_meta: None,
             instance_id: id.to_string(),
             type_id: "00000000-0000-4000-8000-00000000d100".to_string(),
             type_version: 1,
             type_namespace: "governance".to_string(),
             type_name: "decision".to_string(),
-            field_values: vec![
-                FieldValue {
-                    field_id: TITLE.to_string(),
-                    value: serde_json::json!(title),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-                FieldValue {
-                    field_id: STATEMENT.to_string(),
-                    value: serde_json::json!(statement),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-            ],
-            group_values: None,
+            field_values: {
+                let mut fv = FieldValues::new();
+                fv.insert("title", serde_json::json!(title));
+                fv.insert("decision_statement", serde_json::json!(statement));
+                fv
+            },
             lifecycle_state: Some(lifecycle.to_string()),
             tags: (!tags.is_empty()).then(|| tags.iter().map(|t| t.to_string()).collect()),
             created_at: None,
@@ -598,7 +587,7 @@ mod tests {
             "instanceId": TYPED1,
             "title": "Budget planning",
             "fields": [
-                { "name": "owner", "valueType": "string", "value": "engineering" }
+                { "name": "owner", "fieldType": {"datatype": "string"}, "value": "engineering" }
             ],
             "tags": typed_tags,
         });

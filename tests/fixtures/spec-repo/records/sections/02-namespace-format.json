@@ -1,16 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Namespace Format"
-    },
-    {
-      "fieldId": "1a000002-0000-4000-a000-000000000002",
-      "value": ""
-    }
-  ],
+  "fieldValues": {
+    "title": "Namespace Format",
+    "content": ""
+  },
   "instanceId": "5bc9b930-462d-535d-91c5-bd9e2b17c91c",
   "sourceRefs": [
     {

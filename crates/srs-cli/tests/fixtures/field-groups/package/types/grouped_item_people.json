@@ -1,0 +1,21 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "b6928a75-912d-419a-a5be-cc6894a11a49",
+  "namespace": "fixture.groups",
+  "name": "grouped_item_people",
+  "version": 1,
+  "description": "Range type minted from FieldGroup 'people' by the RFC-039 carrier migration",
+  "fields": [
+    {
+      "fieldId": "00000000-0000-4000-8000-000000000911",
+      "order": 0,
+      "required": true
+    },
+    {
+      "fieldId": "00000000-0000-4000-8000-000000000912",
+      "order": 1,
+      "required": true
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00Z"
+}

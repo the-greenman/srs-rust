@@ -160,19 +160,18 @@ pub(crate) fn children_by_relation_type(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use srs_core::types::record::Record;
+    use srs_core::types::record::{FieldValues, Record};
     use srs_core::types::relation::Relation;
-    use std::collections::HashMap;
 
     fn make_record(id: &str, created_at: &str) -> Record {
         Record {
+            field_meta: None,
             instance_id: id.to_string(),
             type_id: "t-test".to_string(),
             type_version: 1,
             type_namespace: "com.test".to_string(),
             type_name: "test".to_string(),
-            field_values: vec![],
-            group_values: None,
+            field_values: FieldValues::new(),
             lifecycle_state: None,
             tags: None,
             created_at: Some(created_at.to_string()),

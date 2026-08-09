@@ -1,0 +1,12 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "instanceId": "00000000-0000-4000-8000-000000000993",
+  "typeId": "00000000-0000-4000-8000-000000000904",
+  "typeVersion": 1,
+  "typeNamespace": "fixture.render",
+  "typeName": "identity-item",
+  "fieldValues": {
+    "heading": "identity heading value",
+    "body": "body text"
+  }
+}

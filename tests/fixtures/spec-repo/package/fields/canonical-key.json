@@ -8,7 +8,9 @@
   "aiGuidance": {
     "purpose": "Use canonical keys for human-readable, stable identifiers. Format: 'type:namespace/name' or 'record:path/identifier'."
   },
-  "valueType": "string",
+  "fieldType": {
+    "datatype": "string"
+  },
   "editorHint": "singleline",
   "createdAt": "2026-05-27T00:00:00Z"
 }

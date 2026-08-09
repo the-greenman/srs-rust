@@ -8,7 +8,9 @@
   "aiGuidance": {
     "purpose": "Use the author's full name or established identifier. For multiple authors, create separate field assignments or use a structured format."
   },
-  "valueType": "string",
+  "fieldType": {
+    "datatype": "string"
+  },
   "editorHint": "singleline",
   "createdAt": "2026-05-27T00:00:00Z"
 }

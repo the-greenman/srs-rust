@@ -3019,7 +3019,7 @@ $SRS repo validate --repo "$R" --pretty
 ```bash
 echo '{"fieldValues":[{"fieldId":"00000000-0000-4000-8000-000000000001","value":"x"}]}'   | $SRS record create --type com.example.dogfood/table --repo "$R" --pretty
 # → error envelope: "fieldValues is an array — this is a dataModelRevision <= 1 document …
-#    expected dataModelRevision 2 … Migrate the repository with `srs migrate`"
+#    expected dataModelRevision 2 … Migrate the repository with `srs repo apply-migration --id rfc039-carrier`"
 ```
 
 **Done when:** the create returns the object carrier back; `type schema` shows `rows` as an

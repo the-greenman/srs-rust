@@ -5,9 +5,11 @@
   "name": "protocol-name",
   "version": 1,
   "description": "Name of the protocol.",
-  "valueType": "string",
   "aiGuidance": {
     "purpose": "Capture the machine-readable protocol name."
+  },
+  "fieldType": {
+    "datatype": "string"
   },
   "createdAt": "2026-05-29T00:00:00Z"
 }

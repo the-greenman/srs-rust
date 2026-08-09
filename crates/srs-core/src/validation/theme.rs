@@ -95,7 +95,7 @@ mod tests {
             record_wrapper: None,
             record_wrapper_overrides: None,
             field_row: None,
-            group_field_row_templates: None,
+            composite_field_row_templates: None,
             composite_renderer_config: None,
         });
 
@@ -126,7 +126,7 @@ mod tests {
             record_wrapper: None,
             record_wrapper_overrides: None,
             field_row: None,
-            group_field_row_templates: None,
+            composite_field_row_templates: None,
             composite_renderer_config: None,
         });
 
@@ -152,7 +152,7 @@ mod tests {
                 },
             ]),
             field_row: None,
-            group_field_row_templates: None,
+            composite_field_row_templates: None,
             composite_renderer_config: None,
         });
 

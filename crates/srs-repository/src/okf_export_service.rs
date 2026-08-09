@@ -137,9 +137,8 @@ mod tests {
     use crate::store::memory::MemoryStore;
     use srs_core::types::container::Container;
     use srs_core::types::note::{Note, NoteSection};
-    use srs_core::types::record::Record;
+    use srs_core::types::record::{FieldValues, Record};
     use srs_core::types::relation::Relation;
-    use std::collections::HashMap;
 
     fn make_store() -> MemoryStore {
         MemoryStore::default()
@@ -166,13 +165,13 @@ mod tests {
 
     fn minimal_record(id: &str, created_at: Option<&str>) -> Record {
         Record {
+            field_meta: None,
             instance_id: id.to_string(),
             type_id: "t-test-0001".to_string(),
             type_version: 1,
             type_namespace: "com.test".to_string(),
             type_name: "item".to_string(),
-            field_values: vec![],
-            group_values: None,
+            field_values: FieldValues::new(),
             lifecycle_state: None,
             tags: None,
             created_at: created_at.map(|s| s.to_string()),
@@ -408,7 +407,6 @@ mod tests {
         use crate::manifest::Manifest;
         use crate::package::Package;
         use srs_core::types::field::{AiGuidance, Field, FieldType};
-        use srs_core::types::record::FieldValue;
         use std::path::PathBuf;
 
         let field_id = "f-title-0001-0000-0000-0000000000001".to_string();
@@ -463,13 +461,11 @@ mod tests {
         let store = MemoryStore::new(manifest, package);
 
         let mut r = minimal_record("rec-field-0001-0000-0000", Some("2026-01-01T00:00:00Z"));
-        r.field_values = vec![FieldValue {
-            field_id: field_id.clone(),
-            value: serde_json::json!("My Title"),
-            entries: None,
-            source: None,
-            edited_at: None,
-        }];
+        r.field_values = {
+            let mut fv = FieldValues::new();
+            fv.insert("title", serde_json::json!("My Title"));
+            fv
+        };
         store.save_record(&r).unwrap();
         let c = create_container(&store, minimal_container("", "Fields")).unwrap();
         add_member(&store, &c.container_id, &r.instance_id).unwrap();

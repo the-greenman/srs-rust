@@ -8,7 +8,9 @@
   "aiGuidance": {
     "purpose": "Identifiers should be RFC 4122 UUIDs version 4 or 5. Use deterministic UUIDs derived from canonical keys where stability is required."
   },
-  "valueType": "string",
+  "fieldType": {
+    "datatype": "string"
+  },
   "editorHint": "singleline",
   "createdAt": "2026-05-27T00:00:00Z"
 }

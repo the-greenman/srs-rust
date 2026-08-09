@@ -1,16 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Convention"
-    },
-    {
-      "fieldId": "1a000002-0000-4000-a000-000000000002",
-      "value": "Namespaces are dot-separated identifiers using lowercase alphanumeric characters and hyphens.\n\n```\n<component>[.<component>]*\n\ncomponent = [a-z0-9][a-z0-9-]*\n```\n\nExamples:\n```\ncore\ncommunity.adr\ncom.acme.hr\norg.cooperative-name\n```"
-    }
-  ],
+  "fieldValues": {
+    "title": "Convention",
+    "content": "Namespaces are dot-separated identifiers using lowercase alphanumeric characters and hyphens.\n\n```\n<component>[.<component>]*\n\ncomponent = [a-z0-9][a-z0-9-]*\n```\n\nExamples:\n```\ncore\ncommunity.adr\ncom.acme.hr\norg.cooperative-name\n```"
+  },
   "instanceId": "a79c0adc-c4a3-516e-8305-640045eda858",
   "sourceRefs": [
     {

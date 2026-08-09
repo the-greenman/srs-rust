@@ -61,7 +61,7 @@ fn nav_fixture_srsj() -> String {
                 "version": 1,
                 "description": "Title",
                 "aiGuidance": {},
-                "valueType": "string",
+                "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             format!("records/tier-2/{IDENTITY_ID}.json"): {
@@ -70,7 +70,7 @@ fn nav_fixture_srsj() -> String {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "governance-repo",
-                "fieldValues": [{"fieldId": FIELD_TITLE_ID, "value": "Governance Repo"}]
+                "fieldValues": {"title": "Governance Repo"}
             },
             format!("records/tier-2/{ARTICLES_ID}.json"): {
                 "instanceId": ARTICLES_ID,
@@ -78,7 +78,7 @@ fn nav_fixture_srsj() -> String {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "section",
-                "fieldValues": [{"fieldId": FIELD_TITLE_ID, "value": "Articles"}]
+                "fieldValues": {"title": "Articles"}
             },
             format!("records/tier-2/{DECISIONS_ID}.json"): {
                 "instanceId": DECISIONS_ID,
@@ -86,7 +86,7 @@ fn nav_fixture_srsj() -> String {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "section",
-                "fieldValues": [{"fieldId": FIELD_TITLE_ID, "value": "Decision Log"}]
+                "fieldValues": {"title": "Decision Log"}
             },
             format!("containers/{ROOT_CONTAINER_ID}.json"): {
                 "containerId": ROOT_CONTAINER_ID,
@@ -220,7 +220,7 @@ fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
                 "version": 1,
                 "description": "Title",
                 "aiGuidance": {},
-                "valueType": "string",
+                "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             format!("records/tier-2/{ARTICLES_ID}.json"): {
@@ -229,7 +229,7 @@ fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "section",
-                "fieldValues": [{"fieldId": FIELD_TITLE_ID, "value": "Articles"}]
+                "fieldValues": {"title": "Articles"}
             },
             format!("records/tier-2/{DECISIONS_ID}.json"): {
                 "instanceId": DECISIONS_ID,
@@ -237,7 +237,7 @@ fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "section",
-                "fieldValues": [{"fieldId": FIELD_TITLE_ID, "value": "Decision Log"}]
+                "fieldValues": {"title": "Decision Log"}
             },
             format!("containers/{ROOT_CONTAINER_ID}.json"): {
                 "containerId": ROOT_CONTAINER_ID,
@@ -362,7 +362,7 @@ fn repository_navigation_root_is_member_of_its_own_sub_container() {
                 "version": 1,
                 "description": "Title",
                 "aiGuidance": {},
-                "valueType": "string",
+                "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             format!("records/tier-2/{IDENTITY_ID}.json"): {
@@ -371,7 +371,7 @@ fn repository_navigation_root_is_member_of_its_own_sub_container() {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "governance-repo",
-                "fieldValues": [{"fieldId": FIELD_TITLE_ID, "value": "Governance Repo"}]
+                "fieldValues": {"title": "Governance Repo"}
             },
             format!("records/tier-2/{ARTICLES_ID}.json"): {
                 "instanceId": ARTICLES_ID,
@@ -379,7 +379,7 @@ fn repository_navigation_root_is_member_of_its_own_sub_container() {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "section",
-                "fieldValues": [{"fieldId": FIELD_TITLE_ID, "value": "Articles"}]
+                "fieldValues": {"title": "Articles"}
             },
             format!("records/tier-2/{DECISIONS_ID}.json"): {
                 "instanceId": DECISIONS_ID,
@@ -387,7 +387,7 @@ fn repository_navigation_root_is_member_of_its_own_sub_container() {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "section",
-                "fieldValues": [{"fieldId": FIELD_TITLE_ID, "value": "Decision Log"}]
+                "fieldValues": {"title": "Decision Log"}
             },
             format!("containers/{ROOT_CONTAINER_ID}.json"): {
                 "containerId": ROOT_CONTAINER_ID,

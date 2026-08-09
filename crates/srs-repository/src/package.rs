@@ -1171,9 +1171,6 @@ mod tests {
             order,
             required,
             display_label: None,
-            repeatable: false,
-            min_items: None,
-            max_items: None,
         }
     }
 
@@ -1569,28 +1566,34 @@ mod tests {
 
     #[test]
     fn validate_record_uses_effective_fields() {
-        use srs_core::types::record::{FieldValue, Record};
+        use srs_core::types::field::Field;
+        use srs_core::types::field_type::FieldType;
+        use srs_core::types::record::{FieldValues, Record};
         use srs_core::validation::record::validate_record;
+        use srs_core::validation::value_shape::EffectiveField;
 
         let base = make_type("base", vec![fa("f1", 0, true)]);
         let child = make_child_type("child", vec![fa("f2", 0, false)], "base", None, None);
-        let pkg = make_package_with_types(vec![base, child.clone()]);
-        let effective = pkg.effective_fields(&child).unwrap();
+        let mut pkg = make_package_with_types(vec![base, child.clone()]);
+        pkg.fields = vec![
+            Field::new("f1", "com.test", "field_one", FieldType::string()),
+            Field::new("f2", "com.test", "field_two", FieldType::string()),
+        ];
+        let effective = pkg.resolved_effective_fields(&child).unwrap();
+        let resolver = |_: &str, _: u32| -> Option<Vec<EffectiveField>> { None };
 
         let record = Record {
+            field_meta: None,
             instance_id: "r1".to_string(),
             type_id: "child".to_string(),
             type_version: 1,
             type_namespace: "com.test".to_string(),
             type_name: "child".to_string(),
-            field_values: vec![FieldValue {
-                field_id: "f1".to_string(),
-                value: serde_json::json!("hello"),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
-            group_values: None,
+            field_values: {
+                let mut fv = FieldValues::new();
+                fv.insert("field_one", serde_json::json!("hello"));
+                fv
+            },
             lifecycle_state: None,
             tags: None,
             created_at: None,
@@ -1600,17 +1603,17 @@ mod tests {
 
         // f1 is inherited (required) and present → should pass
         assert!(
-            validate_record(&record, &child, &effective).is_ok(),
+            validate_record(&record, &child, &effective, &resolver).is_ok(),
             "record with inherited required field present should pass"
         );
 
         // without f1 → should fail (inherited required field missing)
         let record_no_f1 = Record {
-            field_values: vec![],
+            field_values: FieldValues::new(),
             ..record
         };
         assert!(
-            validate_record(&record_no_f1, &child, &effective).is_err(),
+            validate_record(&record_no_f1, &child, &effective, &resolver).is_err(),
             "record missing inherited required field should fail"
         );
     }

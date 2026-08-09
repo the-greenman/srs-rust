@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000020-0000-4000-a000-000000000020",
-      "value": 39
-    },
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Type.extendsTypeId, when present, must reference a valid Type.id."
-    },
-    {
-      "fieldId": "1a000003-0000-4000-a000-000000000003",
-      "value": "`Type.extendsTypeId`, when present, must reference a valid `Type.id`. Inheritance chains must be acyclic; a Type may not directly or transitively extend itself."
-    },
-    {
-      "fieldId": "1a000021-0000-4000-a000-000000000021",
-      "value": "ext:type-inheritance"
-    }
-  ],
+  "fieldValues": {
+    "invariant_number": 39,
+    "title": "Type.extendsTypeId, when present, must reference a valid Type.id.",
+    "normative_statement": "`Type.extendsTypeId`, when present, must reference a valid `Type.id`. Inheritance chains must be acyclic; a Type may not directly or transitively extend itself.",
+    "applies_to": "ext:type-inheritance"
+  },
   "instanceId": "e1000039-0000-4000-a000-000000000039",
   "sourceRefs": [
     {

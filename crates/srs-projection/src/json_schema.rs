@@ -682,7 +682,6 @@ mod tests {
             version,
             description: format!("v{version} shape"),
             fields,
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -702,9 +701,6 @@ mod tests {
             order,
             required: false,
             display_label: None,
-            repeatable: false,
-            min_items: None,
-            max_items: None,
         }
     }
 

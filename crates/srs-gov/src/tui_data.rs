@@ -183,13 +183,8 @@ fn record_item(
         Vec::new()
     } else {
         let schema = load_type_schema(repo, &type_id, type_version, schemas)?;
-        detail_rows(
-            &schema,
-            record["fieldValues"]
-                .as_array()
-                .map(Vec::as_slice)
-                .unwrap_or(&[]),
-        )
+        let empty = serde_json::Map::new();
+        detail_rows(&schema, record["fieldValues"].as_object().unwrap_or(&empty))
     };
     Ok(RecordItem {
         instance_id: member["instanceId"].as_str().unwrap_or("").to_string(),
@@ -240,15 +235,13 @@ fn load_type_schema(
 /// Shape a type schema + a record's field values into ordered, labeled display rows.
 ///
 /// `schema` is the full type schema (`payload.schema`); `field_values` is the record's
-/// `fieldValues` array. Shared by the TUI detail pane and `render::record_detail` (CLI text
-/// output) so the field ordering/labeling logic exists in exactly one place.
-pub(crate) fn detail_rows(schema: &Value, field_values: &[Value]) -> Vec<DetailRow> {
-    let values_by_field_id: HashMap<&str, &Value> = field_values
-        .iter()
-        .filter_map(|field_value| {
-            Some((field_value["fieldId"].as_str()?, field_value.get("value")?))
-        })
-        .collect();
+/// `fieldValues` object, keyed by Field.name (RFC-039). Shared by the TUI detail pane and
+/// `render::record_detail` (CLI text output) so the field ordering/labeling logic exists in
+/// exactly one place. Schema property keys are Field.names too, so values join by name.
+pub(crate) fn detail_rows(
+    schema: &Value,
+    field_values: &serde_json::Map<String, Value>,
+) -> Vec<DetailRow> {
     let required_names: HashSet<&str> = schema["required"]
         .as_array()
         .map(|values| values.iter().filter_map(|value| value.as_str()).collect())
@@ -259,17 +252,14 @@ pub(crate) fn detail_rows(schema: &Value, field_values: &[Value]) -> Vec<DetailR
 
     let mut rows: Vec<DetailRow> = properties
         .iter()
-        .filter_map(|(name, property)| {
-            let field_id = property["x-srs-field-id"].as_str()?;
-            let value = values_by_field_id
-                .get(field_id)
-                .map(|value| display_value(value));
-            Some(DetailRow {
+        .map(|(name, property)| {
+            let value = field_values.get(name).map(display_value);
+            DetailRow {
                 label: property["title"].as_str().unwrap_or(name).to_string(),
                 value,
                 required: required_names.contains(name.as_str()),
                 order: property["x-srs-order"].as_i64().unwrap_or(99),
-            })
+            }
         })
         .collect();
     rows.sort_by_key(|row| row.order);
@@ -363,9 +353,7 @@ mod tests {
                 "lifecycleState": "ratified",
                 "tags": ["tooling"],
                 "createdAt": "2026-01-02T00:00:00Z",
-                "fieldValues": [
-                    { "fieldId": "title-field", "value": "Adopt policy" }
-                ]
+                "fieldValues": { "title": "Adopt policy" }
             }
         });
 
@@ -373,7 +361,6 @@ mod tests {
             "properties": {
                 "title": {
                     "title": "Title",
-                    "x-srs-field-id": "title-field",
                     "x-srs-order": 1
                 }
             }
@@ -387,33 +374,30 @@ mod tests {
     }
 
     #[test]
-    fn detail_rows_order_and_match_values_by_field_id() {
+    fn detail_rows_order_and_match_values_by_field_name() {
         let schema = serde_json::json!({
             "required": ["statement"],
             "properties": {
                 "title": {
                     "title": "Title",
-                    "x-srs-field-id": "field-title",
                     "x-srs-order": 2
                 },
                 "statement": {
                     "title": "Decision Statement",
-                    "x-srs-field-id": "field-statement",
                     "x-srs-order": 1
                 },
                 "missing": {
                     "title": "Missing",
-                    "x-srs-field-id": "field-missing",
                     "x-srs-order": 3
                 }
             }
         });
-        let field_values = vec![
-            serde_json::json!({ "fieldId": "field-title", "value": "Adopt policy" }),
-            serde_json::json!({ "fieldId": "field-statement", "value": "Use schema detail" }),
-        ];
+        let field_values = serde_json::json!({
+            "title": "Adopt policy",
+            "statement": "Use schema detail"
+        });
 
-        let rows = detail_rows(&schema, &field_values);
+        let rows = detail_rows(&schema, field_values.as_object().unwrap());
 
         assert_eq!(rows[0].label, "Decision Statement");
         assert_eq!(rows[0].value.as_deref(), Some("Use schema detail"));

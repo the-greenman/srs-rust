@@ -5,7 +5,11 @@
   "name": "title",
   "version": 1,
   "description": "Record title",
-  "aiGuidance": {"purpose": "capture record title"},
-  "valueType": "string",
+  "aiGuidance": {
+    "purpose": "capture record title"
+  },
+  "fieldType": {
+    "datatype": "string"
+  },
   "createdAt": "2026-01-01T00:00:00Z"
 }

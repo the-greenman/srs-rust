@@ -1005,7 +1005,7 @@ mod tests {
             "typeVersion": 1,
             "typeNamespace": "com.test",
             "typeName": "note",
-            "fieldValues": [],
+            "fieldValues": {},
             "lifecycleState": "active"
         });
         let manifest = Manifest {
@@ -1073,10 +1073,10 @@ mod tests {
             "typeVersion": 1,
             "typeNamespace": "com.test",
             "typeName": "note",
-            "fieldValues": [],
+            "fieldValues": {},
             "lifecycleState": "active"
         });
-        let mut extra = std::collections::HashMap::new();
+        let mut extra = std::collections::BTreeMap::new();
         extra.insert("declaredExtensions".to_string(), json!(["ext:lifecycle"]));
         let manifest = Manifest {
             instance_index: vec![InstanceIndexEntry {
@@ -1161,7 +1161,7 @@ mod tests {
             "typeVersion": 1,
             "typeNamespace": "com.test",
             "typeName": "note",
-            "fieldValues": [],
+            "fieldValues": {},
             "lifecycleState": "active"
         });
         std::fs::write(

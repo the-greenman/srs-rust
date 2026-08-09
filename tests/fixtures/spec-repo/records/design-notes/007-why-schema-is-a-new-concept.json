@@ -1,16 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Why Blueprint is a new concept"
-    },
-    {
-      "fieldId": "1a000002-0000-4000-a000-000000000002",
-      "value": "\nIn v1, there was no way to specify what a document type *is* — what needs to be extracted from source material in order to build it. `DocumentTemplate` (now Document View) handled *assembly* of existing Records into readable output. But nothing owned the prior question: \"Given a transcript of a governance meeting, what Types should I extract, how should they relate to each other, and what does 'complete' mean?\"\n\nBlueprint fills that gap. A Blueprint is the artefact you hand to an extraction pipeline. It specifies root Types, expected Relations between extracted Records, and completeness criteria. The Extraction pipeline consults the Blueprint to know what to look for; the Document View consults existing Records to know what to render.\n\nThe two are complementary: Blueprint → Records → Document View."
-    }
-  ],
+  "fieldValues": {
+    "title": "Why Blueprint is a new concept",
+    "content": "\nIn v1, there was no way to specify what a document type *is* — what needs to be extracted from source material in order to build it. `DocumentTemplate` (now Document View) handled *assembly* of existing Records into readable output. But nothing owned the prior question: \"Given a transcript of a governance meeting, what Types should I extract, how should they relate to each other, and what does 'complete' mean?\"\n\nBlueprint fills that gap. A Blueprint is the artefact you hand to an extraction pipeline. It specifies root Types, expected Relations between extracted Records, and completeness criteria. The Extraction pipeline consults the Blueprint to know what to look for; the Document View consults existing Records to know what to render.\n\nThe two are complementary: Blueprint → Records → Document View."
+  },
   "instanceId": "f1000007-0000-4000-a000-000000000007",
   "sourceRefs": [
     {

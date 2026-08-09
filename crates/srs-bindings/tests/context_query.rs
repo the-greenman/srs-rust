@@ -49,7 +49,7 @@ fn fixture_store() -> JsonStore {
                 "version": 1,
                 "description": "Title field",
                 "aiGuidance": null,
-                "valueType": "string",
+                "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/types/decision.json": {
@@ -69,9 +69,7 @@ fn fixture_store() -> JsonStore {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "decision",
-                "fieldValues": [
-                    {"fieldId": FIELD_TITLE, "value": "First Decision"}
-                ]
+                "fieldValues": {"title": "First Decision"}
             },
             format!("records/tier-2/{RECORD_ID}.revisions.json"): {
                 "recordId": RECORD_ID,
@@ -126,7 +124,10 @@ fn context_record_returns_type_and_fields() {
     assert_eq!(result.type_id, TYPE_ID);
     assert_eq!(result.type_name, "decision");
     assert_eq!(result.field_values.len(), 1);
-    assert_eq!(result.field_values[0].field_id, FIELD_TITLE);
+    assert_eq!(
+        result.field_values.get("title"),
+        Some(&serde_json::json!("First Decision"))
+    );
 }
 
 #[test]

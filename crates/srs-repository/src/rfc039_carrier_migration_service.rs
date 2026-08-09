@@ -172,14 +172,44 @@ fn migrate_definitions(
     store: &dyn RepositoryStore,
     result: &mut CarrierMigrationResult,
 ) -> Result<DefinitionIndex, RepositoryError> {
+    // Seed from the embedded core package (ADR-025 implicit merge) so records
+    // typed by installed core Types — every repo-create repository's purpose
+    // record — resolve. Core definitions are already post-RFC-032/039 and are
+    // never rewritten here.
+    let mut fields: HashMap<String, (String, Value)> = HashMap::new();
+    let mut types: HashMap<(String, u64), Vec<(String, bool)>> = HashMap::new();
+    {
+        let core = crate::core_package::core_package();
+        for f in &core.fields {
+            let ft = serde_json::to_value(&f.field_type).unwrap_or(Value::Null);
+            fields.insert(f.id.clone(), (f.name.clone(), ft));
+        }
+        for rt in &core.record_types {
+            let mut assignments: Vec<(String, bool)> = rt
+                .fields
+                .iter()
+                .map(|fa| (fa.field_id.clone(), fa.required))
+                .collect();
+            assignments.sort_by_key(|(id, _)| {
+                rt.fields
+                    .iter()
+                    .find(|fa| &fa.field_id == id)
+                    .map(|fa| fa.order)
+                    .unwrap_or(0)
+            });
+            types.insert((rt.id.clone(), u64::from(rt.version)), assignments);
+        }
+    }
+
     let pkg_index_path = "package/package.json";
     let mut pkg_index = match store.load_instance_json(pkg_index_path) {
         Ok(v) => v,
-        // A packageless repository has no definitions to migrate.
+        // A packageless repository has no local definitions to migrate — the
+        // core-seeded index still resolves installed-type records.
         Err(_) => {
             return Ok(DefinitionIndex {
-                fields: HashMap::new(),
-                types: HashMap::new(),
+                fields,
+                types,
                 version_bumps: HashMap::new(),
             })
         }
@@ -188,8 +218,6 @@ fn migrate_definitions(
     let field_paths: Vec<String> = list_of_strings(&pkg_index, "fields");
     let type_paths: Vec<String> = list_of_strings(&pkg_index, "types");
 
-    // Load raw fields.
-    let mut fields: HashMap<String, (String, Value)> = HashMap::new();
     for rel in &field_paths {
         let path = format!("package/{rel}");
         let doc = store.load_instance_json(&path)?;
@@ -199,7 +227,6 @@ fn migrate_definitions(
         fields.insert(id, (name, ft));
     }
 
-    let mut types: HashMap<(String, u64), Vec<(String, bool)>> = HashMap::new();
     let mut version_bumps: HashMap<(String, u64), u64> = HashMap::new();
     let mut new_field_files: Vec<String> = Vec::new();
     let mut new_type_files: Vec<String> = Vec::new();
@@ -404,6 +431,14 @@ fn migrate_tier2(
     index: &DefinitionIndex,
     result: &mut CarrierMigrationResult,
 ) -> Result<Value, RepositoryError> {
+    // Idempotency FIRST: an already-object carrier (revision 2) is left
+    // untouched — before any type resolution, so a record typed by an
+    // installed package (e.g. the repo-create purpose record) re-runs clean.
+    if matches!(doc.get("fieldValues"), Some(Value::Object(_))) && doc.get("groupValues").is_none()
+    {
+        return Ok(doc);
+    }
+
     let type_id = str_of(&doc, "typeId", path)?;
     let mut type_version = doc.get("typeVersion").and_then(|v| v.as_u64()).unwrap_or(1);
 
@@ -425,10 +460,6 @@ fn migrate_tier2(
 
     let legacy_pairs = match doc.get("fieldValues") {
         Some(Value::Array(pairs)) => pairs.clone(),
-        Some(Value::Object(_)) => {
-            // Already revision 2 — idempotent re-run leaves it untouched.
-            return Ok(doc);
-        }
         _ => Vec::new(),
     };
 
@@ -829,4 +860,393 @@ fn str_of(doc: &Value, key: &str, path: &str) -> Result<String, RepositoryError>
         .and_then(|v| v.as_str())
         .map(str::to_string)
         .ok_or_else(|| abort(path, format!("missing '{key}'")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::json_store::JsonStore;
+    use serde_json::json;
+
+    const F_TITLE: &str = "aa000001-0000-4000-a000-000000000001";
+    const F_TAGS: &str = "aa000002-0000-4000-a000-000000000002";
+    const F_NAME: &str = "aa000003-0000-4000-a000-000000000003";
+    const F_ROLE: &str = "aa000004-0000-4000-a000-000000000004";
+    const F_ALIASES: &str = "aa000005-0000-4000-a000-000000000005";
+    const T_ITEM: &str = "bb000001-0000-4000-b000-000000000001";
+    const T_PLAIN: &str = "bb000002-0000-4000-b000-000000000002";
+    const R_ITEM: &str = "cc000001-0000-4000-c000-000000000001";
+    const R_PLAIN: &str = "cc000002-0000-4000-c000-000000000002";
+
+    #[derive(Default)]
+    struct FixtureKnobs {
+        /// `labels` entries projection diverges from the sibling value ([R20]).
+        divergent_entries: bool,
+        /// The item Type carries an assignment whose fieldId has no Field
+        /// definition, and the record carries a pair for it ([R10]).
+        ghost_field: bool,
+    }
+
+    /// A revision-1 repository: legacy pair-array `fieldValues`, a dual-written
+    /// list, `groupValues` with a valueless pair and a nested entries-only
+    /// list, the FieldAssignment trio, and one FieldGroup.
+    fn fixture_srsj(knobs: &FixtureKnobs) -> String {
+        let field = |id: &str, name: &str, field_type: Value| {
+            json!({
+                "id": id, "namespace": "com.test", "name": name, "version": 1,
+                "description": name, "aiGuidance": {"purpose": name},
+                "fieldType": field_type, "createdAt": "2026-01-01T00:00:00Z"
+            })
+        };
+
+        let mut item_assignments = vec![
+            json!({"fieldId": F_TITLE, "order": 0, "required": true, "repeatable": false}),
+            json!({"fieldId": F_TAGS, "order": 1, "required": false, "repeatable": true, "minItems": 1, "maxItems": 5}),
+        ];
+        if knobs.ghost_field {
+            item_assignments.push(json!({"fieldId": "aa00dead-0000-4000-a000-00000000dead", "order": 3, "required": false}));
+        }
+
+        let item_type = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+            "id": T_ITEM, "namespace": "com.test", "name": "item", "version": 1,
+            "description": "Item with a FieldGroup",
+            "fields": item_assignments,
+            "fieldGroups": [{
+                "groupId": "people",
+                "order": 2,
+                "label": "People",
+                "repeatable": true,
+                "minItems": 1,
+                "fields": [
+                    {"fieldId": F_NAME, "order": 0, "required": true, "repeatable": false},
+                    {"fieldId": F_ROLE, "order": 1, "required": false},
+                    {"fieldId": F_ALIASES, "order": 2, "required": false, "repeatable": true}
+                ]
+            }],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        let plain_type = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+            "id": T_PLAIN, "namespace": "com.test", "name": "plain", "version": 1,
+            "description": "Type with the trio but no groups",
+            "fields": [
+                {"fieldId": F_TITLE, "order": 0, "required": true, "repeatable": false, "minItems": 0, "maxItems": 1}
+            ],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+
+        let tags_entries = if knobs.divergent_entries {
+            json!([{"value": "a"}, {"value": "z"}])
+        } else {
+            json!([{"value": "a"}, {"value": "b"}])
+        };
+        let mut item_pairs = vec![
+            json!({"fieldId": F_TITLE, "value": "Hello"}),
+            json!({"fieldId": F_TAGS, "value": ["a", "b"], "entries": tags_entries}),
+        ];
+        if knobs.ghost_field {
+            item_pairs
+                .push(json!({"fieldId": "aa00dead-0000-4000-a000-00000000dead", "value": "x"}));
+        }
+
+        let item_record = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+            "instanceId": R_ITEM, "typeId": T_ITEM, "typeVersion": 1,
+            "typeNamespace": "com.test", "typeName": "item",
+            "fieldValues": item_pairs,
+            "groupValues": [{
+                "groupId": "people",
+                "entries": [
+                    {
+                        "entryId": "e1",
+                        "fieldValues": [
+                            {"fieldId": F_NAME, "value": "alice"},
+                            {"fieldId": F_ROLE},
+                            {"fieldId": F_ALIASES, "entries": [{"value": "x"}, {"value": "y"}]}
+                        ]
+                    },
+                    {"fieldValues": [{"fieldId": F_NAME, "value": "bob"}]}
+                ]
+            }],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        let plain_record = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+            "instanceId": R_PLAIN, "typeId": T_PLAIN, "typeVersion": 1,
+            "typeNamespace": "com.test", "typeName": "plain",
+            "fieldValues": [{"fieldId": F_TITLE, "value": "Plain"}],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+
+        json!({
+            "srsj": "1",
+            "manifest": {
+                "srsVersion": "2.0",
+                "repositoryId": "00000000-0000-4000-8000-0000000000ff",
+                "title": "Carrier Migration Fixture",
+                "dataModelRevision": 1,
+                "instanceIndex": [
+                    {"instanceId": R_ITEM, "tier": 2, "path": "records/r-item.json"},
+                    {"instanceId": R_PLAIN, "tier": 2, "path": "records/r-plain.json"}
+                ],
+                "packageRef": {"mode": "local", "path": "package"},
+                "createdAt": "2026-01-01T00:00:00Z"
+            },
+            "data": {
+                "records/r-item.json": item_record,
+                "records/r-plain.json": plain_record,
+                "package/package.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                    "id": "00000000-0000-4000-8000-0000000000aa",
+                    "namespace": "com.test", "name": "fixture", "title": "Fixture",
+                    "description": "carrier migration fixture", "status": "active",
+                    "version": "1.0.0", "createdAt": "2026-01-01T00:00:00Z",
+                    "fields": [
+                        "fields/title.json", "fields/labels.json", "fields/person_name.json",
+                        "fields/role.json", "fields/aliases.json"
+                    ],
+                    "types": ["types/item.json", "types/plain.json"],
+                    "views": [], "documentViews": []
+                },
+                "package/fields/title.json": field(F_TITLE, "title", json!({"datatype": "string"})),
+                "package/fields/labels.json":
+                    field(F_TAGS, "labels", json!({"datatype": "string", "cardinality": "list"})),
+                "package/fields/person_name.json":
+                    field(F_NAME, "person_name", json!({"datatype": "string"})),
+                "package/fields/role.json": field(F_ROLE, "role", json!({"datatype": "string"})),
+                "package/fields/aliases.json":
+                    field(F_ALIASES, "aliases", json!({"datatype": "string", "cardinality": "list"})),
+                "package/types/item.json": item_type,
+                "package/types/plain.json": plain_type
+            }
+        })
+        .to_string()
+    }
+
+    fn migrated_store() -> (JsonStore, CarrierMigrationResult) {
+        let store = JsonStore::from_srsj(&fixture_srsj(&FixtureKnobs::default())).unwrap();
+        let result = migrate_carrier(&store).expect("migration must succeed");
+        (store, result)
+    }
+
+    #[test]
+    fn field_group_minted_as_composite_with_version_bump() {
+        let (store, result) = migrated_store();
+
+        // The owning Type bumped 1 → 2 and lost its fieldGroups.
+        let item_type = store.load_instance_json("package/types/item.json").unwrap();
+        assert_eq!(item_type["version"], json!(2));
+        assert!(item_type.get("fieldGroups").is_none());
+
+        // A composite Field named after the groupId was minted and assigned.
+        let minted_field = store
+            .load_instance_json("package/fields/people.json")
+            .expect("minted composite field file");
+        assert_eq!(minted_field["name"], json!("people"));
+        assert_eq!(minted_field["fieldType"]["datatype"], json!("ref"));
+        assert_eq!(minted_field["fieldType"]["mode"], json!("inline"));
+        assert_eq!(minted_field["fieldType"]["cardinality"], json!("list"));
+        assert_eq!(minted_field["fieldType"]["minItems"], json!(1));
+        let range = &minted_field["fieldType"]["rangeType"];
+
+        // The minted range Type carries the group's fields, trio stripped.
+        let range_type = store
+            .load_instance_json("package/types/item_people.json")
+            .expect("minted range type file");
+        assert_eq!(range_type["id"], range["typeId"]);
+        assert_eq!(range_type["version"], range["typeVersion"]);
+        let range_fields = range_type["fields"].as_array().unwrap();
+        assert_eq!(range_fields.len(), 3);
+        for fa in range_fields {
+            assert!(
+                fa.get("repeatable").is_none(),
+                "trio must be stripped: {fa}"
+            );
+        }
+
+        // Both minted definitions are registered in the package index.
+        let pkg = store.load_instance_json("package/package.json").unwrap();
+        assert!(pkg["fields"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("fields/people.json")));
+        assert!(pkg["types"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("types/item_people.json")));
+        assert_eq!(result.minted.len(), 2, "one field + one range type minted");
+
+        // The record re-pinned to the bumped version and carries the composite
+        // under the group's key.
+        let record = store.load_instance_json("records/r-item.json").unwrap();
+        assert_eq!(record["typeVersion"], json!(2));
+        assert_eq!(
+            record["fieldValues"]["people"][0]["person_name"],
+            json!("alice")
+        );
+        assert_eq!(
+            record["fieldValues"]["people"][1]["person_name"],
+            json!("bob")
+        );
+        assert!(record.get("groupValues").is_none());
+    }
+
+    #[test]
+    fn trio_stripped_from_types_without_groups() {
+        let (store, _) = migrated_store();
+        let plain = store
+            .load_instance_json("package/types/plain.json")
+            .unwrap();
+        // No group → no version bump.
+        assert_eq!(plain["version"], json!(1));
+        for fa in plain["fields"].as_array().unwrap() {
+            assert!(fa.get("repeatable").is_none(), "{fa}");
+            assert!(fa.get("minItems").is_none(), "{fa}");
+            assert!(fa.get("maxItems").is_none(), "{fa}");
+        }
+    }
+
+    #[test]
+    fn dual_written_entries_taken_from_value_and_asserted() {
+        let (store, result) = migrated_store();
+        let record = store.load_instance_json("records/r-item.json").unwrap();
+        // [R20]: the `value` array wins; the agreeing entries projection is
+        // collapsed and counted.
+        assert_eq!(record["fieldValues"]["labels"], json!(["a", "b"]));
+        assert!(result.dual_writes_collapsed >= 1);
+    }
+
+    #[test]
+    fn divergent_entries_abort() {
+        let store = JsonStore::from_srsj(&fixture_srsj(&FixtureKnobs {
+            divergent_entries: true,
+            ..Default::default()
+        }))
+        .unwrap();
+        let err = migrate_carrier(&store).expect_err("divergent dual write must abort");
+        let msg = err.to_string();
+        assert!(msg.contains("[R20]"), "diagnostic cites [R20]: {msg}");
+        assert!(msg.contains("labels"), "diagnostic names the field: {msg}");
+    }
+
+    #[test]
+    fn unresolvable_field_id_aborts_and_rolls_back() {
+        // Disk-backed store: JsonStore's ADR-021 abort restores from disk, so
+        // the batch seam is actually exercised.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fixture.srsj");
+        let srsj = fixture_srsj(&FixtureKnobs {
+            ghost_field: true,
+            ..Default::default()
+        });
+        std::fs::write(&path, &srsj).unwrap();
+        let before = std::fs::read(&path).unwrap();
+
+        let store = JsonStore::open(&path).unwrap();
+        let err = migrate_carrier(&store).expect_err("unresolvable fieldId must abort");
+        assert!(
+            err.to_string().contains("[R10]"),
+            "diagnostic cites [R10]: {err}"
+        );
+
+        // Batch rollback: nothing was flushed, the file is byte-identical, and
+        // a fresh open still sees the legacy revision.
+        let after = std::fs::read(&path).unwrap();
+        assert_eq!(before, after, "abort must leave the store unchanged");
+        let reopened = JsonStore::open(&path).unwrap();
+        assert_eq!(
+            crate::field_type_migration_service::data_model_revision(&reopened).unwrap(),
+            1
+        );
+        let record = reopened.load_instance_json("records/r-item.json").unwrap();
+        assert!(
+            record["fieldValues"].is_array(),
+            "records must be untouched"
+        );
+    }
+
+    #[test]
+    fn nested_group_values_recurse_depth() {
+        // Steps 2–3 apply at every depth: the entries-only list inside a group
+        // entry converts to a plain array under its Field.name.
+        let (store, _) = migrated_store();
+        let record = store.load_instance_json("records/r-item.json").unwrap();
+        assert_eq!(
+            record["fieldValues"]["people"][0]["aliases"],
+            json!(["x", "y"])
+        );
+    }
+
+    #[test]
+    fn valueless_pair_omitted_and_logged() {
+        let (store, result) = migrated_store();
+        let record = store.load_instance_json("records/r-item.json").unwrap();
+        // The valueless `role` pair: key omitted ([R5]), logged as the first
+        // declared non-round-trippable class.
+        assert!(record["fieldValues"]["people"][0].get("role").is_none());
+        assert!(
+            result
+                .valueless_pairs_omitted
+                .iter()
+                .any(|p| p.contains("role")),
+            "omitted pair must be logged: {:?}",
+            result.valueless_pairs_omitted
+        );
+        // The dropped entryId is logged too.
+        assert!(
+            result.entry_ids_dropped.iter().any(|e| e.contains("e1")),
+            "{:?}",
+            result.entry_ids_dropped
+        );
+    }
+
+    #[test]
+    fn rerun_is_byte_idempotent() {
+        let (store, _) = migrated_store();
+        let first = store.to_srsj_string().unwrap();
+        migrate_carrier(&store).expect("re-run must succeed");
+        let second = store.to_srsj_string().unwrap();
+        assert_eq!(
+            first, second,
+            "re-running the migration must be a byte no-op"
+        );
+    }
+
+    #[test]
+    fn instance_count_asserted_against_index() {
+        let (store, result) = migrated_store();
+        let index_len = store.load_manifest().unwrap().instance_index.len();
+        assert_eq!(result.instances_migrated, index_len);
+        assert_eq!(result.tier2_records, 2);
+        assert_eq!(
+            crate::field_type_migration_service::data_model_revision(&store).unwrap(),
+            CARRIER_REVISION
+        );
+    }
+
+    #[test]
+    fn migrated_output_passes_value_shape_validation() {
+        let (store, _) = migrated_store();
+        let package = store.load_package().unwrap();
+        for (path, type_id, version) in [
+            ("records/r-item.json", T_ITEM, 2),
+            ("records/r-plain.json", T_PLAIN, 1),
+        ] {
+            let record: srs_core::types::record::Record =
+                serde_json::from_value(store.load_instance_json(path).unwrap())
+                    .unwrap_or_else(|e| panic!("{path} must parse as a revision-2 Record: {e}"));
+            let rt = package
+                .resolve_type(type_id, version)
+                .unwrap_or_else(|| panic!("{type_id}@{version} must resolve"));
+            let effective = package.resolved_effective_fields(rt).unwrap();
+            let diagnostics = srs_core::validation::record::validate_record_all(
+                &record, rt, &effective, &package,
+            );
+            assert!(
+                diagnostics.is_empty(),
+                "{path} must pass value-shape validation, got: {diagnostics:?}"
+            );
+        }
+    }
 }

@@ -5,9 +5,12 @@
   "name": "protocol-stages",
   "version": 1,
   "description": "Ordered stages defining the protocol workflow.",
-  "valueType": "text",
   "aiGuidance": {
     "purpose": "Capture the stage sequence and stage details that define protocol execution."
+  },
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
   },
   "createdAt": "2026-05-29T00:00:00Z"
 }

@@ -87,24 +87,22 @@ pub(crate) fn record_display_label(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use srs_core::types::record::{FieldValue, Record};
+    use srs_core::types::record::{FieldValues, Record};
     use std::collections::HashMap;
 
-    fn make_record_with_field(field_id: &str, value: &str) -> Record {
+    fn make_record_with_field(name: &str, value: &str) -> Record {
         Record {
+            field_meta: None,
             instance_id: "r1".to_string(),
             type_id: "t1".to_string(),
             type_version: 1,
             type_namespace: "com.test".to_string(),
             type_name: "my-type".to_string(),
-            field_values: vec![FieldValue {
-                field_id: field_id.to_string(),
-                value: serde_json::json!(value),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
-            group_values: None,
+            field_values: {
+                let mut fv = FieldValues::new();
+                fv.insert(name, serde_json::json!(value));
+                fv
+            },
             lifecycle_state: None,
             tags: None,
             created_at: None,
@@ -113,30 +111,20 @@ mod tests {
         }
     }
 
-    fn make_two_field_record(id1: &str, val1: &str, id2: &str, val2: &str) -> Record {
+    fn make_two_field_record(name1: &str, val1: &str, name2: &str, val2: &str) -> Record {
         Record {
+            field_meta: None,
             instance_id: "r1".to_string(),
             type_id: "t1".to_string(),
             type_version: 1,
             type_namespace: "com.test".to_string(),
             type_name: "my-type".to_string(),
-            field_values: vec![
-                FieldValue {
-                    field_id: id1.to_string(),
-                    value: serde_json::json!(val1),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-                FieldValue {
-                    field_id: id2.to_string(),
-                    value: serde_json::json!(val2),
-                    entries: None,
-                    source: None,
-                    edited_at: None,
-                },
-            ],
-            group_values: None,
+            field_values: {
+                let mut fv = FieldValues::new();
+                fv.insert(name1, serde_json::json!(val1));
+                fv.insert(name2, serde_json::json!(val2));
+                fv
+            },
             lifecycle_state: None,
             tags: None,
             created_at: None,
@@ -168,7 +156,7 @@ mod tests {
 
     #[test]
     fn display_label_finds_title_field() {
-        let record = make_record_with_field("f-title", "My Title");
+        let record = make_record_with_field("title", "My Title");
         let index = make_index(&[("f-title", "title")]);
         assert_eq!(
             record_display_label(&record, &empty_identity_index(), &index),
@@ -178,7 +166,7 @@ mod tests {
 
     #[test]
     fn display_label_finds_name_field() {
-        let record = make_record_with_field("f-name", "My Name");
+        let record = make_record_with_field("name", "My Name");
         let index = make_index(&[("f-name", "name")]);
         assert_eq!(
             record_display_label(&record, &empty_identity_index(), &index),
@@ -188,7 +176,7 @@ mod tests {
 
     #[test]
     fn display_label_finds_heading_field() {
-        let record = make_record_with_field("f-heading", "Section Alpha");
+        let record = make_record_with_field("heading", "Section Alpha");
         let index = make_index(&[("f-heading", "heading")]);
         assert_eq!(
             record_display_label(&record, &empty_identity_index(), &index),
@@ -198,7 +186,7 @@ mod tests {
 
     #[test]
     fn display_label_title_takes_priority_over_heading() {
-        let record = make_two_field_record("f-heading", "A Heading", "f-title", "A Title");
+        let record = make_two_field_record("heading", "A Heading", "title", "A Title");
         let index = make_index(&[("f-heading", "heading"), ("f-title", "title")]);
         assert_eq!(
             record_display_label(&record, &empty_identity_index(), &index),
@@ -208,7 +196,7 @@ mod tests {
 
     #[test]
     fn display_label_heading_takes_priority_over_name() {
-        let record = make_two_field_record("f-heading", "Heading Value", "f-name", "Name Value");
+        let record = make_two_field_record("heading", "Heading Value", "name", "Name Value");
         let index = make_index(&[("f-heading", "heading"), ("f-name", "name")]);
         assert_eq!(
             record_display_label(&record, &empty_identity_index(), &index),
@@ -219,7 +207,7 @@ mod tests {
     #[test]
     fn display_label_name_ladder_skips_empty_string() {
         // Empty heading must fall through to name, not return "".
-        let record = make_two_field_record("f-heading", "", "f-name", "Fallback Name");
+        let record = make_two_field_record("heading", "", "name", "Fallback Name");
         let index = make_index(&[("f-heading", "heading"), ("f-name", "name")]);
         assert_eq!(
             record_display_label(&record, &empty_identity_index(), &index),
@@ -229,7 +217,7 @@ mod tests {
 
     #[test]
     fn display_label_title_takes_priority_over_name() {
-        let record = make_two_field_record("f-name", "A Name", "f-title", "A Title");
+        let record = make_two_field_record("name", "A Name", "title", "A Title");
         let index = make_index(&[("f-title", "title"), ("f-name", "name")]);
         assert_eq!(
             record_display_label(&record, &empty_identity_index(), &index),
@@ -239,7 +227,7 @@ mod tests {
 
     #[test]
     fn display_label_fallback_to_type_name() {
-        let record = make_record_with_field("f-other", "something");
+        let record = make_record_with_field("description", "something");
         let index = make_index(&[("f-other", "description")]);
         assert_eq!(
             record_display_label(&record, &empty_identity_index(), &index),
@@ -251,10 +239,9 @@ mod tests {
     fn display_label_identity_field_wins_over_title_field() {
         // Record has both an identityFieldId-mapped field ("f-heading") and a "title"-named
         // field with a different value — the identity field must win (RFC-020 Rule [N+36]).
-        let record =
-            make_two_field_record("f-title", "Ignored Title", "f-heading", "The Real Heading");
+        let record = make_two_field_record("title", "Ignored Title", "heading", "The Real Heading");
         let identity_index = make_identity_index("t1", 1, "f-heading");
-        let name_index = make_index(&[("f-title", "title")]);
+        let name_index = make_index(&[("f-title", "title"), ("f-heading", "heading")]);
         assert_eq!(
             record_display_label(&record, &identity_index, &name_index),
             "The Real Heading"
@@ -265,7 +252,7 @@ mod tests {
     fn display_label_no_identity_field_id_falls_through_to_name_ladder_unchanged() {
         // Regression: a record whose Type has no identityFieldId entry in the index must
         // behave exactly as before this change — pure name-ladder resolution.
-        let record = make_record_with_field("f-name", "My Name");
+        let record = make_record_with_field("name", "My Name");
         let name_index = make_index(&[("f-name", "name")]);
         assert_eq!(
             record_display_label(&record, &empty_identity_index(), &name_index),
@@ -275,9 +262,9 @@ mod tests {
 
     #[test]
     fn display_label_identity_field_empty_value_falls_through_to_name_ladder() {
-        let record = make_two_field_record("f-heading", "", "f-name", "Fallback Name");
+        let record = make_two_field_record("heading", "", "name", "Fallback Name");
         let identity_index = make_identity_index("t1", 1, "f-heading");
-        let name_index = make_index(&[("f-name", "name")]);
+        let name_index = make_index(&[("f-name", "name"), ("f-heading", "heading")]);
         assert_eq!(
             record_display_label(&record, &identity_index, &name_index),
             "Fallback Name"
@@ -295,9 +282,6 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
-                repeatable: false,
-                min_items: None,
-                max_items: None,
             }
         }
 
@@ -309,7 +293,6 @@ mod tests {
                 version: 1,
                 description: "test".to_string(),
                 fields: vec![fa("f1")],
-                field_groups: None,
                 extends_type_id: extends.map(|s| s.to_string()),
                 extends_type_version: extends.map(|_| 1),
                 field_order: None,

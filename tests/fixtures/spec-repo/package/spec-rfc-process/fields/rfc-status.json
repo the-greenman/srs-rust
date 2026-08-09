@@ -9,16 +9,19 @@
     "purpose": "The editorial status of an RFC.",
     "extraction": "draft: under discussion, not ready for review. proposed: ready for community review. accepted: approved but not necessarily applied. implemented: accepted and applied to active spec artifacts. rejected: not accepted. superseded: replaced by a later RFC. withdrawn: intentionally stopped by the author."
   },
-  "valueType": "select",
+  "fieldType": {
+    "datatype": "string",
+    "valueDomain": "closed",
+    "allowedValues": [
+      "draft",
+      "proposed",
+      "accepted",
+      "implemented",
+      "rejected",
+      "superseded",
+      "withdrawn"
+    ]
+  },
   "editorHint": "dropdown",
-  "createdAt": "2026-05-27T00:00:00Z",
-  "allowedValues": [
-    "draft",
-    "proposed",
-    "accepted",
-    "implemented",
-    "rejected",
-    "superseded",
-    "withdrawn"
-  ]
+  "createdAt": "2026-05-27T00:00:00Z"
 }

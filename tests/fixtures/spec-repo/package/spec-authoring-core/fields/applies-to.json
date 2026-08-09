@@ -9,7 +9,10 @@
     "purpose": "Which types, extensions, or contexts this invariant or requirement applies to.",
     "extraction": "List the types, extension identifiers, or conceptual contexts that are in scope. Use prose or comma-separated values. E.g. 'Record (all tiers)', 'ext:lifecycle, ext:federation', 'all implementations'."
   },
-  "valueType": "text",
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
   "editorHint": "textarea",
   "createdAt": "2026-05-27T00:00:00Z"
 }

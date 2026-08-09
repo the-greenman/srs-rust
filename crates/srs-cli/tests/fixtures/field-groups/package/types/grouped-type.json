@@ -3,28 +3,13 @@
   "id": "00000000-0000-4000-8000-000000000913",
   "namespace": "fixture.groups",
   "name": "grouped-item",
-  "version": 1,
+  "version": 2,
   "description": "Type with required group",
-  "fields": [],
-  "fieldGroups": [
+  "fields": [
     {
-      "groupId": "people",
+      "fieldId": "cb9a021f-b778-4a4d-b34a-ef471ee8dd91",
       "order": 0,
-      "required": true,
-      "repeatable": true,
-      "minItems": 1,
-      "fields": [
-        {
-          "fieldId": "00000000-0000-4000-8000-000000000911",
-          "order": 0,
-          "required": true
-        },
-        {
-          "fieldId": "00000000-0000-4000-8000-000000000912",
-          "order": 1,
-          "required": true
-        }
-      ]
+      "required": true
     }
   ],
   "createdAt": "2026-01-01T00:00:00Z"

@@ -48,7 +48,7 @@ fn fixture_store() -> JsonStore {
                 "version": 1,
                 "description": "Title",
                 "aiGuidance": {},
-                "valueType": "string",
+                "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/fields/description.json": {
@@ -58,7 +58,7 @@ fn fixture_store() -> JsonStore {
                 "version": 1,
                 "description": "Description",
                 "aiGuidance": {},
-                "valueType": "text",
+                "fieldType": {"datatype": "string", "format": "plain"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             format!("records/tier-2/{REC_AUTHORITY}.json"): {
@@ -67,10 +67,10 @@ fn fixture_store() -> JsonStore {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "decision",
-                "fieldValues": [
-                    {"fieldId": FIELD_TITLE, "value": "Building Authority"},
-                    {"fieldId": FIELD_DESC,  "value": "Foundation of authority"}
-                ]
+                "fieldValues": {
+                    "title": "Building Authority",
+                    "description": "Foundation of authority"
+                }
             },
             format!("records/tier-2/{REC_SECURITY}.json"): {
                 "instanceId": REC_SECURITY,
@@ -78,10 +78,10 @@ fn fixture_store() -> JsonStore {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "decision",
-                "fieldValues": [
-                    {"fieldId": FIELD_TITLE, "value": "Security Posture"},
-                    {"fieldId": FIELD_DESC,  "value": "Annual compliance review"}
-                ]
+                "fieldValues": {
+                    "title": "Security Posture",
+                    "description": "Annual compliance review"
+                }
             }
         }
     })

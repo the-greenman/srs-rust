@@ -208,8 +208,7 @@ mod tests {
     use crate::store::RepositoryStore;
     use srs_core::types::container::Container;
     use srs_core::types::field::{AiGuidance, Field, FieldType};
-    use srs_core::types::record::{FieldValue, Record};
-    use std::collections::HashMap;
+    use srs_core::types::record::{FieldValues, Record};
     use std::path::PathBuf;
 
     fn empty_package() -> Package {
@@ -252,19 +251,17 @@ mod tests {
 
     fn record(id: &str, title: &str, created_at: &str) -> Record {
         Record {
+            field_meta: None,
             instance_id: id.to_string(),
             type_id: format!("type-{id}"),
             type_version: 1,
             type_namespace: "governance".to_string(),
             type_name: "section".to_string(),
-            field_values: vec![FieldValue {
-                field_id: "00000000-0000-4000-8000-00000000f100".to_string(),
-                value: serde_json::Value::String(title.to_string()),
-                entries: None,
-                source: None,
-                edited_at: None,
-            }],
-            group_values: None,
+            field_values: {
+                let mut fv = FieldValues::new();
+                fv.insert("title", serde_json::Value::String(title.to_string()));
+                fv
+            },
             lifecycle_state: None,
             tags: None,
             created_at: Some(created_at.to_string()),

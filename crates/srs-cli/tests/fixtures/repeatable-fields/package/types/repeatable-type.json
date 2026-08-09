@@ -10,10 +10,7 @@
       "fieldId": "00000000-0000-4000-8000-000000000901",
       "order": 0,
       "required": true,
-      "displayLabel": "Title",
-      "repeatable": true,
-      "minItems": 1,
-      "maxItems": 3
+      "displayLabel": "Title"
     },
     {
       "fieldId": "00000000-0000-4000-8000-000000000903",

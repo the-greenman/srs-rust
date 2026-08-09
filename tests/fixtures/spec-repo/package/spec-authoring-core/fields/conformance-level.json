@@ -9,14 +9,17 @@
     "purpose": "The RFC 2119 conformance classification for a requirement.",
     "extraction": "MUST: absolute requirement, no deviation permitted. SHOULD: recommended; valid reasons to ignore exist. MAY: truly optional. MUST-NOT and SHOULD-NOT are the negatives. Use consistent classification — do not downgrade MUST to SHOULD for convenience."
   },
-  "valueType": "select",
+  "fieldType": {
+    "datatype": "string",
+    "valueDomain": "closed",
+    "allowedValues": [
+      "MUST",
+      "SHOULD",
+      "MAY",
+      "MUST-NOT",
+      "SHOULD-NOT"
+    ]
+  },
   "editorHint": "dropdown",
-  "createdAt": "2026-05-27T00:00:00Z",
-  "allowedValues": [
-    "MUST",
-    "SHOULD",
-    "MAY",
-    "MUST-NOT",
-    "SHOULD-NOT"
-  ]
+  "createdAt": "2026-05-27T00:00:00Z"
 }

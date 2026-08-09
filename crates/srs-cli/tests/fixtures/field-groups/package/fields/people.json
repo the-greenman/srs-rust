@@ -1,0 +1,21 @@
+{
+  "id": "cb9a021f-b778-4a4d-b34a-ef471ee8dd91",
+  "namespace": "fixture.groups",
+  "name": "people",
+  "version": 1,
+  "description": "Composite field minted from FieldGroup 'people'",
+  "aiGuidance": {
+    "purpose": "Composite field minted from FieldGroup 'people'"
+  },
+  "fieldType": {
+    "datatype": "ref",
+    "mode": "inline",
+    "rangeType": {
+      "typeId": "b6928a75-912d-419a-a5be-cc6894a11a49",
+      "typeVersion": 1
+    },
+    "cardinality": "list",
+    "minItems": 1
+  },
+  "createdAt": "2026-01-01T00:00:00Z"
+}

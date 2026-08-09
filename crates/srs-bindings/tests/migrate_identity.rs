@@ -245,7 +245,7 @@ fn sections_survive_migrate_identity() {
                 "version": 1,
                 "description": "Title",
                 "aiGuidance": {},
-                "valueType": "string",
+                "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             format!("records/tier-2/{ARTICLES_RECORD_ID}.json"): {
@@ -254,7 +254,7 @@ fn sections_survive_migrate_identity() {
                 "typeVersion": 1,
                 "typeNamespace": "com.test",
                 "typeName": "section",
-                "fieldValues": [{"fieldId": FIELD_TITLE_ID, "value": "Articles"}]
+                "fieldValues": {"title": "Articles"}
             },
             // Container file with pre-existing section member — must survive migration.
             format!("containers/{SECTIONS_ROOT_CTR_ID}.json"): {

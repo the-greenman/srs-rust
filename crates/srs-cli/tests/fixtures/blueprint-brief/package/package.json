@@ -7,12 +7,21 @@
   "description": "Fixture for dogfooding blueprint brief contributesTo.typeId negative case.",
   "status": "active",
   "version": "1.0.0",
-  "fields": ["fields/title.json"],
-  "types": ["types/document.json"],
-  "blueprints": ["blueprints/extraction.json"],
-  "protocols": ["protocols/extraction.json"],
+  "fields": [
+    "fields/title.json"
+  ],
+  "types": [
+    "types/document.json"
+  ],
+  "blueprints": [
+    "blueprints/extraction.json"
+  ],
+  "protocols": [
+    "protocols/extraction.json"
+  ],
   "relationTypes": [],
   "views": [],
   "documentViews": [],
-  "createdAt": "2026-01-01T00:00:00Z"
+  "createdAt": "2026-01-01T00:00:00Z",
+  "dataModelRevision": 2
 }

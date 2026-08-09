@@ -790,7 +790,6 @@ mod tests {
     #[test]
     fn repo_map_containers_summary_counts_and_types() {
         use srs_core::types::container::Container;
-        use std::collections::HashMap;
 
         fn make_container(id: &str, title: &str, container_type: &str) -> Container {
             Container {

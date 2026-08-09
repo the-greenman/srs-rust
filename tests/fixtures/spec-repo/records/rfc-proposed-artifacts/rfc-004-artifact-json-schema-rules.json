@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "RFC-004 Artifact: json-schema-rules"
-    },
-    {
-      "fieldId": "5a000017-0000-4000-a000-000000000017",
-      "value": "document"
-    },
-    {
-      "fieldId": "5a000016-0000-4000-a000-000000000016",
-      "value": "rfcs/rfc-004/proposed-package/spec-authoring-json-schema/projection-rules.md"
-    },
-    {
-      "fieldId": "1a000012-0000-4000-a000-000000000012",
-      "value": "Projection rules for rendering ext:schema-notation to JSON Schema."
-    }
-  ],
+  "fieldValues": {
+    "title": "RFC-004 Artifact: json-schema-rules",
+    "artifact_kind": "document",
+    "proposal_artifact_path": "rfcs/rfc-004/proposed-package/spec-authoring-json-schema/projection-rules.md",
+    "description": "Projection rules for rendering ext:schema-notation to JSON Schema."
+  },
   "instanceId": "4ed1593f-38ff-528c-846c-e961f0b55173",
   "sourceRefs": [
     {

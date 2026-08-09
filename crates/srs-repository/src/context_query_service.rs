@@ -236,7 +236,7 @@ mod tests {
     use crate::{record_store, revision_service};
     use serde_json::json;
     use srs_core::types::field::{AiGuidance, Field, FieldType};
-    use srs_core::types::record::FieldValue;
+    use srs_core::types::record::FieldValues;
     use srs_core::types::record_type::{FieldAssignment, RecordType};
     use srs_core::types::revision::{Revision, RevisionAgent};
     use std::path::PathBuf;
@@ -271,11 +271,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: Some("Name".to_string()),
-                repeatable: false,
-                min_items: None,
-                max_items: None,
             }],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -320,14 +316,10 @@ mod tests {
         MemoryStore::new(manifest, package)
     }
 
-    fn make_field_value(field_id: &str, value: serde_json::Value) -> FieldValue {
-        FieldValue {
-            field_id: field_id.to_string(),
-            value,
-            entries: None,
-            source: None,
-            edited_at: None,
-        }
+    fn make_field_values(name: &str, value: serde_json::Value) -> FieldValues {
+        let mut fv = FieldValues::new();
+        fv.insert(name, value);
+        fv
     }
 
     fn make_revision(id: &str, record_id: &str, field_id: &str, prior: Option<&str>) -> Revision {
@@ -347,7 +339,7 @@ mod tests {
     #[test]
     fn field_context_no_revisions() {
         let store = make_store();
-        let fv = vec![make_field_value("field-name-001", json!("Alice"))];
+        let fv = make_field_values("test-name", json!("Alice"));
         let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
 
         let result = get_field_context(
@@ -368,7 +360,7 @@ mod tests {
     #[test]
     fn field_context_filters_by_field_id() {
         let store = make_store();
-        let fv = vec![make_field_value("field-name-001", json!("Bob"))];
+        let fv = make_field_values("test-name", json!("Bob"));
         let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
         let path = store
             .load_manifest()
@@ -438,11 +430,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
-                repeatable: false,
-                min_items: None,
-                max_items: None,
             }],
-            field_groups: None,
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -490,7 +478,7 @@ mod tests {
         };
         let store = MemoryStore::new(manifest, package);
 
-        let fv = vec![make_field_value("field-name-001", json!("Charlie"))];
+        let fv = make_field_values("test-name", json!("Charlie"));
         let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
 
         let result = get_field_context(
@@ -514,7 +502,7 @@ mod tests {
     fn field_context_ai_guidance_null() {
         // make_store() has ai_guidance: null on field-name-001
         let store = make_store();
-        let fv = vec![make_field_value("field-name-001", json!("Dana"))];
+        let fv = make_field_values("test-name", json!("Dana"));
         let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
 
         let result = get_field_context(
@@ -546,7 +534,7 @@ mod tests {
     #[test]
     fn record_context_field_values() {
         let store = make_store();
-        let fv = vec![make_field_value("field-name-001", json!("Eve"))];
+        let fv = make_field_values("test-name", json!("Eve"));
         let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
 
         let result = get_record_context(
@@ -562,7 +550,7 @@ mod tests {
         assert_eq!(result.type_name, "test-type");
         assert_eq!(result.type_namespace, "com.test");
         assert_eq!(result.field_values.len(), 1);
-        assert_eq!(result.field_values[0].field_id, "field-name-001");
+        assert_eq!(result.field_values.get("test-name"), Some(&json!("Eve")));
         assert!(result.tagged_chunks.is_empty());
         assert!(result.protocol_run_history.is_empty());
     }
@@ -596,15 +584,15 @@ mod tests {
             properties: None,
         };
         let defs = vec![depends_on_def];
-        let fv1 = vec![make_field_value("field-name-001", json!("Source"))];
-        let fv2 = vec![make_field_value("field-name-001", json!("Target"))];
+        let fv1 = make_field_values("test-name", json!("Source"));
+        let fv2 = make_field_values("test-name", json!("Target"));
         let src = record_store::create_record(&store, "type-test-001", 1, fv1, None, None).unwrap();
         let tgt = record_store::create_record(&store, "type-test-001", 1, fv2, None, None).unwrap();
         let unrelated = record_store::create_record(
             &store,
             "type-test-001",
             1,
-            vec![make_field_value("field-name-001", json!("Unrelated"))],
+            make_field_values("test-name", json!("Unrelated")),
             None,
             None,
         )
@@ -674,7 +662,7 @@ mod tests {
     #[test]
     fn revision_trace_prior_chain() {
         let store = make_store();
-        let fv = vec![make_field_value("field-name-001", json!("Frank"))];
+        let fv = make_field_values("test-name", json!("Frank"));
         let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
         let path = store
             .load_manifest()
@@ -724,7 +712,7 @@ mod tests {
     #[test]
     fn revision_trace_not_found() {
         let store = make_store();
-        let fv = vec![make_field_value("field-name-001", json!("Grace"))];
+        let fv = make_field_values("test-name", json!("Grace"));
         let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
 
         let err = get_revision_trace(
@@ -745,7 +733,7 @@ mod tests {
 
         // 1. Build MemoryStore, create record, append revision
         let store = make_store();
-        let fv = vec![make_field_value("field-name-001", json!("Heidi"))];
+        let fv = make_field_values("test-name", json!("Heidi"));
         let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
         let manifest = store.load_manifest().unwrap();
         let entry = manifest
@@ -780,12 +768,23 @@ mod tests {
             "data": {
                 record_path: record_json,
                 sidecar_path: sidecar_json,
+                // RFC-039: the carrier keys by Field.name, so field-id queries
+                // need the Field definition to bridge id → name.
+                "package/fields/test-name.json": {
+                    "id": "field-name-001",
+                    "namespace": "com.test",
+                    "name": "test-name",
+                    "version": 1,
+                    "description": "Name field",
+                    "fieldType": {"datatype": "string"},
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
                 "package/package.json": {
                     "id": "test-pkg",
                     "namespace": "com.test",
                     "name": "test-package",
                     "version": "1.0.0",
-                    "fields": [],
+                    "fields": ["fields/test-name.json"],
                     "types": [],
                     "relationTypes": [],
                     "views": [],
@@ -832,10 +831,7 @@ mod tests {
         use crate::protocol_run_service::{create_run, CreateRunInput};
         let store = make_store();
 
-        let fv = vec![make_field_value(
-            "field-name-001",
-            json!("run-history-test"),
-        )];
+        let fv = make_field_values("test-name", json!("run-history-test"));
         let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
 
         // Create a run targeting this record.

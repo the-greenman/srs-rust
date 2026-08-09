@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "00000000-0000-4000-8000-000000000903",
+  "namespace": "fixture.render",
+  "name": "body",
+  "version": 1,
+  "description": "Text body",
+  "aiGuidance": {
+    "purpose": "capture body text"
+  },
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
+  "createdAt": "2026-01-01T00:00:00Z"
+}

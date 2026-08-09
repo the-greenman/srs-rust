@@ -1,24 +1,12 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "RFC-004 Artifact: readme"
-    },
-    {
-      "fieldId": "5a000017-0000-4000-a000-000000000017",
-      "value": "document"
-    },
-    {
-      "fieldId": "5a000016-0000-4000-a000-000000000016",
-      "value": "rfcs/rfc-004/README.md"
-    },
-    {
-      "fieldId": "1a000012-0000-4000-a000-000000000012",
-      "value": "Review notes defining proposal artifact boundaries and identity constraints."
-    }
-  ],
+  "fieldValues": {
+    "title": "RFC-004 Artifact: readme",
+    "artifact_kind": "document",
+    "proposal_artifact_path": "rfcs/rfc-004/README.md",
+    "description": "Review notes defining proposal artifact boundaries and identity constraints."
+  },
   "instanceId": "c7a59785-cbc5-5375-8180-0ddfe92d9abe",
   "sourceRefs": [
     {

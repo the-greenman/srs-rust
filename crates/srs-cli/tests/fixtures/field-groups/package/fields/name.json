@@ -5,7 +5,11 @@
   "name": "name",
   "version": 1,
   "description": "Name",
-  "aiGuidance": {"purpose": "capture name"},
-  "valueType": "string",
+  "aiGuidance": {
+    "purpose": "capture name"
+  },
+  "fieldType": {
+    "datatype": "string"
+  },
   "createdAt": "2026-01-01T00:00:00Z"
 }

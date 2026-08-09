@@ -1925,7 +1925,69 @@ mod tests {
     use crate::repository_portability::{copy_repository, export_repository_snapshot};
     use crate::store::memory::MemoryStore;
     use crate::store::FileStore;
+    use srs_core::types::record::FieldValues;
     use tempfile::TempDir;
+
+    /// ADR-043 canonicalize-on-write: every object's keys sort, except
+    /// `fieldValues`/`fieldMeta` subtrees whose key order is data ([R18]).
+    #[test]
+    fn srsj_canonicalize_sorts_all_but_carrier_subtrees() {
+        let store = JsonStore::from_srsj(
+            &serde_json::json!({
+                "srsj": "1",
+                "manifest": {
+                    "instanceIndex": [
+                        {"instanceId": "r1", "tier": 2, "path": "records/r1.json"}
+                    ],
+                    "packageRef": {"mode": "local", "path": "package"}
+                },
+                "data": {
+                    "records/r1.json": {
+                        "typeVersion": 1,
+                        "typeNamespace": "com.test",
+                        "typeName": "t",
+                        "typeId": "t1",
+                        "instanceId": "r1",
+                        // Deliberately non-alphabetical: order is data ([R18])
+                        // at every depth, including composite interiors.
+                        "fieldValues": {
+                            "zeta": "z",
+                            "alpha": "a",
+                            "rows": [{"zz_cell": "1", "aa_cell": "2"}]
+                        },
+                        "fieldMeta": {"zeta": {"source": "human"}, "alpha": {"source": "ai"}}
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let out = store.to_srsj_string().unwrap();
+        let value: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let record = &value["data"]["records/r1.json"];
+
+        // Envelope keys sorted…
+        let record_keys: Vec<&String> = record.as_object().unwrap().keys().collect();
+        let mut sorted = record_keys.clone();
+        sorted.sort();
+        assert_eq!(record_keys, sorted, "record envelope keys must sort");
+
+        // …carrier subtrees keep stored order at every depth.
+        let fv_keys: Vec<&String> = record["fieldValues"].as_object().unwrap().keys().collect();
+        assert_eq!(
+            fv_keys,
+            ["zeta", "alpha", "rows"].iter().collect::<Vec<_>>()
+        );
+        let row_keys: Vec<&String> = record["fieldValues"]["rows"][0]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect();
+        assert_eq!(row_keys, ["zz_cell", "aa_cell"].iter().collect::<Vec<_>>());
+        let meta_keys: Vec<&String> = record["fieldMeta"].as_object().unwrap().keys().collect();
+        assert_eq!(meta_keys, ["zeta", "alpha"].iter().collect::<Vec<_>>());
+    }
 
     fn init_input() -> InitializeRepositoryInput {
         InitializeRepositoryInput {
@@ -2356,13 +2418,13 @@ mod tests {
 
     fn json_min_record(id: &str, type_name: &str, tags: Option<Vec<String>>) -> Record {
         Record {
+            field_meta: None,
             instance_id: id.to_string(),
             type_id: "type-j-0001".to_string(),
             type_version: 1,
             type_namespace: "com.example".to_string(),
             type_name: type_name.to_string(),
-            field_values: vec![],
-            group_values: None,
+            field_values: FieldValues::new(),
             lifecycle_state: None,
             tags,
             created_at: None,

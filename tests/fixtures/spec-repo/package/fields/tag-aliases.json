@@ -5,9 +5,12 @@
   "name": "tag_aliases",
   "version": 1,
   "description": "Comma-separated alternate forms or synonyms for this tag.",
-  "valueType": "text",
-  "createdAt": "2026-05-28T00:00:00Z",
   "aiGuidance": {
     "purpose": "Alternate strings that should be treated as equivalent to the canonical tag-key. Comma-separated."
-  }
+  },
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
+  "createdAt": "2026-05-28T00:00:00Z"
 }

@@ -210,7 +210,6 @@ mod tests {
     use super::*;
     use crate::types::lifecycle::{Lifecycle, LifecycleState, LifecycleTransition};
     use crate::types::term::VocabularyEntryStatus;
-    use std::collections::BTreeMap;
 
     fn draft_state(initial: bool) -> LifecycleState {
         LifecycleState {

@@ -9,7 +9,9 @@
     "purpose": "Links an RFC implementation record to the concrete repository change that applied it.",
     "extraction": "Use a git commit SHA, PR number, release identifier, or other stable implementation reference."
   },
-  "valueType": "string",
+  "fieldType": {
+    "datatype": "string"
+  },
   "editorHint": "singleline",
   "createdAt": "2026-05-27T00:00:00Z"
 }

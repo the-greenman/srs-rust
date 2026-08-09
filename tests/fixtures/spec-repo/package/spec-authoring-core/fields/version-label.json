@@ -9,7 +9,9 @@
     "purpose": "The version identifier for this specification or definition.",
     "extraction": "Use semver (e.g. '1.0.0', '2.1.0-draft') or spec-appropriate version strings. Include '-draft' or '-rc' suffixes for pre-release versions."
   },
-  "valueType": "string",
+  "fieldType": {
+    "datatype": "string"
+  },
   "editorHint": "singleline",
   "createdAt": "2026-05-27T00:00:00Z"
 }

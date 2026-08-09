@@ -5,9 +5,11 @@
   "name": "lifecycle_extends_version",
   "version": 1,
   "description": "Version of the upstream Lifecycle being extended. Must equal the resolved upstream version; a mismatch is a hard validation error (V5).",
-  "valueType": "number",
-  "createdAt": "2026-06-03T00:00:00Z",
   "aiGuidance": {
     "purpose": "Pins the extension to a specific upstream version to prevent silent state-set changes."
-  }
+  },
+  "fieldType": {
+    "datatype": "number"
+  },
+  "createdAt": "2026-06-03T00:00:00Z"
 }

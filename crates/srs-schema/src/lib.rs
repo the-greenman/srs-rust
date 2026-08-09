@@ -258,7 +258,7 @@ mod tests {
             "typeVersion": 1,
             "typeNamespace": "test.ns",
             "typeName": "test-type",
-            "fieldValues": []
+            "fieldValues": {"title": "x"}
         });
         reg.validate_by_id(RECORD_SCHEMA_ID, &record).unwrap();
     }

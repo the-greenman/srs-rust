@@ -5,9 +5,11 @@
   "name": "protocol-namespace",
   "version": 1,
   "description": "Namespace for the protocol.",
-  "valueType": "string",
   "aiGuidance": {
     "purpose": "Capture the namespace that owns the protocol definition."
+  },
+  "fieldType": {
+    "datatype": "string"
   },
   "createdAt": "2026-05-29T00:00:00Z"
 }

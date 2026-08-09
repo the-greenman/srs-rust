@@ -1,16 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
-  "fieldValues": [
-    {
-      "fieldId": "1a000001-0000-4000-a000-000000000001",
-      "value": "Conformance"
-    },
-    {
-      "fieldId": "1a000002-0000-4000-a000-000000000002",
-      "value": "An implementation declares conformance using the following form:\n\n```\nSRS <version> Core [+ ext:<name> ...]\n```\n\nExample:\n```\nSRS 2.0 Core + ext:lifecycle + ext:protocol + ext:views-l1 + ext:addressability + ext:recommended-relations\n```"
-    }
-  ],
+  "fieldValues": {
+    "title": "Conformance",
+    "content": "An implementation declares conformance using the following form:\n\n```\nSRS <version> Core [+ ext:<name> ...]\n```\n\nExample:\n```\nSRS 2.0 Core + ext:lifecycle + ext:protocol + ext:views-l1 + ext:addressability + ext:recommended-relations\n```"
+  },
   "instanceId": "e538ea64-f93f-5c51-ade0-6cd358605e8c",
   "sourceRefs": [
     {

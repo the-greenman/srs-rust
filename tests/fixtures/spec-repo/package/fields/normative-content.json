@@ -8,8 +8,10 @@
   "aiGuidance": {
     "purpose": "Write clear, testable specification content. Use RFC 2119 keywords (MUST, SHOULD, MAY) for normative requirements. Structure with headings and lists for readability."
   },
-  "valueType": "text",
-  "contentFormat": "markdown",
+  "fieldType": {
+    "datatype": "string",
+    "format": "markdown"
+  },
   "editorHint": "textarea",
   "createdAt": "2026-05-27T00:00:00Z"
 }

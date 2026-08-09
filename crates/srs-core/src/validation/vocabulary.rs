@@ -109,7 +109,6 @@ mod tests {
     use super::*;
     use crate::types::term::{Term, VocabularyEntryStatus};
     use crate::types::vocabulary::{Vocabulary, VocabularyMode};
-    use std::collections::BTreeMap;
 
     fn make_term(id: &str, key: &str, aliases: Option<Vec<&str>>, retired: bool) -> Term {
         Term {
