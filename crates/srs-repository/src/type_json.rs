@@ -40,9 +40,10 @@ pub(crate) struct TypeJson {
     validation_rules: Option<Vec<CrossFieldRule>>,
     created_at: Option<String>,
     /// Non-modelled keys (`$schema`, `aiGuidance`, …) — preserved, not dropped.
-    /// A revision ≤ 1 file's `fieldGroups` would land here too; the loader runs
-    /// `revision_guard::check_type_document` ([R7]) before conversion, so at
-    /// revision ≥ 2 such a file never reaches this struct.
+    /// A stray `fieldGroups` would land here too; `repo validate` runs
+    /// `revision_guard::check_type_document` ([R7]) over the raw document, so
+    /// at revision ≥ 2 the construct is rejected with a named diagnostic
+    /// rather than silently absorbed.
     #[serde(flatten)]
     extra: BTreeMap<String, serde_json::Value>,
 }

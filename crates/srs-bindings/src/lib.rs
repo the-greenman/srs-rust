@@ -286,8 +286,9 @@ impl SrsRepository {
     }
 
     /// Create a record. `input_json` is a JSON object with fields:
-    /// `fieldValues` (array of `{fieldId, value}`), `groupValues` (optional array),
-    /// and `tags` (optional array of strings).
+    /// `fieldValues` (an object keyed by `Field.name`, RFC-039 carrier),
+    /// `fieldMeta` (optional object keyed identically), and `tags` (optional
+    /// array of strings).
     /// Returns the created `Record` as a JS value.
     pub fn create_record(
         &self,

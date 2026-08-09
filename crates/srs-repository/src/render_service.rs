@@ -2568,7 +2568,7 @@ fn render_composite_table(
     record: &Record,
     field: &ResolvedFieldRender,
     entries: &[&serde_json::Map<String, serde_json::Value>],
-    roles: Option<&std::collections::HashMap<String, String>>,
+    roles: Option<&std::collections::BTreeMap<String, String>>,
     table_config: Option<&serde_json::Value>,
     diagnostics: &mut Vec<String>,
 ) -> String {
@@ -3108,7 +3108,6 @@ mod tests {
     use super::*;
     use crate::store::FileStore;
     use srs_core::types::record::FieldValues;
-    use std::collections::HashMap;
 
     fn srs_spec_repo() -> std::path::PathBuf {
         if let Ok(p) = std::env::var("SRS_SPEC_REPO") {
@@ -5071,7 +5070,7 @@ mod tests {
                 record_wrapper_overrides: None,
                 field_row: None,
                 composite_field_row_templates: None,
-                composite_renderer_config: Some(HashMap::from([(
+                composite_renderer_config: Some(std::collections::BTreeMap::from([(
                     "table".to_string(),
                     serde_json::json!({ "captionTemplate": "{{field-value}}" }),
                 )])),
@@ -6175,7 +6174,7 @@ mod tests {
     fn rfc008_doc_view(
         type_filter: Option<Vec<String>>,
         render_view_id: Option<String>,
-        type_dispatch: Option<HashMap<String, String>>,
+        type_dispatch: Option<std::collections::BTreeMap<String, String>>,
     ) -> DocumentView {
         use srs_core::types::view::EmptyBehavior;
         DocumentView {
@@ -6300,7 +6299,7 @@ mod tests {
     fn type_dispatch_selects_per_type_view() {
         // typeDispatch maps the text type to v-text-only (which shows "Content" label).
         // Table type has no dispatch entry → falls back to baseline (shows "Caption" label).
-        let mut dispatch = HashMap::new();
+        let mut dispatch = std::collections::BTreeMap::new();
         dispatch.insert(
             "com.test/section.text".to_string(),
             "v-text-only".to_string(),
@@ -6333,7 +6332,7 @@ mod tests {
     fn type_dispatch_fallback_to_render_view_id() {
         // typeDispatch has no matching key for either type → falls back to render_view_id.
         // render_view_id = v-text-only: text record satisfies it, table does not → diagnostic.
-        let mut dispatch = HashMap::new();
+        let mut dispatch = std::collections::BTreeMap::new();
         dispatch.insert(
             "com.test/no-such-type".to_string(),
             "v-text-only".to_string(),

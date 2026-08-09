@@ -1094,4 +1094,78 @@ mod tests {
         assert_eq!(props["c"]["x-srs-order"], json!(3));
         assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
     }
+
+    /// ADR-043 Decision 4 / RFC-039 "same rule read in two directions": the
+    /// value grammar (`validate_value`/`validate_field_values_map`) and the
+    /// emitted editor schema must agree on what they accept over scalars,
+    /// lists, and a recursive composite — drift here means a second grammar.
+    #[test]
+    fn value_grammar_and_emitted_schema_agree() {
+        use srs_core::types::field_type::ExactTypeRef;
+        use srs_core::validation::value_shape::{validate_field_values_map, EffectiveField};
+
+        const RANGE_TID: &str = "00000000-0000-4000-8000-0000000000bb";
+
+        let title = field(&fid(0), "title", FieldType::string());
+        let cells = field(&fid(2), "cells", FieldType::string().into_list());
+        let rows = field(
+            &fid(3),
+            "rows",
+            FieldType::inline_ref(ExactTypeRef {
+                type_id: RANGE_TID.to_string(),
+                type_version: 1,
+            })
+            .into_list(),
+        );
+        let mut range_rt = make_type(RANGE_TID, vec![assignment(&fid(2), 0, true)]);
+        range_rt.name = "row".to_string();
+        let rt = make_type(
+            TID,
+            vec![assignment(&fid(0), 0, true), assignment(&fid(3), 1, false)],
+        );
+
+        let store = store_with_types(vec![title, cells, rows], vec![rt, range_rt]);
+        let result = type_schema(
+            &store,
+            TypeSchemaInput {
+                type_id: TID.to_string(),
+                type_version: None,
+            },
+        )
+        .unwrap();
+        let compiled = jsonschema::validator_for(&result.schema).unwrap();
+
+        let package = store.load_package().unwrap();
+        let rt = package.resolve_type(TID, 1).unwrap().clone();
+        let effective: Vec<EffectiveField> = package.resolved_effective_fields(&rt).unwrap();
+
+        let cases: Vec<(serde_json::Value, bool)> = vec![
+            (json!({"title": "ok", "rows": [{"cells": ["a"]}]}), true),
+            (json!({"title": "ok", "rows": []}), true),
+            (json!({"title": 42, "rows": []}), false),
+            (
+                json!({"title": "ok", "rows": [{"cells": "not-a-list"}]}),
+                false,
+            ),
+            (json!({"title": "ok", "rows": [{"mystery": ["a"]}]}), false),
+            (json!({"title": "ok", "rows": {"cells": ["a"]}}), false),
+        ];
+        for (value_map, expect_valid) in cases {
+            let schema_ok = compiled.is_valid(&value_map);
+            let mut diags = Vec::new();
+            validate_field_values_map(
+                "",
+                value_map.as_object().unwrap(),
+                &effective,
+                &package,
+                &mut diags,
+            );
+            let grammar_ok = diags.is_empty();
+            assert_eq!(schema_ok, expect_valid, "schema verdict for {value_map}");
+            assert_eq!(
+                grammar_ok, expect_valid,
+                "grammar verdict for {value_map}: {diags:?}"
+            );
+        }
+    }
 }

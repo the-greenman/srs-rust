@@ -1,6 +1,6 @@
 use super::term::VocabularyEntryStatus;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 /// Which end of the relation the record in the state must occupy (RFC-022).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -90,7 +90,7 @@ pub struct LifecycleState {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requires_relation: Option<RequiresRelation>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub properties: Option<HashMap<String, serde_json::Value>>,
+    pub properties: Option<BTreeMap<String, serde_json::Value>>,
 }
 
 impl LifecycleState {
@@ -118,7 +118,7 @@ pub struct LifecycleTransition {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub properties: Option<HashMap<String, serde_json::Value>>,
+    pub properties: Option<BTreeMap<String, serde_json::Value>>,
 }
 
 /// A standalone, installable, referenceable lifecycle container.
