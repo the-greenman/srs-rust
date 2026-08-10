@@ -1,13 +1,57 @@
 use crate::error::RepositoryError;
-use crate::index::InstanceIndexEntry;
 use crate::record_store;
 use crate::store::RepositoryStore;
-use crate::writer::write_manifest;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use srs_core::types::source_document::SourceDocumentIndexEntry;
 use srs_core::types::source_reference::{SourceReference, SourceRole, SourceType};
 use std::collections::HashMap;
+
+/// One resolved source document, derived from its sidecar via the catalog.
+///
+/// RFC-038 [R25] amends RFC-017 [R2]/[R12]: resolution comes from sidecar
+/// discovery — the catalog's source-document set — not
+/// `manifest.sourceDocumentIndex` (retired, Change K). Checksums are no
+/// longer cached anywhere; a caller that needs one recomputes it from the
+/// file bytes.
+struct ResolvedSourceDocument {
+    document_id: String,
+    sidecar_path: String,
+    content_path: String,
+    title: Option<String>,
+}
+
+/// One catalog snapshot's source-document set, resolved to sidecar content.
+/// `src_docs_base` strips the catalog locator down to a `sourceDocumentsPath`-
+/// relative path, matching the shape every caller here already works with.
+fn resolve_source_documents(
+    store: &dyn RepositoryStore,
+    src_docs_base: &str,
+) -> Result<Vec<ResolvedSourceDocument>, RepositoryError> {
+    let cat = store.catalog()?;
+    let prefix = format!("{src_docs_base}/");
+    let mut out = Vec::with_capacity(cat.source_documents.len());
+    for entry in &cat.source_documents {
+        let Some(locator) = entry.locator.as_deref() else {
+            continue;
+        };
+        let Ok(sidecar) = store.load_instance_json(locator) else {
+            continue;
+        };
+        let Some(content_path) = sidecar.get("contentPath").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        out.push(ResolvedSourceDocument {
+            document_id: entry.id.clone(),
+            sidecar_path: locator.strip_prefix(&prefix).unwrap_or(locator).to_string(),
+            content_path: content_path.to_string(),
+            title: sidecar
+                .get("title")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+        });
+    }
+    Ok(out)
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,8 +82,10 @@ pub struct ListAttachmentsFilter {}
 /// List source document attachments by walking `source_documents_path` recursively.
 ///
 /// Sidecar files (`.meta.json`) are excluded from the listing; their metadata is
-/// surfaced through the index fields (`document_id`, `title`, etc.) on the content entry.
-/// Files not present in `manifest.sourceDocumentIndex` appear with only `path` populated.
+/// surfaced through the resolved fields (`document_id`, `title`, etc.) on the content
+/// entry, resolved via the catalog's source-document set (RFC-038 [R25]). A content
+/// file with no discoverable sidecar (or a sidecar that failed catalog classification)
+/// appears with only `path` populated.
 pub fn list_attachments(
     store: &dyn RepositoryStore,
     _filter: ListAttachmentsFilter,
@@ -52,9 +98,9 @@ pub fn list_attachments(
         .unwrap_or("source-documents")
         .to_string();
 
-    // Build index map keyed on content_path (relative to src_docs_base).
-    let index_entries = manifest.source_document_index.as_deref().unwrap_or(&[]);
-    let index_map: HashMap<&str, _> = index_entries
+    // Build a map keyed on content_path (relative to src_docs_base) from one catalog snapshot.
+    let resolved = resolve_source_documents(store, &src_docs_base)?;
+    let index_map: HashMap<&str, &ResolvedSourceDocument> = resolved
         .iter()
         .map(|e| (e.content_path.as_str(), e))
         .collect();
@@ -83,8 +129,8 @@ pub fn list_attachments(
                     path: rel,
                     document_id: Some(idx.document_id.clone()).filter(|s| !s.is_empty()),
                     title: idx.title.clone(),
-                    content_checksum: idx.content_checksum.clone(),
-                    sidecar_checksum: idx.sidecar_checksum.clone(),
+                    content_checksum: None,
+                    sidecar_checksum: None,
                     size_bytes,
                 }
             } else {
@@ -174,13 +220,13 @@ fn sha256_hex(data: &[u8]) -> String {
     format!("sha256:{}", hex::encode(hash))
 }
 
-/// Store `input.content` under `source-documents/<[subdir/]file_name>`, write its
-/// `.meta.json` sidecar, and append a `SourceDocumentIndexEntry` to the manifest.
+/// Store `input.content` under `source-documents/<[subdir/]file_name>` and write its
+/// `.meta.json` sidecar. The sidecar is the document's identity (RFC-038 [R25]); no
+/// manifest write follows — `manifest.sourceDocumentIndex` is retired (Change K).
 ///
-/// Write order (ADR-007 file-before-index for create):
+/// Write order:
 ///   1. Write content file
 ///   2. Write sidecar file
-///   3. Update and save manifest index
 ///
 /// Returns `RepositoryError::InvalidInput` if the content file already exists.
 pub fn add_attachment(
@@ -248,9 +294,9 @@ pub fn add_attachment(
     let full_content_path = format!("{src_docs_base}/{rel_content_path}");
     let full_sidecar_path = format!("{src_docs_base}/{rel_sidecar_path}");
 
-    // Reject duplicates by checking the manifest index (the authoritative membership record).
-    let existing_index = manifest.source_document_index.as_deref().unwrap_or(&[]);
-    if existing_index
+    // Reject duplicates by checking the catalog's source-document set (RFC-038 [R25]:
+    // sidecar discovery is authoritative, not a manifest index).
+    if resolve_source_documents(store, &src_docs_base)?
         .iter()
         .any(|e| e.content_path == rel_content_path)
     {
@@ -268,13 +314,18 @@ pub fn add_attachment(
         .unwrap_or_else(|| infer_content_type(&file_name).to_string());
 
     let document_id = uuid::Uuid::new_v4().to_string();
-    let sidecar_value = serde_json::json!({
+    let mut sidecar_value = serde_json::json!({
         "documentId": document_id,
         "contentPath": rel_content_path,
         "contentType": content_type,
         "encoding": "binary",
-        "checksum": content_checksum,
+        "createdAt": chrono::Utc::now().to_rfc3339(),
     });
+    // RFC-038 [R25]: title lives in the sidecar body — it is the only place a
+    // catalog-driven reader can recover it (no more sourceDocumentIndex).
+    if let Some(title) = &input.title {
+        sidecar_value["title"] = serde_json::Value::String(title.clone());
+    }
     let sidecar_bytes =
         serde_json::to_vec_pretty(&sidecar_value).map_err(|e| RepositoryError::InvalidInput {
             message: format!("failed to serialize sidecar: {e}"),
@@ -285,26 +336,16 @@ pub fn add_attachment(
         })?;
     let sidecar_checksum = sha256_hex(&sidecar_bytes);
 
-    // ADR-007: write content file first, then sidecar, then update index.
+    // Write content file, then sidecar. No further manifest write: the sidecar is the
+    // document's identity ([R15]) and `sourceDocumentIndex` is retired (Change K).
     store.save_binary_file(&full_content_path, &input.content)?;
     store.save_text_file(&full_sidecar_path, &sidecar_str)?;
 
-    let mut manifest = store.load_manifest()?;
-    let new_entry = SourceDocumentIndexEntry {
-        document_id: document_id.clone(),
-        sidecar_path: rel_sidecar_path.clone(),
-        content_path: rel_content_path.clone(),
-        title: input.title,
-        sidecar_checksum: Some(sidecar_checksum.clone()),
-        content_checksum: Some(content_checksum.clone()),
-    };
-    let mut index = manifest.source_document_index.take().unwrap_or_default();
-    index.push(new_entry);
-    manifest.source_document_index = Some(index);
     if manifest.source_documents_path.is_none() {
+        let mut manifest = manifest;
         manifest.source_documents_path = Some(src_docs_base.clone());
+        store.save_manifest(&manifest)?;
     }
-    write_manifest(store, &manifest)?;
 
     Ok(AddAttachmentResult {
         document_id,
@@ -338,20 +379,25 @@ pub struct LinkAttachmentResult {
 /// `sourceRole:"attaches"` to a record's `sourceRefs[]`.
 ///
 /// Validation:
-/// - `document_id` MUST resolve in `manifest.sourceDocumentIndex` → `InvalidInput` if absent.
+/// - `document_id` MUST resolve in the catalog's source-document set (RFC-038 [R25]) →
+///   `InvalidInput` if absent.
 /// - Duplicate link (same record + doc with `sourceRole: Attaches`) → `InvalidInput`.
 /// - Record with `instance_id` not found → `NotFound`.
 ///
-/// Write order (ADR-007): record body written before no manifest update is needed
-/// (sourceRefs are embedded in the record JSON, not the manifest index).
+/// Write order: only the record body is written (sourceRefs are embedded there);
+/// no manifest update — `sourceDocumentIndex` is retired (Change K).
 pub fn link_attachment(
     store: &dyn RepositoryStore,
     input: LinkAttachmentInput,
 ) -> Result<LinkAttachmentResult, RepositoryError> {
-    // 1. Validate document_id in source-document index.
+    // 1. Validate document_id via the catalog's source-document set.
     let manifest = store.load_manifest()?;
-    let index = manifest.source_document_index.as_deref().unwrap_or(&[]);
-    if !index.iter().any(|e| e.document_id == input.document_id) {
+    let src_docs_base = manifest
+        .source_documents_path
+        .as_deref()
+        .unwrap_or("source-documents");
+    let resolved = resolve_source_documents(store, src_docs_base)?;
+    if !resolved.iter().any(|e| e.document_id == input.document_id) {
         return Err(RepositoryError::InvalidInput {
             message: format!(
                 "document '{}' not found in source-document index",
@@ -432,7 +478,7 @@ pub struct ResolveDocumentViewAttachmentsResult {
 fn resolve_source_ref_to_attachment(
     store: &dyn RepositoryStore,
     source_ref: SourceReference,
-    index_map: &HashMap<&str, &SourceDocumentIndexEntry>,
+    index_map: &HashMap<&str, &ResolvedSourceDocument>,
     src_docs_base: &str,
 ) -> ResolvedAttachment {
     let idx = index_map.get(source_ref.source_id.as_str());
@@ -446,15 +492,15 @@ fn resolve_source_ref_to_attachment(
         content_path: idx.map(|e| e.content_path.clone()),
         sidecar_path: idx.map(|e| e.sidecar_path.clone()),
         title: idx.and_then(|e| e.title.clone()),
-        content_checksum: idx.and_then(|e| e.content_checksum.clone()),
-        sidecar_checksum: idx.and_then(|e| e.sidecar_checksum.clone()),
+        content_checksum: None,
+        sidecar_checksum: None,
         size_bytes,
     }
 }
 
 /// Given a list of instance IDs from a rendered document_view, resolve each record's
 /// `sourceRefs` with `sourceRole: attaches` and `sourceType: repository-document`
-/// to their `SourceDocumentIndexEntry` metadata.
+/// to their sidecar metadata (RFC-038 [R25]: the catalog's source-document set).
 ///
 /// Resolution is sourceRefs-only per RFC-017 Rev 3 [R1].
 /// Records with no qualifying sourceRefs are omitted from the result.
@@ -470,33 +516,34 @@ pub fn resolve_document_view_attachments(
         .unwrap_or("source-documents")
         .to_string();
 
-    let index_entries = manifest.source_document_index.as_deref().unwrap_or(&[]);
-    let index_map: HashMap<&str, &SourceDocumentIndexEntry> = index_entries
+    let resolved = resolve_source_documents(store, &src_docs_base)?;
+    let index_map: HashMap<&str, &ResolvedSourceDocument> = resolved
         .iter()
         .map(|e| (e.document_id.as_str(), e))
         .collect();
 
-    let instance_map: HashMap<&str, &InstanceIndexEntry> = manifest
-        .instance_index
+    let cat = store.catalog()?;
+    let instance_map: HashMap<&str, &str> = cat
+        .instances
         .iter()
-        .filter(|e| e.tier() == 2)
-        .map(|e| (e.instance_id(), e))
+        .filter(|e| e.tier == Some(2))
+        .filter_map(|e| Some((e.id.as_str(), e.locator.as_deref()?)))
         .collect();
 
     let mut records: Vec<RecordAttachments> = Vec::new();
 
     for instance_id in &input.instance_ids {
-        let Some(entry) = instance_map.get(instance_id.as_str()) else {
+        let Some(&locator) = instance_map.get(instance_id.as_str()) else {
             continue;
         };
 
-        let record = crate::record_store::load_record(store, entry.path())?;
+        let record = crate::record_store::load_record(store, locator)?;
 
         let source_refs: Vec<SourceReference> = match record.extra.get("sourceRefs") {
             None => vec![],
             Some(v) => {
                 serde_json::from_value(v.clone()).map_err(|e| RepositoryError::Serialize {
-                    path: std::path::PathBuf::from(entry.path()),
+                    path: std::path::PathBuf::from(locator),
                     source: e,
                 })?
             }
@@ -564,8 +611,8 @@ pub fn get_record_attachments(
         .unwrap_or("source-documents")
         .to_string();
 
-    let index_entries = manifest.source_document_index.as_deref().unwrap_or(&[]);
-    let index_map: HashMap<&str, &SourceDocumentIndexEntry> = index_entries
+    let resolved = resolve_source_documents(store, &src_docs_base)?;
+    let index_map: HashMap<&str, &ResolvedSourceDocument> = resolved
         .iter()
         .map(|e| (e.document_id.as_str(), e))
         .collect();
@@ -627,9 +674,9 @@ pub fn get_attachment_bytes(
         .source_documents_path
         .as_deref()
         .unwrap_or("source-documents");
-    let index = manifest.source_document_index.as_deref().unwrap_or(&[]);
+    let resolved = resolve_source_documents(store, src_docs_base)?;
 
-    let entry = index
+    let entry = resolved
         .iter()
         .find(|e| e.document_id == input.document_id)
         .ok_or_else(|| RepositoryError::InvalidInput {
@@ -682,14 +729,44 @@ mod tests {
         MemoryStore::new(manifest, test_package())
     }
 
-    fn manifest_with_index(
-        source_documents_path: Option<String>,
-        entries: Vec<SourceDocumentIndexEntry>,
-    ) -> Manifest {
-        Manifest {
-            source_documents_path,
-            source_document_index: Some(entries),
-            ..Manifest::default()
+    /// One RFC-017 source document to write directly to a store, sidecar-first
+    /// (RFC-038 [R25]: the sidecar is the identity, not a manifest index entry).
+    struct DocFixture<'a> {
+        document_id: &'a str,
+        content_path: &'a str,
+        sidecar_path: &'a str,
+        title: Option<&'a str>,
+    }
+
+    /// Write each fixture's sidecar (and register `src_docs_base` on the manifest
+    /// when non-default). Callers write content bytes separately via `touch`/
+    /// `save_binary_file` when a test needs the content file present.
+    fn write_doc_fixtures(store: &MemoryStore, src_docs_base: Option<&str>, docs: &[DocFixture]) {
+        if let Some(base) = src_docs_base {
+            let mut manifest = store.load_manifest().unwrap();
+            manifest.source_documents_path = Some(base.to_string());
+            store.save_manifest(&manifest).unwrap();
+        }
+        let base = src_docs_base.unwrap_or("source-documents");
+        for d in docs {
+            let mut sidecar = serde_json::json!({
+                "documentId": d.document_id,
+                "contentPath": d.content_path,
+                "contentType": "application/octet-stream",
+                "createdAt": "2026-01-01T00:00:00Z",
+            });
+            if let Some(t) = d.title {
+                sidecar["title"] = serde_json::Value::String(t.to_string());
+            }
+            // save_instance_json (not save_text_file): on MemoryStore the two are not
+            // interchangeable for a later catalog read — save_text_file wraps the
+            // content as an opaque `Value::String`, which the catalog (reading via
+            // `load_instance_json`) would then see as unparsed text. FileStore has no
+            // such distinction (both end up as the same on-disk bytes, re-parsed on
+            // read), so production's `save_text_file` sidecar write is unaffected.
+            store
+                .save_instance_json(&format!("{base}/{}", d.sidecar_path), &sidecar)
+                .unwrap();
         }
     }
 
@@ -710,19 +787,18 @@ mod tests {
 
     #[test]
     fn list_attachments_indexed_file() {
-        let store = store_with_manifest(manifest_with_index(
+        let store = empty_store();
+        write_doc_fixtures(
+            &store,
             None,
-            vec![SourceDocumentIndexEntry {
-                document_id: "doc-uuid-1".to_string(),
-                sidecar_path: "my-doc.meta.json".to_string(),
-                content_path: "my-doc.pdf".to_string(),
-                title: Some("My Document".to_string()),
-                sidecar_checksum: Some("sha256:aaa".to_string()),
-                content_checksum: Some("sha256:bbb".to_string()),
+            &[DocFixture {
+                document_id: "doc-uuid-1",
+                content_path: "my-doc.pdf",
+                sidecar_path: "my-doc.meta.json",
+                title: Some("My Document"),
             }],
-        ));
+        );
         touch(&store, "source-documents/my-doc.pdf");
-        touch(&store, "source-documents/my-doc.meta.json");
 
         let result = list_attachments(&store, ListAttachmentsFilter::default()).unwrap();
         assert_eq!(result.entries.len(), 1);
@@ -730,8 +806,9 @@ mod tests {
         assert_eq!(e.path, "my-doc.pdf");
         assert_eq!(e.document_id.as_deref(), Some("doc-uuid-1"));
         assert_eq!(e.title.as_deref(), Some("My Document"));
-        assert_eq!(e.content_checksum.as_deref(), Some("sha256:bbb"));
-        assert_eq!(e.sidecar_checksum.as_deref(), Some("sha256:aaa"));
+        // RFC-038 [R25]: checksums are no longer cached anywhere.
+        assert!(e.content_checksum.is_none());
+        assert!(e.sidecar_checksum.is_none());
         // MemoryStore: touch writes to `data`, load_binary_file reads `binary_data` → None
         assert!(e.size_bytes.is_none());
     }
@@ -773,9 +850,22 @@ mod tests {
 
     #[test]
     fn list_attachments_excludes_sidecars() {
-        let store = store_with_manifest(Manifest::default());
+        let store = empty_store();
         touch(&store, "source-documents/doc.pdf");
-        touch(&store, "source-documents/doc.meta.json");
+        // A valid sidecar (not `touch`'s empty placeholder): the catalog validates
+        // every candidate under a reserved location ([R7]/[R9]), so an empty
+        // `.meta.json` would fatally fail the whole listing rather than merely
+        // being excluded from it.
+        write_doc_fixtures(
+            &store,
+            None,
+            &[DocFixture {
+                document_id: "doc-exclude-001",
+                content_path: "doc.pdf",
+                sidecar_path: "doc.meta.json",
+                title: None,
+            }],
+        );
 
         let result = list_attachments(&store, ListAttachmentsFilter::default()).unwrap();
         assert_eq!(result.entries.len(), 1);
@@ -810,16 +900,7 @@ mod tests {
         std::fs::create_dir_all(root.join(".srs")).unwrap();
         let manifest_json = serde_json::json!({
             "instanceIndex": [],
-            "sourceDocumentsPath": "source-documents",
-            "sourceDocumentIndex": [
-                {
-                    "documentId": "roundtrip-uuid",
-                    "sidecarPath": "brief.meta.json",
-                    "contentPath": "brief.pdf",
-                    "title": "Roundtrip Brief",
-                    "contentChecksum": "sha256:ccc"
-                }
-            ]
+            "sourceDocumentsPath": "source-documents"
         });
         std::fs::write(
             root.join("manifest.json"),
@@ -830,18 +911,29 @@ mod tests {
         std::fs::write(
             root.join("package/package.json"),
             serde_json::json!({
+                "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
                 "id": "rt-pkg", "namespace": "com.test", "name": "test",
-                "version": "1.0.0", "fields": [], "types": []
+                "version": "1.0.0", "title": "test", "description": "",
+                "status": "active", "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [], "types": []
             })
             .to_string(),
         )
         .unwrap();
-        // Write a real file (content) and sidecar.
+        // Write a real file (content) and sidecar — RFC-038 [R25]: the sidecar
+        // itself is the document's identity, discovered via the catalog.
         std::fs::create_dir_all(root.join("source-documents")).unwrap();
         std::fs::write(root.join("source-documents/brief.pdf"), b"pdf bytes").unwrap();
         std::fs::write(
             root.join("source-documents/brief.meta.json"),
-            r#"{"documentId":"roundtrip-uuid"}"#,
+            serde_json::json!({
+                "documentId": "roundtrip-uuid",
+                "contentPath": "brief.pdf",
+                "contentType": "application/pdf",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "title": "Roundtrip Brief"
+            })
+            .to_string(),
         )
         .unwrap();
         // Write a file in a subdirectory (not in index).
@@ -911,7 +1003,8 @@ mod tests {
     }
 
     #[test]
-    fn add_attachment_sets_manifest_index() {
+    fn add_attachment_discoverable_via_catalog() {
+        // RFC-038 [R25]: no manifest index — the sidecar itself is the identity.
         let store = empty_store();
         let result = add_attachment(
             &store,
@@ -925,16 +1018,16 @@ mod tests {
         )
         .unwrap();
 
-        let manifest = store.load_manifest().unwrap();
-        let index = manifest.source_document_index.as_deref().unwrap();
-        assert_eq!(index.len(), 1);
-        let entry = &index[0];
-        assert_eq!(entry.document_id, result.document_id);
-        assert_eq!(entry.content_path, "brief.pdf");
-        assert_eq!(entry.sidecar_path, "brief.meta.json");
-        assert_eq!(entry.title.as_deref(), Some("Brief"));
-        assert_eq!(entry.content_checksum, Some(result.content_checksum));
-        assert_eq!(entry.sidecar_checksum, Some(result.sidecar_checksum));
+        let cat = store.catalog().unwrap();
+        assert_eq!(cat.source_documents.len(), 1);
+        let entry = &cat.source_documents[0];
+        assert_eq!(entry.id, result.document_id);
+        let sidecar_str = store
+            .load_text_file("source-documents/brief.meta.json")
+            .unwrap();
+        let sidecar: serde_json::Value = serde_json::from_str(&sidecar_str).unwrap();
+        assert_eq!(sidecar["contentPath"], "brief.pdf");
+        assert_eq!(sidecar["title"], "Brief");
     }
 
     #[test]
@@ -955,12 +1048,12 @@ mod tests {
         assert_eq!(result.content_path, "annexes/annex.pdf");
         assert_eq!(result.sidecar_path, "annexes/annex.meta.json");
 
-        // Confirm the manifest index was updated with the correct paths.
-        let manifest = store.load_manifest().unwrap();
-        let index = manifest.source_document_index.as_deref().unwrap();
-        assert_eq!(index.len(), 1);
-        assert_eq!(index[0].content_path, "annexes/annex.pdf");
-        assert_eq!(index[0].sidecar_path, "annexes/annex.meta.json");
+        // Confirm the sidecar carries the correct contentPath (RFC-038 [R25]: no manifest index).
+        let sidecar_str = store
+            .load_text_file("source-documents/annexes/annex.meta.json")
+            .unwrap();
+        let sidecar: serde_json::Value = serde_json::from_str(&sidecar_str).unwrap();
+        assert_eq!(sidecar["contentPath"], "annexes/annex.pdf");
     }
 
     #[test]
@@ -1145,30 +1238,20 @@ mod tests {
 
     // ── link_attachment tests ───────────────────────────────────────────────────
 
-    use crate::index::InstanceIndexEntry;
-
-    /// Build a MemoryStore that contains one source-document index entry and one
-    /// tier-2 record at "records/tier-2/test-record-aaaabbbb.json".
+    /// Build a MemoryStore that contains one source document (sidecar-discovered,
+    /// RFC-038 [R25]) and one tier-2 record at "records/tier-2/test-record-<id8>.json".
     fn store_with_doc_and_record(doc_id: &str, record_id: &str) -> MemoryStore {
-        let manifest = Manifest {
-            source_document_index: Some(vec![SourceDocumentIndexEntry {
-                document_id: doc_id.to_string(),
-                sidecar_path: "brief.meta.json".to_string(),
-                content_path: "brief.pdf".to_string(),
+        let store = empty_store();
+        write_doc_fixtures(
+            &store,
+            None,
+            &[DocFixture {
+                document_id: doc_id,
+                content_path: "brief.pdf",
+                sidecar_path: "brief.meta.json",
                 title: None,
-                sidecar_checksum: None,
-                content_checksum: None,
-            }]),
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: record_id.to_string(),
-                tier: 2,
-                path: format!("records/tier-2/test-record-{}.json", &record_id[..8]),
-                title: None,
-                tags: None,
             }],
-            ..Manifest::default()
-        };
-        let store = store_with_manifest(manifest);
+        );
         let record_path = format!("records/tier-2/test-record-{}.json", &record_id[..8]);
         store
             .save_instance_json(
@@ -1275,19 +1358,18 @@ mod tests {
     #[test]
     fn link_attachment_unknown_record_rejected() {
         let doc_id = "doc-ccc-333";
-        // Store has the doc in the index but no record with this ID
-        let manifest = Manifest {
-            source_document_index: Some(vec![SourceDocumentIndexEntry {
-                document_id: doc_id.to_string(),
-                sidecar_path: "f.meta.json".to_string(),
-                content_path: "f.pdf".to_string(),
+        // Store has a discoverable source document but no record with this ID.
+        let store = empty_store();
+        write_doc_fixtures(
+            &store,
+            None,
+            &[DocFixture {
+                document_id: doc_id,
+                content_path: "f.pdf",
+                sidecar_path: "f.meta.json",
                 title: None,
-                sidecar_checksum: None,
-                content_checksum: None,
-            }]),
-            ..Manifest::default()
-        };
-        let store = store_with_manifest(manifest);
+            }],
+        );
 
         let err = link_attachment(
             &store,
@@ -1309,40 +1391,31 @@ mod tests {
         let doc_id_2 = "doc-second-222";
         let record_id = "ddddeeee-0000-4000-8000-000000000004";
 
-        let manifest = Manifest {
-            source_document_index: Some(vec![
-                SourceDocumentIndexEntry {
-                    document_id: doc_id_1.to_string(),
-                    sidecar_path: "a.meta.json".to_string(),
-                    content_path: "a.pdf".to_string(),
+        let store = empty_store();
+        write_doc_fixtures(
+            &store,
+            None,
+            &[
+                DocFixture {
+                    document_id: doc_id_1,
+                    content_path: "a.pdf",
+                    sidecar_path: "a.meta.json",
                     title: None,
-                    sidecar_checksum: None,
-                    content_checksum: None,
                 },
-                SourceDocumentIndexEntry {
-                    document_id: doc_id_2.to_string(),
-                    sidecar_path: "b.meta.json".to_string(),
-                    content_path: "b.pdf".to_string(),
+                DocFixture {
+                    document_id: doc_id_2,
+                    content_path: "b.pdf",
+                    sidecar_path: "b.meta.json",
                     title: None,
-                    sidecar_checksum: None,
-                    content_checksum: None,
                 },
-            ]),
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: record_id.to_string(),
-                tier: 2,
-                path: format!("records/tier-2/test-record-{}.json", &record_id[..8]),
-                title: None,
-                tags: None,
-            }],
-            ..Manifest::default()
-        };
-        let store = store_with_manifest(manifest);
+            ],
+        );
         let record_path = format!("records/tier-2/test-record-{}.json", &record_id[..8]);
         store
             .save_instance_json(
                 &record_path,
                 &serde_json::json!({
+                    "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
                     "instanceId": record_id,
                     "typeId": "type-test-001",
                     "typeVersion": 1,
@@ -1603,25 +1676,17 @@ mod tests {
     fn resolve_document_view_attachments_happy_path() {
         let doc_id = "doc-happy-003";
         let record_id = "aaaa0003-0000-4000-8000-000000000003";
-        let manifest = Manifest {
-            source_document_index: Some(vec![SourceDocumentIndexEntry {
-                document_id: doc_id.to_string(),
-                sidecar_path: "brief.meta.json".to_string(),
-                content_path: "brief.pdf".to_string(),
-                title: Some("Brief Title".to_string()),
-                sidecar_checksum: Some("sha256:sidecar".to_string()),
-                content_checksum: Some("sha256:content".to_string()),
-            }]),
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: record_id.to_string(),
-                tier: 2,
-                path: format!("records/tier-2/test-record-{}.json", &record_id[..8]),
-                title: None,
-                tags: None,
+        let store = empty_store();
+        write_doc_fixtures(
+            &store,
+            None,
+            &[DocFixture {
+                document_id: doc_id,
+                content_path: "brief.pdf",
+                sidecar_path: "brief.meta.json",
+                title: Some("Brief Title"),
             }],
-            ..Manifest::default()
-        };
-        let store = store_with_manifest(manifest);
+        );
         let record_path = format!("records/tier-2/test-record-{}.json", &record_id[..8]);
         store
             .save_instance_json(
@@ -1662,25 +1727,15 @@ mod tests {
         assert_eq!(att.content_path.as_deref(), Some("brief.pdf"));
         assert_eq!(att.sidecar_path.as_deref(), Some("brief.meta.json"));
         assert_eq!(att.title.as_deref(), Some("Brief Title"));
-        assert_eq!(att.content_checksum.as_deref(), Some("sha256:content"));
-        assert_eq!(att.sidecar_checksum.as_deref(), Some("sha256:sidecar"));
+        // RFC-038 [R25]: checksums are no longer cached anywhere.
+        assert!(att.content_checksum.is_none());
+        assert!(att.sidecar_checksum.is_none());
     }
 
     #[test]
     fn resolve_document_view_attachments_unindexed_doc() {
         let record_id = "aaaa0004-0000-4000-8000-000000000004";
-        let manifest = Manifest {
-            source_document_index: Some(vec![]),
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: record_id.to_string(),
-                tier: 2,
-                path: format!("records/tier-2/test-record-{}.json", &record_id[..8]),
-                title: None,
-                tags: None,
-            }],
-            ..Manifest::default()
-        };
-        let store = store_with_manifest(manifest);
+        let store = empty_store();
         let record_path = format!("records/tier-2/test-record-{}.json", &record_id[..8]);
         store
             .save_instance_json(
@@ -1855,18 +1910,18 @@ mod tests {
     // ── get_attachment_bytes tests ────────────────────────────────────────────
 
     fn store_with_binary_attachment(doc_id: &str, content_path: &str, bytes: &[u8]) -> MemoryStore {
-        let manifest = manifest_with_index(
+        let store = empty_store();
+        let sidecar_path = format!("{}.meta.json", content_path.trim_end_matches(".pdf"));
+        write_doc_fixtures(
+            &store,
             None,
-            vec![SourceDocumentIndexEntry {
-                document_id: doc_id.to_string(),
-                sidecar_path: format!("{}.meta.json", content_path.trim_end_matches(".pdf")),
-                content_path: content_path.to_string(),
+            &[DocFixture {
+                document_id: doc_id,
+                content_path,
+                sidecar_path: &sidecar_path,
                 title: None,
-                sidecar_checksum: None,
-                content_checksum: None,
             }],
         );
-        let store = store_with_manifest(manifest);
         store
             .save_binary_file(&format!("source-documents/{}", content_path), bytes)
             .unwrap();
@@ -1907,19 +1962,19 @@ mod tests {
 
     #[test]
     fn get_attachment_bytes_tombstone() {
-        let manifest = manifest_with_index(
+        // Sidecar exists (the document's identity, [R15]) but no binary file — the
+        // tombstone case, now keyed to the sidecar rather than an index entry.
+        let store = empty_store();
+        write_doc_fixtures(
+            &store,
             None,
-            vec![SourceDocumentIndexEntry {
-                document_id: "tomb-doc".to_string(),
-                sidecar_path: "tombstone.meta.json".to_string(),
-                content_path: "tombstone.pdf".to_string(),
+            &[DocFixture {
+                document_id: "tomb-doc",
+                content_path: "tombstone.pdf",
+                sidecar_path: "tombstone.meta.json",
                 title: None,
-                sidecar_checksum: None,
-                content_checksum: None,
             }],
         );
-        // Index entry exists but no binary file stored (tombstone per RFC-017).
-        let store = store_with_manifest(manifest);
         let err = get_attachment_bytes(
             &store,
             GetAttachmentBytesInput {
@@ -2071,25 +2126,17 @@ mod tests {
     fn get_record_attachments_resolves_indexed_document() {
         let doc_id = "doc-gra-003";
         let record_id = "bbbb0003-0000-4000-8000-000000000003";
-        let manifest = Manifest {
-            source_document_index: Some(vec![SourceDocumentIndexEntry {
-                document_id: doc_id.to_string(),
-                sidecar_path: "report.meta.json".to_string(),
-                content_path: "report.pdf".to_string(),
-                title: Some("Annual Report".to_string()),
-                sidecar_checksum: Some("sha256:sid".to_string()),
-                content_checksum: Some("sha256:cnt".to_string()),
-            }]),
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: record_id.to_string(),
-                tier: 2,
-                path: format!("records/tier-2/test-record-{}.json", &record_id[..8]),
-                title: None,
-                tags: None,
+        let store = empty_store();
+        write_doc_fixtures(
+            &store,
+            None,
+            &[DocFixture {
+                document_id: doc_id,
+                content_path: "report.pdf",
+                sidecar_path: "report.meta.json",
+                title: Some("Annual Report"),
             }],
-            ..Manifest::default()
-        };
-        let store = store_with_manifest(manifest);
+        );
         let record_path = format!("records/tier-2/test-record-{}.json", &record_id[..8]);
         store
             .save_instance_json(
@@ -2127,8 +2174,8 @@ mod tests {
         assert_eq!(att.content_path.as_deref(), Some("report.pdf"));
         assert_eq!(att.sidecar_path.as_deref(), Some("report.meta.json"));
         assert_eq!(att.title.as_deref(), Some("Annual Report"));
-        assert_eq!(att.content_checksum.as_deref(), Some("sha256:cnt"));
-        assert_eq!(att.sidecar_checksum.as_deref(), Some("sha256:sid"));
+        assert!(att.content_checksum.is_none());
+        assert!(att.sidecar_checksum.is_none());
     }
 
     #[test]
@@ -2143,18 +2190,8 @@ mod tests {
         let doc_id = "doc-gra-roundtrip-004";
         let record_id = "bbbb0004-0000-4000-8000-000000000004";
         let manifest_json = serde_json::json!({
-            "instanceIndex": [{
-                "instanceId": record_id,
-                "tier": 2,
-                "path": "records/tier-2/test-type-bbbb0004.json"
-            }],
-            "sourceDocumentIndex": [{
-                "documentId": doc_id,
-                "sidecarPath": "slides.meta.json",
-                "contentPath": "slides.pdf",
-                "title": "Conference Slides",
-                "contentChecksum": "sha256:xyz"
-            }]
+            "instanceIndex": [],
+            "sourceDocumentsPath": "source-documents"
         });
         std::fs::write(
             root.join("manifest.json"),
@@ -2165,8 +2202,11 @@ mod tests {
         std::fs::write(
             root.join("package/package.json"),
             serde_json::json!({
+                "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
                 "id": "gra-rt-pkg", "namespace": "com.test", "name": "test",
-                "version": "1.0.0", "fields": [], "types": []
+                "version": "1.0.0", "title": "test", "description": "",
+                "status": "active", "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [], "types": []
             })
             .to_string(),
         )
@@ -2182,6 +2222,20 @@ mod tests {
                 "typeNamespace": "com.test",
                 "typeName": "test-type",
                 "fieldValues": {}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        // RFC-038 [R25]: the sidecar itself is the document's identity.
+        std::fs::create_dir_all(root.join("source-documents")).unwrap();
+        std::fs::write(
+            root.join("source-documents/slides.meta.json"),
+            serde_json::json!({
+                "documentId": doc_id,
+                "contentPath": "slides.pdf",
+                "contentType": "application/pdf",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "title": "Conference Slides"
             })
             .to_string(),
         )
@@ -2214,7 +2268,7 @@ mod tests {
         assert_eq!(att.content_path.as_deref(), Some("slides.pdf"));
         assert_eq!(att.sidecar_path.as_deref(), Some("slides.meta.json"));
         assert_eq!(att.title.as_deref(), Some("Conference Slides"));
-        assert_eq!(att.content_checksum.as_deref(), Some("sha256:xyz"));
+        assert!(att.content_checksum.is_none());
         // File was not written to disk in this test — size_bytes is None.
         assert!(
             att.size_bytes.is_none(),
@@ -2233,25 +2287,17 @@ mod tests {
         let doc_id = "doc-size-bytes-001";
         let record_id = "cccc0001-0000-4000-8000-000000000001";
         let mem_store = {
-            let manifest = Manifest {
-                source_document_index: Some(vec![SourceDocumentIndexEntry {
-                    document_id: doc_id.to_string(),
-                    sidecar_path: "brief.meta.json".to_string(),
-                    content_path: "brief.pdf".to_string(),
-                    title: Some("Brief".to_string()),
-                    sidecar_checksum: None,
-                    content_checksum: None,
-                }]),
-                instance_index: vec![InstanceIndexEntry {
-                    instance_id: record_id.to_string(),
-                    tier: 2,
-                    path: "records/tier-2/test-record-cccc0001.json".to_string(),
-                    title: None,
-                    tags: None,
+            let s = empty_store();
+            write_doc_fixtures(
+                &s,
+                None,
+                &[DocFixture {
+                    document_id: doc_id,
+                    content_path: "brief.pdf",
+                    sidecar_path: "brief.meta.json",
+                    title: Some("Brief"),
                 }],
-                ..Manifest::default()
-            };
-            let s = store_with_manifest(manifest);
+            );
             s.save_instance_json(
                 "records/tier-2/test-record-cccc0001.json",
                 &serde_json::json!({
@@ -2294,17 +2340,8 @@ mod tests {
         let root = temp.path();
         std::fs::create_dir_all(root.join(".srs")).unwrap();
         let manifest_json = serde_json::json!({
-            "instanceIndex": [{
-                "instanceId": record_id,
-                "tier": 2,
-                "path": "records/tier-2/test-record-cccc0001.json"
-            }],
-            "sourceDocumentIndex": [{
-                "documentId": doc_id,
-                "sidecarPath": "brief.meta.json",
-                "contentPath": "brief.pdf",
-                "title": "Brief"
-            }]
+            "instanceIndex": [],
+            "sourceDocumentsPath": "source-documents"
         });
         std::fs::write(
             root.join("manifest.json"),
@@ -2315,8 +2352,11 @@ mod tests {
         std::fs::write(
             root.join("package/package.json"),
             serde_json::json!({
+                "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
                 "id": "size-bytes-pkg", "namespace": "com.test", "name": "test",
-                "version": "1.0.0", "fields": [], "types": []
+                "version": "1.0.0", "title": "test", "description": "",
+                "status": "active", "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [], "types": []
             })
             .to_string(),
         )
@@ -2341,8 +2381,21 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        // Write the actual source document file (9 bytes of PDF-like content).
+        // Write the source document sidecar (RFC-038 [R25]: it is the identity)
+        // and the actual content file (9 bytes of PDF-like content).
         std::fs::create_dir_all(root.join("source-documents")).unwrap();
+        std::fs::write(
+            root.join("source-documents/brief.meta.json"),
+            serde_json::json!({
+                "documentId": doc_id,
+                "contentPath": "brief.pdf",
+                "contentType": "application/pdf",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "title": "Brief"
+            })
+            .to_string(),
+        )
+        .unwrap();
         std::fs::write(root.join("source-documents/brief.pdf"), b"pdf bytes").unwrap();
 
         let file_store = FileStore::new(root);

@@ -500,11 +500,13 @@ pub fn validate_container_invariants(
         errors.push(err.to_string());
     }
 
-    let manifest = store.load_manifest()?;
-    let known_ids: HashSet<String> = manifest
-        .instance_index
-        .iter()
-        .map(|e| e.instance_id().to_string())
+    // RFC-013 [R6]/[R9] as amended by RFC-038 [R25]: resolved against the
+    // catalog's instance set, not `manifest.instanceIndex`.
+    let known_ids: HashSet<String> = store
+        .catalog()?
+        .instances
+        .into_iter()
+        .map(|e| e.id)
         .collect();
 
     if let Some(ref ids) = container.member_instance_ids {
@@ -514,7 +516,7 @@ pub fn validate_container_invariants(
         for id in ids {
             if !known_ids.contains(id) {
                 errors.push(format!(
-                    "memberInstanceId '{}' not found in instanceIndex",
+                    "memberInstanceId '{}' not found in the instance set",
                     id
                 ));
             }
@@ -527,7 +529,7 @@ pub fn validate_container_invariants(
         for id in ids {
             if !known_ids.contains(id) {
                 errors.push(format!(
-                    "rootInstanceId '{}' not found in instanceIndex",
+                    "rootInstanceId '{}' not found in the instance set",
                     id
                 ));
             }
