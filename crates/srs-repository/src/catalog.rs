@@ -14,6 +14,13 @@
 //!   the [R11] collection deny activates at the flip).
 //! - The [R2] retired-manifest-property deny and the [R21] generation gate are
 //!   Phase 3/6 concerns and are not implemented here.
+//! - [R7]'s `allOf` domain-composition branch (a domain schema composing a
+//!   core entity schema via `allOf`) is not yet resolved: an unknown declared
+//!   `$schema` URL is a `SCHEMA-UNRESOLVABLE` error today. No domain-composed
+//!   schema exists in any fixture; resolution is owed to Phase 3 alongside
+//!   the first service consumption of the catalog.
+//! - The legacy `source-document.json` sidecar `$schema` is accepted as a
+//!   transitional shim for a filed corpus defect (the-greenman/srs#369).
 
 use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
@@ -253,8 +260,12 @@ const INSTANCE_ROOT_NAMES: &[&str] = &["records", "notes", "typed-records"];
 /// conjunct: recognition is not conferred by filename alone.
 const SIDECAR_SUFFIX_REVISIONS: &str = ".revisions.json";
 
-/// Legacy `$schema` id used by live source-document sidecars; resolves to the
-/// same sidecar entity as `source-document-meta.json`.
+/// TRANSITIONAL shim masking a filed corpus defect (the-greenman/srs#369):
+/// every live source-document sidecar declares this `$schema` URL, but no
+/// `source-document.json` schema exists anywhere — the canonical sidecar
+/// schema is `source-document-meta.json`. Without the shim, [R7]'s
+/// unresolvable-`$schema` rule would fatally reject every first-party
+/// repository. Remove when the corpus repairs its sidecar declarations.
 const LEGACY_SOURCE_DOCUMENT_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/source-document.json";
 
@@ -723,6 +734,12 @@ impl Builder<'_> {
                             ),
                         );
                     } else {
+                        // [R7]'s allOf branch is not yet implemented: a
+                        // domain schema composing a core entity via `allOf`
+                        // would land here and error, not classify. No such
+                        // schema exists in any fixture; resolution is owed
+                        // to Phase 3 (first service consumption of the
+                        // catalog). See the module-header transitional notes.
                         self.error(
                             codes::SCHEMA_UNRESOLVABLE,
                             vec![path.to_string()],
@@ -963,15 +980,20 @@ impl Builder<'_> {
         let Some(value) = self.read_candidate(path) else {
             return;
         };
-        // [R7] over the sidecar entity: both the current meta schema id and
-        // the legacy `source-document.json` id (used by the live corpus)
-        // resolve to the sidecar entity.
+        // [R7] over the sidecar entity. The legacy `source-document.json` id
+        // is accepted as a transitional shim for a filed corpus defect
+        // (srs#369) — see LEGACY_SOURCE_DOCUMENT_SCHEMA_ID.
         if let Some(declared) = value.get("$schema").and_then(|v| v.as_str()) {
             if declared != srs_schema::SOURCE_DOCUMENT_META_SCHEMA_ID
                 && declared != LEGACY_SOURCE_DOCUMENT_SCHEMA_ID
             {
+                let code = if SchemaRegistry::global().schema_ids().contains(&declared) {
+                    codes::SCHEMA_INADMISSIBLE
+                } else {
+                    codes::SCHEMA_UNRESOLVABLE
+                };
                 self.error(
-                    codes::SCHEMA_UNRESOLVABLE,
+                    code,
                     vec![path.to_string()],
                     format!(
                         "declared schema {declared} does not resolve to the source-document sidecar entity"
@@ -1300,7 +1322,9 @@ impl Builder<'_> {
 
     fn finish(mut self) -> RepositoryCatalog {
         // [R14]: deterministic total order by logical identifier, byte-wise
-        // over the canonical form; locator as a stability tiebreak only.
+        // over the canonical lowercase hyphenated UUID form — ids are
+        // lowercased before comparison so a mixed-case id cannot perturb the
+        // order; locator as a stability tiebreak only.
         for set in [
             &mut self.entries.instances,
             &mut self.entries.relations,
@@ -1308,14 +1332,18 @@ impl Builder<'_> {
             &mut self.entries.source_documents,
             &mut self.entries.definitions,
         ] {
-            set.sort_by(|a, b| a.id.cmp(&b.id).then_with(|| a.locator.cmp(&b.locator)));
+            set.sort_by(|a, b| {
+                a.id.to_ascii_lowercase()
+                    .cmp(&b.id.to_ascii_lowercase())
+                    .then_with(|| a.locator.cmp(&b.locator))
+            });
         }
         // The extension set orders first by kind byte-wise, then id ([R14]).
         self.entries.extensions.sort_by(|a, b| {
             a.kind
                 .as_str()
                 .cmp(b.kind.as_str())
-                .then_with(|| a.id.cmp(&b.id))
+                .then_with(|| a.id.to_ascii_lowercase().cmp(&b.id.to_ascii_lowercase()))
         });
         self.diagnostics.sort_by(|a, b| {
             a.locators
