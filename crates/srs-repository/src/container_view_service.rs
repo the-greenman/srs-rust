@@ -130,17 +130,19 @@ pub fn resolve_container_view(
     // rather than duplicating it here.
     let container = container_service::get_container(store, &container_id)?;
 
-    // Build instance_id -> tier and instance_id -> display label lookups from the manifest
-    // in a single pass. The label index provides display labels for Tier-0/1 members (the
-    // manifest title field, populated at write time). Tier-2 members use record_display_label
-    // instead; the label_by_id entry still exists but is unused for them.
-    let manifest = store.load_manifest()?;
+    // Build instance_id -> tier and instance_id -> display label lookups from one catalog
+    // snapshot. The label index provides display labels for Tier-0/1 members (the entity
+    // body's `title` field, catalog-derived — RFC-038 Change K retires the index column).
+    // Tier-2 members use record_display_label instead; the label_by_id entry still exists
+    // but is unused for them.
+    let cat = store.catalog()?;
     let mut tier_by_id: HashMap<String, u8> = HashMap::new();
     let mut label_by_id: HashMap<String, String> = HashMap::new();
-    for e in &manifest.instance_index {
-        let id = e.instance_id().to_string();
-        let label = e.title().unwrap_or_else(|| id.clone());
-        tier_by_id.insert(id.clone(), e.tier());
+    for entry in &cat.instances {
+        let id = entry.id.clone();
+        let r = crate::store::catalog_instance_ref(store, entry)?;
+        let label = r.title.unwrap_or_else(|| id.clone());
+        tier_by_id.insert(id.clone(), entry.tier.unwrap_or(2));
         label_by_id.insert(id, label);
     }
 

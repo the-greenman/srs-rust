@@ -3066,11 +3066,29 @@ pub mod memory {
             &self,
             relative_path: &str,
         ) -> Result<serde_json::Value, RepositoryError> {
-            self.data
+            let value = self
+                .data
                 .borrow()
                 .get(relative_path)
                 .cloned()
-                .ok_or_else(|| not_found(relative_path))
+                .ok_or_else(|| not_found(relative_path))?;
+            // A path registered via `save_text_file` (e.g. a source-document sidecar
+            // written as serialised text, matching FileStore's byte-oriented write —
+            // `attachment_service::add_attachment` is the production example) is
+            // stored as a wrapped `Value::String`, not a parsed object. Parse it here
+            // so the catalog (which reads every candidate through this method,
+            // matching FileStore's re-parse-from-disk semantics) sees the same shape
+            // regardless of which save_* method produced it. A malformed payload
+            // surfaces as a `Serialize` error — [R9]'s CANDIDATE_MALFORMED case.
+            match value {
+                serde_json::Value::String(s) => {
+                    serde_json::from_str(&s).map_err(|source| RepositoryError::Serialize {
+                        path: std::path::PathBuf::from(relative_path),
+                        source,
+                    })
+                }
+                other => Ok(other),
+            }
         }
 
         fn save_instance_json(

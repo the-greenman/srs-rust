@@ -35,15 +35,18 @@ pub struct ReadAttachmentPolicyResult {
 pub fn read_attachment_policy(
     store: &dyn RepositoryStore,
 ) -> Result<ReadAttachmentPolicyResult, RepositoryError> {
-    let manifest = store.load_manifest()?;
-
-    // Scan instance_index for tier-2 records matching com.semanticops.base/repo_settings.
+    // Scan the catalog's instance set for tier-2 records matching
+    // com.semanticops.base/repo_settings (RFC-038: no manifest.instanceIndex).
+    let cat = store.catalog()?;
     let mut policy_records = Vec::new();
-    for entry in &manifest.instance_index {
-        if entry.tier() != 2 {
+    for entry in &cat.instances {
+        if entry.tier != Some(2) {
             continue;
         }
-        let Ok(record) = record_store::load_record(store, entry.path()) else {
+        let Some(locator) = entry.locator.as_deref() else {
+            continue;
+        };
+        let Ok(record) = record_store::load_record(store, locator) else {
             continue;
         };
         if record.type_namespace == BASE_NAMESPACE

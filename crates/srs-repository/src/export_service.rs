@@ -113,7 +113,6 @@ mod tests {
     use crate::manifest::Manifest;
     use crate::package::Package;
     use crate::store::memory::MemoryStore;
-    use srs_core::types::source_document::SourceDocumentIndexEntry;
     use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
     use std::io::Cursor;
     use std::path::PathBuf;
@@ -245,26 +244,8 @@ mod tests {
         let content_path = "report.pdf";
         let pdf_bytes: &[u8] = b"fake pdf content";
 
-        let manifest = Manifest {
-            source_document_index: Some(vec![SourceDocumentIndexEntry {
-                document_id: doc_id.to_string(),
-                sidecar_path: "report.meta.json".to_string(),
-                content_path: content_path.to_string(),
-                title: Some("Report".to_string()),
-                sidecar_checksum: None,
-                content_checksum: None,
-            }]),
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: instance_id.clone(),
-                tier: 2,
-                path: format!("records/tier-2/dec-{}.json", &instance_id[..8]),
-                title: None,
-                tags: None,
-            }],
-            ..Manifest::default()
-        };
         let package = minimal_package_with_view(&view_id);
-        let store = MemoryStore::new(manifest, package);
+        let store = MemoryStore::new(Manifest::default(), package);
         store
             .save_instance_json(
                 &format!("records/tier-2/dec-{}.json", &instance_id[..8]),
@@ -275,6 +256,20 @@ mod tests {
                     "typeNamespace": "com.test",
                     "typeName": "decision",
                     "fieldValues": {}
+                }),
+            )
+            .unwrap();
+        // RFC-038 [R25]: the sidecar itself is the document's identity — no
+        // manifest.sourceDocumentIndex.
+        store
+            .save_instance_json(
+                "source-documents/report.meta.json",
+                &serde_json::json!({
+                    "documentId": doc_id,
+                    "contentPath": content_path,
+                    "contentType": "application/pdf",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "title": "Report"
                 }),
             )
             .unwrap();
@@ -338,26 +333,8 @@ mod tests {
         let content_path = "evidence.pdf";
         let pdf_bytes: &[u8] = b"cross-store evidence bytes";
 
-        let manifest = Manifest {
-            source_document_index: Some(vec![SourceDocumentIndexEntry {
-                document_id: doc_id.to_string(),
-                sidecar_path: "evidence.meta.json".to_string(),
-                content_path: content_path.to_string(),
-                title: Some("Evidence".to_string()),
-                sidecar_checksum: None,
-                content_checksum: None,
-            }]),
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: instance_id.clone(),
-                tier: 2,
-                path: format!("records/tier-2/dec-{}.json", &instance_id[..8]),
-                title: None,
-                tags: None,
-            }],
-            ..Manifest::default()
-        };
         let package = minimal_package_with_view(&view_id);
-        let store = MemoryStore::new(manifest, package);
+        let store = MemoryStore::new(Manifest::default(), package);
         store
             .save_instance_json(
                 &format!("records/tier-2/dec-{}.json", &instance_id[..8]),
@@ -368,6 +345,20 @@ mod tests {
                     "typeNamespace": "com.test",
                     "typeName": "decision",
                     "fieldValues": {}
+                }),
+            )
+            .unwrap();
+        // RFC-038 [R25]: the sidecar itself is the document's identity — no
+        // manifest.sourceDocumentIndex.
+        store
+            .save_instance_json(
+                "source-documents/evidence.meta.json",
+                &serde_json::json!({
+                    "documentId": doc_id,
+                    "contentPath": content_path,
+                    "contentType": "application/pdf",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "title": "Evidence"
                 }),
             )
             .unwrap();
@@ -642,36 +633,8 @@ mod tests {
         let pdf_bytes_2: &[u8] = b"q2 report bytes";
 
         let make_store = || {
-            let manifest = Manifest {
-                source_document_index: Some(vec![
-                    SourceDocumentIndexEntry {
-                        document_id: doc_id_1.to_string(),
-                        sidecar_path: "q1-report.meta.json".to_string(),
-                        content_path: "q1/report.pdf".to_string(),
-                        title: Some("Q1 Report".to_string()),
-                        sidecar_checksum: None,
-                        content_checksum: None,
-                    },
-                    SourceDocumentIndexEntry {
-                        document_id: doc_id_2.to_string(),
-                        sidecar_path: "q2-report.meta.json".to_string(),
-                        content_path: "q2/report.pdf".to_string(),
-                        title: Some("Q2 Report".to_string()),
-                        sidecar_checksum: None,
-                        content_checksum: None,
-                    },
-                ]),
-                instance_index: vec![InstanceIndexEntry {
-                    instance_id: instance_id.clone(),
-                    tier: 2,
-                    path: "records/tier-2/sbn-dec.json".to_string(),
-                    title: None,
-                    tags: None,
-                }],
-                ..Manifest::default()
-            };
             let package = minimal_package_with_view(&view_id);
-            let store = MemoryStore::new(manifest, package);
+            let store = MemoryStore::new(Manifest::default(), package);
             store
                 .save_instance_json(
                     "records/tier-2/sbn-dec.json",
@@ -682,6 +645,32 @@ mod tests {
                         "typeNamespace": "com.test",
                         "typeName": "sbn-decision",
                         "fieldValues": {}
+                    }),
+                )
+                .unwrap();
+            // RFC-038 [R25]: the sidecar itself is the document's identity — no
+            // manifest.sourceDocumentIndex.
+            store
+                .save_instance_json(
+                    "source-documents/q1-report.meta.json",
+                    &serde_json::json!({
+                        "documentId": doc_id_1,
+                        "contentPath": "q1/report.pdf",
+                        "contentType": "application/pdf",
+                        "createdAt": "2026-01-01T00:00:00Z",
+                        "title": "Q1 Report"
+                    }),
+                )
+                .unwrap();
+            store
+                .save_instance_json(
+                    "source-documents/q2-report.meta.json",
+                    &serde_json::json!({
+                        "documentId": doc_id_2,
+                        "contentPath": "q2/report.pdf",
+                        "contentType": "application/pdf",
+                        "createdAt": "2026-01-01T00:00:00Z",
+                        "title": "Q2 Report"
                     }),
                 )
                 .unwrap();
