@@ -1,6 +1,6 @@
 use crate::core_purpose;
 use crate::error::RepositoryError;
-use crate::record_store::{delete_record, upsert_record_index_entry, write_new_record};
+use crate::record_store::{delete_record, write_new_record};
 use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::{new_instance_id, write_manifest};
 use chrono::Utc;
@@ -105,7 +105,7 @@ pub fn create_repository(
     Ok(result)
 }
 
-/// Writes the root purpose record and registers the root container in `containerIndex`.
+/// Writes the root purpose record and sets it as the inline root container's identity.
 ///
 /// Two-write operation: `save_manifest` (step 1) then `save_container` (step 2).
 /// If step 2 fails: the record is removed via `delete_record`, then `manifest.container` is
@@ -128,11 +128,12 @@ fn scaffold_purpose_record(
         &now,
     );
 
-    let relative_path = write_new_record(store, &record, store.record_tier_dir(RecordTier::Tier2))?;
+    write_new_record(store, &record, store.record_tier_dir(RecordTier::Tier2))?;
 
+    // Membership comes from the tree ([R1]); only `manifest.container` is a
+    // sanctioned manifest write here — an explicit container-membership
+    // operation ([R22]'s exception), not an instance-index write.
     let mut manifest = store.load_manifest()?;
-    upsert_record_index_entry(&mut manifest, &record, &relative_path);
-
     let container = manifest.container.get_or_insert_with(|| Container {
         container_id: repository_id.to_string(),
         title: container_title.to_string(),

@@ -2,7 +2,6 @@ use crate::container_service::{
     create_container, get_container, list_containers, ContainerListFilter,
 };
 use crate::error::RepositoryError;
-use crate::index::InstanceIndexEntry;
 use crate::relation_service::load_relations;
 use crate::repository_lifecycle::{
     InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
@@ -20,7 +19,6 @@ use srs_core::types::lifecycle::Lifecycle;
 use srs_core::types::record_type::RecordType;
 use srs_core::types::relation::Relation;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
-use srs_core::types::source_document::SourceDocumentIndexEntry;
 use srs_core::types::theme::Theme;
 use srs_core::types::view::{DocumentView, View};
 use srs_core::types::vocabulary::Vocabulary;
@@ -276,63 +274,49 @@ pub fn export_repository_snapshot_with_options(
         packages.push(export_package_boundary(source, boundary)?);
     }
 
-    // Collect source documents (RFC-017; ADR-031).
+    // Collect source documents (RFC-017; ADR-031). RFC-038 [R25]: resolved via
+    // sidecar discovery — the catalog's source-document set — not
+    // `manifest.source_document_index`; tombstone behavior (an absent content
+    // file) is keyed to the sidecar itself, never an index entry.
     let source_documents_path = manifest.source_documents_path.clone();
     let src_docs_base = source_documents_path
         .as_deref()
         .unwrap_or("source-documents");
-    let index_entries = manifest
-        .source_document_index
-        .as_deref()
-        .unwrap_or_default();
 
     let mut source_documents = Vec::new();
-    for entry in index_entries {
-        let document_id = Some(entry.document_id.as_str())
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| RepositoryError::InvalidSnapshotData {
-                message: format!(
-                    "sourceDocumentIndex entry has empty 'documentId' (sidecarPath: {:?})",
-                    entry.sidecar_path
-                ),
-            })?
-            .to_string();
-        let sidecar_path = Some(entry.sidecar_path.as_str())
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| RepositoryError::InvalidSnapshotData {
-                message: format!(
-                    "sourceDocumentIndex entry has empty 'sidecarPath' (documentId: {:?})",
-                    entry.document_id
-                ),
-            })?
-            .to_string();
-        let content_path = Some(entry.content_path.as_str())
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| RepositoryError::InvalidSnapshotData {
-                message: format!(
-                    "sourceDocumentIndex entry has empty 'contentPath' (documentId: {:?})",
-                    entry.document_id
-                ),
-            })?
-            .to_string();
-
-        let sidecar_full = format!("{src_docs_base}/{sidecar_path}");
-        let sidecar_str = match source.load_text_file(&sidecar_full) {
+    for entry in &catalog.source_documents {
+        let sidecar_full = entry.locator.as_deref().unwrap_or_default();
+        let sidecar_str = match source.load_text_file(sidecar_full) {
             Ok(s) => s,
-            Err(ref e) if e.is_not_found() => continue, // tombstone: skip this entry
+            Err(ref e) if e.is_not_found() => continue, // vanished between catalog build and read
             Err(e) => return Err(e),
         };
         let sidecar: serde_json::Value = serde_json::from_str(&sidecar_str).map_err(|e| {
             RepositoryError::InvalidSnapshotData {
-                message: format!("malformed sidecar '{}': {e}", sidecar_full),
+                message: format!("malformed sidecar '{sidecar_full}': {e}"),
             }
         })?;
+        let sidecar_path = sidecar_full
+            .strip_prefix(&format!("{src_docs_base}/"))
+            .unwrap_or(sidecar_full)
+            .to_string();
+        let content_path = sidecar
+            .get("contentPath")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| RepositoryError::InvalidSnapshotData {
+                message: format!("sidecar '{sidecar_full}' has no contentPath"),
+            })?
+            .to_string();
+        let title = sidecar
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
 
         let content_base64 = if options.include_content_blobs {
             let content_full = format!("{src_docs_base}/{content_path}");
             match source.load_binary_file(&content_full) {
                 Ok(bytes) => Some(BASE64.encode(&bytes)),
-                Err(ref e) if e.is_not_found() => None, // tombstone: RFC-017 R12
+                Err(ref e) if e.is_not_found() => None, // tombstone: RFC-017 [R15], keyed to the sidecar
                 Err(e) => return Err(e),
             }
         } else {
@@ -340,14 +324,14 @@ pub fn export_repository_snapshot_with_options(
         };
 
         source_documents.push(SourceDocumentSnapshot {
-            document_id,
+            document_id: entry.id.clone(),
             sidecar_path,
             content_path,
             sidecar,
             content_base64,
-            title: entry.title.clone(),
-            sidecar_checksum: entry.sidecar_checksum.clone(),
-            content_checksum: entry.content_checksum.clone(),
+            title,
+            sidecar_checksum: None,
+            content_checksum: None,
         });
     }
 
@@ -387,7 +371,9 @@ pub fn export_repository_snapshot_with_options(
         instances,
         containers,
         root_container: manifest.container.clone(),
-        container_index: manifest.container_index.clone(),
+        // Retired by RFC-038 Change K — `containers` above (catalog-backed) is
+        // the real data; this field is never populated or read any more.
+        container_index: None,
         relations: load_relations(source)?,
         source_documents_path: if source_documents.is_empty() {
             None
@@ -470,9 +456,10 @@ fn do_import(
 
     // Widen id8 → full id for any instances that share a short canonical path (srs-rust#696),
     // so a valid repository with prefix-colliding UUIDs still materializes to distinct files.
+    // RFC-038 [R1]/[R22]: writes only the entity files — membership comes from the tree,
+    // never `manifest.instance_index` (retired by Change K).
     let instance_paths = collision_safe_instance_paths(&snapshot.instances, target)?;
     let mut used_paths: HashMap<&str, &str> = HashMap::with_capacity(snapshot.instances.len());
-    manifest.instance_index = Vec::new();
     for (instance, rel_path) in snapshot.instances.iter().zip(&instance_paths) {
         // After widening, an identical path can only mean a genuine duplicate instance id.
         if let Some(first_id) = used_paths.insert(rel_path.as_str(), instance.instance_id.as_str())
@@ -486,35 +473,27 @@ fn do_import(
         }
         ensure_instance_parent(target, rel_path)?;
         target.save_instance_json(rel_path, &instance.value)?;
-        manifest.instance_index.push(InstanceIndexEntry {
-            instance_id: instance.instance_id.clone(),
-            tier: instance.tier,
-            path: rel_path.clone(),
-            title: instance.title.clone(),
-            tags: instance.tags.clone(),
-        });
     }
     // Only override the placeholder `initialize_repository` assigned when the source
     // actually declared a root container — some in-memory test sources predate RFC-013
     // and carry no `manifest.container` at all, in which case the target's freshly
     // initialized default (which does satisfy the required-container invariant) should
-    // stand rather than being clobbered to `None`.
+    // stand rather than being clobbered to `None`. `manifest.container` is a sanctioned
+    // write ([R1] — the manifest is authoritative for the inline root container);
+    // `containerIndex` is retired (Change K) and is never written.
     if let Some(root_container) = &snapshot.root_container {
         manifest.container = Some(root_container.clone());
     }
-    if let Some(container_index) = &snapshot.container_index {
-        manifest.container_index = Some(container_index.clone());
-    }
 
-    // Materialize source documents (RFC-017 R3/R12; ADR-007: files before index;
-    // ADR-021: writes happen inside the begin_batch/commit_batch bracket above).
+    // Materialize source documents (RFC-017 R3/R12). RFC-038 [R25]: no
+    // `sourceDocumentIndex` is written — the sidecar file itself is the
+    // identity and the tombstone marker (an absent content file), so writing
+    // the sidecar/content is the complete operation.
     if !snapshot.source_documents.is_empty() {
         let src_docs_base = snapshot
             .source_documents_path
             .as_deref()
             .unwrap_or("source-documents");
-        let mut source_doc_index: Vec<SourceDocumentIndexEntry> =
-            Vec::with_capacity(snapshot.source_documents.len());
         for entry in &snapshot.source_documents {
             let sidecar_full = format!("{src_docs_base}/{}", entry.sidecar_path);
             let sidecar_str = serde_json::to_string_pretty(&entry.sidecar).map_err(|e| {
@@ -537,17 +516,8 @@ fn do_import(
                 let content_full = format!("{src_docs_base}/{}", entry.content_path);
                 target.save_binary_file(&content_full, &bytes)?;
             }
-            source_doc_index.push(SourceDocumentIndexEntry {
-                document_id: entry.document_id.clone(),
-                sidecar_path: entry.sidecar_path.clone(),
-                content_path: entry.content_path.clone(),
-                title: entry.title.clone(),
-                sidecar_checksum: entry.sidecar_checksum.clone(),
-                content_checksum: entry.content_checksum.clone(),
-            });
         }
         manifest.source_documents_path = Some(src_docs_base.to_string());
-        manifest.source_document_index = Some(source_doc_index);
     }
 
     // Restore repository-level provenance the snapshot carries (srs-rust#696): the
@@ -722,7 +692,13 @@ fn import_package_boundary(
             slugify(&field.name),
             id_prefix(&field.id)?
         );
-        write_repo_json(target, &base_prefix, &path, field)?;
+        write_repo_json(
+            target,
+            &base_prefix,
+            &path,
+            field,
+            srs_schema::FIELD_SCHEMA_ID,
+        )?;
         field_paths.push(path);
     }
 
@@ -733,7 +709,13 @@ fn import_package_boundary(
             slugify(&record_type.name),
             id_prefix(&record_type.id)?
         );
-        write_repo_json(target, &base_prefix, &path, record_type)?;
+        write_repo_json(
+            target,
+            &base_prefix,
+            &path,
+            record_type,
+            srs_schema::TYPE_SCHEMA_ID,
+        )?;
         type_paths.push(path);
     }
 
@@ -744,7 +726,13 @@ fn import_package_boundary(
             slugify(&relation_type.key),
             id_prefix(&relation_type.id)?
         );
-        write_repo_json(target, &base_prefix, &path, relation_type)?;
+        write_repo_json(
+            target,
+            &base_prefix,
+            &path,
+            relation_type,
+            srs_schema::RELATION_TYPE_SCHEMA_ID,
+        )?;
         relation_type_paths.push(path);
     }
 
@@ -755,7 +743,13 @@ fn import_package_boundary(
             slugify(&view.name),
             id_prefix(&view.id)?
         );
-        write_repo_json(target, &base_prefix, &path, view)?;
+        write_repo_json(
+            target,
+            &base_prefix,
+            &path,
+            view,
+            srs_schema::VIEW_SCHEMA_ID,
+        )?;
         view_paths.push(path);
     }
 
@@ -766,7 +760,13 @@ fn import_package_boundary(
             slugify(&view.name),
             id_prefix(&view.id)?
         );
-        write_repo_json(target, &base_prefix, &path, view)?;
+        write_repo_json(
+            target,
+            &base_prefix,
+            &path,
+            view,
+            srs_schema::DOCUMENT_VIEW_SCHEMA_ID,
+        )?;
         doc_view_paths.push(path);
     }
 
@@ -777,7 +777,13 @@ fn import_package_boundary(
             slugify(&blueprint.name),
             id_prefix(&blueprint.id)?
         );
-        write_repo_json(target, &base_prefix, &path, blueprint)?;
+        write_repo_json(
+            target,
+            &base_prefix,
+            &path,
+            blueprint,
+            srs_schema::BLUEPRINT_SCHEMA_ID,
+        )?;
         blueprint_paths.push(path);
     }
 
@@ -788,7 +794,13 @@ fn import_package_boundary(
             slugify(&theme.name),
             id_prefix(&theme.id)?
         );
-        write_repo_json(target, &base_prefix, &path, theme)?;
+        write_repo_json(
+            target,
+            &base_prefix,
+            &path,
+            theme,
+            srs_schema::THEME_SCHEMA_ID,
+        )?;
         theme_paths.push(path);
     }
 
@@ -799,7 +811,13 @@ fn import_package_boundary(
             slugify(&vocab.name),
             id_prefix(&vocab.id)?
         );
-        write_repo_json(target, &base_prefix, &path, vocab)?;
+        write_repo_json(
+            target,
+            &base_prefix,
+            &path,
+            vocab,
+            srs_schema::VOCABULARY_SCHEMA_ID,
+        )?;
         vocabulary_paths.push(path);
     }
 
@@ -810,7 +828,13 @@ fn import_package_boundary(
             slugify(&lc.name),
             id_prefix(&lc.id)?
         );
-        write_repo_json(target, &base_prefix, &path, lc)?;
+        write_repo_json(
+            target,
+            &base_prefix,
+            &path,
+            lc,
+            srs_schema::LIFECYCLE_SCHEMA_ID,
+        )?;
         lifecycle_paths.push(path);
     }
 
@@ -851,20 +875,36 @@ fn load_typed_json<T: serde::de::DeserializeOwned>(
     })
 }
 
+/// Write one definition object under a package boundary, injecting `$schema`
+/// when the serialised value does not already carry one.
+///
+/// RFC-038 [R7]/[R8]: every definition candidate under a reserved package
+/// location is now classified by the catalog on every subsequent load —
+/// unlike the pre-catalog reader, it will not tolerate a definition with no
+/// declared `$schema` that also fails shape classification (e.g. `RecordType`
+/// carries no `schema` field in `srs-core` at all, so a plain `to_value` never
+/// produced one). `or_insert` preserves an already-present `$schema` (e.g. a
+/// `Field` round-tripped from a real repo keeps the one it loaded with, per
+/// its own doc comment) and only supplies the default for freshly-typed data.
 fn write_repo_json<T: serde::Serialize>(
     target: &dyn RepositoryStore,
     base_prefix: &str,
     rel_path: &str,
     value: &T,
+    schema_id: &str,
 ) -> Result<(), RepositoryError> {
     let full = format!("{base_prefix}/{rel_path}");
     if let Some((dir, _)) = full.rsplit_once('/') {
         ensure_repo_dir(target, dir)?;
     }
-    let json = serde_json::to_value(value).map_err(|source| RepositoryError::Serialize {
+    let mut json = serde_json::to_value(value).map_err(|source| RepositoryError::Serialize {
         path: std::path::PathBuf::from(&full),
         source,
     })?;
+    if let serde_json::Value::Object(ref mut obj) = json {
+        obj.entry("$schema")
+            .or_insert_with(|| serde_json::Value::String(schema_id.to_string()));
+    }
     target.save_instance_json(&full, &json)
 }
 
@@ -919,7 +959,6 @@ pub struct UpgradeRepositoryPathsResult {
 }
 
 struct PlannedRename {
-    manifest_index: usize,
     instance_id: String,
     from_path: String,
     to_path: String,
@@ -927,53 +966,67 @@ struct PlannedRename {
     sidecar_value: Option<serde_json::Value>,
 }
 
+/// Catalog-backed (RFC-038 [R1]): membership and locators come from one
+/// catalog snapshot, never `manifest.instance_index`. There is no manifest
+/// bookkeeping to update after a rename — the tree is the only authority.
 fn collect_planned_renames(
     store: &dyn RepositoryStore,
-    manifest: &crate::manifest::Manifest,
 ) -> Result<Vec<PlannedRename>, RepositoryError> {
+    let cat = store.catalog()?;
     // Load every instance first so canonical paths can be derived over the whole set at once
     // (srs-rust#696): id8-colliding siblings normalise to their full-id form — order-independent,
     // never a collision error — so path normalization stays applicable to valid repositories
     // with prefix-colliding UUIDs.
-    let instances: Vec<SnapshotInstance> = manifest
-        .instance_index
+    let instances: Vec<SnapshotInstance> = cat
+        .instances
         .iter()
         .map(|entry| {
+            let locator = entry.locator.clone().unwrap_or_default();
+            let value = store.load_instance_json(&locator)?;
+            let r = crate::store::instance_ref_from_body(
+                entry.id.clone(),
+                entry.tier.unwrap_or(2),
+                &value,
+            );
             Ok(SnapshotInstance {
-                instance_id: entry.instance_id.clone(),
-                tier: entry.tier,
-                title: entry.title.clone(),
-                tags: entry.tags.clone(),
-                value: store.load_instance_json(entry.path())?,
+                instance_id: entry.id.clone(),
+                tier: entry.tier.unwrap_or(2),
+                title: r.title.map(serde_json::Value::String),
+                tags: if r.tags.is_empty() {
+                    None
+                } else {
+                    Some(r.tags)
+                },
+                value,
             })
         })
         .collect::<Result<_, RepositoryError>>()?;
     let canonical_paths = collision_safe_instance_paths(&instances, store)?;
 
     // After widening, two identical canonical paths can only mean a genuine duplicate instance
-    // id in the index (ADR-040) — a corrupt manifest. Reject it rather than silently planning a
-    // rename that would clobber one file with another in `upgrade_repository_paths`.
+    // id (ADR-040) — a corrupt repository. Reject it rather than silently planning a rename that
+    // would clobber one file with another in `upgrade_repository_paths`.
     let mut seen: HashSet<&str> = HashSet::with_capacity(canonical_paths.len());
-    for (entry, canonical) in manifest.instance_index.iter().zip(&canonical_paths) {
+    for (entry, canonical) in cat.instances.iter().zip(&canonical_paths) {
         if !seen.insert(canonical.as_str()) {
             return Err(RepositoryError::InvalidSnapshotData {
                 message: format!(
-                    "duplicate instance id '{}' — two index entries normalise to the same path '{canonical}'",
-                    entry.instance_id
+                    "duplicate instance id '{}' — two catalog entries normalise to the same path '{canonical}'",
+                    entry.id
                 ),
             });
         }
     }
 
     let mut planned: Vec<PlannedRename> = Vec::new();
-    for ((idx, entry), (instance, canonical)) in manifest
-        .instance_index
+    for (entry, (instance, canonical)) in cat
+        .instances
         .iter()
-        .enumerate()
         .zip(instances.iter().zip(&canonical_paths))
     {
-        if entry.path() != canonical {
-            let old_sidecar = sidecar_path_for(entry.path());
+        let current_path = entry.locator.as_deref().unwrap_or_default();
+        if current_path != canonical {
+            let old_sidecar = sidecar_path_for(current_path);
             let sidecar_value = match store.load_instance_json(&old_sidecar) {
                 Ok(v) => Some(v),
                 Err(RepositoryError::NotFound { .. }) => None,
@@ -985,9 +1038,8 @@ fn collect_planned_renames(
                 Err(e) => return Err(e),
             };
             planned.push(PlannedRename {
-                manifest_index: idx,
-                instance_id: entry.instance_id.clone(),
-                from_path: entry.path().to_string(),
+                instance_id: entry.id.clone(),
+                from_path: current_path.to_string(),
                 to_path: canonical.clone(),
                 value: instance.value.clone(),
                 sidecar_value,
@@ -997,22 +1049,20 @@ fn collect_planned_renames(
     Ok(planned)
 }
 
-/// Returns `true` if any instance file path in the manifest index differs from its
-/// canonical slug-id8 form (i.e. `upgrade_repository_paths` would rename at least one file).
-/// Reads the manifest but performs no writes.
+/// Returns `true` if any instance file path differs from its canonical
+/// slug-id8 form (i.e. `upgrade_repository_paths` would rename at least one
+/// file). Reads the catalog but performs no writes.
 pub fn check_path_upgrade_needed(store: &dyn RepositoryStore) -> Result<bool, RepositoryError> {
-    let manifest = store.load_manifest()?;
-    let planned = collect_planned_renames(store, &manifest)?;
+    let planned = collect_planned_renames(store)?;
     Ok(!planned.is_empty())
 }
 
 pub fn upgrade_repository_paths(
     store: &dyn RepositoryStore,
 ) -> Result<UpgradeRepositoryPathsResult, RepositoryError> {
-    let mut manifest = store.load_manifest()?;
-    let total_instances = manifest.instance_index.len();
+    let total_instances = store.catalog()?.instances.len();
 
-    let planned = collect_planned_renames(store, &manifest)?;
+    let planned = collect_planned_renames(store)?;
 
     if planned.is_empty() {
         return Ok(UpgradeRepositoryPathsResult {
@@ -1022,7 +1072,9 @@ pub fn upgrade_repository_paths(
         });
     }
 
-    // Phase 2: apply — write canonical instance files (and sidecars)
+    // Phase 2: apply — write canonical instance files (and sidecars). No
+    // manifest write follows: membership and locators come from the tree
+    // ([R1]/[R22]) — there is no index entry to repoint.
     for rename in &planned {
         ensure_instance_parent(store, &rename.to_path)?;
         store.save_instance_json(&rename.to_path, &rename.value)?;
@@ -1033,13 +1085,7 @@ pub fn upgrade_repository_paths(
         }
     }
 
-    // Phase 3: manifest update — persist index before any deletes (ADR-007)
-    for rename in &planned {
-        manifest.instance_index[rename.manifest_index].path = rename.to_path.clone();
-    }
-    store.save_manifest(&manifest)?;
-
-    // Phase 4: cleanup — delete old files (best-effort; orphans are harmless per ADR-007)
+    // Phase 3: cleanup — delete old files (best-effort; orphans are harmless per ADR-007)
     for rename in &planned {
         let _ = store.delete_instance_file(&rename.from_path);
         if rename.sidecar_value.is_some() {
@@ -1539,8 +1585,7 @@ mod tests {
         let target = FileStore::new(temp.path());
         import_repository_snapshot(&target, &snapshot).unwrap();
 
-        let copied = target.load_manifest().unwrap();
-        assert_eq!(copied.instance_index.len(), 1);
+        assert_eq!(target.catalog().unwrap().instances.len(), 1);
         let summaries = list_containers(&target, &ContainerListFilter::default()).unwrap();
         // 2 = root container (embed-only, from manifest.container) + explicitly added container.
         assert_eq!(summaries.len(), 2);
@@ -1747,50 +1792,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn export_fails_with_instance_load_error_when_record_missing() {
-        // A manifest entry pointing to a path with no data should surface
-        // InstanceLoad with the instance_id and path in the error, not a
-        // generic IO error with no identifying context.
-        let source = MemoryStore::uninitialized();
-        source.initialize_repository(&make_input()).unwrap();
-
-        // Inject a manifest entry whose path has no corresponding data entry.
-        let mut manifest = source.load_manifest().unwrap();
-        manifest
-            .instance_index
-            .push(crate::index::InstanceIndexEntry {
-                instance_id: "deadbeef-dead-4ead-8ead-deadbeefcafe".to_string(),
-                tier: 0,
-                path: "records/notes/ghost.json".to_string(),
-                title: None,
-                tags: None,
-            });
-        source.save_manifest(&manifest).unwrap();
-
-        let result = export_repository_snapshot(&source);
-
-        match result {
-            Err(RepositoryError::InstanceLoad {
-                ref instance_id,
-                ref path,
-                ..
-            }) => {
-                assert_eq!(instance_id, "deadbeef-dead-4ead-8ead-deadbeefcafe");
-                assert_eq!(path.to_str().unwrap(), "records/notes/ghost.json");
-            }
-            other => panic!("expected InstanceLoad error, got: {other:?}"),
-        }
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("deadbeef-dead-4ead-8ead-deadbeefcafe"),
-            "error message must contain instance_id: {err_msg}"
-        );
-        assert!(
-            err_msg.contains("records/notes/ghost.json"),
-            "error message must contain source path: {err_msg}"
-        );
-    }
+    // export_fails_with_instance_load_error_when_record_missing retired by
+    // RFC-038 Phase 3 (srs-rust#783): its scenario — a manifest index entry
+    // pointing at a file with no data — cannot occur under the catalog model.
+    // Membership comes from the tree ([R1]); an instance is only ever
+    // discovered if its file exists, so there is no more "ghost" index entry
+    // to inject. `InstanceLoad`'s error-context contract is still exercised
+    // by `catalog_require_instance_locator`'s callers elsewhere.
 
     #[test]
     fn import_widens_path_on_id8_collision() {
@@ -1826,15 +1834,15 @@ mod tests {
         import_repository_snapshot(&target, &snapshot)
             .expect("prefix-colliding instances must import, not error (srs-rust#696)");
 
-        let manifest = target.load_manifest().unwrap();
+        let cat = target.catalog().unwrap();
         let path_of = |id: &str| -> String {
-            manifest
-                .instance_index
+            cat.instances
                 .iter()
-                .find(|e| e.instance_id == id)
-                .unwrap_or_else(|| panic!("instance {id} missing from index"))
-                .path()
-                .to_string()
+                .find(|e| e.id == id)
+                .unwrap_or_else(|| panic!("instance {id} missing from catalog"))
+                .locator
+                .clone()
+                .unwrap_or_default()
         };
         let p1 = path_of("aaaaaaaa-0000-4000-8000-000000000001");
         let p2 = path_of("aaaaaaaa-0000-4000-8000-000000000002");
@@ -1893,15 +1901,12 @@ mod tests {
             .expect("repo copy must not fail on prefix-colliding UUIDs (srs-rust#696)");
 
         let paths: Vec<String> = second
-            .load_manifest()
+            .catalog()
             .unwrap()
-            .instance_index
+            .instances
             .iter()
-            .filter(|e| {
-                e.instance_id
-                    .starts_with("aaaaaaaa-0000-4000-8000-0000000000")
-            })
-            .map(|e| e.path().to_string())
+            .filter(|e| e.id.starts_with("aaaaaaaa-0000-4000-8000-0000000000"))
+            .map(|e| e.locator.clone().unwrap_or_default())
             .collect();
         assert_eq!(paths.len(), 2, "both colliding instances must be copied");
         assert_ne!(
@@ -2070,10 +2075,13 @@ mod tests {
         }
     }
 
+    /// Writes the instance file only — membership comes from the tree ([R1]);
+    /// `_tier` is unused (the file's own shape/content determines its tier
+    /// once discovered via the catalog), kept for call-site clarity.
     fn inject_non_canonical_instance(
         store: &dyn RepositoryStore,
-        instance_id: &str,
-        tier: u8,
+        _instance_id: &str,
+        _tier: u8,
         path: &str,
         value: serde_json::Value,
     ) {
@@ -2081,17 +2089,6 @@ mod tests {
             .ensure_instance_dir(path.rsplit_once('/').map(|(d, _)| d).unwrap_or("records"))
             .unwrap();
         store.save_instance_json(path, &value).unwrap();
-        let mut manifest = store.load_manifest().unwrap();
-        manifest
-            .instance_index
-            .push(crate::index::InstanceIndexEntry {
-                instance_id: instance_id.to_string(),
-                tier,
-                path: path.to_string(),
-                title: None,
-                tags: None,
-            });
-        store.save_manifest(&manifest).unwrap();
     }
 
     #[test]
@@ -2141,11 +2138,11 @@ mod tests {
             store.load_instance_json("records/tier-2/com-example-my-type-aabbccdd.json");
         assert!(canonical.is_ok(), "canonical path should exist");
 
-        // Manifest updated.
-        let manifest = store.load_manifest().unwrap();
+        // Discoverable at the canonical path via the catalog (no manifest write).
+        let cat = store.catalog().unwrap();
         assert_eq!(
-            manifest.instance_index[0].path,
-            "records/tier-2/com-example-my-type-aabbccdd.json"
+            cat.instances[0].locator.as_deref(),
+            Some("records/tier-2/com-example-my-type-aabbccdd.json")
         );
     }
 
@@ -2155,12 +2152,10 @@ mod tests {
         store.initialize_repository(&make_upgrade_input()).unwrap();
 
         let id = "11223344-0000-0000-0000-000000000000";
+        // Title lives directly in the body — slug derivation is catalog/body-backed now,
+        // no manifest-index title patch needed.
         let value = serde_json::json!({"title": "My Note", "id": id});
         inject_non_canonical_instance(&store, id, 0, "records/notes/raw-note.json", value.clone());
-        // Patch title in manifest entry for slug derivation.
-        let mut manifest = store.load_manifest().unwrap();
-        manifest.instance_index[0].title = Some(serde_json::Value::String("My Note".to_string()));
-        store.save_manifest(&manifest).unwrap();
 
         let result = upgrade_repository_paths(&store).unwrap();
         assert_eq!(result.renames.len(), 1);
@@ -2219,15 +2214,15 @@ mod tests {
             upgrade_repository_paths(&store).expect("upgrade must not fail on an id8 collision");
         assert_eq!(result.renames.len(), 2, "both colliding instances renamed");
 
-        let manifest = store.load_manifest().unwrap();
+        let cat = store.catalog().unwrap();
         let path_of = |id: &str| -> String {
-            manifest
-                .instance_index
+            cat.instances
                 .iter()
-                .find(|e| e.instance_id == id)
+                .find(|e| e.id == id)
                 .unwrap()
-                .path()
-                .to_string()
+                .locator
+                .clone()
+                .unwrap_or_default()
         };
         let p1 = path_of(id1);
         let p2 = path_of(id2);
@@ -2351,17 +2346,13 @@ mod tests {
 
     // --- Source document snapshot tests (RFC-017, ADR-031) ---
 
+    /// RFC-038 [R25]: source documents resolve via sidecar discovery — the
+    /// catalog's source-document set — not `manifest.source_document_index`
+    /// (retired, Change K). This only needs to confirm the (already-default)
+    /// `sourceDocumentsPath`; the sidecar file itself is the real fixture.
     fn make_source_doc_manifest(store: &dyn RepositoryStore) {
         let mut manifest = store.load_manifest().unwrap();
         manifest.source_documents_path = Some("source-documents".to_string());
-        manifest.source_document_index = Some(vec![SourceDocumentIndexEntry {
-            document_id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee".to_string(),
-            sidecar_path: "my-doc.meta.json".to_string(),
-            content_path: "my-doc.pdf".to_string(),
-            title: None,
-            sidecar_checksum: None,
-            content_checksum: None,
-        }]);
         store.save_manifest(&manifest).unwrap();
     }
 
@@ -2418,11 +2409,14 @@ mod tests {
             .unwrap();
         assert_eq!(recovered_bytes, binary_content);
 
-        // Manifest must carry sourceDocumentIndex.
-        let manifest = target.load_manifest().unwrap();
-        let idx = manifest.source_document_index.as_ref().unwrap();
-        assert_eq!(idx.len(), 1);
-        assert_eq!(idx[0].document_id, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
+        // Discoverable via the catalog's source-document set (RFC-038 [R25]) —
+        // no `sourceDocumentIndex` is written any more.
+        let cat = target.catalog().unwrap();
+        assert_eq!(cat.source_documents.len(), 1);
+        assert_eq!(
+            cat.source_documents[0].id,
+            "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        );
     }
 
     #[test]
@@ -2572,41 +2566,40 @@ mod tests {
     }
 
     #[test]
-    fn copy_preserves_source_doc_checksum_metadata() {
+    fn copy_preserves_source_doc_title_from_sidecar_body() {
+        // RFC-038 [R25]: title comes from the sidecar body itself, not from a
+        // `sourceDocumentIndex` side-channel (retired, Change K — checksums
+        // were only ever carried there and are not reconstructed).
         let source = MemoryStore::uninitialized();
         source.initialize_repository(&make_input()).unwrap();
+        let sidecar_with_title = r#"{
+            "documentId": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+            "contentPath": "my-doc.pdf",
+            "contentType": "application/pdf",
+            "title": "My Test Doc",
+            "createdAt": "2026-01-01T00:00:00Z"
+        }"#;
         source
-            .save_text_file("source-documents/my-doc.meta.json", SIDECAR_JSON)
+            .save_text_file("source-documents/my-doc.meta.json", sidecar_with_title)
             .unwrap();
         source
             .save_binary_file("source-documents/my-doc.pdf", b"pdf bytes")
             .unwrap();
 
-        // Set up manifest with non-None checksum metadata.
-        let mut manifest = source.load_manifest().unwrap();
-        manifest.source_documents_path = Some("source-documents".to_string());
-        manifest.source_document_index = Some(vec![SourceDocumentIndexEntry {
-            document_id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee".to_string(),
-            sidecar_path: "my-doc.meta.json".to_string(),
-            content_path: "my-doc.pdf".to_string(),
-            title: Some("My Test Doc".to_string()),
-            sidecar_checksum: Some("sha256:aaabbb".to_string()),
-            content_checksum: Some("sha256:cccddd".to_string()),
-        }]);
-        source.save_manifest(&manifest).unwrap();
-
         let temp = TempDir::new().unwrap();
         let target = FileStore::new(temp.path());
         copy_repository(&source, &target).unwrap();
 
-        let target_manifest = target.load_manifest().unwrap();
-        let idx = target_manifest
-            .source_document_index
-            .as_ref()
-            .expect("source_document_index must be present");
-        assert_eq!(idx.len(), 1);
-        assert_eq!(idx[0].title, Some("My Test Doc".to_string()));
-        assert_eq!(idx[0].sidecar_checksum, Some("sha256:aaabbb".to_string()));
-        assert_eq!(idx[0].content_checksum, Some("sha256:cccddd".to_string()));
+        let cat = target.catalog().unwrap();
+        assert_eq!(cat.source_documents.len(), 1);
+        assert_eq!(
+            cat.source_documents[0].id,
+            "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        );
+        let sidecar_str = target
+            .load_text_file("source-documents/my-doc.meta.json")
+            .unwrap();
+        let sidecar: serde_json::Value = serde_json::from_str(&sidecar_str).unwrap();
+        assert_eq!(sidecar["title"], "My Test Doc");
     }
 }

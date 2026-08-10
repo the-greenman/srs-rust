@@ -164,6 +164,90 @@ pub(crate) fn migrate_upstream_package(raw: &mut serde_json::Value) {
 }
 
 #[cfg(test)]
+mod rfc038_tests {
+    use super::rfc038::{check_manifest, EnforcementGuard};
+    use crate::error::RepositoryError;
+
+    #[test]
+    fn check_manifest_is_noop_when_enforcement_inactive() {
+        // No guard activated — every vendored fixture is still rev-2-with-index,
+        // so the deny/gate must stay silent until the Phase-6 flip.
+        let raw = serde_json::json!({
+            "dataModelRevision": 2,
+            "instanceIndex": [],
+        });
+        assert!(check_manifest(&raw).is_ok());
+    }
+
+    #[test]
+    fn r2_denies_retired_properties_when_enforcement_active() {
+        let _guard = EnforcementGuard::activate();
+        let raw = serde_json::json!({
+            "dataModelRevision": 2,
+            "instanceIndex": [],
+        });
+        let err = check_manifest(&raw).unwrap_err();
+        assert!(matches!(
+            err,
+            RepositoryError::RetiredManifestProperty { ref property } if property == "instanceIndex"
+        ));
+    }
+
+    #[test]
+    fn r2_names_every_retired_property_not_just_instance_index() {
+        let _guard = EnforcementGuard::activate();
+        for prop in [
+            "containerIndex",
+            "sourceDocumentIndex",
+            "relationsChecksums",
+            "relationsPath",
+        ] {
+            let raw = serde_json::json!({ "dataModelRevision": 2, prop: [] });
+            let err = check_manifest(&raw).unwrap_err();
+            assert!(
+                matches!(err, RepositoryError::RetiredManifestProperty { ref property } if property == prop),
+                "expected {prop} to be denied"
+            );
+        }
+    }
+
+    #[test]
+    fn r21_denies_generation_below_2_when_enforcement_active() {
+        let _guard = EnforcementGuard::activate();
+        // Absent dataModelRevision ⇒ generation 0.
+        let err = check_manifest(&serde_json::json!({})).unwrap_err();
+        assert!(matches!(
+            err,
+            RepositoryError::StorageGenerationUnsupported { declared: 0 }
+        ));
+
+        let err = check_manifest(&serde_json::json!({"dataModelRevision": 1})).unwrap_err();
+        assert!(matches!(
+            err,
+            RepositoryError::StorageGenerationUnsupported { declared: 1 }
+        ));
+    }
+
+    #[test]
+    fn r21_and_r2_pass_together_on_a_clean_generation_2_manifest() {
+        let _guard = EnforcementGuard::activate();
+        let raw = serde_json::json!({ "dataModelRevision": 2 });
+        assert!(check_manifest(&raw).is_ok());
+    }
+
+    #[test]
+    fn enforcement_guard_is_thread_local_and_drops_cleanly() {
+        // The guard's Drop must deactivate enforcement so later tests on this
+        // thread (or a reused thread-pool worker) are unaffected.
+        {
+            let _guard = EnforcementGuard::activate();
+            assert!(super::rfc038::enforcement_active());
+        }
+        assert!(!super::rfc038::enforcement_active());
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
