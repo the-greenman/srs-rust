@@ -499,7 +499,10 @@ mod tests {
             version: 1,
             description: String::new(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             field_type: FieldType::string(),
             default_value: None,
             editor_hint: None,
@@ -901,50 +904,13 @@ mod tests {
         assert!(result.root.is_some());
     }
 
-    #[test]
-    fn resolve_container_view_unknown_tier_member_skipped() {
-        let fields = vec![field("f-title", "title")];
-        let view = view_with_fields(vec![field_view("f-title", 0, None, None)]);
-        let dv = document_view(
-            DV_ID,
-            vec![section(
-                "s1",
-                0,
-                SectionSource::ContainerSubset {
-                    container_id: CONTAINER_ID.to_string(),
-                    container_type: None,
-                    type_filter: None,
-                },
-                Some(VIEW_ID),
-            )],
-        );
-        let root = record("root-1", "title", "Root");
-        // An instance with an unrecognised tier (99). It must be SKIPPED with a diagnostic.
-        let bogus_json = serde_json::json!({ "instanceId": "bogus-1", "tier": 99 });
-        let store = build_store(
-            fields,
-            vec![view],
-            vec![dv],
-            vec![
-                ("root-1", 2, serde_json::to_value(&root).unwrap()),
-                ("bogus-1", 99, bogus_json),
-            ],
-        );
-        container_service::create_container(
-            &store,
-            make_container(vec!["root-1"], vec!["bogus-1"]),
-        )
-        .unwrap();
-
-        let result = resolve_container_view(&store, input(None)).unwrap();
-        // Only the Tier-2 root is a member; the unknown-tier instance is skipped.
-        assert_eq!(result.members.len(), 1);
-        assert_eq!(result.members[0].instance_id, "root-1");
-        assert!(result
-            .diagnostics
-            .iter()
-            .any(|d| d.contains("unknown tier 99")));
-    }
+    // resolve_container_view_unknown_tier_member_skipped retired by RFC-038
+    // Phase 3 (srs-rust#783): its scenario — a stored member whose tier is
+    // outside 0/1/2 — cannot exist under the catalog model. Tier comes from
+    // body shape classification (note/typed-record/record), and an object
+    // matching none of those shapes is a fatal SRS038-R8-SHAPE-NO-MATCH at
+    // catalog build, so resolve_container_view can never see an
+    // "unknown-tier" member to skip.
 
     /// Like [`build_store`], but each instance tuple includes an optional manifest index title.
     /// Use this when testing `display_label` for Tier-0/1 members where the title must be
@@ -1021,7 +987,11 @@ mod tests {
             )],
         );
         let root = record("root-1", "title", "Root Decision");
-        let note_json = serde_json::json!({ "instanceId": "note-1", "tier": 0, "sections": [] });
+        // RFC-038: shape classification is body-driven — a stray "tier" property
+        // breaks note.json (additionalProperties: false), and the display title
+        // must live in the body (the manifest index is no longer read).
+        let note_json =
+            serde_json::json!({ "instanceId": "note-1", "title": "My Note", "sections": [] });
         let store = build_store_titled(
             fields,
             vec![view],
@@ -1074,8 +1044,13 @@ mod tests {
             )],
         );
         let root = record("root-1", "title", "Root Decision");
-        let typed_json =
-            serde_json::json!({ "instanceId": "typed-1", "tier": 1, "fieldValues": [] });
+        // RFC-038: Tier-1 shape is typed-record.json (requires `fields`); title
+        // lives in the body; a stray "tier" property breaks shape-match.
+        let typed_json = serde_json::json!({
+            "instanceId": "typed-1",
+            "title": "TypedRecord One",
+            "fields": []
+        });
         let store = build_store_titled(
             fields,
             vec![view],
@@ -1127,14 +1102,14 @@ mod tests {
             )],
         );
         let root = record("root-1", "title", "Root Decision");
-        let note_json = serde_json::json!({ "instanceId": "note-1", "tier": 0, "sections": [] });
+        let note_json = serde_json::json!({ "instanceId": "note-1", "sections": [] });
         let store = build_store_titled(
             fields,
             vec![view],
             vec![dv],
             vec![
                 ("root-1", 2, None, serde_json::to_value(&root).unwrap()),
-                ("note-1", 0, None, note_json), // title: None → fall back to instance_id
+                ("note-1", 0, None, note_json), // no title in body → fall back to instance_id
             ],
         );
         container_service::create_container(&store, make_container(vec!["root-1"], vec!["note-1"]))
@@ -1173,7 +1148,8 @@ mod tests {
                 Some(VIEW_ID),
             )],
         );
-        let note_json = serde_json::json!({ "instanceId": "note-root", "tier": 0, "sections": [] });
+        let note_json =
+            serde_json::json!({ "instanceId": "note-root", "title": "Root Note", "sections": [] });
         let store = build_store_titled(
             fields,
             vec![view],
@@ -1277,7 +1253,8 @@ mod tests {
         };
         let root = record(ROOT, "title", "Root Decision");
         let member = record(MEM, "title", "Member Decision");
-        let note_json = serde_json::json!({ "instanceId": NOTE, "tier": 0, "sections": [] });
+        let note_json =
+            serde_json::json!({ "instanceId": NOTE, "title": "Roundtrip Note", "sections": [] });
         let store = build_store_titled(
             fields,
             vec![view],

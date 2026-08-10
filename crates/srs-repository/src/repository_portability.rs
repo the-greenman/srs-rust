@@ -1358,6 +1358,21 @@ mod tests {
         // placeholder that initialize_repository assigns (which keys off repositoryId).
         let source = MemoryStore::uninitialized();
         source.initialize_repository(&make_input()).unwrap();
+        // RFC-038 [R13]: the member note must be a real instance in the source
+        // tree BEFORE export — a manifest.container referencing a nonexistent
+        // member is a fatal dangling reference at catalog build, so the old
+        // pattern of pushing the instance into the exported snapshot after the
+        // fact no longer works.
+        source
+            .save_instance_json(
+                "records/notes/n.json",
+                &serde_json::json!({
+                    "instanceId": "11111111-1111-4111-8111-111111111111",
+                    "title": "n",
+                    "sections": [{"name":"body","content":"hello"}]
+                }),
+            )
+            .unwrap();
         let mut manifest = source.load_manifest().unwrap();
         manifest.container = Some(Container {
             container_id: "99999999-9999-4999-8999-999999999999".to_string(),
@@ -1378,16 +1393,6 @@ mod tests {
         source.save_manifest(&manifest).unwrap();
 
         let mut snapshot = export_repository_snapshot(&source).unwrap();
-        snapshot.instances.push(SnapshotInstance {
-            instance_id: "11111111-1111-4111-8111-111111111111".to_string(),
-            tier: 0,
-            title: Some(serde_json::Value::String("n".to_string())),
-            tags: None,
-            value: serde_json::json!({
-                "instanceId": "11111111-1111-4111-8111-111111111111",
-                "sections": [{"name":"body","content":"hello"}]
-            }),
-        });
         snapshot.containers.push(Container {
             container_id: "99999999-9999-4999-8999-999999999999".to_string(),
             title: "Root".to_string(),
@@ -1562,10 +1567,24 @@ mod tests {
             meta: None,
             extra: std::collections::BTreeMap::new(),
         });
+        // Second note so the relation can join two real instances — a containerId
+        // must never be a relation endpoint (core invariant), and RFC-038 [R13]
+        // now fatally rejects a relation endpoint that isn't in the instance set.
+        snapshot.instances.push(SnapshotInstance {
+            instance_id: "44444444-4444-4444-8444-444444444444".to_string(),
+            tier: 0,
+            title: Some(serde_json::Value::String("m".to_string())),
+            tags: None,
+            value: serde_json::json!({
+                "instanceId": "44444444-4444-4444-8444-444444444444",
+                "title": "m",
+                "sections": []
+            }),
+        });
         snapshot.relations.push(Relation {
             relation_id: "33333333-3333-4333-8333-333333333333".to_string(),
             relation_type: "contains".to_string(),
-            source_instance_id: "22222222-2222-4222-8222-222222222222".to_string(),
+            source_instance_id: "44444444-4444-4444-8444-444444444444".to_string(),
             target_instance_id: "11111111-1111-4111-8111-111111111111".to_string(),
             asserted_by: None,
             confidence: None,
@@ -1585,7 +1604,7 @@ mod tests {
         let target = FileStore::new(temp.path());
         import_repository_snapshot(&target, &snapshot).unwrap();
 
-        assert_eq!(target.catalog().unwrap().instances.len(), 1);
+        assert_eq!(target.catalog().unwrap().instances.len(), 2);
         let summaries = list_containers(&target, &ContainerListFilter::default()).unwrap();
         // 2 = root container (embed-only, from manifest.container) + explicitly added container.
         assert_eq!(summaries.len(), 2);
@@ -1711,6 +1730,7 @@ mod tests {
             tags: None,
             value: serde_json::json!({
                 "instanceId": "33333333-3333-4333-8333-333333333333",
+                "title": "Round Trip",
                 "sections": [{"name":"body","content":"round trip"}]
             }),
         });
@@ -1817,7 +1837,9 @@ mod tests {
             title: Some(serde_json::json!("same title")),
             tags: None,
             value: serde_json::json!({
-                "instanceId": "aaaaaaaa-0000-4000-8000-000000000001"
+                "instanceId": "aaaaaaaa-0000-4000-8000-000000000001",
+                "title": "same title",
+                "sections": []
             }),
         });
         snapshot.instances.push(SnapshotInstance {
@@ -1826,7 +1848,9 @@ mod tests {
             title: Some(serde_json::json!("same title")),
             tags: None,
             value: serde_json::json!({
-                "instanceId": "aaaaaaaa-0000-4000-8000-000000000002"
+                "instanceId": "aaaaaaaa-0000-4000-8000-000000000002",
+                "title": "same title",
+                "sections": []
             }),
         });
 
@@ -1882,7 +1906,9 @@ mod tests {
             title: Some(serde_json::json!("same title")),
             tags: None,
             value: serde_json::json!({
-                "instanceId": format!("aaaaaaaa-0000-4000-8000-00000000000{suffix}")
+                "instanceId": format!("aaaaaaaa-0000-4000-8000-00000000000{suffix}"),
+                "title": "same title",
+                "sections": []
             }),
         };
 
@@ -2075,6 +2101,29 @@ mod tests {
         }
     }
 
+    /// A minimal record.json (Tier 2)-shaped body. `type_name` feeds both the
+    /// (schema-unconstrained) `typeName` string and the canonical-path slug
+    /// derivation in `instance_path_with_id_fragment`.
+    fn tier2_record_value(id: &str, type_name: &str) -> serde_json::Value {
+        serde_json::json!({
+            "instanceId": id,
+            "typeId": "00000000-0000-4000-8000-0000000000ab",
+            "typeVersion": 1,
+            "typeNamespace": "com.example",
+            "typeName": type_name,
+            "fieldValues": {}
+        })
+    }
+
+    /// A minimal note.json (Tier 0)-shaped body.
+    fn note_value(id: &str, title: &str) -> serde_json::Value {
+        serde_json::json!({
+            "instanceId": id,
+            "title": title,
+            "sections": []
+        })
+    }
+
     /// Writes the instance file only — membership comes from the tree ([R1]);
     /// `_tier` is unused (the file's own shape/content determines its tier
     /// once discovered via the catalog), kept for call-site clarity.
@@ -2115,7 +2164,7 @@ mod tests {
 
         // Inject a tier-2 instance at a non-canonical path.
         let id = "aabbccdd-1234-5678-90ab-cdef01234567";
-        let value = serde_json::json!({"typeName": "com.example/my-type", "id": id});
+        let value = tier2_record_value(id, "com.example/my-type");
         inject_non_canonical_instance(&store, id, 2, "records/tier-2/old-name.json", value);
 
         let result = upgrade_repository_paths(&store).unwrap();
@@ -2151,10 +2200,10 @@ mod tests {
         let store = MemoryStore::uninitialized();
         store.initialize_repository(&make_upgrade_input()).unwrap();
 
-        let id = "11223344-0000-0000-0000-000000000000";
+        let id = "11223344-0000-4000-8000-000000000000";
         // Title lives directly in the body — slug derivation is catalog/body-backed now,
         // no manifest-index title patch needed.
-        let value = serde_json::json!({"title": "My Note", "id": id});
+        let value = note_value(id, "My Note");
         inject_non_canonical_instance(&store, id, 0, "records/notes/raw-note.json", value.clone());
 
         let result = upgrade_repository_paths(&store).unwrap();
@@ -2172,7 +2221,7 @@ mod tests {
         store.initialize_repository(&make_upgrade_input()).unwrap();
 
         let id = "aabbccdd-1234-5678-90ab-cdef01234567";
-        let value = serde_json::json!({"typeName": "com.example/my-type", "id": id});
+        let value = tier2_record_value(id, "com.example/my-type");
         inject_non_canonical_instance(&store, id, 2, "records/tier-2/old-name.json", value);
 
         let first = upgrade_repository_paths(&store).unwrap();
@@ -2200,14 +2249,14 @@ mod tests {
             id1,
             2,
             &format!("records/tier-2/{id1}.json"),
-            serde_json::json!({"typeName": "com.example/decision", "id": id1}),
+            tier2_record_value(id1, "com.example/decision"),
         );
         inject_non_canonical_instance(
             &store,
             id2,
             2,
             &format!("records/tier-2/{id2}.json"),
-            serde_json::json!({"typeName": "com.example/decision", "id": id2}),
+            tier2_record_value(id2, "com.example/decision"),
         );
 
         let result =
@@ -2250,13 +2299,16 @@ mod tests {
         store.initialize_repository(&make_upgrade_input()).unwrap();
 
         let id = "dddddddd-0000-4000-8000-000000000009";
-        let value = serde_json::json!({"typeName": "com.example/decision", "id": id});
+        let value = tier2_record_value(id, "com.example/decision");
         inject_non_canonical_instance(&store, id, 2, "records/tier-2/a.json", value.clone());
         inject_non_canonical_instance(&store, id, 2, "records/tier-2/b.json", value);
 
         let err = upgrade_repository_paths(&store).unwrap_err();
+        // RFC-038: the duplicate is now caught upstream by the catalog's [R12]
+        // duplicate-id check (fatal CatalogLoad) before upgrade's own
+        // InvalidSnapshotData guard runs — still a hard rejection, earlier.
         assert!(
-            matches!(err, RepositoryError::InvalidSnapshotData { .. }),
+            matches!(err, RepositoryError::CatalogLoad { .. }),
             "duplicate instance id must be rejected, got: {err:?}"
         );
     }
@@ -2285,12 +2337,15 @@ mod tests {
         source.initialize_repository(&make_upgrade_input()).unwrap();
         copy_repository(&source, &store).unwrap();
 
-        // Inject a non-canonical tier-1 file directly to disk via the store.
+        // Inject a non-canonical tier-2 file directly to disk via the store.
+        // (Tier 1 TypedRecords carry no `typeName` — see
+        // copy_tier1_record_no_type_name_produces_id_only_filename — so a
+        // slug-bearing fixture must be Tier 2.)
         let id = "ddccbbaa-1234-5678-90ab-cdef01234567";
-        let value = serde_json::json!({"typeName": "com.example/section", "id": id});
-        inject_non_canonical_instance(&store, id, 1, "records/tier-1/old-section.json", value);
+        let value = tier2_record_value(id, "com.example/section");
+        inject_non_canonical_instance(&store, id, 2, "records/tier-2/old-section.json", value);
 
-        let canonical_path = "records/tier-1/com-example-section-ddccbbaa.json";
+        let canonical_path = "records/tier-2/com-example-section-ddccbbaa.json";
 
         let result = upgrade_repository_paths(&store).unwrap();
         assert_eq!(result.renames.len(), 1);
@@ -2298,7 +2353,7 @@ mod tests {
 
         // Verify filesystem state.
         assert!(
-            !temp.path().join("records/tier-1/old-section.json").exists(),
+            !temp.path().join("records/tier-2/old-section.json").exists(),
             "old file must not exist on disk"
         );
         assert!(
@@ -2322,7 +2377,7 @@ mod tests {
         let old_sidecar = sidecar_path_for(old_path);
         let new_sidecar = sidecar_path_for(canonical_path);
 
-        let value = serde_json::json!({"typeName": "com.example/my-type", "id": id});
+        let value = tier2_record_value(id, "com.example/my-type");
         inject_non_canonical_instance(&store, id, 2, old_path, value);
 
         // Write a fake sidecar at the old path.

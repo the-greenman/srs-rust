@@ -245,7 +245,10 @@ mod tests {
             field_type: FieldType::string(),
             description: String::new(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,

@@ -276,7 +276,21 @@ pub fn migrate_identity(
         // JsonStore to flush prematurely and disable batch protection for subsequent writes
         // — violating ADR-021 atomicity on the WASM/srsj path. MemoryStore tests would not
         // catch this regression.
-        let mut persisted_container = store.load_container(&root_container_id)?;
+        //
+        // store.load_container has no embed fallback: it only resolves a *file-backed*
+        // container (store.rs docs) and the catalog treats a physical containers/*.json
+        // file sharing the root's id as a fatal SRS038-R12-DUPLICATE-ID ([R1]: the manifest
+        // embed is authoritative for the root). A purely embed-backed root — the normal
+        // shape once `store.save_container` has synced it into the manifest — has no such
+        // file, so `store.load_container` would wrongly error ContainerNotFound. Mirror the
+        // None-branch's fallback above via container_service::resolve_root_container.
+        let manifest_for_root = store.load_manifest()?;
+        let mut persisted_container =
+            container_service::resolve_root_container(store, &manifest_for_root)?.ok_or_else(
+                || RepositoryError::ContainerNotFound {
+                    container_id: root_container_id.clone(),
+                },
+            )?;
         persisted_container.identity_instance_id = Some(new_id.clone());
         store.save_container(&persisted_container)?;
         Ok(new_id)
@@ -305,7 +319,7 @@ pub fn migrate_identity(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::container_service::{create_container, get_container};
+    use crate::container_service::get_container;
     use crate::core_purpose;
     use crate::index::InstanceIndexEntry;
     use crate::repository_portability::copy_repository;
@@ -358,12 +372,13 @@ mod tests {
         let store = MemoryStore::default();
         let container_id = "550e8400-e29b-41d4-a716-446655440000";
 
-        create_container(&store, bare_container(container_id)).unwrap();
-
         let note = make_note(note_id, note_title, sections);
         let note_path = "records/notes/identity.json";
         write_note(&store, &note, note_path).unwrap();
 
+        // Embed-only root container ([R1]): manifest.container is the authoritative
+        // declaration. A physical containers/*.json file with the same id would be a
+        // fatal SRS038-R12-DUPLICATE-ID under the catalog's duplicate-id check.
         let mut manifest = store.load_manifest().unwrap();
         let mut root = bare_container(container_id);
         root.identity_instance_id = Some(note_id.to_string());
@@ -454,14 +469,20 @@ mod tests {
         let result = create_repository_with_intent(&store, &input).unwrap();
         let scaffolded_id = result.identity_instance_id.unwrap();
 
-        let manifest = store.load_manifest().unwrap();
-        let entry = manifest
-            .instance_index
+        // RFC-038: instance discoverability comes from the catalog (tree-derived), not
+        // manifest.instance_index — create_record no longer writes the latter.
+        let cat = store.catalog().unwrap();
+        let entry = cat
+            .instances
             .iter()
-            .find(|e| e.instance_id() == scaffolded_id)
+            .find(|e| e.id == scaffolded_id)
             .unwrap();
-        let record: srs_core::types::record::Record =
-            serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
+        let record: srs_core::types::record::Record = serde_json::from_value(
+            store
+                .load_instance_json(entry.locator.as_deref().unwrap())
+                .unwrap(),
+        )
+        .unwrap();
 
         // Regression guard for #441: repo create's scaffold and repo migrate-identity
         // previously used divergent purpose-record builds. This ties the scaffold's
@@ -579,13 +600,14 @@ mod tests {
             one_section("Content."),
         );
         let result = migrate_identity(&store).unwrap();
-        let manifest = store.load_manifest().unwrap();
-        let entry = manifest
-            .instance_index
+        // RFC-038: discoverability comes from the catalog, not manifest.instance_index.
+        let cat = store.catalog().unwrap();
+        let entry = cat
+            .instances
             .iter()
-            .find(|e| e.instance_id() == result.new_identity_id)
-            .expect("new_identity_id must be in instanceIndex");
-        assert_eq!(entry.tier(), 2);
+            .find(|e| e.id == result.new_identity_id)
+            .expect("new_identity_id must be in the catalog's instance set");
+        assert_eq!(entry.tier, Some(2));
     }
 
     #[test]
@@ -608,7 +630,6 @@ mod tests {
         // Set up a Tier-2 record that is NOT a purpose record as the identity.
         let store = MemoryStore::default();
         let container_id = "550e8400-e29b-41d4-a716-446655440000";
-        create_container(&store, bare_container(container_id)).unwrap();
 
         let instance_id = "22222222-2222-4222-8222-222222222222";
         let record_json = serde_json::json!({
@@ -657,14 +678,15 @@ mod tests {
         let target = MemoryStore::uninitialized();
         copy_repository(&source, &target).unwrap();
 
-        // Verify the purpose record is present in the target's instance index.
-        let manifest = target.load_manifest().unwrap();
-        let entry = manifest
-            .instance_index
+        // Verify the purpose record is present in the target's catalog (RFC-038:
+        // discoverability is tree-derived, not manifest.instance_index).
+        let cat = target.catalog().unwrap();
+        let entry = cat
+            .instances
             .iter()
-            .find(|e| e.instance_id() == result.new_identity_id)
-            .expect("purpose record must be in instanceIndex after roundtrip");
-        assert_eq!(entry.tier(), 2);
+            .find(|e| e.id == result.new_identity_id)
+            .expect("purpose record must be in the catalog's instance set after roundtrip");
+        assert_eq!(entry.tier, Some(2));
 
         // Verify the container in the target still has the purpose record as a member,
         // and that identityInstanceId was carried across (regression for #462).
@@ -692,7 +714,6 @@ mod tests {
         let mut container = bare_container(container_id);
         container.title = title.to_string();
         container.description = description.map(|d| d.to_string());
-        create_container(&store, container.clone()).unwrap();
         let mut manifest = store.load_manifest().unwrap();
         manifest.container = Some(container);
         write_manifest(&store, &manifest).unwrap();
@@ -757,7 +778,6 @@ mod tests {
         let mut container = bare_container(container_id);
         container.title = "".to_string();
         container.description = Some("We build SRS.".to_string());
-        create_container(&store, bare_container(container_id)).unwrap();
         let mut manifest = store.load_manifest().unwrap();
         manifest.container = Some(container);
         write_manifest(&store, &manifest).unwrap();
@@ -807,13 +827,14 @@ mod tests {
         let target = MemoryStore::uninitialized();
         copy_repository(&source, &target).unwrap();
 
-        let manifest = target.load_manifest().unwrap();
-        let entry = manifest
-            .instance_index
+        // RFC-038: discoverability comes from the catalog, not manifest.instance_index.
+        let cat = target.catalog().unwrap();
+        let entry = cat
+            .instances
             .iter()
-            .find(|e| e.instance_id() == result.new_identity_id)
-            .expect("purpose record must be in instanceIndex after roundtrip");
-        assert_eq!(entry.tier(), 2);
+            .find(|e| e.id == result.new_identity_id)
+            .expect("purpose record must be in the catalog's instance set after roundtrip");
+        assert_eq!(entry.tier, Some(2));
 
         let container = get_container(&target, &container_id).unwrap();
         let members = container.member_instance_ids.unwrap_or_default();
@@ -877,9 +898,12 @@ mod tests {
         let mut container = bare_container(container_id);
         container.title = "My Repo".to_string();
         container.description = Some("We build SRS.".to_string());
-        // Pre-existing section member that must survive migration.
+        // Pre-existing section member that must survive migration. Must be a real
+        // catalog-valid instance — a member id with no backing file is a fatal
+        // SRS038-R13-DANGLING-REFERENCE.
         container.member_instance_ids = Some(vec![section_member_id.to_string()]);
-        create_container(&store, container.clone()).unwrap();
+        let section_note = make_note(section_member_id, Some("Section"), one_section("Body."));
+        write_note(&store, &section_note, "records/notes/section.json").unwrap();
         let mut manifest = store.load_manifest().unwrap();
         manifest.container = Some(container);
         write_manifest(&store, &manifest).unwrap();

@@ -822,7 +822,10 @@ mod tests {
                 version: 1,
                 description: format!("{name} field"),
                 instructions: None,
-                ai_guidance: AiGuidance::default(),
+                ai_guidance: AiGuidance {
+                    purpose: "Test guidance".to_string(),
+                    ..Default::default()
+                },
                 field_type: vt.clone(),
                 default_value: None,
                 editor_hint: None,

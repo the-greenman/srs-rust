@@ -92,6 +92,28 @@ pub(crate) fn require_canonical_relation_id(relation_id: &str) -> Result<(), Rep
     }
 }
 
+/// Reject any `instanceId` that is not a canonical lowercase hyphenated UUID.
+///
+/// `catalog_save_instance`'s collision-safe-filename fallback for a *new* id
+/// can fold a caller-supplied `instance_id` straight into a write path
+/// (`{tier_dir}/{instance_id}.json`) — an unvalidated id is a path-traversal
+/// write primitive, exactly the class of bug `require_canonical_relation_id`
+/// guards against for relations. Called once at the top of
+/// `catalog_save_instance` so every `save_record`/`save_note` caller is
+/// covered regardless of whether it also validates the id itself.
+pub(crate) fn require_canonical_instance_id(instance_id: &str) -> Result<(), RepositoryError> {
+    let canonical = uuid::Uuid::try_parse(instance_id)
+        .map(|u| u.as_hyphenated().to_string() == instance_id)
+        .unwrap_or(false);
+    if canonical {
+        Ok(())
+    } else {
+        Err(RepositoryError::InvalidInstanceId {
+            instance_id: instance_id.to_string(),
+        })
+    }
+}
+
 /// Serialize a relation as a standalone object with the pinned `$schema` first.
 fn relation_object_to_value(
     relation: &srs_core::types::relation::Relation,
@@ -2173,6 +2195,7 @@ fn catalog_save_instance<S: RepositoryStore + ?Sized>(
     tier_dir: &str,
     slug_source: &str,
 ) -> Result<(), RepositoryError> {
+    require_canonical_instance_id(instance_id)?;
     let cat = store.catalog()?;
     let existing = cat
         .instances
@@ -3637,7 +3660,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "A help field".to_string(),
             instructions: Some("Fill this in carefully.".to_string()),
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -3919,7 +3945,13 @@ mod tests {
     }
 
     #[test]
-    fn memory_store_container_operations_are_keyed_by_id() {
+    fn memory_store_container_operations_are_addressed_by_logical_id() {
+        // RFC-038: MemoryStore's save/load/delete_container fell through to the shared
+        // catalog-backed trait defaults (store.rs's `catalog_file_container_locator`),
+        // which derive a collision-safe `containers/{slug}-{id8}.json` locator rather
+        // than the old bespoke `containers/{container_id}.json` MemoryStore used to
+        // write directly — the locator is adapter-private ([R23]); logical-id addressing
+        // via load_container is the only contract callers may rely on.
         let store = MemoryStore::default();
         let container = minimal_container_for_store("c-111", "Sprint 1");
 
@@ -3930,10 +3962,17 @@ mod tests {
         assert_eq!(loaded.container_id, "c-111");
         assert_eq!(loaded.title, "Sprint 1");
 
-        // load_instance_json at id-keyed path must succeed (proves storage is id-keyed)
+        // The catalog resolves the same logical id back to whatever locator was chosen —
+        // proves the container is discoverable without callers needing to know the path.
+        let cat = store.catalog().unwrap();
+        let entry = cat
+            .containers
+            .iter()
+            .find(|e| e.id == "c-111")
+            .expect("container discoverable via the catalog");
         store
-            .load_instance_json("containers/c-111.json")
-            .expect("container should be stored at id-keyed path");
+            .load_instance_json(entry.locator.as_deref().unwrap())
+            .expect("container body loads at its catalog locator");
     }
 
     #[test]
@@ -4021,40 +4060,58 @@ mod tests {
     #[test]
     fn save_record_roundtrip_by_id_across_stores() {
         let store = MemoryStore::empty();
-        let rec = minimal_record_for_store("rec-00000001-aaaa", "Decision", Some(vec!["u".into()]));
+        let rec = minimal_record_for_store(
+            "00000001-aaaa-4000-8000-000000000001",
+            "Decision",
+            Some(vec!["u".into()]),
+        );
         store.save_record(&rec).unwrap();
 
-        let loaded = store.load_record_by_id("rec-00000001-aaaa").unwrap();
-        assert_eq!(loaded.instance_id, "rec-00000001-aaaa");
+        let loaded = store
+            .load_record_by_id("00000001-aaaa-4000-8000-000000000001")
+            .unwrap();
+        assert_eq!(loaded.instance_id, "00000001-aaaa-4000-8000-000000000001");
         assert_eq!(loaded.type_name, "Decision");
 
         // memory -> file
         let temp = tempfile::TempDir::new().unwrap();
         let file_store = FileStore::new(temp.path());
         crate::repository_portability::copy_repository(&store, &file_store).unwrap();
-        let from_file = file_store.load_record_by_id("rec-00000001-aaaa").unwrap();
-        assert_eq!(from_file.instance_id, "rec-00000001-aaaa");
+        let from_file = file_store
+            .load_record_by_id("00000001-aaaa-4000-8000-000000000001")
+            .unwrap();
+        assert_eq!(
+            from_file.instance_id,
+            "00000001-aaaa-4000-8000-000000000001"
+        );
         assert_eq!(from_file.type_name, "Decision");
     }
 
     #[test]
     fn save_note_roundtrip_by_id_across_stores() {
         let store = MemoryStore::empty();
-        let note = minimal_note_for_store("note-00000002-bbbb", "My Note", None);
+        let note = minimal_note_for_store("00000002-bbbb-4000-8000-000000000002", "My Note", None);
         store.save_note(&note).unwrap();
 
-        let loaded = store.load_note_by_id("note-00000002-bbbb").unwrap();
-        assert_eq!(loaded.instance_id, "note-00000002-bbbb");
+        let loaded = store
+            .load_note_by_id("00000002-bbbb-4000-8000-000000000002")
+            .unwrap();
+        assert_eq!(loaded.instance_id, "00000002-bbbb-4000-8000-000000000002");
         assert_eq!(loaded.title.as_deref(), Some("My Note"));
 
         // note is Tier 0
-        let r = store.find_instance("note-00000002-bbbb").unwrap().unwrap();
+        let r = store
+            .find_instance("00000002-bbbb-4000-8000-000000000002")
+            .unwrap()
+            .unwrap();
         assert_eq!(r.tier, 0);
 
         let temp = tempfile::TempDir::new().unwrap();
         let file_store = FileStore::new(temp.path());
         crate::repository_portability::copy_repository(&store, &file_store).unwrap();
-        let from_file = file_store.load_note_by_id("note-00000002-bbbb").unwrap();
+        let from_file = file_store
+            .load_note_by_id("00000002-bbbb-4000-8000-000000000002")
+            .unwrap();
         assert_eq!(from_file.title.as_deref(), Some("My Note"));
     }
 
@@ -4295,14 +4352,15 @@ mod tests {
     fn save_record_existing_id_preserves_path() {
         // Existing-id save overwrites at the existing catalog locator (no rename on slug change).
         let store = MemoryStore::empty();
-        let rec = minimal_record_for_store("rec-00000003-cccc", "OldTypeName", None);
+        let rec =
+            minimal_record_for_store("00000003-cccc-4000-8000-000000000003", "OldTypeName", None);
         store.save_record(&rec).unwrap();
         let locator1 = store
             .catalog()
             .unwrap()
             .instances
             .iter()
-            .find(|e| e.id == "rec-00000003-cccc")
+            .find(|e| e.id == "00000003-cccc-4000-8000-000000000003")
             .unwrap()
             .locator
             .clone();
@@ -4318,7 +4376,7 @@ mod tests {
             .unwrap()
             .instances
             .iter()
-            .find(|e| e.id == "rec-00000003-cccc")
+            .find(|e| e.id == "00000003-cccc-4000-8000-000000000003")
             .unwrap()
             .locator
             .clone();
@@ -4327,7 +4385,10 @@ mod tests {
             "existing-id save must not rename the file"
         );
         // Catalog-derived (find_instance) tags refreshed from the entity body.
-        let refreshed = store.find_instance("rec-00000003-cccc").unwrap().unwrap();
+        let refreshed = store
+            .find_instance("00000003-cccc-4000-8000-000000000003")
+            .unwrap()
+            .unwrap();
         assert_eq!(refreshed.tags, vec!["added".to_string()]);
     }
 
@@ -4337,14 +4398,24 @@ mod tests {
     #[test]
     fn delete_instance_index_first_and_not_found() {
         let store = MemoryStore::empty();
-        let rec = minimal_record_for_store("rec-00000005-eeee", "Thing", None);
+        let rec = minimal_record_for_store("00000005-eeee-4000-8000-000000000005", "Thing", None);
         store.save_record(&rec).unwrap();
-        assert!(store.find_instance("rec-00000005-eeee").unwrap().is_some());
+        assert!(store
+            .find_instance("00000005-eeee-4000-8000-000000000005")
+            .unwrap()
+            .is_some());
 
-        store.delete_instance("rec-00000005-eeee").unwrap();
-        assert!(store.find_instance("rec-00000005-eeee").unwrap().is_none());
+        store
+            .delete_instance("00000005-eeee-4000-8000-000000000005")
+            .unwrap();
+        assert!(store
+            .find_instance("00000005-eeee-4000-8000-000000000005")
+            .unwrap()
+            .is_none());
         assert!(
-            store.load_record_by_id("rec-00000005-eeee").is_err(),
+            store
+                .load_record_by_id("00000005-eeee-4000-8000-000000000005")
+                .is_err(),
             "loading a deleted instance must error"
         );
 
@@ -4360,14 +4431,14 @@ mod tests {
         let store = MemoryStore::empty();
         store
             .save_record(&minimal_record_for_store(
-                "rec-00000006-ffff",
+                "00000006-ffff-4000-8000-000000000006",
                 "R",
                 Some(vec!["alpha".to_string()]),
             ))
             .unwrap();
         store
             .save_note(&minimal_note_for_store(
-                "note-00000007-0000",
+                "00000007-0000-4000-8000-000000000007",
                 "N",
                 Some(vec!["beta".to_string()]),
             ))
@@ -4383,7 +4454,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(tier2.len(), 1);
-        assert_eq!(tier2[0].instance_id, "rec-00000006-ffff");
+        assert_eq!(tier2[0].instance_id, "00000006-ffff-4000-8000-000000000006");
 
         let tagged = store
             .list_instances(&InstanceQuery {
@@ -4392,7 +4463,10 @@ mod tests {
             })
             .unwrap();
         assert_eq!(tagged.len(), 1);
-        assert_eq!(tagged[0].instance_id, "note-00000007-0000");
+        assert_eq!(
+            tagged[0].instance_id,
+            "00000007-0000-4000-8000-000000000007"
+        );
         assert_eq!(tagged[0].tier, 0);
     }
 
@@ -4402,7 +4476,8 @@ mod tests {
         // note body (duplicate section names) must surface NoteValidation on load,
         // not be silently accepted.
         let store = MemoryStore::empty();
-        let mut note = minimal_note_for_store("note-00000009-2222", "Dup Sections", None);
+        let mut note =
+            minimal_note_for_store("00000009-2222-4000-8000-000000000009", "Dup Sections", None);
         let section = srs_core::types::note::NoteSection {
             name: "s1".to_string(),
             label: None,
@@ -4416,7 +4491,9 @@ mod tests {
         // note_service::create).
         store.save_note(&note).unwrap();
 
-        let err = store.load_note_by_id("note-00000009-2222").unwrap_err();
+        let err = store
+            .load_note_by_id("00000009-2222-4000-8000-000000000009")
+            .unwrap_err();
         assert!(
             matches!(err, RepositoryError::NoteValidation { .. }),
             "invalid note body must fail load with NoteValidation, got: {err:?}"
@@ -4427,9 +4504,15 @@ mod tests {
     fn find_instance_returns_tier_or_none() {
         let store = MemoryStore::empty();
         store
-            .save_record(&minimal_record_for_store("rec-00000008-1111", "R", None))
+            .save_record(&minimal_record_for_store(
+                "00000008-1111-4000-8000-000000000008",
+                "R",
+                None,
+            ))
             .unwrap();
-        let found = store.find_instance("rec-00000008-1111").unwrap();
+        let found = store
+            .find_instance("00000008-1111-4000-8000-000000000008")
+            .unwrap();
         assert_eq!(found.map(|r| r.tier), Some(2));
         assert!(store.find_instance("missing").unwrap().is_none());
     }
@@ -4454,7 +4537,10 @@ mod tests {
             field_type: FieldType::string(),
             description: String::new(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -4540,7 +4626,10 @@ mod tests {
             field_type: FieldType::string(),
             description: String::new(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -4589,7 +4678,10 @@ mod tests {
             field_type: FieldType::string(),
             description: String::new(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,

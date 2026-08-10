@@ -4071,7 +4071,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Heading".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -4089,7 +4092,10 @@ mod tests {
             field_type: FieldType::text(),
             description: "Body text".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -4107,7 +4113,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Caption for tables".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -4711,7 +4720,10 @@ mod tests {
             field_type,
             description: name.to_string(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -5149,7 +5161,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Heading".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -5484,7 +5499,10 @@ mod tests {
             field_type: FieldType::text(),
             description: "Body".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -5881,7 +5899,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Heading".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -5899,7 +5920,10 @@ mod tests {
             field_type: FieldType::text(),
             description: "Body text".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -5917,7 +5941,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Caption for tables".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -7403,7 +7430,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Heading field".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -7422,7 +7452,10 @@ mod tests {
             description: "Other field (used as explicit titleFieldId in precedence test)"
                 .to_string(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -7444,7 +7477,10 @@ mod tests {
             field_type: FieldType::closed(),
             description: "Closed-domain field, ineligible as titleFieldId under [N+1]".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -8066,7 +8102,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Heading".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -9076,6 +9115,7 @@ mod tests {
                 test_rel("r2", "links-to", "rec-src", "rec-b"),
             ],
         );
+        add_rp_record(&store, "rec-src", None);
         add_rp_record(&store, "rec-a", None);
         add_rp_record(&store, "rec-b", None);
 
@@ -9108,6 +9148,7 @@ mod tests {
             &[test_rel("r1", "links-to", "rec-other", "rec-src")],
         );
         add_rp_record(&store, "rec-other", None);
+        add_rp_record(&store, "rec-src", None);
 
         let section = rp_section_for(vec![RelationPresentationEntry {
             relation_type: "links-to".to_string(),
@@ -9139,6 +9180,7 @@ mod tests {
                 test_rel("r2", "links-to", "rec-inv", "rec-src"),
             ],
         );
+        add_rp_record(&store, "rec-src", None);
         add_rp_record(&store, "rec-fwd", None);
         add_rp_record(&store, "rec-inv", None);
 
@@ -9171,6 +9213,7 @@ mod tests {
             &[test_rel("r1", "links-to", "rec-src", "rec-a")],
         );
         add_rp_record(&store, "rec-a", None);
+        add_rp_record(&store, "rec-src", None);
 
         let section = rp_section_for(vec![RelationPresentationEntry {
             relation_type: "links-to".to_string(),
@@ -9203,6 +9246,7 @@ mod tests {
             &[test_rel("r1", "links-to", "rec-src", "rec-a")],
         );
         add_rp_record(&store, "rec-a", None);
+        add_rp_record(&store, "rec-src", None);
 
         let section = rp_section_for(vec![RelationPresentationEntry {
             relation_type: "links-to".to_string(),
@@ -9231,6 +9275,7 @@ mod tests {
             &[test_rel("r1", "depends-on", "rec-src", "rec-a")],
         );
         add_rp_record(&store, "rec-a", None);
+        add_rp_record(&store, "rec-src", None);
 
         let section = rp_section_for(vec![RelationPresentationEntry {
             relation_type: "depends-on".to_string(),
@@ -9289,6 +9334,7 @@ mod tests {
             ],
         );
         add_rp_record(&store, "rec-a", None);
+        add_rp_record(&store, "rec-src", None);
 
         let section = rp_section_for(vec![RelationPresentationEntry {
             relation_type: "links-to".to_string(),
@@ -9330,7 +9376,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Name".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -9394,6 +9443,7 @@ mod tests {
             lifecycles: vec![],
         };
         let store = crate::store::memory::MemoryStore::new(manifest, package);
+        add_rp_record(&store, "rec-src", None);
         let relations_coll = serde_json::json!({
             "relations": [serde_json::to_value(test_rel("r1", "links-to", "rec-src", "rec-named")).unwrap()]
         });
@@ -9466,6 +9516,7 @@ mod tests {
             vec![test_rtd("links-to", "Links To", None, false)],
             &[test_rel("r1", "links-to", "rec-src", "rec-titled")],
         );
+        add_rp_record(&store, "rec-src", None);
 
         let target = Record {
             field_meta: None,
@@ -9528,6 +9579,7 @@ mod tests {
             &[test_rel("r1", "links-to", "rec-src", "rec-no-label")],
         );
         add_rp_record(&store, "rec-no-label", None);
+        add_rp_record(&store, "rec-src", None);
 
         let section = rp_section_for(vec![RelationPresentationEntry {
             relation_type: "links-to".to_string(),
@@ -10407,7 +10459,10 @@ mod tests {
             field_type: FieldType::string(),
             description: name.to_string(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,

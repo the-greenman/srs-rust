@@ -1387,6 +1387,28 @@ impl RepositoryStore for JsonStore {
             .collect())
     }
 
+    // --- Catalog (RFC-038) ---
+    //
+    // JsonStore's own manifest-index-based methods above (`find_instance`,
+    // `list_instances`, `save_record`, ...) predate RFC-038 and are left
+    // untouched here — collapsing them onto the catalog is Phase-4 territory
+    // (json_store.rs is out of scope for Phase 3). But the catalog walker
+    // itself is backend-agnostic: it only calls `list_files_recursive`,
+    // `load_instance_json`, and `load_manifest`, and JsonStore's `data` map
+    // already uses the same path-keyed convention FileStore/MemoryStore do
+    // (confirmed by the `.srsj`/archive round-trip, which must stay path-
+    // faithful). So `store.catalog()` — needed by catalog-only consumers
+    // added in Phase 3 (e.g. `attachment_service`, `repository_portability`'s
+    // cross-store copy) — works correctly without any JsonStore-specific
+    // logic, closing what would otherwise be a JsonStore/WASM regression.
+    fn catalog(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+        crate::catalog::build_checked(self)
+    }
+
+    fn catalog_validity_token(&self) -> Result<String, RepositoryError> {
+        Ok(crate::catalog::build(self)?.validity_token())
+    }
+
     fn load_relations_json(
         &self,
         relative_path: &str,
@@ -2033,7 +2055,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "A help field".to_string(),
             instructions: Some("Fill this in carefully.".to_string()),
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -2270,7 +2295,11 @@ mod tests {
         source
             .save_instance_json(
                 "records/notes/a.json",
-                &serde_json::json!({"instanceId":"a","sections":[{"name":"b","content":"c"}]}),
+                &serde_json::json!({
+                    "$schema": srs_schema::NOTE_SCHEMA_ID,
+                    "instanceId": "11111111-2222-4333-8444-555555555555",
+                    "sections": [{"name":"b","content":"c"}]
+                }),
             )
             .unwrap();
 
@@ -3620,7 +3649,7 @@ mod tests {
         source
             .save_text_file(
                 "source-documents/my-doc.meta.json",
-                r#"{"documentId":"doc-0001","contentPath":"my-doc.pdf"}"#,
+                r#"{"documentId":"doc-0001","contentPath":"my-doc.pdf","contentType":"application/pdf","createdAt":"2024-01-01T00:00:00Z"}"#,
             )
             .expect("save sidecar");
 
@@ -3662,7 +3691,7 @@ mod tests {
         source
             .save_text_file(
                 "source-documents/rt.meta.json",
-                r#"{"documentId":"doc-rt","contentPath":"rt.pdf"}"#,
+                r#"{"documentId":"doc-rt","contentPath":"rt.pdf","contentType":"application/pdf","createdAt":"2024-01-01T00:00:00Z"}"#,
             )
             .expect("save sidecar");
 

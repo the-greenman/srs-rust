@@ -251,6 +251,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Name field".to_string(),
             instructions: None,
+            // Intentionally empty (not the crate-wide "Test guidance" default) — this
+            // MemoryStore-typed-Package fixture never round-trips through JSON/catalog
+            // validation, and `field_context_ai_guidance_null` specifically exercises
+            // the empty-guidance → `ai_guidance: None` behavior.
             ai_guidance: AiGuidance::default(),
             default_value: None,
             editor_hint: None,
@@ -362,15 +366,18 @@ mod tests {
         let store = make_store();
         let fv = make_field_values("test-name", json!("Bob"));
         let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
+        // RFC-038: path recovery goes through the catalog now — `create_record`
+        // no longer writes `manifest.instance_index` ([R22]).
         let path = store
-            .load_manifest()
+            .catalog()
             .unwrap()
-            .instance_index
+            .instances
             .iter()
-            .find(|e| e.instance_id() == rec.instance_id)
+            .find(|e| e.id == rec.instance_id)
             .unwrap()
-            .path()
-            .to_string();
+            .locator
+            .clone()
+            .unwrap();
 
         revision_service::append(
             &store,
@@ -410,7 +417,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Name field".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -664,15 +674,18 @@ mod tests {
         let store = make_store();
         let fv = make_field_values("test-name", json!("Frank"));
         let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
+        // RFC-038: path recovery goes through the catalog now — `create_record`
+        // no longer writes `manifest.instance_index` ([R22]).
         let path = store
-            .load_manifest()
+            .catalog()
             .unwrap()
-            .instance_index
+            .instances
             .iter()
-            .find(|e| e.instance_id() == rec.instance_id)
+            .find(|e| e.id == rec.instance_id)
             .unwrap()
-            .path()
-            .to_string();
+            .locator
+            .clone()
+            .unwrap();
 
         revision_service::append(
             &store,
@@ -735,13 +748,15 @@ mod tests {
         let store = make_store();
         let fv = make_field_values("test-name", json!("Heidi"));
         let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
-        let manifest = store.load_manifest().unwrap();
-        let entry = manifest
-            .instance_index
+        // RFC-038: path recovery goes through the catalog now — `create_record`
+        // no longer writes `manifest.instance_index` ([R22]).
+        let cat = store.catalog().unwrap();
+        let entry = cat
+            .instances
             .iter()
-            .find(|e| e.instance_id() == rec.instance_id)
+            .find(|e| e.id == rec.instance_id)
             .unwrap();
-        let record_path = entry.path().to_string();
+        let record_path = entry.locator.clone().unwrap();
 
         revision_service::append(
             &store,
@@ -777,13 +792,19 @@ mod tests {
                     "version": 1,
                     "description": "Name field",
                     "fieldType": {"datatype": "string"},
+                    "aiGuidance": {"purpose": "Name field"},
                     "createdAt": "2026-01-01T00:00:00Z"
                 },
                 "package/package.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                     "id": "test-pkg",
                     "namespace": "com.test",
                     "name": "test-package",
                     "version": "1.0.0",
+                    "title": "Test Package",
+                    "description": "Test package fixture",
+                    "status": "active",
+                    "createdAt": "2026-01-01T00:00:00Z",
                     "fields": ["fields/test-name.json"],
                     "types": [],
                     "relationTypes": [],

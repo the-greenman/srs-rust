@@ -567,13 +567,25 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
     // Recognised sidecars ([R9]): closed suffix list, base must resolve to a
     // discovered instance in the same directory, and the suffix must have a
     // declared schema — which `.revisions.json` does not yet have (owed).
+    //
+    // Non-fatal (Warning, not Error): `.revisions.json` is a legitimate,
+    // long-standing first-class feature (`revision_service.rs`'s field-level
+    // revision history), not a data-integrity problem — only its formal
+    // schema is owed. Phase 3 wires many new consumers onto `store.catalog()`
+    // ([R24]: fatal diagnostics fail the calling operation); treating a
+    // recognized-but-schema-owed sidecar as fatal would make every operation
+    // (not just `repo validate`) hard-fail for any repository that has ever
+    // recorded a revision — e.g. `record_store::get_record_by_id` becomes
+    // unusable repo-wide. `repo validate` still surfaces this via the
+    // non-fatal diagnostic; an unresolved base (below) stays a real [R9]
+    // orphan and remains fatal.
     for path in sidecar_files {
         let base = path
             .strip_suffix(SIDECAR_SUFFIX_REVISIONS)
             .unwrap_or(&path)
             .to_string();
         if discovered_instances.contains(&format!("{base}.json")) {
-            b.error(
+            b.warn(
                 codes::SIDECAR_SCHEMA,
                 vec![path.clone()],
                 "sidecar suffix '.revisions.json' has no declared schema (owed by RFC-038); recognition is not conferred by filename alone".to_string(),

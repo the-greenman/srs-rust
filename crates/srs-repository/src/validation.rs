@@ -9002,7 +9002,8 @@ mod tests {
             .save_binary_file("source-documents/report.pdf", &[0u8; 10])
             .unwrap();
         let sidecar = json!({"documentId": "cc000001-0000-4000-b000-000000000001",
-            "contentPath": "report.pdf", "contentType": "application/pdf"});
+            "contentPath": "report.pdf", "contentType": "application/pdf",
+            "createdAt": "2026-01-01T00:00:00Z"});
         store
             .save_text_file(
                 "source-documents/report.pdf.meta.json",

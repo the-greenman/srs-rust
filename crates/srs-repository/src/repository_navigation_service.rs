@@ -228,7 +228,10 @@ mod tests {
                 version: 1,
                 description: "Title".to_string(),
                 instructions: None,
-                ai_guidance: AiGuidance::default(),
+                ai_guidance: AiGuidance {
+                    purpose: "Test guidance".to_string(),
+                    ..Default::default()
+                },
                 field_type: FieldType::string(),
                 default_value: None,
                 editor_hint: None,
@@ -566,16 +569,12 @@ mod tests {
     fn tier0_note_store(note_title: Option<&str>) -> MemoryStore {
         let note_id = "00000000-0000-4000-8000-00000000d100".to_string();
         let manifest = Manifest {
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: note_id.clone(),
-                tier: 0,
-                path: "records/notes/intent.json".to_string(),
-                title: note_title.map(|t| serde_json::Value::String(t.to_string())),
-                tags: None,
-            }],
+            instance_index: vec![],
+            // Embed-only root ([R1]): a containers/*.json file sharing the
+            // embed's id is a fatal SRS038-R12-DUPLICATE-ID under the catalog.
             container: Some(Container {
                 container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
-                title: String::new(),
+                title: "Test Repo".to_string(),
                 namespace: None,
                 name: None,
                 description: None,
@@ -600,26 +599,18 @@ mod tests {
         };
         let store = MemoryStore::new(manifest, empty_package());
 
-        container_service::create_container(
-            &store,
-            Container {
-                container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
-                title: "Test Repo".to_string(),
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
-                identity_instance_id: None,
-                member_instance_ids: Some(vec![note_id]),
-                root_instance_ids: None,
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
-            },
-        )
-        .unwrap();
+        // The identity note must exist as a real instance in the tree
+        // (RFC-038 [R13]); its display title comes from the body.
+        let mut note = serde_json::json!({
+            "instanceId": note_id,
+            "sections": []
+        });
+        if let Some(t) = note_title {
+            note["title"] = serde_json::Value::String(t.to_string());
+        }
+        store
+            .save_instance_json("records/notes/intent.json", &note)
+            .unwrap();
 
         store
     }
@@ -655,76 +646,13 @@ mod tests {
         assert_eq!(nav.diagnostics.len(), 1);
     }
 
-    #[test]
-    fn navigation_tier0_identity_and_missing_member_accumulates_both_diagnostics() {
-        // Verify that diagnostics from the identity branch and the sections loop both
-        // accumulate into the same vec — guards against accidentally re-declaring `diagnostics`
-        // between the two push sites.
-        let note_id = "00000000-0000-4000-8000-00000000d100".to_string();
-        let ghost_id = "00000000-0000-4000-8000-00000000ffff".to_string();
-        let manifest = Manifest {
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: note_id.clone(),
-                tier: 0,
-                path: "records/notes/intent.json".to_string(),
-                title: Some(serde_json::Value::String("Test Gov".to_string())),
-                tags: None,
-            }],
-            container: Some(Container {
-                container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
-                title: String::new(),
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
-                identity_instance_id: Some(note_id.clone()),
-                root_instance_ids: None,
-                member_instance_ids: Some(vec![note_id.clone(), ghost_id.clone()]),
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
-            }),
-            container_index: None,
-            federation_path: None,
-            upstream_package: None,
-            federation_events_path: None,
-            extra: std::collections::BTreeMap::new(),
-            source_documents_path: None,
-            source_document_index: None,
-            root: PathBuf::from("/memory"),
-        };
-        let store = MemoryStore::new(manifest, empty_package());
-        container_service::create_container(
-            &store,
-            Container {
-                container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
-                title: "Test Repo".to_string(),
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
-                identity_instance_id: None,
-                member_instance_ids: Some(vec![note_id, ghost_id]),
-                root_instance_ids: None,
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
-            },
-        )
-        .unwrap();
-
-        let nav = super::repository_navigation(&store).unwrap();
-        assert_eq!(nav.diagnostics.len(), 2);
-        assert!(nav.diagnostics.iter().any(|d| d.contains("Tier-0")));
-        assert!(nav
-            .diagnostics
-            .iter()
-            .any(|d| d.contains("does not resolve")));
-    }
+    // navigation_tier0_identity_and_missing_member_accumulates_both_diagnostics
+    // retired by RFC-038 Phase 3 (srs-rust#783): its "ghost member" premise — a
+    // root-container member id with no backing instance — is now a fatal
+    // SRS038-R13-DANGLING-REFERENCE at catalog build ([R24]), so
+    // repository_navigation can never reach its own member-does-not-resolve
+    // diagnostic branch through storage. The Tier-0-identity diagnostic half is
+    // still covered by navigation_tier0_note_identity_returns_diagnostic.
 
     #[test]
     fn repository_navigation_root_is_member_of_its_own_sub_container() {
@@ -809,8 +737,11 @@ mod tests {
                 description: None,
                 container_type: None,
                 identity_instance_id: Some("00000000-0000-4000-8000-00000000e100".to_string()),
-                root_instance_ids: None,
-                member_instance_ids: None,
+                root_instance_ids: Some(vec![
+                    "00000000-0000-4000-8000-00000000e200".to_string(),
+                    "00000000-0000-4000-8000-00000000e300".to_string(),
+                ]),
+                member_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000e100".to_string()]),
                 tags: None,
                 created_at: None,
                 updated_at: None,
@@ -855,30 +786,9 @@ mod tests {
             "records/section-beta.json",
         );
 
-        // Sections declared via rootInstanceIds only; memberInstanceIds has only the identity.
-        container_service::create_container(
-            &store,
-            Container {
-                container_id: "00000000-0000-4000-8000-00000000e000".to_string(),
-                title: "Root IDs Only".to_string(),
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
-                identity_instance_id: None,
-                member_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000e100".to_string()]),
-                root_instance_ids: Some(vec![
-                    "00000000-0000-4000-8000-00000000e200".to_string(),
-                    "00000000-0000-4000-8000-00000000e300".to_string(),
-                ]),
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
-            },
-        )
-        .unwrap();
+        // Sections declared via rootInstanceIds only (in the embed itself —
+        // RFC-038 [R1]: a containers/*.json file sharing the embed's id is a
+        // fatal SRS038-R12-DUPLICATE-ID, so the root is embed-only).
 
         let nav = super::repository_navigation(&store).unwrap();
 
@@ -915,8 +825,13 @@ mod tests {
                 description: None,
                 container_type: None,
                 identity_instance_id: Some("00000000-0000-4000-8000-00000000f100".to_string()),
-                root_instance_ids: None,
-                member_instance_ids: None,
+                // Section ID appears in BOTH arrays (the dedup scenario), in the
+                // embed itself — RFC-038 [R1]: the root container is embed-only.
+                root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000f200".to_string()]),
+                member_instance_ids: Some(vec![
+                    "00000000-0000-4000-8000-00000000f100".to_string(),
+                    "00000000-0000-4000-8000-00000000f200".to_string(),
+                ]),
                 tags: None,
                 created_at: None,
                 updated_at: None,
@@ -951,31 +866,6 @@ mod tests {
             ),
             "records/section-gamma.json",
         );
-
-        // Section ID appears in BOTH arrays.
-        container_service::create_container(
-            &store,
-            Container {
-                container_id: "00000000-0000-4000-8000-00000000f000".to_string(),
-                title: "Dedup Test".to_string(),
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
-                identity_instance_id: None,
-                member_instance_ids: Some(vec![
-                    "00000000-0000-4000-8000-00000000f100".to_string(),
-                    "00000000-0000-4000-8000-00000000f200".to_string(),
-                ]),
-                root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000f200".to_string()]),
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
-            },
-        )
-        .unwrap();
 
         let nav = super::repository_navigation(&store).unwrap();
 
