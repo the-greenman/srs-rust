@@ -447,6 +447,30 @@ fn sidecar_without_document_id_is_an_error() {
 }
 
 #[test]
+fn sidecar_wrong_schema_is_inadmissible_unknown_is_unresolvable() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    write(root, "manifest.json", MINIMAL_MANIFEST);
+    // Registered but wrong entity for this location → [R7] inadmissible.
+    write(
+        root,
+        "source-documents/a.md.meta.json",
+        r#"{"$schema": "https://srs.semanticops.com/schema/2.0/note.json", "documentId": "aaaa0000-0000-4000-8000-000000000001", "contentPath": "a.md", "contentType": "text/markdown", "createdAt": "2026-01-01T00:00:00Z"}"#,
+    );
+    // Unknown URL → [R7] unresolvable.
+    write(
+        root,
+        "source-documents/b.md.meta.json",
+        r#"{"$schema": "https://example.com/nope.json", "documentId": "aaaa0000-0000-4000-8000-000000000002", "contentPath": "b.md", "contentType": "text/markdown", "createdAt": "2026-01-01T00:00:00Z"}"#,
+    );
+    let cat = catalog::build(&FileStore::new(root)).unwrap();
+    let counts = code_counts(&cat);
+    assert_eq!(counts.get(codes::SCHEMA_INADMISSIBLE), Some(&1));
+    assert_eq!(counts.get(codes::SCHEMA_UNRESOLVABLE), Some(&1));
+    assert!(cat.source_documents.is_empty());
+}
+
+#[test]
 fn sidecar_with_absent_content_file_is_a_valid_tombstone() {
     // The vendored custom-source-path fixture: sourceDocumentsPath =
     // "attachments", sidecar present, content file absent ([R15] tombstone) —
