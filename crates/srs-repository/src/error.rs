@@ -430,6 +430,18 @@ pub enum RepositoryError {
     /// until its Phase-4 collapse into a codec over tree sessions).
     #[error("this store does not support catalog enumeration")]
     CatalogUnsupported,
+
+    /// RFC-038 [R2]: `manifest.json` must not contain the retired index/
+    /// checksum/path properties. Feature-inactive until the Phase-6 flip;
+    /// fired only under the crate-internal test activation until then.
+    #[error("manifest.json declares retired property '{property}' — removed by RFC-038 [R2]; run the rfc038-storage migration")]
+    RetiredManifestProperty { property: String },
+
+    /// RFC-038 [R21]: a repository below storage generation 2 is not
+    /// supported. Feature-inactive until the Phase-6 flip; fired only under
+    /// the crate-internal test activation until then.
+    #[error("manifest.json declares dataModelRevision {declared}; this build requires storage generation >= 2 (RFC-038 [R21]) — run the rfc038-storage migration")]
+    StorageGenerationUnsupported { declared: u64 },
 }
 
 impl From<zip::result::ZipError> for RepositoryError {

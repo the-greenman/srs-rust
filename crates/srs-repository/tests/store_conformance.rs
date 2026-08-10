@@ -515,54 +515,11 @@ fn copy_repository_full_chain_memory_json_file_memory() {
 }
 
 // ---------------------------------------------------------------------------
-// ADR-007 write-ordering tests — MemoryStore only (via FailPoint)
+// ADR-007 write-ordering tests — retired by RFC-038 Phase 3 (srs-rust#783):
+// instance/container saves write only the entity file, so there is no
+// entity-vs-index ordering left to test. The `SaveInstanceIndex` /
+// `SaveContainerIndex` fail points were removed with the index writes.
 // ---------------------------------------------------------------------------
-
-#[test]
-fn adr007_index_ordering_instance_save() {
-    // Entity-before-index on create: a failed index update after a successful data write
-    // must leave data in the store (orphaned, invisible to readers) but no dangling index entry.
-    let store = MemoryStore::empty();
-    let rec = make_record("rorder-0001-4000-8000-aabbccddeeff", "Thing", None);
-
-    store.arm_fail_at(FailPoint::SaveInstanceIndex);
-    let result = store.save_record(&rec);
-    assert!(
-        result.is_err(),
-        "save_record must return an error when SaveInstanceIndex is armed"
-    );
-
-    // No dangling index entry — the index is internally consistent.
-    let idx_entry = store
-        .find_instance("rorder-0001-4000-8000-aabbccddeeff")
-        .expect("find_instance must not error");
-    assert!(
-        idx_entry.is_none(),
-        "instance index must have no entry after a failed index update (ADR-007)"
-    );
-}
-
-#[test]
-fn adr007_index_ordering_container_save() {
-    // Container variant of the ADR-007 invariant.
-    let store = MemoryStore::empty();
-    let container = make_container("corder-0001-4000-8000-aabbccddeeff", "Order Test");
-
-    store.arm_fail_at(FailPoint::SaveContainerIndex);
-    let result = store.save_container(&container);
-    assert!(
-        result.is_err(),
-        "save_container must return an error when SaveContainerIndex is armed"
-    );
-
-    let summaries = store
-        .list_container_summaries()
-        .expect("list_container_summaries must not error");
-    assert!(
-        summaries.is_empty(),
-        "container index must have no entry after a failed index update (ADR-007)"
-    );
-}
 
 // ---------------------------------------------------------------------------
 // JsonStore-only: abort_batch rollback (ADR-021 / ADR-041 G6)
