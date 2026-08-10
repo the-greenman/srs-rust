@@ -108,18 +108,19 @@ fn resolve_roots(
         .map(|r| r.target_instance_id.as_str())
         .collect();
 
-    // Walk instanceIndex to find all tier-2 records, filter by type if requested.
-    let manifest = store.load_manifest()?;
+    // Walk the catalog's instance set to find all tier-2 records, filter by type
+    // if requested (RFC-038: no manifest.instanceIndex).
+    let cat = store.catalog()?;
     let mut root_ids = Vec::new();
-    for entry in &manifest.instance_index {
-        if entry.tier != 2 {
+    for entry in &cat.instances {
+        if entry.tier != Some(2) {
             continue;
         }
-        if target_ids.contains(entry.instance_id.as_str()) {
+        if target_ids.contains(entry.id.as_str()) {
             continue;
         }
         if let Some(filter) = &options.type_filter {
-            if let Some(record) = get_record_by_id(store, &entry.instance_id)? {
+            if let Some(record) = get_record_by_id(store, &entry.id)? {
                 let qualified = format!("{}/{}", record.type_namespace, record.type_name);
                 if &qualified != filter {
                     continue;
@@ -128,7 +129,7 @@ fn resolve_roots(
                 continue;
             }
         }
-        root_ids.push(entry.instance_id.clone());
+        root_ids.push(entry.id.clone());
     }
 
     Ok(root_ids)

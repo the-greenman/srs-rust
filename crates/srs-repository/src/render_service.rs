@@ -1145,48 +1145,28 @@ fn resolve_container_title(
     manifest: &crate::manifest::Manifest,
     container_id: Option<&str>,
 ) -> String {
-    let entries = manifest.container_index.as_deref().unwrap_or(&[]);
-
-    if !entries.is_empty() {
-        // When a specific container was requested, look it up by ID first.
-        if let Some(cid) = container_id {
-            for entry in entries {
-                if entry.container_id == cid {
-                    if let Some(title) = &entry.title {
-                        if !title.is_empty() {
-                            return title.clone();
-                        }
-                    }
-                }
-            }
-        }
-
-        // Fallback: first container matching the document view's containerType.
-        if let Some(container_type) = &dv.container_type {
-            for entry in entries {
-                // legacy: older repos used "type" instead of "containerType" in containerIndex entries
-                let ctype = entry
-                    .container_type
-                    .as_deref()
-                    .or_else(|| entry.extra.get("type").and_then(|v| v.as_str()));
-                if ctype == Some(container_type.as_str()) {
-                    if let Some(title) = &entry.title {
-                        if !title.is_empty() {
-                            return title.clone();
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // When a specific container_id was requested but not resolved with a non-empty title
-    // from the index (or the index is absent), fall back to loading the container directly
-    // (embed-only RFC-013 roots resolve here too via the shared service helper).
+    // When a specific container_id was requested, load it directly (catalog-backed;
+    // embed-only RFC-013 roots resolve here too via the shared service helper).
+    // RFC-038 Change K retires `manifest.containerIndex`.
     if let Some(cid) = container_id {
         if let Ok(container) = crate::container_service::get_container(store, cid) {
             if !container.title.is_empty() {
                 return container.title;
+            }
+        }
+    }
+
+    // Fallback: first container matching the document view's containerType.
+    if let Some(container_type) = &dv.container_type {
+        if let Ok(summaries) = crate::container_service::list_containers(
+            store,
+            &crate::container_service::ContainerListFilter {
+                container_type: Some(container_type.clone()),
+                ..Default::default()
+            },
+        ) {
+            if let Some(summary) = summaries.into_iter().find(|s| !s.title.is_empty()) {
+                return summary.title;
             }
         }
     }
@@ -7931,10 +7911,12 @@ mod tests {
     }
 
     #[test]
-    fn resolve_container_title_uses_index_when_present() {
-        // Regression: when the container IS in containerIndex, the index title wins.
+    fn resolve_container_title_loads_container_directly() {
+        // RFC-038 Change K retires manifest.containerIndex: a requested container_id
+        // resolves by loading the container directly (catalog-backed), not through
+        // an index-cached title.
         use crate::store::memory::MemoryStore;
-        use srs_core::types::container::{Container, ContainerIndexEntry};
+        use srs_core::types::container::Container;
 
         let store = MemoryStore::empty();
         let container = Container {
@@ -7957,32 +7939,11 @@ mod tests {
             .save_container(&container)
             .expect("save_container must succeed");
 
-        let manifest = crate::manifest::Manifest {
-            instance_index: vec![],
-            container: None,
-            container_index: Some(vec![ContainerIndexEntry {
-                container_id: "idx-test-cid".to_string(),
-                title: Some("Index Title".to_string()),
-                path: None,
-                container_type: None,
-                tags: None,
-                extra: std::collections::BTreeMap::new(),
-            }]),
-            federation_path: None,
-            upstream_package: None,
-            federation_events_path: None,
-            extra: std::collections::BTreeMap::new(),
-            source_documents_path: None,
-            source_document_index: None,
-            root: std::path::PathBuf::from("/memory"),
-        };
+        let manifest = minimal_manifest_no_index();
 
         let dv = minimal_document_view();
         let title = resolve_container_title(&store, &dv, &manifest, Some("idx-test-cid"));
-        assert_eq!(
-            title, "Index Title",
-            "index title should win over container file title when containerIndex entry is present"
-        );
+        assert_eq!(title, "File Title");
     }
 
     #[test]

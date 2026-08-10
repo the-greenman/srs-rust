@@ -177,17 +177,19 @@ pub struct ManifestEntrySummary {
 
 pub fn build_repo_map(store: &dyn RepositoryStore) -> Result<RepoMap, RepositoryError> {
     let manifest = store.load_manifest()?;
-    build_repo_map_from_manifest(store, &manifest)
+    let cat = store.catalog()?;
+    build_repo_map_from_manifest(store, &manifest, &cat)
 }
 
 fn build_repo_map_from_manifest(
     store: &dyn RepositoryStore,
     manifest: &Manifest,
+    cat: &crate::catalog::RepositoryCatalog,
 ) -> Result<RepoMap, RepositoryError> {
-    let counts = summarize_counts(manifest);
+    let counts = summarize_counts(cat);
     let relations_summary = summarize_relations(store)?;
     let schemas = summarize_schemas(store);
-    let source_documents = summarize_source_documents(manifest);
+    let source_documents = summarize_source_documents(manifest, cat);
     let containers_summary = summarize_containers(store)?;
     let ai_guidance = manifest.extra.get("aiGuidance").cloned();
     let entry_points = ai_guidance
@@ -233,31 +235,32 @@ fn build_repo_map_from_manifest(
 }
 
 pub fn audit_note_tags(store: &dyn RepositoryStore) -> Result<TagAudit, RepositoryError> {
-    let manifest = store.load_manifest()?;
-    audit_note_tags_from_manifest(store, &manifest)
+    let cat = store.catalog()?;
+    audit_note_tags_from_catalog(store, &cat, None)
 }
 
 /// Audit note tag usage scoped to notes sharing tags with the given note ID.
 ///
 /// Loads the target note to collect its full tag set (note-level + section-level),
 /// then restricts the audit to notes that share at least one of those tags
-/// (matched via the manifest index). The target note itself is always included.
+/// (matched by reading each candidate note's body via the catalog — RFC-038: no
+/// cached index tags). The target note itself is always included.
 pub fn audit_note_tags_for_note(
     store: &dyn RepositoryStore,
     note_id: &str,
 ) -> Result<TagAudit, RepositoryError> {
-    let manifest = store.load_manifest()?;
+    let cat = store.catalog()?;
 
-    let target_entry = manifest
-        .instance_index
+    let target_entry = cat
+        .instances
         .iter()
-        .find(|e| e.is_note() && e.instance_id() == note_id)
+        .find(|e| e.tier == Some(0) && e.id == note_id)
         .ok_or_else(|| crate::error::RepositoryError::NoteNotFound {
             path: std::path::PathBuf::from(store.record_tier_dir(RecordTier::Note)),
             id: note_id.to_string(),
         })?;
 
-    let target_note = load_note(store, target_entry.path())?;
+    let target_note = load_note(store, target_entry.locator.as_deref().unwrap_or_default())?;
     let mut scope_tags: BTreeSet<String> = target_note.tags.iter().flatten().cloned().collect();
     for section in &target_note.sections {
         for tag in section.tags.iter().flatten() {
@@ -265,37 +268,53 @@ pub fn audit_note_tags_for_note(
         }
     }
 
-    let mut scoped_manifest = manifest.clone();
-    scoped_manifest.instance_index.retain(|entry| {
-        if !entry.is_note() {
-            return false;
+    let mut allowed_ids: BTreeSet<String> = BTreeSet::new();
+    allowed_ids.insert(note_id.to_string());
+    for entry in cat.instances.iter().filter(|e| e.tier == Some(0)) {
+        if entry.id == note_id {
+            continue;
         }
-        if entry.instance_id() == note_id {
-            return true;
+        let Some(locator) = entry.locator.as_deref() else {
+            continue;
+        };
+        let Ok(body) = store.load_instance_json(locator) else {
+            continue;
+        };
+        let r = crate::store::instance_ref_from_body(entry.id.clone(), 0, &body);
+        if r.tags.iter().any(|t| scope_tags.contains(t)) {
+            allowed_ids.insert(entry.id.clone());
         }
-        entry.tags.iter().flatten().any(|t| scope_tags.contains(t))
-    });
+    }
 
-    audit_note_tags_from_manifest(store, &scoped_manifest)
+    audit_note_tags_from_catalog(store, &cat, Some(&allowed_ids))
 }
 
-fn audit_note_tags_from_manifest(
+fn audit_note_tags_from_catalog(
     store: &dyn RepositoryStore,
-    manifest: &Manifest,
+    cat: &crate::catalog::RepositoryCatalog,
+    scope: Option<&BTreeSet<String>>,
 ) -> Result<TagAudit, RepositoryError> {
     let mut note_level: BTreeMap<String, TagAccumulator> = BTreeMap::new();
     let mut section_level: BTreeMap<String, TagAccumulator> = BTreeMap::new();
     let mut total_notes = 0;
 
-    for entry in &manifest.instance_index {
-        if !entry.is_note() {
+    for entry in &cat.instances {
+        if entry.tier != Some(0) {
             continue;
         }
-        let Ok(note) = load_note(store, entry.path()) else {
+        if let Some(scope) = scope {
+            if !scope.contains(&entry.id) {
+                continue;
+            }
+        }
+        let Some(locator) = entry.locator.as_deref() else {
+            continue;
+        };
+        let Ok(note) = load_note(store, locator) else {
             continue;
         };
         total_notes += 1;
-        let path = entry.path().to_string();
+        let path = locator.to_string();
 
         for tag in note.tags.unwrap_or_default() {
             note_level.entry(tag).or_default().add(path.clone());
@@ -343,23 +362,26 @@ pub fn collect_foundation_notes(
     store: &dyn RepositoryStore,
     signal_tags: &[String],
 ) -> Result<FoundationNoteSet, RepositoryError> {
-    let manifest = store.load_manifest()?;
-    collect_foundation_notes_from_manifest(store, &manifest, signal_tags)
+    let cat = store.catalog()?;
+    collect_foundation_notes_from_catalog(store, &cat, signal_tags)
 }
 
-fn collect_foundation_notes_from_manifest(
+fn collect_foundation_notes_from_catalog(
     store: &dyn RepositoryStore,
-    manifest: &Manifest,
+    cat: &crate::catalog::RepositoryCatalog,
     signal_tags: &[String],
 ) -> Result<FoundationNoteSet, RepositoryError> {
     let signal_tags: BTreeSet<String> = signal_tags.iter().cloned().collect();
     let mut notes = Vec::new();
 
-    for entry in &manifest.instance_index {
-        if !entry.is_note() {
+    for entry in &cat.instances {
+        if entry.tier != Some(0) {
             continue;
         }
-        let Ok(note) = load_note(store, entry.path()) else {
+        let Some(locator) = entry.locator.as_deref() else {
+            continue;
+        };
+        let Ok(note) = load_note(store, locator) else {
             continue;
         };
 
@@ -420,20 +442,33 @@ pub fn build_migration_packet(
     foundation_signal_tags: &[String],
 ) -> Result<MigrationPacket, RepositoryError> {
     let manifest = store.load_manifest()?;
-    let repo_map = build_repo_map_from_manifest(store, &manifest)?;
-    let tag_audit = audit_note_tags_from_manifest(store, &manifest)?;
+    let cat = store.catalog()?;
+    let repo_map = build_repo_map_from_manifest(store, &manifest, &cat)?;
+    let tag_audit = audit_note_tags_from_catalog(store, &cat, None)?;
     let foundation_notes =
-        collect_foundation_notes_from_manifest(store, &manifest, foundation_signal_tags)?;
-    let manifest_entries = manifest
-        .instance_index
-        .iter()
-        .map(|entry| ManifestEntrySummary {
-            instance_id: entry.instance_id().to_string(),
-            tier: entry.tier(),
-            relative_path: entry.path().to_string(),
-            title: entry.title(),
-        })
-        .collect();
+        collect_foundation_notes_from_catalog(store, &cat, foundation_signal_tags)?;
+    // RFC-038: no manifest.instanceIndex — title is catalog-derived from each body.
+    let mut manifest_entries = Vec::with_capacity(cat.instances.len());
+    for entry in &cat.instances {
+        let title = entry
+            .locator
+            .as_deref()
+            .and_then(|locator| store.load_instance_json(locator).ok())
+            .and_then(|body| {
+                crate::store::instance_ref_from_body(
+                    entry.id.clone(),
+                    entry.tier.unwrap_or(2),
+                    &body,
+                )
+                .title
+            });
+        manifest_entries.push(ManifestEntrySummary {
+            instance_id: entry.id.clone(),
+            tier: entry.tier.unwrap_or(2),
+            relative_path: entry.locator.clone().unwrap_or_default(),
+            title,
+        });
+    }
     let source_reference_summary = SourceReferenceSummary {
         notes_with_source_refs: foundation_notes
             .notes
@@ -505,15 +540,17 @@ fn summarize_repository(manifest: &Manifest) -> RepositorySummary {
     }
 }
 
-fn summarize_counts(manifest: &Manifest) -> CountsSummary {
+fn summarize_counts(cat: &crate::catalog::RepositoryCatalog) -> CountsSummary {
     let mut by_tier: BTreeMap<String, usize> = BTreeMap::new();
 
-    for entry in &manifest.instance_index {
-        *by_tier.entry(entry.tier().to_string()).or_default() += 1;
+    for entry in &cat.instances {
+        *by_tier
+            .entry(entry.tier.unwrap_or(2).to_string())
+            .or_default() += 1;
     }
 
     CountsSummary {
-        total_instances: manifest.instance_index.len(),
+        total_instances: cat.instances.len(),
         notes: *by_tier.get("0").unwrap_or(&0),
         typed_records: *by_tier.get("1").unwrap_or(&0),
         records: *by_tier.get("2").unwrap_or(&0),
@@ -546,11 +583,15 @@ fn summarize_schemas(store: &dyn RepositoryStore) -> SchemaSummary {
     }
 }
 
-fn summarize_source_documents(manifest: &Manifest) -> SourceDocumentsSummary {
-    let source_document_index_count = manifest
-        .source_document_index
-        .as_deref()
-        .map_or(0, |v| v.len());
+/// RFC-038 [R25]: counted from the catalog's source-document set (sidecar
+/// discovery), not `manifest.sourceDocumentIndex` (retired, Change K). Field
+/// names are preserved for wire-contract stability even though the source is
+/// no longer an "index".
+fn summarize_source_documents(
+    manifest: &Manifest,
+    cat: &crate::catalog::RepositoryCatalog,
+) -> SourceDocumentsSummary {
+    let source_document_index_count = cat.source_documents.len();
 
     SourceDocumentsSummary {
         source_documents_path: manifest.source_documents_path.clone(),
@@ -728,6 +769,21 @@ mod tests {
             });
         store.save_manifest(&manifest).unwrap();
 
+        // Save the tier-2 record (RFC-038 [R1]: membership comes from the tree —
+        // the manifest.instanceIndex push above is now inert bookkeeping).
+        store
+            .save_instance_json(
+                "records/example.json",
+                &json!({
+                    "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                    "instanceId": "33333333-3333-4333-8333-333333333333",
+                    "typeId": "t1", "typeVersion": 1,
+                    "typeNamespace": "ns", "typeName": "Example",
+                    "fieldValues": {}
+                }),
+            )
+            .unwrap();
+
         // Save notes
         store
             .save_instance_json(
@@ -760,14 +816,27 @@ mod tests {
             )
             .unwrap();
 
-        // Save relations
+        // Save relations — full, catalog-valid Relation objects (the catalog parses
+        // every relations/ file strictly as part of the six authoritative sets).
         store
             .save_relations_json(
                 "relations/relations.json",
                 &json!({
                     "relations": [
-                        {"type": "derived-from"},
-                        {"relationType": "contains"}
+                        {
+                            "relationId": "44444444-4444-4444-8444-444444444444",
+                            "relationType": "derived-from",
+                            "sourceInstanceId": "22222222-2222-4222-8222-222222222222",
+                            "targetInstanceId": "11111111-1111-4111-8111-111111111111",
+                            "createdAt": "2026-01-01T00:00:00Z"
+                        },
+                        {
+                            "relationId": "55555555-5555-4555-8555-555555555555",
+                            "relationType": "contains",
+                            "sourceInstanceId": "11111111-1111-4111-8111-111111111111",
+                            "targetInstanceId": "22222222-2222-4222-8222-222222222222",
+                            "createdAt": "2026-01-01T00:00:00Z"
+                        }
                     ]
                 }),
             )

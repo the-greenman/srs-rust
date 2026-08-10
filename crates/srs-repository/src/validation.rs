@@ -203,8 +203,20 @@ pub fn validate_repository(
         }
     }
 
-    // --- Load manifest for instanceIndex ---
+    // --- Load manifest + one catalog snapshot for the whole validation run ---
     let manifest = store.load_manifest()?;
+    // RFC-038 [R1]/[R24]: `repo validate` is the one caller that must report every
+    // diagnostic rather than failing fatally, so this uses `catalog::build` (not
+    // `build_checked`) and folds the catalog's own diagnostics into the report.
+    let cat = crate::catalog::build(store)?;
+    for d in &cat.diagnostics {
+        diagnostics.push(ValidationDiagnostic {
+            severity: d.severity,
+            relative_path: d.locators.join(", "),
+            schema_id: None,
+            message: format!("{}: {}", d.code, d.message),
+        });
+    }
 
     // --- RFC-013 root container invariants (I-79, I-80, I-81, I-82) ---
     // When manifest.container is absent the schema validator above already fires a
@@ -285,13 +297,10 @@ pub fn validate_repository(
                     });
                 }
 
-                // I-80: memberInstanceIds and rootInstanceIds must all be in instanceIndex.
-                // Uses the manifest already loaded above — no second load_manifest().
-                let known_ids: HashSet<&str> = manifest
-                    .instance_index
-                    .iter()
-                    .map(|e| e.instance_id())
-                    .collect();
+                // I-80: memberInstanceIds and rootInstanceIds must all be in the instance set.
+                // Uses the catalog snapshot already built above (RFC-038: no instanceIndex).
+                let known_ids: HashSet<&str> =
+                    cat.instances.iter().map(|e| e.id.as_str()).collect();
                 if let Some(ref ids) = full_container.member_instance_ids {
                     for id in ids {
                         if !known_ids.contains(id.as_str()) {
@@ -300,7 +309,7 @@ pub fn validate_repository(
                                 relative_path: "manifest.json".to_string(),
                                 schema_id: None,
                                 message: format!(
-                                    "RFC-013 I-80: memberInstanceId '{}' not found in instanceIndex",
+                                    "RFC-013 I-80: memberInstanceId '{}' not found in the instance set",
                                     id
                                 ),
                             });
@@ -315,7 +324,7 @@ pub fn validate_repository(
                                 relative_path: "manifest.json".to_string(),
                                 schema_id: None,
                                 message: format!(
-                                    "RFC-013 I-80: rootInstanceId '{}' not found in instanceIndex",
+                                    "RFC-013 I-80: rootInstanceId '{}' not found in the instance set",
                                     id
                                 ),
                             });
@@ -347,10 +356,19 @@ pub fn validate_repository(
                 }
 
                 // I-82: every non-identity member should root a container (warning; suppressed
-                // when containerIndex is absent or empty).
-                // RFC-013 I-80/R2: membership = memberInstanceIds ∪ rootInstanceIds.
-                if let Some(ref ci) = manifest.container_index {
-                    if !ci.is_empty() {
+                // when the catalog's container set has no file-backed containers).
+                // RFC-013 I-80/R2 as amended by RFC-038 [R25]: membership resolves against the
+                // catalog's container set, not `manifest.containerIndex` (retired, Change K).
+                {
+                    let file_backed_container_ids: Vec<&str> = cat
+                        .containers
+                        .iter()
+                        .filter(|e| {
+                            e.locator.as_deref() != Some(crate::catalog::ROOT_CONTAINER_LOCATOR)
+                        })
+                        .map(|e| e.id.as_str())
+                        .collect();
+                    if !file_backed_container_ids.is_empty() {
                         // BTreeSet for deterministic iteration order (ADR-017).
                         let union_members: BTreeSet<&str> = full_container
                             .member_instance_ids
@@ -369,8 +387,8 @@ pub fn validate_repository(
                             .collect();
                         if !union_members.is_empty() {
                             let mut section_container_roots: HashSet<String> = HashSet::new();
-                            for entry in ci {
-                                if let Ok(c) = store.load_container(&entry.container_id) {
+                            for container_id in file_backed_container_ids {
+                                if let Ok(c) = store.load_container(container_id) {
                                     if let Some(ref roots) = c.root_instance_ids {
                                         section_container_roots.extend(roots.iter().cloned());
                                     }
@@ -387,7 +405,7 @@ pub fn validate_repository(
                                         relative_path: "manifest.json".to_string(),
                                         schema_id: None,
                                         message: format!(
-                                            "RFC-013 I-82: root container member '{}' is not the root of any container in containerIndex",
+                                            "RFC-013 I-82: root container member '{}' is not the root of any container in the container set",
                                             member_id
                                         ),
                                     });
@@ -403,14 +421,10 @@ pub fn validate_repository(
             // - Tier-0 Note: Warning (transitional grace while migration tooling is absent)
             // - Tier-2 wrong-type: Warning (migration-period grace; migration tooling tracks #426)
             // - Other tiers: Warning (unexpected, should not occur in valid SRS repos)
-            // Runs independently of full_container availability — only needs the index.
+            // Runs independently of full_container availability — only needs the catalog.
             if let Some(ref identity_id) = root.identity_instance_id {
-                if let Some(idx_entry) = manifest
-                    .instance_index
-                    .iter()
-                    .find(|e| e.instance_id() == identity_id.as_str())
-                {
-                    if idx_entry.tier() == 0 {
+                if let Some(cat_entry) = cat.instances.iter().find(|e| e.id == *identity_id) {
+                    if cat_entry.tier == Some(0) {
                         diagnostics.push(ValidationDiagnostic {
                             severity: DiagnosticSeverity::Warning,
                             relative_path: "manifest.json".to_string(),
@@ -421,8 +435,10 @@ pub fn validate_repository(
                                 identity_id
                             ),
                         });
-                    } else if idx_entry.tier() == 2 {
-                        match store.load_instance_json(idx_entry.path()) {
+                    } else if cat_entry.tier == Some(2) {
+                        match store
+                            .load_instance_json(cat_entry.locator.as_deref().unwrap_or_default())
+                        {
                             Ok(val) => {
                                 let type_ns = val
                                     .get("typeNamespace")
@@ -465,40 +481,44 @@ pub fn validate_repository(
                                 "RFC-018 I-81: identityInstanceId '{}' resolves to an \
                                  unexpected tier {}; must be a Tier-2 com.semanticops.core/purpose Record",
                                 identity_id,
-                                idx_entry.tier()
+                                cat_entry.tier.unwrap_or(2)
                             ),
                         });
                     }
                 }
-                // not found in index: the membership check above already emits an Error
+                // not found in the instance set: the membership check above already emits an Error
             }
         }
     }
 
-    // --- RFC-017 R2/R12: pre-compute attaches doc-id → content-present map ---
+    // --- RFC-017 [R2]/[R12] as amended by RFC-038 [R25]: pre-compute attaches
+    // doc-id → content-present map from the catalog's source-document set
+    // (sidecar discovery), not `manifest.sourceDocumentIndex` (retired, Change K).
     // Built once before the instance loop; used per-instance to check sourceRefs.
     let src_docs_base_for_attaches = manifest
         .source_documents_path
         .as_deref()
         .unwrap_or("source-documents");
-    let attaches_doc_id_map: HashMap<String, bool> = manifest
-        .source_document_index
-        .as_deref()
-        .unwrap_or(&[])
+    let attaches_doc_id_map: HashMap<String, bool> = cat
+        .source_documents
         .iter()
-        .map(|entry| {
-            let content_repo_rel = format!("{}/{}", src_docs_base_for_attaches, entry.content_path);
+        .filter_map(|entry| {
+            let locator = entry.locator.as_deref()?;
+            let sidecar = store.load_instance_json(locator).ok()?;
+            let content_path = sidecar.get("contentPath").and_then(|v| v.as_str())?;
+            let content_repo_rel = format!("{src_docs_base_for_attaches}/{content_path}");
             let content_present = !matches!(
                 store.file_byte_len(&content_repo_rel),
                 Err(ref e) if e.is_not_found()
             );
-            (entry.document_id.clone(), content_present)
+            Some((entry.id.clone(), content_present))
         })
         .collect();
 
-    // --- Validate each instanceIndex entry ---
-    for entry in &manifest.instance_index {
-        let rel_path = entry.path().to_string();
+    // --- Validate each instance in the catalog's instance set ---
+    for entry in &cat.instances {
+        let rel_path = entry.locator.clone().unwrap_or_default();
+        let tier = entry.tier.unwrap_or(2);
 
         let value = match store.load_instance_json(&rel_path) {
             Ok(v) => v,
@@ -516,7 +536,7 @@ pub fn validate_repository(
         checked += 1;
 
         // Determine expected schema from tier
-        let tier_schema_id = tier_to_schema_id(entry.tier());
+        let tier_schema_id = tier_to_schema_id(tier);
 
         // Check declared $schema vs tier
         let declared = value.get("$schema").and_then(|v| v.as_str());
@@ -528,7 +548,7 @@ pub fn validate_repository(
                     schema_id: Some(decl.to_string()),
                     message: format!(
                         "manifest tier {} expects schema {tier_id} but file declares {decl}",
-                        entry.tier()
+                        tier
                     ),
                 });
             }
@@ -557,7 +577,7 @@ pub fn validate_repository(
             });
         }
 
-        if entry.tier() == 2 {
+        if tier == 2 {
             // RFC-039 [R7]: groupValues in a revision >= 2 instance is a removed
             // construct — named diagnostic from the raw document (the typed
             // loader's flatten would silently absorb it).
@@ -1044,23 +1064,28 @@ pub fn validate_repository(
                 .as_deref()
                 .unwrap_or("source-documents");
 
-            let src_doc_entries = manifest.source_document_index.as_deref().unwrap_or(&[]);
+            // RFC-038 [R25]: source documents resolve via the catalog's
+            // source-document set (sidecar discovery), not
+            // `manifest.sourceDocumentIndex` (retired, Change K).
+            let src_doc_metas: Vec<SourceDocumentMeta> = cat
+                .source_documents
+                .iter()
+                .filter_map(|entry| {
+                    let locator = entry.locator.as_deref()?;
+                    let sidecar = store.load_instance_json(locator).ok()?;
+                    serde_json::from_value::<SourceDocumentMeta>(sidecar).ok()
+                })
+                .collect();
 
-            // Build MIME map: content_path (relative to src_docs_base) → content_type,
-            // populated by loading each sidecar file listed in the manifest index.
+            // Build MIME map: content_path (relative to src_docs_base) → content_type.
             let mut mime_map: HashMap<String, String> = HashMap::new();
-            for entry in src_doc_entries {
-                let sidecar_repo_rel = format!("{}/{}", src_docs_base, entry.sidecar_path);
-                if let Ok(sidecar_text) = store.load_text_file(&sidecar_repo_rel) {
-                    if let Ok(meta) = serde_json::from_str::<SourceDocumentMeta>(&sidecar_text) {
-                        mime_map.insert(entry.content_path.clone(), meta.content_type);
-                    }
-                }
+            for meta in &src_doc_metas {
+                mime_map.insert(meta.content_path.clone(), meta.content_type.clone());
             }
 
             let mut total_bytes: u64 = 0;
 
-            for entry in src_doc_entries {
+            for entry in &src_doc_metas {
                 let content_repo_rel = format!("{}/{}", src_docs_base, entry.content_path);
 
                 let size = match store.file_byte_len(&content_repo_rel) {
@@ -1321,17 +1346,11 @@ pub fn validate_repository(
             }
         };
 
-        // Build known instance IDs from manifest index
-        let known_instance_ids: HashSet<String> = manifest
-            .instance_index
-            .iter()
-            .map(|e| e.instance_id().to_string())
-            .collect();
-
-        // Build the semanticObjectType map via the shared helper so `repo validate`
-        // and `create_relation` enforce E4 over identical inputs (#556).
-        let instance_semantic_types =
-            crate::writer::build_instance_semantic_types(store, &manifest);
+        // Build known instance IDs + the semanticObjectType map from the catalog
+        // snapshot already built above, via the shared helper so `repo validate`
+        // and `create_relation` enforce E1/E4 over identical inputs (#556).
+        let (known_instance_ids, instance_semantic_types) =
+            crate::writer::known_instances_and_semantic_types(store, &cat);
 
         let coll: RelationsCollection = match serde_json::from_value(relations_value) {
             Ok(c) => c,
@@ -1393,13 +1412,8 @@ pub fn validate_repository(
         Ok(standalone) if !standalone.is_empty() => {
             match store.load_package() {
                 Ok(pkg) => {
-                    let known_instance_ids: HashSet<String> = manifest
-                        .instance_index
-                        .iter()
-                        .map(|e| e.instance_id().to_string())
-                        .collect();
-                    let instance_semantic_types =
-                        crate::writer::build_instance_semantic_types(store, &manifest);
+                    let (known_instance_ids, instance_semantic_types) =
+                        crate::writer::known_instances_and_semantic_types(store, &cat);
                     let ctx = RelationValidationContext {
                         definitions: &pkg.relation_type_definitions,
                         known_instance_ids: &known_instance_ids,
@@ -1583,10 +1597,10 @@ pub fn validate_repository(
         // I-64: when a Container has rootInstanceIds and a containerType, containerType SHOULD
         // equal the resolved root Type's bare `name`. A mismatch is a stale hint, not an error.
         // Edge cases (unloadable root Record, unresolved Type) skip the check — never error here.
-        let id_to_path: HashMap<String, String> = manifest
-            .instance_index
+        let id_to_path: HashMap<String, String> = cat
+            .instances
             .iter()
-            .map(|e| (e.instance_id().to_string(), e.path().to_string()))
+            .filter_map(|e| Some((e.id.clone(), e.locator.clone()?)))
             .collect();
         if let Ok(container_summaries) = store.list_container_summaries() {
             for (container_id, _title) in container_summaries {
@@ -2396,13 +2410,16 @@ mod tests {
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
         assert!(!report.is_ok());
-        let mismatch = report
-            .diagnostics
-            .iter()
-            .any(|d| d.message.contains("tier") && d.message.contains("expects schema"));
+        // RFC-038 [R7]: a declared $schema is validated, never reclassified by shape —
+        // this now surfaces as the catalog's own schema-validation diagnostic (folded
+        // into the report) rather than validate_repository's separate tier-vs-schema
+        // check, which never sees a catalog-rejected file.
+        let mismatch = report.diagnostics.iter().any(|d| {
+            d.message.contains("SRS038-R7-SCHEMA-VALIDATION") && d.message.contains("record.json")
+        });
         assert!(
             mismatch,
-            "expected tier/schema mismatch diagnostic, got: {:?}",
+            "expected a declared-schema validation diagnostic, got: {:?}",
             report.diagnostics
         );
     }
@@ -2419,10 +2436,15 @@ mod tests {
             json!([])
         };
         json!({
+            "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
             "id": "00000000-0000-4000-8000-000000000010",
             "namespace": "com.test",
             "name": "test-package",
             "version": "1.0.0",
+            "title": "test-package",
+            "description": "",
+            "status": "active",
+            "createdAt": "2026-01-01T00:00:00Z",
             "fields": [],
             "types": types,
             "views": [],
@@ -2432,6 +2454,7 @@ mod tests {
 
     fn minimal_type_json(type_id: &str) -> Value {
         json!({
+            "$schema": srs_schema::TYPE_SCHEMA_ID,
             "id": type_id,
             "namespace": "com.test",
             "name": "test-type",
@@ -2467,10 +2490,15 @@ mod tests {
         lifecycle_paths: &[&str],
     ) -> Value {
         json!({
+            "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
             "id": "00000000-0000-4000-8000-000000000010",
             "namespace": "com.test",
             "name": "test-package",
             "version": "1.0.0",
+            "title": "test-package",
+            "description": "",
+            "status": "active",
+            "createdAt": "2026-01-01T00:00:00Z",
             "fields": field_paths,
             "types": type_paths,
             "views": [],
@@ -2485,10 +2513,13 @@ mod tests {
         vocab_ref: Option<&str>,
     ) -> Value {
         let mut obj = json!({
+            "$schema": srs_schema::FIELD_SCHEMA_ID,
             "id": field_id,
             "namespace": "com.test",
             "name": field_name,
             "version": 1,
+            "description": "Test field",
+            "aiGuidance": {"purpose": "test field"},
             "fieldType": {"datatype": "string"},
             "createdAt": "2026-01-01T00:00:00Z"
         });
@@ -5402,30 +5433,33 @@ mod tests {
         let root_id = "00000000-0000-4000-8000-000000000100";
         let member_id = "00000000-0000-4000-8000-000000000101";
 
+        // RFC-038 [R1]: the manifest embed is authoritative for the root container —
+        // a separate `containers/root.json` with the same id would be a duplicate
+        // ([R12]). memberInstanceIds is set directly on the embed.
         let manifest = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
             "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "Test I-80",
-            "container": {"containerId": root_id, "title": "Root"},
-            "containerIndex": [{"containerId": root_id, "title": "Root", "path": "containers/root.json"}],
+            "container": {"containerId": root_id, "title": "Root", "memberInstanceIds": [member_id]},
             "instanceIndex": [],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
-        write_json(
-            temp.path(),
-            "containers/root.json",
-            &serde_json::to_value(rfc013_container(root_id, &[member_id], &[])).unwrap(),
-        );
 
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
+        // RFC-038 [R25]: the catalog's own [R13] dangling-reference check now catches
+        // this before validate_repository's separate I-80 pass ever runs (resolving
+        // the root container fails fatally first) — either diagnostic proves the point.
         let errors: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("I-80"))
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Error
+                    && (d.message.contains("I-80") || d.message.contains("SRS038-R13"))
+            })
             .collect();
         assert!(
             !errors.is_empty(),
@@ -5440,30 +5474,30 @@ mod tests {
         let root_id = "00000000-0000-4000-8000-000000000200";
         let root_member_id = "00000000-0000-4000-8000-000000000201";
 
+        // RFC-038 [R1]: the manifest embed is authoritative for the root container.
         let manifest = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
             "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "Test I-80 root",
-            "container": {"containerId": root_id, "title": "Root"},
-            "containerIndex": [{"containerId": root_id, "title": "Root", "path": "containers/root.json"}],
+            "container": {"containerId": root_id, "title": "Root", "rootInstanceIds": [root_member_id]},
             "instanceIndex": [],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
-        write_json(
-            temp.path(),
-            "containers/root.json",
-            &serde_json::to_value(rfc013_container(root_id, &[], &[root_member_id])).unwrap(),
-        );
 
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
+        // RFC-038 [R25]: see the memberInstanceId case above for why either
+        // diagnostic proves the point.
         let errors: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("I-80"))
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Error
+                    && (d.message.contains("I-80") || d.message.contains("SRS038-R13"))
+            })
             .collect();
         assert!(
             !errors.is_empty(),
@@ -5479,23 +5513,24 @@ mod tests {
         let identity_id = "00000000-0000-4000-8000-000000000301";
         let member_id = "00000000-0000-4000-8000-000000000302";
 
+        // RFC-038 [R1]: the manifest embed is authoritative for the root container.
         let manifest = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
             "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "Test I-81 fail",
-            "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
-            "containerIndex": [{"containerId": root_id, "title": "Root", "path": "containers/root.json"}],
+            "container": {
+                "containerId": root_id,
+                "title": "Root",
+                "identityInstanceId": identity_id,
+                "memberInstanceIds": [member_id],
+                "rootInstanceIds": [member_id]
+            },
             "instanceIndex": [rfc013_instance_entry(member_id)],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
-        write_json(
-            temp.path(),
-            "containers/root.json",
-            &serde_json::to_value(rfc013_container(root_id, &[member_id], &[member_id])).unwrap(),
-        );
         write_json(
             temp.path(),
             &format!("records/{member_id}.json"),
@@ -5530,24 +5565,24 @@ mod tests {
         let root_id = "00000000-0000-4000-8000-000000000400";
         let identity_id = "00000000-0000-4000-8000-000000000401";
 
+        // RFC-038 [R1]: the manifest embed is authoritative for the root container.
         let manifest = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
             "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "Test I-81 ok via root",
-            "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
-            "containerIndex": [{"containerId": root_id, "title": "Root", "path": "containers/root.json"}],
+            "container": {
+                "containerId": root_id,
+                "title": "Root",
+                "identityInstanceId": identity_id,
+                "memberInstanceIds": [identity_id],
+                "rootInstanceIds": [identity_id]
+            },
             "instanceIndex": [rfc013_instance_entry(identity_id)],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
-        write_json(
-            temp.path(),
-            "containers/root.json",
-            &serde_json::to_value(rfc013_container(root_id, &[identity_id], &[identity_id]))
-                .unwrap(),
-        );
         write_json(
             temp.path(),
             &format!("records/{identity_id}.json"),
@@ -5584,24 +5619,24 @@ mod tests {
         let root_id = "00000000-0000-4000-8000-000000000500";
         let identity_id = "00000000-0000-4000-8000-000000000501";
 
+        // RFC-038 [R1]: the manifest embed is authoritative for the root container.
+        // Identity only in memberInstanceIds, not rootInstanceIds.
         let manifest = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
             "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "Test I-81 ok via member",
-            "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
-            "containerIndex": [{"containerId": root_id, "title": "Root", "path": "containers/root.json"}],
+            "container": {
+                "containerId": root_id,
+                "title": "Root",
+                "identityInstanceId": identity_id,
+                "memberInstanceIds": [identity_id]
+            },
             "instanceIndex": [rfc013_instance_entry(identity_id)],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
-        // Identity only in memberInstanceIds, not rootInstanceIds
-        write_json(
-            temp.path(),
-            "containers/root.json",
-            &serde_json::to_value(rfc013_container(root_id, &[identity_id], &[])).unwrap(),
-        );
         write_json(
             temp.path(),
             &format!("records/{identity_id}.json"),
@@ -5640,27 +5675,36 @@ mod tests {
         let identity_id = "00000000-0000-4000-8000-000000000306";
         let member_id = "00000000-0000-4000-8000-000000000307";
 
+        // RFC-038 [R1]: the manifest embed is authoritative for the root container.
+        // Container has member_id in memberInstanceIds but NOT identity_id.
         let manifest_val = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
             "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "I-81 MemoryStore test",
-            "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
+            "container": {
+                "containerId": root_id,
+                "title": "Root",
+                "identityInstanceId": identity_id,
+                "memberInstanceIds": [member_id],
+                "rootInstanceIds": [member_id]
+            },
             "instanceIndex": [rfc013_instance_entry(member_id)],
             "createdAt": "2026-01-01T00:00:00Z"
         });
-        // Container has member_id in memberInstanceIds but NOT identity_id
-        let container_val =
-            serde_json::to_value(rfc013_container(root_id, &[member_id], &[member_id])).unwrap();
-        let store = manifest_store(manifest_val)
-            .with_data(&format!("containers/{root_id}.json"), container_val);
+        let store = manifest_store(manifest_val);
 
         let report = validate_repository(&store).unwrap();
+        // RFC-038 [R25]: either the I-81 label or the catalog's own [R13]
+        // dangling-reference diagnostic proves the same violation.
         let errors: Vec<_> = report
             .diagnostics
             .iter()
-            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("I-81"))
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Error
+                    && (d.message.contains("I-81") || d.message.contains("SRS038-R13"))
+            })
             .collect();
         assert!(
             !errors.is_empty(),
@@ -5715,32 +5759,52 @@ mod tests {
         let section_container_id = "00000000-0000-4000-8000-000000000702";
         let other_id = "00000000-0000-4000-8000-000000000703";
 
-        let root_container = rfc013_container(root_id, &[member_id], &[member_id]);
         // Section container roots other_id, not member_id
         let section_container = rfc013_container(section_container_id, &[other_id], &[other_id]);
 
+        // RFC-038 [R1]: the manifest embed is authoritative for the root container.
         let manifest_val = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
             "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "I-82 warn test",
-            "container": {"containerId": root_id, "title": "Root"},
-            "containerIndex": [
-                {"containerId": section_container_id, "title": "Section"}
-            ],
+            "container": {
+                "containerId": root_id,
+                "title": "Root",
+                "memberInstanceIds": [member_id],
+                "rootInstanceIds": [member_id]
+            },
             "instanceIndex": [rfc013_instance_entry(member_id)],
             "createdAt": "2026-01-01T00:00:00Z"
         });
-        // Use manifest_store + with_data to insert container files without polluting typed manifest
+        // Use manifest_store + with_data to insert the section container file and the
+        // real (RFC-038 [R1]/[R13]: catalog-discovered) instance files it and the root
+        // container reference, without polluting the typed manifest.
         let store = manifest_store(manifest_val)
-            .with_data(
-                &format!("containers/{root_id}.json"),
-                serde_json::to_value(root_container).unwrap(),
-            )
             .with_data(
                 &format!("containers/{section_container_id}.json"),
                 serde_json::to_value(section_container).unwrap(),
+            )
+            .with_data(
+                &format!("records/{member_id}.json"),
+                json!({
+                    "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                    "instanceId": member_id,
+                    "typeId": "t1", "typeVersion": 1,
+                    "typeNamespace": "ns", "typeName": "Section",
+                    "fieldValues": {}
+                }),
+            )
+            .with_data(
+                &format!("records/{other_id}.json"),
+                json!({
+                    "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                    "instanceId": other_id,
+                    "typeId": "t1", "typeVersion": 1,
+                    "typeNamespace": "ns", "typeName": "Section",
+                    "fieldValues": {}
+                }),
             );
 
         let report = validate_repository(&store).unwrap();
@@ -5767,51 +5831,51 @@ mod tests {
         let section_container_id = "00000000-0000-4000-8000-000000000a03";
         let other_id = "00000000-0000-4000-8000-000000000a04";
 
-        // Root container: section_id in rootInstanceIds only; memberInstanceIds has only identity.
-        let root_container = srs_core::types::container::Container {
-            container_id: root_id.to_string(),
-            title: "Root".to_string(),
-            namespace: None,
-            name: None,
-            description: None,
-            container_type: None,
-            identity_instance_id: Some(identity_id.to_string()),
-            member_instance_ids: Some(vec![identity_id.to_string()]),
-            root_instance_ids: Some(vec![section_id.to_string()]),
-            tags: None,
-            created_at: None,
-            updated_at: None,
-            meta: None,
-            extra: std::collections::BTreeMap::new(),
-        };
         // Section container roots other_id, not section_id
         let section_container = rfc013_container(section_container_id, &[other_id], &[other_id]);
 
+        // RFC-038 [R1]: the manifest embed is authoritative for the root container —
+        // section_id in rootInstanceIds only; memberInstanceIds has only identity.
         let manifest_val = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
             "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "I-82 rootInstanceIds test",
-            "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
-            "containerIndex": [
-                {"containerId": section_container_id, "title": "Section"}
-            ],
+            "container": {
+                "containerId": root_id,
+                "title": "Root",
+                "identityInstanceId": identity_id,
+                "memberInstanceIds": [identity_id],
+                "rootInstanceIds": [section_id]
+            },
             "instanceIndex": [
                 rfc013_instance_entry(identity_id),
                 rfc013_instance_entry(section_id),
             ],
             "createdAt": "2026-01-01T00:00:00Z"
         });
+        let record_json = |id: &str| {
+            json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": id, "typeId": "t1", "typeVersion": 1,
+                "typeNamespace": "ns", "typeName": "Section", "fieldValues": {}
+            })
+        };
         let store = manifest_store(manifest_val)
-            .with_data(
-                &format!("containers/{root_id}.json"),
-                serde_json::to_value(root_container).unwrap(),
-            )
             .with_data(
                 &format!("containers/{section_container_id}.json"),
                 serde_json::to_value(section_container).unwrap(),
-            );
+            )
+            .with_data(
+                &format!("records/{identity_id}.json"),
+                record_json(identity_id),
+            )
+            .with_data(
+                &format!("records/{section_id}.json"),
+                record_json(section_id),
+            )
+            .with_data(&format!("records/{other_id}.json"), record_json(other_id));
 
         let report = validate_repository(&store).unwrap();
         let i82_warnings: Vec<_> = report
@@ -5841,50 +5905,50 @@ mod tests {
         let section_container_id = "00000000-0000-4000-8000-000000000b03";
         let other_id = "00000000-0000-4000-8000-000000000b04";
 
-        // section_id appears in BOTH memberInstanceIds and rootInstanceIds.
-        let root_container = srs_core::types::container::Container {
-            container_id: root_id.to_string(),
-            title: "Root".to_string(),
-            namespace: None,
-            name: None,
-            description: None,
-            container_type: None,
-            identity_instance_id: Some(identity_id.to_string()),
-            member_instance_ids: Some(vec![identity_id.to_string(), section_id.to_string()]),
-            root_instance_ids: Some(vec![section_id.to_string()]),
-            tags: None,
-            created_at: None,
-            updated_at: None,
-            meta: None,
-            extra: std::collections::BTreeMap::new(),
-        };
         let section_container = rfc013_container(section_container_id, &[other_id], &[other_id]);
 
+        // RFC-038 [R1]: the manifest embed is authoritative for the root container —
+        // section_id appears in BOTH memberInstanceIds and rootInstanceIds.
         let manifest_val = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
             "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "I-82 dedup test",
-            "container": {"containerId": root_id, "title": "Root", "identityInstanceId": identity_id},
-            "containerIndex": [
-                {"containerId": section_container_id, "title": "Section"}
-            ],
+            "container": {
+                "containerId": root_id,
+                "title": "Root",
+                "identityInstanceId": identity_id,
+                "memberInstanceIds": [identity_id, section_id],
+                "rootInstanceIds": [section_id]
+            },
             "instanceIndex": [
                 rfc013_instance_entry(identity_id),
                 rfc013_instance_entry(section_id),
             ],
             "createdAt": "2026-01-01T00:00:00Z"
         });
+        let record_json = |id: &str| {
+            json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": id, "typeId": "t1", "typeVersion": 1,
+                "typeNamespace": "ns", "typeName": "Section", "fieldValues": {}
+            })
+        };
         let store = manifest_store(manifest_val)
-            .with_data(
-                &format!("containers/{root_id}.json"),
-                serde_json::to_value(root_container).unwrap(),
-            )
             .with_data(
                 &format!("containers/{section_container_id}.json"),
                 serde_json::to_value(section_container).unwrap(),
-            );
+            )
+            .with_data(
+                &format!("records/{identity_id}.json"),
+                record_json(identity_id),
+            )
+            .with_data(
+                &format!("records/{section_id}.json"),
+                record_json(section_id),
+            )
+            .with_data(&format!("records/{other_id}.json"), record_json(other_id));
 
         let report = validate_repository(&store).unwrap();
         let i82_for_section: Vec<_> = report
@@ -6069,6 +6133,8 @@ mod tests {
         let section_id = "00000000-0000-4000-8000-000000000902";
         let section_container_id = "00000000-0000-4000-8000-000000000903";
 
+        // RFC-038 [R1]: the manifest embed is authoritative for the root container —
+        // identity in rootInstanceIds + memberInstanceIds, section_id also member.
         let manifest = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
@@ -6078,12 +6144,10 @@ mod tests {
             "container": {
                 "containerId": root_id,
                 "title": "Root",
-                "identityInstanceId": identity_id
+                "identityInstanceId": identity_id,
+                "memberInstanceIds": [identity_id, section_id],
+                "rootInstanceIds": [identity_id]
             },
-            "containerIndex": [
-                {"containerId": root_id, "title": "Root", "path": "containers/root.json"},
-                {"containerId": section_container_id, "title": "Section", "path": "containers/section.json"}
-            ],
             "instanceIndex": [
                 rfc013_instance_entry(identity_id),
                 rfc013_instance_entry(section_id)
@@ -6091,15 +6155,6 @@ mod tests {
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
-
-        // Root container: identity in rootInstanceIds + memberInstanceIds, section_id also member
-        let root_container = json!({
-            "containerId": root_id,
-            "title": "Root",
-            "memberInstanceIds": [identity_id, section_id],
-            "rootInstanceIds": [identity_id]
-        });
-        write_json(temp.path(), "containers/root.json", &root_container);
 
         // Section container: section_id is root
         let section_container = json!({
@@ -6163,59 +6218,44 @@ mod tests {
         // FileStore and JsonStore (from_srsj) must produce the same RFC-013 diagnostic count.
         // Member not in instanceIndex → I-80 error on both stores.
         //
-        // Key alignment: FileStore uses the containerIndex `path` field; JsonStore uses
-        // `"containers/{id}.json"` as the data key. We use "containers/{root_id}.json" for both.
+        // RFC-038 [R1]: the manifest embed is authoritative for the root container — no
+        // separate `containers/{root_id}.json` file (that would be an [R12] duplicate).
         let root_id = "00000000-0000-4000-8000-000000000a00";
         let member_id = "00000000-0000-4000-8000-000000000a01";
-        let container_file = format!("containers/{root_id}.json");
         let manifest_val = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
             "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "Cross-Store I-80",
-            "container": {"containerId": root_id, "title": "Root"},
-            "containerIndex": [{"containerId": root_id, "title": "Root", "path": container_file}],
+            "container": {"containerId": root_id, "title": "Root", "memberInstanceIds": [member_id]},
             "instanceIndex": [],
             "createdAt": "2026-01-01T00:00:00Z"
         });
-        let container_val =
-            serde_json::to_value(rfc013_container(root_id, &[member_id], &[])).unwrap();
 
         // FileStore: write files to disk
         let temp = TempDir::new().unwrap();
         write_json(temp.path(), "manifest.json", &manifest_val);
-        write_json(
-            temp.path(),
-            &format!("containers/{root_id}.json"),
-            &container_val,
-        );
         let file_store = crate::store::FileStore::new(temp.path());
 
         // JsonStore via from_srsj: snapshot doesn't preserve manifest.container so we use from_srsj.
-        // Data key "containers/{root_id}.json" matches what JsonStore::load_container looks for.
-        let mut data = serde_json::Map::new();
-        data.insert(format!("containers/{root_id}.json"), container_val.clone());
         let srsj = json!({
             "srsj": "1",
             "manifest": manifest_val,
-            "data": data
+            "data": {}
         });
         let json_store = crate::json_store::JsonStore::from_srsj(&srsj.to_string()).unwrap();
 
         let file_report = validate_repository(&file_store).unwrap();
         let json_report = validate_repository(&json_store).unwrap();
 
-        let file_i80: Vec<_> = file_report
-            .diagnostics
-            .iter()
-            .filter(|d| d.message.contains("I-80"))
-            .collect();
-        let json_i80: Vec<_> = json_report
-            .diagnostics
-            .iter()
-            .filter(|d| d.message.contains("I-80"))
-            .collect();
+        // RFC-038 [R25]: either the I-80 label or the catalog's own [R13]
+        // dangling-reference diagnostic proves the same violation.
+        let is_i80_like = |d: &&ValidationDiagnostic| {
+            d.message.contains("I-80") || d.message.contains("SRS038-R13")
+        };
+        let file_i80: Vec<_> = file_report.diagnostics.iter().filter(is_i80_like).collect();
+        let json_i80: Vec<_> = json_report.diagnostics.iter().filter(is_i80_like).collect();
 
         assert!(
             !file_i80.is_empty(),
@@ -8379,7 +8419,8 @@ mod tests {
             let sidecar = json!({
                 "documentId": doc_id,
                 "contentPath": rel_path,
-                "contentType": mime_type
+                "contentType": mime_type,
+                "createdAt": "2026-01-01T00:00:00Z"
             });
             store
                 .save_text_file(&sidecar_full, &serde_json::to_string(&sidecar).unwrap())
@@ -9281,6 +9322,25 @@ mod tests {
         let store = MemoryStore::new(manifest, package)
             .with_data("manifest.json", serde_json::Value::String(manifest_str))
             .with_data("records/note.json", note_json);
+        // RFC-038 [R25]: source documents resolve via sidecar discovery — the
+        // legacy `sourceDocumentIndex` in `manifest_json` above is inert (kept
+        // only so these fixtures still exercise the [R2] retired-property field
+        // round-trip); write the real sidecar these tests actually need found.
+        if let Some(entries) = manifest_json_source_doc_entries(&store) {
+            for entry in entries {
+                let sidecar_path = format!(
+                    "source-documents/{}",
+                    entry["sidecarPath"].as_str().unwrap()
+                );
+                let sidecar = json!({
+                    "documentId": entry["documentId"],
+                    "contentPath": entry["contentPath"],
+                    "contentType": "application/pdf",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                });
+                store.save_instance_json(&sidecar_path, &sidecar).unwrap();
+            }
+        }
         if content_present {
             store
                 .save_binary_file(
@@ -9290,6 +9350,18 @@ mod tests {
                 .unwrap();
         }
         store
+    }
+
+    /// Read back `sourceDocumentIndex` entries from the manifest JSON already
+    /// stored on `store`, if any — used only to seed real sidecar fixtures above.
+    fn manifest_json_source_doc_entries(store: &MemoryStore) -> Option<Vec<serde_json::Value>> {
+        let manifest_str = store.load_text_file("manifest.json").ok()?;
+        let manifest_json: serde_json::Value = serde_json::from_str(&manifest_str).ok()?;
+        manifest_json
+            .get("sourceDocumentIndex")
+            .and_then(|v| v.as_array())
+            .map(|a| a.to_vec())
+            .filter(|v| !v.is_empty())
     }
 
     #[test]

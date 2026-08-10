@@ -358,7 +358,7 @@ pub fn list_document_views_summary(
 ///
 /// Returns `RepositoryError` when:
 /// - the container is not found
-/// - the root instance is not found in the manifest index
+/// - the root instance is not found in the catalog's instance set
 pub fn document_views_for_container(
     store: &dyn RepositoryStore,
     container_id: &str,
@@ -375,22 +375,23 @@ pub fn document_views_for_container(
         None => return Ok(vec![]),
     };
 
-    // Find the instance path in the manifest index.
-    let manifest = store.load_manifest()?;
-    let entry = manifest
-        .instance_index
+    // Find the instance locator via the catalog (RFC-038: no manifest.instanceIndex).
+    let cat = store.catalog()?;
+    let locator = cat
+        .instances
         .iter()
-        .find(|e| e.instance_id() == root_id)
+        .find(|e| e.id == root_id)
+        .and_then(|e| e.locator.clone())
         .ok_or_else(|| RepositoryError::InstanceLoad {
             instance_id: root_id.clone(),
             path: std::path::PathBuf::from(&root_id),
             source: Box::from(format!(
-                "root instance '{root_id}' in container '{container_id}' not found in manifest index"
+                "root instance '{root_id}' in container '{container_id}' not found in the instance set"
             )),
         })?;
 
     // Load the raw JSON to extract typeId / typeVersion without committing to a tier type.
-    let instance_json = store.load_instance_json(entry.path())?;
+    let instance_json = store.load_instance_json(&locator)?;
     let type_id = match instance_json
         .get("typeId")
         .and_then(|v| v.as_str())

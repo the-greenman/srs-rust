@@ -189,9 +189,10 @@ pub fn list_notes(
 
 /// Service: List distinct tags used across tier-0 notes, with per-tag note counts.
 ///
-/// Uses the manifest index (note-level tags only — section tags are not cached in the index).
-/// No note files are loaded. Tags are returned sorted alphabetically.
-/// Container scoping is respected when `container_id` is `Some`.
+/// One catalog snapshot, then one body read per note (RFC-038: tags are
+/// catalog-derived — note-level tags only, section tags are not surfaced here).
+/// Tags are returned sorted alphabetically. Container scoping is respected
+/// when `container_id` is `Some`.
 pub fn list_note_tags(
     store: &dyn RepositoryStore,
     container_id: Option<&str>,
@@ -203,22 +204,29 @@ pub fn list_note_tags(
         None
     };
 
-    let manifest = store.load_manifest()?;
+    let cat = store.catalog()?;
     let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
     let mut total_notes = 0;
 
-    for entry in &manifest.instance_index {
-        if !entry.is_note() {
+    for entry in &cat.instances {
+        if entry.tier != Some(0) {
             continue;
         }
         if let Some(ref m) = member_ids {
-            if !m.contains(entry.instance_id()) {
+            if !m.contains(entry.id.as_str()) {
                 continue;
             }
         }
+        let Some(locator) = entry.locator.as_deref() else {
+            continue;
+        };
+        let Ok(body) = store.load_instance_json(locator) else {
+            continue;
+        };
         total_notes += 1;
-        for tag in entry.tags.iter().flatten() {
-            *counts.entry(tag.clone()).or_insert(0) += 1;
+        let r = crate::store::instance_ref_from_body(entry.id.clone(), 0, &body);
+        for tag in r.tags {
+            *counts.entry(tag).or_insert(0) += 1;
         }
     }
 
@@ -751,47 +759,19 @@ mod tests {
 
     #[test]
     fn list_note_tags_note_with_no_tags_counted_in_total() {
-        let mut note = make_note("11111111-1111-4111-8111-111111111111", "Untagged");
-        note.tags = None;
-        let manifest = Manifest {
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: note.instance_id.clone(),
-                tier: 0,
-                path: "records/notes/untagged.json".to_string(),
-                title: note.title.clone().map(serde_json::Value::String),
-                tags: None,
-            }],
-            container: None,
-            container_index: None,
-            federation_path: None,
-            upstream_package: None,
-            federation_events_path: None,
-            extra: std::collections::BTreeMap::new(),
-            source_documents_path: None,
-            source_document_index: None,
-            root: PathBuf::from("/memory"),
-        };
-        let store = MemoryStore::new(
-            manifest,
-            crate::package::Package {
-                id: "test-pkg".to_string(),
-                namespace: "com.test".to_string(),
-                name: "test".to_string(),
-                version: "1.0.0".to_string(),
-                fields: vec![],
-                record_types: vec![],
-                relation_type_definitions: vec![],
-                views: vec![],
-                document_views: vec![],
-                themes: vec![],
-                blueprints: vec![],
-                protocols: vec![],
-                root: PathBuf::from("/memory"),
-                dependency_refs: vec![],
-                vocabularies: vec![],
-                lifecycles: vec![],
-            },
-        );
+        // RFC-038 [R1]: membership comes from the tree — write a real Note file
+        // rather than a manifest.instanceIndex entry.
+        let store = MemoryStore::default();
+        store
+            .save_instance_json(
+                "records/notes/untagged.json",
+                &serde_json::json!({
+                    "instanceId": "11111111-1111-4111-8111-111111111111",
+                    "title": "Untagged",
+                    "sections": []
+                }),
+            )
+            .unwrap();
         let result = list_note_tags(&store, None).unwrap();
         assert_eq!(result.total_notes, 1);
         assert!(result.tags.is_empty());
@@ -799,55 +779,29 @@ mod tests {
 
     #[test]
     fn list_note_tags_non_note_entries_excluded() {
-        let note = make_note("11111111-1111-4111-8111-111111111111", "Note");
-        let manifest = Manifest {
-            instance_index: vec![
-                InstanceIndexEntry {
-                    instance_id: note.instance_id.clone(),
-                    tier: 0,
-                    path: "records/notes/note.json".to_string(),
-                    title: note.title.clone().map(serde_json::Value::String),
-                    tags: note.tags.clone(),
-                },
-                InstanceIndexEntry {
-                    instance_id: "22222222-2222-4222-8222-222222222222".to_string(),
-                    tier: 1,
-                    path: "records/typed.json".to_string(),
-                    title: None,
-                    tags: Some(vec!["not-counted".to_string()]),
-                },
-            ],
-            container: None,
-            container_index: None,
-            federation_path: None,
-            upstream_package: None,
-            federation_events_path: None,
-            extra: std::collections::BTreeMap::new(),
-            source_documents_path: None,
-            source_document_index: None,
-            root: PathBuf::from("/memory"),
-        };
-        let store = MemoryStore::new(
-            manifest,
-            crate::package::Package {
-                id: "test-pkg".to_string(),
-                namespace: "com.test".to_string(),
-                name: "test".to_string(),
-                version: "1.0.0".to_string(),
-                fields: vec![],
-                record_types: vec![],
-                relation_type_definitions: vec![],
-                views: vec![],
-                document_views: vec![],
-                themes: vec![],
-                blueprints: vec![],
-                protocols: vec![],
-                root: PathBuf::from("/memory"),
-                dependency_refs: vec![],
-                vocabularies: vec![],
-                lifecycles: vec![],
-            },
-        );
+        // RFC-038 [R1]: membership comes from the tree — write real files rather
+        // than manifest.instanceIndex entries.
+        let store = MemoryStore::default();
+        store
+            .save_instance_json(
+                "records/notes/note.json",
+                &serde_json::json!({
+                    "instanceId": "11111111-1111-4111-8111-111111111111",
+                    "title": "Note",
+                    "sections": []
+                }),
+            )
+            .unwrap();
+        store
+            .save_instance_json(
+                "records/typed-records/typed.json",
+                &serde_json::json!({
+                    "instanceId": "22222222-2222-4222-8222-222222222222",
+                    "fields": [],
+                    "tags": ["not-counted"]
+                }),
+            )
+            .unwrap();
         let result = list_note_tags(&store, None).unwrap();
         assert_eq!(result.total_notes, 1);
         assert!(!result.tags.iter().any(|t| t.tag == "not-counted"));

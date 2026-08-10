@@ -846,7 +846,16 @@ impl Builder<'_> {
             return;
         }
         // Standalone relation object ([R11]): one relation per file, filename
-        // derivable from the in-file relationId, which is authoritative.
+        // derivable from the in-file relationId, which is authoritative. `$schema`
+        // is a declared, const-pinned property of the wire shape (Change E) but not
+        // a field of the `Relation` struct itself (`deny_unknown_fields`) — strip it
+        // before deserializing, mirroring `store::relation_object_from_value`. Every
+        // relation `save_relation` writes carries this property, so failing to strip
+        // it here would make every production-written relation uncatalogable.
+        let mut value = value;
+        if let Some(obj) = value.as_object_mut() {
+            obj.remove("$schema");
+        }
         match serde_json::from_value::<Relation>(value) {
             Ok(relation) => {
                 let stem = rel.strip_suffix(".json").unwrap_or(rel);

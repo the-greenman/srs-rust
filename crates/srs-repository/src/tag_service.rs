@@ -78,15 +78,15 @@ pub fn get_term_by_id(
     vocabulary_service::get_term_by_id(store, id)
 }
 
-/// Cross-tier tag query — returns all instances (Notes, TypedRecords, Records) whose
-/// manifest index entry carries `tag_key`. Reads the manifest only; no per-record file loads.
+/// Cross-tier tag query — returns all instances (Notes, TypedRecords, Records)
+/// whose entity body carries `tag_key`. One catalog snapshot, then one body
+/// read per instance (RFC-038: tags are catalog-derived, not a cached index
+/// column).
 pub fn query_by_tag(
     store: &dyn RepositoryStore,
     tag_key: &str,
     container_id: Option<&str>,
 ) -> Result<TagQueryResult, RepositoryError> {
-    let manifest = store.load_manifest()?;
-
     let filtered_ids: Option<std::collections::HashSet<String>> = if let Some(cid) = container_id {
         let members = crate::container_service::list_container_members(store, cid)?;
         Some(members.into_iter().collect())
@@ -94,29 +94,33 @@ pub fn query_by_tag(
         None
     };
 
-    let hits: Vec<TagQueryHit> = manifest
-        .instance_index
-        .iter()
-        .filter(|e| {
-            e.tags
-                .as_ref()
-                .map(|tags| tags.iter().any(|t| t == tag_key))
-                .unwrap_or(false)
-        })
-        .filter(|e| {
-            filtered_ids
-                .as_ref()
-                .map(|ids| ids.contains(e.instance_id()))
-                .unwrap_or(true)
-        })
-        .map(|e| TagQueryHit {
-            instance_id: e.instance_id().to_string(),
-            tier: e.tier(),
-            path: e.path().to_string(),
-            title: e.title(),
-            tags: e.tags.clone().unwrap_or_default(),
-        })
-        .collect();
+    let cat = store.catalog()?;
+    let mut hits: Vec<TagQueryHit> = Vec::new();
+    for entry in &cat.instances {
+        if let Some(ref ids) = filtered_ids {
+            if !ids.contains(entry.id.as_str()) {
+                continue;
+            }
+        }
+        let Some(locator) = entry.locator.as_deref() else {
+            continue;
+        };
+        let Ok(body) = store.load_instance_json(locator) else {
+            continue;
+        };
+        let r =
+            crate::store::instance_ref_from_body(entry.id.clone(), entry.tier.unwrap_or(2), &body);
+        if !r.tags.iter().any(|t| t == tag_key) {
+            continue;
+        }
+        hits.push(TagQueryHit {
+            instance_id: r.instance_id,
+            tier: r.tier,
+            path: locator.to_string(),
+            title: r.title,
+            tags: r.tags,
+        });
+    }
 
     Ok(TagQueryResult {
         key: tag_key.to_string(),
@@ -125,40 +129,37 @@ pub fn query_by_tag(
 }
 
 /// Advisory tag audit — checks tier-2 Records for missing required facets.
-/// Never causes validation to fail; findings are informational only.
-/// Reads the manifest only; no per-record file loads.
+/// Never causes validation to fail; findings are informational only. One
+/// catalog snapshot, then one body read per tier-2 record (RFC-038: tags are
+/// catalog-derived, not a cached index column).
 pub fn audit_tags(
     store: &dyn RepositoryStore,
     filter: AuditTagsFilter,
 ) -> Result<AuditTagsResult, RepositoryError> {
-    let manifest = store.load_manifest()?;
-
-    let records: Vec<_> = manifest
-        .instance_index
-        .iter()
-        .filter(|e| e.tier() == 2)
-        .collect();
+    let cat = store.catalog()?;
+    let records: Vec<_> = cat.instances.iter().filter(|e| e.tier == Some(2)).collect();
 
     let records_checked = records.len();
     let mut findings: Vec<AuditFinding> = Vec::new();
 
     for entry in records {
-        let tags: Vec<&str> = entry
-            .tags
-            .as_deref()
-            .unwrap_or_default()
-            .iter()
-            .map(|s| s.as_str())
-            .collect();
+        let Some(locator) = entry.locator.as_deref() else {
+            continue;
+        };
+        let Ok(body) = store.load_instance_json(locator) else {
+            continue;
+        };
+        let r = crate::store::instance_ref_from_body(entry.id.clone(), 2, &body);
+        let tags: Vec<&str> = r.tags.iter().map(|s| s.as_str()).collect();
 
         for facet in &filter.required_facets {
             let prefix = format!("{}:", facet);
             let has_facet = tags.iter().any(|t| t.starts_with(&prefix));
             if !has_facet {
                 findings.push(AuditFinding {
-                    instance_id: entry.instance_id().to_string(),
-                    path: entry.path().to_string(),
-                    title: entry.title(),
+                    instance_id: entry.id.clone(),
+                    path: locator.to_string(),
+                    title: r.title.clone(),
                     kind: AuditFindingKind::MissingFacet {
                         facet: facet.clone(),
                     },

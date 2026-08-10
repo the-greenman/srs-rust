@@ -153,21 +153,18 @@ pub fn get_relation_by_id(
 
 /// Build the owned data needed to construct a `RelationValidationContext`.
 /// Shared by `create_relation` and `rebuild_precedes_chain` to avoid duplicating
-/// the manifest-load + instance-set + semantic-type-map construction.
+/// the catalog-fetch + instance-set + semantic-type-map construction. One
+/// catalog snapshot for both values (RFC-038: no manifest.instanceIndex).
 fn load_validation_data(
     store: &dyn RepositoryStore,
 ) -> Result<(HashSet<String>, HashMap<String, String>), RepositoryError> {
-    let manifest = store.load_manifest()?;
-    let known_instance_ids: HashSet<String> = manifest
-        .instance_index
-        .iter()
-        .map(|e| e.instance_id().to_string())
-        .collect();
+    let cat = store.catalog()?;
     // Populate the semantic-type map so E4 (allowedSourceTypes / allowedTargetTypes /
     // requireSameSemanticObjectType) fires on the write path exactly as it does in
     // `repo validate` — previously this was an empty map, so E4 was dead on create (#556).
-    let instance_semantic_types = crate::writer::build_instance_semantic_types(store, &manifest);
-    Ok((known_instance_ids, instance_semantic_types))
+    Ok(crate::writer::known_instances_and_semantic_types(
+        store, &cat,
+    ))
 }
 
 /// Create a new relation with E1-E4 validation.
@@ -748,20 +745,17 @@ mod tests {
 
     fn make_store_with_relations() -> MemoryStore {
         let store = MemoryStore::default();
-        // Add instance index to manifest
-        let mut manifest = store.load_manifest().unwrap();
+        // RFC-038 [R1]: membership comes from the tree — write real, minimal
+        // Note files rather than a manifest.instanceIndex entry, so the
+        // catalog's instance set (and [R13] reference resolution) sees them.
         for id in ["note-1", "note-2", "note-3", "note-4"] {
-            manifest
-                .instance_index
-                .push(crate::index::InstanceIndexEntry {
-                    instance_id: id.to_string(),
-                    tier: 0,
-                    path: format!("records/notes/{}.json", id),
-                    title: None,
-                    tags: None,
-                });
+            store
+                .save_instance_json(
+                    &format!("records/notes/{id}.json"),
+                    &json!({"instanceId": id, "sections": []}),
+                )
+                .unwrap();
         }
-        store.save_manifest(&manifest).unwrap();
 
         let relations = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
@@ -935,21 +929,13 @@ mod tests {
     }
 
     /// A store with two Tier-2 instances carrying `semanticObjectType`, for E4-on-create tests (#556).
+    // KNOWN GAP (srs-rust#783 Phase 3): `semanticObjectType` is not a declared property of
+    // record.json (additionalProperties: false), so these fixtures are schema-invalid under
+    // the RFC-038 catalog and their tests fail catalog load — a pre-existing conflict between
+    // E4's raw-property read and the schema, not introduced by the instance_index rewire and
+    // not resolved here; see final report.
     fn make_store_with_typed_instances(src_type: &str, tgt_type: &str) -> MemoryStore {
         let store = MemoryStore::default();
-        let mut manifest = store.load_manifest().unwrap();
-        for id in ["src", "tgt"] {
-            manifest
-                .instance_index
-                .push(crate::index::InstanceIndexEntry {
-                    instance_id: id.to_string(),
-                    tier: 2,
-                    path: format!("records/{}.json", id),
-                    title: None,
-                    tags: None,
-                });
-        }
-        store.save_manifest(&manifest).unwrap();
         store
             .save_instance_json(
                 "records/src.json",
@@ -1102,18 +1088,17 @@ mod tests {
         manifest
             .extra
             .insert("relationsPath".to_string(), json!("relations/custom.json"));
-        for id in ["src-1", "tgt-1"] {
-            manifest
-                .instance_index
-                .push(crate::index::InstanceIndexEntry {
-                    instance_id: id.to_string(),
-                    tier: 0,
-                    path: format!("records/{}.json", id),
-                    title: None,
-                    tags: None,
-                });
-        }
         store.save_manifest(&manifest).unwrap();
+        // RFC-038 [R1]/[R13]: relation endpoints must resolve to real discovered
+        // instances — write minimal Note files rather than a manifest index entry.
+        for id in ["src-1", "tgt-1"] {
+            store
+                .save_instance_json(
+                    &format!("records/notes/{id}.json"),
+                    &json!({"instanceId": id, "sections": []}),
+                )
+                .unwrap();
+        }
 
         let def = links_def(None, None, None);
         let rel = make_relation(
@@ -1897,19 +1882,16 @@ mod tests {
             RelationTypeCategory, RelationTypeDefinition,
         };
         let store = MemoryStore::default();
-        let mut manifest = store.load_manifest().unwrap();
+        // RFC-038 [R1]/[R13]: relation endpoints must resolve to real discovered
+        // instances — write minimal Note files rather than a manifest index entry.
         for id in ids {
-            manifest
-                .instance_index
-                .push(crate::index::InstanceIndexEntry {
-                    instance_id: id.to_string(),
-                    tier: 0,
-                    path: format!("records/{}.json", id),
-                    title: None,
-                    tags: None,
-                });
+            store
+                .save_instance_json(
+                    &format!("records/notes/{id}.json"),
+                    &json!({"instanceId": id, "sections": []}),
+                )
+                .unwrap();
         }
-        store.save_manifest(&manifest).unwrap();
         store
             .save_relation_type_definition(
                 "package/relation-types/precedes.json",

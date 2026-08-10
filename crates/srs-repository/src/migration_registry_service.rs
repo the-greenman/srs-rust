@@ -195,7 +195,7 @@ mod tests {
     use crate::container_service::create_container;
     use crate::repository_portability::copy_repository;
     use crate::store::memory::MemoryStore;
-    use crate::writer::{upsert_index_entry, write_manifest, write_note};
+    use crate::writer::{write_manifest, write_note};
     use srs_core::types::container::Container;
     use srs_core::types::note::{Note, NoteSection};
 
@@ -246,7 +246,6 @@ mod tests {
         let mut root = bare_container(container_id);
         root.identity_instance_id = Some(note_id.to_string());
         manifest.container = Some(root);
-        upsert_index_entry(&mut manifest, &note, note_path);
         write_manifest(&store, &manifest).unwrap();
 
         (store, container_id.to_string())
@@ -396,10 +395,6 @@ mod tests {
         // Write to a non-canonical path
         let old_path = "records/notes/old-name.json";
         write_note(&store, &note, old_path).unwrap();
-
-        let mut manifest = store.load_manifest().unwrap();
-        upsert_index_entry(&mut manifest, &note, old_path);
-        write_manifest(&store, &manifest).unwrap();
 
         let result = apply_migration(&store, "repo-upgrade").unwrap();
         assert_eq!(result.id, "repo-upgrade");

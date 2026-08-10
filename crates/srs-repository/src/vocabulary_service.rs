@@ -192,18 +192,25 @@ fn find_vocabulary_file_path(
         })
 }
 
-/// Collect all tag string counts from the manifest instance index.
+/// Collect all tag string counts across every instance's body (RFC-038: tags
+/// are catalog-derived, not a cached manifest index column).
 /// Returns a map of tag_key → usage count across all instances.
 fn collect_tag_key_counts(
     store: &dyn RepositoryStore,
 ) -> Result<HashMap<String, usize>, RepositoryError> {
-    let manifest = store.load_manifest()?;
+    let cat = store.catalog()?;
     let mut counts: HashMap<String, usize> = HashMap::new();
-    for entry in &manifest.instance_index {
-        if let Some(tags) = &entry.tags {
-            for tag in tags {
-                *counts.entry(tag.clone()).or_insert(0) += 1;
-            }
+    for entry in &cat.instances {
+        let Some(locator) = entry.locator.as_deref() else {
+            continue;
+        };
+        let Ok(body) = store.load_instance_json(locator) else {
+            continue;
+        };
+        let r =
+            crate::store::instance_ref_from_body(entry.id.clone(), entry.tier.unwrap_or(2), &body);
+        for tag in r.tags {
+            *counts.entry(tag).or_insert(0) += 1;
         }
     }
     Ok(counts)
