@@ -577,24 +577,18 @@ fn summarize_relations(store: &dyn RepositoryStore) -> Result<RelationsSummary, 
         .iter()
         .find_map(|p| try_load_relations_json(store, p).map(|v| (p.clone(), v)));
 
-    let (relative_path, value) = match found {
-        Some(pair) => pair,
-        None => {
-            return Ok(RelationsSummary {
-                relations_path: None,
-                exists: false,
-                relation_count: 0,
-                relation_types: BTreeMap::new(),
-            });
-        }
+    let (relations_path, relations) = match found {
+        Some((relative_path, value)) => (
+            Some(relative_path),
+            value
+                .get("relations")
+                .and_then(|r| r.as_array())
+                .cloned()
+                .unwrap_or_default(),
+        ),
+        None => (None, Vec::new()),
     };
-    let relations_path = Some(relative_path);
-
-    let relations = value
-        .get("relations")
-        .and_then(|r| r.as_array())
-        .cloned()
-        .unwrap_or_default();
+    let mut relation_count = relations.len();
     let mut relation_types = BTreeMap::new();
     for relation in &relations {
         let relation_type = relation
@@ -604,10 +598,23 @@ fn summarize_relations(store: &dyn RepositoryStore) -> Result<RelationsSummary, 
             .unwrap_or("unknown");
         *relation_types.entry(relation_type.to_string()).or_default() += 1;
     }
+
+    // Standalone relation objects (RFC-038 Change E) — transitional dual read;
+    // malformed objects are reported by `repo validate`, not counted here.
+    if let Ok(standalone) = store.list_relations() {
+        relation_count += standalone.len();
+        for relation in &standalone {
+            *relation_types
+                .entry(relation.relation_type.clone())
+                .or_default() += 1;
+        }
+    }
+
+    let exists = relations_path.is_some() || relation_count > 0;
     Ok(RelationsSummary {
         relations_path,
-        exists: true,
-        relation_count: relations.len(),
+        exists,
+        relation_count,
         relation_types,
     })
 }

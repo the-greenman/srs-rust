@@ -131,6 +131,14 @@ pub(crate) fn tree_entries(
             Err(e) => return Err(e),
         }
     }
+    // Standalone relation objects (RFC-038 Change E) — transitional dual carry
+    // until Phase 4's catalog-driven archive enumeration ([R17]).
+    for path in source.list_files_recursive("relations") {
+        if path.ends_with(".json") && !entries.contains_key(&path) {
+            let text = source.load_text_file(&path)?;
+            entries.insert(path, text.into_bytes());
+        }
+    }
 
     // Instance files at their real storage paths (may predate canonicalization).
     for entry in &manifest.instance_index {
@@ -474,7 +482,7 @@ fn legacy_snapshot_from_map(
         });
     }
 
-    let relations: Vec<Relation> =
+    let mut relations: Vec<Relation> =
         if let Some(rel_bytes) = bytes_map.get("relations/relations-collection.json") {
             let val: serde_json::Value =
                 serde_json::from_slice(rel_bytes).map_err(|e| RepositoryError::InvalidArchive {
@@ -490,6 +498,26 @@ fn legacy_snapshot_from_map(
         } else {
             Vec::new()
         };
+    // Standalone relation objects (RFC-038 Change E) — transitional dual read;
+    // collection-shaped files (a top-level `relations` array) are not objects.
+    for (key, bytes) in bytes_map.iter() {
+        if !key.starts_with("relations/") || !key.ends_with(".json") {
+            continue;
+        }
+        let val: serde_json::Value =
+            serde_json::from_slice(bytes).map_err(|e| RepositoryError::InvalidArchive {
+                message: format!("{key}: {e}"),
+            })?;
+        if val.get("relations").is_some() {
+            continue;
+        }
+        let relation = crate::store::relation_object_from_value(val, key).map_err(|e| {
+            RepositoryError::InvalidArchive {
+                message: e.to_string(),
+            }
+        })?;
+        relations.push(relation);
+    }
 
     let src_docs_base = manifest_val
         .get("sourceDocumentsPath")

@@ -23,7 +23,7 @@ use crate::container_service;
 use crate::error::RepositoryError;
 use crate::record_store;
 use crate::relation_graph;
-use crate::store::RepositoryStore;
+use crate::store::{relation_object_path, RepositoryStore};
 use crate::writer::new_instance_id;
 use srs_core::types::relation::{Relation, RelationsCollection};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
@@ -71,7 +71,8 @@ pub struct ListRelationsFilter {
     pub container_id: Option<String>,
 }
 
-/// List relations from the relations-collection.json file with optional filtering
+/// List all relations (standalone objects + transitional collection entries)
+/// with optional filtering
 pub fn list_relations(
     store: &dyn RepositoryStore,
     filter: ListRelationsFilter,
@@ -169,7 +170,10 @@ fn load_validation_data(
     Ok((known_instance_ids, instance_semantic_types))
 }
 
-/// Create a new relation with E1-E4 validation
+/// Create a new relation with E1-E4 validation.
+///
+/// Writes exactly one standalone relation object at `relations/<relationId>.json`
+/// (RFC-038 Change E) — never the transitional collection file.
 pub fn create_relation(
     store: &dyn RepositoryStore,
     mut relation: Relation,
@@ -197,14 +201,11 @@ pub fn create_relation(
         }
     })?;
 
-    // Load existing collection
-    let (relative_path, mut collection) = load_relations_collection(store)?;
-
-    // Check for duplicate relation_id
-    if collection
-        .relations
+    // Duplicate relationId check across every discovered relation object —
+    // standalone files and transitional collection entries ([R12]).
+    if load_relations_with_locators(store)?
         .iter()
-        .any(|r| r.relation_id == relation.relation_id)
+        .any(|lr| lr.relation.relation_id == relation.relation_id)
     {
         return Err(RepositoryError::RelationValidation {
             relation_id: relation.relation_id.clone(),
@@ -212,36 +213,42 @@ pub fn create_relation(
         });
     }
 
-    // Add the new relation
-    collection.relations.push(relation.clone());
+    // JSON-schema gate preserved from the collection era: validate the relation
+    // shape against the relations-collection schema's item definition. The
+    // standalone relation.json mirror schema lands with the Phase-1 schema-mirror
+    // PR; until then this is the schema-level check available in srs-schema.
+    schema_validate_relation(&relation)?;
 
-    // Schema validation of the updated collection before writing
-    let collection_raw =
-        serde_json::to_value(&collection).map_err(|e| RepositoryError::Serialize {
-            path: std::path::PathBuf::from(&relative_path),
-            source: e,
-        })?;
-    SchemaRegistry::global()
-        .validate_by_id(RELATIONS_COLLECTION_SCHEMA_ID, &collection_raw)
-        .map_err(|e| RepositoryError::SchemaValidation {
-            path: std::path::PathBuf::from(&relative_path),
-            message: e.to_string(),
-        })?;
-
-    // Write back
-    write_relations_collection(store, &relative_path, &collection)?;
+    // Write exactly one object — the relation's own file.
+    store.save_relation(&relation)?;
 
     Ok(CreateRelationResult { relation })
 }
 
-/// Delete a relation by its relation ID
+/// Delete a relation by its relation ID.
+///
+/// A standalone relation object (`relations/<relationId>.json`) is deleted by
+/// removing only its own file. Transitional: a relation that still lives in the
+/// collection file is removed by rewriting that collection (removed at the
+/// RFC-038 Phase-6 flip, when the collection form is retired).
 pub fn delete_relation(
     store: &dyn RepositoryStore,
     relation_id: &str,
 ) -> Result<DeleteRelationResult, RepositoryError> {
-    let (relative_path, mut collection) = load_relations_collection(store)?;
+    match store.load_relation(relation_id) {
+        Ok(_) => {
+            store.delete_relation(relation_id)?;
+            return Ok(DeleteRelationResult {
+                relation_id: relation_id.to_string(),
+                path: relation_object_path(relation_id),
+            });
+        }
+        Err(RepositoryError::RelationNotFound { .. }) => {}
+        Err(e) => return Err(e),
+    }
 
-    // Find and remove the relation
+    // Transitional collection fallback.
+    let (relative_path, mut collection) = load_relations_collection(store)?;
     let pos = collection
         .relations
         .iter()
@@ -249,10 +256,7 @@ pub fn delete_relation(
         .ok_or_else(|| RepositoryError::NotFound {
             path: std::path::PathBuf::from(&relative_path),
         })?;
-
     collection.relations.remove(pos);
-
-    // Write back
     write_relations_collection(store, &relative_path, &collection)?;
 
     Ok(DeleteRelationResult {
@@ -261,12 +265,131 @@ pub fn delete_relation(
     })
 }
 
-/// Load all relations from the relations collection file.
+/// A discovered relation and the locator it was read from.
+///
+/// Transitional dual-read bookkeeping (RFC-038 Phase 2): locators are
+/// `relations/<relationId>.json` for standalone objects and
+/// `<collection-path>#relations[<i>]` for collection entries.
+pub(crate) struct LocatedRelation {
+    pub locator: String,
+    pub relation: Relation,
+}
+
+/// Load every relation in the repository with its locator, enforcing [R12]
+/// (duplicate `relationId` is an error naming every locator).
+///
+/// **Transitional dual read (RFC-038 Phase 2):** existing repositories still
+/// carry a relations-collection file (`manifest.relationsPath` →
+/// `relations/relations-collection.json` → `relations/relations.json`), while
+/// the write path produces one standalone object per relation. Both forms are
+/// merged here — collection entries first (their stored order), then standalone
+/// objects in ascending `relationId`. Enumeration order carries no meaning;
+/// `precedes` is the only ordering semantics. The collection half is removed at
+/// the Phase-6 flip, after the Phase-5 transform explodes collections.
+// phase-3: route discovery and duplicate detection via RepositoryCatalog.
+pub(crate) fn load_relations_with_locators(
+    store: &dyn RepositoryStore,
+) -> Result<Vec<LocatedRelation>, RepositoryError> {
+    let (collection_path, collection) = load_relations_collection(store)?;
+    let mut out: Vec<LocatedRelation> = collection
+        .relations
+        .into_iter()
+        .enumerate()
+        .map(|(i, relation)| LocatedRelation {
+            locator: format!("{collection_path}#relations[{i}]"),
+            relation,
+        })
+        .collect();
+    for relation in store.list_relations()? {
+        out.push(LocatedRelation {
+            locator: relation_object_path(&relation.relation_id),
+            relation,
+        });
+    }
+
+    // [R12] duplicate detection across all discovered relation objects.
+    let mut by_id: HashMap<&str, Vec<&str>> = HashMap::new();
+    for lr in &out {
+        by_id
+            .entry(lr.relation.relation_id.as_str())
+            .or_default()
+            .push(lr.locator.as_str());
+    }
+    if let Some((id, locators)) = by_id.iter().find(|(_, l)| l.len() > 1) {
+        return Err(RepositoryError::DuplicateRelationId {
+            relation_id: (*id).to_string(),
+            locators: locators.iter().map(|s| s.to_string()).collect(),
+        });
+    }
+
+    Ok(out)
+}
+
+/// Load all relations in the repository (dual read: transitional collection
+/// entries + standalone relation objects). See [`load_relations_with_locators`].
 pub(crate) fn load_relations(
     store: &dyn RepositoryStore,
 ) -> Result<Vec<Relation>, RepositoryError> {
-    let (_, collection) = load_relations_collection(store)?;
-    Ok(collection.relations)
+    Ok(load_relations_with_locators(store)?
+        .into_iter()
+        .map(|lr| lr.relation)
+        .collect())
+}
+
+/// Remove every relation matching `pred`, across both storage forms.
+///
+/// Standalone objects are deleted file-by-file; collection residents are
+/// removed via one collection rewrite (transitional). Returns the removed
+/// relations. Batch scoping (`begin_batch`/`commit_batch`) is the caller's
+/// responsibility so a cascade can group this with its other writes.
+pub(crate) fn remove_relations_where(
+    store: &dyn RepositoryStore,
+    pred: impl Fn(&Relation) -> bool,
+) -> Result<Vec<Relation>, RepositoryError> {
+    let mut removed = Vec::new();
+
+    let (collection_path, mut collection) = load_relations_collection(store)?;
+    let before = collection.relations.len();
+    collection.relations.retain(|r| {
+        if pred(r) {
+            removed.push(r.clone());
+            false
+        } else {
+            true
+        }
+    });
+    if collection.relations.len() != before {
+        write_relations_collection(store, &collection_path, &collection)?;
+    }
+
+    for relation in store.list_relations()? {
+        if pred(&relation) {
+            store.delete_relation(&relation.relation_id)?;
+            removed.push(relation);
+        }
+    }
+
+    Ok(removed)
+}
+
+/// Validate one relation's JSON shape against the relations-collection schema's
+/// item contract (wrapped in a synthetic single-entry collection).
+fn schema_validate_relation(relation: &Relation) -> Result<(), RepositoryError> {
+    let path = relation_object_path(&relation.relation_id);
+    let value = serde_json::to_value(relation).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from(&path),
+        source: e,
+    })?;
+    let wrapped = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+        "relations": [value]
+    });
+    SchemaRegistry::global()
+        .validate_by_id(RELATIONS_COLLECTION_SCHEMA_ID, &wrapped)
+        .map_err(|e| RepositoryError::SchemaValidation {
+            path: std::path::PathBuf::from(&path),
+            message: e.to_string(),
+        })
 }
 
 /// Ordered, de-duplicated list of relative paths to try when locating the
@@ -345,11 +468,15 @@ pub(crate) fn resolve_relations_source(
     Ok(None)
 }
 
-/// Load the relations collection, returning (relative_path, collection).
+/// Load the transitional relations collection, returning (relative_path, collection).
 ///
 /// Layers typed parsing over [`resolve_relations_source`] (the single resolver), so the
 /// candidate order and store-read method are shared. Returns an empty collection at the
 /// default write path if no file is found.
+///
+/// Transitional (RFC-038 Phase 2): the collection is read-and-shrink only — new
+/// relations are written as standalone objects, never appended here. Removed at
+/// the Phase-6 flip.
 fn load_relations_collection(
     store: &dyn RepositoryStore,
 ) -> Result<(String, RelationsCollection), RepositoryError> {
@@ -491,25 +618,21 @@ pub struct RebuildPrecedesChainResult {
     pub created: Vec<RelationSummary>,
 }
 
-/// Atomically rebuild a linear `precedes` chain.
+/// Rebuild a linear `precedes` chain as one batch operation.
 ///
-/// Deletes all `precedes` edges where source OR target is in `clear_ids`, then
-/// creates `n-1` new edges connecting `instance_ids[0]→[1]→…→[n-1]`.
-/// Validation (E1–E4) runs before writing; the single `write_relations_collection`
-/// call is inherently atomic.
+/// Deletes all `precedes` edges where source OR target is in `clear_ids`
+/// (standalone objects file-by-file, transitional collection residents via one
+/// collection rewrite), then creates `n-1` new standalone relation objects
+/// connecting `instance_ids[0]→[1]→…→[n-1]`. Validation (E1–E4) runs before any
+/// write; the writes are grouped under the store's batch seam (a no-op on
+/// FileStore until #813 — see RFC-038 Disagreement 8).
 pub fn rebuild_precedes_chain(
     store: &dyn RepositoryStore,
     input: RebuildPrecedesChainInput,
 ) -> Result<RebuildPrecedesChainResult, RepositoryError> {
-    let (relative_path, mut collection) = load_relations_collection(store)?;
-
     let clear_ids_set: HashSet<String> = input.clear_ids.into_iter().collect();
-    collection.relations.retain(|r| {
-        !(r.relation_type == "precedes"
-            && (clear_ids_set.contains(&r.source_instance_id)
-                || clear_ids_set.contains(&r.target_instance_id)))
-    });
 
+    // Validate every new edge before touching anything.
     let new_relations: Vec<Relation> = if input.instance_ids.len() < 2 {
         Vec::new()
     } else {
@@ -550,27 +673,31 @@ pub fn rebuild_precedes_chain(
                         .join(", "),
                 }
             })?;
+            schema_validate_relation(&relation)?;
             rels.push(relation);
         }
         rels
     };
 
-    for rel in &new_relations {
-        collection.relations.push(rel.clone());
+    store.begin_batch();
+    let write_result = (|| {
+        remove_relations_where(store, |r| {
+            r.relation_type == "precedes"
+                && (clear_ids_set.contains(&r.source_instance_id)
+                    || clear_ids_set.contains(&r.target_instance_id))
+        })?;
+        for rel in &new_relations {
+            store.save_relation(rel)?;
+        }
+        Ok(())
+    })();
+    match write_result {
+        Ok(()) => store.commit_batch()?,
+        Err(e) => {
+            store.abort_batch();
+            return Err(e);
+        }
     }
-
-    let collection_raw =
-        serde_json::to_value(&collection).map_err(|e| RepositoryError::Serialize {
-            path: std::path::PathBuf::from(&relative_path),
-            source: e,
-        })?;
-    SchemaRegistry::global()
-        .validate_by_id(RELATIONS_COLLECTION_SCHEMA_ID, &collection_raw)
-        .map_err(|e| RepositoryError::SchemaValidation {
-            path: std::path::PathBuf::from(&relative_path),
-            message: e.to_string(),
-        })?;
-    write_relations_collection(store, &relative_path, &collection)?;
 
     let created = new_relations
         .iter()
@@ -924,9 +1051,10 @@ mod tests {
     }
 
     #[test]
-    fn create_relation_uses_manifest_relations_path_when_no_file_exists() {
-        // Regression for #560: first create_relation must write to the manifest-declared
-        // relationsPath, not the hardcoded default, when no relations file exists yet.
+    fn create_relation_writes_standalone_object_never_the_collection() {
+        // RFC-038 Change E: create writes exactly one standalone relation object,
+        // never the transitional collection — even when a manifest relationsPath
+        // is declared (supersedes the #560 collection-era behavior).
         let store = MemoryStore::default();
         let mut manifest = store.load_manifest().unwrap();
         manifest
@@ -949,52 +1077,172 @@ mod tests {
         let rel = make_relation("r-new", "src-1", "tgt-1", "com.test/links");
         create_relation(&store, rel, &[def]).unwrap();
 
+        let raw = store
+            .load_relations_json("relations/r-new.json")
+            .expect("relation must be written as a standalone object");
+        assert_eq!(
+            raw.get("$schema").and_then(|v| v.as_str()),
+            Some(crate::store::RELATION_OBJECT_SCHEMA_URL),
+            "standalone object must carry the pinned $schema"
+        );
         assert!(
-            store.load_relations_json("relations/custom.json").is_ok(),
-            "relation must be written to the manifest-declared relationsPath"
+            store.load_relations_json("relations/custom.json").is_err(),
+            "create must not write the manifest-declared collection"
         );
         assert!(
             store
                 .load_relations_json("relations/relations-collection.json")
                 .is_err(),
-            "relation must not be written to the hardcoded default path"
+            "create must not write the default collection"
         );
     }
 
     #[test]
-    fn create_relation_no_relations_path_writes_to_default() {
-        // Regression for #560: when no relationsPath is declared, first create_relation
-        // must still write to the default "relations/relations-collection.json".
-        let store = MemoryStore::default();
-        let mut manifest = store.load_manifest().unwrap();
-        for id in ["src-1", "tgt-1"] {
-            manifest
-                .instance_index
-                .push(crate::index::InstanceIndexEntry {
-                    instance_id: id.to_string(),
-                    tier: 0,
-                    path: format!("records/{}.json", id),
-                    title: None,
-                    tags: None,
-                });
-        }
-        store.save_manifest(&manifest).unwrap();
+    fn create_relation_writes_only_its_own_file() {
+        // A pre-existing collection is left byte-for-byte untouched by create.
+        let store = make_store_with_relations();
+        let before = store
+            .load_relations_json("relations/relations-collection.json")
+            .unwrap();
 
         let def = links_def(None, None, None);
-        let rel = make_relation("r-default", "src-1", "tgt-1", "com.test/links");
+        let rel = make_relation("r-solo", "note-1", "note-3", "com.test/links");
         create_relation(&store, rel, &[def]).unwrap();
 
-        assert!(
-            store
-                .load_relations_json("relations/relations-collection.json")
-                .is_ok(),
-            "relation must be written to the default path when no relationsPath is declared"
+        let after = store
+            .load_relations_json("relations/relations-collection.json")
+            .unwrap();
+        assert_eq!(before, after, "collection must be untouched by create");
+        assert!(store.load_relations_json("relations/r-solo.json").is_ok());
+
+        // Dual read enumerates both forms.
+        let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
+        assert_eq!(all.len(), 4);
+        assert!(all.iter().any(|r| r.relation_id == "r-solo"));
+    }
+
+    #[test]
+    fn delete_relation_standalone_touches_only_its_file() {
+        let store = make_store_with_relations();
+        let def = links_def(None, None, None);
+        create_relation(
+            &store,
+            make_relation("r-solo", "note-1", "note-3", "com.test/links"),
+            &[def],
+        )
+        .unwrap();
+        let before = store
+            .load_relations_json("relations/relations-collection.json")
+            .unwrap();
+
+        let result = delete_relation(&store, "r-solo").unwrap();
+        assert_eq!(result.path, "relations/r-solo.json");
+        let after = store
+            .load_relations_json("relations/relations-collection.json")
+            .unwrap();
+        assert_eq!(
+            before, after,
+            "collection must be untouched by standalone delete"
         );
+        assert!(store.load_relations_json("relations/r-solo.json").is_err());
+    }
+
+    #[test]
+    fn duplicate_relation_id_names_all_locators() {
+        // [R12]: the same relationId in the collection AND as a standalone object
+        // is an error naming every locator.
+        let store = make_store_with_relations();
+        store
+            .save_relation(&make_relation("r1", "note-1", "note-2", "contains"))
+            .unwrap();
+
+        let err = load_relations(&store).unwrap_err();
+        match &err {
+            RepositoryError::DuplicateRelationId {
+                relation_id,
+                locators,
+            } => {
+                assert_eq!(relation_id, "r1");
+                assert_eq!(locators.len(), 2);
+                assert!(locators
+                    .iter()
+                    .any(|l| l == "relations/relations-collection.json#relations[0]"));
+                assert!(locators.iter().any(|l| l == "relations/r1.json"));
+            }
+            other => panic!("expected DuplicateRelationId, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn create_relation_refuses_duplicate_id() {
+        let store = make_store_with_relations();
+        let def = links_def(None, None, None);
+        create_relation(
+            &store,
+            make_relation("r-dup", "note-1", "note-2", "com.test/links"),
+            std::slice::from_ref(&def),
+        )
+        .unwrap();
+        let err = create_relation(
+            &store,
+            make_relation("r-dup", "note-2", "note-3", "com.test/links"),
+            &[def],
+        )
+        .unwrap_err();
         assert!(
-            store
-                .load_relations_json("relations/relations.json")
-                .is_err(),
-            "relation must not be written to the legacy alternate path"
+            matches!(&err, RepositoryError::RelationValidation { relation_id, message }
+                if relation_id == "r-dup" && message.contains("already exists")),
+            "expected duplicate-id refusal, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn two_branch_independent_relation_merge_is_clean() {
+        // RFC-038 acceptance test 2 (two-store simulation): two branches from a
+        // common base each create one relation; a git merge unions the two
+        // standalone files with no textual conflict. Simulated by replaying each
+        // branch's file into the base store and asserting both enumerate cleanly.
+        let def = links_def(None, None, None);
+
+        let branch_a = make_store_with_relations();
+        create_relation(
+            &branch_a,
+            make_relation("r-branch-a", "note-1", "note-3", "com.test/links"),
+            std::slice::from_ref(&def),
+        )
+        .unwrap();
+
+        let branch_b = make_store_with_relations();
+        create_relation(
+            &branch_b,
+            make_relation("r-branch-b", "note-2", "note-4", "com.test/links"),
+            &[def],
+        )
+        .unwrap();
+
+        // "Merge": union of the two branches' relation files on top of the base.
+        let merged = make_store_with_relations();
+        for (branch, path) in [
+            (&branch_a, "relations/r-branch-a.json"),
+            (&branch_b, "relations/r-branch-b.json"),
+        ] {
+            let raw = branch.load_relations_json(path).unwrap();
+            merged.save_relations_json(path, &raw).unwrap();
+        }
+
+        let all = list_relations(&merged, ListRelationsFilter::default()).unwrap();
+        assert_eq!(all.len(), 5, "3 base + 1 from each branch");
+        assert!(all.iter().any(|r| r.relation_id == "r-branch-a"));
+        assert!(all.iter().any(|r| r.relation_id == "r-branch-b"));
+        // No duplicate-id error, and the shared collection is what it always was.
+        let base = make_store_with_relations();
+        assert_eq!(
+            base.load_relations_json("relations/relations-collection.json")
+                .unwrap(),
+            merged
+                .load_relations_json("relations/relations-collection.json")
+                .unwrap(),
+            "merge touched no shared file"
         );
     }
 
@@ -1776,9 +2024,12 @@ mod tests {
             2,
             "exactly 2 precedes edges after roundtrip"
         );
-        assert_eq!(precedes[0].source_id, "id-a");
-        assert_eq!(precedes[0].target_id, "id-b");
-        assert_eq!(precedes[1].source_id, "id-b");
-        assert_eq!(precedes[1].target_id, "id-c");
+        // Enumeration order carries no meaning (RFC-038); assert the edge set.
+        assert!(precedes
+            .iter()
+            .any(|r| r.source_id == "id-a" && r.target_id == "id-b"));
+        assert!(precedes
+            .iter()
+            .any(|r| r.source_id == "id-b" && r.target_id == "id-c"));
     }
 }

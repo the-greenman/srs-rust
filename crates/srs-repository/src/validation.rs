@@ -1278,6 +1278,10 @@ pub fn validate_repository(
             None
         }
     };
+    // Collection relation ids + path, captured for the [R12] duplicate check
+    // against standalone relation objects below.
+    let mut collection_relation_ids: HashSet<String> = HashSet::new();
+    let mut collection_relations_path: Option<String> = None;
     if let Some((relations_path, relations_value)) = relations_source {
         // Schema-validate the (already-parsed) file first
         if let Some(schema_diags) = validate_value_against_schema(
@@ -1373,6 +1377,81 @@ pub fn validate_repository(
                     });
                 }
             }
+        }
+        collection_relation_ids = coll
+            .relations
+            .iter()
+            .map(|r| r.relation_id.clone())
+            .collect();
+        collection_relations_path = Some(relations_path);
+    }
+
+    // --- Standalone relation objects (relations/<relationId>.json — RFC-038 Change E) ---
+    // Transitional dual read: validated alongside the collection file until the
+    // RFC-038 Phase-6 flip retires the collection form.
+    match store.list_relations() {
+        Ok(standalone) if !standalone.is_empty() => {
+            match store.load_package() {
+                Ok(pkg) => {
+                    let known_instance_ids: HashSet<String> = manifest
+                        .instance_index
+                        .iter()
+                        .map(|e| e.instance_id().to_string())
+                        .collect();
+                    let instance_semantic_types =
+                        crate::writer::build_instance_semantic_types(store, &manifest);
+                    let ctx = RelationValidationContext {
+                        definitions: &pkg.relation_type_definitions,
+                        known_instance_ids: &known_instance_ids,
+                        instance_semantic_types: &instance_semantic_types,
+                    };
+                    for relation in &standalone {
+                        let rel_path = format!("relations/{}.json", relation.relation_id);
+                        if let Err(errs) = validate_relation(relation, &ctx, false) {
+                            for e in errs {
+                                diagnostics.push(ValidationDiagnostic {
+                                    severity: DiagnosticSeverity::Error,
+                                    relative_path: rel_path.clone(),
+                                    schema_id: None,
+                                    message: e.message,
+                                });
+                            }
+                        }
+                        // [R12]: the same relationId in the collection and as a
+                        // standalone object — name both locators.
+                        if collection_relation_ids.contains(&relation.relation_id) {
+                            diagnostics.push(ValidationDiagnostic {
+                            severity: DiagnosticSeverity::Error,
+                            relative_path: rel_path.clone(),
+                            schema_id: None,
+                            message: format!(
+                                "duplicate relationId '{}': found at {} and in {} (RFC-038 [R12])",
+                                relation.relation_id,
+                                rel_path,
+                                collection_relations_path.as_deref().unwrap_or("the relations collection"),
+                            ),
+                        });
+                        }
+                    }
+                }
+                Err(err) => {
+                    diagnostics.push(ValidationDiagnostic {
+                        severity: DiagnosticSeverity::Error,
+                        relative_path: "package/package.json".to_string(),
+                        schema_id: None,
+                        message: format!("failed to load package for relation validation: {err}"),
+                    });
+                }
+            }
+        }
+        Ok(_) => {}
+        Err(err) => {
+            diagnostics.push(ValidationDiagnostic {
+                severity: DiagnosticSeverity::Error,
+                relative_path: "relations".to_string(),
+                schema_id: None,
+                message: format!("failed to read standalone relation objects: {err}"),
+            });
         }
     }
 
@@ -7454,6 +7533,83 @@ mod tests {
             "expected an E2 dangling-endpoint diagnostic, got: {:?}",
             report.diagnostics
         );
+    }
+
+    #[test]
+    fn validate_covers_standalone_relation_objects() {
+        // RFC-038 Change E dual read: a standalone relation object with a dangling
+        // endpoint must be caught (E2) exactly as a collection entry is, with the
+        // diagnostic attributed to its own file.
+        let temp = TempDir::new().unwrap();
+        let (a, _b) = setup_repo_for_relation_validation(&temp);
+        let ghost = "00000000-0000-4000-8000-0000000000ff";
+        let rel_id = "00000000-0000-4000-8000-000000000102";
+        let mut rel = bad_type_relation(rel_id, &a, ghost);
+        rel.as_object_mut().unwrap().insert(
+            "$schema".to_string(),
+            json!(crate::store::RELATION_OBJECT_SCHEMA_URL),
+        );
+        write_json(temp.path(), &format!("relations/{rel_id}.json"), &rel);
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            report.diagnostics.iter().any(|d| d.message.contains("E2")
+                && d.relative_path == format!("relations/{rel_id}.json")),
+            "expected an E2 diagnostic attributed to the standalone object, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn validate_reports_duplicate_relation_id_across_forms() {
+        // RFC-038 [R12]: the same relationId as a collection entry AND a standalone
+        // object is an error naming both locators.
+        let temp = TempDir::new().unwrap();
+        let (a, b) = setup_repo_for_relation_validation(&temp);
+        let rel_id = "00000000-0000-4000-8000-000000000102";
+        write_json(
+            temp.path(),
+            "relations/relations-collection.json",
+            &relations_collection(vec![json!({
+                "relationId": rel_id,
+                "relationType": "contains",
+                "sourceInstanceId": a,
+                "targetInstanceId": b,
+                "createdAt": "2026-01-01T00:00:00Z"
+            })]),
+        );
+        let mut standalone = json!({
+            "relationId": rel_id,
+            "relationType": "contains",
+            "sourceInstanceId": a,
+            "targetInstanceId": b,
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        standalone.as_object_mut().unwrap().insert(
+            "$schema".to_string(),
+            json!(crate::store::RELATION_OBJECT_SCHEMA_URL),
+        );
+        write_json(
+            temp.path(),
+            &format!("relations/{rel_id}.json"),
+            &standalone,
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let dup = report
+            .diagnostics
+            .iter()
+            .find(|d| d.message.contains("duplicate relationId"))
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected a duplicate-relationId diagnostic, got: {:?}",
+                    report.diagnostics
+                )
+            });
+        assert!(dup.message.contains(&format!("relations/{rel_id}.json")));
+        assert!(dup.message.contains("relations/relations-collection.json"));
     }
 
     #[test]
