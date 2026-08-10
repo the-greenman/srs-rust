@@ -1293,6 +1293,9 @@ mod tests {
             fn ensure_relations_dir(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
+            fn delete_relations_json(&self, _: &str) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
             fn load_container(
                 &self,
                 _: &str,
