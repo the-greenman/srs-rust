@@ -387,6 +387,22 @@ pub enum RepositoryError {
     // ── ext:protocol run errors ───────────────────────────────────────────────
     #[error("protocol run '{run_id}' is not in a valid state for this operation: {message}")]
     RunInvalidState { run_id: String, message: String },
+
+    // ── RFC-038 catalog (srs-rust#783 Phase 1) ───────────────────────────────
+    /// [R24]: an `error` diagnostic under a reserved repository location is
+    /// fatal to the load — no partial catalog is reported as complete. The
+    /// complete diagnostic list (errors and warnings) travels with the error.
+    #[error("catalog load failed: {fatal} fatal diagnostic(s); first: {first}")]
+    CatalogLoad {
+        fatal: usize,
+        first: String,
+        diagnostics: Vec<crate::catalog::CatalogDiagnostic>,
+    },
+
+    /// The store does not implement RFC-038 catalog enumeration (JsonStore
+    /// until its Phase-4 collapse into a codec over tree sessions).
+    #[error("this store does not support catalog enumeration")]
+    CatalogUnsupported,
 }
 
 impl From<zip::result::ZipError> for RepositoryError {
