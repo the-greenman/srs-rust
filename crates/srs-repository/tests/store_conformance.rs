@@ -34,7 +34,7 @@ use srs_repository::{
         create_repository, InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
     },
     repository_portability::copy_repository,
-    store::memory::{FailPoint, MemoryStore},
+    store::memory::MemoryStore,
     FileStore, JsonStore, RepositoryStore,
 };
 use std::collections::BTreeMap;

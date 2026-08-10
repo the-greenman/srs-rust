@@ -2101,7 +2101,6 @@ pub(crate) fn definition_kind_key(kind: DefinitionKind) -> &'static str {
     }
 }
 
-/// Load the container index as `(container_id, title, path)` triples from the manifest.
 // ---------------------------------------------------------------------------
 // Instance persistence helpers (ADR-042, catalog-backed per RFC-038) — shared
 // by the typed store default methods.
@@ -2693,18 +2692,28 @@ pub mod memory {
                 lifecycles: vec![],
             };
 
+            // RFC-038 [R4]/[R7]: the catalog validates package.json against
+            // package-manifest.json on every load — this must be a fully
+            // conforming manifest, not a partial index shape.
             let package_json = serde_json::json!({
+                "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
                 "id": input.primary_package.id,
                 "namespace": input.primary_package.namespace,
                 "name": input.primary_package.name,
                 "version": input.primary_package.version,
+                "title": input.primary_package.name,
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
                 "fields": [],
                 "types": [],
                 "relationTypes": [],
                 "views": [],
                 "documentViews": [],
                 "blueprints": [],
-                "protocols": []
+                "protocols": [],
+                "vocabularies": [],
+                "lifecycles": []
             });
             self.data
                 .borrow_mut()
@@ -4266,18 +4275,18 @@ mod tests {
 
     #[test]
     fn save_record_existing_id_preserves_path() {
-        // Existing-id save overwrites at the existing indexed path (no rename on slug change).
+        // Existing-id save overwrites at the existing catalog locator (no rename on slug change).
         let store = MemoryStore::empty();
         let rec = minimal_record_for_store("rec-00000003-cccc", "OldTypeName", None);
         store.save_record(&rec).unwrap();
-        let path1 = store
-            .load_manifest()
+        let locator1 = store
+            .catalog()
             .unwrap()
-            .instance_index
+            .instances
             .iter()
-            .find(|e| e.instance_id == "rec-00000003-cccc")
+            .find(|e| e.id == "rec-00000003-cccc")
             .unwrap()
-            .path
+            .locator
             .clone();
 
         // Type-version migration changes type_name (hence the slug) — path must NOT change.
@@ -4286,19 +4295,22 @@ mod tests {
         rec2.tags = Some(vec!["added".to_string()]);
         store.save_record(&rec2).unwrap();
 
-        let entry2 = store
-            .load_manifest()
+        let locator2 = store
+            .catalog()
             .unwrap()
-            .instance_index
-            .into_iter()
-            .find(|e| e.instance_id == "rec-00000003-cccc")
-            .unwrap();
+            .instances
+            .iter()
+            .find(|e| e.id == "rec-00000003-cccc")
+            .unwrap()
+            .locator
+            .clone();
         assert_eq!(
-            entry2.path, path1,
+            locator2, locator1,
             "existing-id save must not rename the file"
         );
-        // Denormalized index tags refreshed from the entity.
-        assert_eq!(entry2.tags.as_deref(), Some(&["added".to_string()][..]));
+        // Catalog-derived (find_instance) tags refreshed from the entity body.
+        let refreshed = store.find_instance("rec-00000003-cccc").unwrap().unwrap();
+        assert_eq!(refreshed.tags, vec!["added".to_string()]);
     }
 
     // save_record_file_first_failed_index_leaves_orphaned_data_safe retired by

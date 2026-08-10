@@ -21,14 +21,13 @@
 
 use crate::container_service;
 use crate::error::RepositoryError;
-use crate::index::{InstanceIndexEntry, InstanceQuery};
-use crate::manifest::Manifest;
+use crate::index::InstanceQuery;
 use crate::package_service::{get_type_by_name, GetTypeResult};
 use crate::record_label;
 use crate::relation_service;
 use crate::revision_service;
 use crate::store::{RecordTier, RepositoryStore};
-use crate::writer::{new_instance_id, slugify_instance_name, write_manifest};
+use crate::writer::{new_instance_id, slugify_instance_name};
 use serde::{Deserialize, Serialize};
 use srs_core::types::lifecycle::{RelationDirection, RequiresRelation};
 use srs_core::types::record::{FieldValues, Record};
@@ -288,7 +287,8 @@ pub(crate) fn create_record_at_dir(
         store.save_record(&record)?;
     } else {
         // Extension/legacy directory — not covered by the typed logical-id surface
-        // (ADR-042 only defines Tier2/Note tiers); keep the manual write+index path.
+        // (ADR-042 only defines Tier2/Note tiers). Membership comes from the tree
+        // ([R1]): write the file only, never `manifest.json` ([R22]).
         store.ensure_instance_dir(relative_dir)?;
 
         let type_slug = slugify_instance_name(&record.type_name);
@@ -299,10 +299,6 @@ pub(crate) fn create_record_at_dir(
             format!("{relative_dir}/{type_slug}-{id8}.json")
         };
         write_record(store, &record, &relative_path)?;
-
-        let mut manifest = store.load_manifest()?;
-        upsert_record_index_entry(&mut manifest, &record, &relative_path);
-        write_manifest(store, &manifest)?;
     }
 
     Ok(record)
@@ -498,52 +494,41 @@ pub fn validate_record_input(
 /// Delete a Tier 2 record by its instance ID.
 ///
 /// RFC-038 Change F / [R22] scoped cascade: the Relations incident to this record
-/// (as source or target) are removed in the same batch operation, so the delete
-/// never leaves dangling relation endpoints behind. This replaces the former
-/// `CannotDeleteInUse` refusal. The batch seam is a no-op on FileStore until #813.
+/// (as source or target) are removed first, so the delete never leaves dangling
+/// relation endpoints behind — if the process is interrupted between the cascade
+/// and the file delete, the worst case is an orphaned-but-still-valid record, never
+/// a dangling relation reference. This replaces the former `CannotDeleteInUse`
+/// refusal. The batch seam is a no-op on FileStore until #813.
 ///
-/// Follows ADR-007 index-first ordering for deletes: removes the manifest entry and
-/// persists the manifest before touching the file. If the process is interrupted after
-/// the manifest write, the file is left as an orphan (invisible to readers, recoverable
-/// by `srs repo repair`) rather than as a dangling index entry. File and sidecar deletion
-/// are best-effort after the index is committed.
-///
-/// Interim delete semantics (RFC-038 plan, Phase 2): the `manifest.instance_index`
-/// write stays until Phase 3 — the still-index-backed loaders would otherwise break.
-/// Full [R22] ("a routine delete MUST NOT modify manifest.json") completes when
-/// Phase 3 removes the service-layer index writes.
+/// One catalog snapshot for the whole operation ([R24]): the locator and tier
+/// check both come from it. Writes/deletes only the record's own file and its
+/// incident relations — never `manifest.json` ([R22] — srs-rust#783 Phase 3
+/// completes this; the interim Phase-2 `manifest.instance_index` write is gone).
 pub fn delete_record(
     store: &dyn RepositoryStore,
     instance_id: &str,
 ) -> Result<String, RepositoryError> {
-    let mut manifest = store.load_manifest()?;
-
-    let entry_index = manifest
-        .instance_index
+    let cat = store.catalog()?;
+    let path = cat
+        .instances
         .iter()
-        .position(|e| e.instance_id() == instance_id && e.tier() == 2)
+        .find(|e| e.id == instance_id && e.tier == Some(2))
+        .and_then(|e| e.locator.clone())
         .ok_or_else(|| RepositoryError::NotFound {
             path: std::path::PathBuf::from("records"),
         })?;
 
-    let path = manifest.instance_index[entry_index].path().to_string();
-
     store.begin_batch();
-    let write_result = (|| {
-        // [R22] cascade: incident relation files are declared targets of this delete.
-        relation_service::delete_relations_incident_to(store, instance_id)?;
-        // ADR-007: index-first for deletes — commit the manifest before touching the file.
-        manifest.instance_index.remove(entry_index);
-        write_manifest(store, &manifest)
-    })();
-    match write_result {
-        Ok(()) => store.commit_batch()?,
+    // [R22] cascade: incident relation files are declared targets of this delete.
+    let cascade_result = relation_service::delete_relations_incident_to(store, instance_id);
+    match cascade_result {
+        Ok(_) => store.commit_batch()?,
         Err(e) => {
             store.abort_batch();
             return Err(e);
         }
     }
-    // Best-effort file cleanup after the index is committed (orphaned file, not dangling entry).
+    // The record's own file, deleted only after its incident relations are gone.
     let _ = store.delete_instance_file(&path);
     let _ = revision_service::delete_sidecar(store, &path);
 
@@ -1274,13 +1259,13 @@ pub fn transition_record_lifecycle(
         }
     }
 
-    // Build updated record
-    let manifest = store.load_manifest()?;
-    let entry = manifest
-        .instance_index
+    // Build updated record — locator from the catalog (RFC-038: no instance_index).
+    let path = store
+        .catalog()?
+        .instances
         .iter()
-        .find(|e| e.instance_id() == instance_id)
-        .cloned()
+        .find(|e| e.id == instance_id)
+        .and_then(|e| e.locator.clone())
         .ok_or_else(|| RepositoryError::NotFound {
             path: std::path::PathBuf::from("records"),
         })?;
@@ -1293,7 +1278,7 @@ pub fn transition_record_lifecycle(
 
     // The flip is committed last (R7). If it fails after fulfillment writes,
     // best-effort rollback of the fulfillment artifacts (every prefix stays valid).
-    if let Err(e) = write_record(store, &updated, entry.path()) {
+    if let Err(e) = write_record(store, &updated, &path) {
         if let Some(rel) = &relation_out {
             let _ = relation_service::delete_relation(store, &rel.relation_id);
         }
@@ -1336,7 +1321,7 @@ pub fn transition_record_lifecycle(
             continue;
         };
         let prior_revision_id =
-            find_latest_revision_id(store, entry.path(), &updated.instance_id, field_id);
+            find_latest_revision_id(store, &path, &updated.instance_id, field_id);
         let revision = Revision {
             revision_id: new_instance_id(),
             record_id: updated.instance_id.clone(),
@@ -1348,7 +1333,7 @@ pub fn transition_record_lifecycle(
             source_refs: None,
             created_at: now.clone(),
         };
-        if let Err(_e) = revision_service::append(store, entry.path(), revision) {
+        if let Err(_e) = revision_service::append(store, &path, revision) {
             warnings.push(format!(
                 "REVISION_APPEND_FAILED: could not append revision for field '{key}'"
             ));
@@ -1675,15 +1660,16 @@ pub fn list_record_revisions(
     limit: Option<usize>,
     offset: Option<usize>,
 ) -> Result<Vec<Revision>, RepositoryError> {
-    let manifest = store.load_manifest()?;
-    let entry = manifest
-        .instance_index
+    let path = store
+        .catalog()?
+        .instances
         .iter()
-        .find(|e| e.instance_id() == instance_id && e.tier() == 2)
+        .find(|e| e.id == instance_id && e.tier == Some(2))
+        .and_then(|e| e.locator.clone())
         .ok_or_else(|| RepositoryError::NotFound {
             path: std::path::PathBuf::from("records"),
         })?;
-    revision_service::list(store, entry.path(), instance_id, field_id, limit, offset)
+    revision_service::list(store, &path, instance_id, field_id, limit, offset)
 }
 
 /// Get a single revision by its revision_id, scoped to a specific record.
@@ -1692,15 +1678,16 @@ pub fn get_record_revision(
     instance_id: &str,
     revision_id: &str,
 ) -> Result<Option<Revision>, RepositoryError> {
-    let manifest = store.load_manifest()?;
-    let entry = manifest
-        .instance_index
+    let path = store
+        .catalog()?
+        .instances
         .iter()
-        .find(|e| e.instance_id() == instance_id && e.tier() == 2)
+        .find(|e| e.id == instance_id && e.tier == Some(2))
+        .and_then(|e| e.locator.clone())
         .ok_or_else(|| RepositoryError::NotFound {
             path: std::path::PathBuf::from("records"),
         })?;
-    revision_service::get(store, entry.path(), instance_id, revision_id)
+    revision_service::get(store, &path, instance_id, revision_id)
 }
 
 /// Result of `add_record_tag`.
@@ -1878,8 +1865,8 @@ pub fn get_field_value_by_name(
 }
 
 /// Write a new record JSON file to `dir` using the canonical `{type_name}-{id8}.json` filename
-/// convention. Does NOT update the manifest index — callers must call `upsert_record_index_entry`
-/// after this. Returns the relative path written.
+/// convention. Writes only the entity file — membership comes from the tree ([R1]),
+/// never `manifest.json` ([R22]). Returns the relative path written.
 pub(crate) fn write_new_record(
     store: &dyn RepositoryStore,
     record: &Record,
@@ -1959,31 +1946,6 @@ pub(crate) fn append_source_ref(
 
     store.save_record(&record)?;
     Ok(record)
-}
-
-/// Add or replace the manifest index entry for a Record (in memory only).
-pub(crate) fn upsert_record_index_entry(
-    manifest: &mut Manifest,
-    record: &Record,
-    relative_path: &str,
-) {
-    let entry = InstanceIndexEntry {
-        instance_id: record.instance_id.clone(),
-        tier: 2,
-        path: relative_path.to_string(),
-        title: None,
-        tags: record.tags.clone(),
-    };
-
-    if let Some(pos) = manifest
-        .instance_index
-        .iter()
-        .position(|e| e.instance_id() == record.instance_id)
-    {
-        manifest.instance_index[pos] = entry;
-    } else {
-        manifest.instance_index.push(entry);
-    }
 }
 
 #[cfg(test)]
@@ -2463,9 +2425,10 @@ mod tests {
 
     #[test]
     fn get_record_by_id_returns_none_for_unknown() {
-        use crate::FileStore;
-        let srs_repo = srs_spec_repo();
-        let store = FileStore::new(&srs_repo);
+        // RFC-038: the vendored spec-repo fixture is fatally invalid under the
+        // catalog for happy-path assertions (srs-rust#783 Phase 3's known trap) —
+        // a minimal in-memory store is a faithful, valid substitute here.
+        let store = make_store_with_package();
         let result = get_record_by_id(&store, "00000000-0000-0000-0000-000000000000")
             .expect("should not error");
         assert!(result.is_none());
@@ -2491,14 +2454,11 @@ mod tests {
             .load_instance_json(&key)
             .expect("should find stored record");
 
-        // Manifest updated
-        let manifest = store.load_manifest().unwrap();
-        let entry = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == record.instance_id);
+        // Discoverable via the catalog (RFC-038: membership comes from the tree).
+        let cat = store.catalog().unwrap();
+        let entry = cat.instances.iter().find(|e| e.id == record.instance_id);
         assert!(entry.is_some());
-        assert_eq!(entry.unwrap().tier(), 2);
+        assert_eq!(entry.unwrap().tier, Some(2));
     }
 
     #[test]
@@ -2514,16 +2474,16 @@ mod tests {
         )
         .expect("should create record");
 
-        let manifest = store.load_manifest().unwrap();
-        let entry = manifest
-            .instance_index
+        let cat = store.catalog().unwrap();
+        let entry = cat
+            .instances
             .iter()
-            .find(|e| e.instance_id() == record.instance_id)
-            .expect("record must be indexed");
+            .find(|e| e.id == record.instance_id)
+            .expect("record must be discoverable via the catalog");
+        let path = entry.locator.as_deref().unwrap_or_default();
         assert!(
-            entry.path().starts_with("records/tier-2"),
-            "expected path under records/tier-2, got {}",
-            entry.path()
+            path.starts_with("records/tier-2"),
+            "expected path under records/tier-2, got {path}"
         );
     }
 
@@ -2662,7 +2622,7 @@ mod tests {
     #[test]
     fn validate_record_input_does_not_write() {
         let store = make_store_with_package();
-        let index_before = store.load_manifest().unwrap().instance_index.len();
+        let index_before = store.catalog().unwrap().instances.len();
 
         // Run a validation that fails (missing required) — must still write nothing.
         let _ = validate_record_input(
@@ -2690,7 +2650,7 @@ mod tests {
         )
         .unwrap();
 
-        let index_after = store.load_manifest().unwrap().instance_index.len();
+        let index_after = store.catalog().unwrap().instances.len();
         assert_eq!(
             index_before, index_after,
             "validate must not add any instance index entries"
@@ -2874,7 +2834,7 @@ mod tests {
     }
 
     #[test]
-    fn record_delete_removes_file_and_manifest_entry() {
+    fn record_delete_removes_file_and_catalog_entry() {
         let store = make_store_with_package();
         let field_values = fvs(vec![
             ("test-name", json!("Test Name")),
@@ -2892,11 +2852,10 @@ mod tests {
 
         assert!(store.load_instance_json(&key).is_err());
 
-        let manifest = store.load_manifest().unwrap();
-        assert!(manifest
-            .instance_index
-            .iter()
-            .all(|e| e.instance_id() != instance_id));
+        // Not writing manifest.json ([R22]): the manifest never had an index
+        // entry to begin with — absence from the catalog is the real check.
+        let cat = store.catalog().unwrap();
+        assert!(cat.instances.iter().all(|e| e.id != instance_id));
     }
 
     fn make_store_with_lifecycle() -> MemoryStore {
@@ -3229,7 +3188,7 @@ mod tests {
     fn create_record_successor_unknown_relation_type_rejected_no_write() {
         let store = make_store_with_lifecycle();
         let predecessor = create_lc_record(&store);
-        let before = store.load_manifest().unwrap().instance_index.len();
+        let before = store.catalog().unwrap().instances.len();
 
         let result = create_record_successor(
             &store,
@@ -3248,7 +3207,7 @@ mod tests {
             result
         );
         // No orphaned record: instance index must not have grown.
-        let after = store.load_manifest().unwrap().instance_index.len();
+        let after = store.catalog().unwrap().instances.len();
         assert_eq!(
             after, before,
             "instance index grew — successor record was written despite unknown relation type"
@@ -3411,7 +3370,7 @@ mod tests {
         use srs_core::types::relation_type_definition::RelationTypeStatus;
         let store = make_store_with_supersedes_status(Some(RelationTypeStatus::Retired));
         let predecessor = create_lc_record(&store);
-        let before = store.load_manifest().unwrap().instance_index.len();
+        let before = store.catalog().unwrap().instances.len();
 
         let result = create_record_successor(
             &store,
@@ -3429,7 +3388,7 @@ mod tests {
             "expected RelationValidation error for retired type, got: {:?}",
             result
         );
-        let after = store.load_manifest().unwrap().instance_index.len();
+        let after = store.catalog().unwrap().instances.len();
         assert_eq!(
             after, before,
             "orphaned record written for retired relation type"
@@ -3441,7 +3400,7 @@ mod tests {
         use srs_core::types::relation_type_definition::RelationTypeStatus;
         let store = make_store_with_supersedes_status(Some(RelationTypeStatus::Deprecated));
         let predecessor = create_lc_record(&store);
-        let before = store.load_manifest().unwrap().instance_index.len();
+        let before = store.catalog().unwrap().instances.len();
 
         let result = create_record_successor(
             &store,
@@ -3459,7 +3418,7 @@ mod tests {
             "expected RelationValidation error for deprecated type, got: {:?}",
             result
         );
-        let after = store.load_manifest().unwrap().instance_index.len();
+        let after = store.catalog().unwrap().instances.len();
         assert_eq!(
             after, before,
             "orphaned record written for deprecated relation type"
@@ -3471,7 +3430,7 @@ mod tests {
         use srs_core::types::relation_type_definition::RelationTypeStatus;
         let store = make_store_with_supersedes_status(Some(RelationTypeStatus::Tombstone));
         let predecessor = create_lc_record(&store);
-        let before = store.load_manifest().unwrap().instance_index.len();
+        let before = store.catalog().unwrap().instances.len();
 
         let result = create_record_successor(
             &store,
@@ -3489,7 +3448,7 @@ mod tests {
             "expected RelationValidation error for tombstone type, got: {:?}",
             result
         );
-        let after = store.load_manifest().unwrap().instance_index.len();
+        let after = store.catalog().unwrap().instances.len();
         assert_eq!(
             after, before,
             "orphaned record written for tombstone relation type"
@@ -3548,7 +3507,7 @@ mod tests {
         let store = MemoryStore::new(manifest, base_pkg);
 
         let predecessor = create_lc_record(&store);
-        let before = store.load_manifest().unwrap().instance_index.len();
+        let before = store.catalog().unwrap().instances.len();
 
         let result = create_record_successor(
             &store,
@@ -3566,7 +3525,7 @@ mod tests {
             "expected RelationValidation error for conflicting RTDs, got: {:?}",
             result
         );
-        let after = store.load_manifest().unwrap().instance_index.len();
+        let after = store.catalog().unwrap().instances.len();
         assert_eq!(
             after, before,
             "orphaned record written for conflicting RTDs"
@@ -3742,7 +3701,7 @@ mod tests {
     }
 
     #[test]
-    fn add_record_tag_adds_and_mirrors_to_manifest() {
+    fn add_record_tag_adds_and_mirrors_to_catalog() {
         let store = make_store_with_package();
         let id = make_record_in_store(&store);
 
@@ -3753,14 +3712,12 @@ mod tests {
         let record = get_record_by_id(&store, &id).unwrap().unwrap();
         assert_eq!(record.tags, Some(vec!["construct:field".to_string()]));
 
-        // Manifest index is mirrored
-        let manifest = store.load_manifest().unwrap();
-        let entry = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == id)
-            .expect("entry in index");
-        assert_eq!(entry.tags, Some(vec!["construct:field".to_string()]));
+        // Catalog-derived InstanceRef reflects the same tag (RFC-038: no index columns).
+        let entry = store
+            .find_instance(&id)
+            .unwrap()
+            .expect("found via catalog");
+        assert_eq!(entry.tags, vec!["construct:field".to_string()]);
     }
 
     #[test]
@@ -3777,7 +3734,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_record_tag_removes_and_mirrors_to_manifest() {
+    fn remove_record_tag_removes_and_mirrors_to_catalog() {
         let store = make_store_with_package();
         let id = make_record_in_store(&store);
 
@@ -3788,13 +3745,11 @@ mod tests {
         let record = get_record_by_id(&store, &id).unwrap().unwrap();
         assert!(record.tags.is_none());
 
-        let manifest = store.load_manifest().unwrap();
-        let entry = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == id)
-            .expect("entry");
-        assert!(entry.tags.is_none());
+        let entry = store
+            .find_instance(&id)
+            .unwrap()
+            .expect("found via catalog");
+        assert!(entry.tags.is_empty());
     }
 
     #[test]
@@ -3927,19 +3882,14 @@ mod tests {
             ])
         );
 
-        // Tags are mirrored into the manifest index
-        let manifest = store.load_manifest().unwrap();
-        let entry = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == record.instance_id)
-            .expect("entry in index");
+        // Tags are mirrored into the catalog-derived InstanceRef
+        let entry = store
+            .find_instance(&record.instance_id)
+            .unwrap()
+            .expect("found via catalog");
         assert_eq!(
             entry.tags,
-            Some(vec![
-                "construct:field".to_string(),
-                "layer:normative".to_string()
-            ])
+            vec!["construct:field".to_string(), "layer:normative".to_string()]
         );
     }
 
@@ -4011,14 +3961,12 @@ mod tests {
         let record = get_record_by_id(&store, &id).unwrap().unwrap();
         assert!(record.tags.is_none());
 
-        // Manifest index also cleared
-        let manifest = store.load_manifest().unwrap();
-        let entry = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == id)
-            .expect("entry");
-        assert!(entry.tags.is_none());
+        // Catalog-derived InstanceRef also cleared
+        let entry = store
+            .find_instance(&id)
+            .unwrap()
+            .expect("found via catalog");
+        assert!(entry.tags.is_empty());
     }
 
     #[test]
@@ -4048,16 +3996,14 @@ mod tests {
             Some(vec!["new-tag-1".to_string(), "new-tag-2".to_string()])
         );
 
-        // Manifest index updated
-        let manifest = store.load_manifest().unwrap();
-        let entry = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == id)
-            .expect("entry");
+        // Catalog-derived InstanceRef updated
+        let entry = store
+            .find_instance(&id)
+            .unwrap()
+            .expect("found via catalog");
         assert_eq!(
             entry.tags,
-            Some(vec!["new-tag-1".to_string(), "new-tag-2".to_string()])
+            vec!["new-tag-1".to_string(), "new-tag-2".to_string()]
         );
     }
 
@@ -5365,7 +5311,7 @@ mod tests {
     #[test]
     fn create_record_in_container_missing_container_fails() {
         let store = make_store_with_package();
-        let initial_len = store.load_manifest().unwrap().instance_index.len();
+        let initial_len = store.catalog().unwrap().instances.len();
 
         let result = create_record_in_container(
             &store,
@@ -5384,7 +5330,7 @@ mod tests {
             Err(RepositoryError::ContainerNotFound { .. })
         ));
 
-        let after_len = store.load_manifest().unwrap().instance_index.len();
+        let after_len = store.catalog().unwrap().instances.len();
         assert_eq!(
             initial_len, after_len,
             "manifest index must be unchanged after early error"
@@ -5395,7 +5341,7 @@ mod tests {
     fn create_record_in_container_invalid_type_fails() {
         let store = make_store_with_package();
         let container_id = make_container_in_store(&store);
-        let initial_len = store.load_manifest().unwrap().instance_index.len();
+        let initial_len = store.catalog().unwrap().instances.len();
 
         let result = create_record_in_container(
             &store,
@@ -5411,7 +5357,7 @@ mod tests {
 
         assert!(matches!(result, Err(RepositoryError::TypeNotFound { .. })));
 
-        let after_len = store.load_manifest().unwrap().instance_index.len();
+        let after_len = store.catalog().unwrap().instances.len();
         assert_eq!(
             initial_len, after_len,
             "manifest index must be unchanged after type error"
@@ -5469,7 +5415,7 @@ mod tests {
         // sequence) is verified by code inspection of the match arm; fault-
         // injection integration testing is deferred (see ADR-024).
         let store = make_store_with_package();
-        let initial_len = store.load_manifest().unwrap().instance_index.len();
+        let initial_len = store.catalog().unwrap().instances.len();
 
         let record = create_record_at_dir(
             &store,
@@ -5482,7 +5428,7 @@ mod tests {
         )
         .expect("create should succeed");
 
-        let after_create_len = store.load_manifest().unwrap().instance_index.len();
+        let after_create_len = store.catalog().unwrap().instances.len();
         assert_eq!(
             after_create_len,
             initial_len + 1,
@@ -5491,7 +5437,7 @@ mod tests {
 
         delete_record(&store, &record.instance_id).expect("delete should succeed");
 
-        let after_delete_len = store.load_manifest().unwrap().instance_index.len();
+        let after_delete_len = store.catalog().unwrap().instances.len();
         assert_eq!(
             after_delete_len, initial_len,
             "manifest must return to its original length after rollback delete"
@@ -5505,7 +5451,7 @@ mod tests {
         // manifest grows by one, and the record is a member of the container.
         let store = make_store_with_package();
         let container_id = make_container_in_store(&store);
-        let initial_len = store.load_manifest().unwrap().instance_index.len();
+        let initial_len = store.catalog().unwrap().instances.len();
 
         let result = create_record_in_context(
             &store,
@@ -5521,7 +5467,7 @@ mod tests {
         )
         .expect("create_record_in_context should succeed on valid type and container");
 
-        let after_len = store.load_manifest().unwrap().instance_index.len();
+        let after_len = store.catalog().unwrap().instances.len();
         assert_eq!(
             after_len,
             initial_len + 1,
@@ -5819,75 +5765,22 @@ mod tests {
         );
     }
 
-    // --- Fault-injection tests: ADR-007 delete-ordering invariant ---
+    // --- Fault-injection test: RFC-038 [R22] delete semantics ---
+    //
+    // ADR-007's index-first delete ordering is retired: `delete_record` no longer
+    // writes `manifest.json` at all ([R22] — srs-rust#783 Phase 3), so there is no
+    // index to dangle. Membership comes from the tree ([R1]); the only remaining
+    // question is whether the entity file itself was actually removed.
 
     fn minimal_field_values() -> FieldValues {
         fvs(vec![("test-name", json!("Fault Test Record"))])
     }
 
     #[test]
-    fn delete_record_old_file_first_ordering_leaves_dangling_index_entry() {
-        // Documents the bug: when the file is deleted before the manifest is
-        // committed, an interrupted write leaves a dangling manifest entry (an
-        // error on every subsequent read) rather than a safe orphaned file.
-        use crate::store::memory::FailPoint;
-
-        let store = make_store_with_package();
-        let record = create_record(
-            &store,
-            "type-test-001",
-            1,
-            minimal_field_values(),
-            None,
-            None,
-        )
-        .unwrap();
-        let instance_id = &record.instance_id;
-
-        let manifest = store.load_manifest().unwrap();
-        let path = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == instance_id)
-            .unwrap()
-            .path()
-            .to_string();
-
-        // Simulate old file-first ordering: delete the file, then fail the manifest write.
-        store.arm_fail_at(FailPoint::SaveManifest);
-        store.delete_instance_file(&path).unwrap();
-
-        // Build and attempt to save manifest without the entry — the armed fault fires.
-        let mut manifest_without = store.load_manifest().unwrap();
-        manifest_without
-            .instance_index
-            .retain(|e| e.instance_id() != instance_id);
-        let err = store.save_manifest(&manifest_without);
-        assert!(
-            matches!(err, Err(RepositoryError::Io { .. })),
-            "expected manifest write to fail (injected fault)"
-        );
-
-        // File is gone (already deleted above).
-        assert!(
-            store.load_instance_json(&path).is_err(),
-            "file must be gone after explicit delete"
-        );
-        // Manifest still has the entry — dangling index entry (the bug).
-        let manifest_after = store.load_manifest().unwrap();
-        assert!(
-            manifest_after
-                .instance_index
-                .iter()
-                .any(|e| e.instance_id() == instance_id),
-            "dangling manifest entry must remain when file-first ordering is interrupted"
-        );
-    }
-
-    #[test]
-    fn delete_record_index_first_manifest_fail_leaves_record_intact() {
-        // New (ADR-007) ordering: manifest is written first. If the manifest write
-        // fails, neither the index entry nor the file is touched — no data loss.
+    fn delete_record_never_touches_manifest_even_when_save_manifest_would_fail() {
+        // Arm a manifest-write fault that would have fired under the retired
+        // index-first ordering. delete_record must still succeed, because it
+        // no longer calls save_manifest on the routine path.
         use crate::store::memory::FailPoint;
 
         let store = make_store_with_package();
@@ -5901,44 +5794,22 @@ mod tests {
         )
         .unwrap();
         let instance_id = record.instance_id.clone();
-
-        let manifest = store.load_manifest().unwrap();
-        let path = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == instance_id)
-            .unwrap()
-            .path()
-            .to_string();
 
         store.arm_fail_at(FailPoint::SaveManifest);
         let result = delete_record(&store, &instance_id);
         assert!(
-            matches!(result, Err(RepositoryError::Io { .. })),
-            "delete_record must surface the manifest Io error"
+            result.is_ok(),
+            "delete_record must not touch manifest.json, so an armed SaveManifest \
+             fault must never fire ([R22])"
         );
-
-        // File must still be present — manifest write failed before any file deletion.
-        assert!(
-            store.load_instance_json(&path).is_ok(),
-            "file must be intact when manifest write fails first"
-        );
-        // Index entry must still be present — no data loss.
-        let manifest_after = store.load_manifest().unwrap();
-        assert!(
-            manifest_after
-                .instance_index
-                .iter()
-                .any(|e| e.instance_id() == instance_id),
-            "manifest entry must remain when manifest write fails"
-        );
+        assert!(store.find_instance(&instance_id).unwrap().is_none());
     }
 
     #[test]
-    fn delete_record_index_first_file_fail_leaves_orphaned_file_safe() {
-        // New (ADR-007) ordering: manifest is written first and succeeds; the
-        // subsequent best-effort file delete fails. The result is a safe orphaned
-        // file (invisible to readers) rather than a dangling index entry.
+    fn delete_record_file_fail_leaves_record_still_discoverable() {
+        // Best-effort file delete: when it fails, the record's file is still on
+        // disk, so — unlike the retired index model — it remains fully
+        // discoverable via the catalog (membership is the tree, [R1]).
         use crate::store::memory::FailPoint;
 
         let store = make_store_with_package();
@@ -5952,36 +5823,18 @@ mod tests {
         )
         .unwrap();
         let instance_id = record.instance_id.clone();
-
-        let manifest = store.load_manifest().unwrap();
-        let path = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == instance_id)
-            .unwrap()
-            .path()
-            .to_string();
 
         store.arm_fail_at(FailPoint::DeleteInstanceFile);
         let result = delete_record(&store, &instance_id);
         assert!(
             result.is_ok(),
-            "delete_record must succeed even when file delete fails (best-effort)"
+            "delete_record must succeed even when the best-effort file delete fails"
         );
 
-        // File is still present — orphaned but invisible (not in the index).
+        // File delete failed, so the record is still there — and still discoverable.
         assert!(
-            store.load_instance_json(&path).is_ok(),
-            "orphaned file must remain when file delete fails"
-        );
-        // Index entry is gone — no dangling entry, safe state.
-        let manifest_after = store.load_manifest().unwrap();
-        assert!(
-            manifest_after
-                .instance_index
-                .iter()
-                .all(|e| e.instance_id() != instance_id),
-            "manifest entry must be removed even when file delete fails"
+            store.find_instance(&instance_id).unwrap().is_some(),
+            "a record whose file delete failed remains discoverable via the catalog"
         );
     }
 
