@@ -118,6 +118,16 @@ static SCHEMA_SOURCES: &[(&str, &str)] = &[
     (VIEW_SCHEMA_ID, include_schema!("view.json")),
 ];
 
+/// Raw source text of a bundled schema by canonical id, for consumers that
+/// need the schema document itself rather than a compiled validator (e.g. the
+/// RFC-038 [R8] pairwise-discriminator standing check).
+pub fn schema_source(schema_id: &str) -> Option<&'static str> {
+    SCHEMA_SOURCES
+        .iter()
+        .find(|(id, _)| *id == schema_id)
+        .map(|(_, src)| *src)
+}
+
 #[derive(Debug, Error)]
 pub enum SchemaError {
     #[error("schema id not registered: {0}")]
