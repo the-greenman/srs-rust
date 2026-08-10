@@ -3233,7 +3233,7 @@ fn relation_get_returns_relation_by_id() {
 }
 
 #[test]
-fn relation_create_appends_to_relations_collection() {
+fn relation_create_writes_standalone_object() {
     let temp = create_temp_repo();
 
     let manifest: Value = serde_json::json!({
@@ -3296,17 +3296,20 @@ fn relation_create_appends_to_relations_collection() {
     assert_eq!(created["ok"], true, "relation create should succeed");
     assert_eq!(created["payload"]["relation"]["relationId"], "r-new");
 
-    let content =
-        std::fs::read_to_string(temp.path().join("relations/relations-collection.json")).unwrap();
-    let collection: Value = serde_json::from_str(&content).unwrap();
-    let has_relation = collection["relations"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|r| r["relationId"] == "r-new");
+    // RFC-038 Change E: create writes one standalone object, never the collection.
+    let content = std::fs::read_to_string(temp.path().join("relations/r-new.json")).unwrap();
+    let object: Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(object["relationId"], "r-new");
+    assert_eq!(
+        object["$schema"],
+        "https://srs.semanticops.com/schema/2.0/relation.json"
+    );
     assert!(
-        has_relation,
-        "created relation should be written to collection"
+        !temp
+            .path()
+            .join("relations/relations-collection.json")
+            .exists(),
+        "create must not write the collection file"
     );
 }
 

@@ -495,20 +495,12 @@ pub fn validate_record_input(
     })
 }
 
-/// Returns the IDs of any Relations that reference `instance_id` as source or target.
-fn find_relations_referencing_instance(
-    store: &dyn RepositoryStore,
-    instance_id: &str,
-) -> Result<Vec<String>, RepositoryError> {
-    let refs: Vec<String> = relation_service::load_relations(store)?
-        .into_iter()
-        .filter(|r| r.source_instance_id == instance_id || r.target_instance_id == instance_id)
-        .map(|r| r.relation_id)
-        .collect();
-    Ok(refs)
-}
-
 /// Delete a Tier 2 record by its instance ID.
+///
+/// RFC-038 Change F / [R22] scoped cascade: the Relations incident to this record
+/// (as source or target) are removed in the same batch operation, so the delete
+/// never leaves dangling relation endpoints behind. This replaces the former
+/// `CannotDeleteInUse` refusal. The batch seam is a no-op on FileStore until #813.
 ///
 /// Follows ADR-007 index-first ordering for deletes: removes the manifest entry and
 /// persists the manifest before touching the file. If the process is interrupted after
@@ -516,20 +508,14 @@ fn find_relations_referencing_instance(
 /// by `srs repo repair`) rather than as a dangling index entry. File and sidecar deletion
 /// are best-effort after the index is committed.
 ///
-/// Returns `CannotDeleteInUse` if any Relation references this record as source or target.
+/// Interim delete semantics (RFC-038 plan, Phase 2): the `manifest.instance_index`
+/// write stays until Phase 3 — the still-index-backed loaders would otherwise break.
+/// Full [R22] ("a routine delete MUST NOT modify manifest.json") completes when
+/// Phase 3 removes the service-layer index writes.
 pub fn delete_record(
     store: &dyn RepositoryStore,
     instance_id: &str,
 ) -> Result<String, RepositoryError> {
-    let refs = find_relations_referencing_instance(store, instance_id)?;
-    if !refs.is_empty() {
-        return Err(RepositoryError::CannotDeleteInUse {
-            entity_type: "record".to_string(),
-            id: instance_id.to_string(),
-            used_by: refs,
-        });
-    }
-
     let mut manifest = store.load_manifest()?;
 
     let entry_index = manifest
@@ -542,9 +528,21 @@ pub fn delete_record(
 
     let path = manifest.instance_index[entry_index].path().to_string();
 
-    // ADR-007: index-first for deletes — commit the manifest before touching the file.
-    manifest.instance_index.remove(entry_index);
-    write_manifest(store, &manifest)?;
+    store.begin_batch();
+    let write_result = (|| {
+        // [R22] cascade: incident relation files are declared targets of this delete.
+        relation_service::delete_relations_incident_to(store, instance_id)?;
+        // ADR-007: index-first for deletes — commit the manifest before touching the file.
+        manifest.instance_index.remove(entry_index);
+        write_manifest(store, &manifest)
+    })();
+    match write_result {
+        Ok(()) => store.commit_batch()?,
+        Err(e) => {
+            store.abort_batch();
+            return Err(e);
+        }
+    }
     // Best-effort file cleanup after the index is committed (orphaned file, not dangling entry).
     let _ = store.delete_instance_file(&path);
     let _ = revision_service::delete_sidecar(store, &path);
@@ -2750,7 +2748,11 @@ mod tests {
     }
 
     #[test]
-    fn record_delete_blocked_when_relation_references_it() {
+    fn record_delete_cascades_incident_relations() {
+        // RFC-038 Change F / [R22]: deleting an instance removes the Relations
+        // incident to it in the same operation (replaces the former
+        // CannotDeleteInUse refusal). Covers both storage forms: one incident
+        // relation in the transitional collection, one as a standalone object.
         use crate::relation_service::load_relations;
 
         let store = make_store_with_package();
@@ -2775,8 +2777,7 @@ mod tests {
         )
         .unwrap();
 
-        // Write a relation directly to the store, bypassing type-definition validation
-        // (the guard only checks existence, not type validity).
+        // One incident relation in the transitional collection…
         let rel_json = json!({
             "relations": [{
                 "relationId": "rel-test-001",
@@ -2788,25 +2789,71 @@ mod tests {
         store
             .save_relations_json("relations/relations-collection.json", &rel_json)
             .unwrap();
+        // …one incident standalone object, and one untouched bystander edge.
+        store
+            .save_relation(&srs_core::types::relation::Relation {
+                relation_id: "rel-test-002".to_string(),
+                relation_type: "refines".to_string(),
+                source_instance_id: record_b.instance_id.clone(),
+                target_instance_id: record_a.instance_id.clone(),
+                asserted_by: None,
+                confidence: None,
+                created_at: None,
+                created_by: None,
+                status: None,
+                valid_from: None,
+                valid_until: None,
+                notes: None,
+                source_refs: None,
+                meta: None,
+                source_repository_id: None,
+                target_repository_id: None,
+            })
+            .unwrap();
+        store
+            .save_relation(&srs_core::types::relation::Relation {
+                relation_id: "rel-test-003".to_string(),
+                relation_type: "refines".to_string(),
+                source_instance_id: record_a.instance_id.clone(),
+                target_instance_id: record_a.instance_id.clone(),
+                asserted_by: None,
+                confidence: None,
+                created_at: None,
+                created_by: None,
+                status: None,
+                valid_from: None,
+                valid_until: None,
+                notes: None,
+                source_refs: None,
+                meta: None,
+                source_repository_id: None,
+                target_repository_id: None,
+            })
+            .unwrap();
 
-        // Deleting record_b (the target) should be blocked
-        let result = delete_record(&store, &record_b.instance_id);
-        match result {
-            Err(RepositoryError::CannotDeleteInUse {
-                entity_type,
-                id,
-                used_by,
-            }) => {
-                assert_eq!(entity_type, "record");
-                assert_eq!(id, record_b.instance_id);
-                assert!(used_by.contains(&"rel-test-001".to_string()));
-            }
-            other => panic!("expected CannotDeleteInUse, got {:?}", other),
-        }
+        delete_record(&store, &record_b.instance_id).unwrap();
 
-        // Relation still exists — nothing was deleted
+        // Both incident relations are gone; the bystander survives.
         let remaining = load_relations(&store).unwrap();
-        assert_eq!(remaining.len(), 1);
+        assert_eq!(
+            remaining
+                .iter()
+                .map(|r| r.relation_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["rel-test-003"],
+            "cascade must remove exactly the incident relations"
+        );
+
+        // No remaining relation names the deleted instance (the validate-level
+        // no-E2-diagnostic proof lives in validation::tests::
+        // validate_no_dangling_endpoint_after_cascade_delete, on FileStore).
+        assert!(
+            !remaining
+                .iter()
+                .any(|r| r.source_instance_id == record_b.instance_id
+                    || r.target_instance_id == record_b.instance_id),
+            "no remaining relation may reference the deleted instance"
+        );
     }
 
     #[test]
