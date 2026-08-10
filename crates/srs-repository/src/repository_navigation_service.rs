@@ -75,16 +75,19 @@ pub fn repository_navigation(
 
     let identity =
         {
-            let note_entry = manifest
-                .instance_index
-                .iter()
-                .find(|e| e.instance_id() == identity_id && e.is_note());
+            let note_entry = store
+                .catalog()?
+                .instances
+                .into_iter()
+                .find(|e| e.id == identity_id && e.tier == Some(0));
             if let Some(entry) = note_entry {
                 // Transitional grace for un-migrated repos whose identityInstanceId points to a
-                // Tier-0 note. Surface a diagnostic and use the index title as the display label
-                // so the repo remains openable. Remove once all repos are migrated to a Tier-2
-                // purpose record (tracked in epic #262 via issues #424 and #426).
-                let label = entry.title().unwrap_or_else(|| identity_id.clone());
+                // Tier-0 note. Surface a diagnostic and use the catalog-derived title as the
+                // display label so the repo remains openable. Remove once all repos are
+                // migrated to a Tier-2 purpose record (tracked in epic #262 via issues #424/#426).
+                let label = crate::store::catalog_instance_ref(store, &entry)?
+                    .title
+                    .unwrap_or_else(|| identity_id.clone());
                 diagnostics.push(format!(
                 "repository-navigation: identity {identity_id} is a Tier-0 note (un-migrated); \
                  run identity migration to upgrade to a Tier-2 purpose record - see #426"

@@ -1,32 +1,40 @@
+use crate::catalog::RepositoryCatalog;
 use crate::error::RepositoryError;
-use crate::index::InstanceIndexEntry;
 use crate::manifest::Manifest;
 use crate::store::RepositoryStore;
 use srs_core::types::note::Note;
 use srs_schema::NOTE_SCHEMA_ID;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-/// Build the `instanceId → semanticObjectType` map used by E4 relation validation.
+/// Build the known-instance-id set and the `instanceId → semanticObjectType`
+/// map used by E1/E4 relation validation, from one already-fetched catalog
+/// snapshot (RFC-038: no `manifest.instanceIndex` — callers that need both
+/// values for one operation must not call `store.catalog()` twice).
 ///
-/// Reads each instance file listed in the manifest index and records its
-/// top-level `semanticObjectType` when present (instances without the field are
-/// simply absent from the map, so E4 is a no-op for them). This is the single
-/// source of truth for the map: `relation_service::create_relation` and
-/// `repo validate` both consume it, so the write path and the at-rest path
-/// enforce E4 over identical inputs (#556).
-pub(crate) fn build_instance_semantic_types(
+/// The semantic-type map records each instance's top-level `semanticObjectType`
+/// when present (instances without the field are simply absent from the map,
+/// so E4 is a no-op for them). This is the single source of truth for both
+/// values: `relation_service::create_relation` and `repo validate` both
+/// consume it, so the write path and the at-rest path enforce E1/E4 over
+/// identical inputs (#556).
+pub(crate) fn known_instances_and_semantic_types(
     store: &dyn RepositoryStore,
-    manifest: &Manifest,
-) -> HashMap<String, String> {
-    let mut map: HashMap<String, String> = HashMap::new();
-    for entry in &manifest.instance_index {
-        if let Ok(val) = store.load_instance_json(entry.path()) {
+    cat: &RepositoryCatalog,
+) -> (HashSet<String>, HashMap<String, String>) {
+    let mut known_instance_ids = HashSet::with_capacity(cat.instances.len());
+    let mut semantic_types: HashMap<String, String> = HashMap::new();
+    for entry in &cat.instances {
+        known_instance_ids.insert(entry.id.clone());
+        let Some(locator) = entry.locator.as_deref() else {
+            continue;
+        };
+        if let Ok(val) = store.load_instance_json(locator) {
             if let Some(sot) = val.get("semanticObjectType").and_then(|v| v.as_str()) {
-                map.insert(entry.instance_id().to_string(), sot.to_string());
+                semantic_types.insert(entry.id.clone(), sot.to_string());
             }
         }
     }
-    map
+    (known_instance_ids, semantic_types)
 }
 
 /// Generate a new UUID v4 as a string. Only this function generates UUIDs.
@@ -68,27 +76,6 @@ pub fn write_note(
     store.save_instance_json(relative_path, &value)
 }
 
-/// Add or replace the manifest index entry for a Note (in memory only).
-pub fn upsert_index_entry(manifest: &mut Manifest, note: &Note, relative_path: &str) {
-    let entry = InstanceIndexEntry {
-        instance_id: note.instance_id.clone(),
-        tier: 0,
-        path: relative_path.to_string(),
-        title: note.title.clone().map(serde_json::Value::String),
-        tags: note.tags.clone(),
-    };
-
-    if let Some(pos) = manifest
-        .instance_index
-        .iter()
-        .position(|e| e.instance_id() == note.instance_id)
-    {
-        manifest.instance_index[pos] = entry;
-    } else {
-        manifest.instance_index.push(entry);
-    }
-}
-
 /// Write the manifest back via the store.
 pub fn write_manifest(
     store: &dyn RepositoryStore,
@@ -100,10 +87,8 @@ pub fn write_manifest(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::Manifest;
     use crate::store::memory::MemoryStore;
     use srs_core::types::note::{Note, NoteSection};
-    use std::path::PathBuf;
 
     fn make_note(id: &str, title: &str) -> Note {
         Note {
@@ -122,21 +107,6 @@ mod tests {
             created_at: None,
             updated_at: None,
             meta: None,
-        }
-    }
-
-    fn empty_manifest() -> Manifest {
-        Manifest {
-            instance_index: vec![],
-            container: None,
-            container_index: None,
-            federation_path: None,
-            upstream_package: None,
-            federation_events_path: None,
-            extra: std::collections::BTreeMap::new(),
-            source_documents_path: None,
-            source_document_index: None,
-            root: PathBuf::from("/memory"),
         }
     }
 
@@ -164,50 +134,35 @@ mod tests {
     }
 
     #[test]
-    fn upsert_index_entry_adds_new_entry() {
-        let mut manifest = empty_manifest();
-        let note = make_note("new-id", "New Note");
-        upsert_index_entry(&mut manifest, &note, "records/notes/new.json");
-        assert_eq!(manifest.instance_index.len(), 1);
-        assert_eq!(manifest.instance_index[0].instance_id(), "new-id");
-    }
-
-    #[test]
-    fn upsert_index_entry_replaces_existing_by_id() {
-        let mut manifest = Manifest {
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: "existing-id".to_string(),
-                tier: 0,
-                path: "records/notes/old.json".to_string(),
-                title: Some(serde_json::Value::String("Old Title".to_string())),
-                tags: None,
-            }],
-            container: None,
-            container_index: None,
-            federation_path: None,
-            upstream_package: None,
-            federation_events_path: None,
-            extra: std::collections::BTreeMap::new(),
-            source_documents_path: None,
-            source_document_index: None,
-            root: PathBuf::from("/memory"),
-        };
-        let note = make_note("existing-id", "New Title");
-        upsert_index_entry(&mut manifest, &note, "records/notes/new.json");
-        assert_eq!(manifest.instance_index.len(), 1);
-        assert_eq!(manifest.instance_index[0].path(), "records/notes/new.json");
-    }
-
-    #[test]
     fn write_manifest_roundtrips_via_store() {
         let store = MemoryStore::default();
         let mut manifest = store.load_manifest().unwrap();
-        let note = make_note("some-id", "Some Note");
-        upsert_index_entry(&mut manifest, &note, "records/notes/some.json");
+        manifest
+            .extra
+            .insert("title".to_string(), serde_json::json!("Roundtrip Title"));
         write_manifest(&store, &manifest).unwrap();
 
         let reloaded = store.load_manifest().unwrap();
-        assert_eq!(reloaded.instance_index.len(), 1);
-        assert_eq!(reloaded.instance_index[0].instance_id(), "some-id");
+        assert_eq!(
+            reloaded.extra.get("title"),
+            Some(&serde_json::json!("Roundtrip Title"))
+        );
+    }
+
+    #[test]
+    fn known_instances_and_semantic_types_reads_from_catalog() {
+        // RFC-038: no manifest.instanceIndex — the known-id set is built from
+        // one catalog snapshot, reading each entity body's locator directly.
+        // (`semanticObjectType` is not a declared property of note.json/
+        // record.json — E4's map is empty for schema-conforming instances;
+        // exercised against real data by relation_service's own E4 tests.)
+        let store = MemoryStore::default();
+        let note = make_note("sem-000000-0000-4000-8000-000000000001", "Typed Note");
+        write_note(&store, &note, "records/notes/sem-00000000.json").unwrap();
+
+        let cat = store.catalog().unwrap();
+        let (known_ids, map) = known_instances_and_semantic_types(&store, &cat);
+        assert!(known_ids.contains("sem-000000-0000-4000-8000-000000000001"));
+        assert!(map.is_empty());
     }
 }

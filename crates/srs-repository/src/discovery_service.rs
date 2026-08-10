@@ -276,23 +276,27 @@ fn find_tier0(
     needle: Option<&str>,
 ) -> Result<Vec<DiscoveryHit>, RepositoryError> {
     let members = member_set(store, &query.container_id)?;
-    let manifest = store.load_manifest()?;
+    let cat = store.catalog()?;
 
     let mut hits = Vec::new();
-    for entry in &manifest.instance_index {
-        if entry.tier() != 0 {
+    for entry in &cat.instances {
+        if entry.tier != Some(0) {
             continue;
         }
         if let Some(ref members) = members {
-            if !members.contains(entry.instance_id()) {
+            if !members.contains(entry.id.as_str()) {
                 continue;
             }
         }
-        if !tags_match(&query.tag, entry.tags.as_deref().unwrap_or(&[])) {
+        let locator = entry.locator.as_deref().unwrap_or_default();
+        let body = store.load_instance_json(locator)?;
+        let entry_ref =
+            crate::store::instance_ref_from_body(entry.id.clone(), entry.tier.unwrap_or(0), &body);
+        if !tags_match(&query.tag, &entry_ref.tags) {
             continue;
         }
 
-        let note = store.load_note_by_id(entry.instance_id())?;
+        let note = crate::store::note_from_value(body, locator)?;
         let (matched_fields, snippet) = match needle {
             Some(needle) => match_content(text_projection::project_note_text(&note), needle),
             None => (Vec::new(), None),
@@ -330,23 +334,26 @@ fn find_tier1(
     needle: Option<&str>,
 ) -> Result<Vec<DiscoveryHit>, RepositoryError> {
     let members = member_set(store, &query.container_id)?;
-    let manifest = store.load_manifest()?;
+    let cat = store.catalog()?;
 
     let mut hits = Vec::new();
-    for entry in &manifest.instance_index {
-        if entry.tier() != 1 {
+    for entry in &cat.instances {
+        if entry.tier != Some(1) {
             continue;
         }
         if let Some(ref members) = members {
-            if !members.contains(entry.instance_id()) {
+            if !members.contains(entry.id.as_str()) {
                 continue;
             }
         }
-        if !tags_match(&query.tag, entry.tags.as_deref().unwrap_or(&[])) {
+        let locator = entry.locator.as_deref().unwrap_or_default();
+        let value = store.load_instance_json(locator)?;
+        let entry_ref =
+            crate::store::instance_ref_from_body(entry.id.clone(), entry.tier.unwrap_or(1), &value);
+        if !tags_match(&query.tag, &entry_ref.tags) {
             continue;
         }
 
-        let value = store.load_instance_json(entry.path())?;
         let (matched_fields, snippet) = match needle {
             Some(needle) => {
                 match_content(text_projection::project_typed_record_text(&value), needle)
@@ -361,10 +368,10 @@ fn find_tier1(
             .get("title")
             .and_then(|v| v.as_str())
             .map(str::to_string);
-        let label = title.unwrap_or_else(|| entry.instance_id().to_string());
+        let label = title.unwrap_or_else(|| entry.id.clone());
 
         hits.push(DiscoveryHit {
-            instance_id: entry.instance_id().to_string(),
+            instance_id: entry.id.clone(),
             label,
             type_namespace: None,
             type_name: None,

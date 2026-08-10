@@ -1752,7 +1752,42 @@ fn fixture_repo_with_single_record(fixture_name: &str, record_rel_path: &str) ->
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
+
+    // RFC-038 [R1]: membership comes from the tree, not manifest.instanceIndex —
+    // filtering the index above no longer hides sibling fixture files (e.g. other
+    // deliberately-invalid records under the same instance root) from the catalog.
+    // Delete every instance file under `records/` except the one selected.
+    let records_dir = temp.path().join("records");
+    if records_dir.is_dir() {
+        for entry in walkdir_json_files(&records_dir) {
+            let rel = entry
+                .strip_prefix(temp.path())
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            if rel != record_rel_path {
+                let _ = std::fs::remove_file(&entry);
+            }
+        }
+    }
     temp
+}
+
+/// Recursively collect `.json` file paths under `dir`.
+fn walkdir_json_files(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            out.extend(walkdir_json_files(&path));
+        } else if path.extension().is_some_and(|e| e == "json") {
+            out.push(path);
+        }
+    }
+    out
 }
 
 #[test]
@@ -1858,13 +1893,15 @@ fn repo_validate_tier_schema_mismatch_returns_ok_false() {
     let result = run_srs_in_dir(temp.path(), &["repo", "validate", "--repo", &repo_str]);
     assert_eq!(result["ok"], false, "expected ok false: {:?}", result);
     let diags = result["diagnostics"].as_array().unwrap();
+    // RFC-038 [R7]: a declared $schema is validated, never reclassified by shape —
+    // this now surfaces as the catalog's own schema-validation diagnostic.
     assert!(
         diags.iter().any(|d| {
             d.as_str()
-                .map(|s| s.contains("tier") && s.contains("expects schema"))
+                .map(|s| s.contains("SRS038-R7-SCHEMA-VALIDATION") && s.contains("record.json"))
                 .unwrap_or(false)
         }),
-        "expected tier/schema mismatch in diagnostics: {:?}",
+        "expected a declared-schema validation diagnostic: {:?}",
         diags
     );
 }
@@ -3253,9 +3290,10 @@ fn relation_create_writes_standalone_object() {
     let package_dir = temp.path().join("package");
     std::fs::create_dir_all(package_dir.join("relation-types")).unwrap();
     let relation_type_def = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
         "id": "rt-contains-001",
         "version": 1,
-        "relationType": "contains",
+        "key": "contains",
         "namespace": "com.test",
         "label": "Contains",
         "description": "Source contains target.",
@@ -3269,10 +3307,15 @@ fn relation_create_writes_standalone_object() {
     )
     .unwrap();
     let package_json = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
         "id": "test-pkg",
         "namespace": "com.test",
         "name": "test",
         "version": "1.0.0",
+        "title": "test",
+        "description": "",
+        "status": "active",
+        "createdAt": "2026-01-01T00:00:00Z",
         "fields": [],
         "types": [],
         "relationTypes": ["relation-types/contains.json"]
@@ -3282,6 +3325,18 @@ fn relation_create_writes_standalone_object() {
         serde_json::to_string_pretty(&package_json).unwrap(),
     )
     .unwrap();
+
+    // RFC-038 [R1]/[R13]: relation endpoints must resolve to real discovered
+    // instances — the manifest.instanceIndex entries above are inert bookkeeping.
+    let notes_dir = temp.path().join("records/notes");
+    std::fs::create_dir_all(&notes_dir).unwrap();
+    for id in ["note-1", "note-2"] {
+        std::fs::write(
+            notes_dir.join(format!("{id}.json")),
+            serde_json::json!({"instanceId": id, "sections": []}).to_string(),
+        )
+        .unwrap();
+    }
 
     let relation = serde_json::json!({
         "relationId": "dcf00001-0000-4000-a000-000000000001",

@@ -1,7 +1,6 @@
 use crate::container_service;
 use crate::core_purpose;
 use crate::error::RepositoryError;
-use crate::index::InstanceIndexEntry;
 use crate::loader;
 use crate::record_store::create_record;
 use crate::store::RepositoryStore;
@@ -20,11 +19,13 @@ pub struct MigrateIdentityResult {
 
 fn extract_identity_text(
     store: &dyn RepositoryStore,
-    entry: &InstanceIndexEntry,
+    instance_id: &str,
+    tier: u8,
+    path: &str,
 ) -> Result<(String, Option<String>), RepositoryError> {
-    match entry.tier() {
+    match tier {
         0 => {
-            let note = loader::load_note(store, entry.path())?;
+            let note = loader::load_note(store, path)?;
             let joined = note
                 .sections
                 .iter()
@@ -47,10 +48,9 @@ fn extract_identity_text(
         }
         2 => Err(RepositoryError::InvalidInput {
             message: format!(
-                "identity instance '{}' is a Tier-2 record that is not a \
+                "identity instance '{instance_id}' is a Tier-2 record that is not a \
                  com.semanticops.core/purpose record; manual migration is required \
-                 or the identity must first be changed to a Tier-0 note",
-                entry.instance_id()
+                 or the identity must first be changed to a Tier-0 note"
             ),
         }),
         t => Err(RepositoryError::InvalidInput {
@@ -83,15 +83,13 @@ pub fn migration_status(
     match mc.identity_instance_id.as_deref() {
         None => Ok(IdentityMigrationStatus::Needed),
         Some(id) => {
-            let entry = manifest
-                .instance_index
-                .iter()
-                .find(|e| e.instance_id() == id);
+            let cat = store.catalog()?;
+            let entry = cat.instances.iter().find(|e| e.id == id);
             match entry {
                 None => Ok(IdentityMigrationStatus::Needed),
-                Some(e) if e.tier() != 2 => Ok(IdentityMigrationStatus::Needed),
+                Some(e) if e.tier != Some(2) => Ok(IdentityMigrationStatus::Needed),
                 Some(e) => {
-                    let raw = store.load_instance_json(e.path())?;
+                    let raw = store.load_instance_json(e.locator.as_deref().unwrap_or_default())?;
                     let ns_ok = raw.get("typeNamespace").and_then(|v| v.as_str())
                         == Some(core_purpose::PURPOSE_TYPE_NAMESPACE);
                     let name_ok = raw.get("typeName").and_then(|v| v.as_str())
@@ -211,17 +209,19 @@ pub fn migrate_identity(
     let old_id = mc.identity_instance_id.clone().unwrap();
     let root_container_id = mc.container_id.clone();
 
-    let entry = manifest
-        .instance_index
+    let cat = store.catalog()?;
+    let entry = cat
+        .instances
         .iter()
-        .find(|e| e.instance_id() == old_id)
-        .cloned()
+        .find(|e| e.id == old_id)
         .ok_or_else(|| RepositoryError::InvalidInput {
-            message: format!("identity instance '{old_id}' not found in instanceIndex"),
+            message: format!("identity instance '{old_id}' not found in the instance set"),
         })?;
+    let old_tier = entry.tier.unwrap_or(2);
+    let entry_path = entry.locator.clone().unwrap_or_default();
 
-    if entry.tier() == 2 {
-        let raw = store.load_instance_json(entry.path())?;
+    if old_tier == 2 {
+        let raw = store.load_instance_json(&entry_path)?;
         let ns_ok = raw.get("typeNamespace").and_then(|v| v.as_str())
             == Some(core_purpose::PURPOSE_TYPE_NAMESPACE);
         let name_ok =
@@ -234,8 +234,7 @@ pub fn migrate_identity(
         }
     }
 
-    let old_tier = entry.tier();
-    let (statement, title) = extract_identity_text(store, &entry)?;
+    let (statement, title) = extract_identity_text(store, &old_id, old_tier, &entry_path)?;
 
     let spec = core_purpose::purpose_record_spec(&statement, title.as_deref());
 
@@ -312,7 +311,7 @@ mod tests {
     use crate::repository_portability::copy_repository;
     use crate::store::memory::MemoryStore;
     use crate::store::RecordTier;
-    use crate::writer::{upsert_index_entry, write_manifest, write_note};
+    use crate::writer::{write_manifest, write_note};
     use srs_core::types::container::Container;
     use srs_core::types::note::{Note, NoteSection};
 
@@ -369,7 +368,6 @@ mod tests {
         let mut root = bare_container(container_id);
         root.identity_instance_id = Some(note_id.to_string());
         manifest.container = Some(root);
-        upsert_index_entry(&mut manifest, &note, note_path);
         write_manifest(&store, &manifest).unwrap();
 
         (store, container_id.to_string())
