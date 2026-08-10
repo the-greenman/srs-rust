@@ -185,7 +185,7 @@ fn create_relation_appears_in_list_by_source() {
     let store = JsonStore::from_srsj(GALLERY_SRSJ).expect("gallery must load");
 
     let relation = Relation {
-        relation_id: "test-rel-bindings-001".to_string(),
+        relation_id: "b1000001-0000-4000-a000-000000000001".to_string(),
         relation_type: GALLERY_REL_TYPE.to_string(),
         source_instance_id: GALLERY_SRC.to_string(),
         target_instance_id: GALLERY_TGT.to_string(),
@@ -205,7 +205,10 @@ fn create_relation_appears_in_list_by_source() {
 
     let result = relation_service::create_relation_auto(&store, relation)
         .expect("create_relation should succeed");
-    assert_eq!(result.relation.relation_id, "test-rel-bindings-001");
+    assert_eq!(
+        result.relation.relation_id,
+        "b1000001-0000-4000-a000-000000000001"
+    );
 
     // List by source — new relation must appear.
     let filter = ListRelationsFilter {
@@ -219,7 +222,7 @@ fn create_relation_appears_in_list_by_source() {
     assert!(
         summaries
             .iter()
-            .any(|r| r.relation_id == "test-rel-bindings-001"),
+            .any(|r| r.relation_id == "b1000001-0000-4000-a000-000000000001"),
         "newly created relation must appear in filtered list"
     );
 }
@@ -235,7 +238,7 @@ fn delete_relation_removes_it() {
 
     // Create a relation to delete.
     let relation = Relation {
-        relation_id: "test-rel-delete-002".to_string(),
+        relation_id: "b1000002-0000-4000-a000-000000000002".to_string(),
         relation_type: GALLERY_REL_TYPE.to_string(),
         source_instance_id: GALLERY_SRC.to_string(),
         target_instance_id: GALLERY_TGT.to_string(),
@@ -256,9 +259,13 @@ fn delete_relation_removes_it() {
         .expect("create_relation should succeed before delete");
 
     // Delete it.
-    let del_result = relation_service::delete_relation(&store, "test-rel-delete-002")
-        .expect("delete_relation should succeed");
-    assert_eq!(del_result.relation_id, "test-rel-delete-002");
+    let del_result =
+        relation_service::delete_relation(&store, "b1000002-0000-4000-a000-000000000002")
+            .expect("delete_relation should succeed");
+    assert_eq!(
+        del_result.relation_id,
+        "b1000002-0000-4000-a000-000000000002"
+    );
 
     // Listing all relations must not contain this id.
     let summaries = relation_service::list_relations(&store, ListRelationsFilter::default())
@@ -266,7 +273,7 @@ fn delete_relation_removes_it() {
     assert!(
         !summaries
             .iter()
-            .any(|r| r.relation_id == "test-rel-delete-002"),
+            .any(|r| r.relation_id == "b1000002-0000-4000-a000-000000000002"),
         "deleted relation must not appear in list"
     );
 }
@@ -488,7 +495,7 @@ fn create_relation_depends_on() {
     let store = JsonStore::from_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
 
     let relation = Relation {
-        relation_id: "test-rel-depends-on-001".to_string(),
+        relation_id: "b1000003-0000-4000-a000-000000000003".to_string(),
         relation_type: "depends-on".to_string(),
         source_instance_id: "rec-lc-001".to_string(),
         target_instance_id: "rec-lc-002".to_string(),
@@ -521,7 +528,7 @@ fn create_relation_depends_on() {
     assert!(
         summaries
             .iter()
-            .any(|r| r.relation_id == "test-rel-depends-on-001"),
+            .any(|r| r.relation_id == "b1000003-0000-4000-a000-000000000003"),
         "depends-on relation must appear in filtered list"
     );
 }

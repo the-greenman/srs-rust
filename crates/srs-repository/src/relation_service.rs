@@ -235,6 +235,12 @@ pub fn delete_relation(
     store: &dyn RepositoryStore,
     relation_id: &str,
 ) -> Result<DeleteRelationResult, RepositoryError> {
+    // [R12] fail-fast, consistent with load_relations: a cross-form duplicate
+    // (same id as a standalone object AND a collection entry) is a diagnosable
+    // error naming every locator — deleting through it by precedence would
+    // silently leave the surviving copy re-enumerating.
+    load_relations_with_locators(store)?;
+
     match store.load_relation(relation_id) {
         Ok(_) => {
             store.delete_relation(relation_id)?;
@@ -243,7 +249,12 @@ pub fn delete_relation(
                 path: relation_object_path(relation_id),
             });
         }
-        Err(RepositoryError::RelationNotFound { .. }) => {}
+        // InvalidRelationId: legacy collection entries may carry non-UUID ids —
+        // they cannot exist as standalone objects, so fall through to the
+        // transitional collection fallback below.
+        Err(
+            RepositoryError::RelationNotFound { .. } | RepositoryError::InvalidRelationId { .. },
+        ) => {}
         Err(e) => return Err(e),
     }
 
@@ -887,7 +898,12 @@ mod tests {
     #[test]
     fn relation_create_appends() {
         let store = make_store_with_relations();
-        let new_relation = make_relation("r4", "note-3", "note-4", "contains");
+        let new_relation = make_relation(
+            "d0000004-0000-4000-a000-000000000004",
+            "note-3",
+            "note-4",
+            "contains",
+        );
         let definitions = vec![RelationTypeDefinition {
             schema: None,
             id: "00000000-0000-0000-0000-000000000099".to_string(),
@@ -909,7 +925,10 @@ mod tests {
             properties: None,
         }];
         let result = create_relation(&store, new_relation, &definitions).unwrap();
-        assert_eq!(result.relation.relation_id, "r4");
+        assert_eq!(
+            result.relation.relation_id,
+            "d0000004-0000-4000-a000-000000000004"
+        );
 
         let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
         assert_eq!(all.len(), 4);
@@ -1030,7 +1049,12 @@ mod tests {
             .unwrap();
 
         let def = links_def(Some(vec!["com.x/allowed"]), None, None);
-        let rel = make_relation("r-untyped", "src", "tgt", "com.test/links");
+        let rel = make_relation(
+            "d0000005-0000-4000-a000-000000000005",
+            "src",
+            "tgt",
+            "com.test/links",
+        );
         let result = create_relation(&store, rel, &[def]);
         assert!(
             result.is_ok(),
@@ -1092,11 +1116,16 @@ mod tests {
         store.save_manifest(&manifest).unwrap();
 
         let def = links_def(None, None, None);
-        let rel = make_relation("r-new", "src-1", "tgt-1", "com.test/links");
+        let rel = make_relation(
+            "da000001-0000-4000-a000-000000000001",
+            "src-1",
+            "tgt-1",
+            "com.test/links",
+        );
         create_relation(&store, rel, &[def]).unwrap();
 
         let raw = store
-            .load_relations_json("relations/r-new.json")
+            .load_relations_json("relations/da000001-0000-4000-a000-000000000001.json")
             .expect("relation must be written as a standalone object");
         assert_eq!(
             raw.get("$schema").and_then(|v| v.as_str()),
@@ -1124,19 +1153,28 @@ mod tests {
             .unwrap();
 
         let def = links_def(None, None, None);
-        let rel = make_relation("r-solo", "note-1", "note-3", "com.test/links");
+        let rel = make_relation(
+            "da000002-0000-4000-a000-000000000002",
+            "note-1",
+            "note-3",
+            "com.test/links",
+        );
         create_relation(&store, rel, &[def]).unwrap();
 
         let after = store
             .load_relations_json("relations/relations-collection.json")
             .unwrap();
         assert_eq!(before, after, "collection must be untouched by create");
-        assert!(store.load_relations_json("relations/r-solo.json").is_ok());
+        assert!(store
+            .load_relations_json("relations/da000002-0000-4000-a000-000000000002.json")
+            .is_ok());
 
         // Dual read enumerates both forms.
         let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
         assert_eq!(all.len(), 4);
-        assert!(all.iter().any(|r| r.relation_id == "r-solo"));
+        assert!(all
+            .iter()
+            .any(|r| r.relation_id == "da000002-0000-4000-a000-000000000002"));
     }
 
     #[test]
@@ -1145,7 +1183,12 @@ mod tests {
         let def = links_def(None, None, None);
         create_relation(
             &store,
-            make_relation("r-solo", "note-1", "note-3", "com.test/links"),
+            make_relation(
+                "da000002-0000-4000-a000-000000000002",
+                "note-1",
+                "note-3",
+                "com.test/links",
+            ),
             &[def],
         )
         .unwrap();
@@ -1153,8 +1196,11 @@ mod tests {
             .load_relations_json("relations/relations-collection.json")
             .unwrap();
 
-        let result = delete_relation(&store, "r-solo").unwrap();
-        assert_eq!(result.path, "relations/r-solo.json");
+        let result = delete_relation(&store, "da000002-0000-4000-a000-000000000002").unwrap();
+        assert_eq!(
+            result.path,
+            "relations/da000002-0000-4000-a000-000000000002.json"
+        );
         let after = store
             .load_relations_json("relations/relations-collection.json")
             .unwrap();
@@ -1162,16 +1208,35 @@ mod tests {
             before, after,
             "collection must be untouched by standalone delete"
         );
-        assert!(store.load_relations_json("relations/r-solo.json").is_err());
+        assert!(store
+            .load_relations_json("relations/da000002-0000-4000-a000-000000000002.json")
+            .is_err());
     }
 
     #[test]
     fn duplicate_relation_id_names_all_locators() {
         // [R12]: the same relationId in the collection AND as a standalone object
-        // is an error naming every locator.
-        let store = make_store_with_relations();
+        // is an error naming every locator — on read AND on delete (a delete must
+        // not resolve the ambiguity by precedence).
+        let dup_id = "dd00d0d0-0000-4000-a000-00000000dddd";
+        let store = MemoryStore::default();
         store
-            .save_relation(&make_relation("r1", "note-1", "note-2", "contains"))
+            .save_relations_json(
+                "relations/relations-collection.json",
+                &json!({
+                    "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+                    "relations": [{
+                        "relationId": dup_id,
+                        "relationType": "contains",
+                        "sourceInstanceId": "note-1",
+                        "targetInstanceId": "note-2",
+                        "createdAt": "2026-01-01T00:00:00Z"
+                    }]
+                }),
+            )
+            .unwrap();
+        store
+            .save_relation(&make_relation(dup_id, "note-1", "note-2", "contains"))
             .unwrap();
 
         let err = load_relations(&store).unwrap_err();
@@ -1180,15 +1245,31 @@ mod tests {
                 relation_id,
                 locators,
             } => {
-                assert_eq!(relation_id, "r1");
+                assert_eq!(relation_id, dup_id);
                 assert_eq!(locators.len(), 2);
                 assert!(locators
                     .iter()
                     .any(|l| l == "relations/relations-collection.json#relations[0]"));
-                assert!(locators.iter().any(|l| l == "relations/r1.json"));
+                assert!(locators
+                    .iter()
+                    .any(|l| l == &format!("relations/{dup_id}.json")));
             }
             other => panic!("expected DuplicateRelationId, got {other:?}"),
         }
+
+        // Delete fails fast on the same diagnosable state instead of deleting
+        // the standalone copy and leaving the collection copy re-enumerating.
+        let err = delete_relation(&store, dup_id).unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::DuplicateRelationId { .. }),
+            "delete must fail fast on a cross-form duplicate, got {err:?}"
+        );
+        assert!(
+            store
+                .load_relations_json(&format!("relations/{dup_id}.json"))
+                .is_ok(),
+            "neither copy may be deleted through the duplicate state"
+        );
     }
 
     #[test]
@@ -1197,19 +1278,29 @@ mod tests {
         let def = links_def(None, None, None);
         create_relation(
             &store,
-            make_relation("r-dup", "note-1", "note-2", "com.test/links"),
+            make_relation(
+                "da000003-0000-4000-a000-000000000003",
+                "note-1",
+                "note-2",
+                "com.test/links",
+            ),
             std::slice::from_ref(&def),
         )
         .unwrap();
         let err = create_relation(
             &store,
-            make_relation("r-dup", "note-2", "note-3", "com.test/links"),
+            make_relation(
+                "da000003-0000-4000-a000-000000000003",
+                "note-2",
+                "note-3",
+                "com.test/links",
+            ),
             &[def],
         )
         .unwrap_err();
         assert!(
             matches!(&err, RepositoryError::RelationValidation { relation_id, message }
-                if relation_id == "r-dup" && message.contains("already exists")),
+                if relation_id == "da000003-0000-4000-a000-000000000003" && message.contains("already exists")),
             "expected duplicate-id refusal, got {err:?}"
         );
     }
@@ -1225,7 +1316,12 @@ mod tests {
         let branch_a = make_store_with_relations();
         create_relation(
             &branch_a,
-            make_relation("r-branch-a", "note-1", "note-3", "com.test/links"),
+            make_relation(
+                "da00000a-0000-4000-a000-00000000000a",
+                "note-1",
+                "note-3",
+                "com.test/links",
+            ),
             std::slice::from_ref(&def),
         )
         .unwrap();
@@ -1233,7 +1329,12 @@ mod tests {
         let branch_b = make_store_with_relations();
         create_relation(
             &branch_b,
-            make_relation("r-branch-b", "note-2", "note-4", "com.test/links"),
+            make_relation(
+                "da00000b-0000-4000-a000-00000000000b",
+                "note-2",
+                "note-4",
+                "com.test/links",
+            ),
             &[def],
         )
         .unwrap();
@@ -1241,8 +1342,14 @@ mod tests {
         // "Merge": union of the two branches' relation files on top of the base.
         let merged = make_store_with_relations();
         for (branch, path) in [
-            (&branch_a, "relations/r-branch-a.json"),
-            (&branch_b, "relations/r-branch-b.json"),
+            (
+                &branch_a,
+                "relations/da00000a-0000-4000-a000-00000000000a.json",
+            ),
+            (
+                &branch_b,
+                "relations/da00000b-0000-4000-a000-00000000000b.json",
+            ),
         ] {
             let raw = branch.load_relations_json(path).unwrap();
             merged.save_relations_json(path, &raw).unwrap();
@@ -1250,8 +1357,12 @@ mod tests {
 
         let all = list_relations(&merged, ListRelationsFilter::default()).unwrap();
         assert_eq!(all.len(), 5, "3 base + 1 from each branch");
-        assert!(all.iter().any(|r| r.relation_id == "r-branch-a"));
-        assert!(all.iter().any(|r| r.relation_id == "r-branch-b"));
+        assert!(all
+            .iter()
+            .any(|r| r.relation_id == "da00000a-0000-4000-a000-00000000000a"));
+        assert!(all
+            .iter()
+            .any(|r| r.relation_id == "da00000b-0000-4000-a000-00000000000b"));
         // No duplicate-id error, and the shared collection is what it always was.
         let base = make_store_with_relations();
         assert_eq!(

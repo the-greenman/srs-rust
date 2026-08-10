@@ -2792,7 +2792,7 @@ mod tests {
         // …one incident standalone object, and one untouched bystander edge.
         store
             .save_relation(&srs_core::types::relation::Relation {
-                relation_id: "rel-test-002".to_string(),
+                relation_id: "dc000002-0000-4000-a000-000000000002".to_string(),
                 relation_type: "refines".to_string(),
                 source_instance_id: record_b.instance_id.clone(),
                 target_instance_id: record_a.instance_id.clone(),
@@ -2812,7 +2812,7 @@ mod tests {
             .unwrap();
         store
             .save_relation(&srs_core::types::relation::Relation {
-                relation_id: "rel-test-003".to_string(),
+                relation_id: "dc000003-0000-4000-a000-000000000003".to_string(),
                 relation_type: "refines".to_string(),
                 source_instance_id: record_a.instance_id.clone(),
                 target_instance_id: record_a.instance_id.clone(),
@@ -2840,7 +2840,7 @@ mod tests {
                 .iter()
                 .map(|r| r.relation_id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["rel-test-003"],
+            vec!["dc000003-0000-4000-a000-000000000003"],
             "cascade must remove exactly the incident relations"
         );
 

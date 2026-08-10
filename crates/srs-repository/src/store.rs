@@ -72,6 +72,27 @@ pub(crate) fn relation_object_path(relation_id: &str) -> String {
     format!("relations/{relation_id}.json")
 }
 
+/// Reject any `relationId` that is not a canonical lowercase hyphenated UUID.
+///
+/// The id is the standalone object's filename component, so an unvalidated id
+/// is a path-traversal write primitive (`../manifest` normalizes back inside
+/// the root and overwrites `manifest.json`) and an id containing `/` breaks
+/// the [R11] filename==id invariant by construction. RFC-038 Change E pins
+/// canonical lowercase hyphenated form; uppercase/braced/simple UUID renderings
+/// are rejected strictly (the corpus is all lowercase hyphenated).
+pub(crate) fn require_canonical_relation_id(relation_id: &str) -> Result<(), RepositoryError> {
+    let canonical = uuid::Uuid::try_parse(relation_id)
+        .map(|u| u.as_hyphenated().to_string() == relation_id)
+        .unwrap_or(false);
+    if canonical {
+        Ok(())
+    } else {
+        Err(RepositoryError::InvalidRelationId {
+            relation_id: relation_id.to_string(),
+        })
+    }
+}
+
 /// Serialize a relation as a standalone object with the pinned `$schema` first.
 fn relation_object_to_value(
     relation: &srs_core::types::relation::Relation,
@@ -381,12 +402,7 @@ pub trait RepositoryStore {
         &self,
         relation: &srs_core::types::relation::Relation,
     ) -> Result<(), RepositoryError> {
-        if relation.relation_id.trim().is_empty() {
-            return Err(RepositoryError::RelationValidation {
-                relation_id: String::new(),
-                message: "relationId must be non-empty to persist a relation object".to_string(),
-            });
-        }
+        require_canonical_relation_id(&relation.relation_id)?;
         let path = relation_object_path(&relation.relation_id);
         let value = relation_object_to_value(relation, &path)?;
         self.ensure_relations_dir("relations")?;
@@ -400,6 +416,7 @@ pub trait RepositoryStore {
         &self,
         relation_id: &str,
     ) -> Result<srs_core::types::relation::Relation, RepositoryError> {
+        require_canonical_relation_id(relation_id)?;
         let path = relation_object_path(relation_id);
         let value = self.load_relations_json(&path).map_err(|e| {
             if e.is_not_found() {
@@ -423,7 +440,8 @@ pub trait RepositoryStore {
     /// Delete one relation object by its logical id. Touches only its own file.
     /// Returns `RelationNotFound` if the object does not exist.
     fn delete_relation(&self, relation_id: &str) -> Result<(), RepositoryError> {
-        // Existence check first so a missing relation is a typed error.
+        require_canonical_relation_id(relation_id)?;
+        // Existence check so a missing relation is a typed error.
         self.load_relation(relation_id)?;
         self.delete_relations_json(&relation_object_path(relation_id))
     }
@@ -437,6 +455,9 @@ pub trait RepositoryStore {
     /// dual read in `relation_service` merges them in.
     fn list_relations(&self) -> Result<Vec<srs_core::types::relation::Relation>, RepositoryError> {
         let mut out = Vec::new();
+        // phase-3: the catalog classifier enforces [R11] flatness — nested
+        // `relations/sub/<id>.json` paths become diagnosable there; here they
+        // are parsed like any candidate and fail the filename==id check.
         for path in self.list_files_recursive("relations") {
             if !path.ends_with(".json") {
                 continue;
@@ -446,6 +467,7 @@ pub trait RepositoryStore {
                 continue; // collection form — handled by the transitional dual read
             }
             let relation = relation_object_from_value(value, &path)?;
+            require_canonical_relation_id(&relation.relation_id)?;
             let stem = path
                 .rsplit('/')
                 .next()
@@ -4389,6 +4411,74 @@ mod tests {
         assert_eq!(
             store.list_relations().unwrap(),
             file_store.list_relations().unwrap()
+        );
+    }
+
+    #[test]
+    fn relation_id_must_be_canonical_lowercase_uuid() {
+        // The relationId is a filename component: a non-UUID id is a
+        // path-traversal write primitive. Strict rejection on save/load/delete.
+        let store = MemoryStore::empty();
+        let uuid = "d0000001-0000-4000-a000-000000000001";
+        for bad in [
+            "../manifest",                            // traversal
+            "..",                                     // traversal
+            "a/b",                                    // slash — breaks [R11] by construction
+            "D0000001-0000-4000-A000-000000000001",   // uppercase
+            "{d0000001-0000-4000-a000-000000000001}", // braced
+            "d000000100004000a000000000000001",       // simple (no hyphens)
+            "",                                       // empty
+            "not-a-uuid",
+        ] {
+            let mut rel = minimal_relation_for_store(uuid);
+            rel.relation_id = bad.to_string();
+            assert!(
+                matches!(
+                    store.save_relation(&rel),
+                    Err(RepositoryError::InvalidRelationId { .. })
+                ),
+                "save must reject relationId {bad:?}"
+            );
+            assert!(
+                matches!(
+                    store.load_relation(bad),
+                    Err(RepositoryError::InvalidRelationId { .. })
+                ),
+                "load must reject relationId {bad:?}"
+            );
+            assert!(
+                matches!(
+                    store.delete_relation(bad),
+                    Err(RepositoryError::InvalidRelationId { .. })
+                ),
+                "delete must reject relationId {bad:?}"
+            );
+        }
+        // The canonical form itself is accepted.
+        store
+            .save_relation(&minimal_relation_for_store(uuid))
+            .unwrap();
+    }
+
+    #[test]
+    fn traversal_relation_id_cannot_touch_manifest_on_disk() {
+        // Live regression for the demonstrated attack: relationId "../manifest"
+        // must neither replace nor delete manifest.json on a real FileStore.
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = FileStore::new(temp.path());
+        let manifest = Manifest::default();
+        file_store.save_manifest(&manifest).unwrap();
+        let manifest_before = std::fs::read_to_string(temp.path().join("manifest.json")).unwrap();
+
+        let mut rel = minimal_relation_for_store("d0000001-0000-4000-a000-000000000001");
+        rel.relation_id = "../manifest".to_string();
+        assert!(file_store.save_relation(&rel).is_err());
+        assert!(file_store.delete_relation("../manifest").is_err());
+
+        let manifest_after = std::fs::read_to_string(temp.path().join("manifest.json")).unwrap();
+        assert_eq!(
+            manifest_before, manifest_after,
+            "manifest.json must be untouched by the traversal attempt"
         );
     }
 

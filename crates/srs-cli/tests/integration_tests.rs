@@ -3284,7 +3284,7 @@ fn relation_create_writes_standalone_object() {
     .unwrap();
 
     let relation = serde_json::json!({
-        "relationId": "r-new",
+        "relationId": "dcf00001-0000-4000-a000-000000000001",
         "relationType": "contains",
         "sourceInstanceId": "note-1",
         "targetInstanceId": "note-2",
@@ -3294,12 +3294,19 @@ fn relation_create_writes_standalone_object() {
 
     let created = run_srs_stdin_in_dir(temp.path(), &["relation", "create"], &relation);
     assert_eq!(created["ok"], true, "relation create should succeed");
-    assert_eq!(created["payload"]["relation"]["relationId"], "r-new");
+    assert_eq!(
+        created["payload"]["relation"]["relationId"],
+        "dcf00001-0000-4000-a000-000000000001"
+    );
 
     // RFC-038 Change E: create writes one standalone object, never the collection.
-    let content = std::fs::read_to_string(temp.path().join("relations/r-new.json")).unwrap();
+    let content = std::fs::read_to_string(
+        temp.path()
+            .join("relations/dcf00001-0000-4000-a000-000000000001.json"),
+    )
+    .unwrap();
     let object: Value = serde_json::from_str(&content).unwrap();
-    assert_eq!(object["relationId"], "r-new");
+    assert_eq!(object["relationId"], "dcf00001-0000-4000-a000-000000000001");
     assert_eq!(
         object["$schema"],
         "https://srs.semanticops.com/schema/2.0/relation.json"
