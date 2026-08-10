@@ -1189,7 +1189,7 @@ mod tests {
             .unwrap();
         store
             .save_relation(&srs_core::types::relation::Relation {
-                relation_id: "rel-incident-object".to_string(),
+                relation_id: "dd000001-0000-4000-a000-000000000001".to_string(),
                 relation_type: "evidences".to_string(),
                 source_instance_id: "other-instance".to_string(),
                 target_instance_id: "11111111-1111-1111-8111-111111111111".to_string(),

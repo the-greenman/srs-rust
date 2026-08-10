@@ -697,7 +697,7 @@ mod tests {
         .unwrap();
         store
             .save_relation(&srs_core::types::relation::Relation {
-                relation_id: "rel-legacy-container-edge".to_string(),
+                relation_id: "de000001-0000-4000-a000-000000000001".to_string(),
                 relation_type: "contains".to_string(),
                 source_instance_id: created.container_id.clone(),
                 target_instance_id: "some-instance".to_string(),

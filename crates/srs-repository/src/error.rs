@@ -120,6 +120,14 @@ pub enum RepositoryError {
     #[error("relation not found: {relation_id}")]
     RelationNotFound { relation_id: String },
 
+    /// The relationId is not a canonical lowercase hyphenated UUID. Required
+    /// because the id is the standalone object's filename component
+    /// (`relations/<relationId>.json`, RFC-038 Change E): anything else is a
+    /// path-escape write primitive (`../manifest`) or an [R11] filename
+    /// mismatch by construction.
+    #[error("invalid relationId '{relation_id}': must be a canonical lowercase hyphenated UUID (RFC-038 Change E)")]
+    InvalidRelationId { relation_id: String },
+
     /// RFC-038 [R11]: a standalone relation object's filename disagrees with its
     /// in-file `relationId`. The in-file id is authoritative; the error names both.
     #[error("relation file {path:?} names relationId '{file_relation_id}' — the filename must match the in-file relationId (RFC-038 [R11])")]
