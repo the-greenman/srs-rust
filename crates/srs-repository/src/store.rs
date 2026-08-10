@@ -459,6 +459,31 @@ pub trait RepositoryStore {
             Err(e) => Err(e),
         }
     }
+
+    // --- Catalog (RFC-038 Change L / [R23]; srs-rust#783 Phase 1) ---
+    //
+    // The store enumeration seam: one materialised snapshot of the six
+    // authoritative sets, path-free identity, diagnostics carried with the
+    // result. [R24] applies: an `error` diagnostic under a reserved location
+    // fails the load as a whole (`RepositoryError::CatalogLoad` carries the
+    // complete diagnostic list). Object-safe and sync (ADR-041 G1/G7).
+    //
+    // Defaults return `CatalogUnsupported` so stores outside the contract
+    // (JsonStore, pending its Phase-4 collapse into a codec) compile
+    // unchanged; FileStore (over any Vfs) and MemoryStore override with the
+    // one shared walker in `crate::catalog`.
+
+    /// Enumerate the repository into a [`crate::catalog::RepositoryCatalog`].
+    fn catalog(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+        Err(RepositoryError::CatalogUnsupported)
+    }
+
+    /// [R16] validity token: a content digest over the enumerated id set.
+    /// Changes whenever the enumerable id set changes; a cached catalog is
+    /// served only while its token matches the store's current one.
+    fn catalog_validity_token(&self) -> Result<String, RepositoryError> {
+        Err(RepositoryError::CatalogUnsupported)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1498,6 +1523,16 @@ impl RepositoryStore for FileStore {
             .filter(|e| query.matches(e))
             .map(InstanceRef::from_index_entry)
             .collect())
+    }
+
+    // --- Catalog (RFC-038; one walker over the Vfs seam: DiskVfs and MemVfs) ---
+
+    fn catalog(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+        crate::catalog::build_checked(self)
+    }
+
+    fn catalog_validity_token(&self) -> Result<String, RepositoryError> {
+        Ok(crate::catalog::build(self)?.validity_token())
     }
 
     // --- Relations ---
@@ -3092,6 +3127,17 @@ pub mod memory {
                 .filter(|e| query.matches(e))
                 .map(InstanceRef::from_index_entry)
                 .collect())
+        }
+
+        // --- Catalog (RFC-038): the shared walker enumerates this store's
+        // object maps through `list_files_recursive`/`load_instance_json` ---
+
+        fn catalog(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+            crate::catalog::build_checked(self)
+        }
+
+        fn catalog_validity_token(&self) -> Result<String, RepositoryError> {
+            Ok(crate::catalog::build(self)?.validity_token())
         }
 
         fn load_relations_json(
