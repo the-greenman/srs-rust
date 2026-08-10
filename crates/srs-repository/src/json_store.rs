@@ -1410,6 +1410,11 @@ impl RepositoryStore for JsonStore {
         Ok(())
     }
 
+    fn delete_relations_json(&self, relative_path: &str) -> Result<(), RepositoryError> {
+        self.state.borrow_mut().data.remove(relative_path);
+        self.flush()
+    }
+
     fn load_container(
         &self,
         container_id: &str,

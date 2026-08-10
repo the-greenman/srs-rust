@@ -117,6 +117,25 @@ pub enum RepositoryError {
         message: String,
     },
 
+    #[error("relation not found: {relation_id}")]
+    RelationNotFound { relation_id: String },
+
+    /// RFC-038 [R11]: a standalone relation object's filename disagrees with its
+    /// in-file `relationId`. The in-file id is authoritative; the error names both.
+    #[error("relation file {path:?} names relationId '{file_relation_id}' — the filename must match the in-file relationId (RFC-038 [R11])")]
+    RelationFilenameMismatch {
+        path: PathBuf,
+        file_relation_id: String,
+    },
+
+    /// RFC-038 [R12]: the same `relationId` was discovered at more than one locator
+    /// (standalone objects and/or relations-collection entries). Names every locator.
+    #[error("duplicate relationId '{relation_id}' found at: {}", locators.join(", "))]
+    DuplicateRelationId {
+        relation_id: String,
+        locators: Vec<String>,
+    },
+
     #[error("container not found: {container_id}")]
     ContainerNotFound { container_id: String },
 

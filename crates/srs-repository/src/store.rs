@@ -57,6 +57,74 @@ impl RecordTier {
 }
 
 // ---------------------------------------------------------------------------
+// Standalone relation objects (RFC-038 Change E)
+// ---------------------------------------------------------------------------
+
+/// Pinned `$schema` for standalone relation objects at `relations/<relationId>.json`
+/// (RFC-038 Change E). The mirror schema file (`relation.json`) lands with the
+/// Phase-1 schema-mirror PR; until it exists in `srs-schema` the pin is enforced
+/// in code (write always, verify on read) rather than via `SchemaRegistry`.
+pub const RELATION_OBJECT_SCHEMA_URL: &str = "https://srs.semanticops.com/schema/2.0/relation.json";
+
+/// Derived locator for a relation object: `relations/<relationId>.json`.
+/// `relations/` is flat by rule (RFC-038 Change E) — no subfolders.
+pub(crate) fn relation_object_path(relation_id: &str) -> String {
+    format!("relations/{relation_id}.json")
+}
+
+/// Serialize a relation as a standalone object with the pinned `$schema` first.
+fn relation_object_to_value(
+    relation: &srs_core::types::relation::Relation,
+    path: &str,
+) -> Result<serde_json::Value, RepositoryError> {
+    let value = serde_json::to_value(relation).map_err(|source| RepositoryError::Serialize {
+        path: PathBuf::from(path),
+        source,
+    })?;
+    let mut map = serde_json::Map::new();
+    map.insert(
+        "$schema".to_string(),
+        serde_json::Value::String(RELATION_OBJECT_SCHEMA_URL.to_string()),
+    );
+    if let serde_json::Value::Object(obj) = value {
+        map.extend(obj);
+    }
+    Ok(serde_json::Value::Object(map))
+}
+
+/// Parse a standalone relation object: `$schema` is required and const-pinned
+/// (RFC-038 Change E); the remaining properties are exactly the Relation shape
+/// (`deny_unknown_fields` enforces `additionalProperties: false`).
+pub(crate) fn relation_object_from_value(
+    mut value: serde_json::Value,
+    path: &str,
+) -> Result<srs_core::types::relation::Relation, RepositoryError> {
+    match value.as_object_mut().and_then(|o| o.remove("$schema")) {
+        Some(schema) if schema.as_str() == Some(RELATION_OBJECT_SCHEMA_URL) => {}
+        Some(schema) => {
+            return Err(RepositoryError::SchemaValidation {
+                path: PathBuf::from(path),
+                message: format!(
+                    "relation object $schema must be '{RELATION_OBJECT_SCHEMA_URL}', found {schema}"
+                ),
+            });
+        }
+        None => {
+            return Err(RepositoryError::SchemaValidation {
+                path: PathBuf::from(path),
+                message: format!(
+                    "relation object is missing the required $schema ('{RELATION_OBJECT_SCHEMA_URL}')"
+                ),
+            });
+        }
+    }
+    serde_json::from_value(value).map_err(|source| RepositoryError::RecordLoad {
+        path: PathBuf::from(path),
+        source,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // RepositoryStore trait
 // ---------------------------------------------------------------------------
 
@@ -288,6 +356,112 @@ pub trait RepositoryStore {
         value: &serde_json::Value,
     ) -> Result<(), RepositoryError>;
     fn ensure_relations_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
+    /// Delete one file under `relations/` by relative path. Generic seam consumed
+    /// by the typed default methods below; idempotent on a missing file.
+    fn delete_relations_json(&self, relative_path: &str) -> Result<(), RepositoryError>;
+
+    // --- Relations (logical-id + typed; RFC-038 Change E, ADR-042 template) ---
+    //
+    // One standalone object per relation at `relations/<relationId>.json`, with the
+    // `$schema` const-pinned to [`RELATION_OBJECT_SCHEMA_URL`]. The filename is a
+    // locator, not the identity: the in-file `relationId` is authoritative, and a
+    // filename that disagrees with it is an error naming both ([R11]). Enumeration
+    // is ascending byte-wise `relationId`; enumeration order carries no meaning —
+    // `precedes` is the only ordering semantics.
+    //
+    // These are default methods over the generic relations-JSON seam so FileStore
+    // (Disk and MemVfs), MemoryStore, and JsonStore behave identically. JsonStore's
+    // real treatment (codec collapse) is RFC-038 Phase 4.
+    // phase-3: route duplicate-id detection and enumeration via RepositoryCatalog
+    // once the Phase-1 catalog seam lands.
+
+    /// Persist one relation as a standalone object at `relations/<relationId>.json`.
+    /// Writes only that file. Overwrites an existing object with the same id.
+    fn save_relation(
+        &self,
+        relation: &srs_core::types::relation::Relation,
+    ) -> Result<(), RepositoryError> {
+        if relation.relation_id.trim().is_empty() {
+            return Err(RepositoryError::RelationValidation {
+                relation_id: String::new(),
+                message: "relationId must be non-empty to persist a relation object".to_string(),
+            });
+        }
+        let path = relation_object_path(&relation.relation_id);
+        let value = relation_object_to_value(relation, &path)?;
+        self.ensure_relations_dir("relations")?;
+        self.save_relations_json(&path, &value)
+    }
+
+    /// Load one relation by its logical id from `relations/<relationId>.json`.
+    /// Returns `RelationNotFound` if the object does not exist, and
+    /// `RelationFilenameMismatch` if the in-file `relationId` disagrees ([R11]).
+    fn load_relation(
+        &self,
+        relation_id: &str,
+    ) -> Result<srs_core::types::relation::Relation, RepositoryError> {
+        let path = relation_object_path(relation_id);
+        let value = self.load_relations_json(&path).map_err(|e| {
+            if e.is_not_found() {
+                RepositoryError::RelationNotFound {
+                    relation_id: relation_id.to_string(),
+                }
+            } else {
+                e
+            }
+        })?;
+        let relation = relation_object_from_value(value, &path)?;
+        if relation.relation_id != relation_id {
+            return Err(RepositoryError::RelationFilenameMismatch {
+                path: PathBuf::from(path),
+                file_relation_id: relation.relation_id,
+            });
+        }
+        Ok(relation)
+    }
+
+    /// Delete one relation object by its logical id. Touches only its own file.
+    /// Returns `RelationNotFound` if the object does not exist.
+    fn delete_relation(&self, relation_id: &str) -> Result<(), RepositoryError> {
+        // Existence check first so a missing relation is a typed error.
+        self.load_relation(relation_id)?;
+        self.delete_relations_json(&relation_object_path(relation_id))
+    }
+
+    /// Enumerate all standalone relation objects under `relations/`, ascending by
+    /// `relationId` (byte-wise over the id string).
+    ///
+    /// Transitional (removed at the RFC-038 Phase-6 flip): collection-shaped files
+    /// (a top-level `relations` array — `relations.json`, `relations-collection.json`,
+    /// or a manifest-declared `relationsPath`) are skipped here; the service-level
+    /// dual read in `relation_service` merges them in.
+    fn list_relations(&self) -> Result<Vec<srs_core::types::relation::Relation>, RepositoryError> {
+        let mut out = Vec::new();
+        for path in self.list_files_recursive("relations") {
+            if !path.ends_with(".json") {
+                continue;
+            }
+            let value = self.load_relations_json(&path)?;
+            if value.get("relations").is_some() {
+                continue; // collection form — handled by the transitional dual read
+            }
+            let relation = relation_object_from_value(value, &path)?;
+            let stem = path
+                .rsplit('/')
+                .next()
+                .unwrap_or(&path)
+                .trim_end_matches(".json");
+            if relation.relation_id != stem {
+                return Err(RepositoryError::RelationFilenameMismatch {
+                    path: PathBuf::from(&path),
+                    file_relation_id: relation.relation_id,
+                });
+            }
+            out.push(relation);
+        }
+        out.sort_by(|a, b| a.relation_id.cmp(&b.relation_id));
+        Ok(out)
+    }
 
     // --- Containers ---
 
@@ -1554,6 +1728,13 @@ impl RepositoryStore for FileStore {
 
     fn ensure_relations_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
         self.ensure_dir(relative_dir)
+    }
+
+    fn delete_relations_json(&self, relative_path: &str) -> Result<(), RepositoryError> {
+        match self.delete_file(relative_path) {
+            Err(e) if e.is_not_found() => Ok(()),
+            other => other,
+        }
     }
 
     // --- Containers ---
@@ -3166,6 +3347,11 @@ pub mod memory {
             Ok(())
         }
 
+        fn delete_relations_json(&self, relative_path: &str) -> Result<(), RepositoryError> {
+            self.data.borrow_mut().remove(relative_path);
+            Ok(())
+        }
+
         fn load_container(
             &self,
             container_id: &str,
@@ -4148,6 +4334,171 @@ mod tests {
         crate::repository_portability::copy_repository(&store, &file_store).unwrap();
         let from_file = file_store.load_note_by_id("note-00000002-bbbb").unwrap();
         assert_eq!(from_file.title.as_deref(), Some("My Note"));
+    }
+
+    // --- Standalone relation objects (RFC-038 Change E) ---
+
+    fn minimal_relation_for_store(id: &str) -> srs_core::types::relation::Relation {
+        srs_core::types::relation::Relation {
+            relation_id: id.to_string(),
+            relation_type: "precedes".to_string(),
+            source_instance_id: "aaaa0001-0000-4000-a000-000000000001".to_string(),
+            target_instance_id: "aaaa0002-0000-4000-a000-000000000002".to_string(),
+            asserted_by: None,
+            confidence: None,
+            created_at: Some("2026-01-01T00:00:00Z".to_string()),
+            created_by: None,
+            status: None,
+            valid_from: None,
+            valid_until: None,
+            notes: None,
+            source_refs: None,
+            meta: None,
+            source_repository_id: None,
+            target_repository_id: None,
+        }
+    }
+
+    #[test]
+    fn save_relation_roundtrip_across_stores() {
+        // memory
+        let store = MemoryStore::empty();
+        let rel = minimal_relation_for_store("d0000001-0000-4000-a000-000000000001");
+        store.save_relation(&rel).unwrap();
+        let loaded = store
+            .load_relation("d0000001-0000-4000-a000-000000000001")
+            .unwrap();
+        assert_eq!(loaded, rel);
+
+        // file
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = FileStore::new(temp.path());
+        file_store.save_relation(&rel).unwrap();
+        let from_file = file_store
+            .load_relation("d0000001-0000-4000-a000-000000000001")
+            .unwrap();
+        assert_eq!(from_file, rel);
+        // one object per file, at the derived locator, with the pinned $schema
+        let raw = file_store
+            .load_relations_json("relations/d0000001-0000-4000-a000-000000000001.json")
+            .unwrap();
+        assert_eq!(
+            raw.get("$schema").and_then(|v| v.as_str()),
+            Some(RELATION_OBJECT_SCHEMA_URL)
+        );
+        assert_eq!(
+            store.list_relations().unwrap(),
+            file_store.list_relations().unwrap()
+        );
+    }
+
+    #[test]
+    fn load_relation_filename_mismatch_is_error() {
+        // [R11]: the in-file relationId is authoritative; a disagreeing filename is
+        // an error naming both.
+        let store = MemoryStore::empty();
+        let rel = minimal_relation_for_store("d0000001-0000-4000-a000-00000000000b");
+        let mut value = serde_json::to_value(&rel).unwrap();
+        value.as_object_mut().unwrap().insert(
+            "$schema".to_string(),
+            serde_json::json!(RELATION_OBJECT_SCHEMA_URL),
+        );
+        store
+            .save_relations_json(
+                "relations/d0000001-0000-4000-a000-00000000000a.json",
+                &value,
+            )
+            .unwrap();
+
+        let err = store
+            .load_relation("d0000001-0000-4000-a000-00000000000a")
+            .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::RelationFilenameMismatch { .. }),
+            "expected RelationFilenameMismatch, got {err:?}"
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("d0000001-0000-4000-a000-00000000000a"));
+        assert!(msg.contains("d0000001-0000-4000-a000-00000000000b"));
+
+        let list_err = store.list_relations().unwrap_err();
+        assert!(matches!(
+            list_err,
+            RepositoryError::RelationFilenameMismatch { .. }
+        ));
+    }
+
+    #[test]
+    fn load_relation_missing_schema_is_error() {
+        let store = MemoryStore::empty();
+        let rel = minimal_relation_for_store("d0000001-0000-4000-a000-00000000000c");
+        let value = serde_json::to_value(&rel).unwrap();
+        store
+            .save_relations_json(
+                "relations/d0000001-0000-4000-a000-00000000000c.json",
+                &value,
+            )
+            .unwrap();
+        let err = store
+            .load_relation("d0000001-0000-4000-a000-00000000000c")
+            .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::SchemaValidation { .. }),
+            "expected SchemaValidation for missing $schema, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn list_relations_skips_collection_files_and_sorts() {
+        let store = MemoryStore::empty();
+        // A collection file must not be treated as a relation object.
+        store
+            .save_relations_json(
+                "relations/relations-collection.json",
+                &serde_json::json!({ "relations": [] }),
+            )
+            .unwrap();
+        let b = minimal_relation_for_store("d0000002-0000-4000-a000-000000000002");
+        let a = minimal_relation_for_store("d0000001-0000-4000-a000-000000000001");
+        store.save_relation(&b).unwrap();
+        store.save_relation(&a).unwrap();
+
+        let listed = store.list_relations().unwrap();
+        assert_eq!(
+            listed
+                .iter()
+                .map(|r| r.relation_id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "d0000001-0000-4000-a000-000000000001",
+                "d0000002-0000-4000-a000-000000000002"
+            ],
+            "ascending byte-wise relationId order"
+        );
+    }
+
+    #[test]
+    fn delete_relation_removes_only_its_file() {
+        let store = MemoryStore::empty();
+        let a = minimal_relation_for_store("d0000001-0000-4000-a000-000000000001");
+        let b = minimal_relation_for_store("d0000002-0000-4000-a000-000000000002");
+        store.save_relation(&a).unwrap();
+        store.save_relation(&b).unwrap();
+
+        store
+            .delete_relation("d0000001-0000-4000-a000-000000000001")
+            .unwrap();
+        let listed = store.list_relations().unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(
+            listed[0].relation_id,
+            "d0000002-0000-4000-a000-000000000002"
+        );
+
+        let err = store
+            .delete_relation("d0000001-0000-4000-a000-000000000001")
+            .unwrap_err();
+        assert!(matches!(err, RepositoryError::RelationNotFound { .. }));
     }
 
     #[test]
