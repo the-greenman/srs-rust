@@ -1,6 +1,6 @@
 use crate::error::RepositoryError;
 use crate::field_json::FieldJson;
-use crate::index::{InstanceIndexEntry, InstanceQuery, InstanceRef};
+use crate::index::{InstanceQuery, InstanceRef};
 use crate::manifest::Manifest;
 use crate::package::Package;
 use crate::package_types::{DefinitionKind, PackageBoundary, PackageSelector};
@@ -9,7 +9,6 @@ use crate::repository_lifecycle::{
 };
 use crate::vfs::{vfs_join, DirCheck, DiskVfs, Vfs, SRS_MARKER_DIR};
 use serde::de::Error as SerdeDeError;
-use srs_core::types::container::ContainerIndexEntry;
 use srs_core::types::field::Field;
 use srs_core::types::lifecycle::Lifecycle;
 use srs_core::types::note::Note;
@@ -321,49 +320,100 @@ pub trait RepositoryStore {
     /// Required — each adapter declares its own layout explicitly.
     fn record_tier_dir(&self, tier: RecordTier) -> &'static str;
 
-    // --- Instances (logical-id + typed; ADR-042) ---
+    // --- Instances (logical-id + typed; ADR-042, catalog-backed per RFC-038) ---
     //
     // The typed, logical-id-keyed instance surface (ADR-041 G3–G5). These
-    // address instances by `instance_id`, not by path — service code no longer
-    // walks `manifest.instance_index` by `InstanceIndexEntry.path`. The Value/path
-    // methods above are retained transitionally as a generic JSON shim (see #726);
-    // do not use them for instance persistence in new code.
+    // address instances by `instance_id`, never by path. Since RFC-038 Phase 3
+    // (srs-rust#783) they are backed by the per-operation `RepositoryCatalog`
+    // snapshot — membership comes from the tree, `manifest.instanceIndex` is
+    // never consulted or written ([R1]/[R22]). Fatal catalog diagnostics fail
+    // the operation ([R24]). JsonStore overrides these with its transitional
+    // index-backed forms until its Phase-4 codec collapse.
     //
     // Tier is derived from the runtime type: `Note` → Tier 0, `Record` → Tier 2.
 
-    /// Persist a `Record` (Tier 2) by its logical id. Mirrors `save_container`'s
-    /// two branches: an existing id overwrites the entity **at its existing indexed
-    /// path** (path + tier preserved, no rename) and refreshes the index entry's
-    /// denormalized `tags`; a new id derives a collision-safe filename and writes
-    /// the **entity before the index entry** (ADR-007).
-    fn save_record(&self, record: &Record) -> Result<(), RepositoryError>;
+    /// Persist a `Record` (Tier 2) by its logical id. An existing id overwrites
+    /// the entity **at its existing catalog locator** (path + tier preserved, no
+    /// rename); a new id derives a collision-safe filename. Writes only the
+    /// entity file — never `manifest.json` ([R22]).
+    fn save_record(&self, record: &Record) -> Result<(), RepositoryError> {
+        let val = record_to_value(record)?;
+        let tier_dir = self.record_tier_dir(RecordTier::Tier2);
+        catalog_save_instance(self, &record.instance_id, &val, tier_dir, &record.type_name)
+    }
 
     /// Persist a `Note` (Tier 0) by its logical id. Same two-branch shape as
-    /// [`save_record`](Self::save_record); refreshes the index entry's `title`/`tags`.
-    fn save_note(&self, note: &Note) -> Result<(), RepositoryError>;
+    /// [`save_record`](Self::save_record). Writes only the entity file ([R22]).
+    fn save_note(&self, note: &Note) -> Result<(), RepositoryError> {
+        let val = note_to_value(note)?;
+        let tier_dir = self.record_tier_dir(RecordTier::Note);
+        let slug_source = note.title.as_deref().unwrap_or("");
+        catalog_save_instance(self, &note.instance_id, &val, tier_dir, slug_source)
+    }
 
-    /// Load a `Record` by its logical id. Returns `InstanceNotFound` if no instance
-    /// with that id is indexed, or `RecordLoad` if the stored bytes fail to parse.
-    fn load_record_by_id(&self, instance_id: &str) -> Result<Record, RepositoryError>;
+    /// Load a `Record` by its logical id. Returns `InstanceNotFound` if the
+    /// catalog enumerates no instance with that id, or `RecordLoad` if the
+    /// stored bytes fail to parse.
+    fn load_record_by_id(&self, instance_id: &str) -> Result<Record, RepositoryError> {
+        let path = catalog_require_instance_locator(self, instance_id)?;
+        let val = self.load_instance_json(&path)?;
+        serde_json::from_value(val).map_err(|source| RepositoryError::RecordLoad {
+            path: PathBuf::from(&path),
+            source,
+        })
+    }
 
-    /// Load a `Note` by its logical id. Returns `InstanceNotFound` if no instance
-    /// with that id is indexed.
-    fn load_note_by_id(&self, instance_id: &str) -> Result<Note, RepositoryError>;
+    /// Load a `Note` by its logical id. Returns `InstanceNotFound` if the
+    /// catalog enumerates no instance with that id.
+    fn load_note_by_id(&self, instance_id: &str) -> Result<Note, RepositoryError> {
+        let path = catalog_require_instance_locator(self, instance_id)?;
+        let val = self.load_instance_json(&path)?;
+        // Parity with loader::load_note: parse (NoteLoad) + validate_note (NoteValidation).
+        note_from_value(val, &path)
+    }
 
-    /// Delete an instance by its logical id, removing the **index entry before the
-    /// entity file** (ADR-007 index-first on delete). Returns `InstanceNotFound`
-    /// for an unknown id.
+    /// Delete an instance by its logical id — the entity file only, never
+    /// `manifest.json` ([R22]). Returns `InstanceNotFound` for an unknown id.
     ///
     /// Distinct from the transitional generic-shim `delete_instance_file(path)` above:
-    /// this is keyed by logical id and maintains the index.
-    fn delete_instance(&self, instance_id: &str) -> Result<(), RepositoryError>;
+    /// this is keyed by logical id.
+    fn delete_instance(&self, instance_id: &str) -> Result<(), RepositoryError> {
+        let path = catalog_require_instance_locator(self, instance_id)?;
+        self.delete_instance_file(&path)
+    }
 
-    /// Look up one instance's index-answerable summary by id, or `None` if absent.
-    fn find_instance(&self, instance_id: &str) -> Result<Option<InstanceRef>, RepositoryError>;
+    /// Look up one instance's summary by id, or `None` if absent. `title`/`tags`
+    /// are derived from the entity body via the catalog locator — there are no
+    /// index columns any more (RFC-038 Change K).
+    fn find_instance(&self, instance_id: &str) -> Result<Option<InstanceRef>, RepositoryError> {
+        let cat = self.catalog()?;
+        let Some(entry) = cat.instances.iter().find(|e| e.id == instance_id) else {
+            return Ok(None);
+        };
+        Ok(Some(catalog_instance_ref(self, entry)?))
+    }
 
-    /// Enumerate instances matching `query`, answered from the index without
-    /// loading entity bodies (G5). Order is not guaranteed.
-    fn list_instances(&self, query: &InstanceQuery) -> Result<Vec<InstanceRef>, RepositoryError>;
+    /// Enumerate instances matching `query` from one catalog snapshot;
+    /// `title`/`tags` come from the entity bodies. Order is not guaranteed.
+    fn list_instances(&self, query: &InstanceQuery) -> Result<Vec<InstanceRef>, RepositoryError> {
+        let cat = self.catalog()?;
+        let mut out = Vec::new();
+        for entry in &cat.instances {
+            if let Some(tier) = query.tier {
+                if entry.tier != Some(tier) {
+                    continue;
+                }
+            }
+            let r = catalog_instance_ref(self, entry)?;
+            if let Some(ref tag) = query.tag {
+                if !r.tags.iter().any(|t| t == tag) {
+                    continue;
+                }
+            }
+            out.push(r);
+        }
+        Ok(out)
+    }
 
     // --- Relations ---
 
@@ -485,30 +535,113 @@ pub trait RepositoryStore {
         Ok(out)
     }
 
-    // --- Containers ---
+    // --- Containers (catalog-backed per RFC-038; RFC-013 [R6]/[R9] as amended
+    //     by RFC-038 [R25]: resolution moves from `containerIndex` to the
+    //     catalog's container set) ---
 
-    /// Load a container by its logical `container_id`.
-    /// Returns `ContainerNotFound` if no container with that ID is registered.
+    /// Load a **file-backed** container by its logical `container_id`.
+    /// Returns `ContainerNotFound` if the catalog's container set has no
+    /// file-backed container with that ID — the inline root container is the
+    /// manifest's own representation ([R1]) and is resolved by
+    /// `container_service::resolve_root_container`, not here.
     fn load_container(
         &self,
         container_id: &str,
-    ) -> Result<srs_core::types::container::Container, RepositoryError>;
+    ) -> Result<srs_core::types::container::Container, RepositoryError> {
+        let Some(path) = catalog_file_container_locator(self, container_id)? else {
+            return Err(RepositoryError::ContainerNotFound {
+                container_id: container_id.to_string(),
+            });
+        };
+        let val = self.load_instance_json(&path)?;
+        serde_json::from_value(val).map_err(|source| RepositoryError::ManifestParse {
+            path: PathBuf::from(&path),
+            source,
+        })
+    }
 
     /// Persist a container by its logical `container_id`.
-    /// Creates it if it does not exist; overwrites if it does.
-    /// Implementations must write entity data before updating any index (ADR-007).
+    /// An existing file-backed container overwrites in place at its catalog
+    /// locator; the inline root container ([R1]) writes `manifest.container`
+    /// (a sanctioned manifest write — repository identity, not an index); a
+    /// new id derives a collision-safe `containers/` filename. No index write.
     fn save_container(
         &self,
         container: &srs_core::types::container::Container,
-    ) -> Result<(), RepositoryError>;
+    ) -> Result<(), RepositoryError> {
+        let id = &container.container_id;
+        let val = serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
+            path: PathBuf::from("containers"),
+            source,
+        })?;
+        if let Some(path) = catalog_file_container_locator(self, id)? {
+            // Existing file-backed container — overwrite in place.
+            return self.save_instance_json(&path, &val);
+        }
+        // The inline root container is authoritative in the manifest ([R1]):
+        // never materialise a duplicate file for it — update the embed.
+        let mut manifest = self.load_manifest()?;
+        if manifest
+            .container
+            .as_ref()
+            .is_some_and(|c| &c.container_id == id)
+        {
+            manifest.container = Some(container.clone());
+            return self.save_manifest(&manifest);
+        }
+        // New container — collision-safe `containers/` filename, no index write.
+        let slug = container
+            .title
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { '-' })
+            .collect::<String>();
+        let prefix = &id[..id.len().min(8)];
+        let mut filename = format!("containers/{slug}-{prefix}.json");
+        if !matches!(self.load_instance_json(&filename), Err(ref e) if e.is_not_found()) {
+            filename = format!("containers/{slug}-{id}.json");
+        }
+        self.ensure_instance_dir("containers")?;
+        self.save_instance_json(&filename, &val)
+    }
 
-    /// Delete a container by its logical `container_id`.
-    /// Returns `ContainerNotFound` if no container with that ID is registered.
-    fn delete_container(&self, container_id: &str) -> Result<(), RepositoryError>;
+    /// Delete a **file-backed** container by its logical `container_id` —
+    /// the container file only, never `manifest.json`. Returns
+    /// `ContainerNotFound` for an unknown id (including the inline root,
+    /// which cannot be deleted).
+    fn delete_container(&self, container_id: &str) -> Result<(), RepositoryError> {
+        let Some(path) = catalog_file_container_locator(self, container_id)? else {
+            return Err(RepositoryError::ContainerNotFound {
+                container_id: container_id.to_string(),
+            });
+        };
+        self.delete_instance_file(&path)
+    }
 
-    /// List all containers as lightweight summaries `(container_id, title)`.
-    /// Order is not guaranteed.
-    fn list_container_summaries(&self) -> Result<Vec<(String, String)>, RepositoryError>;
+    /// List all **file-backed** containers as lightweight summaries
+    /// `(container_id, title)`, titles read from the container bodies.
+    /// Order is not guaranteed. The inline root container is surfaced by
+    /// `container_service::list_containers`, which merges the manifest embed.
+    fn list_container_summaries(&self) -> Result<Vec<(String, String)>, RepositoryError> {
+        let cat = self.catalog()?;
+        let mut out = Vec::new();
+        for entry in &cat.containers {
+            let Some(locator) = entry.locator.as_deref() else {
+                continue;
+            };
+            if locator == crate::catalog::ROOT_CONTAINER_LOCATOR {
+                continue;
+            }
+            let title = self
+                .load_instance_json(locator)?
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            out.push((entry.id.clone(), title));
+        }
+        Ok(out)
+    }
 
     // --- Containers (transitional path-based methods — do not use in new service code) ---
 
@@ -1075,6 +1208,9 @@ impl RepositoryStore for FileStore {
                 path: manifest_path.clone(),
                 source: e,
             })?;
+        // RFC-038 [R21] generation gate + [R2] retired-property deny —
+        // feature-inactive (no-op) until the Phase-6 flip.
+        crate::manifest::rfc038::check_manifest(&raw)?;
         crate::manifest::migrate_upstream_package(&mut raw);
         let mut manifest: Manifest =
             serde_json::from_value(raw).map_err(|e| RepositoryError::ManifestParse {
@@ -1634,93 +1770,6 @@ impl RepositoryStore for FileStore {
         tier.dir()
     }
 
-    // --- Instances (logical-id + typed; ADR-042) ---
-
-    fn save_record(&self, record: &Record) -> Result<(), RepositoryError> {
-        let val = record_to_value(record)?;
-        let tier_dir = self.record_tier_dir(RecordTier::Tier2);
-        self.ensure_dir(tier_dir)?;
-        file_store_save_instance(
-            self,
-            &record.instance_id,
-            &val,
-            tier_dir,
-            &record.type_name,
-            2,
-            None,
-            record.tags.clone(),
-        )
-    }
-
-    fn save_note(&self, note: &Note) -> Result<(), RepositoryError> {
-        let val = note_to_value(note)?;
-        let tier_dir = self.record_tier_dir(RecordTier::Note);
-        self.ensure_dir(tier_dir)?;
-        let slug_source = note.title.as_deref().unwrap_or("");
-        file_store_save_instance(
-            self,
-            &note.instance_id,
-            &val,
-            tier_dir,
-            slug_source,
-            0,
-            note.title.clone(),
-            note.tags.clone(),
-        )
-    }
-
-    fn load_record_by_id(&self, instance_id: &str) -> Result<Record, RepositoryError> {
-        let entry = file_store_find_instance_entry(self, instance_id)?.ok_or_else(|| {
-            RepositoryError::InstanceNotFound {
-                id: instance_id.to_string(),
-            }
-        })?;
-        let val = self.read_json(&entry.path)?;
-        serde_json::from_value(val).map_err(|source| RepositoryError::RecordLoad {
-            path: self.abs(&entry.path),
-            source,
-        })
-    }
-
-    fn load_note_by_id(&self, instance_id: &str) -> Result<Note, RepositoryError> {
-        let entry = file_store_find_instance_entry(self, instance_id)?.ok_or_else(|| {
-            RepositoryError::InstanceNotFound {
-                id: instance_id.to_string(),
-            }
-        })?;
-        let val = self.read_json(&entry.path)?;
-        // Parity with loader::load_note: parse (NoteLoad) + validate_note (NoteValidation).
-        note_from_value(val, &entry.path)
-    }
-
-    fn delete_instance(&self, instance_id: &str) -> Result<(), RepositoryError> {
-        let entry = file_store_find_instance_entry(self, instance_id)?.ok_or_else(|| {
-            RepositoryError::InstanceNotFound {
-                id: instance_id.to_string(),
-            }
-        })?;
-        // ADR-007: remove the index entry before the file.
-        file_store_remove_instance_index(self, instance_id)?;
-        let _ = self.delete_file(&entry.path);
-        Ok(())
-    }
-
-    fn find_instance(&self, instance_id: &str) -> Result<Option<InstanceRef>, RepositoryError> {
-        Ok(file_store_find_instance_entry(self, instance_id)?
-            .as_ref()
-            .map(InstanceRef::from_index_entry))
-    }
-
-    fn list_instances(&self, query: &InstanceQuery) -> Result<Vec<InstanceRef>, RepositoryError> {
-        let manifest = self.load_manifest()?;
-        Ok(manifest
-            .instance_index
-            .iter()
-            .filter(|e| query.matches(e))
-            .map(InstanceRef::from_index_entry)
-            .collect())
-    }
-
     // --- Catalog (RFC-038; one walker over the Vfs seam: DiskVfs and MemVfs) ---
 
     fn catalog(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
@@ -1759,69 +1808,7 @@ impl RepositoryStore for FileStore {
         }
     }
 
-    // --- Containers ---
-
-    fn load_container(
-        &self,
-        container_id: &str,
-    ) -> Result<srs_core::types::container::Container, RepositoryError> {
-        let path = file_store_find_container_path(self, container_id)?;
-        let val = self.read_json(&path)?;
-        serde_json::from_value(val).map_err(|source| RepositoryError::ManifestParse {
-            path: self.abs(&path),
-            source,
-        })
-    }
-
-    fn save_container(
-        &self,
-        container: &srs_core::types::container::Container,
-    ) -> Result<(), RepositoryError> {
-        let id = &container.container_id;
-        let val = serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
-            path: std::path::PathBuf::from("containers"),
-            source,
-        })?;
-        self.ensure_dir("containers")?;
-        match file_store_find_container_path(self, id) {
-            Ok(path) => {
-                // Existing container — overwrite file in place; index unchanged
-                self.write_json(&path, &val)
-            }
-            Err(RepositoryError::ContainerNotFound { .. }) => {
-                // New container — file-before-index (ADR-007: orphaned file is safe,
-                // dangling index entry causes read errors on every subsequent load)
-                let slug = container
-                    .title
-                    .to_lowercase()
-                    .chars()
-                    .map(|c| if c.is_alphanumeric() { c } else { '-' })
-                    .collect::<String>();
-                let prefix = &id[..id.len().min(8)];
-                let filename = format!("containers/{slug}-{prefix}.json");
-                self.write_json(&filename, &val)?;
-                file_store_upsert_container_index(self, id, &container.title, &filename)
-            }
-            Err(e) => Err(e),
-        }
-    }
-
-    fn delete_container(&self, container_id: &str) -> Result<(), RepositoryError> {
-        let path = file_store_find_container_path(self, container_id)?;
-        // Remove from index
-        file_store_remove_container_index(self, container_id)?;
-        // Delete file (ignore missing-file errors)
-        let _ = self.delete_file(&path);
-        Ok(())
-    }
-
-    fn list_container_summaries(&self) -> Result<Vec<(String, String)>, RepositoryError> {
-        let index = file_store_load_container_index(self)?;
-        Ok(index
-            .into_iter()
-            .map(|(id, title, _path)| (id, title))
-            .collect())
-    }
+    // --- Containers: catalog-backed trait defaults apply ---
 
     #[allow(deprecated)]
     fn load_container_json(
@@ -2115,77 +2102,115 @@ pub(crate) fn definition_kind_key(kind: DefinitionKind) -> &'static str {
 }
 
 /// Load the container index as `(container_id, title, path)` triples from the manifest.
-fn file_store_load_container_index(
-    store: &FileStore,
-) -> Result<Vec<(String, String, String)>, RepositoryError> {
-    let manifest = store.load_manifest()?;
-    Ok(manifest
-        .container_index
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|e| {
-            let path = e.path?;
-            Some((e.container_id, e.title.unwrap_or_default(), path))
-        })
-        .collect())
-}
+// ---------------------------------------------------------------------------
+// Instance persistence helpers (ADR-042, catalog-backed per RFC-038) — shared
+// by the typed store default methods.
+// ---------------------------------------------------------------------------
 
-/// Find the file path for a container by its `container_id`.
-fn file_store_find_container_path(
-    store: &FileStore,
-    container_id: &str,
+/// One catalog snapshot ([R24] applied), returning the instance's locator or
+/// `InstanceNotFound`.
+fn catalog_require_instance_locator<S: RepositoryStore + ?Sized>(
+    store: &S,
+    instance_id: &str,
 ) -> Result<String, RepositoryError> {
-    let index = file_store_load_container_index(store)?;
-    index
+    let cat = store.catalog()?;
+    cat.instances
         .into_iter()
-        .find(|(id, _, _)| id == container_id)
-        .map(|(_, _, path)| path)
-        .ok_or_else(|| RepositoryError::ContainerNotFound {
-            container_id: container_id.to_string(),
+        .find(|e| e.id == instance_id)
+        .and_then(|e| e.locator)
+        .ok_or_else(|| RepositoryError::InstanceNotFound {
+            id: instance_id.to_string(),
         })
 }
 
-/// Insert or update an entry in the manifest `containerIndex`.
-fn file_store_upsert_container_index(
-    store: &FileStore,
-    container_id: &str,
-    title: &str,
-    path: &str,
-) -> Result<(), RepositoryError> {
-    let mut manifest = store.load_manifest()?;
-    let mut entries = manifest.container_index.unwrap_or_default();
-    entries.retain(|e| e.container_id != container_id);
-    entries.push(ContainerIndexEntry {
-        container_id: container_id.to_string(),
-        title: Some(title.to_string()),
-        path: Some(path.to_string()),
-        container_type: None,
-        tags: None,
-        extra: std::collections::BTreeMap::new(),
-    });
-    manifest.container_index = Some(entries);
-    store.save_manifest(&manifest)
+/// Derive an [`InstanceRef`] from a catalog entry by reading `title`/`tags`
+/// out of the entity body at its locator (RFC-038: no index columns).
+pub(crate) fn catalog_instance_ref<S: RepositoryStore + ?Sized>(
+    store: &S,
+    entry: &crate::catalog::CatalogEntry,
+) -> Result<InstanceRef, RepositoryError> {
+    let body = store.load_instance_json(entry.locator.as_deref().unwrap_or_default())?;
+    Ok(instance_ref_from_body(
+        entry.id.clone(),
+        entry.tier.unwrap_or(2),
+        &body,
+    ))
 }
 
-/// Remove an entry from the manifest `containerIndex`.
-fn file_store_remove_container_index(
-    store: &FileStore,
-    container_id: &str,
+/// `title`/`tags` projection from an entity body (notes carry `title`; records
+/// do not — their labels come from identity fields, not from here).
+pub(crate) fn instance_ref_from_body(
+    instance_id: String,
+    tier: u8,
+    body: &serde_json::Value,
+) -> InstanceRef {
+    InstanceRef {
+        instance_id,
+        tier,
+        title: body
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        tags: body
+            .get("tags")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
+}
+
+/// The two-branch save shared by the `save_record`/`save_note` defaults:
+/// existing id ⇒ overwrite at the existing catalog locator (path preserved, no
+/// rename); new id ⇒ collision-safe filename under `tier_dir`. Only the entity
+/// file is written — never `manifest.json` ([R22]).
+fn catalog_save_instance<S: RepositoryStore + ?Sized>(
+    store: &S,
+    instance_id: &str,
+    value: &serde_json::Value,
+    tier_dir: &str,
+    slug_source: &str,
 ) -> Result<(), RepositoryError> {
-    let mut manifest = store.load_manifest()?;
-    let mut entries = manifest.container_index.unwrap_or_default();
-    entries.retain(|e| e.container_id != container_id);
-    manifest.container_index = if entries.is_empty() {
-        None
-    } else {
-        Some(entries)
+    let cat = store.catalog()?;
+    let existing = cat
+        .instances
+        .into_iter()
+        .find(|e| e.id == instance_id)
+        .and_then(|e| e.locator);
+    let path = match existing {
+        Some(p) => p,
+        None => {
+            let candidate = instance_filename(tier_dir, slug_source, instance_id);
+            // Collision safety (ADR-040): if a different file already occupies
+            // the slug-{id8} name, fall back to the full-UUID form.
+            if matches!(store.load_instance_json(&candidate), Err(ref e) if e.is_not_found()) {
+                candidate
+            } else {
+                format!("{tier_dir}/{instance_id}.json")
+            }
+        }
     };
-    store.save_manifest(&manifest)
+    store.ensure_instance_dir(tier_dir)?;
+    store.save_instance_json(&path, value)
 }
 
-// ---------------------------------------------------------------------------
-// Instance persistence helpers (ADR-042) — shared by the typed store methods.
-// ---------------------------------------------------------------------------
+/// One catalog snapshot ([R24] applied), returning a **file-backed**
+/// container's locator (the inline root container is excluded — [R1]).
+fn catalog_file_container_locator<S: RepositoryStore + ?Sized>(
+    store: &S,
+    container_id: &str,
+) -> Result<Option<String>, RepositoryError> {
+    let cat = store.catalog()?;
+    Ok(cat
+        .containers
+        .into_iter()
+        .filter(|e| e.locator.as_deref() != Some(crate::catalog::ROOT_CONTAINER_LOCATOR))
+        .find(|e| e.id == container_id)
+        .and_then(|e| e.locator))
+}
 
 /// Serialize a `Record` to its on-disk JSON value, injecting `$schema` (parity
 /// with the transitional `write_record`).
@@ -2253,85 +2278,6 @@ pub(crate) fn instance_filename(tier_dir: &str, slug_source: &str, instance_id: 
     }
 }
 
-/// Find the manifest index entry for an instance by its logical id.
-fn file_store_find_instance_entry(
-    store: &FileStore,
-    instance_id: &str,
-) -> Result<Option<InstanceIndexEntry>, RepositoryError> {
-    let manifest = store.load_manifest()?;
-    Ok(manifest
-        .instance_index
-        .into_iter()
-        .find(|e| e.instance_id == instance_id))
-}
-
-/// Insert or replace an instance's manifest index entry.
-fn file_store_upsert_instance_index(
-    store: &FileStore,
-    entry: InstanceIndexEntry,
-) -> Result<(), RepositoryError> {
-    let mut manifest = store.load_manifest()?;
-    if let Some(pos) = manifest
-        .instance_index
-        .iter()
-        .position(|e| e.instance_id == entry.instance_id)
-    {
-        manifest.instance_index[pos] = entry;
-    } else {
-        manifest.instance_index.push(entry);
-    }
-    store.save_manifest(&manifest)
-}
-
-/// Remove an instance's manifest index entry.
-fn file_store_remove_instance_index(
-    store: &FileStore,
-    instance_id: &str,
-) -> Result<(), RepositoryError> {
-    let mut manifest = store.load_manifest()?;
-    manifest
-        .instance_index
-        .retain(|e| e.instance_id != instance_id);
-    store.save_manifest(&manifest)
-}
-
-/// The two-branch save shared by `save_record`/`save_note` (mirrors `save_container`):
-/// existing id ⇒ overwrite at the existing path (path + tier preserved, denormalized
-/// `title`/`tags` refreshed); new id ⇒ derive a filename and write entity-before-index
-/// (ADR-007). `title` is passed pre-normalized (records pass `None`).
-#[allow(clippy::too_many_arguments)]
-fn file_store_save_instance(
-    store: &FileStore,
-    instance_id: &str,
-    value: &serde_json::Value,
-    tier_dir: &str,
-    slug_source: &str,
-    new_tier: u8,
-    title: Option<String>,
-    tags: Option<Vec<String>>,
-) -> Result<(), RepositoryError> {
-    let existing = file_store_find_instance_entry(store, instance_id)?;
-    let (path, tier) = match &existing {
-        Some(e) => (e.path.clone(), e.tier), // preserve path + tier (no rename)
-        None => (
-            instance_filename(tier_dir, slug_source, instance_id),
-            new_tier,
-        ),
-    };
-    // Entity before index (ADR-007) in both branches.
-    store.write_json(&path, value)?;
-    file_store_upsert_instance_index(
-        store,
-        InstanceIndexEntry {
-            instance_id: instance_id.to_string(),
-            tier,
-            path,
-            title: title.map(serde_json::Value::String),
-            tags,
-        },
-    )
-}
-
 // ---------------------------------------------------------------------------
 // MemoryStore — in-memory test implementation
 // ---------------------------------------------------------------------------
@@ -2348,12 +2294,6 @@ pub mod memory {
         SaveManifest,
         /// Fail the next `delete_instance_file` call.
         DeleteInstanceFile,
-        /// Fail the next container-index update in `save_container` (after data write).
-        /// Simulates a crash between the file write and the index update for ADR-007 testing.
-        SaveContainerIndex,
-        /// Fail the next instance-index update in `save_record`/`save_note` (after data write).
-        /// Simulates a crash between the file write and the index update for ADR-007 testing.
-        SaveInstanceIndex,
         /// Fail the next `load_package` call.
         LoadPackage,
     }
@@ -2625,78 +2565,6 @@ pub mod memory {
         /// Return a clone of all stored data (for assertions).
         pub fn all_data(&self) -> HashMap<String, serde_json::Value> {
             self.data.borrow().clone()
-        }
-
-        /// Resolve an instance's data key (path) from the manifest index (ADR-042).
-        fn mem_instance_path(&self, instance_id: &str) -> Result<String, RepositoryError> {
-            self.manifest
-                .borrow()
-                .instance_index
-                .iter()
-                .find(|e| e.instance_id == instance_id)
-                .map(|e| e.path.clone())
-                .ok_or_else(|| RepositoryError::InstanceNotFound {
-                    id: instance_id.to_string(),
-                })
-        }
-
-        /// The two-branch instance save shared by `save_record`/`save_note`
-        /// (mirrors `save_container`): existing id ⇒ overwrite at the existing path
-        /// (path + tier preserved, denormalized `title`/`tags` refreshed); new id ⇒
-        /// derive a filename and write data before index (ADR-007). Honours
-        /// `FailPoint::SaveInstanceIndex` between the two writes.
-        #[allow(clippy::too_many_arguments)]
-        fn mem_save_instance(
-            &self,
-            instance_id: &str,
-            value: &serde_json::Value,
-            tier_dir: &str,
-            slug_source: &str,
-            new_tier: u8,
-            title: Option<String>,
-            tags: Option<Vec<String>>,
-        ) -> Result<(), RepositoryError> {
-            let existing = self
-                .manifest
-                .borrow()
-                .instance_index
-                .iter()
-                .find(|e| e.instance_id == instance_id)
-                .map(|e| (e.path.clone(), e.tier));
-            let (path, tier) = match existing {
-                Some((p, t)) => (p, t),
-                None => (
-                    instance_filename(tier_dir, slug_source, instance_id),
-                    new_tier,
-                ),
-            };
-            // Data before index (ADR-007).
-            self.data.borrow_mut().insert(path.clone(), value.clone());
-            if matches!(*self.fail_at.borrow(), Some(FailPoint::SaveInstanceIndex)) {
-                *self.fail_at.borrow_mut() = None;
-                return Err(RepositoryError::Io {
-                    path: std::path::PathBuf::from("injected"),
-                    source: std::io::Error::other("injected fault: save_instance_index"),
-                });
-            }
-            let entry = InstanceIndexEntry {
-                instance_id: instance_id.to_string(),
-                tier,
-                path,
-                title: title.map(serde_json::Value::String),
-                tags,
-            };
-            let mut manifest = self.manifest.borrow_mut();
-            if let Some(pos) = manifest
-                .instance_index
-                .iter()
-                .position(|e| e.instance_id == instance_id)
-            {
-                manifest.instance_index[pos] = entry;
-            } else {
-                manifest.instance_index.push(entry);
-            }
-            Ok(())
         }
 
         /// Sync the `data["<prefix>/package.json"]` JSON entry when a definition
@@ -3249,88 +3117,7 @@ pub mod memory {
             tier.dir()
         }
 
-        // --- Instances (logical-id + typed; ADR-042) ---
-
-        fn save_record(&self, record: &Record) -> Result<(), RepositoryError> {
-            let val = record_to_value(record)?;
-            self.mem_save_instance(
-                &record.instance_id,
-                &val,
-                self.record_tier_dir(RecordTier::Tier2),
-                &record.type_name,
-                2,
-                None,
-                record.tags.clone(),
-            )
-        }
-
-        fn save_note(&self, note: &Note) -> Result<(), RepositoryError> {
-            let val = note_to_value(note)?;
-            self.mem_save_instance(
-                &note.instance_id,
-                &val,
-                self.record_tier_dir(RecordTier::Note),
-                note.title.as_deref().unwrap_or(""),
-                0,
-                note.title.clone(),
-                note.tags.clone(),
-            )
-        }
-
-        fn load_record_by_id(&self, instance_id: &str) -> Result<Record, RepositoryError> {
-            let path = self.mem_instance_path(instance_id)?;
-            let val = self.load_instance_json(&path)?;
-            serde_json::from_value(val).map_err(|source| RepositoryError::RecordLoad {
-                path: std::path::PathBuf::from(&path),
-                source,
-            })
-        }
-
-        fn load_note_by_id(&self, instance_id: &str) -> Result<Note, RepositoryError> {
-            let path = self.mem_instance_path(instance_id)?;
-            let val = self.load_instance_json(&path)?;
-            // Parity with loader::load_note: parse (NoteLoad) + validate_note (NoteValidation).
-            note_from_value(val, &path)
-        }
-
-        fn delete_instance(&self, instance_id: &str) -> Result<(), RepositoryError> {
-            let path = self.mem_instance_path(instance_id)?;
-            // ADR-007: remove the index entry before the data. Routed through
-            // `save_manifest`/`delete_instance_file` (rather than mutating `manifest`/
-            // `data` directly) so this honours `FailPoint::SaveManifest` and
-            // `FailPoint::DeleteInstanceFile` the same way the legacy write path did.
-            let mut manifest = self.manifest.borrow().clone();
-            manifest
-                .instance_index
-                .retain(|e| e.instance_id != instance_id);
-            self.save_manifest(&manifest)?;
-            let _ = self.delete_instance_file(&path);
-            Ok(())
-        }
-
-        fn find_instance(&self, instance_id: &str) -> Result<Option<InstanceRef>, RepositoryError> {
-            Ok(self
-                .manifest
-                .borrow()
-                .instance_index
-                .iter()
-                .find(|e| e.instance_id == instance_id)
-                .map(InstanceRef::from_index_entry))
-        }
-
-        fn list_instances(
-            &self,
-            query: &InstanceQuery,
-        ) -> Result<Vec<InstanceRef>, RepositoryError> {
-            Ok(self
-                .manifest
-                .borrow()
-                .instance_index
-                .iter()
-                .filter(|e| query.matches(e))
-                .map(InstanceRef::from_index_entry)
-                .collect())
-        }
+        // --- Instances: catalog-backed trait defaults apply (ADR-042/RFC-038) ---
 
         // --- Catalog (RFC-038): the shared walker enumerates this store's
         // object maps through `list_files_recursive`/`load_instance_json` ---
@@ -3374,89 +3161,7 @@ pub mod memory {
             Ok(())
         }
 
-        fn load_container(
-            &self,
-            container_id: &str,
-        ) -> Result<srs_core::types::container::Container, RepositoryError> {
-            let key = format!("containers/{container_id}.json");
-            let val = self.data.borrow().get(&key).cloned().ok_or_else(|| {
-                RepositoryError::ContainerNotFound {
-                    container_id: container_id.to_string(),
-                }
-            })?;
-            serde_json::from_value(val).map_err(|source| RepositoryError::ManifestParse {
-                path: std::path::PathBuf::from(&key),
-                source,
-            })
-        }
-
-        fn save_container(
-            &self,
-            container: &srs_core::types::container::Container,
-        ) -> Result<(), RepositoryError> {
-            let id = &container.container_id;
-            let key = format!("containers/{id}.json");
-            let val =
-                serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
-                    path: std::path::PathBuf::from(&key),
-                    source,
-                })?;
-            self.data.borrow_mut().insert(key, val);
-            // Fault injection point: after data write, before index update.
-            // Simulates a crash between the file write and the index update (ADR-007).
-            let should_fail = matches!(*self.fail_at.borrow(), Some(FailPoint::SaveContainerIndex));
-            if should_fail {
-                *self.fail_at.borrow_mut() = None;
-                return Err(RepositoryError::Io {
-                    path: std::path::PathBuf::from("injected"),
-                    source: std::io::Error::other("injected fault: save_container_index"),
-                });
-            }
-            // Update summary index in manifest
-            let mut manifest = self.manifest.borrow_mut();
-            let mut entries = manifest.container_index.take().unwrap_or_default();
-            entries.retain(|e| &e.container_id != id);
-            entries.push(srs_core::types::container::ContainerIndexEntry {
-                container_id: id.clone(),
-                title: Some(container.title.clone()),
-                path: None,
-                container_type: None,
-                tags: None,
-                extra: std::collections::BTreeMap::new(),
-            });
-            manifest.container_index = Some(entries);
-            Ok(())
-        }
-
-        fn delete_container(&self, container_id: &str) -> Result<(), RepositoryError> {
-            let key = format!("containers/{container_id}.json");
-            if self.data.borrow_mut().remove(&key).is_none() {
-                return Err(RepositoryError::ContainerNotFound {
-                    container_id: container_id.to_string(),
-                });
-            }
-            // Remove from manifest index
-            let mut manifest = self.manifest.borrow_mut();
-            let mut entries = manifest.container_index.take().unwrap_or_default();
-            entries.retain(|e| e.container_id != container_id);
-            manifest.container_index = if entries.is_empty() {
-                None
-            } else {
-                Some(entries)
-            };
-            Ok(())
-        }
-
-        fn list_container_summaries(&self) -> Result<Vec<(String, String)>, RepositoryError> {
-            let manifest = self.manifest.borrow();
-            Ok(manifest
-                .container_index
-                .as_deref()
-                .unwrap_or(&[])
-                .iter()
-                .map(|e| (e.container_id.clone(), e.title.clone().unwrap_or_default()))
-                .collect())
-        }
+        // --- Containers: catalog-backed trait defaults apply ---
 
         #[allow(deprecated)]
         fn load_container_json(
@@ -4250,40 +3955,8 @@ mod tests {
         assert!(matches!(err, RepositoryError::ContainerNotFound { .. }));
     }
 
-    #[test]
-    fn save_container_file_first_failed_index_leaves_orphaned_data_safe() {
-        // ADR-007: with file-before-index ordering, a failed index update after a successful
-        // data write must leave the data in the backing store (orphaned, invisible to readers) but
-        // no dangling index entry. Proves the invariant: the index is always internally consistent.
-        use memory::FailPoint;
-
-        let store = MemoryStore::empty();
-        let container = minimal_container_for_store("c-test-adr007", "ADR-007 Test");
-
-        store.arm_fail_at(FailPoint::SaveContainerIndex);
-        let result = store.save_container(&container);
-
-        // The call must have failed (simulating a crash between file write and index update)
-        assert!(
-            matches!(result, Err(RepositoryError::Io { .. })),
-            "save_container should return Io error when SaveContainerIndex fail point is armed"
-        );
-
-        // Data was written before the injected failure — orphaned entry present in backing store (safe)
-        assert!(
-            store
-                .all_data()
-                .contains_key("containers/c-test-adr007.json"),
-            "container data should exist as an orphaned entry after failed index update"
-        );
-
-        // Index must NOT have an entry — no dangling index entry
-        let summaries = store.list_container_summaries().unwrap();
-        assert!(
-            summaries.is_empty(),
-            "container index must have no entry after failed index update (no dangling entry)"
-        );
-    }
+    // ADR-007 entity-vs-index ordering tests retired by RFC-038 Phase 3:
+    // container/instance saves no longer write any index.
 
     // --- Instance store tests (ADR-042) ---
 
@@ -4628,34 +4301,8 @@ mod tests {
         assert_eq!(entry2.tags.as_deref(), Some(&["added".to_string()][..]));
     }
 
-    #[test]
-    fn save_record_file_first_failed_index_leaves_orphaned_data_safe() {
-        // ADR-007: a failed index update after a successful data write leaves orphaned data,
-        // no dangling index entry. Mirrors the container fault-injection test.
-        use memory::FailPoint;
-        let store = MemoryStore::empty();
-        let rec = minimal_record_for_store("rec-00000004-dddd", "Thing", None);
-
-        store.arm_fail_at(FailPoint::SaveInstanceIndex);
-        let result = store.save_record(&rec);
-        assert!(
-            matches!(result, Err(RepositoryError::Io { .. })),
-            "save_record should return Io error when SaveInstanceIndex fail point is armed"
-        );
-        // Data written before the injected failure — orphaned entry present.
-        assert!(
-            store
-                .all_data()
-                .keys()
-                .any(|k| k.contains("rec-00000004-dddd") || k.starts_with("records/tier-2")),
-            "record data should exist as an orphaned entry after failed index update"
-        );
-        // No dangling index entry.
-        assert!(
-            store.find_instance("rec-00000004-dddd").unwrap().is_none(),
-            "instance index must have no entry after a failed index update"
-        );
-    }
+    // save_record_file_first_failed_index_leaves_orphaned_data_safe retired by
+    // RFC-038 Phase 3: instance saves no longer write any index entry.
 
     #[test]
     fn delete_instance_index_first_and_not_found() {

@@ -165,6 +165,10 @@ pub mod codes {
 // RepositoryCatalog
 // ---------------------------------------------------------------------------
 
+/// Locator of the inline root container ([R1]: the manifest is authoritative
+/// for the repository's root container — it is never a file under `containers/`).
+pub const ROOT_CONTAINER_LOCATOR: &str = "manifest.json#/container";
+
 /// One materialised snapshot of the six authoritative sets, with diagnostics.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -600,7 +604,7 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
     // --- The inline root container (Change A: manifest is authoritative) ---
 
     if let Some(container) = &manifest.container {
-        let locator = "manifest.json#/container".to_string();
+        let locator = ROOT_CONTAINER_LOCATOR.to_string();
         if let Some(ids) = &container.root_instance_ids {
             b.container_refs
                 .push((locator.clone(), "rootInstanceIds", ids.clone()));

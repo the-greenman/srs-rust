@@ -190,36 +190,47 @@ pub fn export_repository_snapshot_with_options(
 ) -> Result<RepositorySnapshot, RepositoryError> {
     let manifest = source.load_manifest()?;
 
+    // RFC-038 Phase 3: enumerate instances from one catalog snapshot — the
+    // manifest index is no longer read. Snapshot `title`/`tags` are derived
+    // from the entity bodies.
+    let catalog = source.catalog()?;
     let mut instances = Vec::new();
-    for entry in &manifest.instance_index {
+    for entry in &catalog.instances {
+        let locator = entry.locator.as_deref().unwrap_or_default();
         let value =
             source
-                .load_instance_json(entry.path())
+                .load_instance_json(locator)
                 .map_err(|e| RepositoryError::InstanceLoad {
-                    instance_id: entry.instance_id.clone(),
-                    path: std::path::PathBuf::from(entry.path()),
+                    instance_id: entry.id.clone(),
+                    path: std::path::PathBuf::from(locator),
                     source: Box::new(e) as Box<dyn std::error::Error + Send + Sync>,
                 })?;
+        let r =
+            crate::store::instance_ref_from_body(entry.id.clone(), entry.tier.unwrap_or(2), &value);
         instances.push(SnapshotInstance {
-            instance_id: entry.instance_id.clone(),
-            tier: entry.tier,
-            title: entry.title.clone(),
-            tags: entry.tags.clone(),
+            instance_id: entry.id.clone(),
+            tier: entry.tier.unwrap_or(2),
+            title: r.title.map(serde_json::Value::String),
+            tags: if r.tags.is_empty() {
+                None
+            } else {
+                Some(r.tags)
+            },
             value,
         });
     }
 
     // Identify the embed-only root container ID, if any. An embed-only root exists in
-    // `manifest.container` but has no entry in `containerIndex` — it is already
+    // `manifest.container` but has no file-backed container — it is already
     // preserved in `root_container` below, so including it in `containers` would
     // double-capture it and cause `create_container` UUID-validation failures on import
     // for repositories whose id pre-dates the UUID requirement (e.g. legacy test repos).
     let embed_only_root_id: Option<String> = manifest.container.as_ref().and_then(|mc| {
-        let in_index = manifest
-            .container_index
-            .as_ref()
-            .is_some_and(|idx| idx.iter().any(|e| e.container_id == mc.container_id));
-        if in_index {
+        let file_backed = catalog.containers.iter().any(|e| {
+            e.id == mc.container_id
+                && e.locator.as_deref() != Some(crate::catalog::ROOT_CONTAINER_LOCATOR)
+        });
+        if file_backed {
             None
         } else {
             Some(mc.container_id.clone())

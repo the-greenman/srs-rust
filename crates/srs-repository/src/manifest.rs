@@ -9,7 +9,12 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Manifest {
-    #[serde(rename = "instanceIndex")]
+    /// RETIRED by RFC-038 Change K — membership comes from the tree via the
+    /// catalog; no service reads or writes this since srs-rust#783 Phase 3.
+    /// The typed field survives through Phase 4 so json_store/archive and old
+    /// fixtures still compile/load; it is removed (and [R2] denies the key) at
+    /// the Phase-6 flip. `default` so index-less repositories load.
+    #[serde(rename = "instanceIndex", default)]
     pub instance_index: Vec<InstanceIndexEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub container: Option<Container>,
@@ -47,6 +52,81 @@ impl Default for Manifest {
             extra: std::collections::BTreeMap::new(),
             root: PathBuf::new(),
         }
+    }
+}
+
+/// RFC-038 [R2] deny + [R21] generation gate (srs-rust#783 Phase 3).
+///
+/// Both checks are implemented here but **feature-inactive** until the Phase-6
+/// enforcement flip: every vendored fixture is still rev-2-with-index, so
+/// activating them now would fail every load. A crate-internal, thread-local,
+/// test-only switch activates them for their own tests; the Phase-6 flip makes
+/// them unconditional and deletes the switch.
+pub(crate) mod rfc038 {
+    use crate::error::RepositoryError;
+    use std::cell::Cell;
+
+    /// The manifest properties retired by RFC-038 Change K.
+    pub(crate) const RETIRED_PROPERTIES: &[&str] = &[
+        "instanceIndex",
+        "containerIndex",
+        "sourceDocumentIndex",
+        "relationsChecksums",
+        "relationsPath",
+    ];
+
+    thread_local! {
+        static ENFORCEMENT_ACTIVE: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub(crate) fn enforcement_active() -> bool {
+        ENFORCEMENT_ACTIVE.with(|a| a.get())
+    }
+
+    /// Test-only activation for the [R2]/[R21] checks. Thread-local so
+    /// parallel tests against un-migrated fixtures are unaffected. Deleted at
+    /// the Phase-6 flip.
+    #[cfg(test)]
+    pub(crate) struct EnforcementGuard;
+
+    #[cfg(test)]
+    impl EnforcementGuard {
+        pub(crate) fn activate() -> Self {
+            ENFORCEMENT_ACTIVE.with(|a| a.set(true));
+            EnforcementGuard
+        }
+    }
+
+    #[cfg(test)]
+    impl Drop for EnforcementGuard {
+        fn drop(&mut self) {
+            ENFORCEMENT_ACTIVE.with(|a| a.set(false));
+        }
+    }
+
+    /// Apply the [R21] generation gate then the [R2] retired-property deny to
+    /// a raw `manifest.json` value. Checked against the raw JSON (not the
+    /// typed struct) so the `extra` catch-all can never silently absorb a
+    /// retired key. No-op while enforcement is inactive.
+    pub(crate) fn check_manifest(raw: &serde_json::Value) -> Result<(), RepositoryError> {
+        if !enforcement_active() {
+            return Ok(());
+        }
+        let declared = raw
+            .get("dataModelRevision")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        if declared <= 1 {
+            return Err(RepositoryError::StorageGenerationUnsupported { declared });
+        }
+        for prop in RETIRED_PROPERTIES {
+            if raw.get(*prop).is_some() {
+                return Err(RepositoryError::RetiredManifestProperty {
+                    property: (*prop).to_string(),
+                });
+            }
+        }
+        Ok(())
     }
 }
 
