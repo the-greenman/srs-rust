@@ -7562,6 +7562,56 @@ mod tests {
     }
 
     #[test]
+    fn validate_no_dangling_endpoint_after_cascade_delete() {
+        // RFC-038 acceptance test 13: an instance delete cascades its incident
+        // Relations ([R22] scoped cascade), so validation afterwards reports no
+        // E2 dangling-endpoint diagnostic. Incident edges cover both storage
+        // forms (collection entry + standalone object).
+        let temp = TempDir::new().unwrap();
+        let (a, b) = setup_repo_for_relation_validation(&temp);
+        write_json(
+            temp.path(),
+            "relations/relations-collection.json",
+            &relations_collection(vec![json!({
+                "relationId": "00000000-0000-4000-8000-000000000201",
+                "relationType": "contains",
+                "sourceInstanceId": a,
+                "targetInstanceId": b,
+                "createdAt": "2026-01-01T00:00:00Z"
+            })]),
+        );
+        let standalone_id = "00000000-0000-4000-8000-000000000202";
+        write_json(
+            temp.path(),
+            &format!("relations/{standalone_id}.json"),
+            &json!({
+                "$schema": crate::store::RELATION_OBJECT_SCHEMA_URL,
+                "relationId": standalone_id,
+                "relationType": "contains",
+                "sourceInstanceId": b,
+                "targetInstanceId": a,
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        crate::services::delete_note(&store, &b).unwrap();
+
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            !report.diagnostics.iter().any(|d| d.message.contains("E2")),
+            "cascade delete must leave no dangling-endpoint diagnostic, got: {:?}",
+            report.diagnostics
+        );
+        assert!(
+            crate::relation_service::load_relations(&store)
+                .unwrap()
+                .is_empty(),
+            "both incident relations must be removed by the cascade"
+        );
+    }
+
+    #[test]
     fn validate_reports_duplicate_relation_id_across_forms() {
         // RFC-038 [R12]: the same relationId as a collection entry AND a standalone
         // object is an error naming both locators.

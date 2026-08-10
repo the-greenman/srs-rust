@@ -522,17 +522,31 @@ pub fn update_note(
 
 /// Service: Delete a note by ID
 ///
+/// RFC-038 Change F / [R22] scoped cascade: the Relations incident to this note
+/// are removed in the same batch operation, so the delete never leaves dangling
+/// relation endpoints behind.
+///
 /// Follows ADR-007 index-first ordering for deletes: removes the manifest entry and
 /// persists the manifest before touching the file. File deletion is best-effort after
 /// the index is committed (leaves an orphaned file rather than a dangling index entry
-/// if interrupted).
+/// if interrupted). Interim (RFC-038 plan, Phase 2): the manifest index write stays
+/// until Phase 3 removes the service-layer index writes.
 pub fn delete_note(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<DeleteNoteResult, RepositoryError> {
     match store.find_instance(id)? {
         Some(r) if r.tier == 0 => {
-            store.delete_instance(id)?;
+            store.begin_batch();
+            let write_result = crate::relation_service::delete_relations_incident_to(store, id)
+                .and_then(|_| store.delete_instance(id));
+            match write_result {
+                Ok(()) => store.commit_batch()?,
+                Err(e) => {
+                    store.abort_batch();
+                    return Err(e);
+                }
+            }
             Ok(DeleteNoteResult {
                 instance_id: id.to_string(),
             })
@@ -1141,6 +1155,69 @@ mod tests {
         assert!(
             manifest.instance_index.is_empty(),
             "manifest entry should be removed after delete"
+        );
+    }
+
+    #[test]
+    fn delete_note_cascades_incident_relations() {
+        // RFC-038 Change F / [R22]: deleting a note removes the Relations
+        // incident to it — one collection resident, one standalone object —
+        // and leaves non-incident relations alone.
+        let note = make_note("11111111-1111-1111-8111-111111111111", "Test Note");
+        let store = store_with_note(&note, "records/notes/test-note.json");
+
+        store
+            .save_relations_json(
+                "relations/relations-collection.json",
+                &serde_json::json!({
+                    "relations": [
+                        {
+                            "relationId": "rel-incident-collection",
+                            "relationType": "evidences",
+                            "sourceInstanceId": "11111111-1111-1111-8111-111111111111",
+                            "targetInstanceId": "other-instance"
+                        },
+                        {
+                            "relationId": "rel-bystander",
+                            "relationType": "evidences",
+                            "sourceInstanceId": "other-instance",
+                            "targetInstanceId": "other-instance"
+                        }
+                    ]
+                }),
+            )
+            .unwrap();
+        store
+            .save_relation(&srs_core::types::relation::Relation {
+                relation_id: "rel-incident-object".to_string(),
+                relation_type: "evidences".to_string(),
+                source_instance_id: "other-instance".to_string(),
+                target_instance_id: "11111111-1111-1111-8111-111111111111".to_string(),
+                asserted_by: None,
+                confidence: None,
+                created_at: None,
+                created_by: None,
+                status: None,
+                valid_from: None,
+                valid_until: None,
+                notes: None,
+                source_refs: None,
+                meta: None,
+                source_repository_id: None,
+                target_repository_id: None,
+            })
+            .unwrap();
+
+        delete_note(&store, "11111111-1111-1111-8111-111111111111").unwrap();
+
+        let remaining = crate::relation_service::load_relations(&store).unwrap();
+        assert_eq!(
+            remaining
+                .iter()
+                .map(|r| r.relation_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["rel-bystander"],
+            "cascade must remove exactly the incident relations"
         );
     }
 

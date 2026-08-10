@@ -346,7 +346,20 @@ pub fn delete_container(
     store: &dyn RepositoryStore,
     container_id: &str,
 ) -> Result<String, RepositoryError> {
-    store.delete_container(container_id)?;
+    // RFC-038 Change F: the [R22] cascade analogue for containers. A containerId
+    // must never appear as a Relation endpoint (spec invariant), but a legacy or
+    // hand-edited repo may carry such edges — remove them with the container so
+    // the delete never leaves dangling endpoints behind.
+    store.begin_batch();
+    let write_result = crate::relation_service::delete_relations_incident_to(store, container_id)
+        .and_then(|_| store.delete_container(container_id));
+    match write_result {
+        Ok(()) => store.commit_batch()?,
+        Err(e) => {
+            store.abort_batch();
+            return Err(e);
+        }
+    }
     Ok(container_id.to_string())
 }
 
@@ -670,6 +683,47 @@ mod tests {
         delete_container(&store, &created.container_id).unwrap();
         let listed = list_containers(&store, &ContainerListFilter::default()).unwrap();
         assert!(listed.is_empty());
+    }
+
+    #[test]
+    fn delete_container_cascades_incident_relations() {
+        // RFC-038 Change F: the [R22] cascade analogue for containers — a legacy
+        // edge naming the containerId as an endpoint is removed with the container.
+        let store = make_store();
+        let created = create_container(
+            &store,
+            minimal_container("550e8400-e29b-41d4-a716-446655440000", "Delete"),
+        )
+        .unwrap();
+        store
+            .save_relation(&srs_core::types::relation::Relation {
+                relation_id: "rel-legacy-container-edge".to_string(),
+                relation_type: "contains".to_string(),
+                source_instance_id: created.container_id.clone(),
+                target_instance_id: "some-instance".to_string(),
+                asserted_by: None,
+                confidence: None,
+                created_at: None,
+                created_by: None,
+                status: None,
+                valid_from: None,
+                valid_until: None,
+                notes: None,
+                source_refs: None,
+                meta: None,
+                source_repository_id: None,
+                target_repository_id: None,
+            })
+            .unwrap();
+
+        delete_container(&store, &created.container_id).unwrap();
+
+        assert!(
+            crate::relation_service::load_relations(&store)
+                .unwrap()
+                .is_empty(),
+            "legacy container-endpoint edge must be cascaded"
+        );
     }
 
     #[test]

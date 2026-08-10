@@ -372,6 +372,24 @@ pub(crate) fn remove_relations_where(
     Ok(removed)
 }
 
+/// RFC-038 Change F / [R22] scoped cascade: remove every Relation incident to
+/// `instance_id` (as source or target). Called from instance/container delete
+/// paths so a delete never leaves dangling relation endpoints behind. The
+/// incident relation files are declared targets of the same delete under
+/// [R22]'s explicit cascade exception. Returns the removed relation ids.
+///
+/// Batch scoping is the caller's responsibility (group with the instance
+/// delete under `begin_batch`/`commit_batch`).
+pub(crate) fn delete_relations_incident_to(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+) -> Result<Vec<String>, RepositoryError> {
+    let removed = remove_relations_where(store, |r| {
+        r.source_instance_id == instance_id || r.target_instance_id == instance_id
+    })?;
+    Ok(removed.into_iter().map(|r| r.relation_id).collect())
+}
+
 /// Validate one relation's JSON shape against the relations-collection schema's
 /// item contract (wrapped in a synthetic single-entry collection).
 fn schema_validate_relation(relation: &Relation) -> Result<(), RepositoryError> {
