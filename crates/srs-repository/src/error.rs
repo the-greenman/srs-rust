@@ -128,6 +128,15 @@ pub enum RepositoryError {
     #[error("invalid relationId '{relation_id}': must be a canonical lowercase hyphenated UUID (RFC-038 Change E)")]
     InvalidRelationId { relation_id: String },
 
+    /// The instanceId is not a canonical lowercase hyphenated UUID. Required
+    /// because a caller-supplied instanceId can become part of the saved
+    /// entity's filename (`catalog_save_instance`'s full-id collision fallback,
+    /// `{tier_dir}/{instance_id}.json`): anything else is a path-escape write
+    /// primitive (`../manifest`) — the same class of bug `InvalidRelationId`
+    /// guards against for relations.
+    #[error("invalid instanceId '{instance_id}': must be a canonical lowercase hyphenated UUID")]
+    InvalidInstanceId { instance_id: String },
+
     /// RFC-038 [R11]: a standalone relation object's filename disagrees with its
     /// in-file `relationId`. The in-file id is authoritative; the error names both.
     #[error("relation file {path:?} names relationId '{file_relation_id}' — the filename must match the in-file relationId (RFC-038 [R11])")]

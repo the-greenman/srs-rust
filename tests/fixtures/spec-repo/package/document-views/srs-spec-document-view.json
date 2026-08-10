@@ -1,4 +1,5 @@
 {
+  "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
   "id": "ec34f54b-8636-5c8b-af5b-c9eb3df24fe6",
   "namespace": "com.semanticops.srs",
   "name": "srs-spec-document-view",

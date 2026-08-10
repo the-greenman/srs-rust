@@ -7,7 +7,7 @@
   "description": "Named concept, principle, or explanatory construct.",
   "fields": [
     {
-      "fieldId": "f1a2b3c4-d5e6-4a7b-8c9d-0e1f2a3b4c5c",
+      "fieldId": "f1a2b3c4-d5e6-4f7a-8b9c-0d1e2f3a4b5c",
       "order": 0,
       "required": true,
       "displayLabel": "Canonical Key"

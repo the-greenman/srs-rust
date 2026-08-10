@@ -23,11 +23,24 @@ struct ResolvedSourceDocument {
 /// One catalog snapshot's source-document set, resolved to sidecar content.
 /// `src_docs_base` strips the catalog locator down to a `sourceDocumentsPath`-
 /// relative path, matching the shape every caller here already works with.
+/// Builds its own catalog snapshot — for a caller that needs a second
+/// catalog-derived fact in the same operation (e.g. also resolving
+/// instances), use [`resolve_source_documents_from_catalog`] with an
+/// already-fetched snapshot instead, so the operation stays at one
+/// `store.catalog()` call.
 fn resolve_source_documents(
     store: &dyn RepositoryStore,
     src_docs_base: &str,
 ) -> Result<Vec<ResolvedSourceDocument>, RepositoryError> {
     let cat = store.catalog()?;
+    resolve_source_documents_from_catalog(store, &cat, src_docs_base)
+}
+
+fn resolve_source_documents_from_catalog(
+    store: &dyn RepositoryStore,
+    cat: &crate::catalog::RepositoryCatalog,
+    src_docs_base: &str,
+) -> Result<Vec<ResolvedSourceDocument>, RepositoryError> {
     let prefix = format!("{src_docs_base}/");
     let mut out = Vec::with_capacity(cat.source_documents.len());
     for entry in &cat.source_documents {
@@ -336,16 +349,11 @@ pub fn add_attachment(
         })?;
     let sidecar_checksum = sha256_hex(&sidecar_bytes);
 
-    // Write content file, then sidecar. No further manifest write: the sidecar is the
-    // document's identity ([R15]) and `sourceDocumentIndex` is retired (Change K).
+    // Write content file, then sidecar. No manifest write at all ([R22]): every
+    // reader here already falls back to the "source-documents" default when
+    // `sourceDocumentsPath` is absent, so there is nothing to persist eagerly.
     store.save_binary_file(&full_content_path, &input.content)?;
     store.save_text_file(&full_sidecar_path, &sidecar_str)?;
-
-    if manifest.source_documents_path.is_none() {
-        let mut manifest = manifest;
-        manifest.source_documents_path = Some(src_docs_base.clone());
-        store.save_manifest(&manifest)?;
-    }
 
     Ok(AddAttachmentResult {
         document_id,
@@ -516,13 +524,14 @@ pub fn resolve_document_view_attachments(
         .unwrap_or("source-documents")
         .to_string();
 
-    let resolved = resolve_source_documents(store, &src_docs_base)?;
+    // One catalog snapshot for both the source-document set and the instance set.
+    let cat = store.catalog()?;
+    let resolved = resolve_source_documents_from_catalog(store, &cat, &src_docs_base)?;
     let index_map: HashMap<&str, &ResolvedSourceDocument> = resolved
         .iter()
         .map(|e| (e.document_id.as_str(), e))
         .collect();
 
-    let cat = store.catalog()?;
     let instance_map: HashMap<&str, &str> = cat
         .instances
         .iter()

@@ -501,7 +501,10 @@ mod tests {
             version,
             description: String::new(),
             instructions: None,
-            ai_guidance: srs_core::types::field::AiGuidance::default(),
+            ai_guidance: srs_core::types::field::AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            },
             field_type: srs_core::types::field::FieldType::string(),
             default_value: None,
             editor_hint: None,

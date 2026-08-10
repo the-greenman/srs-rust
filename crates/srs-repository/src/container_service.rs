@@ -494,20 +494,49 @@ pub fn validate_container_invariants(
     store: &dyn RepositoryStore,
     container_id: &str,
 ) -> Result<ContainerValidationReport, RepositoryError> {
-    let container = get_container(store, container_id)?;
+    // One catalog snapshot, via the unchecked builder — not `store.catalog()`
+    // ([R24] fatal) and not `get_container` (which routes through it): this
+    // function's entire purpose is to *report* an invalid container (e.g. a
+    // dangling member/root reference) as a validation report, mirroring
+    // `repo validate`'s [R24] exemption. The container we are validating is
+    // by construction already persisted, so its own dangling reference would
+    // otherwise fail the fatal catalog build before this function ever got
+    // to describe the problem.
+    let cat = crate::catalog::build(store)?;
+    let container: Container = match cat
+        .containers
+        .iter()
+        .find(|e| e.id == container_id)
+        .and_then(|e| e.locator.as_deref())
+    {
+        Some(crate::catalog::ROOT_CONTAINER_LOCATOR) => store
+            .load_manifest()?
+            .container
+            .ok_or_else(|| RepositoryError::ContainerNotFound {
+                container_id: container_id.to_string(),
+            })?,
+        Some(path) => {
+            serde_json::from_value(store.load_instance_json(path)?).map_err(|source| {
+                RepositoryError::ManifestParse {
+                    path: std::path::PathBuf::from(path),
+                    source,
+                }
+            })?
+        }
+        None => {
+            return Err(RepositoryError::ContainerNotFound {
+                container_id: container_id.to_string(),
+            })
+        }
+    };
     let mut errors = Vec::new();
     if let Err(err) = validate_container(&container) {
         errors.push(err.to_string());
     }
 
     // RFC-013 [R6]/[R9] as amended by RFC-038 [R25]: resolved against the
-    // catalog's instance set, not `manifest.instanceIndex`.
-    let known_ids: HashSet<String> = store
-        .catalog()?
-        .instances
-        .into_iter()
-        .map(|e| e.id)
-        .collect();
+    // same snapshot's instance set, not `manifest.instanceIndex`.
+    let known_ids: HashSet<String> = cat.instances.into_iter().map(|e| e.id).collect();
 
     if let Some(ref ids) = container.member_instance_ids {
         if ids.iter().any(|id| id == &container.container_id) {
@@ -548,7 +577,36 @@ mod tests {
     use crate::store::memory::MemoryStore;
 
     fn make_store() -> MemoryStore {
-        MemoryStore::default()
+        let store = MemoryStore::default();
+        // RFC-038 [R13]: a container member/root reference must resolve to a
+        // real instance or the fatal catalog build rejects every subsequent
+        // read. Pre-seed the two well-known ids this module's tests use as
+        // members/roots. Tests needing a genuinely-dangling id use
+        // dddddddd-dddd-4ddd-8ddd-dddddddddddd (never seeded).
+        seed_instance(&store, "11111111-1111-4111-8111-111111111111");
+        seed_instance(&store, "22222222-2222-4222-8222-222222222222");
+        store
+    }
+
+    /// Persist a minimal Tier-0 note under `id` so it resolves as a real
+    /// instance in the catalog's instance set (RFC-038 [R13]) — needed
+    /// whenever a test uses `id` as a container member/root, since the
+    /// catalog now fatally rejects a dangling memberInstanceIds/
+    /// rootInstanceIds reference.
+    fn seed_instance(store: &MemoryStore, id: &str) {
+        store
+            .save_note(&srs_core::types::note::Note {
+                instance_id: id.to_string(),
+                title: None,
+                tags: None,
+                sections: vec![],
+                graduated_at: None,
+                source_refs: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+            })
+            .unwrap();
     }
 
     fn minimal_container(id: &str, title: &str) -> Container {
@@ -918,7 +976,7 @@ mod tests {
         add_member(
             &store,
             &created.container_id,
-            "11111111-1111-4111-8111-111111111111",
+            "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
         )
         .unwrap();
         let report = validate_container_invariants(&store, &created.container_id).unwrap();
@@ -936,7 +994,7 @@ mod tests {
         add_root(
             &store,
             &created.container_id,
-            "11111111-1111-4111-8111-111111111111",
+            "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
         )
         .unwrap();
         let report = validate_container_invariants(&store, &created.container_id).unwrap();
@@ -1114,9 +1172,8 @@ mod tests {
     fn patch_identity_instance_id_on_root_container_syncs_manifest() {
         let store = make_store();
         let container_id = "550e8400-e29b-41d4-a716-446655440000";
-        create_container(&store, minimal_container(container_id, "Root")).unwrap();
-
-        // Point manifest.container at this container
+        // Embed-only root ([R1]): a containers/*.json file sharing the embed's
+        // id is a fatal SRS038-R12-DUPLICATE-ID under the catalog.
         let mut manifest = store.load_manifest().unwrap();
         manifest.container = Some(minimal_container(container_id, "Root"));
         store.save_manifest(&manifest).unwrap();
@@ -1143,7 +1200,7 @@ mod tests {
         let store = make_store();
         let root_id = "550e8400-e29b-41d4-a716-446655440000";
         let other_id = "550e8400-e29b-41d4-a716-446655440001";
-        create_container(&store, minimal_container(root_id, "Root")).unwrap();
+        // Embed-only root ([R1]); only the non-root container is file-backed.
         create_container(&store, minimal_container(other_id, "Other")).unwrap();
 
         // Set manifest.container to root_id with no identity pointer
@@ -1264,8 +1321,8 @@ mod tests {
     fn update_container_combined_patch_on_root_container_syncs_all_fields() {
         let store = make_store();
         let container_id = "550e8400-e29b-41d4-a716-446655440000";
-        create_container(&store, minimal_container(container_id, "Root")).unwrap();
-
+        // Embed-only root ([R1]): a containers/*.json file sharing the embed's
+        // id is a fatal SRS038-R12-DUPLICATE-ID under the catalog.
         let mut manifest = store.load_manifest().unwrap();
         manifest.container = Some(minimal_container(container_id, "Root"));
         store.save_manifest(&manifest).unwrap();
@@ -1318,6 +1375,7 @@ mod tests {
 
     fn embed_only_store(embed_id: &str, title: &str) -> MemoryStore {
         let store = MemoryStore::default();
+        seed_instance(&store, "11111111-1111-4111-8111-111111111111");
         let mut manifest = store.load_manifest().unwrap();
         manifest.container = Some(minimal_container(embed_id, title));
         store.save_manifest(&manifest).unwrap();
@@ -1350,21 +1408,12 @@ mod tests {
         assert_eq!(listed[0].container_id, embed_id);
     }
 
-    #[test]
-    fn list_no_duplicate_when_root_in_index() {
-        let embed_id = "aaa00000-0000-4000-8000-000000000001";
-        let store = MemoryStore::default();
-        create_container(&store, minimal_container(embed_id, "Root")).unwrap();
-        let mut manifest = store.load_manifest().unwrap();
-        manifest.container = Some(minimal_container(embed_id, "Root"));
-        store.save_manifest(&manifest).unwrap();
-        let listed = list_containers(&store, &ContainerListFilter::default()).unwrap();
-        assert_eq!(
-            listed.len(),
-            1,
-            "embed root must not appear twice when already in containerIndex"
-        );
-    }
+    // list_no_duplicate_when_root_in_index retired by RFC-038 Phase 3
+    // (srs-rust#783): its scenario — the root container declared by BOTH
+    // manifest.container and a containers/*.json file — is now a fatal
+    // SRS038-R12-DUPLICATE-ID at catalog build, so the "don't list it twice"
+    // guarantee is enforced upstream by construction. Embed listing is
+    // covered by embed_only_list_containers_includes_embed.
 
     #[test]
     fn embed_only_filestore_get_container_returns_embed() {
@@ -1455,40 +1504,19 @@ mod tests {
         assert_eq!(manifest.container.unwrap().title, "Updated Root");
     }
 
-    #[test]
-    fn file_backed_root_add_member_updates_file() {
-        // For file-backed containers, add_member writes to the container file only.
-        // manifest.container is NOT synced by membership writes — only by update_container.
-        let embed_id = "aaa00000-0000-4000-8000-000000000001";
-        let store = MemoryStore::default();
-        create_container(&store, minimal_container(embed_id, "Root")).unwrap();
-        let mut manifest = store.load_manifest().unwrap();
-        manifest.container = Some(minimal_container(embed_id, "Root"));
-        store.save_manifest(&manifest).unwrap();
-        let member = "11111111-1111-4111-8111-111111111111";
-        add_member(&store, embed_id, member).unwrap();
-        let from_store = store.load_container(embed_id).unwrap();
-        assert!(from_store
-            .member_instance_ids
-            .as_ref()
-            .is_some_and(|ids| ids.contains(&member.to_string())));
-        // manifest.container must NOT be synced by membership writes on a file-backed root.
-        let post_manifest = store.load_manifest().unwrap();
-        assert!(
-            post_manifest
-                .container
-                .unwrap()
-                .member_instance_ids
-                .is_none(),
-            "add_member on file-backed root must not update manifest.container"
-        );
-    }
+    // file_backed_root_add_member_updates_file retired by RFC-038 Phase 3
+    // (srs-rust#783): the "file-backed root" it exercised — the root container
+    // in BOTH manifest.container and a containers/*.json file — is now a
+    // fatal SRS038-R12-DUPLICATE-ID at catalog build ([R1]: the embed is the
+    // only authoritative root form). Root membership writes are covered by
+    // embed_only_add_member_updates_manifest.
 
     #[test]
     fn update_container_all_fields_sync_to_manifest() {
         let embed_id = "aaa00000-0000-4000-8000-000000000001";
+        // Embed-only root ([R1]): a containers/*.json file sharing the embed's
+        // id is a fatal SRS038-R12-DUPLICATE-ID under the catalog.
         let store = MemoryStore::default();
-        create_container(&store, minimal_container(embed_id, "Root")).unwrap();
         let mut manifest = store.load_manifest().unwrap();
         manifest.container = Some(minimal_container(embed_id, "Root"));
         store.save_manifest(&manifest).unwrap();

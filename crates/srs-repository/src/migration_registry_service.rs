@@ -226,8 +226,6 @@ mod tests {
         let store = MemoryStore::default();
         let container_id = "550e8400-e29b-41d4-a716-446655440000";
 
-        create_container(&store, bare_container(container_id)).unwrap();
-
         let note = Note {
             instance_id: note_id.to_string(),
             title: note_title.map(|t| t.to_string()),
@@ -266,7 +264,8 @@ mod tests {
     fn make_store_with_container_no_identity() -> MemoryStore {
         let store = MemoryStore::default();
         let container_id = "770e8400-e29b-41d4-a716-446655440000";
-        create_container(&store, bare_container(container_id)).unwrap();
+        // Embed-only root container ([R1]): a physical containers/*.json file with the
+        // same id as manifest.container would be a fatal SRS038-R12-DUPLICATE-ID.
         let mut manifest = store.load_manifest().unwrap();
         manifest.container = Some(bare_container(container_id));
         write_manifest(&store, &manifest).unwrap();
@@ -430,19 +429,16 @@ mod tests {
         // (via snapshot.root_container). After migration the source's manifest.container
         // identityInstanceId points at the new purpose record; that pointer must survive
         // the roundtrip so migration_status returns AlreadyApplied on the target.
-        let manifest = target.load_manifest().unwrap();
-        let purpose_entries: Vec<_> = manifest
-            .instance_index
-            .iter()
-            .filter(|e| e.tier == 2)
-            .collect();
+        // RFC-038: discoverability comes from the catalog, not manifest.instance_index.
+        let cat = target.catalog().unwrap();
+        let purpose_entries: Vec<_> = cat.instances.iter().filter(|e| e.tier == Some(2)).collect();
         assert_eq!(
             purpose_entries.len(),
             1,
             "exactly one Tier-2 purpose record must survive roundtrip"
         );
         let raw = target
-            .load_instance_json(purpose_entries[0].path())
+            .load_instance_json(purpose_entries[0].locator.as_deref().unwrap())
             .unwrap();
         assert_eq!(
             raw["typeNamespace"].as_str(),

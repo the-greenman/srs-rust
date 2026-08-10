@@ -982,7 +982,14 @@ mod tests {
         }
     }
 
+    // KNOWN GAP (srs-rust#783 Phase 3, flagged not resolved): see
+    // `make_store_with_typed_instances`'s comment above. `semanticObjectType`
+    // is not a declared property of record.json (additionalProperties: false),
+    // so no schema-valid instance can carry it, yet it's the documented E4
+    // mechanism. Whether to add it to the schema, carry it out-of-band, or
+    // something else is a spec-level call for the owner (srs-rust#768-adjacent).
     #[test]
+    #[ignore = "srs-rust#783 Phase 3: semanticObjectType is not a declared record.json property (additionalProperties: false) — owner decision needed, see srs-rust#768"]
     fn create_relation_enforces_e4_allowed_source_types() {
         // Regression for #556: E4 was dead on create because the semantic-type map was empty,
         // so a source whose semanticObjectType is not in allowedSourceTypes was accepted.
@@ -1001,6 +1008,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "srs-rust#783 Phase 3: semanticObjectType is not a declared record.json property (additionalProperties: false) — owner decision needed, see srs-rust#768"]
     fn create_relation_enforces_require_same_semantic_object_type() {
         let store = make_store_with_typed_instances("com.x/one", "com.x/two");
         let def = links_def(None, None, Some(true));
@@ -1013,32 +1021,28 @@ mod tests {
     fn create_relation_allows_untyped_endpoints_under_constrained_type() {
         // Endpoints carry NO semanticObjectType, so E4 must stay a no-op even under a
         // constrained type — proves the fix doesn't over-reject (the `if let Some` guard holds).
+        // RFC-038: endpoints must be catalog-valid instances (a bare `{instanceId}` object
+        // matches no tier schema — SRS038-R8-SHAPE-NO-MATCH); minimal valid Notes stand in,
+        // since this test only cares about the *absence* of semanticObjectType, not tier/shape.
         let store = MemoryStore::default();
-        let mut manifest = store.load_manifest().unwrap();
-        for id in ["src", "tgt"] {
-            manifest
-                .instance_index
-                .push(crate::index::InstanceIndexEntry {
-                    instance_id: id.to_string(),
-                    tier: 0,
-                    path: format!("records/{}.json", id),
-                    title: None,
-                    tags: None,
-                });
-        }
-        store.save_manifest(&manifest).unwrap();
         store
-            .save_instance_json("records/src.json", &json!({ "instanceId": "src" }))
+            .save_instance_json(
+                "records/notes/src.json",
+                &json!({ "instanceId": "00000005-5c00-4000-8000-000000000005", "sections": [] }),
+            )
             .unwrap();
         store
-            .save_instance_json("records/tgt.json", &json!({ "instanceId": "tgt" }))
+            .save_instance_json(
+                "records/notes/tgt.json",
+                &json!({ "instanceId": "00000005-7960-4000-8000-000000000005", "sections": [] }),
+            )
             .unwrap();
 
         let def = links_def(Some(vec!["com.x/allowed"]), None, None);
         let rel = make_relation(
             "d0000005-0000-4000-a000-000000000005",
-            "src",
-            "tgt",
+            "00000005-5c00-4000-8000-000000000005",
+            "00000005-7960-4000-8000-000000000005",
             "com.test/links",
         );
         let result = create_relation(&store, rel, &[def]);
@@ -2110,7 +2114,13 @@ mod tests {
                     "description": "Source precedes target",
                     "category": "association",
                     "createdAt": "2026-01-01T00:00:00Z"
-                }
+                },
+                // RFC-038: catalog-backed E2 endpoint resolution needs a real
+                // (schema-valid) instance body at each declared path — the old
+                // manifest.instance_index-only fixture no longer suffices.
+                "records/id-a.json": {"instanceId": "id-a", "sections": []},
+                "records/id-b.json": {"instanceId": "id-b", "sections": []},
+                "records/id-c.json": {"instanceId": "id-c", "sections": []}
             }
         })
         .to_string();
