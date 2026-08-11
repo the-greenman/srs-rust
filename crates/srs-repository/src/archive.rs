@@ -48,7 +48,7 @@ pub(crate) fn tree_entries(
     source: &dyn RepositoryStore,
 ) -> Result<BTreeMap<String, Vec<u8>>, RepositoryError> {
     if let Some(map) = source.as_tree_snapshot() {
-        return Ok(map);
+        return Ok(with_marker(map));
     }
 
     let manifest = source.load_manifest()?;
@@ -156,10 +156,18 @@ pub(crate) fn tree_entries(
     // dropping those files would turn a diagnosable repository into a lossy
     // snapshot with a zero exit code. Content files beside a sidecar are here
     // too: opaque payloads have no catalog entry by design ([R17]).
-    let src_docs_dir = manifest
-        .source_documents_path
-        .as_deref()
-        .unwrap_or("source-documents");
+    // A manifest-declared location is data, and data can be wrong: a path that
+    // normalizes to the repository root would turn this sweep into the blind
+    // directory walk the enumeration exists to avoid — packing `.git/` and its
+    // credentials into the snapshot. Anything that does not resolve to a real
+    // subpath is ignored here; the catalog reports it.
+    let declared_dir = |value: Option<&str>, fallback: &str| -> Option<String> {
+        crate::vfs::normalize_relative(value.unwrap_or(fallback)).filter(|p| !p.is_empty())
+    };
+    let src_docs_dir = declared_dir(
+        manifest.source_documents_path.as_deref(),
+        "source-documents",
+    );
     // Instance roots are anchored per package root ([R3]), so a sub-package's
     // `records/` is a reserved location too — sweeping only the top-level ones
     // would drop exactly the objects this pass exists to catch.
@@ -171,7 +179,8 @@ pub(crate) fn tree_entries(
                 .map(move |name| vfs_join(&root, name))
         })
         .chain(["relations".to_string(), "containers".to_string()])
-        .chain([src_docs_dir.to_string(), SRS_MARKER_DIR.to_string()])
+        .chain([SRS_MARKER_DIR.to_string()])
+        .chain(src_docs_dir.clone())
         .collect();
     // Files the manifest names directly rather than placing in a reserved
     // directory: the extension aggregates, and `relationsPath` — retired by
@@ -180,19 +189,15 @@ pub(crate) fn tree_entries(
     // `relations/`.
     let manifest_value = serde_json::to_value(&manifest).unwrap_or(serde_json::Value::Null);
     let declared_paths = [
-        manifest_value
-            .get("changelogPath")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        manifest_value
-            .get("relationsPath")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        manifest.federation_path.clone(),
-        manifest.federation_events_path.clone(),
+        manifest_value.get("changelogPath").and_then(|v| v.as_str()),
+        manifest_value.get("relationsPath").and_then(|v| v.as_str()),
+        manifest.federation_path.as_deref(),
+        manifest.federation_events_path.as_deref(),
     ];
     for path in declared_paths.into_iter().flatten() {
-        reserved.push(path);
+        if let Some(normalized) = crate::vfs::normalize_relative(path).filter(|p| !p.is_empty()) {
+            reserved.push(normalized);
+        }
     }
 
     for dir in reserved {
@@ -218,15 +223,19 @@ pub(crate) fn tree_entries(
         }
     }
 
-    // The marker ([R17]). Git cannot track an empty directory, so a repository
-    // whose `.srs/` holds nothing else carries the placeholder — the same one
-    // `export_tree` emits.
+    Ok(with_marker(entries))
+}
+
+/// The marker ([R17]). Git cannot track an empty directory, so a tree whose
+/// `.srs/` holds nothing else carries the placeholder — the same one
+/// `export_tree` emits, applied on every enumeration path so a `.srsj` session
+/// and the same repository on disk pack identically.
+fn with_marker(mut entries: BTreeMap<String, Vec<u8>>) -> BTreeMap<String, Vec<u8>> {
     let marker_prefix = format!("{SRS_MARKER_DIR}/");
     if !entries.keys().any(|k| k.starts_with(&marker_prefix)) {
         entries.insert(format!("{marker_prefix}.gitkeep"), Vec::new());
     }
-
-    Ok(entries)
+    entries
 }
 
 pub fn archive_pack(
