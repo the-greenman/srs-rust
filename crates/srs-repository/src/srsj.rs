@@ -73,7 +73,7 @@ pub fn tree_from_srsj(content: &str) -> Result<BTreeMap<String, Vec<u8>>, Reposi
             ));
         }
         crate::vfs::ensure_contained(&key)?;
-        tree.insert(key, value_to_bytes(value));
+        tree.insert(key.clone(), value_to_bytes(&key, value));
     }
 
     tree.insert(
@@ -142,11 +142,16 @@ fn srsj_from_tree(tree: &BTreeMap<String, Vec<u8>>) -> Result<String, Repository
         .map_err(|source| invalid(format!("cannot serialise .srsj document: {source}")))
 }
 
-fn value_to_bytes(value: serde_json::Value) -> Vec<u8> {
+/// The exact inverse of [`bytes_to_value`], and it must stay that way: the
+/// path decides, not the value's type. A `.json` file whose whole content is a
+/// JSON string (`"hello"`) is carried as a string *value*, and decoding it as
+/// raw text would drop its quotes — silent content corruption through the
+/// carrier.
+fn value_to_bytes(path: &str, value: serde_json::Value) -> Vec<u8> {
     match value {
         // Text payloads (Markdown source documents, rendered exports) are
         // carried as JSON strings; their bytes are the string itself.
-        serde_json::Value::String(s) => s.into_bytes(),
+        serde_json::Value::String(s) if !path.ends_with(".json") => s.into_bytes(),
         other => serde_json::to_vec_pretty(&other)
             .expect("serialising an owned serde_json::Value cannot fail"),
     }

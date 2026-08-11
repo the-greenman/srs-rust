@@ -141,52 +141,67 @@ pub(crate) fn tree_entries(
         entries.insert(path.to_string(), source.load_text_file(path)?.into_bytes());
     }
 
-    // A relations file the catalog could not parse produces a diagnostic and no
-    // entries; copying it anyway keeps pack lossless rather than quietly
-    // dropping the repository's relations.
-    for path in source.list_files_recursive("relations") {
-        if path.ends_with(".json") && !entries.contains_key(&path) {
-            let text = source.load_text_file(&path)?;
-            entries.insert(path, text.into_bytes());
-        }
-    }
-
-    // The whole source-documents subtree. The sidecars are the source-document
-    // set; the content files beside them are opaque payloads with no catalog
-    // entry of their own, and [R17] requires them too.
+    // Sweep every reserved location for anything the catalog left behind.
+    //
+    // A catalog entry exists only for an object the catalog could *classify*:
+    // a record with a broken `instanceId`, an unparseable relations file, a
+    // declared federation registry with no `registryId` all produce a
+    // diagnostic and no entry. Pack is a faithful copier, not a validator —
+    // dropping those files would turn a diagnosable repository into a lossy
+    // snapshot with a zero exit code. Content files beside a sidecar are here
+    // too: opaque payloads have no catalog entry by design ([R17]).
     let src_docs_dir = manifest
         .source_documents_path
         .as_deref()
         .unwrap_or("source-documents");
-    for path in source.list_files_recursive(src_docs_dir) {
-        let bytes = match source.load_binary_file(&path) {
-            Ok(b) => b,
-            // Stores that keep text and binary content separately serve
-            // sidecars through the text path.
-            Err(e) if e.is_not_found() => source.load_text_file(&path)?.into_bytes(),
-            Err(e) => return Err(e),
+    let mut reserved: Vec<String> = crate::catalog::INSTANCE_ROOT_NAMES
+        .iter()
+        .map(|d| (*d).to_string())
+        .chain(["relations".to_string(), "containers".to_string()])
+        .chain([src_docs_dir.to_string(), SRS_MARKER_DIR.to_string()])
+        .collect();
+    // Extension aggregates sit at manifest-declared paths, not in a reserved
+    // directory, so each is named directly.
+    let manifest_value = serde_json::to_value(&manifest).unwrap_or(serde_json::Value::Null);
+    let declared_paths = [
+        manifest_value
+            .get("changelogPath")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        manifest.federation_path.clone(),
+        manifest.federation_events_path.clone(),
+    ];
+    for path in declared_paths.into_iter().flatten() {
+        reserved.push(path);
+    }
+
+    for dir in reserved {
+        let paths = if source.load_text_file(&dir).is_ok() {
+            vec![dir] // a declared aggregate names a file, not a directory
+        } else {
+            source.list_files_recursive(&dir)
         };
-        entries.insert(path, bytes);
+        for path in paths {
+            if entries.contains_key(&path) {
+                continue;
+            }
+            // Binary-first with a text fallback: `.srs/` and the
+            // source-documents subtree hold non-UTF-8 content, and stores that
+            // keep text and binary separately serve sidecars through the text
+            // path.
+            let bytes = match source.load_binary_file(&path) {
+                Ok(b) => b,
+                Err(e) if e.is_not_found() => source.load_text_file(&path)?.into_bytes(),
+                Err(e) => return Err(e),
+            };
+            entries.insert(path, bytes);
+        }
     }
 
     // The marker ([R17]). Git cannot track an empty directory, so a repository
     // whose `.srs/` holds nothing else carries the placeholder — the same one
     // `export_tree` emits.
     let marker_prefix = format!("{SRS_MARKER_DIR}/");
-    for path in source.list_files_recursive(SRS_MARKER_DIR) {
-        if entries.contains_key(&path) {
-            continue;
-        }
-        // Same binary-first read as the source-documents sweep: `.srs/` holds
-        // ordinary content (agent profiles today), and a non-UTF-8 file there
-        // must not turn packing into a hard error.
-        let bytes = match source.load_binary_file(&path) {
-            Ok(b) => b,
-            Err(e) if e.is_not_found() => source.load_text_file(&path)?.into_bytes(),
-            Err(e) => return Err(e),
-        };
-        entries.insert(path, bytes);
-    }
     if !entries.keys().any(|k| k.starts_with(&marker_prefix)) {
         entries.insert(format!("{marker_prefix}.gitkeep"), Vec::new());
     }
@@ -200,13 +215,17 @@ pub fn archive_pack(
 ) -> Result<(), RepositoryError> {
     let entries = tree_entries(source)?;
 
+    // Never *produce* an archive that names a path outside the tree it
+    // describes, whatever the in-memory session holds. Checked before the
+    // writer opens, so a rejection cannot leave a truncated file behind.
+    for path in entries.keys() {
+        crate::vfs::ensure_contained(path)?;
+    }
+
     // BTreeMap iteration is already lexicographic — the ADR-033 entry-order
     // and determinism guarantees hold by construction.
     let mut zip = zip::ZipWriter::new(writer);
     for (path, bytes) in &entries {
-        // Never *produce* an archive that names a path outside the tree it
-        // describes, whatever the in-memory session holds.
-        crate::vfs::ensure_contained(path)?;
         let options = SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated)
             .last_modified_time(zip::DateTime::default());

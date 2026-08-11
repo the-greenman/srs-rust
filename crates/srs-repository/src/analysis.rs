@@ -1055,7 +1055,10 @@ mod tests {
                 "title": "Cross-store Test"
             },
             "data": {
-                ".srs/profiles/foundation.json": "{\"profileId\":\"foundation\",\"includeTags\":[\"meaning-first\"]}"
+                ".srs/profiles/foundation.json": {
+                    "profileId": "foundation",
+                    "includeTags": ["meaning-first"]
+                }
             }
         }"#;
 

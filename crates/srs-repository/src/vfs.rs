@@ -99,6 +99,11 @@ pub(crate) fn normalize_relative(rel: &str) -> Option<String> {
     Some(parts.join("/"))
 }
 
+/// A leading `X:` — which `Path::join` treats as drive-relative on Windows and
+/// escapes the root with. Deliberately narrow *and* deliberately over-broad by
+/// two characters: a POSIX file literally named `A:notes.md` at the repository
+/// root is refused. That is the trade this makes — a pathological filename
+/// loses, an escape does not.
 fn has_drive_prefix(rel: &str) -> bool {
     let mut chars = rel.chars();
     matches!((chars.next(), chars.next()), (Some(c), Some(':')) if c.is_ascii_alphabetic())

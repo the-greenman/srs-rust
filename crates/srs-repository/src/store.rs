@@ -788,10 +788,6 @@ pub trait RepositoryStore {
         self.load_text_file("manifest.json")
     }
 
-    fn load_primary_package_raw_text(&self) -> Result<String, RepositoryError> {
-        self.load_text_file("package/package.json")
-    }
-
     /// Returns `None` if no relations file exists.
     /// Tries `relations/relations-collection.json` first (canonical write path),
     /// then `relations/relations.json` (legacy alternate convention).
