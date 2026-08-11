@@ -71,6 +71,50 @@ pub trait Vfs: std::fmt::Debug {
     fn as_mem_snapshot(&self) -> Option<BTreeMap<String, Vec<u8>>>;
 }
 
+/// Lexically normalize a repo-relative path; `None` if it escapes the root.
+///
+/// The shared definition of "inside the repository" for every path that
+/// arrives from outside the process — `.srsj` `data` keys, `.srs` archive entry
+/// names, a fetched git tree. A path is contained when it is relative and every
+/// `..` it contains is matched by a preceding segment.
+pub(crate) fn normalize_relative(rel: &str) -> Option<String> {
+    if rel.starts_with('/') || rel.starts_with('\\') || rel.contains(':') {
+        return None;
+    }
+    let mut parts: Vec<&str> = Vec::new();
+    for seg in rel.split(['/', '\\']) {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            s => parts.push(s),
+        }
+    }
+    Some(parts.join("/"))
+}
+
+/// Reject any tree path that would escape the repository root.
+///
+/// Untrusted carriers name their own paths, so a hostile `.srsj` key or archive
+/// entry (`../../etc/passwd`, `/etc/passwd`) must be refused **at ingestion** —
+/// before it reaches a store that will one day materialise onto a real
+/// filesystem. Anything that does not normalize to itself is refused too:
+/// `a/./b` and `a/b/../c` are ambiguous aliases for a path the tree can already
+/// name directly, and accepting them would let one file occupy two keys.
+pub(crate) fn ensure_contained(rel: &str) -> Result<(), RepositoryError> {
+    let normalized = normalize_relative(rel).filter(|n| !n.is_empty());
+    match normalized {
+        Some(n) if n == rel => Ok(()),
+        _ => Err(RepositoryError::InvalidSnapshotData {
+            message: format!(
+                "path '{rel}' does not resolve inside the repository root — \
+                 a snapshot must not name a path outside the tree it describes"
+            ),
+        }),
+    }
+}
+
 /// Join a repo-relative prefix and a child path with a forward slash.
 pub(crate) fn vfs_join(prefix: &str, name: &str) -> String {
     if prefix.is_empty() {
@@ -258,17 +302,7 @@ impl MemVfs {
 
     /// Lexically normalize `rel`; `None` if it escapes the root via `..`.
     fn normalize(rel: &str) -> Option<String> {
-        let mut parts: Vec<&str> = Vec::new();
-        for seg in rel.split('/') {
-            match seg {
-                "" | "." => {}
-                ".." => {
-                    parts.pop()?;
-                }
-                s => parts.push(s),
-            }
-        }
-        Some(parts.join("/"))
+        normalize_relative(rel)
     }
 }
 

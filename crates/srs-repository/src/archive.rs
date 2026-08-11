@@ -180,6 +180,9 @@ pub fn archive_pack(
     // and determinism guarantees hold by construction.
     let mut zip = zip::ZipWriter::new(writer);
     for (path, bytes) in &entries {
+        // Never *produce* an archive that names a path outside the tree it
+        // describes, whatever the in-memory session holds.
+        crate::vfs::ensure_contained(path)?;
         let options = SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated)
             .last_modified_time(zip::DateTime::default());
@@ -195,6 +198,11 @@ pub fn archive_pack(
 }
 
 /// Read a ZIP into a path→bytes map (directory entries skipped).
+///
+/// An archive names its own entry paths, so each one is checked to resolve
+/// inside the repository root before it is read — the "zip slip" class, and
+/// the reason this rejects rather than sanitises: a snapshot that names a path
+/// outside the tree it describes is not a snapshot of that tree.
 fn read_zip_to_map(reader: impl Read + Seek) -> Result<HashMap<String, Vec<u8>>, RepositoryError> {
     let mut zip = zip::ZipArchive::new(reader).map_err(|e| RepositoryError::InvalidArchive {
         message: e.to_string(),
@@ -207,6 +215,7 @@ fn read_zip_to_map(reader: impl Read + Seek) -> Result<HashMap<String, Vec<u8>>,
             continue;
         }
         let name = entry.name().to_string();
+        crate::vfs::ensure_contained(&name)?;
         let mut buf = Vec::new();
         entry
             .read_to_end(&mut buf)
