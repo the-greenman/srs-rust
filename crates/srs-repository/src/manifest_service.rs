@@ -406,28 +406,39 @@ pub fn set_manifest_root_container(
             message: "no title available: pass a title or set a manifest title".to_string(),
         })?;
 
+    // Promoting a file-backed container absorbs its full content into the embed
+    // and deletes the file — the inline root is the only authoritative root form
+    // ([R1]) and an embed+file twin is a fatal [R12] duplicate. The file must go
+    // before the manifest write so the catalog never holds both forms.
+    let file_backed = match store.load_container(&input.container_id) {
+        Ok(c) => {
+            store.delete_container(&input.container_id)?;
+            Some(c)
+        }
+        Err(RepositoryError::ContainerNotFound { .. }) => None,
+        Err(e) => return Err(e),
+    };
+
     // Preserve an existing embed's members (and all other fields) instead of clobbering
     // them; guarantee the identity is a member (RFC-013 I-81).
-    let mut container =
-        manifest
-            .container
-            .take()
-            .unwrap_or_else(|| srs_core::types::container::Container {
-                container_id: String::new(),
-                title: String::new(),
-                identity_instance_id: None,
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
-                root_instance_ids: None,
-                member_instance_ids: None,
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
-            });
+    let mut container = file_backed
+        .or_else(|| manifest.container.take())
+        .unwrap_or_else(|| srs_core::types::container::Container {
+            container_id: String::new(),
+            title: String::new(),
+            identity_instance_id: None,
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            root_instance_ids: None,
+            member_instance_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::BTreeMap::new(),
+        });
     container.container_id = input.container_id.clone();
     container.identity_instance_id = Some(input.identity_instance_id.clone());
     container.title = title.clone();
@@ -699,6 +710,22 @@ mod tests {
         store
     }
 
+    fn seed_note(store: &MemoryStore, id: &str) {
+        store
+            .save_note(&srs_core::types::note::Note {
+                instance_id: id.to_string(),
+                title: Some("seed".to_string()),
+                tags: None,
+                sections: vec![],
+                graduated_at: None,
+                source_refs: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+            })
+            .unwrap();
+    }
+
     #[test]
     fn set_manifest_root_container_writes_canonical_embed() {
         let store = store_with_manifest_title("My Repo");
@@ -794,6 +821,8 @@ mod tests {
     fn set_manifest_root_container_preserves_existing_members_and_merges_identity() {
         let store = store_with_manifest_title("My Repo");
         let other_member = "bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb";
+        seed_note(&store, other_member);
+        seed_note(&store, VALID_IDENTITY_ID);
 
         // Seed a richer embed: existing members list that does not contain the identity.
         let mut manifest = store.load_manifest().unwrap();
@@ -850,6 +879,7 @@ mod tests {
     fn set_manifest_root_container_idempotent_members() {
         // Running twice must not duplicate the identity in memberInstanceIds.
         let store = store_with_manifest_title("My Repo");
+        seed_note(&store, VALID_IDENTITY_ID);
         let input = SetManifestRootContainerInput {
             container_id: VALID_CONTAINER_ID.to_string(),
             identity_instance_id: VALID_IDENTITY_ID.to_string(),

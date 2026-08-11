@@ -2890,7 +2890,8 @@ pub mod memory {
             relative_path: &str,
             record_type: &RecordType,
         ) -> Result<(), RepositoryError> {
-            let v = serde_json::to_value(record_type).unwrap();
+            let mut v = serde_json::to_value(record_type).unwrap();
+            inject_definition_schema(&mut v, srs_schema::TYPE_SCHEMA_ID);
             self.data.borrow_mut().insert(relative_path.to_string(), v);
             Ok(())
         }
@@ -2920,7 +2921,8 @@ pub mod memory {
             relative_path: &str,
             relation_type: &RelationTypeDefinition,
         ) -> Result<(), RepositoryError> {
-            let v = serde_json::to_value(relation_type).unwrap();
+            let mut v = serde_json::to_value(relation_type).unwrap();
+            inject_definition_schema(&mut v, srs_schema::RELATION_TYPE_SCHEMA_ID);
             self.data.borrow_mut().insert(relative_path.to_string(), v);
             // Keep self.package in sync so load_package() reflects writes.
             let mut pkg = self.package.borrow_mut();
@@ -2947,7 +2949,8 @@ pub mod memory {
         }
 
         fn save_view(&self, relative_path: &str, view: &View) -> Result<(), RepositoryError> {
-            let v = serde_json::to_value(view).unwrap();
+            let mut v = serde_json::to_value(view).unwrap();
+            inject_definition_schema(&mut v, srs_schema::VIEW_SCHEMA_ID);
             self.data.borrow_mut().insert(relative_path.to_string(), v);
             Ok(())
         }
@@ -2977,7 +2980,8 @@ pub mod memory {
             relative_path: &str,
             view: &DocumentView,
         ) -> Result<(), RepositoryError> {
-            let v = serde_json::to_value(view).unwrap();
+            let mut v = serde_json::to_value(view).unwrap();
+            inject_definition_schema(&mut v, srs_schema::DOCUMENT_VIEW_SCHEMA_ID);
             self.data.borrow_mut().insert(relative_path.to_string(), v);
             Ok(())
         }
@@ -3007,7 +3011,8 @@ pub mod memory {
             relative_path: &str,
             theme: &srs_core::types::theme::Theme,
         ) -> Result<(), RepositoryError> {
-            let v = serde_json::to_value(theme).unwrap();
+            let mut v = serde_json::to_value(theme).unwrap();
+            inject_definition_schema(&mut v, srs_schema::THEME_SCHEMA_ID);
             self.data.borrow_mut().insert(relative_path.to_string(), v);
             Ok(())
         }
