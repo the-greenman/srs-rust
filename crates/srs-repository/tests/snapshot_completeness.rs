@@ -738,3 +738,66 @@ fn a_declared_package_with_missing_definitions_still_fails_loudly() {
         "{err}"
     );
 }
+
+/// Classification and snapshot production must agree about where a declared
+/// location is. They used two different normalisations, so a manifest saying
+/// `"/source-documents"` made pack drop every attachment *and* sidecar with a
+/// zero exit code while the catalog enumerated them.
+#[test]
+fn a_declared_location_resolves_the_same_way_for_catalog_and_pack() {
+    for spelling in [
+        "/source-documents",
+        "./source-documents",
+        "source-documents/",
+    ] {
+        let src_tmp = tempfile::tempdir().unwrap();
+        six_set_repository(src_tmp.path());
+        let manifest_path = src_tmp.path().join("manifest.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
+        manifest["sourceDocumentsPath"] = serde_json::json!(spelling);
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let source = FileStore::new(src_tmp.path());
+        assert!(
+            !catalog::build(&source).unwrap().source_documents.is_empty(),
+            "{spelling}: the catalog must still find the sidecar"
+        );
+        let bytes = srs_repository::archive_to_vec(&source).expect("pack");
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        let names: Vec<String> = (0..zip.len())
+            .map(|i| zip.by_index(i).unwrap().name().to_string())
+            .collect();
+        assert!(
+            names.contains(&"source-documents/brief.md".to_string()),
+            "{spelling}: the opaque payload must still be packed: {names:?}"
+        );
+    }
+}
+
+/// A package root is a reserved location, so everything under it travels —
+/// including a definition its manifest never declared.
+#[test]
+fn pack_carries_an_undeclared_file_inside_a_package_root() {
+    let src_tmp = tempfile::tempdir().unwrap();
+    six_set_repository(src_tmp.path());
+    write(
+        src_tmp.path(),
+        "package/fields/orphan.json",
+        r#"{"id": "5e5e5e5e-0000-4000-8000-0000000000f9"}"#,
+    );
+
+    let bytes = srs_repository::archive_to_vec(&FileStore::new(src_tmp.path())).expect("pack");
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let names: Vec<String> = (0..zip.len())
+        .map(|i| zip.by_index(i).unwrap().name().to_string())
+        .collect();
+    assert!(
+        names.contains(&"package/fields/orphan.json".to_string()),
+        "{names:?}"
+    );
+}

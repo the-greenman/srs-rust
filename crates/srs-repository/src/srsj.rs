@@ -313,10 +313,19 @@ impl SrsjSession {
             return Ok(());
         }
         let text = srsj_from_tree(&current)?;
-        std::fs::write(&self.path, text).map_err(|source| RepositoryError::Io {
+        // The document *is* the repository, so a truncating write that is
+        // interrupted (Ctrl-C, ENOSPC) destroys it. Write beside it and rename,
+        // which is atomic on the same filesystem.
+        let staged = self.path.with_extension("srsj.tmp");
+        let io = |source| RepositoryError::Io {
             path: self.path.clone(),
             source,
-        })?;
+        };
+        std::fs::write(&staged, text).map_err(io)?;
+        if let Err(source) = std::fs::rename(&staged, &self.path) {
+            let _ = std::fs::remove_file(&staged);
+            return Err(io(source));
+        }
         self.baseline = current;
         Ok(())
     }

@@ -266,6 +266,18 @@ pub fn build_checked(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, R
 const SKIPPED_SEGMENTS: &[&str] = &[".git", "node_modules", ".srs"];
 
 /// Instance-root directory names ([R3]).
+/// Resolve a manifest-declared location to a repo-relative subpath.
+///
+/// The single rule both classification and snapshot production use, so they
+/// cannot disagree about where a declared location is. Surrounding slashes are
+/// tolerated (`/source-documents` is the same directory); anything that does
+/// not resolve to a real subpath — absent, empty, `.`, or an escape — yields
+/// `None`, because treating it as the repository root would make every walk
+/// over it a blind directory sweep.
+pub(crate) fn declared_location(value: Option<&str>) -> Option<String> {
+    crate::vfs::normalize_relative(value?.trim_matches('/')).filter(|p| !p.is_empty())
+}
+
 /// The reserved instance root directory names ([R3]).
 pub(crate) const INSTANCE_ROOT_NAMES: &[&str] = &["records", "notes", "typed-records"];
 
@@ -397,11 +409,8 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
             source,
         })?;
 
-    let sd_path = manifest
-        .source_documents_path
-        .clone()
+    let sd_path = declared_location(manifest.source_documents_path.as_deref())
         .unwrap_or_else(|| "source-documents".to_string());
-    let sd_path = sd_path.trim_matches('/').to_string();
 
     let declared_extensions: BTreeSet<String> = manifest_value
         .get("declaredExtensions")
