@@ -125,9 +125,7 @@ pub(crate) fn tree_entries(
     }
 
     // The remaining five authoritative sets, at their real storage paths (which
-    // may predate canonicalization). A locator can address a position *inside*
-    // a file — the inline root container, a relation in a transitional
-    // collection — so it is truncated to the carrying file.
+    // may predate canonicalization).
     for entry in cat
         .instances
         .iter()
@@ -139,12 +137,15 @@ pub(crate) fn tree_entries(
         let Some(locator) = entry.locator.as_deref() else {
             continue;
         };
-        let path = locator.split('#').next().unwrap_or(locator);
+        let path = carrying_file(source, locator)?;
         // The inline root container lives inside manifest.json, already carried.
-        if path.is_empty() || path == "manifest.json" || entries.contains_key(path) {
+        if path.is_empty() || path == "manifest.json" || entries.contains_key(&path) {
             continue;
         }
-        entries.insert(path.to_string(), source.load_text_file(path)?.into_bytes());
+        let bytes = read_entry(source, &path)?.ok_or_else(|| RepositoryError::InvalidArchive {
+            message: format!("catalog locator '{locator}' names no readable file"),
+        })?;
+        entries.insert(path, bytes);
     }
 
     // Sweep every reserved location for anything the catalog left behind.
@@ -195,15 +196,16 @@ pub(crate) fn tree_entries(
         manifest.federation_events_path.as_deref(),
     ];
 
-    // Each declared aggregate names one file. It is read as a file, never
-    // probed by "does a read succeed?" — a non-UTF-8 or unreadable aggregate
-    // would then look like a directory, list as empty, and vanish from the pack
-    // with a zero exit code.
+    // Each declared aggregate names one file, and is read as a file — never
+    // probed by "does a read succeed?", which would make a non-UTF-8 or
+    // unreadable aggregate look like a directory, list as empty, and vanish
+    // from the pack with a zero exit code. A read error propagates; only an
+    // absent file is skipped, because a declared-but-absent aggregate is
+    // simply empty ([R5]).
     let mut paths: Vec<String> = declared_files
         .into_iter()
         .flatten()
         .filter_map(|p| crate::vfs::normalize_relative(p).filter(|p| !p.is_empty()))
-        .filter(|p| matches!(read_entry(source, p), Ok(Some(_))))
         .collect();
     for dir in reserved {
         paths.extend(source.list_files_recursive(&dir));
@@ -219,6 +221,23 @@ pub(crate) fn tree_entries(
     }
 
     Ok(with_marker(entries))
+}
+
+/// The file a catalog locator lives in.
+///
+/// A locator may address a position *inside* a file — `manifest.json#/container`
+/// for the inline root container, `<collection>#<relationId>` for a relation in
+/// a transitional collection. But `#` is also a legal filename character, so
+/// the fragment is stripped only when the locator does not name a file itself:
+/// `notes/issue#42.json` is a path, not a path plus a fragment.
+fn carrying_file(source: &dyn RepositoryStore, locator: &str) -> Result<String, RepositoryError> {
+    if !locator.contains('#') || read_entry(source, locator)?.is_some() {
+        return Ok(locator.to_string());
+    }
+    Ok(locator
+        .rsplit_once('#')
+        .map(|(head, _)| head.to_string())
+        .unwrap_or_else(|| locator.to_string()))
 }
 
 /// Read one tree entry, binary-first with a text fallback.

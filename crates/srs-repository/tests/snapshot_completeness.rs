@@ -657,3 +657,27 @@ fn a_srsj_session_packs_the_same_tree_as_the_repository_on_disk() {
     assert!(disk_names.contains(&".srs/.gitkeep".to_string()));
     assert_eq!(disk_names, names(from_session));
 }
+
+/// `#` is a legal filename character. A locator's fragment is stripped only
+/// when the locator does not already name a file — `notes/issue#42.json` is a
+/// path, not a path plus a fragment.
+#[test]
+fn a_hash_in_a_filename_is_not_a_locator_fragment() {
+    let src_tmp = tempfile::tempdir().unwrap();
+    six_set_repository(src_tmp.path());
+    let hashed = "records/notes/issue#42.json";
+    write(
+        src_tmp.path(),
+        hashed,
+        r#"{"instanceId": "5e5e5e5e-0000-4000-8000-00000000has1",
+            "sections": [{"name": "body", "content": "hashed"}]}"#,
+    );
+
+    let source = FileStore::new(src_tmp.path());
+    let bytes = srs_repository::archive_to_vec(&source).expect("pack must not choke on `#`");
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let names: Vec<String> = (0..zip.len())
+        .map(|i| zip.by_index(i).unwrap().name().to_string())
+        .collect();
+    assert!(names.contains(&hashed.to_string()), "{names:?}");
+}
