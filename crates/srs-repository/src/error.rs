@@ -435,8 +435,8 @@ pub enum RepositoryError {
         diagnostics: Vec<crate::catalog::CatalogDiagnostic>,
     },
 
-    /// The store does not implement RFC-038 catalog enumeration (FileStore
-    /// until its Phase-4 collapse into a codec over tree sessions).
+    /// The store does not implement RFC-038 catalog enumeration — the trait
+    /// default, for a backend outside the contract (#706's database adapter).
     #[error("this store does not support catalog enumeration")]
     CatalogUnsupported,
 
@@ -945,7 +945,7 @@ impl PartialEq for RepositoryError {
 
 impl RepositoryError {
     /// Returns true for both `NotFound` (MemoryStore) and `Io` where
-    /// `source.kind() == NotFound` (FileStore/FileStore).
+    /// `source.kind() == NotFound` (FileStore, either Vfs backend).
     pub fn is_not_found(&self) -> bool {
         matches!(self, RepositoryError::NotFound { .. })
             || matches!(self, RepositoryError::Io { source, .. }

@@ -111,7 +111,7 @@ fn get_attachment_bytes_unknown_document_id() {
 #[test]
 fn get_attachment_bytes_srsj_tombstone() {
     // A .srsj store with an index entry but no binary file stored.
-    // JsonStore::load_binary_file returns not-found (tombstone per RFC-017).
+    // The session has no such file, so the read is not-found (tombstone per RFC-017).
     let srsj = serde_json::json!({
         "srsj": "2",
         "manifest": {

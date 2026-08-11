@@ -375,7 +375,7 @@ fn run_srs_stdin_any_status_in_dir(
 fn ordinary_commands_do_not_construct_concrete_stores() {
     let commands_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands");
     let allowed = ["mod.rs", "repo.rs"];
-    let forbidden = ["FileStore::new", "JsonStore::", "StoreBackend"];
+    let forbidden = ["FileStore::new", "SrsjSession::", "StoreBackend"];
 
     for entry in std::fs::read_dir(commands_dir).unwrap() {
         let entry = entry.unwrap();

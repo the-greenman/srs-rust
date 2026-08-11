@@ -6281,7 +6281,7 @@ mod tests {
 
     #[test]
     fn rfc013_cross_store_file_and_json_agree() {
-        // FileStore and FileStore (from_srsj) must produce the same RFC-013 diagnostic count.
+        // A disk store and a `.srsj` session must produce the same RFC-013 diagnostic count.
         // Member not in instanceIndex → I-80 error on both stores.
         //
         // RFC-038 [R1]: the manifest embed is authoritative for the root container — no
@@ -6331,7 +6331,7 @@ mod tests {
         assert_eq!(
             file_i80.len(),
             json_i80.len(),
-            "FileStore and FileStore must produce same I-80 count (file: {:?}, json: {:?})",
+            "disk and `.srsj` stores must produce the same I-80 count (file: {:?}, json: {:?})",
             file_report.diagnostics,
             json_report.diagnostics
         );
