@@ -21,11 +21,19 @@ use std::rc::Rc;
 /// not an SRS repository root. The `.srs/` marker directory is synthesized
 /// when missing: git cannot track empty directories, so fetched trees
 /// usually lack it.
+///
+/// This is the ingestion boundary for every untrusted tree — a `.srsj`
+/// document, a `.srs` archive, a fetched git tree — so every key is checked to
+/// resolve inside the repository root before it can reach a store that may
+/// later materialise onto a real filesystem.
 pub fn open_tree(files: BTreeMap<String, Vec<u8>>) -> Result<FileStore, RepositoryError> {
     if !files.contains_key("manifest.json") {
         return Err(RepositoryError::ManifestMissing {
             path: PathBuf::from("manifest.json"),
         });
+    }
+    for path in files.keys() {
+        crate::vfs::ensure_contained(path)?;
     }
     let vfs = Rc::new(MemVfs::from_map(files));
     vfs.create_dir_all(SRS_MARKER_DIR)?;

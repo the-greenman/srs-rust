@@ -72,6 +72,7 @@ pub fn tree_from_srsj(content: &str) -> Result<BTreeMap<String, Vec<u8>>, Reposi
                  — the envelope manifest is the only manifest (RFC-038 [R19])",
             ));
         }
+        crate::vfs::ensure_contained(&key)?;
         tree.insert(key, value_to_bytes(value));
     }
 
