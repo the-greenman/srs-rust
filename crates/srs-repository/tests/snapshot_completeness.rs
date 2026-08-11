@@ -299,7 +299,9 @@ fn srsj_document_round_trips_all_six_sets() {
 }
 
 /// [R17]: a package root discovered by presence, with no `PackageRef` naming
-/// it, is still included in the snapshot.
+/// it, is still included in the snapshot — including the worst case, a root
+/// that is *both* undeclared and unanchorable, which belongs to none of the
+/// three sources the enumeration unions.
 #[test]
 fn pack_carries_an_undeclared_package_root() {
     let src_tmp = tempfile::tempdir().unwrap();
@@ -321,6 +323,17 @@ fn pack_carries_an_undeclared_package_root() {
           "types": []
         }"#,
     );
+    // Undeclared *and* invalid: SRS-shaped, so [R4] diagnoses it rather than
+    // ignoring it as an npm manifest, but it anchors nothing.
+    write(
+        src_tmp.path(),
+        "packages/broken/package.json",
+        r#"{
+          "namespace": "com.example.broken",
+          "fields": [],
+          "types": []
+        }"#,
+    );
     let source = FileStore::new(src_tmp.path());
     assert!(
         catalog::build(&source)
@@ -336,10 +349,15 @@ fn pack_carries_an_undeclared_package_root() {
     let names: Vec<String> = (0..zip.len())
         .map(|i| zip.by_index(i).unwrap().name().to_string())
         .collect();
-    assert!(
-        names.contains(&"packages/extra/package.json".to_string()),
-        "an undeclared local package root must still be packed ([R17]): {names:?}"
-    );
+    for required in [
+        "packages/extra/package.json",
+        "packages/broken/package.json",
+    ] {
+        assert!(
+            names.contains(&required.to_string()),
+            "an undeclared local package root must still be packed ([R17]); {required} missing from {names:?}"
+        );
+    }
 }
 
 /// A package root the catalog cannot anchor — a `package.json` that fails
@@ -357,13 +375,16 @@ fn pack_carries_a_package_root_the_catalog_cannot_anchor() {
     std::fs::write(&pkg_path, serde_json::to_string_pretty(&pkg).unwrap()).unwrap();
 
     let source = FileStore::new(src_tmp.path());
+    let cat = catalog::build(&source).unwrap();
     assert!(
-        !catalog::build(&source)
-            .unwrap()
-            .package_roots
+        cat.diagnostics
             .iter()
-            .any(|r| r.is_empty() || r == "package"),
-        "the near-miss manifest must not anchor — otherwise this proves nothing"
+            .any(|d| d.code == catalog::codes::PACKAGE_MANIFEST_INVALID),
+        "the near-miss manifest must be diagnosed — otherwise this proves nothing"
+    );
+    assert!(
+        cat.definitions.is_empty(),
+        "a near-miss manifest must not anchor its definitions"
     );
 
     let bytes = srs_repository::archive_to_vec(&source).expect("pack");

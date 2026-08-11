@@ -66,13 +66,15 @@ pub fn tree_from_srsj(content: &str) -> Result<BTreeMap<String, Vec<u8>>, Reposi
 
     let mut tree = BTreeMap::new();
     for (key, value) in envelope.data {
+        // Normalize first: `./manifest.json` is the same key by another
+        // spelling and must hit the same refusal.
+        let key = crate::vfs::ensure_contained(&key)?;
         if key == MANIFEST_KEY {
             return Err(invalid(
                 "`.srsj` data carries a `manifest.json` key shadowing the envelope manifest \
                  — the envelope manifest is the only manifest (RFC-038 [R19])",
             ));
         }
-        let key = crate::vfs::ensure_contained(&key)?;
         if let Some(previous) = tree.insert(key.clone(), value_to_bytes(value)) {
             if previous != tree[&key] {
                 return Err(invalid(format!(
@@ -134,7 +136,7 @@ fn srsj_from_tree(tree: &BTreeMap<String, Vec<u8>>) -> Result<String, Repository
         // Same containment rule as decode: never emit a document this codec
         // would then refuse to reopen.
         let path = crate::vfs::ensure_contained(path)?;
-        if let Some(value) = bytes_to_value(bytes) {
+        if let Some(value) = bytes_to_value(&path, bytes) {
             data.insert(path, canonicalize(value, false));
         }
     }
@@ -148,11 +150,11 @@ fn srsj_from_tree(tree: &BTreeMap<String, Vec<u8>>) -> Result<String, Repository
         .map_err(|source| invalid(format!("cannot serialise .srsj document: {source}")))
 }
 
-/// The exact inverse of [`bytes_to_value`], and the pair has exactly one rule:
-/// **a string value is the file's raw text; anything else is the file's JSON
-/// content.** Nothing keys off the path, because the path cannot settle the
-/// ambiguity — a `.json` file may hold a JSON string document (`"hello"`) whose
-/// quotes are part of its bytes, and a `.md` file may hold valid JSON.
+/// The inverse of [`bytes_to_value`], under one rule: **a string value is the
+/// file's raw text; anything else is the file's JSON content.** Structured
+/// payloads come back canonicalised rather than byte-identical — that is
+/// ADR-043's canonicalize-on-write, and it is why `.srsj` is a projection of a
+/// tree rather than a copy of one.
 fn value_to_bytes(value: serde_json::Value) -> Vec<u8> {
     match value {
         serde_json::Value::String(s) => s.into_bytes(),
@@ -161,18 +163,26 @@ fn value_to_bytes(value: serde_json::Value) -> Vec<u8> {
     }
 }
 
-/// Carry a payload as structured JSON only when it *is* structured JSON.
+/// Carry a payload structurally only where structure is the point: an object
+/// or array at a `.json` path.
 ///
-/// A scalar JSON document (`"hello"`, `42`) stays raw text: it would otherwise
-/// decode back as a bare string and lose its own syntax. Non-UTF-8 payloads are
-/// attachment content, which RFC-017 makes transient transport rather than
-/// repository content, so the JSON-only carrier drops them.
-fn bytes_to_value(bytes: &[u8]) -> Option<serde_json::Value> {
+/// Both conditions are load-bearing. Content alone would canonicalise a
+/// Markdown file that happens to contain JSON; the path alone would turn a
+/// scalar JSON document (`"hello"`, `42`) or an unparseable `.json` file into a
+/// bare string and lose its own syntax. Everything else is carried as raw text
+/// and comes back byte-identical. Non-UTF-8 payloads are attachment content,
+/// which RFC-017 makes transient transport rather than repository content, so
+/// the JSON-only carrier drops them.
+fn bytes_to_value(path: &str, bytes: &[u8]) -> Option<serde_json::Value> {
     let text = std::str::from_utf8(bytes).ok()?;
-    match serde_json::from_str::<serde_json::Value>(text) {
-        Ok(v @ (serde_json::Value::Object(_) | serde_json::Value::Array(_))) => Some(v),
-        _ => Some(serde_json::Value::String(text.to_string())),
+    if path.ends_with(".json") {
+        if let Ok(v @ (serde_json::Value::Object(_) | serde_json::Value::Array(_))) =
+            serde_json::from_str::<serde_json::Value>(text)
+        {
+            return Some(v);
+        }
     }
+    Some(serde_json::Value::String(text.to_string()))
 }
 
 /// Recursively sort object keys for deterministic `.srsj` output (ADR-043),

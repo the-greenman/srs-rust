@@ -27,11 +27,6 @@ use std::rc::Rc;
 /// resolve inside the repository root before it can reach a store that may
 /// later materialise onto a real filesystem.
 pub fn open_tree(files: BTreeMap<String, Vec<u8>>) -> Result<FileStore, RepositoryError> {
-    if !files.contains_key("manifest.json") {
-        return Err(RepositoryError::ManifestMissing {
-            path: PathBuf::from("manifest.json"),
-        });
-    }
     let mut normalized = BTreeMap::new();
     for (path, bytes) in files {
         let key = crate::vfs::ensure_contained(&path)?;
@@ -42,6 +37,13 @@ pub fn open_tree(files: BTreeMap<String, Vec<u8>>) -> Result<FileStore, Reposito
                 });
             }
         }
+    }
+    // Checked after normalization so `./manifest.json` — a spelling another
+    // tool may produce — counts as the manifest.
+    if !normalized.contains_key("manifest.json") {
+        return Err(RepositoryError::ManifestMissing {
+            path: PathBuf::from("manifest.json"),
+        });
     }
     let vfs = Rc::new(MemVfs::from_map(normalized));
     vfs.create_dir_all(SRS_MARKER_DIR)?;
