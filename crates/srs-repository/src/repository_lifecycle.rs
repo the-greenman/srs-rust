@@ -753,12 +753,9 @@ mod tests {
         let result = create_repository_with_intent(&store, &input()).unwrap();
         let id = result.identity_instance_id.unwrap();
 
-        let manifest = store.load_manifest().unwrap();
-        let in_index = manifest
-            .instance_index
-            .iter()
-            .any(|e| e.instance_id() == id);
-        assert!(in_index, "purpose record must appear in instance_index");
+        // RFC-038 [R22]: discoverability comes from the catalog.
+        let discoverable = store.find_instance(&id).unwrap().is_some();
+        assert!(discoverable, "purpose record must be discoverable");
     }
 
     #[test]
@@ -803,14 +800,16 @@ mod tests {
         let result = create_repository_with_intent(&store, &input()).unwrap();
         let id = result.identity_instance_id.unwrap();
 
-        let manifest = store.load_manifest().unwrap();
-        let entry = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == id)
-            .unwrap();
-        let record: srs_core::types::record::Record =
-            serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
+        // RFC-038 [R22]: discoverability comes from the catalog, not
+        // manifest.instance_index.
+        let cat = store.catalog().unwrap();
+        let entry = cat.instances.iter().find(|e| e.id == id).unwrap();
+        let record: srs_core::types::record::Record = serde_json::from_value(
+            store
+                .load_instance_json(entry.locator.as_deref().unwrap())
+                .unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(record.type_id, core_purpose::PURPOSE_TYPE_ID);
         assert_eq!(record.type_namespace, core_purpose::PURPOSE_TYPE_NAMESPACE);
@@ -823,14 +822,16 @@ mod tests {
         let result = create_repository_with_intent(&store, &input()).unwrap();
         let id = result.identity_instance_id.unwrap();
 
-        let manifest = store.load_manifest().unwrap();
-        let entry = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == id)
-            .unwrap();
-        let record: srs_core::types::record::Record =
-            serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
+        // RFC-038 [R22]: discoverability comes from the catalog, not
+        // manifest.instance_index.
+        let cat = store.catalog().unwrap();
+        let entry = cat.instances.iter().find(|e| e.id == id).unwrap();
+        let record: srs_core::types::record::Record = serde_json::from_value(
+            store
+                .load_instance_json(entry.locator.as_deref().unwrap())
+                .unwrap(),
+        )
+        .unwrap();
 
         assert!(
             record.field_values.contains_key("statement"),
@@ -846,14 +847,16 @@ mod tests {
         let result = create_repository_with_intent(&store, &titled).unwrap();
         let id = result.identity_instance_id.unwrap();
 
-        let manifest = store.load_manifest().unwrap();
-        let entry = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == id)
-            .unwrap();
-        let record: srs_core::types::record::Record =
-            serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
+        // RFC-038 [R22]: discoverability comes from the catalog, not
+        // manifest.instance_index.
+        let cat = store.catalog().unwrap();
+        let entry = cat.instances.iter().find(|e| e.id == id).unwrap();
+        let record: srs_core::types::record::Record = serde_json::from_value(
+            store
+                .load_instance_json(entry.locator.as_deref().unwrap())
+                .unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(
             record.value_str("title"),
@@ -868,14 +871,16 @@ mod tests {
         let result = create_repository_with_intent(&store, &input()).unwrap();
         let id = result.identity_instance_id.unwrap();
 
-        let manifest = store.load_manifest().unwrap();
-        let entry = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == id)
-            .unwrap();
-        let record: srs_core::types::record::Record =
-            serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
+        // RFC-038 [R22]: discoverability comes from the catalog, not
+        // manifest.instance_index.
+        let cat = store.catalog().unwrap();
+        let entry = cat.instances.iter().find(|e| e.id == id).unwrap();
+        let record: srs_core::types::record::Record = serde_json::from_value(
+            store
+                .load_instance_json(entry.locator.as_deref().unwrap())
+                .unwrap(),
+        )
+        .unwrap();
 
         assert!(
             !record.field_values.contains_key("title"),
@@ -889,13 +894,10 @@ mod tests {
         let result = create_repository_with_intent(&store, &input()).unwrap();
         let id = result.identity_instance_id.unwrap();
 
-        let manifest = store.load_manifest().unwrap();
-        let entry = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == id)
-            .unwrap();
-        let path = entry.path();
+        // RFC-038 [R22]: locator comes from the catalog.
+        let cat = store.catalog().unwrap();
+        let entry = cat.instances.iter().find(|e| e.id == id).unwrap();
+        let path = entry.locator.as_deref().unwrap();
         assert!(
             path.contains("purpose-"),
             "record path must use type_name-id8 convention, got: {path}"
@@ -928,14 +930,16 @@ mod tests {
         let result = create_repository_with_intent(&store, &input()).unwrap();
         let id = result.identity_instance_id.unwrap();
 
-        let manifest = store.load_manifest().unwrap();
-        let entry = manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id() == id)
-            .unwrap();
-        let record: srs_core::types::record::Record =
-            serde_json::from_value(store.load_instance_json(entry.path()).unwrap()).unwrap();
+        // RFC-038 [R22]: discoverability comes from the catalog, not
+        // manifest.instance_index.
+        let cat = store.catalog().unwrap();
+        let entry = cat.instances.iter().find(|e| e.id == id).unwrap();
+        let record: srs_core::types::record::Record = serde_json::from_value(
+            store
+                .load_instance_json(entry.locator.as_deref().unwrap())
+                .unwrap(),
+        )
+        .unwrap();
 
         assert!(
             record.created_at.is_some(),
@@ -963,14 +967,20 @@ mod tests {
         let store2 = FileStore::new(tmp.path());
         let manifest = store2.load_manifest().unwrap();
 
-        let entry = manifest
-            .instance_index
+        // RFC-038 [R22]: discoverability comes from the catalog.
+        let cat = store2.catalog().unwrap();
+        let entry = cat
+            .instances
             .iter()
-            .find(|e| e.instance_id() == id)
-            .expect("purpose record must be in instance_index after file roundtrip");
+            .find(|e| e.id == id)
+            .expect("purpose record must be discoverable after file roundtrip");
 
-        let record: srs_core::types::record::Record =
-            serde_json::from_value(store2.load_instance_json(entry.path()).unwrap()).unwrap();
+        let record: srs_core::types::record::Record = serde_json::from_value(
+            store2
+                .load_instance_json(entry.locator.as_deref().unwrap())
+                .unwrap(),
+        )
+        .unwrap();
         assert_eq!(record.instance_id, id);
         assert_eq!(record.type_id, core_purpose::PURPOSE_TYPE_ID);
 
@@ -1041,47 +1051,47 @@ mod tests {
     }
 
     #[test]
-    fn create_repository_with_intent_container_loadable_from_memory_store() {
-        // Confirms MemoryStore exposes the root container via load_container after create_repository_with_intent.
+    fn create_repository_with_intent_container_resolvable_from_memory_store() {
+        // RFC-038 [R1]: the root container is embed-only (manifest.container);
+        // it resolves via container_service's embed fallback, not a
+        // containers/*.json file (store.load_container is file-backed only).
         let store = MemoryStore::uninitialized();
         let result = create_repository_with_intent(&store, &input()).unwrap();
         let repo_id = result.repository_id;
-        store.load_container(&repo_id).unwrap_or_else(|e| {
-            panic!("load_container must succeed on MemoryStore after create_repository_with_intent, got: {e:?}")
+        let c = crate::container_service::get_container(&store, &repo_id).unwrap_or_else(|e| {
+            panic!("root container must resolve on MemoryStore after create_repository_with_intent, got: {e:?}")
         });
+        assert_eq!(c.container_id, repo_id);
     }
 
     #[test]
-    fn create_repository_with_intent_container_loadable_from_file_store() {
+    fn create_repository_with_intent_container_resolvable_from_file_store() {
         let tmp = TempDir::new().unwrap();
         let store = FileStore::new(tmp.path());
 
         let result = create_repository_with_intent(&store, &input()).unwrap();
         let repo_id = result.repository_id;
 
-        store.load_container(&repo_id).unwrap_or_else(|e| {
-            panic!("load_container must succeed after create_repository_with_intent, got: {e:?}")
+        let c = crate::container_service::get_container(&store, &repo_id).unwrap_or_else(|e| {
+            panic!("root container must resolve after create_repository_with_intent, got: {e:?}")
         });
+        assert_eq!(c.container_id, repo_id);
     }
 
     #[test]
-    fn create_repository_with_intent_container_in_container_index() {
+    fn create_repository_with_intent_root_container_in_catalog() {
+        // RFC-038 [R2]: manifest.containerIndex is retired; the root container
+        // is discovered by the catalog at its manifest embed locator.
         let tmp = TempDir::new().unwrap();
         let store = FileStore::new(tmp.path());
 
         let result = create_repository_with_intent(&store, &input()).unwrap();
         let repo_id = result.repository_id;
 
-        let manifest = store.load_manifest().unwrap();
-        let entries = manifest.container_index.unwrap_or_default();
-        assert_eq!(
-            entries.len(),
-            1,
-            "containerIndex must have exactly one entry after create_repository_with_intent"
-        );
-        assert_eq!(
-            entries[0].container_id, repo_id,
-            "containerIndex entry must match the repository_id"
+        let cat = store.catalog().unwrap();
+        assert!(
+            cat.containers.iter().any(|e| e.id == repo_id),
+            "root container must appear in the catalog's container set"
         );
     }
 }

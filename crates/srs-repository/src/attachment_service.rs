@@ -1169,14 +1169,11 @@ mod tests {
             Some(add_result.document_id.as_str())
         );
         assert_eq!(entry.title.as_deref(), Some("Report"));
-        assert_eq!(
-            entry.content_checksum.as_deref(),
-            Some(add_result.content_checksum.as_str())
-        );
-        assert_eq!(
-            entry.sidecar_checksum.as_deref(),
-            Some(add_result.sidecar_checksum.as_str())
-        );
+        // RFC-038 [R25]: list_attachments no longer surfaces stored checksums —
+        // the retired sourceDocumentIndex was their only carrier; the catalog
+        // does not persist them.
+        assert!(entry.content_checksum.is_none());
+        assert!(entry.sidecar_checksum.is_none());
         // Binary paths are now visible via list_files_recursive; file_byte_len via
         // load_binary_file returns Some(n) for binary-data paths.
         assert_eq!(
@@ -1230,14 +1227,9 @@ mod tests {
             Some(add_result.document_id.as_str())
         );
         assert_eq!(entry.title.as_deref(), Some("Brief"));
-        assert_eq!(
-            entry.content_checksum.as_deref(),
-            Some(add_result.content_checksum.as_str())
-        );
-        assert_eq!(
-            entry.sidecar_checksum.as_deref(),
-            Some(add_result.sidecar_checksum.as_str())
-        );
+        // RFC-038 [R25]: list_attachments no longer surfaces stored checksums.
+        assert!(entry.content_checksum.is_none());
+        assert!(entry.sidecar_checksum.is_none());
         assert_eq!(
             entry.size_bytes,
             Some(11),
@@ -1466,18 +1458,22 @@ mod tests {
 
         std::fs::create_dir_all(root.join(".srs")).unwrap();
         let doc_id = "doc-roundtrip-001";
-        let manifest_json = serde_json::json!({
-            "instanceIndex": [{
-                "instanceId": "ffffffff-0000-4000-8000-000000000001",
-                "tier": 2,
-                "path": "records/tier-2/test-type-ffffffff.json"
-            }],
-            "sourceDocumentIndex": [{
+        // RFC-038 Change K: the physical sidecar is the document's identity —
+        // manifest.sourceDocumentIndex is retired and inert.
+        let manifest_json = serde_json::json!({ "instanceIndex": [] });
+        std::fs::create_dir_all(root.join("source-documents")).unwrap();
+        std::fs::write(root.join("source-documents/brief.pdf"), b"pdf").unwrap();
+        std::fs::write(
+            root.join("source-documents/brief.meta.json"),
+            serde_json::json!({
                 "documentId": doc_id,
-                "sidecarPath": "brief.meta.json",
-                "contentPath": "brief.pdf"
-            }]
-        });
+                "contentPath": "brief.pdf",
+                "contentType": "application/pdf",
+                "createdAt": "2026-01-01T00:00:00Z"
+            })
+            .to_string(),
+        )
+        .unwrap();
         std::fs::write(
             root.join("manifest.json"),
             serde_json::to_string(&manifest_json).unwrap(),
@@ -1487,8 +1483,11 @@ mod tests {
         std::fs::write(
             root.join("package/package.json"),
             serde_json::json!({
+                "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
                 "id": "link-rt-pkg", "namespace": "com.test", "name": "test",
-                "version": "1.0.0", "fields": [], "types": []
+                "version": "1.0.0", "title": "test", "description": "",
+                "status": "active", "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [], "types": []
             })
             .to_string(),
         )
@@ -1559,8 +1558,11 @@ mod tests {
         std::fs::write(
             root.join("package/package.json"),
             serde_json::json!({
+                "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
                 "id": "rt2-pkg", "namespace": "com.test", "name": "test",
-                "version": "1.0.0", "fields": [], "types": []
+                "version": "1.0.0", "title": "test", "description": "",
+                "status": "active", "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [], "types": []
             })
             .to_string(),
         )
@@ -1594,11 +1596,11 @@ mod tests {
         assert_eq!(sidecar["contentType"].as_str(), Some("application/pdf"));
         assert_eq!(sidecar["encoding"].as_str(), Some("binary"));
 
-        // Manifest index is updated.
+        // RFC-038 [R22]/Change K: add_attachment writes NO manifest state —
+        // the sidecar on disk is the document's identity; discovery is
+        // catalog-driven.
         let manifest = store.load_manifest().unwrap();
-        let index = manifest.source_document_index.as_deref().unwrap();
-        assert_eq!(index.len(), 1);
-        assert_eq!(index[0].document_id, result.document_id);
+        assert!(manifest.source_document_index.is_none());
 
         // list_attachments confirms the file appears.
         let list = list_attachments(&store, ListAttachmentsFilter::default()).unwrap();
@@ -1837,20 +1839,22 @@ mod tests {
         std::fs::create_dir_all(root.join(".srs")).unwrap();
         let doc_id = "doc-resolve-roundtrip-006";
         let record_id = "aaaa0006-0000-4000-8000-000000000006";
-        let manifest_json = serde_json::json!({
-            "instanceIndex": [{
-                "instanceId": record_id,
-                "tier": 2,
-                "path": "records/tier-2/test-type-aaaa0006.json"
-            }],
-            "sourceDocumentIndex": [{
+        // RFC-038 Change K: the physical sidecar is the document's identity.
+        let manifest_json = serde_json::json!({ "instanceIndex": [] });
+        std::fs::create_dir_all(root.join("source-documents")).unwrap();
+        std::fs::write(root.join("source-documents/brief.pdf"), b"pdf").unwrap();
+        std::fs::write(
+            root.join("source-documents/brief.meta.json"),
+            serde_json::json!({
                 "documentId": doc_id,
-                "sidecarPath": "brief.meta.json",
                 "contentPath": "brief.pdf",
+                "contentType": "application/pdf",
                 "title": "Roundtrip Brief",
-                "contentChecksum": "sha256:abc"
-            }]
-        });
+                "createdAt": "2026-01-01T00:00:00Z"
+            })
+            .to_string(),
+        )
+        .unwrap();
         std::fs::write(
             root.join("manifest.json"),
             serde_json::to_string(&manifest_json).unwrap(),
@@ -1860,8 +1864,11 @@ mod tests {
         std::fs::write(
             root.join("package/package.json"),
             serde_json::json!({
+                "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
                 "id": "resolve-rt-pkg", "namespace": "com.test", "name": "test",
-                "version": "1.0.0", "fields": [], "types": []
+                "version": "1.0.0", "title": "test", "description": "",
+                "status": "active", "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [], "types": []
             })
             .to_string(),
         )
@@ -1909,11 +1916,12 @@ mod tests {
         assert_eq!(att.content_path.as_deref(), Some("brief.pdf"));
         assert_eq!(att.sidecar_path.as_deref(), Some("brief.meta.json"));
         assert_eq!(att.title.as_deref(), Some("Roundtrip Brief"));
-        assert_eq!(att.content_checksum.as_deref(), Some("sha256:abc"));
-        assert!(
-            att.size_bytes.is_none(),
-            "size_bytes must be None when source file not written to disk"
-        );
+        // RFC-038 [R25]: the retired sourceDocumentIndex was the checksum's
+        // only carrier; sidecar-driven resolution reports None.
+        assert!(att.content_checksum.is_none());
+        // The content file is on disk in this fixture (RFC-038 requires the
+        // physical sidecar+content pair), so its size is reported.
+        assert_eq!(att.size_bytes, Some(3), "b\"pdf\" = 3 bytes");
     }
 
     // ── get_attachment_bytes tests ────────────────────────────────────────────
@@ -2014,21 +2022,31 @@ mod tests {
         std::fs::write(root.join("source-documents/spec.pdf"), BYTES).unwrap();
 
         let doc_id = "fs-doc-001";
+        // RFC-038 Change K: the physical sidecar is the document's identity.
         let manifest_json = serde_json::json!({
             "instanceIndex": [],
-            "sourceDocumentsPath": "source-documents",
-            "sourceDocumentIndex": [{
-                "documentId": doc_id,
-                "sidecarPath": "spec.meta.json",
-                "contentPath": "spec.pdf"
-            }]
+            "sourceDocumentsPath": "source-documents"
         });
+        std::fs::write(
+            root.join("source-documents/spec.meta.json"),
+            serde_json::json!({
+                "documentId": doc_id,
+                "contentPath": "spec.pdf",
+                "contentType": "application/pdf",
+                "createdAt": "2026-01-01T00:00:00Z"
+            })
+            .to_string(),
+        )
+        .unwrap();
         std::fs::write(root.join("manifest.json"), manifest_json.to_string()).unwrap();
         std::fs::write(
             root.join("package/package.json"),
             serde_json::json!({
+                "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
                 "id": "fs-pkg", "namespace": "com.test", "name": "test",
-                "version": "1.0.0", "fields": [], "types": []
+                "version": "1.0.0", "title": "test", "description": "",
+                "status": "active", "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [], "types": []
             })
             .to_string(),
         )

@@ -109,7 +109,7 @@ mod tests {
         // Verifies the service works correctly against a JsonStore (not just MemoryStore).
         use crate::json_store::JsonStore;
 
-        let srsj = r#"{"srsj":"1","manifest":{"instanceIndex":[],"repositoryId":"agent-index-test","namespace":"com.example.test","srsVersion":"2.0-draft","title":"Agent Index Test"},"data":{"package/package.json":{"id":"test-pkg","namespace":"com.example.test","name":"primary","version":"1.0.0","fields":[],"types":[],"relationTypes":[],"views":[],"documentViews":[]}}}"#;
+        let srsj = r#"{"srsj":"1","manifest":{"instanceIndex":[],"repositoryId":"agent-index-test","namespace":"com.example.test","srsVersion":"2.0-draft","title":"Agent Index Test"},"data":{"package/package.json":{"$schema":"https://srs.semanticops.com/schema/2.0/package-manifest.json","id":"test-pkg","namespace":"com.example.test","name":"primary","version":"1.0.0","title":"Primary","description":"","status":"active","createdAt":"2026-01-01T00:00:00Z","fields":[],"types":[],"relationTypes":[],"views":[],"documentViews":[]}}}"#;
 
         let store = JsonStore::from_srsj(srsj).unwrap();
         let result = build_agent_index(&store);
