@@ -56,6 +56,7 @@ pub mod rfc039_carrier_migration_service;
 mod selector_parity_tests;
 pub mod services;
 pub mod source_document_service;
+pub mod srsj;
 pub mod srsj_migration_service;
 pub mod store;
 pub mod tag_service;
