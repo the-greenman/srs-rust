@@ -301,36 +301,32 @@ mod tests {
         assert!(text.contains("Second paragraph"));
     }
 
-    // KNOWN GAP (srs-rust#783 Phase 3, flagged not resolved): [R13]/[R24] make a
-    // dangling container-member reference a fatal catalog diagnostic that fails
-    // every non-`repo validate` operation — a deliberate, task-level design
-    // mandate (confirmed correctly implemented in validation.rs's [R24]
-    // exemption). That collides head-on with this file's own pre-existing,
-    // untouched contract (okf_export_service.rs is out of Phase 3's file scope):
-    // a partial/best-effort bundle export that tolerates one missing member and
-    // reports it as a soft diagnostic instead of failing the whole export.
-    // Reconciling the two is a product-behavior decision (does okf export get
-    // its own [R24]-style exemption, like repo validate?) that belongs to the
-    // owner, not something to silently decide here. Ignored until resolved;
-    // `export_okf_bundle` now returns `Err(CatalogLoad{..})` for this case.
+    // A dangling container-member reference is a fatal [R13] catalog diagnostic,
+    // and okf export is an ordinary operation — it fails like every other
+    // non-`repo validate` caller ([R24]). The pre-RFC-038 contract here emitted a
+    // partial bundle with a soft diagnostic; exporting silently-incomplete
+    // content from an incoherent repository is precisely what [R24] exists to
+    // stop, and a second validate-style exemption would be a second way to do
+    // the same thing. Owner ruling (2026-08-11): experimental surface, take the
+    // simplest coherent path — no exemption.
     #[test]
-    #[ignore = "srs-rust#783 Phase 3: [R13] dangling-reference now fatal collides with okf_export_service's pre-existing graceful-degradation contract — owner decision needed"]
-    fn missing_instance_produces_diagnostic_not_error() {
+    fn missing_instance_fails_the_export() {
         let store = make_store();
         let c = create_container(&store, minimal_container("", "Partial")).unwrap();
         add_member(&store, &c.container_id, "does-not-exist").unwrap();
 
-        let bundle = export_okf_bundle(
+        let err = export_okf_bundle(
             &store,
             OkfExportInput {
                 container_id: c.container_id.clone(),
             },
         )
-        .unwrap();
+        .unwrap_err();
 
-        assert!(bundle.entries.is_empty());
-        assert_eq!(bundle.diagnostics.len(), 1);
-        assert!(bundle.diagnostics[0].contains("does-not-exist"));
+        assert!(
+            matches!(&err, RepositoryError::CatalogLoad { first, .. } if first.contains("does-not-exist")),
+            "expected a fatal [R13] catalog diagnostic naming the dangling id, got: {err:?}"
+        );
     }
 
     #[test]
