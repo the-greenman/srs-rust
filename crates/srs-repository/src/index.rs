@@ -53,17 +53,6 @@ pub struct InstanceRef {
     pub tags: Vec<String>,
 }
 
-impl InstanceRef {
-    pub(crate) fn from_index_entry(entry: &InstanceIndexEntry) -> Self {
-        InstanceRef {
-            instance_id: entry.instance_id.clone(),
-            tier: entry.tier,
-            title: entry.title(),
-            tags: entry.tags.clone().unwrap_or_default(),
-        }
-    }
-}
-
 /// Index-answerable predicate for [`RepositoryStore::list_instances`]. Only the
 /// axes a backend can satisfy from its index live here (ADR-042); richer
 /// predicates (type, lifecycle, content) stay in the service layer.

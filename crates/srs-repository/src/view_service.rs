@@ -1357,11 +1357,15 @@ mod tests {
             lifecycles: vec![],
         };
 
+        // RFC-038: tier comes from body shape (record.json needs the full
+        // typeNamespace/typeName pair; a stray "tier" property breaks
+        // additionalProperties: false).
         let instance_json = serde_json::json!({
             "instanceId": instance_id,
-            "tier": 2,
             "typeId": type_id,
             "typeVersion": type_version,
+            "typeNamespace": "com.test",
+            "typeName": "test-type",
             "fieldValues": {}
         });
 
@@ -1546,11 +1550,12 @@ mod tests {
             lifecycles: vec![],
         };
 
-        // Tier-0 Note JSON: no typeId or typeVersion
+        // Tier-0 Note JSON: no typeId or typeVersion (RFC-038: shape-classified
+        // as note.json, which requires sections and denies a "tier" property).
         let note_json = serde_json::json!({
             "instanceId": instance_id,
-            "tier": 0,
-            "title": "A note"
+            "title": "A note",
+            "sections": []
         });
 
         let store = MemoryStore::new(manifest, package).with_data("records/note.json", note_json);
@@ -1613,9 +1618,10 @@ mod tests {
             "records/inst.json",
             serde_json::json!({
                 "instanceId": instance_id,
-                "tier": 2,
                 "typeId": type_id,
                 "typeVersion": 1,  // mismatched
+                "typeNamespace": "com.test",
+                "typeName": "test-type",
                 "fieldValues": {}
             }),
         );

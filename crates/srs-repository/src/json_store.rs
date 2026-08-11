@@ -1,6 +1,6 @@
 use crate::error::RepositoryError;
 use crate::field_json::FieldJson;
-use crate::index::{InstanceIndexEntry, InstanceQuery, InstanceRef};
+use crate::index::InstanceIndexEntry;
 use crate::manifest::Manifest;
 use crate::package::Package;
 use crate::package_types::PackageBoundary;
@@ -8,7 +8,7 @@ use crate::repository_lifecycle::{
     default_repository_container, CreateRepositoryResult, InitializeRepositoryInput,
 };
 use crate::store::{
-    instance_filename, note_from_value, note_to_value, record_to_value, RecordTier, RepositoryStore,
+    instance_filename, note_to_value, record_to_value, RecordTier, RepositoryStore,
 };
 use chrono::Utc;
 use serde::de::Error as SerdeDeError;
@@ -254,20 +254,6 @@ impl JsonStore {
     /// migration that derives paths for pre-#466 shadow containerIndex entries (#490).
     fn container_data_key(container_id: &str) -> String {
         format!("containers/{container_id}.json")
-    }
-
-    /// Resolve an instance's data-map key (path) from the manifest index (ADR-042).
-    fn json_instance_path(&self, instance_id: &str) -> Result<String, RepositoryError> {
-        self.state
-            .borrow()
-            .manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id == instance_id)
-            .map(|e| e.path.clone())
-            .ok_or_else(|| RepositoryError::InstanceNotFound {
-                id: instance_id.to_string(),
-            })
     }
 
     /// The two-branch instance save shared by `save_record`/`save_note` (mirrors
@@ -1254,7 +1240,23 @@ impl RepositoryStore for JsonStore {
         &self,
         relative_path: &str,
     ) -> Result<serde_json::Value, RepositoryError> {
-        self.data_get(relative_path)
+        // A path registered via `save_text_file` (e.g. a source-document sidecar
+        // written as serialised text — `attachment_service::add_attachment` is the
+        // production example) is stored as a wrapped `Value::String`, not a parsed
+        // object. Parse it here so the catalog (which reads every candidate
+        // through this method) sees the same shape regardless of which save_*
+        // method produced it — mirroring MemoryStore's identical handling. A
+        // malformed payload surfaces as a `Serialize` error ([R9]
+        // CANDIDATE_MALFORMED).
+        match self.data_get(relative_path)? {
+            serde_json::Value::String(s) => {
+                serde_json::from_str(&s).map_err(|source| RepositoryError::Serialize {
+                    path: PathBuf::from(relative_path),
+                    source,
+                })
+            }
+            other => Ok(other),
+        }
     }
 
     fn save_instance_json(
@@ -1334,58 +1336,15 @@ impl RepositoryStore for JsonStore {
         )
     }
 
-    fn load_record_by_id(&self, instance_id: &str) -> Result<Record, RepositoryError> {
-        let path = self.json_instance_path(instance_id)?;
-        let val = self.data_get(&path)?;
-        serde_json::from_value(val).map_err(|source| RepositoryError::RecordLoad {
-            path: std::path::PathBuf::from(&path),
-            source,
-        })
-    }
-
-    fn load_note_by_id(&self, instance_id: &str) -> Result<Note, RepositoryError> {
-        let path = self.json_instance_path(instance_id)?;
-        let val = self.data_get(&path)?;
-        // Parity with loader::load_note: parse (NoteLoad) + validate_note (NoteValidation).
-        note_from_value(val, &path)
-    }
-
-    fn delete_instance(&self, instance_id: &str) -> Result<(), RepositoryError> {
-        let path = self.json_instance_path(instance_id)?;
-        {
-            let mut state = self.state.borrow_mut();
-            // ADR-007: remove the index entry before the data.
-            state
-                .manifest
-                .instance_index
-                .retain(|e| e.instance_id != instance_id);
-            state.data.remove(&path);
-        }
-        self.flush()
-    }
-
-    fn find_instance(&self, instance_id: &str) -> Result<Option<InstanceRef>, RepositoryError> {
-        Ok(self
-            .state
-            .borrow()
-            .manifest
-            .instance_index
-            .iter()
-            .find(|e| e.instance_id == instance_id)
-            .map(InstanceRef::from_index_entry))
-    }
-
-    fn list_instances(&self, query: &InstanceQuery) -> Result<Vec<InstanceRef>, RepositoryError> {
-        Ok(self
-            .state
-            .borrow()
-            .manifest
-            .instance_index
-            .iter()
-            .filter(|e| query.matches(e))
-            .map(InstanceRef::from_index_entry)
-            .collect())
-    }
+    // load_record_by_id / load_note_by_id / delete_instance / find_instance /
+    // list_instances: no overrides — the catalog-backed trait defaults apply
+    // (RFC-038 Phase 3). The old manifest.instance_index reads missed every
+    // instance materialised by snapshot import or archive unpack, which write
+    // entity files only ([R22]); tree-derived discovery sees them all. The
+    // save_record/save_note overrides above still maintain the legacy index
+    // rows inside the serialized `.srsj` for external consumers that read
+    // them (Phase 4 retires the carrier); a delete may therefore leave a
+    // stale index row behind — nothing in this crate reads it.
 
     // --- Catalog (RFC-038) ---
     //
@@ -2490,7 +2449,7 @@ mod tests {
         assert_eq!(found.tier, 2);
         assert_eq!(
             store
-                .list_instances(&InstanceQuery::default())
+                .list_instances(&crate::index::InstanceQuery::default())
                 .unwrap()
                 .len(),
             1

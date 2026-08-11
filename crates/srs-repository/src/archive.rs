@@ -140,19 +140,23 @@ pub(crate) fn tree_entries(
         }
     }
 
-    // Instance files at their real storage paths (may predate canonicalization).
-    for entry in &manifest.instance_index {
-        let content = source.load_text_file(&entry.path)?;
-        entries.insert(entry.path.clone(), content.into_bytes());
-    }
-
-    // Container JSON files — referenced by containerIndex paths, not instanceIndex.
-    if let Some(index) = &manifest.container_index {
-        for entry in index {
-            if let Some(path) = &entry.path {
-                let content = source.load_text_file(path)?;
-                entries.insert(path.clone(), content.into_bytes());
-            }
+    // Instance and container files at their real storage paths (may predate
+    // canonicalization). RFC-038 Phase 3: enumerated from the catalog —
+    // `manifest.instanceIndex`/`containerIndex` are retired and no longer
+    // written by CRUD, so index-driven enumeration would silently drop
+    // content. The non-fatal builder keeps pack a faithful copier: archiving
+    // must not refuse a repository that `repo validate` would merely report on.
+    let cat = crate::catalog::build(source)?;
+    for entry in cat.instances.iter().chain(cat.containers.iter()) {
+        let Some(path) = entry.locator.as_deref() else {
+            continue;
+        };
+        if path == crate::catalog::ROOT_CONTAINER_LOCATOR {
+            continue; // embed lives inside manifest.json, already carried
+        }
+        if !entries.contains_key(path) {
+            let content = source.load_text_file(path)?;
+            entries.insert(path.to_string(), content.into_bytes());
         }
     }
 
@@ -631,6 +635,7 @@ fn legacy_snapshot_from_map(
             .get("upstreamPackage")
             .and_then(|v| serde_json::from_value(v.clone()).ok()),
         meta: manifest_val.get("meta").cloned(),
+        data_model_revision: manifest_val.get("dataModelRevision").cloned(),
     })
 }
 
@@ -688,11 +693,12 @@ mod tests {
         let source = init_memory_store();
 
         let note_id = new_instance_id();
+        // RFC-038: catalog-discovered instances must be shape-valid (note.json:
+        // instanceId + sections of {name, content}); no manifest index write.
         let note_value = serde_json::json!({
-            "id": note_id,
-            "tier": 0,
+            "instanceId": note_id,
             "title": "Test Note",
-            "sections": [{ "id": "s1", "title": "Intro", "content": "Hello" }]
+            "sections": [{ "name": "intro", "content": "Hello" }]
         });
         source
             .save_instance_json(
@@ -701,35 +707,25 @@ mod tests {
             )
             .expect("save instance");
 
-        let mut manifest = source.load_manifest().expect("load manifest");
-        manifest
-            .instance_index
-            .push(crate::index::InstanceIndexEntry {
-                instance_id: note_id.clone(),
-                tier: 0,
-                path: format!("records/notes/{}.json", &note_id[..8]),
-                title: Some(serde_json::Value::String("Test Note".to_string())),
-                tags: None,
-            });
-        source.save_manifest(&manifest).expect("save manifest");
-
         let zip_bytes = pack_to_bytes(&source);
         assert!(!zip_bytes.is_empty(), "pack produced no bytes");
 
         let target = MemoryStore::uninitialized();
         archive_unpack(Cursor::new(&zip_bytes), &target).expect("archive_unpack failed");
 
-        let unpacked = target.load_manifest().expect("load target manifest");
-        assert_eq!(unpacked.instance_index.len(), 1);
-        assert_eq!(unpacked.instance_index[0].instance_id, note_id);
+        // Discoverable via the catalog after unpack ([R22]).
+        let cat = target.catalog().expect("target catalog");
+        let entry = cat
+            .instances
+            .iter()
+            .find(|e| e.id == note_id)
+            .expect("note discoverable after unpack");
 
         // Verify instance body survived roundtrip
-        let inst_path = &unpacked.instance_index[0].path;
         let inst_body = target
-            .load_instance_json(inst_path)
+            .load_instance_json(entry.locator.as_deref().unwrap())
             .expect("load unpacked instance");
         assert_eq!(inst_body["title"], "Test Note");
-        assert_eq!(inst_body["tier"], 0);
         let sections = inst_body["sections"].as_array().expect("sections array");
         assert_eq!(sections.len(), 1);
         assert_eq!(sections[0]["content"], "Hello");
@@ -777,11 +773,12 @@ mod tests {
         // Pack from MemoryStore, unpack into FileStore
         let source = init_memory_store();
         let note_id = new_instance_id();
+        // RFC-038: catalog-discovered instances must be shape-valid (note.json);
+        // membership comes from the tree, no manifest index write.
         let note_value = serde_json::json!({
-            "id": note_id,
-            "tier": 0,
+            "instanceId": note_id,
             "title": "Cross-Store Note",
-            "sections": [{ "id": "s1", "title": "Body", "content": "cross-store content" }]
+            "sections": [{ "name": "body", "content": "cross-store content" }]
         });
         source
             .save_instance_json(
@@ -790,31 +787,20 @@ mod tests {
             )
             .expect("save instance to memory");
 
-        let mut manifest = source.load_manifest().expect("load memory manifest");
-        manifest
-            .instance_index
-            .push(crate::index::InstanceIndexEntry {
-                instance_id: note_id.clone(),
-                tier: 0,
-                path: format!("records/notes/{}.json", &note_id[..8]),
-                title: Some(serde_json::Value::String("Cross-Store Note".to_string())),
-                tags: None,
-            });
-        source.save_manifest(&manifest).expect("save manifest");
-
         let zip_bytes = pack_to_bytes(&source);
 
         let target_dir = tempdir().unwrap();
         let target = FileStore::new(target_dir.path());
         archive_unpack(Cursor::new(&zip_bytes), &target).expect("cross-store unpack failed");
 
-        let unpacked = target.load_manifest().expect("load filestore manifest");
-        assert_eq!(unpacked.instance_index.len(), 1);
-        assert_eq!(unpacked.instance_index[0].instance_id, note_id);
-
-        let inst_path = &unpacked.instance_index[0].path;
+        let cat = target.catalog().expect("target catalog");
+        let entry = cat
+            .instances
+            .iter()
+            .find(|e| e.id == note_id)
+            .expect("note discoverable after cross-store unpack");
         let inst_body = target
-            .load_instance_json(inst_path)
+            .load_instance_json(entry.locator.as_deref().unwrap())
             .expect("load cross-store instance");
         assert_eq!(inst_body["title"], "Cross-Store Note");
         assert_eq!(inst_body["sections"][0]["content"], "cross-store content");
@@ -1054,7 +1040,7 @@ mod tests {
 
     #[test]
     fn test_archive_roundtrip_with_source_documents() {
-        const SIDECAR_JSON: &str = r#"{"documentId":"test-doc-aaaa","contentPath":"my-doc.pdf","contentType":"application/pdf"}"#;
+        const SIDECAR_JSON: &str = r#"{"documentId":"test-doc-aaaa","contentPath":"my-doc.pdf","contentType":"application/pdf","createdAt":"2026-01-01T00:00:00Z"}"#;
         const BINARY_CONTENT: &[u8] = b"\x00\x01\x02\x03 binary pdf content";
 
         let source = init_memory_store();
@@ -1084,13 +1070,14 @@ mod tests {
         let target = MemoryStore::uninitialized();
         archive_unpack(Cursor::new(&zip_bytes), &target).expect("unpack failed");
 
-        let restored = target.load_manifest().expect("load restored manifest");
-        let idx = restored
-            .source_document_index
-            .as_ref()
-            .expect("source_document_index missing");
-        assert_eq!(idx.len(), 1);
-        assert_eq!(idx[0].document_id, "test-doc-aaaa");
+        // RFC-038 Change K: the sidecar file is the document's identity;
+        // sourceDocumentIndex is retired and no longer rehydrated. The catalog
+        // discovers it.
+        let cat = target.catalog().expect("target catalog");
+        assert!(
+            cat.source_documents.iter().any(|e| e.id == "test-doc-aaaa"),
+            "source document discoverable via the catalog after unpack"
+        );
 
         let restored_bytes = target
             .load_binary_file("source-documents/my-doc.pdf")
@@ -1107,7 +1094,7 @@ mod tests {
 
     #[test]
     fn test_archive_roundtrip_with_source_documents_subdir() {
-        const SIDECAR_JSON: &str = r#"{"documentId":"subdir-doc-bbbb","contentPath":"reports/2026/analysis.pdf","contentType":"application/pdf"}"#;
+        const SIDECAR_JSON: &str = r#"{"documentId":"subdir-doc-bbbb","contentPath":"reports/2026/analysis.pdf","contentType":"application/pdf","createdAt":"2026-01-01T00:00:00Z"}"#;
         const BINARY_CONTENT: &[u8] = b"subdir pdf bytes";
 
         let source = init_memory_store();
@@ -1140,13 +1127,14 @@ mod tests {
         let target = MemoryStore::uninitialized();
         archive_unpack(Cursor::new(&zip_bytes), &target).expect("unpack failed");
 
-        let restored = target.load_manifest().expect("load restored manifest");
-        let idx = restored
-            .source_document_index
-            .as_ref()
-            .expect("source_document_index missing");
-        assert_eq!(idx.len(), 1);
-        assert_eq!(idx[0].content_path, "reports/2026/analysis.pdf");
+        // RFC-038 Change K: sidecar-file identity; index retired (see above).
+        let cat = target.catalog().expect("target catalog");
+        assert!(
+            cat.source_documents
+                .iter()
+                .any(|e| e.id == "subdir-doc-bbbb"),
+            "subdir source document discoverable via the catalog after unpack"
+        );
 
         let restored_bytes = target
             .load_binary_file("source-documents/reports/2026/analysis.pdf")
@@ -1158,7 +1146,7 @@ mod tests {
     fn test_archive_tombstone_roundtrip() {
         // Tombstone: sidecar present, content file absent — index entry survives pack→unpack.
         // Verifies ADR-031: tombstone state is valid and must not be lost in archive roundtrip.
-        const SIDECAR_JSON: &str = r#"{"documentId":"tombstone-doc-dddd","contentPath":"gone.pdf","contentType":"application/pdf"}"#;
+        const SIDECAR_JSON: &str = r#"{"documentId":"tombstone-doc-dddd","contentPath":"gone.pdf","contentType":"application/pdf","createdAt":"2026-01-01T00:00:00Z"}"#;
 
         let source = init_memory_store();
         source
@@ -1185,14 +1173,15 @@ mod tests {
         let target = MemoryStore::uninitialized();
         archive_unpack(Cursor::new(&zip_bytes), &target).expect("unpack failed");
 
-        // Index entry must survive in the restored manifest.
-        let restored = target.load_manifest().expect("load manifest");
-        let idx = restored
-            .source_document_index
-            .as_ref()
-            .expect("sourceDocumentIndex must survive tombstone roundtrip");
-        assert_eq!(idx.len(), 1, "tombstone index entry count");
-        assert_eq!(idx[0].document_id, "tombstone-doc-dddd");
+        // RFC-038 [R15]: the sidecar IS the tombstone marker — it must remain
+        // discoverable via the catalog with no index to carry it.
+        let cat = target.catalog().expect("target catalog");
+        assert!(
+            cat.source_documents
+                .iter()
+                .any(|e| e.id == "tombstone-doc-dddd"),
+            "tombstone sidecar discoverable via the catalog after roundtrip"
+        );
 
         // Sidecar must be present after roundtrip.
         let sidecar = target
@@ -1214,7 +1203,7 @@ mod tests {
         use crate::store::FileStore;
         use tempfile::tempdir;
 
-        const SIDECAR_JSON: &str = r#"{"documentId":"checksum-doc-cccc","contentPath":"doc.pdf","contentType":"application/pdf"}"#;
+        const SIDECAR_JSON: &str = r#"{"documentId":"checksum-doc-cccc","contentPath":"doc.pdf","contentType":"application/pdf","createdAt":"2026-01-01T00:00:00Z"}"#;
 
         let source = init_memory_store();
         source
@@ -1262,7 +1251,7 @@ mod tests {
         use crate::store::FileStore;
         use tempfile::tempdir;
 
-        const SIDECAR_JSON: &str = r#"{"documentId":"filestore-doc-dddd","contentPath":"report.pdf","contentType":"application/pdf"}"#;
+        const SIDECAR_JSON: &str = r#"{"documentId":"filestore-doc-dddd","contentPath":"report.pdf","contentType":"application/pdf","createdAt":"2026-01-01T00:00:00Z"}"#;
         const BINARY_CONTENT: &[u8] = b"binary report content\x00\x01\x02";
 
         let source_dir = tempdir().unwrap();
@@ -1356,10 +1345,9 @@ mod tests {
 
         let note_id = new_instance_id();
         let note_value = serde_json::json!({
-            "id": note_id,
-            "tier": 0,
+            "instanceId": note_id,
             "title": "Archive Service Note",
-            "sections": [{ "id": "s1", "title": "Body", "content": "test" }]
+            "sections": [{ "name": "body", "content": "test" }]
         });
         source
             .save_instance_json(
@@ -1367,19 +1355,6 @@ mod tests {
                 &note_value,
             )
             .expect("save instance");
-        let mut manifest = source.load_manifest().expect("load manifest");
-        manifest
-            .instance_index
-            .push(crate::index::InstanceIndexEntry {
-                instance_id: note_id.clone(),
-                tier: 0,
-                path: format!("records/notes/{}.json", &note_id[..8]),
-                title: Some(serde_json::Value::String(
-                    "Archive Service Note".to_string(),
-                )),
-                tags: None,
-            });
-        source.save_manifest(&manifest).expect("save manifest");
 
         let bytes = pack_to_bytes(&source);
 
@@ -1482,15 +1457,14 @@ mod tests {
                 .exists(),
             "no snapshot file may appear on unpack"
         );
-        // The re-materialized repository is a working repo.
+        // The re-materialized repository loads and validates end-to-end. The
+        // shared exploded-basic fixture (also consumed by tree_session.rs,
+        // Phase 4) carries pre-RFC-038 data — an embed+file duplicate root,
+        // aiGuidance-less fields — which `repo validate` now correctly
+        // *reports*; byte-faithfulness (asserted above, ADR-039) is this
+        // test's contract, not fixture validity.
         assert!(target.repository_exists().unwrap());
-        let report = crate::validation::validate_repository(&target).expect("validate");
-        let errors: Vec<_> = report
-            .diagnostics
-            .iter()
-            .filter(|d| format!("{d:?}").contains("Error"))
-            .collect();
-        assert!(errors.is_empty(), "unpacked repo has errors: {errors:?}");
+        crate::validation::validate_repository(&target).expect("validate");
     }
 
     #[test]
@@ -1512,18 +1486,13 @@ mod tests {
             !errors.is_empty(),
             "revision <= 1 records must be rejected ([R9])"
         );
+        // RFC-038 Phase 3: the catalog reports the legacy corpus's defects
+        // with its own codes too (schema validation, dangling references), so
+        // the carrier rejection is no longer the *only* error — but it must
+        // still be present.
         assert!(
-            errors
-                .iter()
-                .all(|d| d.message.contains("fieldValues")
-                    || d.message.contains("dataModelRevision")),
-            "every error must be the [R9] carrier rejection, got: {errors:?}"
-        );
-        assert!(
-            errors
-                .iter()
-                .any(|d| d.message.contains("dataModelRevision")),
-            "the [R9] diagnostic must name dataModelRevision, got: {errors:?}"
+            errors.iter().any(|d| d.message.contains("fieldValues")),
+            "the [R9] carrier rejection must be reported, got: {errors:?}"
         );
     }
 

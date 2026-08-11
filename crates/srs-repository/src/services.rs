@@ -883,14 +883,10 @@ mod tests {
 
     #[test]
     fn get_note_by_id_refuses_non_note() {
+        // RFC-038: tier comes from body shape classification, not the index —
+        // a real Tier-1 typed-record file makes the instance discoverable.
         let manifest = Manifest {
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: "22222222-2222-2222-8222-222222222222".to_string(),
-                tier: 1,
-                path: "specs/spec.json".to_string(),
-                title: None,
-                tags: None,
-            }],
+            instance_index: vec![],
             container: None,
             container_index: None,
             federation_path: None,
@@ -922,6 +918,15 @@ mod tests {
                 lifecycles: vec![],
             },
         );
+        store
+            .save_instance_json(
+                "records/spec.json",
+                &serde_json::json!({
+                    "instanceId": "22222222-2222-2222-8222-222222222222",
+                    "fields": []
+                }),
+            )
+            .unwrap();
         let result = get_note_by_id(&store, "22222222-2222-2222-8222-222222222222").unwrap();
         match result {
             GetNoteResult::NotANote { tier } => assert_eq!(tier, 1),
@@ -964,13 +969,9 @@ mod tests {
             Some(result.note.instance_id.as_str())
         );
 
-        // Manifest should be updated
-        let manifest = store.load_manifest().unwrap();
-        assert_eq!(manifest.instance_index.len(), 1);
-        assert_eq!(
-            manifest.instance_index[0].instance_id(),
-            result.note.instance_id
-        );
+        // Discoverable via the catalog (RFC-038 [R22]: no manifest index write).
+        let found = store.find_instance(&result.note.instance_id).unwrap();
+        assert!(found.is_some_and(|r| r.tier == 0));
     }
 
     #[test]
@@ -1019,9 +1020,13 @@ mod tests {
             _ => panic!("Expected Added"),
         }
 
-        // Manifest should reflect new tag
-        let manifest = store.load_manifest().unwrap();
-        let entry_tags = manifest.instance_index[0].tags.as_ref().unwrap();
+        // The catalog-derived InstanceRef reflects the new tag ([R22]: tags come
+        // from the note body, not a manifest index column).
+        let entry_tags = store
+            .find_instance("11111111-1111-1111-8111-111111111111")
+            .unwrap()
+            .unwrap()
+            .tags;
         assert!(entry_tags.contains(&"new-tag".to_string()));
     }
 
@@ -1072,12 +1077,13 @@ mod tests {
             .unwrap();
         assert_eq!(stored["title"].as_str(), Some("Updated Title"));
 
-        let manifest = store.load_manifest().unwrap();
-        let title_val = manifest.instance_index[0]
-            .title
-            .as_ref()
-            .and_then(|v| v.as_str());
-        assert_eq!(title_val, Some("Updated Title"));
+        // Catalog-derived title reflects the update ([R22]).
+        let title_val = store
+            .find_instance(&note.instance_id)
+            .unwrap()
+            .unwrap()
+            .title;
+        assert_eq!(title_val.as_deref(), Some("Updated Title"));
     }
 
     #[test]
@@ -1088,8 +1094,11 @@ mod tests {
         let result = delete_note(&store, "11111111-1111-1111-8111-111111111111").unwrap();
         assert_eq!(result.instance_id, "11111111-1111-1111-8111-111111111111");
 
-        let manifest = store.load_manifest().unwrap();
-        assert!(manifest.instance_index.is_empty());
+        // No longer discoverable ([R22]: membership is tree-derived).
+        assert!(store
+            .find_instance("11111111-1111-1111-8111-111111111111")
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -1105,10 +1114,12 @@ mod tests {
                 .is_err(),
             "file should be removed after delete"
         );
-        let manifest = store.load_manifest().unwrap();
         assert!(
-            manifest.instance_index.is_empty(),
-            "manifest entry should be removed after delete"
+            store
+                .find_instance("11111111-1111-1111-8111-111111111111")
+                .unwrap()
+                .is_none(),
+            "note must not be discoverable after delete ([R22])"
         );
     }
 
@@ -1119,6 +1130,13 @@ mod tests {
         // and leaves non-incident relations alone.
         let note = make_note("11111111-1111-1111-8111-111111111111", "Test Note");
         let store = store_with_note(&note, "records/notes/test-note.json");
+        // Relation endpoints must resolve in the instance set (RFC-038 [R13]).
+        store
+            .save_instance_json(
+                "records/notes/other.json",
+                &serde_json::json!({"instanceId": "other-instance", "sections": []}),
+            )
+            .unwrap();
 
         store
             .save_relations_json(
@@ -1376,15 +1394,10 @@ mod tests {
 
     #[test]
     fn graduate_note_not_a_note_returns_error() {
-        // Manufacture a store where a tier-2 Record is indexed, not a note.
+        // Manufacture a store where a tier-2 Record exists, not a note
+        // (RFC-038: tier comes from body shape, not the index).
         let manifest = Manifest {
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb".to_string(),
-                tier: 2,
-                path: "records/typed.json".to_string(),
-                title: None,
-                tags: None,
-            }],
+            instance_index: vec![],
             container: None,
             container_index: None,
             federation_path: None,
@@ -1416,6 +1429,19 @@ mod tests {
                 lifecycles: vec![],
             },
         );
+        store
+            .save_instance_json(
+                "records/typed.json",
+                &serde_json::json!({
+                    "instanceId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                    "typeId": "type-simple-0001",
+                    "typeVersion": 1,
+                    "typeNamespace": "com.test",
+                    "typeName": "simple-type",
+                    "fieldValues": {}
+                }),
+            )
+            .unwrap();
         let err = graduate_note(
             &store,
             GraduateNoteInput {
@@ -1494,7 +1520,8 @@ mod tests {
         // injection integration testing is deferred (see ADR-024).
         use srs_core::types::note::NoteSection;
         let store = MemoryStore::default();
-        let initial_len = store.load_manifest().unwrap().instance_index.len();
+        // RFC-038 [R22]: membership is tree-derived — count via the catalog.
+        let initial_len = store.catalog().unwrap().instances.len();
 
         let note = Note {
             instance_id: "".to_string(),
@@ -1516,19 +1543,19 @@ mod tests {
 
         let result = create_note(&store, note).expect("create_note should succeed");
 
-        let after_create_len = store.load_manifest().unwrap().instance_index.len();
+        let after_create_len = store.catalog().unwrap().instances.len();
         assert_eq!(
             after_create_len,
             initial_len + 1,
-            "manifest must have one more entry after create_note"
+            "one more discoverable instance after create_note"
         );
 
         delete_note(&store, &result.note.instance_id).expect("delete_note should succeed");
 
-        let after_delete_len = store.load_manifest().unwrap().instance_index.len();
+        let after_delete_len = store.catalog().unwrap().instances.len();
         assert_eq!(
             after_delete_len, initial_len,
-            "manifest must return to its original length after rollback delete"
+            "instance count must return to its original value after rollback delete"
         );
     }
 
@@ -1561,7 +1588,8 @@ mod tests {
             .expect("container created")
             .container_id;
 
-        let initial_len = store.load_manifest().unwrap().instance_index.len();
+        // RFC-038 [R22]: membership is tree-derived — count via the catalog.
+        let initial_len = store.catalog().unwrap().instances.len();
 
         let input = CreateNoteInput {
             note: Note {
@@ -1587,11 +1615,11 @@ mod tests {
         let result = create_note_in_context(&store, input)
             .expect("create_note_in_context should succeed with valid container");
 
-        let after_len = store.load_manifest().unwrap().instance_index.len();
+        let after_len = store.catalog().unwrap().instances.len();
         assert_eq!(
             after_len,
             initial_len + 1,
-            "manifest must have one more entry after successful create_note_in_context"
+            "one more discoverable instance after successful create_note_in_context"
         );
 
         let members = container_service::list_members(&store, &container_id)
@@ -1674,45 +1702,18 @@ mod tests {
         );
     }
 
-    #[test]
-    fn delete_note_index_first_manifest_fail_leaves_note_intact() {
-        // New (ADR-007) ordering: manifest is written first. If the manifest write
-        // fails, neither the index entry nor the file is touched — no data loss.
-        use crate::store::memory::FailPoint;
-
-        let note = make_note("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "Fault Note B");
-        let path = "records/notes/fault-note-b.json";
-        let store = store_with_note(&note, path);
-        let instance_id = &note.instance_id;
-
-        store.arm_fail_at(FailPoint::SaveManifest);
-        let result = delete_note(&store, instance_id);
-        assert!(
-            matches!(result, Err(RepositoryError::Io { .. })),
-            "delete_note must surface the manifest Io error"
-        );
-
-        // File must still be present — manifest write failed before any file deletion.
-        assert!(
-            store.load_instance_json(path).is_ok(),
-            "file must be intact when manifest write fails first"
-        );
-        // Index entry must still be present — no data loss.
-        let manifest_after = store.load_manifest().unwrap();
-        assert!(
-            manifest_after
-                .instance_index
-                .iter()
-                .any(|e| e.instance_id() == instance_id),
-            "manifest entry must remain when manifest write fails"
-        );
-    }
+    // delete_note_index_first_manifest_fail_leaves_note_intact retired by
+    // RFC-038 Phase 3 (srs-rust#783): delete_note no longer writes
+    // manifest.json at all ([R22]), so the "manifest write fails mid-delete"
+    // ordering it exercised cannot occur.
 
     #[test]
-    fn delete_note_index_first_file_fail_leaves_orphaned_file_safe() {
-        // New (ADR-007) ordering: manifest is written first and succeeds; the
-        // subsequent best-effort file delete fails. The result is a safe orphaned
-        // file rather than a dangling index entry.
+    fn delete_note_file_fail_leaves_note_discoverable() {
+        // RFC-038 [R1]/[R22]: the file IS the membership. If the file delete
+        // fails, delete_note fails and the note stays fully discoverable —
+        // there is no index to get ahead of the file, so no dangling or
+        // orphaned intermediate state exists (replaces the retired ADR-007
+        // index-first ordering tests).
         use crate::store::memory::FailPoint;
 
         let note = make_note("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "Fault Note C");
@@ -1723,23 +1724,15 @@ mod tests {
         store.arm_fail_at(FailPoint::DeleteInstanceFile);
         let result = delete_note(&store, instance_id);
         assert!(
-            result.is_ok(),
-            "delete_note must succeed even when file delete fails (best-effort)"
+            result.is_err(),
+            "delete_note must fail when the file delete fails"
         );
 
-        // File is still present — orphaned but invisible (not in the index).
+        // File still present, note still discoverable — consistent state.
+        assert!(store.load_instance_json(path).is_ok());
         assert!(
-            store.load_instance_json(path).is_ok(),
-            "orphaned file must remain when file delete fails"
-        );
-        // Index entry is gone — no dangling entry, safe state.
-        let manifest_after = store.load_manifest().unwrap();
-        assert!(
-            manifest_after
-                .instance_index
-                .iter()
-                .all(|e| e.instance_id() != instance_id),
-            "manifest entry must be removed even when file delete fails"
+            store.find_instance(instance_id).unwrap().is_some(),
+            "note must remain discoverable when the delete failed"
         );
     }
 }

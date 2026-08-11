@@ -11,7 +11,7 @@
   "fieldType": {
     "datatype": "string",
     "cardinality": "list",
-    "valueDomain": "open"
+    "valueDomain": "closed"
   },
   "createdAt": "2026-05-29T00:00:00Z"
 }

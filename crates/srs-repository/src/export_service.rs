@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_export_bundle_with_attachments() {
-        let instance_id = "test-att01-0000-4000-8000-000000000003".to_string();
+        let instance_id = "aaaa0101-0000-4000-8000-000000000003".to_string();
         let view_id = "view-att01-0000-4000-8000-000000000003".to_string();
         let doc_id = "doc-att01-001";
         let content_path = "report.pdf";
@@ -327,7 +327,7 @@ mod tests {
     fn test_export_bundle_cross_store_roundtrip() {
         use tempfile::NamedTempFile;
 
-        let instance_id = "test-xst01-0000-4000-8000-000000000004".to_string();
+        let instance_id = "aaaa5701-0000-4000-8000-000000000004".to_string();
         let view_id = "view-xst01-0000-4000-8000-000000000004".to_string();
         let doc_id = "doc-xst01-001";
         let content_path = "evidence.pdf";
@@ -625,7 +625,7 @@ mod tests {
     /// sharing a basename get distinct ZIP entry names, and the output is byte-stable across runs.
     #[test]
     fn test_export_bundle_determinism_shared_basenames() {
-        let instance_id = "sbn-det-00000-4000-8000-000000000099".to_string();
+        let instance_id = "5b0de100-0000-4000-8000-000000000099".to_string();
         let view_id = "view-sbn-0000-4000-8000-000000000099".to_string();
         let doc_id_1 = "sbn-q1-report";
         let doc_id_2 = "sbn-q2-report";

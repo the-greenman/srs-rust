@@ -1,6 +1,4 @@
-use crate::container_service::{
-    create_container, get_container, list_containers, ContainerListFilter,
-};
+use crate::container_service::{get_container, list_containers, ContainerListFilter};
 use crate::error::RepositoryError;
 use crate::relation_service::load_relations;
 use crate::repository_lifecycle::{
@@ -127,6 +125,11 @@ pub struct RepositorySnapshot {
     /// round-trip keeps it rather than silently dropping it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<serde_json::Value>,
+    /// `manifest.dataModelRevision` (RFC-033/[R21]) — the data-model generation
+    /// is repository identity; dropping it on a copy would silently demote a
+    /// rev-2 repository to the rev-0 compatibility path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_model_revision: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -383,6 +386,7 @@ pub fn export_repository_snapshot_with_options(
         source_documents,
         upstream_package: manifest.upstream_package.clone(),
         meta: manifest.extra.get("meta").cloned(),
+        data_model_revision: manifest.extra.get("dataModelRevision").cloned(),
     })
 }
 
@@ -529,11 +533,22 @@ fn do_import(
     if let Some(meta) = &snapshot.meta {
         manifest.extra.insert("meta".to_string(), meta.clone());
     }
+    if let Some(rev) = &snapshot.data_model_revision {
+        manifest
+            .extra
+            .insert("dataModelRevision".to_string(), rev.clone());
+    }
 
     target.save_manifest(&manifest)?;
 
     for container in &snapshot.containers {
-        create_container(target, container.clone())?;
+        // Bulk materialization writes the container file directly. The
+        // catalog-backed `create_container` would require the just-written
+        // target tree to already be catalog-valid, defeating the #688
+        // migration ramp: a legacy (pre-migration) archive must LOAD, with
+        // `repo validate` reporting its defects afterwards — import shares
+        // `repo validate`'s [R24] disposition, it does not enforce it.
+        import_container_file(target, container)?;
     }
 
     if !snapshot.relations.is_empty() {
@@ -697,7 +712,7 @@ fn import_package_boundary(
             &base_prefix,
             &path,
             field,
-            srs_schema::FIELD_SCHEMA_ID,
+            Some(srs_schema::FIELD_SCHEMA_ID),
         )?;
         field_paths.push(path);
     }
@@ -714,7 +729,7 @@ fn import_package_boundary(
             &base_prefix,
             &path,
             record_type,
-            srs_schema::TYPE_SCHEMA_ID,
+            Some(srs_schema::TYPE_SCHEMA_ID),
         )?;
         type_paths.push(path);
     }
@@ -731,7 +746,7 @@ fn import_package_boundary(
             &base_prefix,
             &path,
             relation_type,
-            srs_schema::RELATION_TYPE_SCHEMA_ID,
+            Some(srs_schema::RELATION_TYPE_SCHEMA_ID),
         )?;
         relation_type_paths.push(path);
     }
@@ -748,7 +763,7 @@ fn import_package_boundary(
             &base_prefix,
             &path,
             view,
-            srs_schema::VIEW_SCHEMA_ID,
+            Some(srs_schema::VIEW_SCHEMA_ID),
         )?;
         view_paths.push(path);
     }
@@ -765,7 +780,7 @@ fn import_package_boundary(
             &base_prefix,
             &path,
             view,
-            srs_schema::DOCUMENT_VIEW_SCHEMA_ID,
+            Some(srs_schema::DOCUMENT_VIEW_SCHEMA_ID),
         )?;
         doc_view_paths.push(path);
     }
@@ -782,7 +797,7 @@ fn import_package_boundary(
             &base_prefix,
             &path,
             blueprint,
-            srs_schema::BLUEPRINT_SCHEMA_ID,
+            Some(srs_schema::BLUEPRINT_SCHEMA_ID),
         )?;
         blueprint_paths.push(path);
     }
@@ -799,7 +814,7 @@ fn import_package_boundary(
             &base_prefix,
             &path,
             theme,
-            srs_schema::THEME_SCHEMA_ID,
+            Some(srs_schema::THEME_SCHEMA_ID),
         )?;
         theme_paths.push(path);
     }
@@ -816,7 +831,7 @@ fn import_package_boundary(
             &base_prefix,
             &path,
             vocab,
-            srs_schema::VOCABULARY_SCHEMA_ID,
+            None, // vocabulary.json denies $schema (additionalProperties: false)
         )?;
         vocabulary_paths.push(path);
     }
@@ -833,7 +848,7 @@ fn import_package_boundary(
             &base_prefix,
             &path,
             lc,
-            srs_schema::LIFECYCLE_SCHEMA_ID,
+            None, // lifecycle.json denies $schema (additionalProperties: false)
         )?;
         lifecycle_paths.push(path);
     }
@@ -891,7 +906,7 @@ fn write_repo_json<T: serde::Serialize>(
     base_prefix: &str,
     rel_path: &str,
     value: &T,
-    schema_id: &str,
+    schema_id: Option<&str>,
 ) -> Result<(), RepositoryError> {
     let full = format!("{base_prefix}/{rel_path}");
     if let Some((dir, _)) = full.rsplit_once('/') {
@@ -901,7 +916,12 @@ fn write_repo_json<T: serde::Serialize>(
         path: std::path::PathBuf::from(&full),
         source,
     })?;
-    if let serde_json::Value::Object(ref mut obj) = json {
+    // Some definition kinds' schemas don't declare `$schema` as a property at
+    // all (additionalProperties: false) — vocabulary.json and lifecycle.json
+    // as of RFC-038's catalog validation. Injecting it there would make the
+    // freshly-written file fail its own schema. `None` skips injection;
+    // `or_insert` still preserves an already-present `$schema` otherwise.
+    if let (Some(schema_id), serde_json::Value::Object(ref mut obj)) = (schema_id, &mut json) {
         obj.entry("$schema")
             .or_insert_with(|| serde_json::Value::String(schema_id.to_string()));
     }
@@ -1184,6 +1204,45 @@ fn instance_path_with_id_fragment(
 /// their first 8 hex characters — e.g. deterministic UUID5s like gallery.srsj's decision
 /// instances `…5801`/`…5802`, both of which start `00000000` — and the id8-only scheme mapped
 /// them to the same file, making an otherwise valid repository fail to load or copy.
+/// Materialise one snapshot container as a file (or the root embed) without a
+/// catalog read — import is a faithful bulk write, judged by `repo validate`
+/// afterwards ([R24]'s reporting disposition; see call site in `do_import`).
+/// Mirrors `RepositoryStore::save_container`'s placement rules: same id as the
+/// root embed updates `manifest.container` ([R1], never a duplicate file —
+/// [R12]); otherwise a collision-safe `containers/{slug}-{id8}.json` filename.
+fn import_container_file(
+    target: &dyn RepositoryStore,
+    container: &srs_core::types::container::Container,
+) -> Result<(), RepositoryError> {
+    let id = &container.container_id;
+    let mut manifest = target.load_manifest()?;
+    if manifest
+        .container
+        .as_ref()
+        .is_some_and(|c| &c.container_id == id)
+    {
+        manifest.container = Some(container.clone());
+        return target.save_manifest(&manifest);
+    }
+    let val = serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
+        path: std::path::PathBuf::from("containers"),
+        source,
+    })?;
+    let slug = container
+        .title
+        .to_lowercase()
+        .chars()
+        .map(|ch| if ch.is_alphanumeric() { ch } else { '-' })
+        .collect::<String>();
+    let prefix = &id[..id.len().min(8)];
+    let mut filename = format!("containers/{slug}-{prefix}.json");
+    if !matches!(target.load_instance_json(&filename), Err(ref e) if e.is_not_found()) {
+        filename = format!("containers/{slug}-{id}.json");
+    }
+    target.ensure_instance_dir("containers")?;
+    target.save_instance_json(&filename, &val)
+}
+
 fn collision_safe_instance_paths(
     instances: &[SnapshotInstance],
     store: &dyn RepositoryStore,

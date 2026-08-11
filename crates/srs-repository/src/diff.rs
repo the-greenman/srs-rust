@@ -479,6 +479,7 @@ mod tests {
             source_documents: vec![],
             upstream_package: None,
             meta: None,
+            data_model_revision: None,
         }
     }
 
@@ -563,6 +564,7 @@ mod tests {
             source_documents: vec![],
             upstream_package: None,
             meta: None,
+            data_model_revision: None,
         }
     }
 

@@ -190,8 +190,8 @@ fn suite_manifest_roundtrip(store: &dyn RepositoryStore) {
 // --- Area 2: Container CRUD (typed logical-id — ADR-041 gold standard) ---
 
 fn suite_container_crud(store: &dyn RepositoryStore) {
-    let id_a = "cconf-aaaa-0001-4000-8000-000000000001";
-    let id_b = "cconf-bbbb-0002-4000-8000-000000000002";
+    let id_a = "cc0faaaa-0001-4000-8000-000000000001";
+    let id_b = "cc0fbbbb-0002-4000-8000-000000000002";
     let ca = make_container(id_a, "Container Alpha");
     let cb = make_container(id_b, "Container Beta");
 
@@ -243,9 +243,9 @@ fn suite_container_crud(store: &dyn RepositoryStore) {
 // --- Area 3: Instance persistence (ADR-042 typed methods) ---
 
 fn suite_instance_persistence(store: &dyn RepositoryStore) {
-    let rec_id = "rconf-0001-0000-4000-8000-aabbccddeeff";
-    let note_id = "nconf-0002-0000-4000-8000-aabbccddeeff";
-    let rec2_id = "rconf-0003-0000-4000-8000-aabbccddeeff";
+    let rec_id = "0c0f0001-0000-4000-8000-aabbccddeeff";
+    let note_id = "0c0f0002-0000-4000-8000-aabbccddeeff";
+    let rec2_id = "0c0f0003-0000-4000-8000-aabbccddeeff";
 
     // save_record → load_record_by_id round-trip.
     let rec = make_record(rec_id, "Decision", Some(vec!["alpha".to_string()]));
@@ -364,7 +364,7 @@ fn suite_instance_persistence(store: &dyn RepositoryStore) {
 // --- Area 4: Batch write mode — commit path (ADR-021 / ADR-041 G6) ---
 
 fn suite_batch_commit(store: &dyn RepositoryStore) {
-    let note_id = "nbatch-commit-0000-4000-8000-aabbccddee01";
+    let note_id = "aba7c000-0001-4000-8000-aabbccddee01";
     let note = make_note(note_id, "Batch Commit Note", None);
 
     store.begin_batch();
@@ -412,8 +412,8 @@ fn memory_store_passes_conformance() {
 #[test]
 fn copy_repository_memory_to_file_preserves_instances() {
     let src = init_memory_store();
-    let rec_id = "rport-m2f-0001-4000-8000-aabbccddeeff";
-    let note_id = "nport-m2f-0002-4000-8000-aabbccddeeff";
+    let rec_id = "e0027f01-0001-4000-8000-aabbccddeeff";
+    let note_id = "a0027f02-0002-4000-8000-aabbccddeeff";
     src.save_record(&make_record(rec_id, "Portability", None))
         .unwrap();
     src.save_note(&make_note(note_id, "Port Note", None))
@@ -438,8 +438,8 @@ fn copy_repository_memory_to_file_preserves_instances() {
 #[test]
 fn copy_repository_memory_to_json_preserves_instances() {
     let src = init_memory_store();
-    let rec_id = "rport-m2j-0001-4000-8000-aabbccddeeff";
-    let note_id = "nport-m2j-0002-4000-8000-aabbccddeeff";
+    let rec_id = "e0027101-0001-4000-8000-aabbccddeeff";
+    let note_id = "a0027102-0002-4000-8000-aabbccddeeff";
     src.save_record(&make_record(rec_id, "JsonPort", None))
         .unwrap();
     src.save_note(&make_note(note_id, "Json Port Note", None))
@@ -465,8 +465,8 @@ fn copy_repository_full_chain_memory_json_file_memory() {
     // memory → json → file → fresh memory; verify instance ids and count preserved.
     let src_mem = init_memory_store();
     let ids = [
-        ("rchain-0001-4000-8000-aabbccddeeff", "ChainRec1"),
-        ("rchain-0002-4000-8000-aabbccddeeff", "ChainRec2"),
+        ("0cba1001-0001-4000-8000-aabbccddeeff", "ChainRec1"),
+        ("0cba1002-0002-4000-8000-aabbccddeeff", "ChainRec2"),
     ];
     for (id, name) in &ids {
         src_mem.save_record(&make_record(id, name, None)).unwrap();
@@ -532,7 +532,7 @@ fn json_store_batch_abort_rolls_back() {
     // use the no-op default (begin_batch/abort_batch are pass-through), so this test is
     // JsonStore-specific.
     let (store, _tmp) = init_json_store();
-    let note_id = "nabort-0001-4000-8000-aabbccddeeff";
+    let note_id = "aab0f001-0001-4000-8000-aabbccddeeff";
     let note = make_note(note_id, "Aborted Note", None);
 
     store.begin_batch();
