@@ -180,13 +180,15 @@ pub struct RepositoryCatalog {
     pub definitions: Vec<CatalogEntry>,
     pub extensions: Vec<CatalogEntry>,
     pub diagnostics: Vec<CatalogDiagnostic>,
-    /// Every presence-discovered local package root, whether or not a
-    /// `PackageRef` names it — the empty string is the repository root.
+    /// Every location discovered to be a local SRS package root, whether or
+    /// not a `PackageRef` names it — the empty string is the repository root.
     ///
-    /// Not a seventh authoritative set: these are the anchors [R3]/[R5] use to
-    /// decide where the definition set lives. Snapshot production needs them
-    /// because [R17] requires the anchors themselves — each root's
-    /// `package.json` — to travel with the definitions they declare.
+    /// Not a seventh authoritative set. Classification anchors on the subset
+    /// whose manifest *validates* ([R3]/[R5]); this list also carries the
+    /// near-misses [R4] diagnoses, because snapshot production needs to know
+    /// a package is *there* ([R17]) even when it cannot be read as one —
+    /// packing only the valid subset would drop a whole sub-package silently.
+    /// A plain npm `package.json` is in neither: it is not an SRS package.
     pub package_roots: Vec<String>,
 }
 
@@ -521,12 +523,15 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
             Err(e) => {
                 if declares_srs_schema || srs_shaped {
                     // [R4]: a near-miss package manifest is diagnosed, not
-                    // silently skipped — it does not anchor.
+                    // silently skipped — it does not anchor classification, but
+                    // it is still a package root that exists, and a snapshot
+                    // must carry it ([R17]).
                     b.error(
                         codes::PACKAGE_MANIFEST_INVALID,
                         vec![pkg_path.clone()],
                         format!("package.json fails package-manifest.json: {e}"),
                     );
+                    package_roots.push(root);
                 }
                 // else: an npm/application package.json — not an anchor, not
                 // an error ([R4]).

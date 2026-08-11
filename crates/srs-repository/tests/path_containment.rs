@@ -129,3 +129,24 @@ fn conflicting_aliases_are_refused() {
     let err = srs_repository::open_tree(files).expect_err("must be refused");
     assert!(err.to_string().contains("resolve to 'a/b.json'"), "{err}");
 }
+
+/// The `[R19]` shadow-manifest refusal must survive re-spelling: `./manifest.json`
+/// is the same key and must hit the same error, not be silently overwritten.
+#[test]
+fn a_respelled_shadow_manifest_is_still_refused() {
+    let mut doc: serde_json::Value = serde_json::from_str(&envelope("unused.json")).unwrap();
+    doc["data"] = serde_json::json!({ "./manifest.json": {"repositoryId": "other"} });
+    let err = open_srsj(&doc.to_string()).expect_err("must be refused");
+    assert!(
+        err.to_string().contains("shadowing the envelope manifest"),
+        "{err}"
+    );
+}
+
+/// A tree keyed `./manifest.json` still has a manifest.
+#[test]
+fn a_respelled_manifest_still_opens_the_tree() {
+    let mut files = BTreeMap::new();
+    files.insert("./manifest.json".to_string(), b"{}".to_vec());
+    srs_repository::open_tree(files).expect("`./manifest.json` is the manifest");
+}

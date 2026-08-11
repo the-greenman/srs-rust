@@ -270,7 +270,15 @@ fn read_zip_to_map(reader: impl Read + Seek) -> Result<HashMap<String, Vec<u8>>,
             .map_err(|e| RepositoryError::InvalidArchive {
                 message: e.to_string(),
             })?;
-        bytes_map.insert(name, buf);
+        if let Some(previous) = bytes_map.insert(name.clone(), buf) {
+            if previous != bytes_map[&name] {
+                return Err(RepositoryError::InvalidArchive {
+                    message: format!(
+                        "two archive entries resolve to '{name}' with different content"
+                    ),
+                });
+            }
+        }
     }
     Ok(bytes_map)
 }

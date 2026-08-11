@@ -100,10 +100,15 @@ pub(crate) fn normalize_relative(rel: &str) -> Option<String> {
 }
 
 /// A leading `X:` — which `Path::join` treats as drive-relative on Windows and
-/// escapes the root with. Deliberately narrow *and* deliberately over-broad by
-/// two characters: a POSIX file literally named `A:notes.md` at the repository
-/// root is refused. That is the trade this makes — a pathological filename
-/// loses, an escape does not.
+/// escapes the root with, whether or not a separator follows.
+///
+/// Deliberately over-broad by exactly two characters: a POSIX file literally
+/// named `A:notes.md` **at the repository root** is refused, and because
+/// containment is checked over the whole entry set before anything is written,
+/// one such file refuses the entire snapshot rather than being skipped. That is
+/// the trade — this is a containment boundary, and a false accept is worse than
+/// a false reject. A colon anywhere else in a path (`meeting 10:00.md`, or any
+/// file below the root) is unaffected.
 fn has_drive_prefix(rel: &str) -> bool {
     let mut chars = rel.chars();
     matches!((chars.next(), chars.next()), (Some(c), Some(':')) if c.is_ascii_alphabetic())
