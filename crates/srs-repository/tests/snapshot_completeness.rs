@@ -592,3 +592,68 @@ fn pack_sweeps_instance_roots_under_a_sub_package() {
         "a sub-package's instance root must be swept too: {names:?}"
     );
 }
+
+/// A manifest-declared location is data, and data can be wrong. A path that
+/// resolves to the repository root would turn the reserved-location sweep into
+/// the blind directory walk the enumeration exists to avoid — packing `.git/`
+/// and whatever credentials it holds into the snapshot.
+#[test]
+fn a_declared_path_resolving_to_the_root_does_not_pack_the_whole_tree() {
+    for (property, value) in [
+        ("relationsPath", "."),
+        ("sourceDocumentsPath", ""),
+        ("changelogPath", "./"),
+        ("federationPath", "a/.."),
+    ] {
+        let src_tmp = tempfile::tempdir().unwrap();
+        six_set_repository(src_tmp.path());
+        write(
+            src_tmp.path(),
+            ".git/config",
+            "[remote]\n  url = https://token@host/x",
+        );
+        let manifest_path = src_tmp.path().join("manifest.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
+        manifest[property] = serde_json::json!(value);
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let bytes = srs_repository::archive_to_vec(&FileStore::new(src_tmp.path())).expect("pack");
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        let names: Vec<String> = (0..zip.len())
+            .map(|i| zip.by_index(i).unwrap().name().to_string())
+            .collect();
+        assert!(
+            !names.iter().any(|n| n.starts_with(".git/")),
+            "{property}: {value:?} must not pull the working tree into the snapshot: {names:?}"
+        );
+    }
+}
+
+/// A repository and its `.srsj` projection must pack the same tree, marker
+/// included — cross-store archives are compared byte for byte by ADR-039.
+#[test]
+fn a_srsj_session_packs_the_same_tree_as_the_repository_on_disk() {
+    let src_tmp = tempfile::tempdir().unwrap();
+    six_set_repository(src_tmp.path());
+    std::fs::remove_file(src_tmp.path().join(".srs/.gitkeep")).unwrap();
+    let source = FileStore::new(src_tmp.path());
+
+    let from_disk = srs_repository::archive_to_vec(&source).expect("pack from disk");
+    let session = open_srsj(&to_srsj_string(&source).expect("project")).expect("reopen");
+    let from_session = srs_repository::archive_to_vec(&session).expect("pack from session");
+
+    let names = |bytes: Vec<u8>| -> Vec<String> {
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        (0..zip.len())
+            .map(|i| zip.by_index(i).unwrap().name().to_string())
+            .collect()
+    };
+    let disk_names = names(from_disk);
+    assert!(disk_names.contains(&".srs/.gitkeep".to_string()));
+    assert_eq!(disk_names, names(from_session));
+}
