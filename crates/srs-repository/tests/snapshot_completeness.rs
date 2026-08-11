@@ -551,3 +551,44 @@ fn pack_carries_a_relations_collection_named_by_the_manifest() {
         "a manifest-named relations collection must be packed: {names:?}"
     );
 }
+
+/// Instance roots are anchored per package root ([R3]), so a sub-package's
+/// `records/` is a reserved location too — and unclassifiable objects under it
+/// must be swept like the top-level ones.
+#[test]
+fn pack_sweeps_instance_roots_under_a_sub_package() {
+    let src_tmp = tempfile::tempdir().unwrap();
+    six_set_repository(src_tmp.path());
+    write(
+        src_tmp.path(),
+        "pkgs/sub/package.json",
+        r#"{
+          "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+          "id": "5e5e5e5e-0000-4000-8000-00000000pkg3",
+          "namespace": "com.example.sub",
+          "name": "sub-package",
+          "version": "1.0.0",
+          "title": "Sub Package",
+          "description": "A nested local package root",
+          "status": "active",
+          "createdAt": "2026-01-01T00:00:00Z",
+          "fields": [],
+          "types": []
+        }"#,
+    );
+    write(
+        src_tmp.path(),
+        "pkgs/sub/records/tier-2/broken.json",
+        r#"{"typeName":"x"}"#,
+    );
+
+    let bytes = srs_repository::archive_to_vec(&FileStore::new(src_tmp.path())).expect("pack");
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let names: Vec<String> = (0..zip.len())
+        .map(|i| zip.by_index(i).unwrap().name().to_string())
+        .collect();
+    assert!(
+        names.contains(&"pkgs/sub/records/tier-2/broken.json".to_string()),
+        "a sub-package's instance root must be swept too: {names:?}"
+    );
+}

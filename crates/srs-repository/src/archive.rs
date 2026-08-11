@@ -160,9 +160,16 @@ pub(crate) fn tree_entries(
         .source_documents_path
         .as_deref()
         .unwrap_or("source-documents");
-    let mut reserved: Vec<String> = crate::catalog::INSTANCE_ROOT_NAMES
-        .iter()
-        .map(|d| (*d).to_string())
+    // Instance roots are anchored per package root ([R3]), so a sub-package's
+    // `records/` is a reserved location too — sweeping only the top-level ones
+    // would drop exactly the objects this pass exists to catch.
+    let mut reserved: Vec<String> = std::iter::once(String::new())
+        .chain(package_roots.iter().cloned())
+        .flat_map(|root| {
+            crate::catalog::INSTANCE_ROOT_NAMES
+                .iter()
+                .map(move |name| vfs_join(&root, name))
+        })
         .chain(["relations".to_string(), "containers".to_string()])
         .chain([src_docs_dir.to_string(), SRS_MARKER_DIR.to_string()])
         .collect();

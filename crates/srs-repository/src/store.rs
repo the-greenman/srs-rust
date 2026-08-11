@@ -863,6 +863,17 @@ impl FileStore {
         }
     }
 
+    /// Tell a tree session where it came from.
+    ///
+    /// The root is display-only — never used for I/O, which always goes
+    /// through the `Vfs` — but `repository_root()` reaches CLI payloads and
+    /// error messages, so a file-backed `.srsj` session reports the directory
+    /// holding its document rather than the `<memory>` sentinel.
+    pub fn rooted_at(mut self, repo_root: impl Into<PathBuf>) -> Self {
+        self.repo_root = repo_root.into();
+        self
+    }
+
     pub fn repo_root(&self) -> &std::path::Path {
         &self.repo_root
     }
