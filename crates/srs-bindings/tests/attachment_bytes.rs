@@ -9,7 +9,7 @@ use srs_repository::attachment_service::{
     add_attachment, get_attachment_bytes, AddAttachmentInput, GetAttachmentBytesInput,
 };
 use srs_repository::error::RepositoryError;
-use srs_repository::{archive_to_vec, FileStore, JsonStore};
+use srs_repository::{archive_to_vec, FileStore};
 
 fn filestore_with_repo(tmp: &std::path::Path) -> FileStore {
     std::fs::create_dir_all(tmp.join(".srs")).unwrap();
@@ -60,8 +60,9 @@ fn get_attachment_bytes_roundtrip_via_archive() {
     // Pack to .srs archive bytes (mirrors what load_archive receives in WASM).
     let archive = archive_to_vec(&store).expect("pack archive");
 
-    // Load archive into JsonStore (mirrors the WASM load_archive path).
-    let json_store = JsonStore::from_archive(&archive).expect("from_archive");
+    // Load archive into FileStore (mirrors the WASM load_archive path).
+    let json_store = srs_repository::archive::archive_to_tree(std::io::Cursor::new(&archive))
+        .expect("from_archive");
 
     // get_attachment_bytes must return the original bytes.
     let result = get_attachment_bytes(
@@ -81,7 +82,7 @@ fn get_attachment_bytes_roundtrip_via_archive() {
 fn get_attachment_bytes_unknown_document_id() {
     // A .srsj store with no sourceDocumentIndex entries.
     let srsj = serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "att-bytes-unknown",
             "srsVersion": "2.0-draft",
@@ -91,7 +92,7 @@ fn get_attachment_bytes_unknown_document_id() {
         "data": {}
     })
     .to_string();
-    let store = JsonStore::from_srsj(&srsj).expect("load store");
+    let store = srs_repository::srsj::open_srsj(&srsj).expect("load store");
 
     let err = get_attachment_bytes(
         &store,
@@ -112,7 +113,7 @@ fn get_attachment_bytes_srsj_tombstone() {
     // A .srsj store with an index entry but no binary file stored.
     // JsonStore::load_binary_file returns not-found (tombstone per RFC-017).
     let srsj = serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "att-bytes-tombstone",
             "srsVersion": "2.0-draft",
@@ -132,7 +133,7 @@ fn get_attachment_bytes_srsj_tombstone() {
         }
     })
     .to_string();
-    let store = JsonStore::from_srsj(&srsj).expect("load store");
+    let store = srs_repository::srsj::open_srsj(&srsj).expect("load store");
 
     let err = get_attachment_bytes(
         &store,

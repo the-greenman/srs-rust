@@ -3,7 +3,7 @@
 // These tests run under the native target (not wasm32). Because wasm-bindgen's
 // `JsValue` requires the WASM runtime — `JsValue::from_str` and `js_sys::JSON::parse`
 // both abort outside of a browser/WASM context — we test the repository service layer
-// directly via `JsonStore` and the service functions that the WASM wrapper delegates to.
+// directly via `FileStore` and the service functions that the WASM wrapper delegates to.
 // These tests call the repository service layer directly, exercising the same service-layer
 // code paths as the WASM methods. They do not invoke the WASM wrapper itself (which requires
 // the WASM runtime).
@@ -11,9 +11,8 @@
 use srs_core::types::record::FieldValues;
 use srs_repository::record_store::{self, CreateRecordSuccessorInput, TransitionLifecycleInput};
 use srs_repository::relation_service::{self, ListRelationsFilter};
-use srs_repository::JsonStore;
 
-const GALLERY_SRSJ: &str = include_str!("fixtures/gallery.srsj");
+const GALLERY_SRSJ: &str = include_str!("../../srs-repository/tests/fixtures/gallery.srsj");
 
 // Two tier-2 instance IDs present in gallery.srsj (no existing "evidences" relation between them)
 const GALLERY_SRC: &str = "ad159754-2edd-4bf8-a70f-a29a617e5809";
@@ -27,7 +26,7 @@ const GALLERY_REL_TYPE: &str = "evidences";
 // ---------------------------------------------------------------------------
 fn lifecycle_srsj() -> String {
     serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-lc-repo",
             "srsVersion": "2.0-draft",
@@ -175,7 +174,7 @@ fn lifecycle_srsj() -> String {
 // ---------------------------------------------------------------------------
 #[test]
 fn list_relations_empty_filter_succeeds() {
-    let store = JsonStore::from_srsj(GALLERY_SRSJ).expect("gallery must load");
+    let store = srs_repository::srsj::open_srsj(GALLERY_SRSJ).expect("gallery must load");
     let summaries = relation_service::list_relations(&store, ListRelationsFilter::default())
         .expect("list_relations with empty filter must not error");
     // gallery.srsj has 15 relations
@@ -195,7 +194,7 @@ fn list_relations_empty_filter_succeeds() {
 fn create_relation_appears_in_list_by_source() {
     use srs_core::types::relation::Relation;
 
-    let store = JsonStore::from_srsj(GALLERY_SRSJ).expect("gallery must load");
+    let store = srs_repository::srsj::open_srsj(GALLERY_SRSJ).expect("gallery must load");
 
     let relation = Relation {
         relation_id: "b1000001-0000-4000-a000-000000000001".to_string(),
@@ -247,7 +246,7 @@ fn create_relation_appears_in_list_by_source() {
 fn delete_relation_removes_it() {
     use srs_core::types::relation::Relation;
 
-    let store = JsonStore::from_srsj(GALLERY_SRSJ).expect("gallery must load");
+    let store = srs_repository::srsj::open_srsj(GALLERY_SRSJ).expect("gallery must load");
 
     // Create a relation to delete.
     let relation = Relation {
@@ -296,7 +295,8 @@ fn delete_relation_removes_it() {
 // ---------------------------------------------------------------------------
 #[test]
 fn set_lifecycle_state_transitions_record() {
-    let store = JsonStore::from_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
+    let store =
+        srs_repository::srsj::open_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
 
     // draft → active
     let result = record_store::transition_record_lifecycle(
@@ -326,7 +326,8 @@ fn set_lifecycle_state_transitions_record() {
 // ---------------------------------------------------------------------------
 #[test]
 fn set_lifecycle_state_full_chain_to_final() {
-    let store = JsonStore::from_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
+    let store =
+        srs_repository::srsj::open_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
 
     // draft → active
     record_store::transition_record_lifecycle(
@@ -373,7 +374,8 @@ fn set_lifecycle_state_full_chain_to_final() {
 // ---------------------------------------------------------------------------
 #[test]
 fn set_lifecycle_state_result_includes_warnings_field() {
-    let store = JsonStore::from_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
+    let store =
+        srs_repository::srsj::open_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
 
     // Transition to a final state (active → archived) so warnings is non-empty.
     record_store::transition_record_lifecycle(
@@ -425,7 +427,8 @@ fn set_lifecycle_state_result_includes_warnings_field() {
 // ---------------------------------------------------------------------------
 #[test]
 fn create_record_successor_supersedes() {
-    let store = JsonStore::from_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
+    let store =
+        srs_repository::srsj::open_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
 
     let result = record_store::create_record_successor(
         &store,
@@ -466,7 +469,8 @@ fn create_record_successor_supersedes() {
 // ---------------------------------------------------------------------------
 #[test]
 fn create_record_successor_refines() {
-    let store = JsonStore::from_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
+    let store =
+        srs_repository::srsj::open_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
 
     let result = record_store::create_record_successor(
         &store,
@@ -505,7 +509,8 @@ fn create_record_successor_refines() {
 #[test]
 fn create_relation_depends_on() {
     use srs_core::types::relation::Relation;
-    let store = JsonStore::from_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
+    let store =
+        srs_repository::srsj::open_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
 
     let relation = Relation {
         relation_id: "b1000003-0000-4000-a000-000000000003".to_string(),

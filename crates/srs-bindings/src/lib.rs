@@ -91,13 +91,12 @@ pub struct SrsRepository {
 impl SrsRepository {
     /// Load a repository from a `.srsj` JSON string.
     ///
-    /// Applies RFC-014 migration before loading (idempotent on already-migrated bundles),
-    /// so callers do not need to migrate the seed separately.
+    /// `.srsj` is a boundary codec (ADR-038, RFC-038 [R19]): the envelope is
+    /// decoded into a file tree and opened as the same operational store the
+    /// CLI runs on disk. Only `srsj: "2"` is accepted — an unrecognised
+    /// version is refused rather than coerced ([R20]/[R21]).
     pub fn load(srsj: &str) -> Result<SrsRepository, JsValue> {
-        // `.srsj` is a boundary codec (ADR-038): parse through JsonStore, then
-        // materialize the operational in-memory tree.
-        let codec = srs_repository::srsj_migration_service::load_from_srsj(srsj).map_err(js_err)?;
-        let store = srs_repository::materialize_tree(&codec).map_err(js_err)?;
+        let store = srs_repository::srsj::open_srsj(srsj).map_err(js_err)?;
         Ok(SrsRepository { store })
     }
 
@@ -239,7 +238,7 @@ impl SrsRepository {
     /// The browser caller can use this to offer a download of the edited repo.
     #[wasm_bindgen]
     pub fn export_srsj(&self) -> Result<String, JsValue> {
-        srs_repository::srsj_migration_service::export_srsj_string(&self.store).map_err(js_err)
+        srs_repository::srsj::to_srsj_string(&self.store).map_err(js_err)
     }
 
     /// Export the session as an exploded file tree (ADR-038): a JS object of
@@ -1405,12 +1404,11 @@ struct LinkAttachmentBindingInput {
 mod tests {
     use srs_repository::record_store::CreateRecordInput;
     use srs_repository::services::{graduate_note as graduate_note_service, GraduateNoteInput};
-    use srs_repository::JsonStore;
 
     /// Minimal `.srsj` with one note (tier-0) and one optional-field type `com.test/bind-type`.
     fn srsj_with_note_and_type() -> String {
         serde_json::json!({
-            "srsj": "1",
+            "srsj": "2",
             "manifest": {
                 "repositoryId": "test-repo-bindings-graduate",
                 "srsVersion": "2.0-draft",
@@ -1477,7 +1475,7 @@ mod tests {
 
     #[test]
     fn graduate_note_service_result_serialises() {
-        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
         let result = graduate_note_service(
             &store,
             GraduateNoteInput {
@@ -1513,7 +1511,7 @@ mod tests {
     /// and one container. Used by `create_record_in_container_result_serialises`.
     fn srsj_with_container_and_type() -> String {
         serde_json::json!({
-            "srsj": "1",
+            "srsj": "2",
             "manifest": {
                 "repositoryId": "test-repo-bindings-container",
                 "srsVersion": "2.0-draft",
@@ -1584,7 +1582,7 @@ mod tests {
         use srs_repository::record_store::{self, CreateRecordInContainerInput};
 
         let srsj = srsj_with_container_and_type();
-        let store = srs_repository::JsonStore::from_srsj(&srsj).expect("load srsj");
+        let store = srs_repository::srsj::open_srsj(&srsj).expect("load srsj");
 
         let result = record_store::create_record_in_container(
             &store,
@@ -1637,7 +1635,7 @@ mod tests {
     #[test]
     fn get_record_summary_by_id_smoke() {
         use srs_repository::record_store::{get_record_summary_by_id, CreateRecordInput};
-        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
         // Graduate the note to get a typed record we can look up
         let note_id = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
         let graduated = srs_repository::services::graduate_note(
@@ -1670,7 +1668,7 @@ mod tests {
 
     #[test]
     fn declared_extensions_conformance_report_serialises() {
-        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
         let report = srs_repository::manifest_service::declared_extensions_conformance(&store)
             .expect("conformance report should succeed");
         let json = serde_json::to_value(&report).expect("report must serialize");
@@ -1723,7 +1721,7 @@ mod tests {
     /// Minimal `.srsj` with one Tier-2 record whose `"title"` field is set to `"My Title"`.
     fn srsj_with_titled_record() -> String {
         serde_json::json!({
-            "srsj": "1",
+            "srsj": "2",
             "manifest": {
                 "repositoryId": "test-repo-get-field-value",
                 "srsVersion": "2.0-draft",
@@ -1795,7 +1793,7 @@ mod tests {
     #[test]
     fn get_field_value_by_name_returns_value_for_known_field() {
         use srs_repository::record_store;
-        let store = JsonStore::from_srsj(&srsj_with_titled_record()).expect("load srsj");
+        let store = srs_repository::srsj::open_srsj(&srsj_with_titled_record()).expect("load srsj");
 
         let result = record_store::get_field_value_by_name(
             &store,
@@ -1816,7 +1814,7 @@ mod tests {
     #[test]
     fn get_field_value_by_name_returns_none_for_unknown_field() {
         use srs_repository::record_store;
-        let store = JsonStore::from_srsj(&srsj_with_titled_record()).expect("load srsj");
+        let store = srs_repository::srsj::open_srsj(&srsj_with_titled_record()).expect("load srsj");
 
         let result = record_store::get_field_value_by_name(
             &store,
@@ -1841,7 +1839,7 @@ mod tests {
 
     fn srsj_with_federation_events() -> String {
         serde_json::json!({
-            "srsj": "1",
+            "srsj": "2",
             "manifest": {
                 "repositoryId": "test-repo-federation",
                 "srsVersion": "2.0-draft",
@@ -1887,7 +1885,8 @@ mod tests {
         use srs_repository::federation_service::{
             list_federation_events, ListFederationEventsFilter, ListFederationEventsInput,
         };
-        let store = JsonStore::from_srsj(&srsj_with_federation_events()).expect("load srsj");
+        let store =
+            srs_repository::srsj::open_srsj(&srsj_with_federation_events()).expect("load srsj");
         let result = list_federation_events(
             &store,
             ListFederationEventsInput {
@@ -1915,7 +1914,7 @@ mod tests {
         use srs_repository::federation_service::{
             list_federation_events, ListFederationEventsFilter, ListFederationEventsInput,
         };
-        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
         let result = list_federation_events(
             &store,
             ListFederationEventsInput {
@@ -1935,7 +1934,7 @@ mod tests {
         use srs_repository::federation_service::{
             append_federation_event, AppendFederationEventInput,
         };
-        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
         let result = append_federation_event(
             &store,
             AppendFederationEventInput {
@@ -1968,7 +1967,7 @@ mod tests {
     #[test]
     fn protocol_run_create_smoke() {
         use srs_repository::protocol_run_service::{create_run, CreateRunInput};
-        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
         let result = create_run(
             &store,
             CreateRunInput {
@@ -1992,7 +1991,7 @@ mod tests {
         use srs_repository::protocol_run_service::{
             advance_stage, create_run, AdvanceStageInput, CreateRunInput,
         };
-        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
         let run = create_run(
             &store,
             CreateRunInput {
@@ -2022,7 +2021,7 @@ mod tests {
     #[test]
     fn protocol_run_get_not_found_returns_null() {
         use srs_repository::protocol_run_service::{get_run, GetRunResult};
-        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
         let result = get_run(&store, "no-such-run").expect("get_run should not error");
         assert!(matches!(result, GetRunResult::NotFound));
     }
@@ -2030,7 +2029,7 @@ mod tests {
     #[test]
     fn protocol_run_list_empty_smoke() {
         use srs_repository::protocol_run_service::{list_runs, RunListFilter};
-        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
         let runs = list_runs(&store, RunListFilter::default()).expect("list_runs should succeed");
         assert!(runs.is_empty(), "fresh repo has no runs");
     }
@@ -2040,7 +2039,7 @@ mod tests {
         use srs_repository::protocol_run_service::{
             abandon_run, complete_run, create_run, CreateRunInput,
         };
-        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
 
         let r1 = create_run(
             &store,
@@ -2079,7 +2078,7 @@ mod tests {
         use srs_repository::relation_service::{rebuild_precedes_chain, RebuildPrecedesChainInput};
 
         let srsj = serde_json::json!({
-            "srsj": "1",
+            "srsj": "2",
             "manifest": {
                 "instanceIndex": [
                     {"instanceId": "id-a", "tier": 0, "path": "records/id-a.json"},
@@ -2122,7 +2121,7 @@ mod tests {
         })
         .to_string();
 
-        let store = JsonStore::from_srsj(&srsj).expect("load srsj");
+        let store = srs_repository::srsj::open_srsj(&srsj).expect("load srsj");
         let result = rebuild_precedes_chain(
             &store,
             RebuildPrecedesChainInput {
@@ -2147,11 +2146,12 @@ mod tests {
     fn archive_service_roundtrip_smoke() {
         use srs_repository::services::{list_notes, ListNotesFilter};
 
-        let store = JsonStore::from_srsj(&srsj_with_note_and_type()).expect("load srsj");
+        let store = srs_repository::srsj::open_srsj(&srsj_with_note_and_type()).expect("load srsj");
 
         let bytes = srs_repository::archive_to_vec(&store).expect("archive_to_vec");
 
-        let reloaded = JsonStore::from_archive(&bytes).expect("from_archive");
+        let reloaded = srs_repository::archive::archive_to_tree(std::io::Cursor::new(&bytes))
+            .expect("from_archive");
         let result = list_notes(&reloaded, ListNotesFilter::default()).expect("list notes");
         assert!(
             !result.notes.is_empty(),
@@ -2163,7 +2163,7 @@ mod tests {
     //
     // Proves that validation::validate_repository emits Warning-severity diagnostics
     // for attachment-size violations and that they surface in the RepositoryValidationReport
-    // returned by the validate() binding. Uses JsonStore::from_srsj() consistent with the
+    // returned by the validate() binding. Uses srs_repository::srsj::open_srsj() consistent with the
     // existing test style in this file; binary content is added via save_binary_file after
     // loading because .srsj is a JSON-only format. The wasm32 build gate confirms the
     // to_js(&report) call in validate() compiles and links correctly against this report shape.
@@ -2178,7 +2178,7 @@ mod tests {
         const DOC_ID: &str = "cc000001-0000-4000-b000-000000000001";
 
         let srsj = serde_json::json!({
-            "srsj": "1",
+            "srsj": "2",
             "manifest": {
                 "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
                 "srsVersion": "2.0",
@@ -2253,7 +2253,7 @@ mod tests {
         })
         .to_string();
 
-        let store = JsonStore::from_srsj(&srsj).expect("load srsj fixture");
+        let store = srs_repository::srsj::open_srsj(&srsj).expect("load srsj fixture");
 
         store
             .save_binary_file("source-documents/big-file.bin", &[0u8; 200])

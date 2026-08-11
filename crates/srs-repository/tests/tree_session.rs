@@ -6,7 +6,6 @@
 //! SRS code may touch, and a Type carrying `$schema`/`aiGuidance` extras.
 
 use srs_core::types::record::FieldValues;
-use srs_repository::json_store::JsonStore;
 use srs_repository::migration_registry_service::{list_migrations, MigrationStatus};
 use srs_repository::record_store::{
     list_record_summaries, update_record, RecordListFilter, UpdateRecordInput,
@@ -227,8 +226,8 @@ fn export_tree_disk_store_errors() {
 #[test]
 #[ignore = "srs-rust#783 Phase 3: exploded-basic fixture is pre-RFC-038 (embed+file dup root, aiGuidance-less fields) and the catalog-backed store ops it drives are now fatally strict — fixture regeneration + codec alignment is Phase 4 (this suite's owner)"]
 fn materialize_from_srsj_parity() {
-    // Build a .srsj envelope from the fixture's SRS files (what a JsonStore
-    // session holds), load it as a JsonStore, materialize into a tree, and
+    // Build a .srsj envelope from the fixture's SRS files (what a FileStore
+    // session holds), load it as a FileStore, materialize into a tree, and
     // compare validate/list outputs against the direct tree session.
     let base = fixture_map();
     let mut data = serde_json::Map::new();
@@ -246,8 +245,8 @@ fn materialize_from_srsj_parity() {
             serde_json::from_slice::<serde_json::Value>(bytes).unwrap(),
         );
     }
-    let envelope = serde_json::json!({ "srsj": "1", "manifest": manifest, "data": data });
-    let json_store = JsonStore::from_srsj(&envelope.to_string()).unwrap();
+    let envelope = serde_json::json!({ "srsj": "2", "manifest": manifest, "data": data });
+    let json_store = srs_repository::srsj::open_srsj(&envelope.to_string()).unwrap();
 
     let tree = materialize_tree(&json_store).unwrap();
     let direct = open_tree(base).unwrap();
@@ -303,7 +302,7 @@ fn srsj_with_noncanonical_instance_paths(base: &BTreeMap<String, Vec<u8>>) -> St
             serde_json::from_slice::<serde_json::Value>(bytes).unwrap(),
         );
     }
-    serde_json::json!({ "srsj": "1", "manifest": manifest, "data": data }).to_string()
+    serde_json::json!({ "srsj": "2", "manifest": manifest, "data": data }).to_string()
 }
 
 #[test]
@@ -315,7 +314,8 @@ fn materialize_preserves_noncanonical_paths_and_keeps_repo_upgrade_detectable() 
     // `repo-upgrade` ("Normalise instance file paths") migration can no longer detect the repo as
     // needing normalization — the build.226 regression where the Needed badge vanished.
     let base = fixture_map();
-    let json_store = JsonStore::from_srsj(&srsj_with_noncanonical_instance_paths(&base)).unwrap();
+    let json_store =
+        srs_repository::srsj::open_srsj(&srsj_with_noncanonical_instance_paths(&base)).unwrap();
 
     let tree = materialize_tree(&json_store).unwrap();
 
@@ -378,8 +378,8 @@ fn materialize_loads_id8_colliding_records() {
         .unwrap()
         .push(serde_json::json!({ "instanceId": colliding_id, "tier": 2, "path": clone_path }));
 
-    let envelope = serde_json::json!({ "srsj": "1", "manifest": manifest, "data": data });
-    let json_store = JsonStore::from_srsj(&envelope.to_string()).unwrap();
+    let envelope = serde_json::json!({ "srsj": "2", "manifest": manifest, "data": data });
+    let json_store = srs_repository::srsj::open_srsj(&envelope.to_string()).unwrap();
 
     let tree = materialize_tree(&json_store)
         .expect("id8-colliding records must materialize, not collide (srs-rust#696)");
@@ -420,8 +420,8 @@ fn materialize_preserves_definition_extras() {
             serde_json::from_slice::<serde_json::Value>(bytes).unwrap(),
         );
     }
-    let envelope = serde_json::json!({ "srsj": "1", "manifest": manifest, "data": data });
-    let json_store = JsonStore::from_srsj(&envelope.to_string()).unwrap();
+    let envelope = serde_json::json!({ "srsj": "2", "manifest": manifest, "data": data });
+    let json_store = srs_repository::srsj::open_srsj(&envelope.to_string()).unwrap();
 
     let tree = materialize_tree(&json_store).unwrap();
     let exported = export_tree(&tree).unwrap();
@@ -430,12 +430,12 @@ fn materialize_preserves_definition_extras() {
             .expect("materialized tree must contain the decision type file");
     assert_eq!(
         type_file["$schema"], "https://srs.semanticops.com/schema/2.0/type.json",
-        "$schema must survive materialize_tree from a JsonStore"
+        "$schema must survive materialize_tree from a FileStore"
     );
     assert!(
         type_file["aiGuidance"]
             .as_str()
             .is_some_and(|s| s.starts_with("A decision made")),
-        "aiGuidance must survive materialize_tree from a JsonStore"
+        "aiGuidance must survive materialize_tree from a FileStore"
     );
 }

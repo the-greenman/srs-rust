@@ -3,7 +3,7 @@
 //! list_relation_types.
 //!
 //! Native Rust tests (not #[wasm_bindgen_test]) — run with `cargo test -p srs-bindings`.
-//! Exercises the underlying services via JsonStore::from_srsj; to_js() is not called
+//! Exercises the underlying services via srs_repository::srsj::open_srsj; to_js() is not called
 //! (it calls js_sys::JSON::parse which panics off-wasm). The wasm-pack build proves the
 //! #[wasm_bindgen] export compiles.
 //!
@@ -24,7 +24,7 @@ use srs_repository::package_service::{
     GetTypeResult, RelationTypeListFilter, TypeListFilter,
 };
 use srs_repository::view_service::{get_view_by_id, list_views_summary, GetViewResult};
-use srs_repository::JsonStore;
+use srs_repository::FileStore;
 
 /// Mirrors the private `FieldListBindingFilter` / `TypeListBindingFilter` in `lib.rs`.
 /// Duplicated here to test the JSON → binding filter struct → service filter mapping
@@ -38,9 +38,9 @@ struct TestListBindingFilter {
     package: Option<String>,
 }
 
-fn gallery_store() -> JsonStore {
-    let srsj = include_str!("fixtures/gallery.srsj");
-    JsonStore::from_srsj(srsj).expect("gallery srsj must load")
+fn gallery_store() -> FileStore {
+    let srsj = include_str!("../../srs-repository/tests/fixtures/gallery.srsj");
+    srs_repository::srsj::open_srsj(srsj).expect("gallery srsj must load")
 }
 
 // ── list_fields ───────────────────────────────────────────────────────────────

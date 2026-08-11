@@ -1,10 +1,12 @@
 //! Integration test for the governance scaffold path (issue #381).
 //!
-//! Proves that `load_from_srsj` on the raw (pre-RFC-014) governance seed, followed by
-//! `create_governance_repository` and `validate_repository`, produces a valid bundle.
+//! Proves that the raw governance seed, RFC-014-prepared and opened through the
+//! `.srsj` codec, followed by `create_governance_repository` and
+//! `validate_repository`, produces a valid bundle.
 
 use srs_repository::{
     governance_scaffold_service::{create_governance_repository, CreateGovernanceRepositoryInput},
+    srsj::open_srsj,
     srsj_migration_service, validation,
 };
 
@@ -17,8 +19,9 @@ fn scaffold_from_raw_seed_produces_valid_repository() {
     ))
     .expect("governance-seed.srsj fixture must exist");
 
-    let store = srsj_migration_service::load_from_srsj(&raw)
-        .expect("load_from_srsj must succeed on raw (pre-migration) seed");
+    let prepared = srsj_migration_service::migrate_rfc014(&raw)
+        .expect("RFC-014 seed preparation must succeed");
+    let store = open_srsj(&prepared).expect("the prepared seed must open through the codec");
 
     // create_governance_repository mutates store in place via interior mutability.
     let _ = create_governance_repository(

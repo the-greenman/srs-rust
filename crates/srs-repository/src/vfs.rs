@@ -225,7 +225,7 @@ impl Vfs for DiskVfs {
 /// In-memory backend: a `BTreeMap` of file paths plus an explicit-directory
 /// set (for directories that exist without containing files, e.g. `.srs/`).
 /// `BTreeMap` keeps iteration deterministic (ADR-017 reasoning). Interior
-/// mutability via `RefCell` follows the `JsonStore` precedent — single-threaded
+/// mutability via `RefCell` follows the `FileStore` precedent — single-threaded
 /// use only (CLI and WASM are both single-threaded).
 #[derive(Debug, Default)]
 pub struct MemVfs {

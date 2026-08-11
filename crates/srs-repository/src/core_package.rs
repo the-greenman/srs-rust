@@ -31,7 +31,7 @@ pub struct EmbeddedCorePackage {
 ///
 /// Fields land in [`FieldJson`], not [`Field`], so the embedded bundle goes
 /// through the **same** data-model-revision compatibility path as every other
-/// package source (`FileStore`, `JsonStore`). A bundle authored before RFC-032
+/// package source (`FileStore`, `FileStore`). A bundle authored before RFC-032
 /// therefore still loads, upgraded in memory — see `field_json`.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

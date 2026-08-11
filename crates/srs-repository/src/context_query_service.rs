@@ -742,8 +742,6 @@ mod tests {
 
     #[test]
     fn field_context_cross_store_roundtrip() {
-        use crate::json_store::JsonStore;
-
         // 1. Build MemoryStore, create record, append revision
         let store = make_store();
         let fv = make_field_values("test-name", json!("Heidi"));
@@ -771,7 +769,7 @@ mod tests {
         let sidecar_json = store.load_instance_json(&sidecar_path).unwrap();
 
         let srsj = serde_json::json!({
-            "srsj": "1",
+            "srsj": "2",
             "manifest": {
                 "instanceIndex": [{
                     "instanceId": rec.instance_id,
@@ -819,8 +817,8 @@ mod tests {
         })
         .to_string();
 
-        // 3. Load into JsonStore, call get_field_context on both, assert results match
-        let json_store = JsonStore::from_srsj(&srsj).unwrap();
+        // 3. Load into FileStore, call get_field_context on both, assert results match
+        let json_store = crate::srsj::open_srsj(&srsj).unwrap();
 
         let mem_result = get_field_context(
             &store,

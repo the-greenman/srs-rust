@@ -1196,7 +1196,7 @@ fn str_of(doc: &Value, key: &str, path: &str) -> Result<String, RepositoryError>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::json_store::JsonStore;
+    use crate::store::FileStore;
     use serde_json::json;
 
     const F_TITLE: &str = "aa000001-0000-4000-a000-000000000001";
@@ -1323,7 +1323,7 @@ mod tests {
         });
 
         json!({
-            "srsj": "1",
+            "srsj": "2",
             "manifest": {
                 "srsVersion": "2.0",
                 "repositoryId": "00000000-0000-4000-8000-0000000000ff",
@@ -1368,8 +1368,8 @@ mod tests {
         .to_string()
     }
 
-    fn migrated_store() -> (JsonStore, CarrierMigrationResult) {
-        let store = JsonStore::from_srsj(&fixture_srsj(&FixtureKnobs::default())).unwrap();
+    fn migrated_store() -> (FileStore, CarrierMigrationResult) {
+        let store = crate::srsj::open_srsj(&fixture_srsj(&FixtureKnobs::default())).unwrap();
         let result = migrate_carrier(&store).expect("migration must succeed");
         (store, result)
     }
@@ -1493,7 +1493,7 @@ mod tests {
             })
         };
         let srsj = json!({
-            "srsj": "1",
+            "srsj": "2",
             "manifest": {
                 "srsVersion": "2.0",
                 "repositoryId": "00000000-0000-4000-8000-0000000000fe",
@@ -1568,7 +1568,7 @@ mod tests {
         })
         .to_string();
 
-        let store = JsonStore::from_srsj(&srsj).unwrap();
+        let store = crate::srsj::open_srsj(&srsj).unwrap();
         migrate_carrier(&store).expect("inheriting record must migrate");
         let record = store.load_instance_json("records/r-child.json").unwrap();
         let keys: Vec<&str> = record["fieldValues"]
@@ -1588,7 +1588,7 @@ mod tests {
     /// encounter order — the defect found live on the spec corpus.
     #[test]
     fn carrier_keys_follow_assignment_order_not_encounter_order() {
-        let store = JsonStore::from_srsj(&fixture_srsj(&FixtureKnobs {
+        let store = crate::srsj::open_srsj(&fixture_srsj(&FixtureKnobs {
             reversed_pairs: true,
             ..Default::default()
         }))
@@ -1619,7 +1619,7 @@ mod tests {
 
     #[test]
     fn divergent_entries_abort() {
-        let store = JsonStore::from_srsj(&fixture_srsj(&FixtureKnobs {
+        let store = crate::srsj::open_srsj(&fixture_srsj(&FixtureKnobs {
             divergent_entries: true,
             ..Default::default()
         }))
@@ -1632,8 +1632,8 @@ mod tests {
 
     #[test]
     fn unresolvable_field_id_aborts_and_rolls_back() {
-        // Disk-backed store: JsonStore's ADR-021 abort restores from disk, so
-        // the batch seam is actually exercised.
+        // File-backed `.srsj` session: a failed operation is never projected
+        // back to the file — the session flushes only on success.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("fixture.srsj");
         let srsj = fixture_srsj(&FixtureKnobs {
@@ -1643,23 +1643,34 @@ mod tests {
         std::fs::write(&path, &srsj).unwrap();
         let before = std::fs::read(&path).unwrap();
 
-        let store = JsonStore::open(&path).unwrap();
-        let err = migrate_carrier(&store).expect_err("unresolvable fieldId must abort");
+        let session = crate::srsj::SrsjSession::open(&path).unwrap();
+        let err = migrate_carrier(session.store()).expect_err("unresolvable fieldId must abort");
         assert!(
             err.to_string().contains("[R10]"),
             "diagnostic cites [R10]: {err}"
         );
 
-        // Batch rollback: nothing was flushed, the file is byte-identical, and
-        // a fresh open still sees the legacy revision.
+        // Nothing is projected: the session flushes only on success — exactly
+        // `with_store`'s `f(...)?; session.flush()?` ordering — so the aborted
+        // migration's partial in-memory state never reaches the file. (The
+        // in-memory tree itself is *not* rolled back: FileStore's batch seam is
+        // still a no-op, srs-rust#813. The projection boundary is what protects
+        // the data, and this session is dropped without flushing.)
+        drop(session);
         let after = std::fs::read(&path).unwrap();
-        assert_eq!(before, after, "abort must leave the store unchanged");
-        let reopened = JsonStore::open(&path).unwrap();
         assert_eq!(
-            crate::field_type_migration_service::data_model_revision(&reopened).unwrap(),
+            before, after,
+            "an aborted migration must never be projected"
+        );
+        let reopened = crate::srsj::SrsjSession::open(&path).unwrap();
+        assert_eq!(
+            crate::field_type_migration_service::data_model_revision(reopened.store()).unwrap(),
             1
         );
-        let record = reopened.load_instance_json("records/r-item.json").unwrap();
+        let record = reopened
+            .store()
+            .load_instance_json("records/r-item.json")
+            .unwrap();
         assert!(
             record["fieldValues"].is_array(),
             "records must be untouched"
@@ -1704,9 +1715,9 @@ mod tests {
     #[test]
     fn rerun_is_byte_idempotent() {
         let (store, _) = migrated_store();
-        let first = store.to_srsj_string().unwrap();
+        let first = crate::srsj::to_srsj_string(&store).unwrap();
         migrate_carrier(&store).expect("re-run must succeed");
-        let second = store.to_srsj_string().unwrap();
+        let second = crate::srsj::to_srsj_string(&store).unwrap();
         assert_eq!(
             first, second,
             "re-running the migration must be a byte no-op"
@@ -1756,7 +1767,7 @@ mod tests {
     #[test]
     fn sub_package_types_resolve_and_all_manifests_stamped() {
         let srsj = serde_json::json!({
-            "srsj": "1",
+            "srsj": "2",
             "manifest": {
                 "instanceIndex": [
                     {"instanceId": "00000000-0000-4000-8000-000000000901", "tier": 2,
@@ -1814,7 +1825,7 @@ mod tests {
             }
         })
         .to_string();
-        let store = JsonStore::from_srsj(&srsj).unwrap();
+        let store = crate::srsj::open_srsj(&srsj).unwrap();
         let result = migrate_carrier(&store).expect("sub-package type must resolve (srs-rust#809)");
         assert_eq!(result.instances_migrated, 1);
 
@@ -1839,7 +1850,7 @@ mod tests {
     #[test]
     fn revision_zero_repository_refused_with_field_type_pointer() {
         let srsj = serde_json::json!({
-            "srsj": "1",
+            "srsj": "2",
             "manifest": {
                 "instanceIndex": [],
                 "packageRef": {"mode": "local", "path": "package"},
@@ -1848,7 +1859,7 @@ mod tests {
             "data": {}
         })
         .to_string();
-        let store = JsonStore::from_srsj(&srsj).unwrap();
+        let store = crate::srsj::open_srsj(&srsj).unwrap();
         let err = migrate_carrier(&store).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("--id field-type"), "{msg}");

@@ -554,16 +554,15 @@ mod tests {
 #[cfg(test)]
 mod roundtrip_tests {
     use super::*;
-    use crate::json_store::JsonStore;
     use crate::repository_lifecycle::{
         create_repository, InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
     };
+    use crate::store::FileStore;
     use tempfile::TempDir;
 
-    fn init_store() -> (TempDir, JsonStore) {
+    fn init_store() -> (TempDir, FileStore) {
         let tmp = TempDir::new().unwrap();
-        let path = tmp.path().join("repo.srsj");
-        let store = JsonStore::create(&path).unwrap();
+        let store = crate::tree_session::new_tree_session();
         create_repository(
             &store,
             &InitializeRepositoryInput {

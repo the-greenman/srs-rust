@@ -437,7 +437,7 @@ mod tests {
 
     fn seed_srsj() -> String {
         serde_json::json!({
-            "srsj": "1",
+            "srsj": "2",
             "manifest": {
                 "repositoryId": "seed-repo-id",
                 "srsVersion": "2.0-draft",
@@ -471,7 +471,7 @@ mod tests {
     /// RFC-014 format: `upstreamPackage` at top level (not under `meta`).
     fn seed_rfc014_srsj() -> String {
         serde_json::json!({
-            "srsj": "1",
+            "srsj": "2",
             "manifest": {
                 "repositoryId": "seed-repo-id",
                 "srsVersion": "2.0-draft",
@@ -536,7 +536,7 @@ mod tests {
 
     #[test]
     fn init_new_repository_roundtrips_via_json_store() {
-        let store = crate::json_store::JsonStore::from_srsj(&seed_srsj()).unwrap();
+        let store = crate::srsj::open_srsj(&seed_srsj()).unwrap();
         let input = super::InitNewRepositoryInput {
             repository_id: Some("new-fixed-uuid".to_string()),
             namespace: "com.example.roundtrip".to_string(),
@@ -549,7 +549,7 @@ mod tests {
         assert_eq!(result.package_id, "pkg-upstream-001");
         assert_eq!(result.package_version, "1.0.0");
 
-        let serialized = store.to_srsj_string().unwrap();
+        let serialized = crate::srsj::to_srsj_string(&store).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&serialized).unwrap();
 
         assert_eq!(
@@ -997,7 +997,7 @@ mod tests {
 
     #[test]
     fn init_new_repository_rfc014_roundtrips_via_json_store() {
-        let store = crate::json_store::JsonStore::from_srsj(&seed_rfc014_srsj()).unwrap();
+        let store = crate::srsj::open_srsj(&seed_rfc014_srsj()).unwrap();
         let input = super::InitNewRepositoryInput {
             repository_id: Some("new-fixed-uuid-rfc014".to_string()),
             namespace: "com.example.roundtrip-rfc014".to_string(),
@@ -1010,7 +1010,7 @@ mod tests {
         assert_eq!(result.package_id, "pkg-upstream-001");
         assert_eq!(result.package_version, "1.0.0");
 
-        let serialized = store.to_srsj_string().unwrap();
+        let serialized = crate::srsj::to_srsj_string(&store).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&serialized).unwrap();
 
         assert_eq!(

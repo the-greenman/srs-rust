@@ -1,11 +1,10 @@
 use srs_repository::attachment_service::{
     add_attachment, list_attachments, AddAttachmentInput, ListAttachmentsFilter,
 };
-use srs_repository::JsonStore;
 
 fn srsj_empty() -> String {
     serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-list-attachments-empty",
             "srsVersion": "2.0-draft",
@@ -19,7 +18,7 @@ fn srsj_empty() -> String {
 
 fn srsj_with_indexed_entry() -> String {
     serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-list-attachments-indexed",
             "srsVersion": "2.0-draft",
@@ -51,7 +50,7 @@ fn srsj_with_indexed_entry() -> String {
 
 fn srsj_with_unindexed_file() -> String {
     serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-list-attachments-unindexed",
             "srsVersion": "2.0-draft",
@@ -67,7 +66,7 @@ fn srsj_with_unindexed_file() -> String {
 
 #[test]
 fn binding_list_attachments_empty_repo() {
-    let store = JsonStore::from_srsj(&srsj_empty()).expect("load store");
+    let store = srs_repository::srsj::open_srsj(&srsj_empty()).expect("load store");
     let result =
         list_attachments(&store, ListAttachmentsFilter::default()).expect("list_attachments ok");
     assert!(
@@ -82,7 +81,7 @@ fn binding_list_attachments_empty_repo() {
 
 #[test]
 fn binding_list_attachments_with_indexed_entry() {
-    let store = JsonStore::from_srsj(&srsj_with_indexed_entry()).expect("load store");
+    let store = srs_repository::srsj::open_srsj(&srsj_with_indexed_entry()).expect("load store");
     let result =
         list_attachments(&store, ListAttachmentsFilter::default()).expect("list_attachments ok");
     // One content file (brief.pdf); .meta.json sidecar is filtered out by the service.
@@ -99,7 +98,7 @@ fn binding_list_attachments_with_indexed_entry() {
 
 #[test]
 fn binding_list_attachments_unindexed_file_appears_path_only() {
-    let store = JsonStore::from_srsj(&srsj_with_unindexed_file()).expect("load store");
+    let store = srs_repository::srsj::open_srsj(&srsj_with_unindexed_file()).expect("load store");
     let result =
         list_attachments(&store, ListAttachmentsFilter::default()).expect("list_attachments ok");
     assert_eq!(result.entries.len(), 1, "unindexed file must still appear");
@@ -123,7 +122,7 @@ fn binding_list_attachments_size_bytes_from_binary_content() {
     // invariant and cause list_files_recursive to return the path twice. Note: add_attachment
     // also guards at the manifest level (rejects duplicate content_path in sourceDocumentIndex),
     // but the store-level invariant must hold regardless.
-    let store = JsonStore::from_srsj(&srsj_empty()).expect("load store");
+    let store = srs_repository::srsj::open_srsj(&srsj_empty()).expect("load store");
     add_attachment(
         &store,
         AddAttachmentInput {

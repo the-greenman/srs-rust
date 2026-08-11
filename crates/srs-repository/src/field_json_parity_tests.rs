@@ -1,12 +1,11 @@
 //! Cross-store FieldJson deserialization parity tests (#450).
 //!
 //! Proves that the shared [`crate::field_json::FieldJson`] mapper deserializes
-//! a Field identically through both the [`FileStore`] and [`JsonStore`] adapters.
-//! `MemoryStore` is excluded intentionally: it stores typed `Field` structs in
-//! memory and never exercises `FieldJson` parsing, so it cannot diverge on JSON
+//! a Field identically on disk and across a `.srsj` round-trip. `MemoryStore`
+//! is excluded intentionally: it stores typed `Field` structs in memory and
+//! never exercises `FieldJson` parsing, so it cannot diverge on JSON
 //! deserialization.
 
-use crate::json_store::JsonStore;
 use crate::package_service::create_field;
 use crate::repository_lifecycle::{
     create_repository, InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
@@ -85,12 +84,12 @@ fn cross_store_field_json_parity() {
         .find(|f| f.id == field.id)
         .expect("field must be present in FileStore after round-trip");
 
-    // --- JsonStore path ---
+    // --- `.srsj` codec path ---
     let js_tmp = TempDir::new().unwrap();
     let js_path = js_tmp.path().join("repo.srsj");
-    let json_store = JsonStore::create(&js_path).unwrap();
+    let mut session = crate::srsj::SrsjSession::create(&js_path).unwrap();
     create_repository(
-        &json_store,
+        session.store(),
         &InitializeRepositoryInput {
             repository: RepositoryMetadata {
                 repository_id: "parity-repo".to_string(),
@@ -108,15 +107,16 @@ fn cross_store_field_json_parity() {
         },
     )
     .unwrap();
-    create_field(&json_store, field.clone()).unwrap();
-    drop(json_store);
-    let js_store = JsonStore::open(&js_path).unwrap();
-    let js_package = js_store.load_package().unwrap();
+    create_field(session.store(), field.clone()).unwrap();
+    session.flush().unwrap();
+    drop(session);
+    let reopened = crate::srsj::SrsjSession::open(&js_path).unwrap();
+    let js_package = reopened.store().load_package().unwrap();
     let js_field = js_package
         .fields
         .iter()
         .find(|f| f.id == field.id)
-        .expect("field must be present in JsonStore after round-trip");
+        .expect("field must be present after a `.srsj` round-trip");
 
     // --- Assert parity ---
     // Whole-struct equality, not a property-by-property list: a new Field

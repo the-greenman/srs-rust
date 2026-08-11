@@ -32,7 +32,8 @@ pub mod vocabulary;
 use anyhow::{anyhow, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use srs_repository::detect::find_repo_root;
-use srs_repository::{FileStore, JsonStore, RepositoryStore};
+use srs_repository::srsj::SrsjSession;
+use srs_repository::{FileStore, RepositoryStore};
 use std::path::{Path, PathBuf};
 
 /// Output format for CLI commands
@@ -243,9 +244,15 @@ pub fn with_store<T>(
             f(&store)
         }
         StoreBackend::Json => {
-            let store = JsonStore::open(&ctx.repo)
-                .with_context(|| format!("Failed to open JsonStore at {}", ctx.repo.display()))?;
-            f(&store)
+            // `.srsj` is a carrier, not a store (RFC-038 [R19], ADR-038):
+            // decode → operate on the tree session → project back, and only
+            // when the tree actually changed.
+            let mut session = SrsjSession::open(&ctx.repo).with_context(|| {
+                format!("Failed to open .srsj session at {}", ctx.repo.display())
+            })?;
+            let result = f(session.store())?;
+            session.flush()?;
+            Ok(result)
         }
     }
 }

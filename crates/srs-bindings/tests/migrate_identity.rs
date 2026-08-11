@@ -2,13 +2,12 @@
 //!
 //! Native Rust tests (not `#[wasm_bindgen_test]`) — run with `cargo test -p srs-bindings`
 //! without a browser or wasm-pack build. Follows the same pattern as the other binding tests:
-//! exercise the underlying service directly via `JsonStore::from_srsj`, since `to_js()` calls
+//! exercise the underlying service directly via `srs_repository::srsj::open_srsj`, since `to_js()` calls
 //! `js_sys::JSON::parse` which panics off-wasm. The wasm-pack build proves the `#[wasm_bindgen]`
 //! export compiles.
 
 use srs_repository::migrate_identity_service;
 use srs_repository::repository_navigation_service;
-use srs_repository::JsonStore;
 
 const NOTE_ID: &str = "00000000-0000-4000-8000-00000000b001";
 const ROOT_CONTAINER_ID: &str = "00000000-0000-4000-8000-00000000c000";
@@ -23,7 +22,7 @@ const FIELD_TITLE_ID: &str = "00000000-0000-4000-8000-00000000f001";
 /// Minimal `.srsj` with a Tier-0 note as the `identityInstanceId`.
 fn tier0_fixture_srsj() -> String {
     serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-migrate-identity",
             "srsVersion": "2.0-draft",
@@ -84,7 +83,8 @@ fn tier0_fixture_srsj() -> String {
 /// keys are camelCase (matching `serde(rename_all = "camelCase")` on `MigrateIdentityResult`).
 #[test]
 fn migrate_identity_tier0_to_purpose_record_succeeds() {
-    let store = JsonStore::from_srsj(&tier0_fixture_srsj()).expect("fixture srsj must load");
+    let store =
+        srs_repository::srsj::open_srsj(&tier0_fixture_srsj()).expect("fixture srsj must load");
 
     let result =
         migrate_identity_service::migrate_identity(&store).expect("migration must succeed");
@@ -115,7 +115,7 @@ fn migrate_identity_tier0_to_purpose_record_succeeds() {
 #[test]
 fn migrate_identity_no_prior_identity_succeeds() {
     let fixture = serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-migrate-no-identity",
             "srsVersion": "2.0-draft",
@@ -150,7 +150,7 @@ fn migrate_identity_no_prior_identity_succeeds() {
     })
     .to_string();
 
-    let store = JsonStore::from_srsj(&fixture).expect("fixture srsj must load");
+    let store = srs_repository::srsj::open_srsj(&fixture).expect("fixture srsj must load");
 
     let result = migrate_identity_service::migrate_identity(&store)
         .expect("none-branch migration must succeed");
@@ -187,7 +187,8 @@ fn migrate_identity_no_prior_identity_succeeds() {
 /// must return an error whose message contains "already".
 #[test]
 fn migrate_identity_already_migrated_returns_error() {
-    let store = JsonStore::from_srsj(&tier0_fixture_srsj()).expect("fixture srsj must load");
+    let store =
+        srs_repository::srsj::open_srsj(&tier0_fixture_srsj()).expect("fixture srsj must load");
 
     migrate_identity_service::migrate_identity(&store).expect("first migration must succeed");
 
@@ -211,7 +212,7 @@ fn migrate_identity_already_migrated_returns_error() {
 #[test]
 fn sections_survive_migrate_identity() {
     let fixture = serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-607-sections-survive",
             "srsVersion": "2.0-draft",
@@ -277,23 +278,12 @@ fn sections_survive_migrate_identity() {
                 "title": "Articles",
                 "rootInstanceIds": [ARTICLES_RECORD_ID],
                 "createdAt": "2026-01-01T00:00:00Z"
-            },
-            // "manifest.json" in data exercises the pre-#466 shadow-containerIndex
-            // open-time migration in JsonStore::from_srsj: when the top-level manifest
-            // has no containerIndex key, from_srsj reads data["manifest.json"] and
-            // promotes its containerIndex into the parsed manifest. This entry is
-            // intentional — it reflects how legacy .srsj bundles encode the container
-            // index, and ensures the migration path does not break navigation.
-            "manifest.json": {
-                "containerIndex": [
-                    {"containerId": ARTICLES_CTR_ID, "title": "Articles"}
-                ]
             }
         }
     })
     .to_string();
 
-    let store = JsonStore::from_srsj(&fixture).expect("fixture must load");
+    let store = srs_repository::srsj::open_srsj(&fixture).expect("fixture must load");
 
     // Run None-branch migration — must succeed.
     let result = migrate_identity_service::migrate_identity(&store)

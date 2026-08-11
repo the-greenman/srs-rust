@@ -1282,7 +1282,7 @@ pub fn validate_repository(
     // Resolve it through the same candidate order the relation service writes through
     // (manifest relationsPath → relations-collection.json → relations.json), read via
     // load_relations_json so at-rest validation covers whichever file is authoritative
-    // across every store — including the JsonStore behind the WASM/srs-web path (#548).
+    // across every store — including the FileStore behind the WASM/srs-web path (#548).
     let relations_source = match crate::relation_service::resolve_relations_source(store) {
         Ok(source) => source,
         Err(err) => {
@@ -5217,7 +5217,7 @@ mod tests {
     #[test]
     fn validate_root_type_diagnostics_consistent_across_stores() {
         // Cross-store roundtrip: the same fixture must produce the same I-64 diagnostic
-        // from FileStore and from a JsonStore reconstructed via snapshot import.
+        // from FileStore and from a FileStore reconstructed via snapshot import.
         let temp = TempDir::new().unwrap();
         let type_id = "00000000-0000-4000-8000-000000000abc";
         write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
@@ -5283,12 +5283,10 @@ mod tests {
         };
         crate::container_service::create_container(&file_store, container).unwrap();
 
-        // Reconstruct the same repository in a JsonStore via snapshot import.
+        // Reconstruct the same repository in a FileStore via snapshot import.
         let snapshot =
             crate::repository_portability::export_repository_snapshot(&file_store).unwrap();
-        let tmp2 = TempDir::new().unwrap();
-        let json_store =
-            crate::json_store::JsonStore::create(tmp2.path().join("repo.srsj")).unwrap();
+        let json_store = crate::tree_session::new_tree_session();
         crate::repository_portability::import_repository_snapshot(&json_store, &snapshot).unwrap();
 
         let count_i64 = |r: &RepositoryValidationReport| {
@@ -6283,7 +6281,7 @@ mod tests {
 
     #[test]
     fn rfc013_cross_store_file_and_json_agree() {
-        // FileStore and JsonStore (from_srsj) must produce the same RFC-013 diagnostic count.
+        // FileStore and FileStore (from_srsj) must produce the same RFC-013 diagnostic count.
         // Member not in instanceIndex → I-80 error on both stores.
         //
         // RFC-038 [R1]: the manifest embed is authoritative for the root container — no
@@ -6306,13 +6304,13 @@ mod tests {
         write_json(temp.path(), "manifest.json", &manifest_val);
         let file_store = crate::store::FileStore::new(temp.path());
 
-        // JsonStore via from_srsj: snapshot doesn't preserve manifest.container so we use from_srsj.
+        // FileStore via from_srsj: snapshot doesn't preserve manifest.container so we use from_srsj.
         let srsj = json!({
-            "srsj": "1",
+            "srsj": "2",
             "manifest": manifest_val,
             "data": {}
         });
-        let json_store = crate::json_store::JsonStore::from_srsj(&srsj.to_string()).unwrap();
+        let json_store = crate::srsj::open_srsj(&srsj.to_string()).unwrap();
 
         let file_report = validate_repository(&file_store).unwrap();
         let json_report = validate_repository(&json_store).unwrap();
@@ -6333,7 +6331,7 @@ mod tests {
         assert_eq!(
             file_i80.len(),
             json_i80.len(),
-            "FileStore and JsonStore must produce same I-80 count (file: {:?}, json: {:?})",
+            "FileStore and FileStore must produce same I-80 count (file: {:?}, json: {:?})",
             file_report.diagnostics,
             json_report.diagnostics
         );
@@ -7847,9 +7845,9 @@ mod tests {
     #[test]
     fn validate_finds_relations_in_jsonstore_cross_store() {
         // #548 regression for the WASM/srs-web path: relations are written as a JSON object
-        // (save_relations_json), so validate must resolve them in a JsonStore too — not just
+        // (save_relations_json), so validate must resolve them in a FileStore too — not just
         // FileStore. Before the fix, resolve_relations_source used load_text_file, which
-        // returns nothing for an object-backed store, so JsonStore validate silently reported
+        // returns nothing for an object-backed store, so FileStore validate silently reported
         // zero relation diagnostics even though the relation was readable via the API.
         let temp = TempDir::new().unwrap();
         // Distinct id-prefixes: snapshot import derives a canonical filename from the id's
@@ -7883,12 +7881,10 @@ mod tests {
         );
 
         let file_store = crate::store::FileStore::new(temp.path());
-        // Reconstruct the same repository in a JsonStore via snapshot import (the .srsj store).
+        // Reconstruct the same repository in a FileStore via snapshot import (the .srsj store).
         let snapshot =
             crate::repository_portability::export_repository_snapshot(&file_store).unwrap();
-        let tmp2 = TempDir::new().unwrap();
-        let json_store =
-            crate::json_store::JsonStore::create(tmp2.path().join("repo.srsj")).unwrap();
+        let json_store = crate::tree_session::new_tree_session();
         crate::repository_portability::import_repository_snapshot(&json_store, &snapshot).unwrap();
 
         let has_e1 =
@@ -7902,7 +7898,7 @@ mod tests {
         );
         assert!(
             has_e1(&json_report),
-            "JsonStore (WASM/srs-web path) must also flag the bogus relation type (E1) — \
+            "FileStore (WASM/srs-web path) must also flag the bogus relation type (E1) — \
              cross-store regression guard for #548: {:?}",
             json_report.diagnostics
         );

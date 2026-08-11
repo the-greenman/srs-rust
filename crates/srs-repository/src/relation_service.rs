@@ -465,7 +465,7 @@ pub(crate) fn relations_candidate_paths(
 ///
 /// Reads via [`RepositoryStore::load_relations_json`] (the same method the write path
 /// and `analysis::summarize_relations` use) so resolution works uniformly across
-/// `FileStore`, `MemoryStore`, and `JsonStore` — the `.srsj`/WASM store behind srs-web.
+/// `FileStore`, `MemoryStore`, and `FileStore` — the `.srsj`/WASM store behind srs-web.
 /// `load_text_file` only surfaces `FileStore`'s on-disk text, so an object-backed store
 /// would never find a relation written by `save_relations_json`, and `repo validate`
 /// would silently skip every relation there (#548).
@@ -2089,7 +2089,7 @@ mod tests {
     #[test]
     fn test_rebuild_precedes_chain_roundtrip_json_store() {
         let srsj = serde_json::json!({
-            "srsj": "1",
+            "srsj": "2",
             "manifest": {
                 "instanceIndex": [
                     {"instanceId": "id-a", "tier": 0, "path": "records/id-a.json"},
@@ -2124,7 +2124,7 @@ mod tests {
             }
         })
         .to_string();
-        let store = crate::JsonStore::from_srsj(&srsj).unwrap();
+        let store = crate::srsj::open_srsj(&srsj).unwrap();
         rebuild_precedes_chain(
             &store,
             RebuildPrecedesChainInput {
@@ -2133,8 +2133,8 @@ mod tests {
             },
         )
         .unwrap();
-        let exported = store.to_srsj_string().unwrap();
-        let store2 = crate::JsonStore::from_srsj(&exported).unwrap();
+        let exported = crate::srsj::to_srsj_string(&store).unwrap();
+        let store2 = crate::srsj::open_srsj(&exported).unwrap();
         let all = list_relations(&store2, ListRelationsFilter::default()).unwrap();
         let precedes: Vec<_> = all
             .iter()

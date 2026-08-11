@@ -2,12 +2,11 @@
 //!
 //! Native Rust test (not `#[wasm_bindgen_test]`) — runs with `cargo test -p srs-bindings`
 //! without a browser or wasm-pack build. Follows the same pattern as the other binding tests:
-//! exercise the underlying service directly via `JsonStore::from_srsj`, since `to_js()` calls
+//! exercise the underlying service directly via `srs_repository::srsj::open_srsj`, since `to_js()` calls
 //! `js_sys::JSON::parse` which panics off-wasm. The wasm-pack build proves the `#[wasm_bindgen]`
 //! export compiles.
 
 use srs_repository::container_view_service::{resolve_container_view, ResolveContainerViewInput};
-use srs_repository::JsonStore;
 
 const TYPE_ID: &str = "11111111-1111-4111-8111-111111111111";
 const CONTAINER_ID: &str = "22222222-2222-4222-8222-222222222222";
@@ -23,7 +22,7 @@ const SUPERSEDED_ID: &str = "99999999-9999-4999-8999-999999999999";
 /// container-subset section renders via a View exposing the title and status fields.
 fn fixture_srsj() -> String {
     serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-repo-container-view",
             "srsVersion": "2.0-draft",
@@ -141,7 +140,7 @@ fn fixture_srsj() -> String {
 /// the DocumentView-driven column spec.
 #[test]
 fn resolve_container_view_returns_root_members_and_columns() {
-    let store = JsonStore::from_srsj(&fixture_srsj()).expect("fixture srsj must load");
+    let store = srs_repository::srsj::open_srsj(&fixture_srsj()).expect("fixture srsj must load");
     let result = resolve_container_view(
         &store,
         ResolveContainerViewInput {
@@ -187,7 +186,7 @@ fn resolve_container_view_returns_root_members_and_columns() {
 /// `isVisibleByDefault: false` survives the full service→serde path.
 fn fixture_srsj_with_excluded_states() -> String {
     serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-repo-container-view-excluded",
             "srsVersion": "2.0-draft",
@@ -306,8 +305,8 @@ fn fixture_srsj_with_excluded_states() -> String {
 /// `isVisibleByDefault: false` in the serialised output (the field the WASM binding delivers to JS).
 #[test]
 fn resolve_container_view_is_visible_by_default_false_serialised() {
-    let store =
-        JsonStore::from_srsj(&fixture_srsj_with_excluded_states()).expect("fixture srsj must load");
+    let store = srs_repository::srsj::open_srsj(&fixture_srsj_with_excluded_states())
+        .expect("fixture srsj must load");
     let result = resolve_container_view(
         &store,
         ResolveContainerViewInput {
@@ -342,7 +341,7 @@ fn resolve_container_view_is_visible_by_default_false_serialised() {
 /// An explicit unknown `view_id` yields empty columns + a diagnostic, but still returns members.
 #[test]
 fn resolve_container_view_unknown_view_id_is_diagnostic_not_error() {
-    let store = JsonStore::from_srsj(&fixture_srsj()).expect("fixture srsj must load");
+    let store = srs_repository::srsj::open_srsj(&fixture_srsj()).expect("fixture srsj must load");
     let result = resolve_container_view(
         &store,
         ResolveContainerViewInput {

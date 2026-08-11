@@ -1,4 +1,28 @@
 {
+  "srsj": "2",
+  "manifest": {
+    "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+    "container": {
+      "containerId": "395ebea2-d8f6-497b-b18c-04c9eacafc94",
+      "title": "Empty Governance Document"
+    },
+    "createdAt": "2026-01-01T00:00:00Z",
+    "description": "An empty governance document: the canonical MuDemocracy governance package installed with zero records, ready for a clerk to capture their first decision.",
+    "instanceIndex": [],
+    "meta": {
+      "upstreamPackage": {
+        "installedAt": "2026-01-01T00:00:00Z",
+        "name": "governance",
+        "namespace": "com.mudemocracy.governance",
+        "packageId": "1cd9622e-3d05-4214-a683-4cb81d0c44d9",
+        "version": "1.0.0"
+      }
+    },
+    "namespace": "com.mudemocracy.governance",
+    "repositoryId": "395ebea2-d8f6-497b-b18c-04c9eacafc94",
+    "srsVersion": "2.0-draft",
+    "title": "Empty Governance Document"
+  },
   "data": {
     "package/blueprints/decision-log-e2e09a77.json": {
       "aiGuidance": {
@@ -1093,29 +1117,5 @@
       "namespace": "governance",
       "version": 1
     }
-  },
-  "manifest": {
-    "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
-    "container": {
-      "containerId": "395ebea2-d8f6-497b-b18c-04c9eacafc94",
-      "title": "Empty Governance Document"
-    },
-    "createdAt": "2026-01-01T00:00:00Z",
-    "description": "An empty governance document: the canonical MuDemocracy governance package installed with zero records, ready for a clerk to capture their first decision.",
-    "instanceIndex": [],
-    "meta": {
-      "upstreamPackage": {
-        "installedAt": "2026-01-01T00:00:00Z",
-        "name": "governance",
-        "namespace": "com.mudemocracy.governance",
-        "packageId": "1cd9622e-3d05-4214-a683-4cb81d0c44d9",
-        "version": "1.0.0"
-      }
-    },
-    "namespace": "com.mudemocracy.governance",
-    "repositoryId": "395ebea2-d8f6-497b-b18c-04c9eacafc94",
-    "srsVersion": "2.0-draft",
-    "title": "Empty Governance Document"
-  },
-  "srsj": "1"
+  }
 }

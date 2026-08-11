@@ -27,9 +27,10 @@ use srs_repository::repository_lifecycle::{
 };
 use srs_repository::repository_navigation_service::repository_navigation;
 use srs_repository::repository_portability::copy_repository;
+use srs_repository::srsj::SrsjSession;
 use srs_repository::upgrade_repository_paths;
 use srs_repository::validation::validate_repository;
-use srs_repository::{FileStore, JsonStore};
+use srs_repository::FileStore;
 
 pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
     match cmd {
@@ -194,9 +195,12 @@ fn cmd_repo_create(
             create_repository_with_intent(&store, &input)?
         }
         StoreBackend::Json => {
-            let store = JsonStore::create(&ctx.repo)
-                .with_context(|| format!("Failed to create JsonStore at {}", ctx.repo.display()))?;
-            create_repository_with_intent(&store, &input)?
+            let mut session = SrsjSession::create(&ctx.repo).with_context(|| {
+                format!("Failed to create .srsj session at {}", ctx.repo.display())
+            })?;
+            let result = create_repository_with_intent(session.store(), &input)?;
+            session.flush()?;
+            result
         }
     };
 
@@ -379,22 +383,24 @@ fn cmd_repo_copy(
         }
         (StoreBackend::File, StoreBackend::Json) => {
             let source = FileStore::new(&from);
-            let target = JsonStore::create(&to)
-                .with_context(|| format!("Failed to create JsonStore at {}", to.display()))?;
-            copy_repository(&source, &target)?;
+            let mut target = SrsjSession::create(&to)
+                .with_context(|| format!("Failed to create .srsj session at {}", to.display()))?;
+            copy_repository(&source, target.store())?;
+            target.flush()?;
         }
         (StoreBackend::Json, StoreBackend::File) => {
-            let source = JsonStore::open(&from)
-                .with_context(|| format!("Failed to open JsonStore at {}", from.display()))?;
+            let source = SrsjSession::open(&from)
+                .with_context(|| format!("Failed to open .srsj session at {}", from.display()))?;
             let target = FileStore::new(&to);
-            copy_repository(&source, &target)?;
+            copy_repository(source.store(), &target)?;
         }
         (StoreBackend::Json, StoreBackend::Json) => {
-            let source = JsonStore::open(&from)
-                .with_context(|| format!("Failed to open JsonStore at {}", from.display()))?;
-            let target = JsonStore::create(&to)
-                .with_context(|| format!("Failed to create JsonStore at {}", to.display()))?;
-            copy_repository(&source, &target)?;
+            let source = SrsjSession::open(&from)
+                .with_context(|| format!("Failed to open .srsj session at {}", from.display()))?;
+            let mut target = SrsjSession::create(&to)
+                .with_context(|| format!("Failed to create .srsj session at {}", to.display()))?;
+            copy_repository(source.store(), target.store())?;
+            target.flush()?;
         }
     }
     output::serialize("repo copy", RepoCopyPayload { from, to })
@@ -418,22 +424,22 @@ fn cmd_repo_diff(
         }
         (StoreBackend::File, StoreBackend::Json) => {
             let source = FileStore::new(&from);
-            let target = JsonStore::open(&to)
-                .with_context(|| format!("Failed to open JsonStore at {}", to.display()))?;
-            diff_repositories(&source, &target)?
+            let target = SrsjSession::open(&to)
+                .with_context(|| format!("Failed to open .srsj session at {}", to.display()))?;
+            diff_repositories(&source, target.store())?
         }
         (StoreBackend::Json, StoreBackend::File) => {
-            let source = JsonStore::open(&from)
-                .with_context(|| format!("Failed to open JsonStore at {}", from.display()))?;
+            let source = SrsjSession::open(&from)
+                .with_context(|| format!("Failed to open .srsj session at {}", from.display()))?;
             let target = FileStore::new(&to);
-            diff_repositories(&source, &target)?
+            diff_repositories(source.store(), &target)?
         }
         (StoreBackend::Json, StoreBackend::Json) => {
-            let source = JsonStore::open(&from)
-                .with_context(|| format!("Failed to open JsonStore at {}", from.display()))?;
-            let target = JsonStore::open(&to)
-                .with_context(|| format!("Failed to open JsonStore at {}", to.display()))?;
-            diff_repositories(&source, &target)?
+            let source = SrsjSession::open(&from)
+                .with_context(|| format!("Failed to open .srsj session at {}", from.display()))?;
+            let target = SrsjSession::open(&to)
+                .with_context(|| format!("Failed to open .srsj session at {}", to.display()))?;
+            diff_repositories(source.store(), target.store())?
         }
     };
 

@@ -2,20 +2,20 @@
 //!
 //! Native Rust test (not `#[wasm_bindgen_test]`) — runs with `cargo test -p srs-bindings`
 //! without a browser or wasm-pack build. Follows the same pattern as the other binding tests:
-//! exercise the underlying service directly via `JsonStore::from_srsj`, since `to_js()` calls
+//! exercise the underlying service directly via `srs_repository::srsj::open_srsj`, since `to_js()` calls
 //! `js_sys::JSON::parse` which panics off-wasm. The wasm-pack build proves the `#[wasm_bindgen]`
 //! export compiles.
 //!
 //! Gallery `.srsj` Type used: `decision` `1fcad6a2-9f78-5e41-94ba-d82e88b822f3` v1.
 
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
-use srs_repository::JsonStore;
+use srs_repository::FileStore;
 
 const DECISION_TYPE_ID: &str = "1fcad6a2-9f78-5e41-94ba-d82e88b822f3";
 
-fn gallery_store() -> JsonStore {
-    let srsj = include_str!("fixtures/gallery.srsj");
-    JsonStore::from_srsj(srsj).expect("gallery srsj must load")
+fn gallery_store() -> FileStore {
+    let srsj = include_str!("../../srs-repository/tests/fixtures/gallery.srsj");
+    srs_repository::srsj::open_srsj(srsj).expect("gallery srsj must load")
 }
 
 /// `type_version = None` resolves the latest version and emits a draft-07 object schema —

@@ -194,7 +194,7 @@ pub trait RepositoryStore {
     // --- Batch write mode ---
     //
     // Optional opt-in for stores that benefit from deferred flushing during
-    // bulk operations (e.g. JsonStore during import_repository_snapshot).
+    // bulk operations (e.g. FileStore during import_repository_snapshot).
     // Default implementations are no-ops so FileStore and MemoryStore require
     // no changes. See ADR-021.
 
@@ -349,7 +349,7 @@ pub trait RepositoryStore {
     // (srs-rust#783) they are backed by the per-operation `RepositoryCatalog`
     // snapshot — membership comes from the tree, `manifest.instanceIndex` is
     // never consulted or written ([R1]/[R22]). Fatal catalog diagnostics fail
-    // the operation ([R24]). JsonStore overrides these with its transitional
+    // the operation ([R24]). FileStore overrides these with its transitional
     // index-backed forms until its Phase-4 codec collapse.
     //
     // Tier is derived from the runtime type: `Note` → Tier 0, `Record` → Tier 2.
@@ -463,7 +463,7 @@ pub trait RepositoryStore {
     // `precedes` is the only ordering semantics.
     //
     // These are default methods over the generic relations-JSON seam so FileStore
-    // (Disk and MemVfs), MemoryStore, and JsonStore behave identically. JsonStore's
+    // (Disk and MemVfs), MemoryStore, and FileStore behave identically. FileStore's
     // real treatment (codec collapse) is RFC-038 Phase 4.
     // phase-3: route duplicate-id detection and enumeration via RepositoryCatalog
     // once the Phase-1 catalog seam lands.
@@ -820,7 +820,7 @@ pub trait RepositoryStore {
     // complete diagnostic list). Object-safe and sync (ADR-041 G1/G7).
     //
     // Defaults return `CatalogUnsupported` so stores outside the contract
-    // (JsonStore, pending its Phase-4 collapse into a codec) compile
+    // (FileStore, pending its Phase-4 collapse into a codec) compile
     // unchanged; FileStore (over any Vfs) and MemoryStore override with the
     // one shared walker in `crate::catalog`.
 

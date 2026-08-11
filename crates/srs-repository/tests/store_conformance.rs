@@ -23,19 +23,21 @@
 //! Separate standalone tests cover:
 //!   - Cross-store portability via `copy_repository` (ADR-008)
 //!   - ADR-007 write-ordering invariants via `FailPoint` (MemoryStore only)
-//!   - `abort_batch` rollback (JsonStore only — FileStore/MemoryStore use the no-op default)
+//!   - `abort_batch` rollback (FileStore only — FileStore/MemoryStore use the no-op default)
 
 use srs_core::types::container::Container;
 use srs_core::types::note::Note;
 use srs_core::types::record::{FieldValues, Record};
 use srs_repository::index::{InstanceQuery, InstanceRef};
 use srs_repository::{
+    new_tree_session,
     repository_lifecycle::{
         create_repository, InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
     },
     repository_portability::copy_repository,
+    srsj::{open_srsj, SrsjSession},
     store::memory::MemoryStore,
-    FileStore, JsonStore, RepositoryStore,
+    FileStore, RepositoryStore,
 };
 use std::collections::BTreeMap;
 use tempfile::TempDir;
@@ -72,13 +74,20 @@ fn init_file_store() -> (FileStore, TempDir) {
     (store, tmp)
 }
 
-/// JsonStore factory — `JsonStore::create` + `create_repository` via the G1 service seam.
-fn init_json_store() -> (JsonStore, TempDir) {
+/// `.srsj` codec factory — build a session, project it to a file, then reopen
+/// it *through the codec*, so this matrix arm exercises the real encode/decode
+/// round-trip rather than a second in-memory tree (RFC-038 acceptance test 3).
+fn init_json_store() -> (FileStore, TempDir) {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("repo.srsj");
-    let store = JsonStore::create(&path).expect("init_json_store: JsonStore::create must succeed");
-    create_repository(&store, &init_input())
+    let mut session = SrsjSession::create(&path).expect("init_json_store: create must succeed");
+    create_repository(session.store(), &init_input())
         .expect("init_json_store: create_repository must succeed");
+    session
+        .flush()
+        .expect("init_json_store: flush must succeed");
+    let raw = std::fs::read_to_string(&path).expect("init_json_store: session file must exist");
+    let store = open_srsj(&raw).expect("init_json_store: the projected document must reopen");
     (store, tmp)
 }
 
@@ -150,7 +159,7 @@ fn make_note(id: &str, title: &str, tags: Option<Vec<String>>) -> Note {
 ///
 /// Uses raw trait methods (not service-layer functions) so failures point to
 /// the adapter under test. ADR-007 FailPoint tests are separate MemoryStore-only
-/// functions; `abort_batch` rollback is a separate JsonStore-only test.
+/// functions; `abort_batch` rollback is a separate FileStore-only test.
 fn run_conformance_suite(store: &dyn RepositoryStore) {
     suite_manifest_roundtrip(store);
     suite_container_crud(store);
@@ -445,8 +454,7 @@ fn copy_repository_memory_to_json_preserves_instances() {
     src.save_note(&make_note(note_id, "Json Port Note", None))
         .unwrap();
 
-    let tmp = TempDir::new().unwrap();
-    let json = JsonStore::create(tmp.path().join("repo.srsj")).unwrap();
+    let json = new_tree_session();
     copy_repository(&src, &json).expect("copy_repository memory→json must succeed");
 
     let loaded_rec = json
@@ -473,8 +481,7 @@ fn copy_repository_full_chain_memory_json_file_memory() {
     }
 
     // hop 1: memory → json
-    let tmp1 = TempDir::new().unwrap();
-    let json = JsonStore::create(tmp1.path().join("chain.srsj")).unwrap();
+    let json = new_tree_session();
     copy_repository(&src_mem, &json).expect("memory→json hop must succeed");
 
     // hop 2: json → file
@@ -522,15 +529,14 @@ fn copy_repository_full_chain_memory_json_file_memory() {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// JsonStore-only: abort_batch rollback (ADR-021 / ADR-041 G6)
+// FileStore-only: abort_batch rollback (ADR-021 / ADR-041 G6)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn json_store_batch_abort_rolls_back() {
-    // abort_batch must roll back in-memory state; data saved in the batch must not be
-    // accessible after abort. Only JsonStore has a real rollback — FileStore and MemoryStore
-    // use the no-op default (begin_batch/abort_batch are pass-through), so this test is
-    // JsonStore-specific.
+#[ignore = "srs-rust#813 (exposed by srs-rust#783 Phase 4): no store implements in-memory batch rollback any more. JsonStore's rollback was a re-read of its own file; retiring it left FileStore's no-op begin/abort_batch as the only implementation. The data guarantee moved to the projection boundary — a failed operation is never flushed (see repository_portability::srsj_partial_import_is_never_projected_to_the_file) — and restoring true staging is #813's scope."]
+fn batch_abort_rolls_back() {
+    // abort_batch must roll back in-memory state; data saved in the batch must
+    // not be accessible after abort (ADR-021).
     let (store, _tmp) = init_json_store();
     let note_id = "aab0f001-0001-4000-8000-aabbccddeeff";
     let note = make_note(note_id, "Aborted Note", None);

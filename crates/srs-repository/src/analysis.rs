@@ -1047,10 +1047,8 @@ mod tests {
 
     #[test]
     fn test_build_migration_packet_for_profile_json_store_roundtrip() {
-        use crate::json_store::JsonStore;
-
         let srsj = r#"{
-            "srsj": "1",
+            "srsj": "2",
             "manifest": {
                 "instanceIndex": [],
                 "repositoryId": "cross-store-test",
@@ -1061,7 +1059,7 @@ mod tests {
             }
         }"#;
 
-        let store = JsonStore::from_srsj(srsj).unwrap();
+        let store = crate::srsj::open_srsj(srsj).unwrap();
         let packet = build_migration_packet_for_profile(&store, "foundation").unwrap();
 
         assert_eq!(packet.profile, "foundation");

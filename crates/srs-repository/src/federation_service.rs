@@ -866,7 +866,7 @@ mod tests {
 
     #[test]
     fn append_event_roundtrips_via_memory_store() {
-        // Proves the service works end-to-end with no disk I/O (JsonStore-compatible).
+        // Proves the service works end-to-end with no disk I/O (FileStore-compatible).
         let store = MemoryStore::default();
         let event = minimal_event("e-001", FederationEventKind::Merge);
         let append_result = append_federation_event(

@@ -2,7 +2,7 @@
 //!
 //! Native Rust test (not `#[wasm_bindgen_test]`) — runs with `cargo test -p srs-bindings`
 //! without a browser or wasm-pack build. Follows the same pattern as the other binding tests:
-//! exercise the underlying service directly via `JsonStore::from_srsj`, since `to_js()` calls
+//! exercise the underlying service directly via `srs_repository::srsj::open_srsj`, since `to_js()` calls
 //! `js_sys::JSON::parse` which panics off-wasm. The wasm-pack build proves the `#[wasm_bindgen]`
 //! export compiles.
 //!
@@ -16,11 +16,11 @@ use srs_repository::container_service::{
     add_member, containers_for_instance, get_container, list_containers, remove_member,
     ContainerListFilter,
 };
-use srs_repository::JsonStore;
+use srs_repository::FileStore;
 
-fn gallery_store() -> JsonStore {
-    let srsj = include_str!("fixtures/gallery.srsj");
-    JsonStore::from_srsj(srsj).expect("gallery srsj must load")
+fn gallery_store() -> FileStore {
+    let srsj = include_str!("../../srs-repository/tests/fixtures/gallery.srsj");
+    srs_repository::srsj::open_srsj(srsj).expect("gallery srsj must load")
 }
 
 /// No filter lists every container.
@@ -95,7 +95,10 @@ fn containers_for_instance_empty_for_uncontained() {
 fn add_then_remove_member_round_trips() {
     let store = gallery_store();
     let container_id = "138e2fac-6a8a-4a06-9511-5aefd99ceae9";
-    let new_id = "11111111-1111-4111-8111-111111111111";
+    // A real instance from the fixture, not in this container. A fabricated id
+    // would leave the container carrying a dangling member, which RFC-038 [R13]
+    // makes a fatal catalog diagnostic on the very next read ([R24]).
+    let new_id = "0482c489-37b4-4342-adaa-36e69dc6f780";
 
     let before = get_container(&store, container_id)
         .unwrap()
