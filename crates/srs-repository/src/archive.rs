@@ -72,14 +72,18 @@ pub(crate) fn tree_entries(
     // The catalog's set alone would be a silent-loss trap: it holds only roots
     // whose `package.json` *validates*, so a near-miss manifest ([R4]) — an
     // RFC-014-stamped sub-package, say — would pack to nothing at all.
-    let mut package_roots: std::collections::BTreeSet<String> =
-        cat.package_roots.iter().cloned().collect();
-    package_roots.insert("package".to_string());
+    // The repository *declares* the first two; the third it merely contains.
+    // That distinction decides how strictly a missing definition file is
+    // treated below.
+    let mut declared_roots: std::collections::BTreeSet<String> =
+        std::iter::once("package".to_string()).collect();
     for boundary in source.list_package_boundaries()? {
         if let Some(selector) = boundary.selector {
-            package_roots.insert(selector);
+            declared_roots.insert(selector);
         }
     }
+    let mut package_roots = declared_roots.clone();
+    package_roots.extend(cat.package_roots.iter().cloned());
 
     // Each root's manifest is the anchor its definition set hangs from, so it
     // travels with the files it declares — and those are carried by
@@ -106,19 +110,24 @@ pub(crate) fn tree_entries(
             };
             for rel in arr.iter().filter_map(|v| v.as_str()) {
                 let full = vfs_join(root, rel);
-                // A dangling reference is a hard error naming the missing
-                // path — never a silent skip (ADR-039).
-                let text = source.load_text_file(&full).map_err(|e| {
-                    if e.is_not_found() {
-                        RepositoryError::InvalidArchive {
+                // In a package the repository *declares*, a dangling reference
+                // is a hard error naming the missing path — never a silent skip
+                // (ADR-039). In one it merely contains — a vendored copy, a
+                // stray directory presence discovery found — it is a defect
+                // the catalog reports, and refusing to archive the whole
+                // repository over it would make pack a validator.
+                let text = match source.load_text_file(&full) {
+                    Ok(text) => text,
+                    Err(e) if e.is_not_found() && !declared_roots.contains(root) => continue,
+                    Err(e) if e.is_not_found() => {
+                        return Err(RepositoryError::InvalidArchive {
                             message: format!(
                                 "package file missing: {full} (referenced by {pkg_rel})"
                             ),
-                        }
-                    } else {
-                        e
+                        })
                     }
-                })?;
+                    Err(e) => return Err(e),
+                };
                 entries.insert(full, text.into_bytes());
             }
         }

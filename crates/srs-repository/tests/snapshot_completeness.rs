@@ -681,3 +681,60 @@ fn a_hash_in_a_filename_is_not_a_locator_fragment() {
         .collect();
     assert!(names.contains(&hashed.to_string()), "{names:?}");
 }
+
+/// A stray package root the repository merely *contains* — a vendored copy, a
+/// half-deleted directory — must not stop the whole repository being archived.
+/// The catalog reports the dangling definition; pack is not a validator.
+#[test]
+fn a_stray_package_root_with_missing_definitions_does_not_abort_the_pack() {
+    let src_tmp = tempfile::tempdir().unwrap();
+    six_set_repository(src_tmp.path());
+    // The manifest names it nowhere and its declared definitions are absent.
+    std::fs::create_dir_all(src_tmp.path().join("vendor")).unwrap();
+    std::fs::copy(
+        src_tmp.path().join("package/package.json"),
+        src_tmp.path().join("vendor/package.json"),
+    )
+    .unwrap();
+
+    let source = FileStore::new(src_tmp.path());
+    assert!(
+        catalog::build(&source)
+            .unwrap()
+            .diagnostics
+            .iter()
+            .any(|d| d.code == catalog::codes::DEFINITION_PATH_MISSING),
+        "the dangling definition must still be reported"
+    );
+
+    let bytes =
+        srs_repository::archive_to_vec(&source).expect("a stray root must not abort the archive");
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let names: Vec<String> = (0..zip.len())
+        .map(|i| zip.by_index(i).unwrap().name().to_string())
+        .collect();
+    assert!(
+        names.contains(&"vendor/package.json".to_string()),
+        "{names:?}"
+    );
+    assert!(
+        names.contains(&"package/fields/title.json".to_string()),
+        "{names:?}"
+    );
+}
+
+/// The same absence inside a package the repository *declares* stays a hard
+/// error naming the file (ADR-039).
+#[test]
+fn a_declared_package_with_missing_definitions_still_fails_loudly() {
+    let src_tmp = tempfile::tempdir().unwrap();
+    six_set_repository(src_tmp.path());
+    std::fs::remove_file(src_tmp.path().join("package/fields/title.json")).unwrap();
+
+    let err = srs_repository::archive_to_vec(&FileStore::new(src_tmp.path()))
+        .expect_err("a declared package's missing definition must fail the pack");
+    assert!(
+        err.to_string().contains("package/fields/title.json"),
+        "{err}"
+    );
+}
