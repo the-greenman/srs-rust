@@ -171,7 +171,7 @@ pub(crate) fn tree_entries(
     // Instance roots are anchored per package root ([R3]), so a sub-package's
     // `records/` is a reserved location too — sweeping only the top-level ones
     // would drop exactly the objects this pass exists to catch.
-    let mut reserved: Vec<String> = std::iter::once(String::new())
+    let reserved: Vec<String> = std::iter::once(String::new())
         .chain(package_roots.iter().cloned())
         .flat_map(|root| {
             crate::catalog::INSTANCE_ROOT_NAMES
@@ -188,42 +188,57 @@ pub(crate) fn tree_entries(
     // and a snapshot must not drop a relations collection that lives outside
     // `relations/`.
     let manifest_value = serde_json::to_value(&manifest).unwrap_or(serde_json::Value::Null);
-    let declared_paths = [
+    let declared_files = [
         manifest_value.get("changelogPath").and_then(|v| v.as_str()),
         manifest_value.get("relationsPath").and_then(|v| v.as_str()),
         manifest.federation_path.as_deref(),
         manifest.federation_events_path.as_deref(),
     ];
-    for path in declared_paths.into_iter().flatten() {
-        if let Some(normalized) = crate::vfs::normalize_relative(path).filter(|p| !p.is_empty()) {
-            reserved.push(normalized);
-        }
+
+    // Each declared aggregate names one file. It is read as a file, never
+    // probed by "does a read succeed?" — a non-UTF-8 or unreadable aggregate
+    // would then look like a directory, list as empty, and vanish from the pack
+    // with a zero exit code.
+    let mut paths: Vec<String> = declared_files
+        .into_iter()
+        .flatten()
+        .filter_map(|p| crate::vfs::normalize_relative(p).filter(|p| !p.is_empty()))
+        .filter(|p| matches!(read_entry(source, p), Ok(Some(_))))
+        .collect();
+    for dir in reserved {
+        paths.extend(source.list_files_recursive(&dir));
     }
 
-    for dir in reserved {
-        let paths = if source.load_text_file(&dir).is_ok() {
-            vec![dir] // a declared aggregate names a file, not a directory
-        } else {
-            source.list_files_recursive(&dir)
-        };
-        for path in paths {
-            if entries.contains_key(&path) {
-                continue;
-            }
-            // Binary-first with a text fallback: `.srs/` and the
-            // source-documents subtree hold non-UTF-8 content, and stores that
-            // keep text and binary separately serve sidecars through the text
-            // path.
-            let bytes = match source.load_binary_file(&path) {
-                Ok(b) => b,
-                Err(e) if e.is_not_found() => source.load_text_file(&path)?.into_bytes(),
-                Err(e) => return Err(e),
-            };
+    for path in paths {
+        if entries.contains_key(&path) {
+            continue;
+        }
+        if let Some(bytes) = read_entry(source, &path)? {
             entries.insert(path, bytes);
         }
     }
 
     Ok(with_marker(entries))
+}
+
+/// Read one tree entry, binary-first with a text fallback.
+///
+/// `.srs/` and the source-documents subtree hold non-UTF-8 content, while
+/// stores that keep text and binary separately serve sidecars through the text
+/// path. `None` means the path names no file.
+fn read_entry(
+    source: &dyn RepositoryStore,
+    path: &str,
+) -> Result<Option<Vec<u8>>, RepositoryError> {
+    match source.load_binary_file(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(e) if e.is_not_found() => match source.load_text_file(path) {
+            Ok(text) => Ok(Some(text.into_bytes())),
+            Err(e) if e.is_not_found() => Ok(None),
+            Err(e) => Err(e),
+        },
+        Err(e) => Err(e),
+    }
 }
 
 /// The marker ([R17]). Git cannot track an empty directory, so a tree whose

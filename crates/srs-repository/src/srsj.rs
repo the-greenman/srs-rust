@@ -111,10 +111,15 @@ pub fn to_srsj_string(source: &dyn RepositoryStore) -> Result<String, Repository
 
 /// Encode a file tree as a `.srsj` document.
 ///
-/// Payloads at `.json` paths are carried as JSON values; everything else UTF-8
-/// is carried as a string. Non-UTF-8 payloads are attachment content, which
-/// RFC-017 makes transient transport rather than repository content — they are
-/// not carried by the JSON-only format.
+/// Structured JSON at a `.json` path is carried as a JSON value; everything
+/// else is carried as raw text. Nothing under `sourceDocumentsPath` is ever
+/// carried structurally — those are opaque payloads, which [R9] requires to be
+/// preserved unmodified, and canonicalising one would change its bytes and its
+/// checksum.
+///
+/// A non-UTF-8 payload cannot ride in a JSON-only document at all, so the
+/// projection **fails** naming it rather than dropping it silently: `.srs` is
+/// the carrier that transports binary content.
 ///
 /// `.srs/` content (agent profiles, and anything else the implementation keeps
 /// there) rides along like any other file. The one exception is the synthetic
@@ -129,6 +134,14 @@ fn srsj_from_tree(tree: &BTreeMap<String, Vec<u8>>) -> Result<String, Repository
     let manifest: serde_json::Value = serde_json::from_slice(manifest_bytes)
         .map_err(|source| invalid(format!("invalid manifest.json: {source}")))?;
 
+    let opaque_prefix = manifest
+        .get("sourceDocumentsPath")
+        .and_then(|v| v.as_str())
+        .and_then(crate::vfs::normalize_relative)
+        .filter(|p| !p.is_empty())
+        .unwrap_or_else(|| "source-documents".to_string());
+    let opaque_prefix = format!("{opaque_prefix}/");
+
     let gitkeep = format!("{SRS_MARKER_DIR}/.gitkeep");
     let mut data = BTreeMap::new();
     for (path, bytes) in tree {
@@ -138,9 +151,16 @@ fn srsj_from_tree(tree: &BTreeMap<String, Vec<u8>>) -> Result<String, Repository
         // Same containment rule as decode: never emit a document this codec
         // would then refuse to reopen.
         let path = crate::vfs::ensure_contained(path)?;
-        if let Some(value) = bytes_to_value(&path, bytes) {
-            data.insert(path, canonicalize(value, false));
-        }
+        let text = std::str::from_utf8(bytes).map_err(|_| {
+            invalid(format!(
+                "'{path}' is not UTF-8 and cannot travel in a `.srsj` document — \
+                 use the `.srs` archive format, which carries binary content"
+            ))
+        })?;
+        // Structure is the point only for a `.json` file that is repository
+        // content — never for an opaque payload under `sourceDocumentsPath`.
+        let structural = path.ends_with(".json") && !path.starts_with(&opaque_prefix);
+        data.insert(path, canonicalize(text_to_value(text, structural), false));
     }
 
     let envelope = SrsjEnvelope {
@@ -166,25 +186,23 @@ fn value_to_bytes(value: serde_json::Value) -> Vec<u8> {
 }
 
 /// Carry a payload structurally only where structure is the point: an object
-/// or array at a `.json` path.
+/// or array at a `.json` path that is not an opaque source-document payload.
 ///
-/// Both conditions are load-bearing. Content alone would canonicalise a
-/// Markdown file that happens to contain JSON; the path alone would turn a
-/// scalar JSON document (`"hello"`, `42`) or an unparseable `.json` file into a
-/// bare string and lose its own syntax. Everything else is carried as raw text
-/// and comes back byte-identical. Non-UTF-8 payloads are attachment content,
-/// which RFC-017 makes transient transport rather than repository content, so
-/// the JSON-only carrier drops them.
-fn bytes_to_value(path: &str, bytes: &[u8]) -> Option<serde_json::Value> {
-    let text = std::str::from_utf8(bytes).ok()?;
-    if path.ends_with(".json") {
+/// Every condition is load-bearing. Content alone would canonicalise a Markdown
+/// file that happens to contain JSON; the path alone would turn a scalar JSON
+/// document (`"hello"`, `42`) or an unparseable `.json` file into a bare string
+/// and lose its own syntax; and neither would spare a JSON *attachment*, whose
+/// bytes and checksum [R9] requires to survive untouched. Everything else is
+/// carried as raw text and comes back byte-identical.
+fn text_to_value(text: &str, structural: bool) -> serde_json::Value {
+    if structural {
         if let Ok(v @ (serde_json::Value::Object(_) | serde_json::Value::Array(_))) =
             serde_json::from_str::<serde_json::Value>(text)
         {
-            return Some(v);
+            return v;
         }
     }
-    Some(serde_json::Value::String(text.to_string()))
+    serde_json::Value::String(text.to_string())
 }
 
 /// Recursively sort object keys for deterministic `.srsj` output (ADR-043),
@@ -411,17 +429,38 @@ mod tests {
     }
 
     #[test]
-    fn non_utf8_payloads_are_not_carried() {
-        // RFC-017: attachment content is transient transport, not repository
-        // content — the JSON-only carrier drops it rather than failing.
+    fn non_utf8_payloads_fail_the_projection_rather_than_vanishing() {
+        // A JSON-only document cannot carry binary content. Dropping it
+        // silently is how `srs attachment add --repo repo.srsj` came to report
+        // success for content that was never persisted.
         let mut tree = tree_from_srsj(&minimal_srsj("2")).unwrap();
         tree.insert(
             "source-documents/photo.png".to_string(),
             vec![0x89, 0x50, 0x4e, 0x47, 0xff, 0xfe],
         );
-        let text = srsj_from_tree(&tree).unwrap();
-        let doc: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert!(doc["data"].get("source-documents/photo.png").is_none());
+        let err = srsj_from_tree(&tree).unwrap_err();
+        let message = err.to_string();
+        assert!(message.contains("source-documents/photo.png"), "{message}");
+        assert!(message.contains("`.srs` archive format"), "{message}");
+    }
+
+    #[test]
+    fn an_opaque_json_payload_is_preserved_unmodified() {
+        // [R9]: source-document payloads are opaque. Canonicalising a JSON
+        // attachment would change its bytes and its checksum.
+        let raw = "{\"z\":1,\"a\":2}";
+        let mut doc: serde_json::Value = serde_json::from_str(&minimal_srsj("2")).unwrap();
+        doc["data"]["source-documents/payload.json"] = serde_json::json!(raw);
+        let store = open_srsj(&doc.to_string()).unwrap();
+        assert_eq!(
+            store
+                .load_text_file("source-documents/payload.json")
+                .unwrap(),
+            raw
+        );
+        let out: serde_json::Value =
+            serde_json::from_str(&to_srsj_string(&store).unwrap()).unwrap();
+        assert_eq!(out["data"]["source-documents/payload.json"], raw);
     }
 
     #[test]
