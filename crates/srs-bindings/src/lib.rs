@@ -236,6 +236,11 @@ impl SrsRepository {
 
     /// Serialise the current repository state to a `.srsj` JSON string.
     /// The browser caller can use this to offer a download of the edited repo.
+    ///
+    /// `.srsj` is JSON-only and cannot carry binary content: a repository
+    /// holding attachment bytes (added here, or loaded from a `.srs` archive)
+    /// is refused with a diagnostic naming the file. Offer
+    /// [`SrsRepository::export_archive`] for those — `.srs` carries them.
     #[wasm_bindgen]
     pub fn export_srsj(&self) -> Result<String, JsValue> {
         srs_repository::srsj::to_srsj_string(&self.store).map_err(js_err)
