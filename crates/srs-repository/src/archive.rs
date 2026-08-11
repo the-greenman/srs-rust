@@ -91,13 +91,7 @@ pub(crate) fn tree_entries(
     // could not classify is a diagnostic, not a licence to drop the file.
     for root in &package_roots {
         let pkg_rel = vfs_join(root, "package.json");
-        // `package/` is a convention, not a requirement — a repository whose
-        // only `packageRef` points elsewhere simply has no file here.
-        let pkg_text = match source.load_text_file(&pkg_rel) {
-            Ok(text) => text,
-            Err(e) if e.is_not_found() && root == "package" => continue,
-            Err(e) => return Err(e),
-        };
+        let pkg_text = source.load_text_file(&pkg_rel)?;
         let pkg_val: serde_json::Value =
             serde_json::from_str(&pkg_text).map_err(|e| RepositoryError::InvalidArchive {
                 message: format!("invalid {pkg_rel}: {e}"),
@@ -179,6 +173,11 @@ pub(crate) fn tree_entries(
     // root's own directory is swept whole: a definition the manifest does not
     // declare, or one it declares under a manifest the catalog could not read,
     // is still a file inside a reserved location and belongs in the snapshot.
+    //
+    // The repository root is never itself a sweep directory, even though it is
+    // a legitimate package root: walking it is the blind directory sweep this
+    // enumeration exists to avoid. A root-level package's definitions still
+    // travel by declaration.
     let reserved: Vec<String> = std::iter::once(String::new())
         .chain(package_roots.iter().cloned())
         .flat_map(|root| {
@@ -186,7 +185,7 @@ pub(crate) fn tree_entries(
                 .iter()
                 .map(move |name| vfs_join(&root, name))
         })
-        .chain(package_roots.iter().cloned())
+        .chain(package_roots.iter().filter(|r| !r.is_empty()).cloned())
         .chain(["relations".to_string(), "containers".to_string()])
         .chain([SRS_MARKER_DIR.to_string()])
         .chain(src_docs_dir.clone())
@@ -215,7 +214,12 @@ pub(crate) fn tree_entries(
         .filter_map(crate::catalog::declared_location)
         .collect();
     for dir in reserved {
-        paths.extend(source.list_files_recursive(&dir));
+        paths.extend(
+            source
+                .list_files_recursive(&dir)
+                .into_iter()
+                .filter(|p| !is_foreign_tooling(p)),
+        );
     }
 
     for path in paths {
@@ -227,7 +231,33 @@ pub(crate) fn tree_entries(
         }
     }
 
-    Ok(with_marker(entries))
+    // Normalize once, at the end: declared definition paths can be spelled
+    // `./fields/x.json`, which would otherwise reach the ZIP as a second entry
+    // name for a file already carried — breaking ADR-039 determinism.
+    let mut normalized: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    for (path, bytes) in entries {
+        let key = crate::vfs::ensure_contained(&path)?;
+        if let Some(previous) = normalized.insert(key.clone(), bytes) {
+            if previous != normalized[&key] {
+                return Err(RepositoryError::InvalidArchive {
+                    message: format!("two paths resolve to '{key}' with different content"),
+                });
+            }
+        }
+    }
+
+    Ok(with_marker(normalized))
+}
+
+/// Directories that belong to other tools, never to the repository.
+///
+/// A sweep is scoped to a reserved location, but a reserved location can
+/// contain one of these — a vendored sub-package with its own `.git`, say — and
+/// a repository's version-control metadata or dependency tree has no business
+/// in a snapshot of its semantic content.
+fn is_foreign_tooling(path: &str) -> bool {
+    path.split('/')
+        .any(|segment| matches!(segment, ".git" | "node_modules" | "target"))
 }
 
 /// The file a catalog locator lives in.
