@@ -114,24 +114,22 @@ fn has_drive_prefix(rel: &str) -> bool {
 /// Untrusted carriers name their own paths, so a hostile `.srsj` key or archive
 /// entry (`../../etc/passwd`, `/etc/passwd`) must be refused **at ingestion** —
 /// before it reaches a store that will one day materialise onto a real
-/// filesystem. Anything that does not normalize to itself is refused too:
-/// `a/./b` and `a/b/../c` are ambiguous aliases for a path the tree can already
-/// name directly, and accepting them would let one file occupy two keys. A
-/// literal backslash in a filename falls out of that rule too — the tree's
-/// separator is the forward slash, and `Path::join` reads `\` as a separator on
-/// Windows, so such a name has no unambiguous spelling here. Ordinary filename
-/// characters that only *look* dangerous (`meeting 10:00.md`) stay legal.
-pub(crate) fn ensure_contained(rel: &str) -> Result<(), RepositoryError> {
-    let normalized = normalize_relative(rel).filter(|n| !n.is_empty());
-    match normalized {
-        Some(n) if n == rel => Ok(()),
-        _ => Err(RepositoryError::InvalidSnapshotData {
+/// filesystem. Returns the **normalized** path, so a merely untidy spelling
+/// another tool produced (`./manifest.json`, `a//b.json`) is accepted and
+/// canonicalised rather than refused — only an escape is refused. A literal
+/// backslash is normalised to a separator: the tree's separator is the forward
+/// slash and `Path::join` reads `\` as one on Windows, so such a name has no
+/// other unambiguous spelling here. Ordinary filename characters that only
+/// *look* dangerous (`meeting 10:00.md`) stay legal.
+pub(crate) fn ensure_contained(rel: &str) -> Result<String, RepositoryError> {
+    normalize_relative(rel)
+        .filter(|n| !n.is_empty())
+        .ok_or_else(|| RepositoryError::InvalidSnapshotData {
             message: format!(
                 "path '{rel}' does not resolve inside the repository root — \
                  a snapshot must not name a path outside the tree it describes"
             ),
-        }),
-    }
+        })
 }
 
 /// Join a repo-relative prefix and a child path with a forward slash.
