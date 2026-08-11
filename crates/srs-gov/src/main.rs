@@ -1004,7 +1004,18 @@ fn cmd_attachment_list(repo: &str, explain: bool, json: bool) -> Result<()> {
 
 /// Canonical seed for com.mudemocracy.governance @1.0.0.
 ///
-/// Vendored byte-copy of the deterministic seed artifact (ADR-017) — never hand-edit it.
+/// Vendored from the deterministic seed artifact (ADR-017) — never hand-edit it.
+///
+/// **No longer a byte-copy** (srs-rust#783 Phase 4): upstream is pre-RFC-032
+/// data (`valueType`, `repeatable`) that a conforming RFC-038 reader cannot
+/// load, so the vendored copy has been carried through the registered
+/// `field-type` and `rfc039-carrier` migrations and given the `$schema`
+/// declarations and non-empty `aiGuidance.purpose` values [R7] requires — each
+/// purpose taken verbatim from the field's own `description`. Re-vendoring must
+/// repeat that until the upstream package is reseeded (Governance Epic 15,
+/// muDemocracy.org#136), and `build-governance-seed.mjs --check` will not match
+/// until it is.
+///
 /// Regenerate from the canonical package and re-vendor when the package is republished:
 ///
 /// ```sh
@@ -1014,7 +1025,8 @@ fn cmd_attachment_list(repo: &str, explain: bool, json: bool) -> Result<()> {
 ///    <srs-rust>/crates/srs-gov/assets/governance-seed.srsj
 /// ```
 ///
-/// `build-governance-seed.mjs --check` proves the seed rebuilds byte-for-byte (srs#38).
+/// `build-governance-seed.mjs --check` proved the seed rebuilds byte-for-byte
+/// (srs#38) — see the migration note above for why that no longer holds.
 const GOVERNANCE_SEED: &str = include_str!("../assets/governance-seed.srsj");
 
 fn cmd_repo_create(

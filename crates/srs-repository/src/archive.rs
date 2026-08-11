@@ -171,16 +171,14 @@ pub(crate) fn tree_entries(
     // directory walk the enumeration exists to avoid — packing `.git/` and its
     // credentials into the snapshot. Anything that does not resolve to a real
     // subpath is ignored here; the catalog reports it.
-    let declared_dir = |value: Option<&str>, fallback: &str| -> Option<String> {
-        crate::vfs::normalize_relative(value.unwrap_or(fallback)).filter(|p| !p.is_empty())
-    };
-    let src_docs_dir = declared_dir(
-        manifest.source_documents_path.as_deref(),
-        "source-documents",
-    );
+    let src_docs_dir = crate::catalog::declared_location(manifest.source_documents_path.as_deref())
+        .or_else(|| Some("source-documents".to_string()));
     // Instance roots are anchored per package root ([R3]), so a sub-package's
     // `records/` is a reserved location too — sweeping only the top-level ones
-    // would drop exactly the objects this pass exists to catch.
+    // would drop exactly the objects this pass exists to catch. Each package
+    // root's own directory is swept whole: a definition the manifest does not
+    // declare, or one it declares under a manifest the catalog could not read,
+    // is still a file inside a reserved location and belongs in the snapshot.
     let reserved: Vec<String> = std::iter::once(String::new())
         .chain(package_roots.iter().cloned())
         .flat_map(|root| {
@@ -188,6 +186,7 @@ pub(crate) fn tree_entries(
                 .iter()
                 .map(move |name| vfs_join(&root, name))
         })
+        .chain(package_roots.iter().cloned())
         .chain(["relations".to_string(), "containers".to_string()])
         .chain([SRS_MARKER_DIR.to_string()])
         .chain(src_docs_dir.clone())
@@ -213,8 +212,7 @@ pub(crate) fn tree_entries(
     // simply empty ([R5]).
     let mut paths: Vec<String> = declared_files
         .into_iter()
-        .flatten()
-        .filter_map(|p| crate::vfs::normalize_relative(p).filter(|p| !p.is_empty()))
+        .filter_map(crate::catalog::declared_location)
         .collect();
     for dir in reserved {
         paths.extend(source.list_files_recursive(&dir));

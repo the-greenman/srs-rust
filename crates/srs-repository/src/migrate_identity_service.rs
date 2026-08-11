@@ -273,9 +273,12 @@ pub fn migrate_identity(
         // IMPORTANT: Do NOT replace this with container_service::update_container.
         // For root containers, update_container calls begin_batch/commit_batch internally
         // (container_service.rs ~line 234). Nesting that inside this outer batch causes
-        // FileStore to flush prematurely and disable batch protection for subsequent writes
-        // — violating ADR-021 atomicity on the WASM/srsj path. MemoryStore tests would not
-        // catch this regression.
+        // the inner batch to close the outer one, so later writes in this
+        // operation are no longer scoped to it. No store implements in-memory
+        // rollback since JsonStore's retirement (srs-rust#813) — what protects
+        // a `.srsj` document is the projection boundary, and that only helps if
+        // the whole operation fails as one. MemoryStore tests would not catch
+        // this regression.
         //
         // store.load_container has no embed fallback: it only resolves a *file-backed*
         // container (store.rs docs) and the catalog treats a physical containers/*.json
