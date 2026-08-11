@@ -349,8 +349,7 @@ pub trait RepositoryStore {
     // (srs-rust#783) they are backed by the per-operation `RepositoryCatalog`
     // snapshot — membership comes from the tree, `manifest.instanceIndex` is
     // never consulted or written ([R1]/[R22]). Fatal catalog diagnostics fail
-    // the operation ([R24]). FileStore overrides these with its transitional
-    // index-backed forms until its Phase-4 codec collapse.
+    // the operation ([R24]).
     //
     // Tier is derived from the runtime type: `Note` → Tier 0, `Record` → Tier 2.
 
@@ -463,10 +462,8 @@ pub trait RepositoryStore {
     // `precedes` is the only ordering semantics.
     //
     // These are default methods over the generic relations-JSON seam so FileStore
-    // (Disk and MemVfs), MemoryStore, and FileStore behave identically. FileStore's
-    // real treatment (codec collapse) is RFC-038 Phase 4.
-    // phase-3: route duplicate-id detection and enumeration via RepositoryCatalog
-    // once the Phase-1 catalog seam lands.
+    // (Disk and MemVfs — the `.srsj` carrier decodes into the latter) and
+    // MemoryStore behave identically.
 
     /// Persist one relation as a standalone object at `relations/<relationId>.json`.
     /// Writes only that file. Overwrites an existing object with the same id.
@@ -819,10 +816,9 @@ pub trait RepositoryStore {
     // fails the load as a whole (`RepositoryError::CatalogLoad` carries the
     // complete diagnostic list). Object-safe and sync (ADR-041 G1/G7).
     //
-    // Defaults return `CatalogUnsupported` so stores outside the contract
-    // (FileStore, pending its Phase-4 collapse into a codec) compile
-    // unchanged; FileStore (over any Vfs) and MemoryStore override with the
-    // one shared walker in `crate::catalog`.
+    // Defaults return `CatalogUnsupported` so a store outside the contract
+    // (#706's database adapter) compiles unchanged; FileStore (over any Vfs)
+    // and MemoryStore override with the one shared walker in `crate::catalog`.
 
     /// Enumerate the repository into a [`crate::catalog::RepositoryCatalog`].
     fn catalog(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {

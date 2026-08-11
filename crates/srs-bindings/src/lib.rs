@@ -2140,7 +2140,7 @@ mod tests {
 
     // Note: load_archive / export_archive route through js_sys::Uint8Array and JsValue, which
     // are not meaningful on a native target. The test below validates the service functions
-    // (archive_to_vec + JsonStore::from_archive) that back the bindings.
+    // (archive_to_vec + archive_to_tree) that back the bindings.
     // The wasm32 build gate confirms the binding wrapper layer compiles and links correctly.
     #[test]
     fn archive_service_roundtrip_smoke() {

@@ -78,9 +78,14 @@ pub trait Vfs: std::fmt::Debug {
 /// names, a fetched git tree. A path is contained when it is relative and every
 /// `..` it contains is matched by a preceding segment.
 pub(crate) fn normalize_relative(rel: &str) -> Option<String> {
-    if rel.starts_with('/') || rel.starts_with('\\') || rel.contains(':') {
+    // Absolute, or a Windows drive prefix (`C:...`) — which `Path::join` would
+    // treat as absolute and escape the root with. A `:` anywhere else is an
+    // ordinary filename character (`meeting 10:00.md`) and stays legal.
+    if rel.starts_with('/') || rel.starts_with('\\') || has_drive_prefix(rel) {
         return None;
     }
+    // Split on both separators: the tree's contract is forward slashes, but
+    // `Path::join` honours `\` on Windows, so `..\evil` must not slip past.
     let mut parts: Vec<&str> = Vec::new();
     for seg in rel.split(['/', '\\']) {
         match seg {
@@ -94,6 +99,11 @@ pub(crate) fn normalize_relative(rel: &str) -> Option<String> {
     Some(parts.join("/"))
 }
 
+fn has_drive_prefix(rel: &str) -> bool {
+    let mut chars = rel.chars();
+    matches!((chars.next(), chars.next()), (Some(c), Some(':')) if c.is_ascii_alphabetic())
+}
+
 /// Reject any tree path that would escape the repository root.
 ///
 /// Untrusted carriers name their own paths, so a hostile `.srsj` key or archive
@@ -101,7 +111,11 @@ pub(crate) fn normalize_relative(rel: &str) -> Option<String> {
 /// before it reaches a store that will one day materialise onto a real
 /// filesystem. Anything that does not normalize to itself is refused too:
 /// `a/./b` and `a/b/../c` are ambiguous aliases for a path the tree can already
-/// name directly, and accepting them would let one file occupy two keys.
+/// name directly, and accepting them would let one file occupy two keys. A
+/// literal backslash in a filename falls out of that rule too — the tree's
+/// separator is the forward slash, and `Path::join` reads `\` as a separator on
+/// Windows, so such a name has no unambiguous spelling here. Ordinary filename
+/// characters that only *look* dangerous (`meeting 10:00.md`) stay legal.
 pub(crate) fn ensure_contained(rel: &str) -> Result<(), RepositoryError> {
     let normalized = normalize_relative(rel).filter(|n| !n.is_empty());
     match normalized {

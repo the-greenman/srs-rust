@@ -125,6 +125,9 @@ fn srsj_from_tree(tree: &BTreeMap<String, Vec<u8>>) -> Result<String, Repository
         if path == MANIFEST_KEY || path == &gitkeep {
             continue;
         }
+        // Same containment rule as decode: never emit a document this codec
+        // would then refuse to reopen.
+        crate::vfs::ensure_contained(path)?;
         if let Some(value) = bytes_to_value(path, bytes) {
             data.insert(path.clone(), canonicalize(value, false));
         }

@@ -8,7 +8,7 @@ pub struct InstanceIndexEntry {
     /// Adapter-private key (ADR-041 G5, ADR-042) — the same contract-opaque status
     /// `ContainerIndexEntry.path` has. Migrated service code addresses instances by
     /// logical id via the store's typed methods (`load_record_by_id`, `find_instance`,
-    /// `list_instances`, …), not by this path. Only the FileStore/FileStore adapters and
+    /// `list_instances`, …), not by this path. Only the store adapters and
     /// the explicitly-deferred readers (tracked in srs-rust#725) still read it directly.
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]

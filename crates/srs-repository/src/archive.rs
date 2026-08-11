@@ -64,13 +64,28 @@ pub(crate) fn tree_entries(
     // `repo validate` would merely report on.
     let cat = crate::catalog::build(source)?;
 
-    // Every presence-discovered local package root, whether or not a
-    // `PackageRef` names it ([R17]) — `""` is the repository root. The manifest
-    // is the anchor the definition set hangs from, so it travels with the files
-    // it declares, and those are carried by **declaration** rather than by
-    // catalog entry: a definition the catalog could not classify is a
-    // diagnostic, not a licence to drop the file from the snapshot.
-    for root in &cat.package_roots {
+    // Package roots, from three sources unioned — a snapshot must carry a
+    // package whether or not the catalog could anchor it:
+    //   * the primary package, unconditionally;
+    //   * every boundary the manifest's `packageRefs` names;
+    //   * every root presence discovery found, named or not ([R17]).
+    // The catalog's set alone would be a silent-loss trap: it holds only roots
+    // whose `package.json` *validates*, so a near-miss manifest ([R4]) — an
+    // RFC-014-stamped sub-package, say — would pack to nothing at all.
+    let mut package_roots: std::collections::BTreeSet<String> =
+        cat.package_roots.iter().cloned().collect();
+    package_roots.insert("package".to_string());
+    for boundary in source.list_package_boundaries()? {
+        if let Some(selector) = boundary.selector {
+            package_roots.insert(selector);
+        }
+    }
+
+    // Each root's manifest is the anchor its definition set hangs from, so it
+    // travels with the files it declares — and those are carried by
+    // **declaration** rather than by catalog entry: a definition the catalog
+    // could not classify is a diagnostic, not a licence to drop the file.
+    for root in &package_roots {
         let pkg_rel = vfs_join(root, "package.json");
         let pkg_text = source.load_text_file(&pkg_rel)?;
         let pkg_val: serde_json::Value =
@@ -159,9 +174,18 @@ pub(crate) fn tree_entries(
     // `export_tree` emits.
     let marker_prefix = format!("{SRS_MARKER_DIR}/");
     for path in source.list_files_recursive(SRS_MARKER_DIR) {
-        if !entries.contains_key(&path) {
-            entries.insert(path.clone(), source.load_text_file(&path)?.into_bytes());
+        if entries.contains_key(&path) {
+            continue;
         }
+        // Same binary-first read as the source-documents sweep: `.srs/` holds
+        // ordinary content (agent profiles today), and a non-UTF-8 file there
+        // must not turn packing into a hard error.
+        let bytes = match source.load_binary_file(&path) {
+            Ok(b) => b,
+            Err(e) if e.is_not_found() => source.load_text_file(&path)?.into_bytes(),
+            Err(e) => return Err(e),
+        };
+        entries.insert(path, bytes);
     }
     if !entries.keys().any(|k| k.starts_with(&marker_prefix)) {
         entries.insert(format!("{marker_prefix}.gitkeep"), Vec::new());

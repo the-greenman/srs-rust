@@ -341,3 +341,89 @@ fn pack_carries_an_undeclared_package_root() {
         "an undeclared local package root must still be packed ([R17]): {names:?}"
     );
 }
+
+/// A package root the catalog cannot anchor — a `package.json` that fails
+/// `package-manifest.json` ([R4]) — must still be packed in full. Enumerating
+/// only *validated* roots would silently pack the repository to nothing.
+#[test]
+fn pack_carries_a_package_root_the_catalog_cannot_anchor() {
+    let src_tmp = tempfile::tempdir().unwrap();
+    six_set_repository(src_tmp.path());
+    // Drop a required property: near-miss manifest, diagnosed but not anchored.
+    let pkg_path = src_tmp.path().join("package/package.json");
+    let mut pkg: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&pkg_path).unwrap()).unwrap();
+    pkg.as_object_mut().unwrap().remove("status");
+    std::fs::write(&pkg_path, serde_json::to_string_pretty(&pkg).unwrap()).unwrap();
+
+    let source = FileStore::new(src_tmp.path());
+    assert!(
+        !catalog::build(&source)
+            .unwrap()
+            .package_roots
+            .iter()
+            .any(|r| r.is_empty() || r == "package"),
+        "the near-miss manifest must not anchor — otherwise this proves nothing"
+    );
+
+    let bytes = srs_repository::archive_to_vec(&source).expect("pack");
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let names: Vec<String> = (0..zip.len())
+        .map(|i| zip.by_index(i).unwrap().name().to_string())
+        .collect();
+    for required in [
+        "package/package.json",
+        "package/fields/title.json",
+        "package/types/thing.json",
+    ] {
+        assert!(
+            names.contains(&required.to_string()),
+            "an unanchored package root must still be packed whole; {required} missing from {names:?}"
+        );
+    }
+}
+
+/// `.srs/` holds ordinary content (agent profiles). Non-UTF-8 content there
+/// must ride through rather than turning packing into a hard error.
+#[test]
+fn pack_carries_non_utf8_marker_content() {
+    let src_tmp = tempfile::tempdir().unwrap();
+    six_set_repository(src_tmp.path());
+    std::fs::write(
+        src_tmp.path().join(".srs/blob.bin"),
+        [0x89u8, 0x50, 0x4e, 0x47, 0xff, 0xfe],
+    )
+    .unwrap();
+
+    let bytes = srs_repository::archive_to_vec(&FileStore::new(src_tmp.path()))
+        .expect("non-UTF-8 marker content must not fail the pack");
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let names: Vec<String> = (0..zip.len())
+        .map(|i| zip.by_index(i).unwrap().name().to_string())
+        .collect();
+    assert!(names.contains(&".srs/blob.bin".to_string()), "{names:?}");
+}
+
+/// Ordinary filename characters that only look dangerous must stay legal —
+/// a colon is not a path separator on the platforms this runs on.
+#[test]
+fn a_colon_in_a_filename_is_not_a_traversal() {
+    let src_tmp = tempfile::tempdir().unwrap();
+    six_set_repository(src_tmp.path());
+    std::fs::write(
+        src_tmp.path().join("source-documents/meeting 10:00.md"),
+        "# Standup\n",
+    )
+    .unwrap();
+
+    let source = FileStore::new(src_tmp.path());
+    let document = to_srsj_string(&source).expect("a colon must not fail the projection");
+    let reloaded = open_srsj(&document).expect("nor the reopen");
+    assert_eq!(
+        reloaded
+            .load_text_file("source-documents/meeting 10:00.md")
+            .unwrap(),
+        "# Standup\n"
+    );
+    srs_repository::archive_to_vec(&source).expect("nor the pack");
+}
