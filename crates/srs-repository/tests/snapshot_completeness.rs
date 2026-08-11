@@ -801,3 +801,70 @@ fn pack_carries_an_undeclared_file_inside_a_package_root() {
         "{names:?}"
     );
 }
+
+/// A package root is a reserved location, but the repository root is not a
+/// sweep directory even when it holds a `package.json` — walking it is the
+/// blind directory sweep the enumeration exists to avoid. Nor does a sweep
+/// follow another tool's directories nested inside a reserved location.
+#[test]
+fn the_sweep_never_reaches_foreign_tooling() {
+    let src_tmp = tempfile::tempdir().unwrap();
+    six_set_repository(src_tmp.path());
+    // A root-level SRS package manifest: a legitimate package root of `""`.
+    std::fs::copy(
+        src_tmp.path().join("package/package.json"),
+        src_tmp.path().join("package.json"),
+    )
+    .unwrap();
+    write(
+        src_tmp.path(),
+        ".git/config",
+        "[remote]\n  url = https://token@host/x",
+    );
+    write(
+        src_tmp.path(),
+        "package/node_modules/left-pad/index.js",
+        "module.exports=1",
+    );
+
+    let bytes = srs_repository::archive_to_vec(&FileStore::new(src_tmp.path())).expect("pack");
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let names: Vec<String> = (0..zip.len())
+        .map(|i| zip.by_index(i).unwrap().name().to_string())
+        .collect();
+    assert!(
+        !names.iter().any(|n| n.starts_with(".git/")),
+        "version-control metadata must never be packed: {names:?}"
+    );
+    assert!(
+        !names.iter().any(|n| n.contains("node_modules/")),
+        "a dependency tree must never be packed: {names:?}"
+    );
+}
+
+/// A definition declared as `./fields/x.json` names a file already carried;
+/// emitting both spellings would break ADR-039 determinism.
+#[test]
+fn an_untidy_declared_definition_path_does_not_duplicate_its_entry() {
+    let src_tmp = tempfile::tempdir().unwrap();
+    six_set_repository(src_tmp.path());
+    let pkg_path = src_tmp.path().join("package/package.json");
+    let mut pkg: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&pkg_path).unwrap()).unwrap();
+    pkg["fields"] = serde_json::json!(["./fields/title.json"]);
+    std::fs::write(&pkg_path, serde_json::to_string_pretty(&pkg).unwrap()).unwrap();
+
+    let bytes = srs_repository::archive_to_vec(&FileStore::new(src_tmp.path())).expect("pack");
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let names: Vec<String> = (0..zip.len())
+        .map(|i| zip.by_index(i).unwrap().name().to_string())
+        .collect();
+    assert_eq!(
+        names
+            .iter()
+            .filter(|n| n.ends_with("fields/title.json"))
+            .count(),
+        1,
+        "one file, one entry: {names:?}"
+    );
+}
