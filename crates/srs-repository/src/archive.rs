@@ -66,7 +66,7 @@ pub(crate) fn tree_entries(
 
     // Package roots, from three sources unioned — a snapshot must carry a
     // package whether or not the catalog could anchor it:
-    //   * the primary package, unconditionally;
+    //   * the conventional `package/` root;
     //   * every boundary the manifest's `packageRefs` names;
     //   * every root presence discovery found, named or not ([R17]).
     // The catalog's set alone would be a silent-loss trap: it holds only roots
@@ -87,7 +87,13 @@ pub(crate) fn tree_entries(
     // could not classify is a diagnostic, not a licence to drop the file.
     for root in &package_roots {
         let pkg_rel = vfs_join(root, "package.json");
-        let pkg_text = source.load_text_file(&pkg_rel)?;
+        // `package/` is a convention, not a requirement — a repository whose
+        // only `packageRef` points elsewhere simply has no file here.
+        let pkg_text = match source.load_text_file(&pkg_rel) {
+            Ok(text) => text,
+            Err(e) if e.is_not_found() && root == "package" => continue,
+            Err(e) => return Err(e),
+        };
         let pkg_val: serde_json::Value =
             serde_json::from_str(&pkg_text).map_err(|e| RepositoryError::InvalidArchive {
                 message: format!("invalid {pkg_rel}: {e}"),
@@ -257,8 +263,7 @@ fn read_zip_to_map(reader: impl Read + Seek) -> Result<HashMap<String, Vec<u8>>,
         if entry.name().ends_with('/') {
             continue;
         }
-        let name = entry.name().to_string();
-        crate::vfs::ensure_contained(&name)?;
+        let name = crate::vfs::ensure_contained(entry.name())?;
         let mut buf = Vec::new();
         entry
             .read_to_end(&mut buf)

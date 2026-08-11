@@ -11,7 +11,6 @@ use srs_repository::{
 };
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: pre-existing failure (red before this PR's commits) — the raw governance seed carries pre-RFC-038 definitions (no $schema, empty aiGuidance) and the scaffold writes an embed+file duplicate root; scaffold/seed modernisation is follow-up work, not this consumption rewire"]
 fn scaffold_from_raw_seed_produces_valid_repository() {
     let raw = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),

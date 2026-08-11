@@ -470,21 +470,30 @@ fn pack_carries_objects_the_catalog_cannot_classify() {
     }
 }
 
-/// A `.json` file whose entire content is a JSON string must survive the
-/// carrier with its quotes — decoding it as raw text is content corruption.
+/// The codec's two halves must be inverses whatever a `.json` file happens to
+/// contain: a JSON string document keeps its quotes, and a payload that is not
+/// JSON at all does not acquire any.
 #[test]
-fn a_json_string_document_survives_the_codec() {
+fn json_payloads_survive_the_codec_byte_for_byte() {
+    let cases = [
+        ("records/tier-2/quoted.json", "\"hello\""),
+        ("records/tier-2/broken.json", "{ this is not json"),
+        ("records/tier-2/scalar.json", "42"),
+        ("source-documents/notes.md", "# Heading\n\nbody\n"),
+    ];
     let src_tmp = tempfile::tempdir().unwrap();
     six_set_repository(src_tmp.path());
-    write(src_tmp.path(), "records/tier-2/quoted.json", "\"hello\"");
+    for (path, body) in cases {
+        write(src_tmp.path(), path, body);
+    }
 
     let source = FileStore::new(src_tmp.path());
     let reloaded = open_srsj(&to_srsj_string(&source).expect("project")).expect("reopen");
-    assert_eq!(
-        reloaded
-            .load_text_file("records/tier-2/quoted.json")
-            .unwrap(),
-        "\"hello\"",
-        "the file's bytes must survive, quotes included"
-    );
+    for (path, body) in cases {
+        assert_eq!(
+            reloaded.load_text_file(path).unwrap(),
+            body,
+            "{path} must survive the carrier byte for byte"
+        );
+    }
 }

@@ -72,8 +72,14 @@ pub fn tree_from_srsj(content: &str) -> Result<BTreeMap<String, Vec<u8>>, Reposi
                  — the envelope manifest is the only manifest (RFC-038 [R19])",
             ));
         }
-        crate::vfs::ensure_contained(&key)?;
-        tree.insert(key.clone(), value_to_bytes(&key, value));
+        let key = crate::vfs::ensure_contained(&key)?;
+        if let Some(previous) = tree.insert(key.clone(), value_to_bytes(value)) {
+            if previous != tree[&key] {
+                return Err(invalid(format!(
+                    "two `.srsj` data keys resolve to '{key}' with different content"
+                )));
+            }
+        }
     }
 
     tree.insert(
@@ -127,9 +133,9 @@ fn srsj_from_tree(tree: &BTreeMap<String, Vec<u8>>) -> Result<String, Repository
         }
         // Same containment rule as decode: never emit a document this codec
         // would then refuse to reopen.
-        crate::vfs::ensure_contained(path)?;
-        if let Some(value) = bytes_to_value(path, bytes) {
-            data.insert(path.clone(), canonicalize(value, false));
+        let path = crate::vfs::ensure_contained(path)?;
+        if let Some(value) = bytes_to_value(bytes) {
+            data.insert(path, canonicalize(value, false));
         }
     }
 
@@ -142,29 +148,31 @@ fn srsj_from_tree(tree: &BTreeMap<String, Vec<u8>>) -> Result<String, Repository
         .map_err(|source| invalid(format!("cannot serialise .srsj document: {source}")))
 }
 
-/// The exact inverse of [`bytes_to_value`], and it must stay that way: the
-/// path decides, not the value's type. A `.json` file whose whole content is a
-/// JSON string (`"hello"`) is carried as a string *value*, and decoding it as
-/// raw text would drop its quotes — silent content corruption through the
-/// carrier.
-fn value_to_bytes(path: &str, value: serde_json::Value) -> Vec<u8> {
+/// The exact inverse of [`bytes_to_value`], and the pair has exactly one rule:
+/// **a string value is the file's raw text; anything else is the file's JSON
+/// content.** Nothing keys off the path, because the path cannot settle the
+/// ambiguity — a `.json` file may hold a JSON string document (`"hello"`) whose
+/// quotes are part of its bytes, and a `.md` file may hold valid JSON.
+fn value_to_bytes(value: serde_json::Value) -> Vec<u8> {
     match value {
-        // Text payloads (Markdown source documents, rendered exports) are
-        // carried as JSON strings; their bytes are the string itself.
-        serde_json::Value::String(s) if !path.ends_with(".json") => s.into_bytes(),
+        serde_json::Value::String(s) => s.into_bytes(),
         other => serde_json::to_vec_pretty(&other)
             .expect("serialising an owned serde_json::Value cannot fail"),
     }
 }
 
-fn bytes_to_value(path: &str, bytes: &[u8]) -> Option<serde_json::Value> {
+/// Carry a payload as structured JSON only when it *is* structured JSON.
+///
+/// A scalar JSON document (`"hello"`, `42`) stays raw text: it would otherwise
+/// decode back as a bare string and lose its own syntax. Non-UTF-8 payloads are
+/// attachment content, which RFC-017 makes transient transport rather than
+/// repository content, so the JSON-only carrier drops them.
+fn bytes_to_value(bytes: &[u8]) -> Option<serde_json::Value> {
     let text = std::str::from_utf8(bytes).ok()?;
-    if path.ends_with(".json") {
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(text) {
-            return Some(value);
-        }
+    match serde_json::from_str::<serde_json::Value>(text) {
+        Ok(v @ (serde_json::Value::Object(_) | serde_json::Value::Array(_))) => Some(v),
+        _ => Some(serde_json::Value::String(text.to_string())),
     }
-    Some(serde_json::Value::String(text.to_string()))
 }
 
 /// Recursively sort object keys for deterministic `.srsj` output (ADR-043),

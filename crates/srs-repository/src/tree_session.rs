@@ -32,10 +32,18 @@ pub fn open_tree(files: BTreeMap<String, Vec<u8>>) -> Result<FileStore, Reposito
             path: PathBuf::from("manifest.json"),
         });
     }
-    for path in files.keys() {
-        crate::vfs::ensure_contained(path)?;
+    let mut normalized = BTreeMap::new();
+    for (path, bytes) in files {
+        let key = crate::vfs::ensure_contained(&path)?;
+        if let Some(previous) = normalized.insert(key.clone(), bytes) {
+            if previous != normalized[&key] {
+                return Err(RepositoryError::InvalidSnapshotData {
+                    message: format!("two tree paths resolve to '{key}' with different content"),
+                });
+            }
+        }
     }
-    let vfs = Rc::new(MemVfs::from_map(files));
+    let vfs = Rc::new(MemVfs::from_map(normalized));
     vfs.create_dir_all(SRS_MARKER_DIR)?;
     Ok(FileStore::from_vfs(vfs))
 }

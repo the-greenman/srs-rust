@@ -7,24 +7,25 @@
       "title": "Empty Governance Document"
     },
     "createdAt": "2026-01-01T00:00:00Z",
+    "dataModelRevision": 2,
     "description": "An empty governance document: the canonical MuDemocracy governance package installed with zero records, ready for a clerk to capture their first decision.",
     "instanceIndex": [],
-    "meta": {
-      "upstreamPackage": {
-        "installedAt": "2026-01-01T00:00:00Z",
-        "name": "governance",
-        "namespace": "com.mudemocracy.governance",
-        "packageId": "1cd9622e-3d05-4214-a683-4cb81d0c44d9",
-        "version": "1.0.0"
-      }
-    },
+    "meta": {},
     "namespace": "com.mudemocracy.governance",
     "repositoryId": "395ebea2-d8f6-497b-b18c-04c9eacafc94",
     "srsVersion": "2.0-draft",
-    "title": "Empty Governance Document"
+    "title": "Empty Governance Document",
+    "upstreamPackage": {
+      "installedAt": "2026-01-01T00:00:00Z",
+      "name": "governance",
+      "namespace": "com.mudemocracy.governance",
+      "packageId": "1cd9622e-3d05-4214-a683-4cb81d0c44d9",
+      "version": "1.0.0"
+    }
   },
   "data": {
     "package/blueprints/decision-log-e2e09a77.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/blueprint.json",
       "aiGuidance": {
         "extraction": "Extract every decision made or crystallised during the conversation. Each decision gets its own Record. Link a decision to the one it replaces with supersedes, and to decisions it relies on with depends-on.",
         "purpose": "A decision log assembled from the decisions extracted out of a meeting transcript. Each decision becomes its own Record; supersession and dependency relations connect them over time."
@@ -81,6 +82,7 @@
       "version": 1
     },
     "package/document-views/articles-and-roles-78b11038.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Renders the Articles of Association together with the current role holders.",
       "format": "markdown",
@@ -118,6 +120,7 @@
       "version": 1
     },
     "package/document-views/decision-deliberation-5a3ce87e.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Full deliberation view — shows all fields including question, context, friction, alternatives, requirements, statement, rationale, next steps, owner, revisit, and status.",
       "format": "markdown",
@@ -140,6 +143,7 @@
       "version": 1
     },
     "package/document-views/decision-log-b5c8d124.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Decision log view — compact summary showing only decision statement, alternatives considered, rationale, and revisit trigger.",
       "format": "markdown",
@@ -227,6 +231,7 @@
       "version": 1
     },
     "package/fields/alternativesconsidered-636ce948.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -240,74 +245,97 @@
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Genuine options the group considered, including doing nothing.",
+      "fieldType": {
+        "datatype": "string",
+        "format": "plain"
+      },
       "id": "636ce948-2110-57b4-a3ed-04354ec17843",
       "instructions": "List the options that had genuine support, including doing nothing. Do not write “none” or leave it blank — if there was no competing proposal, the real alternative was leaving things as they are, so state what would have happened if you had not decided. Keep distinct options distinct rather than blending them into one.",
       "name": "alternatives_considered",
       "namespace": "governance",
-      "valueType": "text",
       "version": 1
     },
     "package/fields/amendmentrule-1f01bc6b.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
-        "purpose": ""
+        "purpose": "The process or conditions under which this article may be amended or repealed."
       },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The process or conditions under which this article may be amended or repealed.",
+      "fieldType": {
+        "datatype": "string",
+        "format": "plain"
+      },
       "id": "1f01bc6b-39c8-58d7-b1a3-79142623fece",
       "name": "amendment_rule",
       "namespace": "governance",
-      "valueType": "text",
       "version": 1
     },
     "package/fields/articlenumber-60be1468.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
-        "purpose": ""
+        "purpose": "Stable local reference identifier for the article, e.g. A-001."
       },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "Stable local reference identifier for the article, e.g. A-001.",
+      "fieldType": {
+        "datatype": "string"
+      },
       "id": "60be1468-01bc-5d12-9eea-628f02801893",
       "name": "article_number",
       "namespace": "governance",
-      "valueType": "string",
       "version": 1
     },
     "package/fields/articletext-8aa3eba2.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
-        "purpose": ""
+        "purpose": "The operative text of the article."
       },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The operative text of the article.",
+      "fieldType": {
+        "datatype": "string",
+        "format": "plain"
+      },
       "id": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6",
       "name": "article_text",
       "namespace": "governance",
-      "valueType": "text",
       "version": 1
     },
     "package/fields/authority-d25da548.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
-        "purpose": ""
+        "purpose": "What this role may decide or act on without requiring group agreement."
       },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "What this role may decide or act on without requiring group agreement.",
+      "fieldType": {
+        "datatype": "string",
+        "format": "plain"
+      },
       "id": "d25da548-79d6-555b-8878-f40b685b3955",
       "name": "authority",
       "namespace": "governance",
-      "valueType": "text",
       "version": 1
     },
     "package/fields/boundary-3c39ee1f.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
-        "purpose": ""
+        "purpose": "The limits of this role — where the role's authority ends or must be shared."
       },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The limits of this role — where the role's authority ends or must be shared.",
+      "fieldType": {
+        "datatype": "string",
+        "format": "plain"
+      },
       "id": "3c39ee1f-6fe0-5da7-a0b6-928aa3a63211",
       "name": "boundary",
       "namespace": "governance",
-      "valueType": "text",
       "version": 1
     },
     "package/fields/context-9889052c.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -321,14 +349,18 @@
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Background that makes the matter meaningful.",
+      "fieldType": {
+        "datatype": "string",
+        "format": "plain"
+      },
       "id": "9889052c-9313-5e2f-a2ac-15baa3c6983e",
       "instructions": "Set the scene: what happened before, and the limits you are working within — prior agreements, history, or constraints like budget, law, or deadlines. Explain the environment the group is in now. Do not name the problem itself here — that goes in Friction; context is the backdrop, not the pain.",
       "name": "context",
       "namespace": "governance",
-      "valueType": "text",
       "version": 1
     },
     "package/fields/decisionquestion-73cd845a.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -341,14 +373,17 @@
       },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The single concrete question this decision answers.",
+      "fieldType": {
+        "datatype": "string"
+      },
       "id": "73cd845a-3623-5bc6-8ade-42a7cd64740c",
       "instructions": "State the single concrete question this decision settles — specific enough that the decision statement is a direct answer to it. Try phrasing it as “Should we…?” or “How should we…?”. If you find you are only deciding the next task, step up to the higher-level question underneath it.",
       "name": "decision_question",
       "namespace": "governance",
-      "valueType": "string",
       "version": 1
     },
     "package/fields/decisionstatement-de1296e0.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -361,14 +396,18 @@
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "The settled commitment in one active-voice sentence.",
+      "fieldType": {
+        "datatype": "string",
+        "format": "plain"
+      },
       "id": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
       "instructions": "Write the settled commitment as one clear sentence in the active voice — start with “We will…” or “We have decided to…” so the outcome is unmistakable. Capture what was agreed, not the discussion around it, and make it specific enough to act on: name the who, what, and when where they were agreed.",
       "name": "decision_statement",
       "namespace": "governance",
-      "valueType": "text",
       "version": 1
     },
     "package/fields/externallinks-fc434475.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -381,13 +420,17 @@
       },
       "createdAt": "2026-06-26T00:00:00Z",
       "description": "External reference URLs attached to this decision — documents, minutes, or other materials that provide rationale or context.",
+      "fieldType": {
+        "datatype": "string",
+        "format": "uri"
+      },
       "id": "fc434475-b25e-46d5-8536-c2cc2e4e5f98",
       "name": "external_links",
       "namespace": "governance",
-      "valueType": "url",
       "version": 1
     },
     "package/fields/friction-1a1c0a5d.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -401,14 +444,18 @@
       },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The specific pain, conflict, or gap that makes a decision necessary now.",
+      "fieldType": {
+        "datatype": "string",
+        "format": "plain"
+      },
       "id": "1a1c0a5d-a1df-5d03-95f2-32af73bb71da",
       "instructions": "Name the specific tension, conflict, or gap that makes a decision necessary now — the concrete pain, not a wish. A good test: if you do nothing, what happens next? Describe the gap between where you are and where you want to be. Do not describe what you want to do about it yet — that comes later.",
       "name": "friction",
       "namespace": "governance",
-      "valueType": "text",
       "version": 1
     },
     "package/fields/keyrequirements-a952604c.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -421,14 +468,18 @@
       },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The standards, values, constraints, and trade-offs used to evaluate options.",
+      "fieldType": {
+        "datatype": "string",
+        "format": "plain"
+      },
       "id": "a952604c-d150-5315-bfc1-7229ddc1d636",
       "instructions": "Record the standards you used to judge the options — the non-negotiables (cost, deadlines, legal limits), how the choice sits against your values, and what you would be giving up. Note any trade-offs weighed and any disagreement in the room. This is what “a good decision” looks like for this problem.",
       "name": "key_requirements",
       "namespace": "governance",
-      "valueType": "text",
       "version": 1
     },
     "package/fields/nextsteps-4181f210.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -441,14 +492,18 @@
       },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "Actions or tasks that emerge from the decision.",
+      "fieldType": {
+        "datatype": "string",
+        "format": "plain"
+      },
       "id": "4181f210-f4be-5587-950e-890eda2a5590",
       "instructions": "List the concrete tasks that follow from the decision, with an owner and a deadline where they were named — who is taking this on, and by when. There may be none, and that is fine; only record follow-up that was actually agreed.",
       "name": "next_steps",
       "namespace": "governance",
-      "valueType": "text",
       "version": 1
     },
     "package/fields/owner-4b34847c.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -461,26 +516,32 @@
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Person, role, group, or function responsible for stewardship of this record.",
+      "fieldType": {
+        "datatype": "string"
+      },
       "id": "4b34847c-26d1-56be-bc10-844aeb704df7",
       "instructions": "Name the person or role who holds this decision — who is accountable for carrying it out and who can revisit it. A role title (“Coordination lead”) is often more durable than a person’s name, since it survives people coming and going.",
       "name": "owner",
       "namespace": "governance",
-      "valueType": "string",
       "version": 1
     },
     "package/fields/protectedstatus-0df40543.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
-        "purpose": ""
+        "purpose": "Whether this article is protected from ordinary amendment by the group."
       },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "Whether this article is protected from ordinary amendment by the group.",
+      "fieldType": {
+        "datatype": "string"
+      },
       "id": "0df40543-f72a-5471-a7f1-c85c1f1f93e4",
       "name": "protected_status",
       "namespace": "governance",
-      "valueType": "string",
       "version": 1
     },
     "package/fields/rationale-3340532b.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -494,14 +555,18 @@
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Why this option over the alternatives.",
+      "fieldType": {
+        "datatype": "string",
+        "format": "plain"
+      },
       "id": "3340532b-d845-5e54-92b3-819ed05365c5",
       "instructions": "Say what made this the right choice — the deciding factor, in two to four sentences. Focus on the outcome logic, not a blow-by-blow of the debate: this is here to remind your future selves, and anyone not in the room, why the choice made sense. Include the key evidence that tipped it.",
       "name": "rationale",
       "namespace": "governance",
-      "valueType": "text",
       "version": 1
     },
     "package/fields/revisitwhen-c04b7f84.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -515,35 +580,44 @@
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "The condition or event that would prompt a review of this decision.",
+      "fieldType": {
+        "datatype": "string",
+        "format": "plain"
+      },
       "id": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
       "instructions": "Describe how you will know this decision may no longer be working — the conditions or events that should trigger a review, tied to your “why”. Avoid setting only a date: a bare “review in December” is weaker than a condition like “if attendance drops below three for two meetings running”. A date can anchor a condition, but should not replace one.",
       "name": "revisit_when",
       "namespace": "governance",
-      "valueType": "text",
       "version": 1
     },
     "package/fields/roleholder-a6c19b95.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
-        "purpose": ""
+        "purpose": "The person, team, group, or function currently holding this role."
       },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The person, team, group, or function currently holding this role.",
+      "fieldType": {
+        "datatype": "string"
+      },
       "id": "a6c19b95-4f8f-5b07-93f8-3426c545277e",
       "name": "role_holder",
       "namespace": "governance",
-      "valueType": "string",
       "version": 1
     },
     "package/fields/sourceofauthority-9a32dc01.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
-        "purpose": ""
+        "purpose": "How this authority was conferred: inherited, delegated, elected, appointed, constitutional, etc."
       },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "How this authority was conferred: inherited, delegated, elected, appointed, constitutional, etc.",
+      "fieldType": {
+        "datatype": "string"
+      },
       "id": "9a32dc01-f348-5e05-9f54-bb6d21239f04",
       "name": "source_of_authority",
       "namespace": "governance",
-      "valueType": "string",
       "version": 1
     },
     "package/fields/statement-3b000001.json": {
@@ -554,10 +628,13 @@
       "createdAt": "2026-07-08T00:00:00Z",
       "description": "The purpose or mission statement of this repository. Must be non-empty.",
       "editorHint": "textarea",
+      "fieldType": {
+        "datatype": "string",
+        "format": "plain"
+      },
       "id": "3b000001-0000-4000-a000-000000000001",
       "name": "statement",
       "namespace": "com.semanticops.core",
-      "valueType": "text",
       "version": 1
     },
     "package/fields/title-3b000002.json": {
@@ -568,13 +645,16 @@
       "createdAt": "2026-07-08T00:00:00Z",
       "description": "Short human-readable label for the identity record. Optional. Distinct from the repository manifest title.",
       "editorHint": "singleline",
+      "fieldType": {
+        "datatype": "string"
+      },
       "id": "3b000002-0000-4000-a000-000000000002",
       "name": "title",
       "namespace": "com.semanticops.core",
-      "valueType": "string",
       "version": 1
     },
     "package/fields/title-d7e82557.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -587,11 +667,13 @@
       },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Short label for this record.",
+      "fieldType": {
+        "datatype": "string"
+      },
       "id": "d7e82557-9045-5e92-a494-d99112bbec4a",
       "instructions": "Give the decision a short, scannable label — a few words naming the topic, not a full sentence. Write it as the subject of the decision (e.g. “Meeting frequency for pilot”), not as “We will…”. It is what people see first in a list, so make it recognisable at a glance.",
       "name": "title",
       "namespace": "governance",
-      "valueType": "string",
       "version": 1
     },
     "package/lifecycles/governancelifecycle-3c504040.json": {
@@ -712,6 +794,7 @@
         "blueprints/decision-log-e2e09a77.json"
       ],
       "createdAt": "2026-01-01T00:00:00Z",
+      "dataModelRevision": 2,
       "description": "",
       "documentViews": [
         "document-views/articles-and-roles-78b11038.json",
@@ -773,6 +856,7 @@
       "vocabularies": []
     },
     "package/relation-types/delegates-31c82363.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
       "category": "governance",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Source delegates responsibility or authority to target.",
@@ -783,6 +867,7 @@
       "version": 1
     },
     "package/relation-types/derived-from-36b78f14.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
       "category": "derivation",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Target was derived or adapted from source.",
@@ -793,6 +878,7 @@
       "version": 1
     },
     "package/relation-types/evidences-35c7aba2.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
       "category": "evidence",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Source provides evidence for or supports the target.",
@@ -803,6 +889,7 @@
       "version": 1
     },
     "package/relation-types/precedes-b24aaf29.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
       "category": "sequence",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Source comes before target in a sequence.",
@@ -814,6 +901,7 @@
       "version": 1
     },
     "package/relation-types/supersedes-6e86ebd3.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
       "canonicalDirection": "source is the newer record; target is the older record being superseded",
       "category": "governance",
       "createdAt": "2026-05-31T00:00:00Z",
@@ -826,6 +914,7 @@
       "version": 1
     },
     "package/types/article-a1142ac3.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "A durable governance rule, boundary, constitutional clause, or standing commitment.",
       "fields": [
@@ -833,49 +922,42 @@
           "displayLabel": "Article Number",
           "fieldId": "60be1468-01bc-5d12-9eea-628f02801893",
           "order": 0,
-          "repeatable": false,
           "required": false
         },
         {
           "displayLabel": "Title",
           "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
           "order": 1,
-          "repeatable": false,
           "required": true
         },
         {
           "displayLabel": "Article Text",
           "fieldId": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6",
           "order": 2,
-          "repeatable": false,
           "required": true
         },
         {
           "displayLabel": "Rationale",
           "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
           "order": 3,
-          "repeatable": false,
           "required": false
         },
         {
           "displayLabel": "Amendment Rule",
           "fieldId": "1f01bc6b-39c8-58d7-b1a3-79142623fece",
           "order": 4,
-          "repeatable": false,
           "required": false
         },
         {
           "displayLabel": "Protected Status",
           "fieldId": "0df40543-f72a-5471-a7f1-c85c1f1f93e4",
           "order": 5,
-          "repeatable": false,
           "required": false
         },
         {
           "displayLabel": "Revisit When",
           "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
           "order": 7,
-          "repeatable": false,
           "required": false
         }
       ],
@@ -886,6 +968,7 @@
       "version": 1
     },
     "package/types/decision-1fcad6a2.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "A settled commitment, choice, policy, or direction of action.",
       "fields": [
@@ -893,84 +976,72 @@
           "displayLabel": "Title",
           "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
           "order": 0,
-          "repeatable": false,
           "required": true
         },
         {
           "displayLabel": "Decision Question",
           "fieldId": "73cd845a-3623-5bc6-8ade-42a7cd64740c",
           "order": 1,
-          "repeatable": false,
           "required": false
         },
         {
           "displayLabel": "Context",
           "fieldId": "9889052c-9313-5e2f-a2ac-15baa3c6983e",
           "order": 2,
-          "repeatable": false,
           "required": false
         },
         {
           "displayLabel": "Friction",
           "fieldId": "1a1c0a5d-a1df-5d03-95f2-32af73bb71da",
           "order": 3,
-          "repeatable": false,
           "required": false
         },
         {
           "displayLabel": "Alternatives Considered",
           "fieldId": "636ce948-2110-57b4-a3ed-04354ec17843",
           "order": 4,
-          "repeatable": false,
           "required": false
         },
         {
           "displayLabel": "Key Requirements",
           "fieldId": "a952604c-d150-5315-bfc1-7229ddc1d636",
           "order": 5,
-          "repeatable": false,
           "required": false
         },
         {
           "displayLabel": "Decision Statement",
           "fieldId": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
           "order": 6,
-          "repeatable": false,
           "required": true
         },
         {
           "displayLabel": "Rationale",
           "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
           "order": 7,
-          "repeatable": false,
           "required": false
         },
         {
           "displayLabel": "Revisit When",
           "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
           "order": 8,
-          "repeatable": false,
           "required": false
         },
         {
           "displayLabel": "Next Steps",
           "fieldId": "4181f210-f4be-5587-950e-890eda2a5590",
           "order": 9,
-          "repeatable": false,
           "required": false
         },
         {
           "displayLabel": "Owner",
           "fieldId": "4b34847c-26d1-56be-bc10-844aeb704df7",
           "order": 10,
-          "repeatable": false,
           "required": false
         },
         {
           "displayLabel": "External Links",
           "fieldId": "fc434475-b25e-46d5-8536-c2cc2e4e5f98",
           "order": 11,
-          "repeatable": true,
           "required": false
         }
       ],
@@ -981,6 +1052,7 @@
       "version": 1
     },
     "package/types/decisionlog-5a061505.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
       "createdAt": "2026-06-25T00:00:00Z",
       "description": "Header root record for a decision-log container. Carries the log title and acts as the typed anchor for RFC-009 rootTypeRefs dispatch.",
       "fields": [
@@ -988,7 +1060,6 @@
           "displayLabel": "Title",
           "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
           "order": 0,
-          "repeatable": false,
           "required": true
         }
       ],
@@ -1010,14 +1081,12 @@
           "displayLabel": "Statement",
           "fieldId": "3b000001-0000-4000-a000-000000000001",
           "order": 0,
-          "repeatable": false,
           "required": true
         },
         {
           "displayLabel": "Title",
           "fieldId": "3b000002-0000-4000-a000-000000000002",
           "order": 1,
-          "repeatable": false,
           "required": false
         }
       ],
@@ -1027,6 +1096,7 @@
       "version": 1
     },
     "package/types/role-e53dce11.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "An authority boundary. Defines who may decide or act on what, without requiring group agreement.",
       "fields": [
@@ -1034,42 +1104,36 @@
           "displayLabel": "Title",
           "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
           "order": 0,
-          "repeatable": false,
           "required": true
         },
         {
           "displayLabel": "Role Holder",
           "fieldId": "a6c19b95-4f8f-5b07-93f8-3426c545277e",
           "order": 1,
-          "repeatable": false,
           "required": false
         },
         {
           "displayLabel": "Authority",
           "fieldId": "d25da548-79d6-555b-8878-f40b685b3955",
           "order": 2,
-          "repeatable": false,
           "required": true
         },
         {
           "displayLabel": "Boundary",
           "fieldId": "3c39ee1f-6fe0-5da7-a0b6-928aa3a63211",
           "order": 3,
-          "repeatable": false,
           "required": true
         },
         {
           "displayLabel": "Source of Authority",
           "fieldId": "9a32dc01-f348-5e05-9f54-bb6d21239f04",
           "order": 4,
-          "repeatable": false,
           "required": false
         },
         {
           "displayLabel": "Revisit When",
           "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
           "order": 6,
-          "repeatable": false,
           "required": false
         }
       ],
@@ -1080,6 +1144,7 @@
       "version": 1
     },
     "package/views/decision-log-faebd240.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/view.json",
       "createdAt": "2026-06-01T00:00:00Z",
       "description": "Compact decision log field view showing statement, alternatives, rationale, and revisit trigger.",
       "fieldViews": [

@@ -43,7 +43,6 @@ fn srs_bin() -> PathBuf {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn top_level_lists_only_decision_log() {
     // Release 1 is decision-log-only: srs-gov surfaces only sections whose typeNamespace/typeName
     // match a known ContainerTypeDef, and ignores any unknown sections.
@@ -66,7 +65,6 @@ fn top_level_lists_only_decision_log() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn top_level_reports_nonzero_decision_log_members() {
     // setup_repo creates 4 decisions, so member count > 0.
     let repo = setup_repo("top-nonzero");
@@ -88,7 +86,6 @@ fn top_level_reports_nonzero_decision_log_members() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn decision_log_list_renders_decisions() {
     // setup_repo inserts "Adopt monthly cadence" and "Records live in the system" decisions.
     let repo = setup_repo("list-render");
@@ -104,7 +101,6 @@ fn decision_log_list_renders_decisions() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn decision_log_get_shows_field_labels() {
     // Self-contained repo (the spec gallery is still pre-RFC-039-cutover).
     let repo = setup_repo("get-labels");
@@ -120,7 +116,6 @@ fn decision_log_get_shows_field_labels() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn create_decision_dry_run_emits_correct_command() {
     // Use a self-contained governance repo — field IDs are package constants regardless of repo.
     let repo = setup_repo("create-cmd");
@@ -147,7 +142,6 @@ fn create_decision_dry_run_emits_correct_command() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn create_decision_dry_run_does_not_mutate() {
     use std::fs;
     let repo = setup_repo("create-nomutate");
@@ -161,7 +155,6 @@ fn create_decision_dry_run_does_not_mutate() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn create_decision_dry_run_escapes_quoted_values() {
     let repo = setup_repo("create-escape");
     let out = gov_out(
@@ -196,7 +189,6 @@ fn create_decision_dry_run_escapes_quoted_values() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn create_decision_without_required_values_is_rejected_not_written() {
     // Regression test for the-greenman/srs-rust#740: a real (non-dry-run) `create`
     // with no --title/--statement must bail instead of writing the literal
@@ -231,7 +223,6 @@ fn create_decision_without_required_values_is_rejected_not_written() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn explain_flag_prints_commands_without_running() {
     let repo = setup_repo("explain");
     let out = gov_out(&repo.path, &["--explain", "list", "decision_log"]);
@@ -247,7 +238,6 @@ fn explain_flag_prints_commands_without_running() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn json_flag_top_level_prints_raw_srs_envelope() {
     let repo = setup_repo("json-top");
     let out = gov_out(&repo.path, &["--json"]);
@@ -262,7 +252,6 @@ fn json_flag_top_level_prints_raw_srs_envelope() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn json_flag_list_prints_raw_resolve_view_envelope() {
     let repo = setup_repo("json-list");
     let out = gov_out(&repo.path, &["--json", "list", "decision_log"]);
@@ -281,7 +270,6 @@ fn json_flag_list_prints_raw_resolve_view_envelope() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn tui_smoke_renders_first_frame() {
     // Self-contained repo (the spec gallery is still pre-RFC-039-cutover).
     let repo = setup_repo("tui-smoke");
@@ -293,7 +281,6 @@ fn tui_smoke_renders_first_frame() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn repo_create_produces_valid_srsj() {
     use std::fs;
 
@@ -362,26 +349,29 @@ fn repo_create_produces_valid_srsj() {
     let container_id = container_embed["containerId"].as_str().unwrap_or("");
     assert!(!container_id.is_empty(), "container has no containerId");
 
-    // identity must resolve in the instance index
-    let index: std::collections::HashSet<&str> = content["manifest"]["instanceIndex"]
-        .as_array()
+    // The identity must resolve to a real instance. RFC-038 [R1]/[R22]: that
+    // is a question for the tree, not for `manifest.instanceIndex`, which CRUD
+    // no longer writes.
+    let instances: std::collections::HashSet<&str> = content["data"]
+        .as_object()
         .unwrap()
-        .iter()
-        .filter_map(|e| e["instanceId"].as_str())
+        .values()
+        .filter_map(|v| v["instanceId"].as_str())
         .collect();
     assert!(
-        index.contains(identity),
-        "identity does not resolve in index"
+        instances.contains(identity),
+        "identity {identity} resolves to no instance in the tree"
     );
 
-    // full container must be saved to the store with memberInstanceIds
+    // RFC-038 [R1]/[R12]: the inline `manifest.container` is the root
+    // container's sole representation — a standalone `containers/<id>.json`
+    // twin would be a duplicate-identifier error, so there must not be one.
     let container_key = format!("containers/{container_id}.json");
-    let full_container = &content["data"][&container_key];
     assert!(
-        full_container.is_object(),
-        "root container not found in data[\"containers/{container_id}.json\"]"
+        content["data"].get(&container_key).is_none(),
+        "the root container must not also exist as a standalone file at {container_key}"
     );
-    let member_ids: Vec<&str> = full_container["memberInstanceIds"]
+    let member_ids: Vec<&str> = container_embed["memberInstanceIds"]
         .as_array()
         .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
         .unwrap_or_default();
@@ -412,7 +402,6 @@ fn repo_create_produces_valid_srsj() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn repo_create_explicit_namespace_applied() {
     use std::fs;
 
@@ -508,7 +497,6 @@ fn repo_create_empty_namespace_is_rejected() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn repo_create_navigation_works() {
     let path = std::env::temp_dir()
         .join(format!(
@@ -789,7 +777,6 @@ const DELIBERATION_VIEW: &str = "5a3ce87e-8340-4d91-a140-ab56b57f704f";
 const GOV_DOCUMENT_VIEW: &str = "732a982b-3765-4f22-90e0-e456463bac54";
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn repo_create_document_views_bind_to_scaffolded_containers() {
     let repo = setup_repo("dv-rebind");
 
@@ -844,7 +831,6 @@ fn repo_create_document_views_bind_to_scaffolded_containers() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn list_hides_superseded_and_closed_by_default() {
     let repo = setup_repo("default");
     let out = gov_out(&repo.path, &["list", "decision_log"]);
@@ -864,7 +850,6 @@ fn list_hides_superseded_and_closed_by_default() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn list_all_flag_shows_hidden_states() {
     let repo = setup_repo("all");
     let out = gov_out(&repo.path, &["list", "decision_log", "--all"]);
@@ -879,7 +864,6 @@ fn list_all_flag_shows_hidden_states() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn list_search_narrows_by_content() {
     let repo = setup_repo("search");
     // `zephyrstore` appears only in the ratified decision's decision_statement (a
@@ -899,7 +883,6 @@ fn list_search_narrows_by_content() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn list_tag_narrows_by_tag() {
     let repo = setup_repo("tag");
     let out = gov_out(&repo.path, &["list", "decision_log", "--tag", "tooling"]);
@@ -1080,7 +1063,6 @@ fn srs_gov_attachment_add_duplicate_rejected() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn create_decision_writes_record() {
     let repo = setup_repo("create-write");
 
@@ -1167,7 +1149,6 @@ fn create_decision_writes_record() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn transition_decision_succeeds() {
     let repo = setup_repo("transition-ok");
 
@@ -1209,7 +1190,6 @@ fn transition_decision_succeeds() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn transition_invalid_state_fails() {
     let repo = setup_repo("transition-bad");
 
@@ -1243,7 +1223,6 @@ fn transition_invalid_state_fails() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn transition_explain_does_not_write() {
     let repo = setup_repo("transition-explain");
 
@@ -1284,7 +1263,6 @@ fn transition_explain_does_not_write() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn relate_and_unrelate() {
     let repo = setup_repo("relate-test");
 
@@ -1376,7 +1354,6 @@ fn relate_and_unrelate() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn relate_invalid_type_rejected() {
     let repo = setup_repo("relate-bad-type");
 
@@ -1406,7 +1383,6 @@ fn relate_invalid_type_rejected() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn relate_explain_does_not_write() {
     let repo = setup_repo("relate-explain");
 
@@ -1473,7 +1449,6 @@ fn gov_json(repo: &str, args: &[&str]) -> serde_json::Value {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn create_json_returns_record_instanceid() {
     let repo = setup_repo("create-json");
 
@@ -1505,7 +1480,6 @@ fn create_json_returns_record_instanceid() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn transition_json_returns_updated_lifecycle_state() {
     let repo = setup_repo("transition-json");
 
@@ -1538,7 +1512,6 @@ fn transition_json_returns_updated_lifecycle_state() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn relate_json_returns_relation_id() {
     let repo = setup_repo("relate-json");
 
@@ -1581,7 +1554,6 @@ fn relate_json_returns_relation_id() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn unrelate_json_returns_ok() {
     let repo = setup_repo("unrelate-json");
 
@@ -1636,7 +1608,6 @@ fn unrelate_json_returns_ok() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: the vendored governance seed (ADR-017 byte-copy of com.mudemocracy.governance@1.0.0) carries pre-RFC-032 definitions the RFC-038 catalog fatally rejects; seed regeneration is governance-package data migration, deferred to the srs#297 train data units"]
 fn relations_json_includes_both_directions() {
     // Regression guard for 9658dd4: cmd_relations --json was dropping incoming relations.
     // Setup: create A→B supersedes. Query from B's perspective (B has an incoming relation).

@@ -10,15 +10,7 @@
     "dataModelRevision": 2,
     "description": "An empty governance document: the canonical MuDemocracy governance package installed with zero records, ready for a clerk to capture their first decision.",
     "instanceIndex": [],
-    "meta": {
-      "upstreamPackage": {
-        "installedAt": "2026-01-01T00:00:00Z",
-        "name": "governance",
-        "namespace": "com.mudemocracy.governance",
-        "packageId": "1cd9622e-3d05-4214-a683-4cb81d0c44d9",
-        "version": "1.0.0"
-      }
-    },
+    "meta": {},
     "namespace": "com.mudemocracy.governance",
     "repositoryId": "395ebea2-d8f6-497b-b18c-04c9eacafc94",
     "srsVersion": "2.0-draft",
@@ -33,6 +25,7 @@
   },
   "data": {
     "package/blueprints/decision-log-e2e09a77.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/blueprint.json",
       "aiGuidance": {
         "extraction": "Extract every decision made or crystallised during the conversation. Each decision gets its own Record. Link a decision to the one it replaces with supersedes, and to decisions it relies on with depends-on.",
         "purpose": "A decision log assembled from the decisions extracted out of a meeting transcript. Each decision becomes its own Record; supersession and dependency relations connect them over time."
@@ -89,6 +82,7 @@
       "version": 1
     },
     "package/document-views/articles-and-roles-78b11038.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Renders the Articles of Association together with the current role holders.",
       "format": "markdown",
@@ -126,6 +120,7 @@
       "version": 1
     },
     "package/document-views/decision-deliberation-5a3ce87e.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Full deliberation view — shows all fields including question, context, friction, alternatives, requirements, statement, rationale, next steps, owner, revisit, and status.",
       "format": "markdown",
@@ -148,6 +143,7 @@
       "version": 1
     },
     "package/document-views/decision-log-b5c8d124.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Decision log view — compact summary showing only decision statement, alternatives considered, rationale, and revisit trigger.",
       "format": "markdown",
@@ -235,6 +231,7 @@
       "version": 1
     },
     "package/fields/alternativesconsidered-636ce948.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -259,6 +256,10 @@
       "version": 1
     },
     "package/fields/amendmentrule-1f01bc6b.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "The process or conditions under which this article may be amended or repealed."
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The process or conditions under which this article may be amended or repealed.",
       "fieldType": {
@@ -271,6 +272,10 @@
       "version": 1
     },
     "package/fields/articlenumber-60be1468.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "Stable local reference identifier for the article, e.g. A-001."
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "Stable local reference identifier for the article, e.g. A-001.",
       "fieldType": {
@@ -282,6 +287,10 @@
       "version": 1
     },
     "package/fields/articletext-8aa3eba2.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "The operative text of the article."
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The operative text of the article.",
       "fieldType": {
@@ -294,6 +303,10 @@
       "version": 1
     },
     "package/fields/authority-d25da548.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "What this role may decide or act on without requiring group agreement."
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "What this role may decide or act on without requiring group agreement.",
       "fieldType": {
@@ -306,6 +319,10 @@
       "version": 1
     },
     "package/fields/boundary-3c39ee1f.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "The limits of this role — where the role's authority ends or must be shared."
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The limits of this role — where the role's authority ends or must be shared.",
       "fieldType": {
@@ -318,6 +335,7 @@
       "version": 1
     },
     "package/fields/context-9889052c.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -342,6 +360,7 @@
       "version": 1
     },
     "package/fields/decisionquestion-73cd845a.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -364,6 +383,7 @@
       "version": 1
     },
     "package/fields/decisionstatement-de1296e0.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -387,6 +407,7 @@
       "version": 1
     },
     "package/fields/externallinks-fc434475.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -409,6 +430,7 @@
       "version": 1
     },
     "package/fields/friction-1a1c0a5d.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -433,6 +455,7 @@
       "version": 1
     },
     "package/fields/keyrequirements-a952604c.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -456,6 +479,7 @@
       "version": 1
     },
     "package/fields/nextsteps-4181f210.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -479,6 +503,7 @@
       "version": 1
     },
     "package/fields/owner-4b34847c.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -501,6 +526,10 @@
       "version": 1
     },
     "package/fields/protectedstatus-0df40543.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "Whether this article is protected from ordinary amendment by the group."
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "Whether this article is protected from ordinary amendment by the group.",
       "fieldType": {
@@ -512,6 +541,7 @@
       "version": 1
     },
     "package/fields/rationale-3340532b.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -536,6 +566,7 @@
       "version": 1
     },
     "package/fields/revisitwhen-c04b7f84.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -560,6 +591,10 @@
       "version": 1
     },
     "package/fields/roleholder-a6c19b95.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "The person, team, group, or function currently holding this role."
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The person, team, group, or function currently holding this role.",
       "fieldType": {
@@ -571,6 +606,10 @@
       "version": 1
     },
     "package/fields/sourceofauthority-9a32dc01.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "How this authority was conferred: inherited, delegated, elected, appointed, constitutional, etc."
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "How this authority was conferred: inherited, delegated, elected, appointed, constitutional, etc.",
       "fieldType": {
@@ -615,6 +654,7 @@
       "version": 1
     },
     "package/fields/title-d7e82557.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
       "aiGuidance": {
         "examples": [
           {
@@ -816,6 +856,7 @@
       "vocabularies": []
     },
     "package/relation-types/delegates-31c82363.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
       "category": "governance",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Source delegates responsibility or authority to target.",
@@ -826,6 +867,7 @@
       "version": 1
     },
     "package/relation-types/derived-from-36b78f14.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
       "category": "derivation",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Target was derived or adapted from source.",
@@ -836,6 +878,7 @@
       "version": 1
     },
     "package/relation-types/evidences-35c7aba2.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
       "category": "evidence",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Source provides evidence for or supports the target.",
@@ -846,6 +889,7 @@
       "version": 1
     },
     "package/relation-types/precedes-b24aaf29.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
       "category": "sequence",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Source comes before target in a sequence.",
@@ -857,6 +901,7 @@
       "version": 1
     },
     "package/relation-types/supersedes-6e86ebd3.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
       "canonicalDirection": "source is the newer record; target is the older record being superseded",
       "category": "governance",
       "createdAt": "2026-05-31T00:00:00Z",
@@ -869,6 +914,7 @@
       "version": 1
     },
     "package/types/article-a1142ac3.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "A durable governance rule, boundary, constitutional clause, or standing commitment.",
       "fields": [
@@ -922,6 +968,7 @@
       "version": 1
     },
     "package/types/decision-1fcad6a2.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "A settled commitment, choice, policy, or direction of action.",
       "fields": [
@@ -1005,6 +1052,7 @@
       "version": 1
     },
     "package/types/decisionlog-5a061505.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
       "createdAt": "2026-06-25T00:00:00Z",
       "description": "Header root record for a decision-log container. Carries the log title and acts as the typed anchor for RFC-009 rootTypeRefs dispatch.",
       "fields": [
@@ -1048,6 +1096,7 @@
       "version": 1
     },
     "package/types/role-e53dce11.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "An authority boundary. Defines who may decide or act on what, without requiring group agreement.",
       "fields": [
@@ -1095,6 +1144,7 @@
       "version": 1
     },
     "package/views/decision-log-faebd240.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/view.json",
       "createdAt": "2026-06-01T00:00:00Z",
       "description": "Compact decision log field view showing statement, alternatives, rationale, and revisit trigger.",
       "fieldViews": [

@@ -97,3 +97,35 @@ fn archive_unpack_refuses_an_entry_outside_the_root() {
         "nothing may be written outside the target root"
     );
 }
+
+/// Containment normalises rather than nit-picks: an archive another tool wrote
+/// with `./manifest.json` or `a//b.json` entries resolves inside the root and
+/// must open, not fail.
+#[test]
+fn untidy_but_contained_paths_are_normalised_not_refused() {
+    let mut files = BTreeMap::new();
+    files.insert("manifest.json".to_string(), b"{}".to_vec());
+    files.insert("./package/./package.json".to_string(), b"{}".to_vec());
+    files.insert("records//tier-2//x.json".to_string(), b"{}".to_vec());
+    let store = srs_repository::open_tree(files).expect("contained paths must open");
+    let snapshot = srs_repository::export_tree(&store).unwrap();
+    assert!(
+        snapshot.contains_key("package/package.json"),
+        "{snapshot:?}"
+    );
+    assert!(
+        snapshot.contains_key("records/tier-2/x.json"),
+        "{snapshot:?}"
+    );
+}
+
+/// Two spellings of one path with different content is ambiguous, not untidy.
+#[test]
+fn conflicting_aliases_are_refused() {
+    let mut files = BTreeMap::new();
+    files.insert("manifest.json".to_string(), b"{}".to_vec());
+    files.insert("a/b.json".to_string(), b"{\"v\":1}".to_vec());
+    files.insert("./a/b.json".to_string(), b"{\"v\":2}".to_vec());
+    let err = srs_repository::open_tree(files).expect_err("must be refused");
+    assert!(err.to_string().contains("resolve to 'a/b.json'"), "{err}");
+}
