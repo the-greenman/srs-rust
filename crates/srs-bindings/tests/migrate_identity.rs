@@ -45,7 +45,12 @@ fn tier0_fixture_srsj() -> String {
         },
         "data": {
             "package/package.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                 "id": "pkg-migrate-test",
+                "title": "Test Package",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
                 "namespace": "com.test",
                 "name": "test-package",
                 "version": "1.0.0",
@@ -66,12 +71,8 @@ fn tier0_fixture_srsj() -> String {
                     }
                 ]
             },
-            format!("containers/{ROOT_CONTAINER_ID}.json"): {
-                "containerId": ROOT_CONTAINER_ID,
-                "title": "Test Repo",
-                "identityInstanceId": NOTE_ID,
-                "memberInstanceIds": [NOTE_ID]
-            }
+            // Embed-only root ([R1]): a containers/*.json file sharing the
+            // embed's id is a fatal SRS038-R12-DUPLICATE-ID under the catalog.
         }
     })
     .to_string()
@@ -129,7 +130,12 @@ fn migrate_identity_no_prior_identity_succeeds() {
         },
         "data": {
             "package/package.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                 "id": "pkg-no-id-test",
+                "title": "Test Package",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
                 "namespace": "com.test",
                 "name": "test-package",
                 "version": "1.0.0",
@@ -210,10 +216,14 @@ fn sections_survive_migrate_identity() {
             "repositoryId": "test-607-sections-survive",
             "srsVersion": "2.0-draft",
             "namespace": "com.test",
+            // Embed-only root ([R1]): members live on the embed itself; a
+            // containers/*.json file sharing this id would be a fatal
+            // SRS038-R12-DUPLICATE-ID.
             "container": {
                 "containerId": SECTIONS_ROOT_CTR_ID,
                 "title": "My Governance Repo",
-                "description": "We govern with SRS."
+                "description": "We govern with SRS.",
+                "memberInstanceIds": [ARTICLES_RECORD_ID]
                 // No identityInstanceId — triggers None-branch
             },
             "instanceIndex": [
@@ -227,7 +237,12 @@ fn sections_survive_migrate_identity() {
         },
         "data": {
             "package/package.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                 "id": "pkg-607-test",
+                "title": "Test Package",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
                 "namespace": "com.test",
                 "name": "test-package",
                 "version": "1.0.0",
@@ -244,7 +259,7 @@ fn sections_survive_migrate_identity() {
                 "name": "title",
                 "version": 1,
                 "description": "Title",
-                "aiGuidance": {},
+                "aiGuidance": {"purpose": "Test guidance"},
                 "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
@@ -255,12 +270,6 @@ fn sections_survive_migrate_identity() {
                 "typeNamespace": "com.test",
                 "typeName": "section",
                 "fieldValues": {"title": "Articles"}
-            },
-            // Container file with pre-existing section member — must survive migration.
-            format!("containers/{SECTIONS_ROOT_CTR_ID}.json"): {
-                "containerId": SECTIONS_ROOT_CTR_ID,
-                "title": "My Governance Repo",
-                "memberInstanceIds": [ARTICLES_RECORD_ID]
             },
             format!("containers/{ARTICLES_CTR_ID}.json"): {
                 "containerId": ARTICLES_CTR_ID,

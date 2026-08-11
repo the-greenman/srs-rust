@@ -1569,6 +1569,8 @@ impl RepositoryStore for FileStore {
             path: self.abs(relative_path),
             source: e,
         })?;
+        let mut value = value;
+        inject_definition_schema(&mut value, srs_schema::TYPE_SCHEMA_ID);
         self.write_json(relative_path, &value)
     }
 
@@ -1598,6 +1600,8 @@ impl RepositoryStore for FileStore {
                 path: self.abs(relative_path),
                 source: e,
             })?;
+        let mut value = value;
+        inject_definition_schema(&mut value, srs_schema::RELATION_TYPE_SCHEMA_ID);
         self.write_json(relative_path, &value)
     }
 
@@ -1616,6 +1620,8 @@ impl RepositoryStore for FileStore {
             path: self.abs(relative_path),
             source: e,
         })?;
+        let mut value = value;
+        inject_definition_schema(&mut value, srs_schema::VIEW_SCHEMA_ID);
         self.write_json(relative_path, &value)
     }
 
@@ -1642,6 +1648,8 @@ impl RepositoryStore for FileStore {
             path: self.abs(relative_path),
             source: e,
         })?;
+        let mut value = value;
+        inject_definition_schema(&mut value, srs_schema::DOCUMENT_VIEW_SCHEMA_ID);
         self.write_json(relative_path, &value)
     }
 
@@ -1672,6 +1680,8 @@ impl RepositoryStore for FileStore {
             path: self.abs(relative_path),
             source: e,
         })?;
+        let mut value = value;
+        inject_definition_schema(&mut value, srs_schema::THEME_SCHEMA_ID);
         self.write_json(relative_path, &value)
     }
 
@@ -2232,6 +2242,19 @@ fn catalog_file_container_locator<S: RepositoryStore + ?Sized>(
         .filter(|e| e.locator.as_deref() != Some(crate::catalog::ROOT_CONTAINER_LOCATOR))
         .find(|e| e.id == container_id)
         .and_then(|e| e.locator))
+}
+
+/// Inject `$schema` into a serialized definition value when absent. The typed
+/// definition structs (`RecordType`, `View`, ...) mostly carry no `$schema`
+/// field, but RFC-038's catalog validates every definition against its schema
+/// — and type.json / relation-type.json / view.json / document-view.json /
+/// theme.json all REQUIRE `$schema` — so a writer that omits it produces a
+/// file its own repository can no longer load.
+pub(crate) fn inject_definition_schema(value: &mut serde_json::Value, schema_id: &str) {
+    if let serde_json::Value::Object(obj) = value {
+        obj.entry("$schema")
+            .or_insert_with(|| serde_json::Value::String(schema_id.to_string()));
+    }
 }
 
 /// Serialize a `Record` to its on-disk JSON value, injecting `$schema` (parity

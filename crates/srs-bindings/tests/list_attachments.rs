@@ -39,7 +39,10 @@ fn srsj_with_indexed_entry() -> String {
             "source-documents/brief.pdf": "pdf-content-placeholder",
             "source-documents/brief.meta.json": {
                 "documentId": "doc-001",
-                "contentPath": "brief.pdf"
+                "contentPath": "brief.pdf",
+                "contentType": "application/pdf",
+                "title": "Board Brief",
+                "createdAt": "2026-01-01T00:00:00Z"
             }
         }
     })
@@ -88,8 +91,10 @@ fn binding_list_attachments_with_indexed_entry() {
     assert_eq!(entry.path, "brief.pdf");
     assert_eq!(entry.document_id.as_deref(), Some("doc-001"));
     assert_eq!(entry.title.as_deref(), Some("Board Brief"));
-    assert_eq!(entry.content_checksum.as_deref(), Some("sha256:abc"));
-    assert_eq!(entry.sidecar_checksum.as_deref(), Some("sha256:def"));
+    // RFC-038 [R25]: the retired sourceDocumentIndex was the checksums' only
+    // carrier; sidecar-driven listing reports None.
+    assert!(entry.content_checksum.is_none());
+    assert!(entry.sidecar_checksum.is_none());
 }
 
 #[test]

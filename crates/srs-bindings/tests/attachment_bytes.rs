@@ -22,8 +22,11 @@ fn filestore_with_repo(tmp: &std::path::Path) -> FileStore {
     std::fs::write(
         tmp.join("package/package.json"),
         serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
             "id": "att-bytes-pkg", "namespace": "com.test.attbytes",
-            "name": "primary", "version": "1.0.0", "fields": [], "types": []
+            "name": "primary", "version": "1.0.0", "title": "primary",
+            "description": "", "status": "active",
+            "createdAt": "2026-01-01T00:00:00Z", "fields": [], "types": []
         })
         .to_string(),
     )
@@ -115,14 +118,18 @@ fn get_attachment_bytes_srsj_tombstone() {
             "srsVersion": "2.0-draft",
             "namespace": "com.test",
             "instanceIndex": [],
-            "sourceDocumentsPath": "source-documents",
-            "sourceDocumentIndex": [{
-                "documentId": "tomb-doc",
-                "sidecarPath": "tombstone.meta.json",
-                "contentPath": "tombstone.pdf"
-            }]
+            "sourceDocumentsPath": "source-documents"
         },
-        "data": {}
+        "data": {
+            // RFC-038 [R15]: the sidecar file IS the tombstone marker — the
+            // retired sourceDocumentIndex no longer registers documents.
+            "source-documents/tombstone.meta.json": {
+                "documentId": "tomb-doc",
+                "contentPath": "tombstone.pdf",
+                "contentType": "application/pdf",
+                "createdAt": "2026-01-01T00:00:00Z"
+            }
+        }
     })
     .to_string();
     let store = JsonStore::from_srsj(&srsj).expect("load store");

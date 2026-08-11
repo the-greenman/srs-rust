@@ -24,7 +24,12 @@ fn vocab_srsj() -> String {
         },
         "data": {
             "package/package.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                 "id": "pkg-vocab-001",
+                "title": "Test Package",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
                 "namespace": "com.test",
                 "name": "test-pkg",
                 "version": "1.0.0",

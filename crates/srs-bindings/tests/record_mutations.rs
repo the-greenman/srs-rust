@@ -21,7 +21,12 @@ fn minimal_srsj() -> String {
         },
         "data": {
             "package/package.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                 "id": "pkg-mutations-001",
+                "title": "Test Package",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
                 "namespace": "com.test",
                 "name": "test-package",
                 "version": "1.0.0",
@@ -32,16 +37,18 @@ fn minimal_srsj() -> String {
                 "documentViews": []
             },
             "package/fields/title.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
                 "id": "field-title-001",
                 "namespace": "com.test",
                 "name": "title",
                 "version": 1,
                 "fieldType": {"datatype": "string"},
                 "description": "Title field",
-                "aiGuidance": null,
+                "aiGuidance": {"purpose": "Test guidance"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/types/widget.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
                 "id": "type-widget-001",
                 "namespace": "com.test",
                 "name": "widget",

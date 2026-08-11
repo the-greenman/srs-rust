@@ -48,7 +48,12 @@ fn lifecycle_srsj() -> String {
         },
         "data": {
             "package/package.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                 "id": "pkg-lc-001",
+                "title": "Test Package",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
                 "namespace": "com.test.lc",
                 "name": "lc-package",
                 "version": "1.0.0",
@@ -63,13 +68,18 @@ fn lifecycle_srsj() -> String {
                 "documentViews": []
             },
             "package/fields/title-lc.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
                 "id": "field-title-lc",
                 "namespace": "com.test.lc",
                 "name": "title",
                 "version": 1,
+                "description": "Title",
+                "aiGuidance": {"purpose": "Test guidance"},
+                "createdAt": "2026-01-01T00:00:00Z",
                 "fieldType": {"datatype": "string"}
             },
             "package/types/proposal.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
                 "id": "type-proposal-001",
                 "namespace": "com.test.lc",
                 "name": "proposal",
@@ -97,6 +107,7 @@ fn lifecycle_srsj() -> String {
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/relationTypes/supersedes.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
                 "id": "rtd-lc-supersedes",
                 "namespace": "com.test.lc",
                 "name": "supersedes",
@@ -108,6 +119,7 @@ fn lifecycle_srsj() -> String {
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/relationTypes/refines.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
                 "id": "rtd-lc-refines",
                 "namespace": "com.test.lc",
                 "name": "refines",
@@ -119,6 +131,7 @@ fn lifecycle_srsj() -> String {
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/relationTypes/depends-on.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
                 "id": "rtd-lc-depends-on",
                 "namespace": "com.test.lc",
                 "name": "depends-on",
