@@ -273,7 +273,7 @@ pub fn migrate_identity(
         // IMPORTANT: Do NOT replace this with container_service::update_container.
         // For root containers, update_container calls begin_batch/commit_batch internally
         // (container_service.rs ~line 234). Nesting that inside this outer batch causes
-        // JsonStore to flush prematurely and disable batch protection for subsequent writes
+        // FileStore to flush prematurely and disable batch protection for subsequent writes
         // — violating ADR-021 atomicity on the WASM/srsj path. MemoryStore tests would not
         // catch this regression.
         //

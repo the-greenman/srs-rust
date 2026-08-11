@@ -169,7 +169,7 @@ pub(crate) fn tree_entries(
         let bytes = match source.load_binary_file(&path) {
             Ok(b) => b,
             // Stores that keep text and binary content separately (MemoryStore,
-            // JsonStore) serve sidecars through the text path.
+            // FileStore) serve sidecars through the text path.
             Err(e) if e.is_not_found() => source.load_text_file(&path)?.into_bytes(),
             Err(e) => return Err(e),
         };
@@ -828,9 +828,9 @@ mod tests {
         // Without the to_value fix, load_text_file("manifest.json") emits them in HashMap
         // iteration order (non-deterministic across process runs). With the fix, to_value
         // normalises all keys — typed fields and extra — into BTreeMap (sorted) order (ADR-017).
-        let srsj = r#"{"srsj":"1","manifest":{"instanceIndex":[],"repositoryId":"det-test-id","namespace":"com.example.det","srsVersion":"2.0-draft","title":"Det Test","zzz":"last","aaa":"first","createdAt":"2026-01-01T00:00:00Z"},"data":{"package/package.json":{"id":"p","namespace":"com.example.det","name":"n","version":"1","fields":[],"types":[],"relationTypes":[],"views":[],"documentViews":[]}}}"#;
+        let srsj = r#"{"srsj":"2","manifest":{"instanceIndex":[],"repositoryId":"det-test-id","namespace":"com.example.det","srsVersion":"2.0-draft","title":"Det Test","zzz":"last","aaa":"first","createdAt":"2026-01-01T00:00:00Z"},"data":{"package/package.json":{"id":"p","namespace":"com.example.det","name":"n","version":"1","fields":[],"types":[],"relationTypes":[],"views":[],"documentViews":[]}}}"#;
 
-        let store = crate::JsonStore::from_srsj(srsj).unwrap();
+        let store = crate::srsj::open_srsj(srsj).unwrap();
         let archive_bytes = pack_to_bytes(&store);
 
         // Read the raw (unreparsed) manifest.json bytes from the archive.
@@ -884,10 +884,9 @@ mod tests {
         );
         file_store.save_manifest(&manifest).unwrap();
 
-        // Initialize JsonStore with the same input and pin the same createdAt.
-        let json_dir = TempDir::new().unwrap();
-        let json_path = json_dir.path().join("repo.srsj");
-        let json_store = crate::JsonStore::create(&json_path).unwrap();
+        // Initialize a MemVfs tree session (the `.srsj` carrier's operational
+        // store) with the same input and pin the same createdAt.
+        let json_store = crate::tree_session::new_tree_session();
         json_store
             .initialize_repository(&init_input)
             .expect("initialize json store");
@@ -905,7 +904,7 @@ mod tests {
         let manifest_from_json = extract_zip_entry(&json_bytes, "manifest.json");
         assert_eq!(
             manifest_from_file, manifest_from_json,
-            "manifest.json differs between FileStore and JsonStore packs (issue #654)"
+            "manifest.json differs between a disk FileStore and a tree session pack (issue #654)"
         );
     }
 
@@ -1358,7 +1357,8 @@ mod tests {
 
         let bytes = pack_to_bytes(&source);
 
-        let store = crate::JsonStore::from_archive(&bytes).expect("from_archive should succeed");
+        let store = crate::archive::archive_to_tree(std::io::Cursor::new(&bytes))
+            .expect("from_archive should succeed");
         let result =
             list_notes(&store, ListNotesFilter::default()).expect("list_notes on reloaded store");
         assert_eq!(
@@ -1372,7 +1372,7 @@ mod tests {
     #[test]
     fn test_load_from_archive_rejects_invalid_bytes() {
         assert!(
-            crate::JsonStore::from_archive(b"not a zip").is_err(),
+            crate::archive::archive_to_tree(std::io::Cursor::new(b"not a zip")).is_err(),
             "from_archive must fail on invalid bytes"
         );
     }

@@ -1,5 +1,5 @@
 {
-  "srsj": "1",
+  "srsj": "2",
   "manifest": {
     "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
     "container": {

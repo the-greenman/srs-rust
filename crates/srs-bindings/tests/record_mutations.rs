@@ -3,7 +3,7 @@
 //! These are native Rust tests (not `#[wasm_bindgen_test]`) so they run with
 //! `cargo test -p srs-bindings` without a browser or wasm-pack build.
 //!
-//! We use `JsonStore::from_srsj` with a hand-crafted minimal `.srsj` that contains
+//! We use `srs_repository::srsj::open_srsj` with a hand-crafted minimal `.srsj` that contains
 //! one field ("title", required) and one type ("widget") backed by that field.
 
 use srs_bindings::SrsRepository;
@@ -11,7 +11,7 @@ use srs_bindings::SrsRepository;
 /// Minimal `.srsj` with one type that has a single required String field.
 fn minimal_srsj() -> String {
     serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-repo-mutations",
             "srsVersion": "2.0-draft",
@@ -87,11 +87,10 @@ fn create_record_returns_record_with_expected_type_id() {
     // Display impl or by checking the serialised string directly.
     //
     // Simplest approach: call the underlying service directly with the same
-    // JsonStore that powers the binding, verifying the full code path.
+    // FileStore that powers the binding, verifying the full code path.
     use srs_repository::record_store;
-    use srs_repository::JsonStore;
 
-    let store = JsonStore::from_srsj(&minimal_srsj()).expect("load");
+    let store = srs_repository::srsj::open_srsj(&minimal_srsj()).expect("load");
     let record = record_store::create_record(
         &store,
         "type-widget-001",
@@ -120,9 +119,8 @@ fn create_record_returns_record_with_expected_type_id() {
 #[test]
 fn update_record_changes_field_value() {
     use srs_repository::record_store;
-    use srs_repository::JsonStore;
 
-    let store = JsonStore::from_srsj(&minimal_srsj()).expect("load");
+    let store = srs_repository::srsj::open_srsj(&minimal_srsj()).expect("load");
 
     // Create
     let record = record_store::create_record(
@@ -168,9 +166,8 @@ fn update_record_changes_field_value() {
 #[test]
 fn delete_record_makes_get_return_none() {
     use srs_repository::record_store;
-    use srs_repository::JsonStore;
 
-    let store = JsonStore::from_srsj(&minimal_srsj()).expect("load");
+    let store = srs_repository::srsj::open_srsj(&minimal_srsj()).expect("load");
 
     // Create
     let record = record_store::create_record(
@@ -207,9 +204,8 @@ fn delete_record_makes_get_return_none() {
 #[test]
 fn create_record_missing_required_field_errors() {
     use srs_repository::record_store;
-    use srs_repository::JsonStore;
 
-    let store = JsonStore::from_srsj(&minimal_srsj()).expect("load");
+    let store = srs_repository::srsj::open_srsj(&minimal_srsj()).expect("load");
 
     // Attempt to create without supplying the required `title` field
     let result = record_store::create_record(

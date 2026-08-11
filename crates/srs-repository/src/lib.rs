@@ -26,7 +26,6 @@ pub mod field_type_migration_service;
 pub mod governance_scaffold_service;
 pub mod index;
 pub mod input_normalization;
-pub mod json_store;
 pub mod lifecycle_service;
 pub mod loader;
 pub mod manifest;
@@ -74,7 +73,6 @@ pub mod writer;
 
 pub use archive::{archive_pack, archive_to_tree, archive_to_vec, archive_unpack};
 pub use export_service::{export_record_bundle, ExportBundleInput, ExportBundleMetadata};
-pub use json_store::JsonStore;
 pub use okf_export_service::{export_okf_bundle, OkfBundle, OkfEntry, OkfExportInput};
 pub use package::EffectiveLifecycle;
 pub use package_types::{
@@ -85,4 +83,4 @@ pub use repository_portability::{
     upgrade_repository_paths, InstancePathRename, UpgradeRepositoryPathsResult,
 };
 pub use store::{FileStore, RepositoryStore};
-pub use tree_session::{export_tree, materialize_tree, open_tree};
+pub use tree_session::{export_tree, materialize_tree, new_tree_session, open_tree};

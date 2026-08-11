@@ -32,6 +32,16 @@ pub fn open_tree(files: BTreeMap<String, Vec<u8>>) -> Result<FileStore, Reposito
     Ok(FileStore::from_vfs(vfs))
 }
 
+/// A fresh, empty tree session.
+///
+/// The starting point for a repository that does not exist yet — `repo create`
+/// on a `.srsj` target, a snapshot import target, a test double. Unlike
+/// [`open_tree`] it requires no `manifest.json`, because the caller is about to
+/// write one.
+pub fn new_tree_session() -> FileStore {
+    FileStore::from_vfs(Rc::new(MemVfs::new()))
+}
+
 /// Export a tree session as a path→bytes map — the raw `MemVfs` snapshot.
 ///
 /// Emits `.srs/.gitkeep` (0-byte) when no file under `.srs/` exists, so the
@@ -56,7 +66,7 @@ pub fn export_tree(store: &FileStore) -> Result<BTreeMap<String, Vec<u8>>, Repos
 
 /// Materialize any repository into a fresh in-memory tree session.
 ///
-/// The bridge from codec-loaded sources (a `JsonStore` `.srsj` session, a legacy snapshot
+/// The bridge from codec-loaded sources (a `FileStore` `.srsj` session, a legacy snapshot
 /// archive) into the operational tree model. It reproduces the source's **real** file tree
 /// faithfully — the same authoritative enumeration `archive_pack` uses
 /// (`archive::tree_entries`) — then opens it as a MemVfs-backed `FileStore`.

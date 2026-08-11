@@ -1,45 +1,17 @@
-//! Pre-load bundle-format migrations for `.srsj` JSON strings.
+//! Offline RFC-014 seed preparation for `.srsj` JSON strings.
 //!
-//! These functions operate on raw `.srsj` bytes **before** a `RepositoryStore` is constructed.
-//! They are intentionally outside the `MIGRATIONS` static registry in
+//! This operates on raw `.srsj` bytes **before** a `RepositoryStore` is constructed.
+//! It is intentionally outside the `MIGRATIONS` static registry in
 //! `migration_registry_service.rs` (see ADR-032): by the time any store exists the
 //! RFC-014 transformation has already been applied, so a registry `status_fn` would always
-//! return `AlreadyApplied` — noise, not signal. Pre-load migrations remain standalone entry
-//! points called directly at bundle-load time — `load_from_srsj` (this module) is the
-//! public entry point; `JsonStore::from_srsj` is its lower-level delegate and does **not**
-//! apply the migration.
+//! return `AlreadyApplied` — noise, not signal.
+//!
+//! It is **not** part of any read path. RFC-038 [R21] forbids a reader coercing or
+//! migrating data in place, so `srsj::open_srsj` applies nothing; this function is
+//! called explicitly by the tools that stamp a bundled governance seed
+//! (`srs-gov repo-create`, `generate-governance-seed`).
 
 use crate::error::RepositoryError;
-
-/// Migrate a raw `.srsj` string (RFC-014) and load it into a `JsonStore` in one call.
-///
-/// Equivalent to `JsonStore::from_srsj(&migrate_rfc014(srsj_str)?)`, but presented
-/// as a single entry point so callers (e.g. WASM bindings) satisfy the one-service-call
-/// rule without embedding migration logic themselves.
-pub fn load_from_srsj(srsj_str: &str) -> Result<crate::JsonStore, RepositoryError> {
-    let migrated = migrate_rfc014(srsj_str)?;
-    crate::JsonStore::from_srsj(&migrated)
-}
-
-/// Project any repository as a `.srsj` string (ADR-038: `.srsj` is a boundary
-/// codec, not session state).
-///
-/// Snapshot export → in-memory `JsonStore` → `to_srsj_string`. The projection
-/// re-canonicalizes instance/definition paths — acceptable for an interchange
-/// format; the operational tree keeps real paths.
-pub fn export_srsj_string(
-    source: &dyn crate::store::RepositoryStore,
-) -> Result<String, RepositoryError> {
-    let snapshot = crate::repository_portability::export_repository_snapshot_with_options(
-        source,
-        crate::repository_portability::ExportSnapshotOptions {
-            include_content_blobs: true,
-        },
-    )?;
-    let codec = crate::JsonStore::new_in_memory();
-    crate::repository_portability::import_repository_snapshot(&codec, &snapshot)?;
-    codec.to_srsj_string()
-}
 
 /// Apply the RFC-014 manifest migration to a raw `.srsj` JSON string.
 ///

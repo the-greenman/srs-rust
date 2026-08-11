@@ -9,10 +9,8 @@
 use srs_repository::record_store::{
     list_record_summaries, update_record, RecordListFilter, UpdateRecordInput,
 };
-use srs_repository::srsj_migration_service::{export_srsj_string, load_from_srsj};
-use srs_repository::{
-    archive_to_tree, archive_to_vec, export_tree, materialize_tree, open_tree, RepositoryStore,
-};
+use srs_repository::srsj::{open_srsj, to_srsj_string};
+use srs_repository::{archive_to_tree, archive_to_vec, export_tree, open_tree, RepositoryStore};
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -99,7 +97,7 @@ fn tree_binding_flow_single_edit_single_diff() {
 #[test]
 #[ignore = "srs-rust#783 Phase 3: shared exploded-basic fixture is pre-RFC-038 (embed+file dup root, aiGuidance-less fields) and catalog-backed store ops are now fatally strict — fixture regeneration + codec alignment is Phase 4 (see tests/tree_session.rs)"]
 fn srsj_codec_flow_roundtrip_parity() {
-    // Build an .srsj the way a JsonStore session would carry it.
+    // Build an .srsj the way a FileStore session would carry it.
     let base = fixture_map();
     let mut data = serde_json::Map::new();
     let mut manifest = serde_json::Value::Null;
@@ -111,16 +109,14 @@ fn srsj_codec_flow_roundtrip_parity() {
         }
     }
     let envelope =
-        serde_json::json!({ "srsj": "1", "manifest": manifest, "data": data }).to_string();
+        serde_json::json!({ "srsj": "2", "manifest": manifest, "data": data }).to_string();
 
-    // load(): codec → materialize.
-    let codec = load_from_srsj(&envelope).expect("load_from_srsj");
-    let session = materialize_tree(&codec).expect("materialize_tree");
+    // load(): the codec decodes straight into the operational tree session.
+    let session = open_srsj(&envelope).expect("open_srsj");
 
     // export_srsj() → load() again: inventory parity.
-    let exported = export_srsj_string(&session).expect("export_srsj_string");
-    let codec2 = load_from_srsj(&exported).expect("reload exported srsj");
-    let session2 = materialize_tree(&codec2).expect("re-materialize");
+    let exported = to_srsj_string(&session).expect("to_srsj_string");
+    let session2 = open_srsj(&exported).expect("reload exported srsj");
 
     let ids = |s: &dyn RepositoryStore| -> Vec<String> {
         let mut v: Vec<String> = list_record_summaries(s, RecordListFilter::default())

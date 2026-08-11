@@ -1,15 +1,14 @@
 //! Smoke tests for the WASM `available_migrations` and `apply_migration` bindings (#461).
 //!
 //! Native Rust tests — run with `cargo test -p srs-bindings`. Exercises the underlying
-//! service directly via `JsonStore::from_srsj`, since `to_js()` calls `js_sys::JSON::parse`
+//! service directly via `srs_repository::srsj::open_srsj`, since `to_js()` calls `js_sys::JSON::parse`
 //! which panics off-wasm. The wasm-pack build proves the `#[wasm_bindgen]` exports compile.
 
 use srs_repository::migration_registry_service::{self, MigrationStatus};
-use srs_repository::JsonStore;
 
 fn minimal_srsj() -> String {
     serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-migration-registry",
             "srsVersion": "2.0-draft",
@@ -42,7 +41,7 @@ fn minimal_srsj() -> String {
 
 #[test]
 fn available_migrations_lists_the_registered_migrations_with_status() {
-    let store = JsonStore::from_srsj(&minimal_srsj()).expect("fixture must load");
+    let store = srs_repository::srsj::open_srsj(&minimal_srsj()).expect("fixture must load");
 
     let migrations =
         migration_registry_service::list_migrations(&store).expect("list_migrations must succeed");
@@ -71,7 +70,7 @@ fn available_migrations_lists_the_registered_migrations_with_status() {
 
 #[test]
 fn apply_migration_repo_upgrade_on_canonical_repo() {
-    let store = JsonStore::from_srsj(&minimal_srsj()).expect("fixture must load");
+    let store = srs_repository::srsj::open_srsj(&minimal_srsj()).expect("fixture must load");
 
     let result = migration_registry_service::apply_migration(&store, "repo-upgrade")
         .expect("apply_migration must succeed on canonical repo");
@@ -85,7 +84,7 @@ fn apply_migration_repo_upgrade_on_canonical_repo() {
 
 #[test]
 fn apply_migration_unknown_id_returns_error() {
-    let store = JsonStore::from_srsj(&minimal_srsj()).expect("fixture must load");
+    let store = srs_repository::srsj::open_srsj(&minimal_srsj()).expect("fixture must load");
 
     let err = migration_registry_service::apply_migration(&store, "nonexistent-migration")
         .expect_err("unknown migration ID must return an error");
@@ -102,9 +101,9 @@ fn apply_migration_via_registry_migrate_identity() {
     let container_id = "550e8400-e29b-41d4-a716-446655440000";
     let note_id = "bbbb0001-0000-4000-8000-000000000001";
 
-    // Build the fixture as a JsonStore via SRSJ so MemoryStore (test-only) is not needed.
+    // Build the fixture as a FileStore via SRSJ so MemoryStore (test-only) is not needed.
     let srsj = serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": container_id,
             "srsVersion": "2.0-draft",
@@ -148,7 +147,7 @@ fn apply_migration_via_registry_migrate_identity() {
     })
     .to_string();
 
-    let store = JsonStore::from_srsj(&srsj).expect("fixture must load");
+    let store = srs_repository::srsj::open_srsj(&srsj).expect("fixture must load");
 
     // Before apply: migrate-identity should be Needed.
     let before = migration_registry_service::list_migrations(&store).unwrap();

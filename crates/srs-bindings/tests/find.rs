@@ -2,12 +2,12 @@
 //!
 //! Native Rust test (not `#[wasm_bindgen_test]`) — runs with `cargo test -p srs-bindings`
 //! without a browser or wasm-pack build. Exercises `discovery_service::find` directly
-//! via `JsonStore::from_srsj`, not the `SrsRepository::find()` binding method,
+//! via `srs_repository::srsj::open_srsj`, not the `SrsRepository::find()` binding method,
 //! because `to_js()` calls `js_sys::JSON::parse` which panics off-wasm.
 //! The wasm-pack build proves the binding itself compiles and is exported.
 
 use srs_repository::discovery_service::{find, DiscoveryQuery};
-use srs_repository::JsonStore;
+use srs_repository::FileStore;
 
 const FIELD_TITLE: &str = "11111111-1111-4111-8111-111111111111";
 const FIELD_DESC: &str = "22222222-2222-4222-8222-222222222222";
@@ -15,9 +15,9 @@ const TYPE_ID: &str = "33333333-3333-4333-8333-333333333333";
 const REC_AUTHORITY: &str = "44444444-4444-4444-8444-444444444444";
 const REC_SECURITY: &str = "55555555-5555-4555-8555-555555555555";
 
-fn fixture_store() -> JsonStore {
+fn fixture_store() -> FileStore {
     let srsj = serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-repo-find",
             "srsVersion": "2.0-draft",
@@ -93,7 +93,7 @@ fn fixture_store() -> JsonStore {
         }
     })
     .to_string();
-    JsonStore::from_srsj(&srsj).expect("fixture srsj must load")
+    srs_repository::srsj::open_srsj(&srsj).expect("fixture srsj must load")
 }
 
 /// Empty query returns all Tier-2 records.

@@ -2,7 +2,7 @@
 //!
 //! Native Rust tests (not `#[wasm_bindgen_test]`) — run with `cargo test -p srs-bindings`
 //! without a browser or wasm-pack build. Exercises the service functions directly via
-//! `JsonStore::from_srsj` rather than through `SrsRepository::context_*()` because
+//! `srs_repository::srsj::open_srsj` rather than through `SrsRepository::context_*()` because
 //! `to_js()` calls `js_sys::JSON::parse` which panics off-wasm.
 //! The wasm-pack build proves the binding methods compile and are exported.
 
@@ -10,16 +10,16 @@ use srs_repository::context_query_service::{
     get_field_context, get_record_context, get_revision_trace, FieldContextQuery,
     RecordContextQuery, RevisionTraceQuery,
 };
-use srs_repository::JsonStore;
+use srs_repository::FileStore;
 
 const FIELD_TITLE: &str = "aaaa0001-0000-4000-8000-000000000001";
 const TYPE_ID: &str = "bbbb0001-0000-4000-8000-000000000001";
 const RECORD_ID: &str = "cccc0001-0000-4000-8000-000000000001";
 const REVISION_ID: &str = "dddd0001-0000-4000-8000-000000000001";
 
-fn fixture_store() -> JsonStore {
+fn fixture_store() -> FileStore {
     let srsj = serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-repo-context",
             "srsVersion": "2.0-draft",
@@ -94,7 +94,7 @@ fn fixture_store() -> JsonStore {
         }
     })
     .to_string();
-    JsonStore::from_srsj(&srsj).expect("fixture srsj must load")
+    srs_repository::srsj::open_srsj(&srsj).expect("fixture srsj must load")
 }
 
 #[test]

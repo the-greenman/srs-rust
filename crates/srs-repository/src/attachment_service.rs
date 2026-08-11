@@ -1183,14 +1183,12 @@ mod tests {
         );
     }
 
-    /// Regression for #647 (JsonStore / WASM path): add_attachment writes to binary_files;
-    /// list_attachments must find the entry via list_files_recursive on JsonStore.
+    /// Regression for #647 (FileStore / WASM path): add_attachment writes to binary_files;
+    /// list_attachments must find the entry via list_files_recursive on FileStore.
     #[test]
     fn add_then_list_attachments_json_store() {
-        use crate::json_store::JsonStore;
-
         let srsj = serde_json::json!({
-            "srsj": "1",
+            "srsj": "2",
             "manifest": {
                 "srsVersion": "2.0-draft",
                 "namespace": "com.test",
@@ -1199,7 +1197,7 @@ mod tests {
             "data": {}
         })
         .to_string();
-        let store = JsonStore::from_srsj(&srsj).expect("valid minimal JsonStore");
+        let store = crate::srsj::open_srsj(&srsj).expect("valid minimal FileStore");
 
         let add_result = add_attachment(
             &store,
@@ -1218,7 +1216,7 @@ mod tests {
         assert_eq!(
             list_result.entries.len(),
             1,
-            "add_attachment must be visible to list_attachments on JsonStore (WASM path)"
+            "add_attachment must be visible to list_attachments on FileStore (WASM path)"
         );
         let entry = &list_result.entries[0];
         assert_eq!(entry.path, "brief.pdf");

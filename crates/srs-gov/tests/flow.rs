@@ -916,7 +916,7 @@ fn list_tag_narrows_by_tag() {
 // ---------------------------------------------------------------------------
 // Gate A: srs-gov attachment add / list  (#282)
 //
-// Attachment tests use a directory-format repo (not .srsj) because JsonStore
+// Attachment tests use a directory-format repo (not .srsj) because FileStore
 // silently discards binary file writes — the content file is never stored,
 // so list_files_recursive returns nothing. Directory repos write to disk and
 // list_files_recursive walks the filesystem correctly.

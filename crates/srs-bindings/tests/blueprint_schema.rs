@@ -4,16 +4,15 @@
 //! without a browser or wasm-pack build. Following the pattern of the other binding tests in
 //! this crate: in native tests the binding's `JsValue` return path is not usable (it calls
 //! into JS via `JSON::parse`), so we exercise the exact same service the binding wraps against
-//! the same `JsonStore::from_srsj` fixture. The wasm-pack build proves the binding itself
+//! the same `srs_repository::srsj::open_srsj` fixture. The wasm-pack build proves the binding itself
 //! compiles and is `#[wasm_bindgen]`-exported.
 
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
-use srs_repository::JsonStore;
 
 /// Minimal `.srsj` with two types and a blueprint (root `guide`, `contains` → `section`).
 fn blueprint_srsj() -> String {
     serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-repo-blueprint",
             "srsVersion": "2.0-draft",
@@ -100,7 +99,8 @@ fn blueprint_srsj() -> String {
 
 #[test]
 fn blueprint_schema_returns_root_and_child_definitions() {
-    let store = JsonStore::from_srsj(&blueprint_srsj()).expect("blueprint srsj must load");
+    let store =
+        srs_repository::srsj::open_srsj(&blueprint_srsj()).expect("blueprint srsj must load");
     let result = blueprint_schema_service::blueprint_schema(
         &store,
         BlueprintSchemaInput {
@@ -146,7 +146,8 @@ fn blueprint_schema_returns_root_and_child_definitions() {
 
 #[test]
 fn blueprint_schema_unknown_id_errors() {
-    let store = JsonStore::from_srsj(&blueprint_srsj()).expect("blueprint srsj must load");
+    let store =
+        srs_repository::srsj::open_srsj(&blueprint_srsj()).expect("blueprint srsj must load");
     assert!(
         blueprint_schema_service::blueprint_schema(
             &store,

@@ -2,7 +2,7 @@
 //!
 //! Native Rust test (not `#[wasm_bindgen_test]`) — runs with `cargo test -p srs-bindings`
 //! without a browser or wasm-pack build. Follows the same pattern as the other binding tests:
-//! exercise the underlying service directly via `JsonStore::from_srsj`, since `to_js()` calls
+//! exercise the underlying service directly via `srs_repository::srsj::open_srsj`, since `to_js()` calls
 //! `js_sys::JSON::parse` which panics off-wasm. The wasm-pack build proves the `#[wasm_bindgen]`
 //! export compiles.
 //!
@@ -11,12 +11,12 @@
 //! empty-envelope path.
 
 use srs_repository::blueprint_service;
-use srs_repository::JsonStore;
+use srs_repository::FileStore;
 
 /// Minimal `.srsj` with one blueprint registered in the package boundary.
 fn blueprint_srsj() -> String {
     serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-repo-blueprint-list",
             "srsVersion": "2.0-draft",
@@ -101,16 +101,17 @@ fn blueprint_srsj() -> String {
     .to_string()
 }
 
-fn gallery_store() -> JsonStore {
-    let srsj = include_str!("fixtures/gallery.srsj");
-    JsonStore::from_srsj(srsj).expect("gallery srsj must load")
+fn gallery_store() -> FileStore {
+    let srsj = include_str!("../../srs-repository/tests/fixtures/gallery.srsj");
+    srs_repository::srsj::open_srsj(srsj).expect("gallery srsj must load")
 }
 
 /// A repo with one registered blueprint returns a single summary carrying its identity and
 /// root-type count — the shape the web client lists in a blueprint picker.
 #[test]
 fn list_blueprints_returns_summaries() {
-    let store = JsonStore::from_srsj(&blueprint_srsj()).expect("blueprint srsj must load");
+    let store =
+        srs_repository::srsj::open_srsj(&blueprint_srsj()).expect("blueprint srsj must load");
     let result =
         blueprint_service::list_blueprints_summary(&store).expect("list_blueprints must succeed");
 

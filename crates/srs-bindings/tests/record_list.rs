@@ -3,11 +3,10 @@
 //! Native Rust test (not `#[wasm_bindgen_test]`) — runs with `cargo test -p srs-bindings`
 //! without a browser or wasm-pack build. Follows the same pattern as the other binding tests
 //! (see `container_view.rs`): exercise the underlying service directly via
-//! `JsonStore::from_srsj`, since the binding's `to_js()` calls `js_sys::JSON::parse` which
+//! `srs_repository::srsj::open_srsj`, since the binding's `to_js()` calls `js_sys::JSON::parse` which
 //! panics off-wasm. The wasm-pack build proves the `#[wasm_bindgen]` export compiles.
 
 use srs_repository::record_store::{list_record_summaries, RecordListFilter};
-use srs_repository::JsonStore;
 
 const TYPE_ID: &str = "11111111-1111-4111-8111-111111111111";
 const REC_TITLED: &str = "33333333-3333-4333-8333-333333333333";
@@ -19,7 +18,7 @@ const FIELD_SUMMARY: &str = "88888888-8888-4888-8888-888888888888";
 /// one with only a non-label `summary` field (exercising the `type_name` fallback).
 fn fixture_srsj() -> String {
     serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-repo-record-list",
             "srsVersion": "2.0-draft",
@@ -95,7 +94,7 @@ fn fixture_srsj() -> String {
 /// (title when present, else the type_name fallback), with the full `Record` nested.
 #[test]
 fn list_record_summaries_carries_core_display_label() {
-    let store = JsonStore::from_srsj(&fixture_srsj()).expect("fixture srsj must load");
+    let store = srs_repository::srsj::open_srsj(&fixture_srsj()).expect("fixture srsj must load");
     let summaries =
         list_record_summaries(&store, RecordListFilter::default()).expect("list must succeed");
 

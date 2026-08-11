@@ -1,5 +1,5 @@
 {
-  "srsj": "1",
+  "srsj": "2",
   "manifest": {
     "containerIndex": [
       {
@@ -190,27 +190,8 @@
       ],
       "title": "Articles"
     },
-    "manifest.json": {
-      "containerIndex": [
-        {
-          "containerId": "f7562aa3-98c7-44be-b4c5-5474df6441f2",
-          "title": "Articles"
-        },
-        {
-          "containerId": "b30db206-e9a7-4588-a9aa-53451aacd243",
-          "title": "Roles"
-        },
-        {
-          "containerId": "138e2fac-6a8a-4a06-9511-5aefd99ceae9",
-          "title": "Decisions"
-        },
-        {
-          "containerId": "ece00010-0000-4000-8000-000000000010",
-          "title": "Exercises"
-        }
-      ]
-    },
     "package/document-views/articles-and-roles-78b11038.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Renders the Articles of Association together with the current role holders.",
       "format": "markdown",
@@ -245,12 +226,12 @@
           "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
         }
       ],
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json"
+      "version": 1
     },
     "package/document-views/decision-deliberation-5a3ce87e.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
       "createdAt": "2026-05-31T00:00:00Z",
-      "description": "Full deliberation view \u2014 shows all fields including question, context, friction, alternatives, requirements, statement, rationale, next steps, owner, revisit, and status.",
+      "description": "Full deliberation view — shows all fields including question, context, friction, alternatives, requirements, statement, rationale, next steps, owner, revisit, and status.",
       "format": "markdown",
       "id": "5a3ce87e-8340-4d91-a140-ab56b57f704f",
       "name": "decision-deliberation",
@@ -268,12 +249,12 @@
           "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
         }
       ],
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json"
+      "version": 1
     },
     "package/document-views/decision-log-b5c8d124.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
       "createdAt": "2026-05-31T00:00:00Z",
-      "description": "Decision log view \u2014 compact summary showing only decision statement, alternatives considered, rationale, and revisit trigger.",
+      "description": "Decision log view — compact summary showing only decision statement, alternatives considered, rationale, and revisit trigger.",
       "format": "markdown",
       "id": "b5c8d124-2084-4a6b-a231-425e800e1e55",
       "name": "decision-log",
@@ -292,10 +273,13 @@
           "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
         }
       ],
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json"
+      "version": 1
     },
     "package/fields/alternativesconsidered-636ce948.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the alternatives_considered value"
+      },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Options that were considered but not chosen.",
       "fieldType": {
@@ -305,13 +289,13 @@
       "id": "636ce948-2110-57b4-a3ed-04354ec17843",
       "name": "alternatives_considered",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the alternatives_considered value"
-      }
+      "version": 1
     },
     "package/fields/amendmentrule-1f01bc6b.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the amendment_rule value"
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The process or conditions under which this article may be amended or repealed.",
       "fieldType": {
@@ -321,13 +305,13 @@
       "id": "1f01bc6b-39c8-58d7-b1a3-79142623fece",
       "name": "amendment_rule",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the amendment_rule value"
-      }
+      "version": 1
     },
     "package/fields/articlenumber-60be1468.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the article_number value"
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "Stable local reference identifier for the article, e.g. A-001.",
       "fieldType": {
@@ -336,13 +320,13 @@
       "id": "60be1468-01bc-5d12-9eea-628f02801893",
       "name": "article_number",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the article_number value"
-      }
+      "version": 1
     },
     "package/fields/articletext-8aa3eba2.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the article_text value"
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The operative text of the article.",
       "fieldType": {
@@ -352,13 +336,13 @@
       "id": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6",
       "name": "article_text",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the article_text value"
-      }
+      "version": 1
     },
     "package/fields/authority-d25da548.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the authority value"
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "What this role may decide or act on without requiring group agreement.",
       "fieldType": {
@@ -368,13 +352,13 @@
       "id": "d25da548-79d6-555b-8878-f40b685b3955",
       "name": "authority",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the authority value"
-      }
+      "version": 1
     },
     "package/fields/blocking-f4e00004.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the blocking value"
+      },
       "createdAt": "2026-06-27T00:00:00Z",
       "description": "What is currently blocking the group from moving forward.",
       "fieldType": {
@@ -384,15 +368,15 @@
       "id": "f4e00004-0000-4000-8000-000000000004",
       "name": "blocking",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the blocking value"
-      }
+      "version": 1
     },
     "package/fields/boundary-3c39ee1f.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the boundary value"
+      },
       "createdAt": "2026-05-26T00:00:00Z",
-      "description": "The limits of this role \u2014 where the role's authority ends or must be shared.",
+      "description": "The limits of this role — where the role's authority ends or must be shared.",
       "fieldType": {
         "datatype": "string",
         "format": "plain"
@@ -400,13 +384,13 @@
       "id": "3c39ee1f-6fe0-5da7-a0b6-928aa3a63211",
       "name": "boundary",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the boundary value"
-      }
+      "version": 1
     },
     "package/fields/context-9889052c.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the context value"
+      },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Background that makes the matter meaningful.",
       "fieldType": {
@@ -416,13 +400,13 @@
       "id": "9889052c-9313-5e2f-a2ac-15baa3c6983e",
       "name": "context",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the context value"
-      }
+      "version": 1
     },
     "package/fields/decisionquestion-73cd845a.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the decision_question value"
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The single concrete question this decision answers.",
       "fieldType": {
@@ -431,13 +415,13 @@
       "id": "73cd845a-3623-5bc6-8ade-42a7cd64740c",
       "name": "decision_question",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the decision_question value"
-      }
+      "version": 1
     },
     "package/fields/decisionstatement-de1296e0.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the decision_statement value"
+      },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "What was decided.",
       "fieldType": {
@@ -447,13 +431,13 @@
       "id": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
       "name": "decision_statement",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the decision_statement value"
-      }
+      "version": 1
     },
     "package/fields/friction-1a1c0a5d.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the friction value"
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The specific pain, conflict, or gap that makes a decision necessary now.",
       "fieldType": {
@@ -463,13 +447,13 @@
       "id": "1a1c0a5d-a1df-5d03-95f2-32af73bb71da",
       "name": "friction",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the friction value"
-      }
+      "version": 1
     },
     "package/fields/keyrequirements-a952604c.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the key_requirements value"
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The standards, values, constraints, and trade-offs used to evaluate options.",
       "fieldType": {
@@ -479,13 +463,13 @@
       "id": "a952604c-d150-5315-bfc1-7229ddc1d636",
       "name": "key_requirements",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the key_requirements value"
-      }
+      "version": 1
     },
     "package/fields/nextaction-f5e00005.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the next_action value"
+      },
       "createdAt": "2026-06-27T00:00:00Z",
       "description": "The agreed next action emerging from the exercise.",
       "fieldType": {
@@ -495,13 +479,13 @@
       "id": "f5e00005-0000-4000-8000-000000000005",
       "name": "next_action",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the next_action value"
-      }
+      "version": 1
     },
     "package/fields/nextsteps-4181f210.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the next_steps value"
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "Actions or tasks that emerge from the decision.",
       "fieldType": {
@@ -511,13 +495,13 @@
       "id": "4181f210-f4be-5587-950e-890eda2a5590",
       "name": "next_steps",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the next_steps value"
-      }
+      "version": 1
     },
     "package/fields/owner-4b34847c.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the owner value"
+      },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Person, role, group, or function responsible for stewardship of this record.",
       "fieldType": {
@@ -526,13 +510,13 @@
       "id": "4b34847c-26d1-56be-bc10-844aeb704df7",
       "name": "owner",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the owner value"
-      }
+      "version": 1
     },
     "package/fields/protectedstatus-0df40543.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the protected_status value"
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "Whether this article is protected from ordinary amendment by the group.",
       "fieldType": {
@@ -541,13 +525,13 @@
       "id": "0df40543-f72a-5471-a7f1-c85c1f1f93e4",
       "name": "protected_status",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the protected_status value"
-      }
+      "version": 1
     },
     "package/fields/rationale-3340532b.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the rationale value"
+      },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Reasoning behind the decision.",
       "fieldType": {
@@ -557,13 +541,13 @@
       "id": "3340532b-d845-5e54-92b3-819ed05365c5",
       "name": "rationale",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the rationale value"
-      }
+      "version": 1
     },
     "package/fields/revisitwhen-c04b7f84.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the revisit_when value"
+      },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Conditions, dates, or triggers that should cause the record to be reviewed.",
       "fieldType": {
@@ -573,13 +557,13 @@
       "id": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
       "name": "revisit_when",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the revisit_when value"
-      }
+      "version": 1
     },
     "package/fields/roleholder-a6c19b95.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the role_holder value"
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "The person, team, group, or function currently holding this role.",
       "fieldType": {
@@ -588,13 +572,13 @@
       "id": "a6c19b95-4f8f-5b07-93f8-3426c545277e",
       "name": "role_holder",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the role_holder value"
-      }
+      "version": 1
     },
     "package/fields/sourceofauthority-9a32dc01.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the source_of_authority value"
+      },
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "How this authority was conferred: inherited, delegated, elected, appointed, constitutional, etc.",
       "fieldType": {
@@ -603,13 +587,13 @@
       "id": "9a32dc01-f348-5e05-9f54-bb6d21239f04",
       "name": "source_of_authority",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the source_of_authority value"
-      }
+      "version": 1
     },
     "package/fields/tensions-f2e00002.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the tensions value"
+      },
       "createdAt": "2026-06-27T00:00:00Z",
       "description": "Tensions or conflicts surfaced during the exercise.",
       "fieldType": {
@@ -619,13 +603,13 @@
       "id": "f2e00002-0000-4000-8000-000000000002",
       "name": "tensions",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the tensions value"
-      }
+      "version": 1
     },
     "package/fields/thinkingreached-f1e00001.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the thinking_reached value"
+      },
       "createdAt": "2026-06-27T00:00:00Z",
       "description": "The settled thinking or insight the group has reached through the exercise.",
       "fieldType": {
@@ -635,13 +619,13 @@
       "id": "f1e00001-0000-4000-8000-000000000001",
       "name": "thinking_reached",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the thinking_reached value"
-      }
+      "version": 1
     },
     "package/fields/title-d7e82557.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the title value"
+      },
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "Short human-readable name for the record.",
       "fieldType": {
@@ -650,13 +634,13 @@
       "id": "d7e82557-9045-5e92-a494-d99112bbec4a",
       "name": "title",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the title value"
-      }
+      "version": 1
     },
     "package/fields/unresolvedquestions-f3e00003.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+      "aiGuidance": {
+        "purpose": "captures the unresolved_questions value"
+      },
       "createdAt": "2026-06-27T00:00:00Z",
       "description": "Questions that remain open after the exercise.",
       "fieldType": {
@@ -666,11 +650,7 @@
       "id": "f3e00003-0000-4000-8000-000000000003",
       "name": "unresolved_questions",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-      "aiGuidance": {
-        "purpose": "captures the unresolved_questions value"
-      }
+      "version": 1
     },
     "package/package.json": {
       "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
@@ -732,6 +712,7 @@
       ]
     },
     "package/relation-types/delegates-31c82363.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
       "category": "governance",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Source delegates responsibility or authority to target.",
@@ -739,10 +720,10 @@
       "key": "delegates",
       "label": "Delegates",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json"
+      "version": 1
     },
     "package/relation-types/derived-from-36b78f14.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
       "category": "derivation",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Target was derived or adapted from source.",
@@ -750,10 +731,10 @@
       "key": "derived-from",
       "label": "Derived From",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json"
+      "version": 1
     },
     "package/relation-types/evidences-35c7aba2.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
       "category": "evidence",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Source provides evidence for or supports the target.",
@@ -761,10 +742,10 @@
       "key": "evidences",
       "label": "Evidences",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json"
+      "version": 1
     },
     "package/relation-types/precedes-b24aaf29.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
       "category": "sequence",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Source comes before target in a sequence.",
@@ -773,10 +754,10 @@
       "key": "precedes",
       "label": "Precedes",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json"
+      "version": 1
     },
     "package/types/article-a1142ac3.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "A durable governance rule, boundary, constitutional clause, or standing commitment.",
       "fields": [
@@ -827,10 +808,10 @@
       "lifecycleRef": "3c504040-7920-43aa-8fbd-eda21dc7c07b",
       "name": "article",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/type.json"
+      "version": 1
     },
     "package/types/decision-1fcad6a2.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
       "createdAt": "2026-05-25T00:00:00Z",
       "description": "A settled commitment, choice, policy, or direction of action.",
       "fields": [
@@ -905,10 +886,10 @@
       "lifecycleRef": "3c504040-7920-43aa-8fbd-eda21dc7c07b",
       "name": "decision",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/type.json"
+      "version": 1
     },
     "package/types/exercise-7f73b83e.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
       "createdAt": "2026-06-27T00:00:00Z",
       "description": "A structured group thinking exercise that surfaces tensions, unresolved questions, and next actions.",
       "fields": [
@@ -952,10 +933,10 @@
       "id": "7f73b83e-4a5b-4c6d-8e9f-1a2b3c4d5e6f",
       "name": "exercise",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/type.json"
+      "version": 1
     },
     "package/types/role-e53dce11.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
       "createdAt": "2026-05-26T00:00:00Z",
       "description": "An authority boundary. Defines who may decide or act on what, without requiring group agreement.",
       "fields": [
@@ -1000,10 +981,10 @@
       "lifecycleRef": "3c504040-7920-43aa-8fbd-eda21dc7c07b",
       "name": "role",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/type.json"
+      "version": 1
     },
     "package/views/decision-log-faebd240.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/view.json",
       "createdAt": "2026-06-01T00:00:00Z",
       "description": "Compact decision log field view showing statement, alternatives, rationale, and revisit trigger.",
       "fieldViews": [
@@ -1039,8 +1020,7 @@
       "id": "faebd240-83c4-4bc8-a383-8335f841a234",
       "name": "decision-log",
       "namespace": "governance",
-      "version": 1,
-      "$schema": "https://srs.semanticops.com/schema/2.0/view.json"
+      "version": 1
     },
     "records/notes/e4f2a891-3c7d-4b5e-9f12-8a6d0b1c2e3f.json": {
       "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
@@ -1088,7 +1068,7 @@
       "fieldValues": {
         "article_number": "A-004",
         "title": "How we make decisions",
-        "article_text": "Decisions are made by talk and agreement. We do not vote. Where we cannot agree, the matter stays open or is recorded as an exercise. Once a decision is agreed, it is written down in the decision log and does not change silently \u2014 a new decision supersedes an old one by name. These Articles may be amended by unanimous agreement of all current members. The Clerk is responsible for maintaining the coherence of the record.",
+        "article_text": "Decisions are made by talk and agreement. We do not vote. Where we cannot agree, the matter stays open or is recorded as an exercise. Once a decision is agreed, it is written down in the decision log and does not change silently — a new decision supersedes an old one by name. These Articles may be amended by unanimous agreement of all current members. The Clerk is responsible for maintaining the coherence of the record.",
         "rationale": "Writing things down is the mechanism by which we hold ourselves accountable and remain honest with artists who exhibit with us.",
         "amendment_rule": "Unanimous agreement of all current members."
       },
@@ -1106,7 +1086,7 @@
         "article_number": "A-002",
         "title": "What we are here to do",
         "article_text": "LiMoMa exists to curate, install, and maintain a rotating display of artwork in the back stairwell and landings of the building. We select work, agree on placement, and manage the practical business of mounting and demounting. We are not a commercial gallery: we do not sell work on behalf of artists, take commission, or enter into financial relationships with artists in exchange for showing their work.",
-        "rationale": "Stating what we are not \u2014 a commercial gallery \u2014 is as important as stating what we are. This protects artists who exhibit with us and is honest about our amateur, community basis.",
+        "rationale": "Stating what we are not — a commercial gallery — is as important as stating what we are. This protects artists who exhibit with us and is honest about our amateur, community basis.",
         "amendment_rule": "Unanimous agreement of all current members."
       },
       "instanceId": "31291422-cd8b-4840-b884-d55023d938cb",
@@ -1138,7 +1118,7 @@
         "title": "R-003 Clerk",
         "role_holder": "Peter Brownell",
         "authority": "May write up and maintain the decision log, Articles, and role records. May flag when a proposed action appears inconsistent with a recorded decision or article. Responsible for ensuring that Article A-006 (On ending) obligations are discharged when the time comes.",
-        "boundary": "Cannot decide what is shown or how it is installed. The Clerk's role is to maintain the record faithfully \u2014 not to determine its content. Cannot amend a decision unilaterally; can only record what the group has agreed.",
+        "boundary": "Cannot decide what is shown or how it is installed. The Clerk's role is to maintain the record faithfully — not to determine its content. Cannot amend a decision unilaterally; can only record what the group has agreed.",
         "source_of_authority": "Established by Article A-004 (How we make decisions)."
       },
       "instanceId": "448d64d4-ae82-4971-b027-3b78b9c7a90a",
@@ -1159,7 +1139,7 @@
         "alternatives_considered": "Including the main hallway in Phase 1. Deferred to Phase 2.",
         "decision_statement": "Phase 1 covers the back stairs and landings only. The main hallway is explicitly deferred to Phase 2, contingent on Phase 1 working well.",
         "rationale": "Starting smaller allows the group to test the mounting system, workflow, and artist relations before expanding. The main hallway is more visible and involves more parties.",
-        "revisit_when": "December 2026 pilot review \u2014 if Phase 1 is working, bring main hallway into scope for Phase 2."
+        "revisit_when": "December 2026 pilot review — if Phase 1 is working, bring main hallway into scope for Phase 2."
       },
       "instanceId": "4a989562-4a9d-4c86-a365-91bf14d55f06",
       "lifecycleState": "ratified",
@@ -1175,7 +1155,7 @@
         "title": "R-001 Building Authority",
         "role_holder": "Sam Hayder",
         "authority": "May decide what fixings and mounting methods are acceptable for the physical fabric of the building. May halt or reverse installation work that risks damage to walls, plaster, or structural elements. Has final say on whether a proposed intervention is safe and appropriate.",
-        "boundary": "Cannot decide what artwork is shown or how it is curated \u2014 that is the Curatorial Lead's authority. Cannot commit the group to structural changes without Party Utility agreement. Cannot override A-005 (Care of the building).",
+        "boundary": "Cannot decide what artwork is shown or how it is curated — that is the Curatorial Lead's authority. Cannot commit the group to structural changes without Party Utility agreement. Cannot override A-005 (Care of the building).",
         "source_of_authority": "Inherited from the Party Utility, who granted access to the back stairs and entrusted Sam with responsibility for the physical space."
       },
       "instanceId": "5bbf9209-1dc9-44b2-b0a3-f2192db5a879",
@@ -1208,8 +1188,8 @@
         "title": "R-002 Curatorial Lead",
         "role_holder": "Immo Klink",
         "authority": "May select which works are exhibited and which artists are invited to show during Phase 1. May decide placement and arrangement within the space, subject to Building Authority approval of any installation method. May set the thematic direction of a show.",
-        "boundary": "Cannot approve installation methods or fixings \u2014 that is Building Authority. Cannot commit to showing work that would require structural changes not yet approved. Cannot enter financial agreements on behalf of the group.",
-        "source_of_authority": "Delegated by the founding group at the founding meeting, May 2026. Role is Phase 1 scoped \u2014 to be reviewed at the pilot review in December 2026.",
+        "boundary": "Cannot approve installation methods or fixings — that is Building Authority. Cannot commit to showing work that would require structural changes not yet approved. Cannot enter financial agreements on behalf of the group.",
+        "source_of_authority": "Delegated by the founding group at the founding meeting, May 2026. Role is Phase 1 scoped — to be reviewed at the pilot review in December 2026.",
         "revisit_when": "December 2026 pilot review."
       },
       "instanceId": "8ed62308-f7b4-47e1-b1a2-5490908efd86",
@@ -1226,7 +1206,7 @@
         "title": "Pilot duration and review",
         "decision_statement": "Six-month pilot, June to December 2026. At the end of that period the group meets to decide what comes next: continue, extend, change scope, or close.",
         "rationale": "A defined lifespan makes the review real rather than optional. Open-ended pilots drift without a moment of explicit recommitment.",
-        "alternatives_considered": "Open-ended pilot with no fixed review date \u2014 judged too likely to drift.",
+        "alternatives_considered": "Open-ended pilot with no fixed review date — judged too likely to drift.",
         "revisit_when": "December 2026. The review meeting produces a new decision that either supersedes this one or records closure."
       },
       "instanceId": "9054911c-5285-4c3e-8198-4b9650169001",
@@ -1242,7 +1222,7 @@
       "fieldValues": {
         "title": "Artist liability",
         "decision_statement": "Artists retain ownership of and responsibility for their own work. The project does not insure exhibited work. Artists are informed of this before agreeing to show.",
-        "context": "The back stairwell cannot be locked \u2014 it is also a fire escape route. There is no practical mechanism to insure or protect work against theft or accidental damage in an open-access space.",
+        "context": "The back stairwell cannot be locked — it is also a fire escape route. There is no practical mechanism to insure or protect work against theft or accidental damage in an open-access space.",
         "rationale": "Artists must make their own insurance decisions. The project is not in a position to take on liability for others' work and is not a commercial operation. Informing artists upfront keeps the arrangement honest."
       },
       "instanceId": "9af57e54-03fb-4625-9a4c-8d2a254ff2b7",
@@ -1275,8 +1255,8 @@
       "fieldValues": {
         "article_number": "A-001",
         "title": "What this is",
-        "article_text": "LiMoMa \u2014 the Limehouse Museum of Maybe Art \u2014 is a community gallery initiative that uses the back stairs and landings of Limehouse Town Hall as a space for exhibiting artwork. It exists as a voluntary association of members with no formal legal status. The pilot runs for six months from June 2026.",
-        "rationale": "The name and definition set the frame for all subsequent decisions. 'Maybe Art' signals that the space is exploratory \u2014 not a conventional gallery with commercial or institutional expectations.",
+        "article_text": "LiMoMa — the Limehouse Museum of Maybe Art — is a community gallery initiative that uses the back stairs and landings of Limehouse Town Hall as a space for exhibiting artwork. It exists as a voluntary association of members with no formal legal status. The pilot runs for six months from June 2026.",
+        "rationale": "The name and definition set the frame for all subsequent decisions. 'Maybe Art' signals that the space is exploratory — not a conventional gallery with commercial or institutional expectations.",
         "amendment_rule": "Unanimous agreement of all current members."
       },
       "instanceId": "ad159754-2edd-4bf8-a70f-a29a617e5809",
@@ -1293,9 +1273,9 @@
         "article_number": "A-005",
         "title": "Care of the building",
         "article_text": "We will leave the building in no worse condition than we found it. Installation work must be carried out carefully: minimum drilled holes, no continuous re-drilling into the same plaster, and all fixings made good when removed. The member with Building Authority (R-001) has final say on what is and is not acceptable. This article cannot be weakened or removed without the explicit agreement of the Party Utility.",
-        "rationale": "Our right to use this space depends on the trust of the Party Utility and the building community. Demonstrating care of the building is not optional \u2014 it is the basis on which the experiment is allowed to continue.",
+        "rationale": "Our right to use this space depends on the trust of the Party Utility and the building community. Demonstrating care of the building is not optional — it is the basis on which the experiment is allowed to continue.",
         "amendment_rule": "Unanimous agreement of all current members AND agreement of the Party Utility.",
-        "protected_status": "Protected \u2014 requires Party Utility agreement to amend"
+        "protected_status": "Protected — requires Party Utility agreement to amend"
       },
       "instanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288",
       "lifecycleState": "ratified",
@@ -1310,7 +1290,7 @@
       "fieldValues": {
         "article_number": "A-006",
         "title": "On ending",
-        "article_text": "When LiMoMa closes \u2014 whether at the end of the pilot, by group decision, or by necessity \u2014 the group will: (1) return all artworks to their makers within a reasonable period; (2) remove or make good all fixings and mounts; (3) leave no unresolved commitments to artists, the building, or third parties; (4) transfer any remaining shared funds to the Party Utility for building improvement. The Clerk is responsible for ensuring these obligations are discharged and recorded.",
+        "article_text": "When LiMoMa closes — whether at the end of the pilot, by group decision, or by necessity — the group will: (1) return all artworks to their makers within a reasonable period; (2) remove or make good all fixings and mounts; (3) leave no unresolved commitments to artists, the building, or third parties; (4) transfer any remaining shared funds to the Party Utility for building improvement. The Clerk is responsible for ensuring these obligations are discharged and recorded.",
         "rationale": "Ending cleanly is a commitment we make to artists before they show with us, not something we work out at the end. This article makes that commitment concrete.",
         "amendment_rule": "Unanimous agreement of all current members."
       },
@@ -1346,9 +1326,9 @@
         "title": "Mounting system",
         "decision_question": "Should we install permanent fixings in the stairwell walls, or use a removable or flexible mounting approach for each show?",
         "context": "The stairwell is an old building with plaster walls. The group had already been hanging art informally using various ad-hoc methods. A six-month pilot gallery experiment was being planned, requiring a repeatable and durable solution. The building is a shared cooperative space, so any approach must protect the walls and be acceptable to the wider building.",
-        "friction": "The walls crumble when repeatedly drilled \u2014 every new hole degrades the plaster further. There is currently no consistent hanging system, so each person uses whatever is to hand (blue tack, tape, random screws), which looks poor and provides no standard for the pilot gallery. Something needs to be installed once and reused across shows.",
-        "alternatives_considered": "Hanging rails \u2014 inflexible, institutional-looking, poor fit for the angles in this stairwell. Command strips \u2014 fail on these walls, require grease-free surface, come off after about a week. Bolt systems \u2014 overkill for the weights involved. Sacrificial backing boards \u2014 interesting but adds complexity; may revisit for Phase 2. Central suspension from ceiling/beam \u2014 technically interesting but complex to engineer safely.",
-        "key_requirements": "Must not continuously damage old plaster walls (non-negotiable). Must accommodate different artwork sizes, weights, and formats across multiple shows. Must look intentional \u2014 not like a DIY bodge \u2014 when fixings are not in use. Must be simple enough to install correctly the first time. Should protect the building, which is a shared cooperative space. Aesthetics vs practicality was the main tension discussed: the group accepted a slightly visible fixing system in exchange for durability and flexibility.",
+        "friction": "The walls crumble when repeatedly drilled — every new hole degrades the plaster further. There is currently no consistent hanging system, so each person uses whatever is to hand (blue tack, tape, random screws), which looks poor and provides no standard for the pilot gallery. Something needs to be installed once and reused across shows.",
+        "alternatives_considered": "Hanging rails — inflexible, institutional-looking, poor fit for the angles in this stairwell. Command strips — fail on these walls, require grease-free surface, come off after about a week. Bolt systems — overkill for the weights involved. Sacrificial backing boards — interesting but adds complexity; may revisit for Phase 2. Central suspension from ceiling/beam — technically interesting but complex to engineer safely.",
+        "key_requirements": "Must not continuously damage old plaster walls (non-negotiable). Must accommodate different artwork sizes, weights, and formats across multiple shows. Must look intentional — not like a DIY bodge — when fixings are not in use. Must be simple enough to install correctly the first time. Should protect the building, which is a shared cooperative space. Aesthetics vs practicality was the main tension discussed: the group accepted a slightly visible fixing system in exchange for durability and flexibility.",
         "decision_statement": "Permanent 6mm wall plugs (brown equivalent) with screws, drilled once and left in place. Typically two screws per position. Caps or covers fabricated for unused fixings between shows.",
         "rationale": "Repeated drilling degrades these walls faster than permanent fixings. Once drilled correctly, the plug can be reused indefinitely. Keeping a cap on unused fixings means the system looks intentional between shows rather than abandoned.",
         "revisit_when": "Wall condition deteriorates significantly, or Phase 2 requires a different approach for the main hallway.",
@@ -1387,7 +1367,7 @@
         "thinking_reached": "The group agrees that minor operational decisions can proceed with those present. Decisions that affect the constitutional articles or roles should wait for full attendance or use an asynchronous written consent process.",
         "tensions": "The group is divided on what counts as 'minor'. One member feels any decision on spending should require full attendance.",
         "unresolved_questions": "Where exactly is the threshold between operational and constitutional decisions? Should there be a spending threshold?",
-        "blocking": "None \u2014 the group can proceed on a provisional basis while the threshold question is worked out.",
+        "blocking": "None — the group can proceed on a provisional basis while the threshold question is worked out.",
         "next_action": "Building Authority to draft a proposed spending threshold for the next meeting."
       },
       "instanceId": "ee000002-0000-4000-8000-000000000002",

@@ -2,7 +2,7 @@
 //!
 //! Native Rust test (not `#[wasm_bindgen_test]`) — runs with `cargo test -p srs-bindings`
 //! without a browser or wasm-pack build. Follows the same pattern as the other binding tests:
-//! exercise the underlying service directly via `JsonStore::from_srsj`, since `to_js()` calls
+//! exercise the underlying service directly via `srs_repository::srsj::open_srsj`, since `to_js()` calls
 //! `js_sys::JSON::parse` which panics off-wasm. The wasm-pack build proves the `#[wasm_bindgen]`
 //! export compiles.
 //!
@@ -11,7 +11,7 @@
 //! inline `.srsj` fixture; the gallery exercises the empty (unbound) path.
 
 use srs_repository::view_service;
-use srs_repository::JsonStore;
+use srs_repository::FileStore;
 
 const TYPE_ID: &str = "11111111-1111-4111-8111-111111111111";
 const CONTAINER_ID: &str = "22222222-2222-4222-8222-222222222222";
@@ -22,7 +22,7 @@ const VIEW_ID: &str = "44444444-4444-4444-8444-444444444444";
 /// `rootTypeRefs` anchors that exact type binding.
 fn bound_view_srsj() -> String {
     serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-repo-docviews",
             "srsVersion": "2.0-draft",
@@ -91,16 +91,17 @@ fn bound_view_srsj() -> String {
     .to_string()
 }
 
-fn gallery_store() -> JsonStore {
-    let srsj = include_str!("fixtures/gallery.srsj");
-    JsonStore::from_srsj(srsj).expect("gallery srsj must load")
+fn gallery_store() -> FileStore {
+    let srsj = include_str!("../../srs-repository/tests/fixtures/gallery.srsj");
+    srs_repository::srsj::open_srsj(srsj).expect("gallery srsj must load")
 }
 
 /// A container whose root Type matches a view's `rootTypeRefs` returns that view — the join the
 /// web client uses to pick which document view renders a selected container.
 #[test]
 fn document_views_for_container_returns_matching() {
-    let store = JsonStore::from_srsj(&bound_view_srsj()).expect("bound-view srsj must load");
+    let store =
+        srs_repository::srsj::open_srsj(&bound_view_srsj()).expect("bound-view srsj must load");
     let views = view_service::document_views_for_container(&store, CONTAINER_ID)
         .expect("lookup must succeed");
     assert_eq!(

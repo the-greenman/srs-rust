@@ -8,7 +8,6 @@
 
 use srs_core::extensions::import_tracking::ConflictState;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
-use srs_repository::json_store::JsonStore;
 use srs_repository::package_install_service::{install_package, InstallPackageInput};
 use srs_repository::package_service;
 use srs_repository::repository_lifecycle::{
@@ -346,22 +345,20 @@ fn rerun_install_skips_everything_and_keeps_provenance() {
     assert_zero_errors(&store);
 }
 
-// ── Cross-store roundtrip: JsonStore install → srsj → re-parse → validate ───
+// ── Cross-store roundtrip: FileStore install → srsj → re-parse → validate ───
 
 #[test]
 #[ignore = "srs-rust#783 Phase 3 KNOWN GAP: RFC-014 install writes upstreamPackage provenance into the boundary package.json, but package-manifest.json (additionalProperties: false) denies it — every installed sub-package is fatally catalog-invalid under RFC-038. Spec-level conflict, owner decision needed (schema mirrors are read-only)."]
 fn json_store_install_survives_srsj_roundtrip() {
-    let temp = TempDir::new().expect("temp dir");
-    let srsj_path = temp.path().join("repo.srsj");
-    let store = JsonStore::create(&srsj_path).expect("create json store");
+    let store = srs_repository::new_tree_session();
     store.initialize_repository(&init_input()).expect("init");
 
     let result = install_package(&store, install_input()).expect("install");
     assert_eq!(result.installed, FIXTURE_DEFINITION_COUNT);
 
     // Roundtrip: serialize → re-parse → the boundary and definitions survive.
-    let srsj = store.to_srsj_string().expect("to_srsj_string");
-    let store2 = JsonStore::from_srsj(&srsj).expect("re-parse");
+    let srsj = srs_repository::srsj::to_srsj_string(&store).expect("to_srsj_string");
+    let store2 = srs_repository::srsj::open_srsj(&srsj).expect("re-parse");
 
     let packages = package_service::list_packages(&store2).unwrap();
     assert!(packages

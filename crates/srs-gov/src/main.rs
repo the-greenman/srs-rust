@@ -4,7 +4,6 @@ use srs_repository::governance_scaffold_service::{
     create_governance_repository, CreateGovernanceRepositoryInput,
 };
 use srs_repository::srsj_migration_service;
-use srs_repository::JsonStore;
 use std::collections::HashSet;
 
 mod find_query;
@@ -1033,7 +1032,8 @@ fn cmd_repo_create(
 
     let srsj_content = srsj_migration_service::migrate_rfc014(GOVERNANCE_SEED)
         .context("RFC-014 migration failed")?;
-    let store = JsonStore::from_srsj(&srsj_content).context("failed to load seed into store")?;
+    let store = srs_repository::srsj::open_srsj(&srsj_content)
+        .context("failed to load seed into a tree session")?;
 
     let result = create_governance_repository(
         &store,
@@ -1046,9 +1046,8 @@ fn cmd_repo_create(
     )
     .context("failed to scaffold governance repository")?;
 
-    let final_srsj = store
-        .to_srsj_string()
-        .context("failed to serialise store")?;
+    let final_srsj =
+        srs_repository::srsj::to_srsj_string(&store).context("failed to serialise store")?;
     std::fs::File::create(out_path)?.write_all(final_srsj.as_bytes())?;
 
     render::repo_created(

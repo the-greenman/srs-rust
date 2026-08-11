@@ -2,12 +2,11 @@
 //!
 //! Native Rust tests (not `#[wasm_bindgen_test]`) — run with `cargo test -p srs-bindings`
 //! without a browser or wasm-pack build. Follows the same pattern as the other binding tests:
-//! exercise the underlying service directly via `JsonStore::from_srsj`, since `to_js()` calls
+//! exercise the underlying service directly via `srs_repository::srsj::open_srsj`, since `to_js()` calls
 //! `js_sys::JSON::parse` which panics off-wasm. The wasm-pack build proves the `#[wasm_bindgen]`
 //! export compiles.
 
 use srs_repository::repository_navigation_service::repository_navigation;
-use srs_repository::JsonStore;
 
 const IDENTITY_ID: &str = "00000000-0000-4000-8000-00000000a100";
 const ARTICLES_ID: &str = "00000000-0000-4000-8000-00000000a200";
@@ -22,7 +21,7 @@ const NOTE_INSTANCE_ID: &str = "00000000-0000-4000-8000-00000000d100";
 /// `precedes` relation (articles precedes decisions), and two section containers.
 fn nav_fixture_srsj() -> String {
     serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-repo-navigation",
             "srsVersion": "2.0-draft",
@@ -118,16 +117,6 @@ fn nav_fixture_srsj() -> String {
                     "createdAt": "2026-01-01T00:00:00Z"
                 }]
             },
-            // JsonStore.list_containers reads containerIndex from the raw "manifest.json" key
-            // in the data map, not from the typed manifest.container field. The root container
-            // is loaded directly from manifest.container, so it does not appear here. Only
-            // section containers are enumerated in containerIndex.
-            "manifest.json": {
-                "containerIndex": [
-                    {"containerId": ARTICLES_CONTAINER_ID, "title": "Articles"},
-                    {"containerId": DECISIONS_CONTAINER_ID, "title": "Decision Log"}
-                ]
-            }
         }
     })
     .to_string()
@@ -136,7 +125,8 @@ fn nav_fixture_srsj() -> String {
 /// Happy path: identity, two precedes-ordered sections, sectionContainerId resolved.
 #[test]
 fn repository_navigation_returns_identity_and_sections() {
-    let store = JsonStore::from_srsj(&nav_fixture_srsj()).expect("fixture srsj must load");
+    let store =
+        srs_repository::srsj::open_srsj(&nav_fixture_srsj()).expect("fixture srsj must load");
     let nav = repository_navigation(&store).expect("navigation must succeed");
 
     assert_eq!(nav.root_container_id, ROOT_CONTAINER_ID);
@@ -179,7 +169,7 @@ fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
     }
 
     serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-repo-tier0",
             "srsVersion": "2.0-draft",
@@ -262,12 +252,6 @@ fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
                     "targetInstanceId": DECISIONS_ID,
                     "createdAt": "2026-01-01T00:00:00Z"
                 }]
-            },
-            "manifest.json": {
-                "containerIndex": [
-                    {"containerId": ARTICLES_CONTAINER_ID, "title": "Articles"},
-                    {"containerId": DECISIONS_CONTAINER_ID, "title": "Decision Log"}
-                ]
             }
         }
     })
@@ -278,8 +262,9 @@ fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
 /// note title from the instance index as the identity display label.
 #[test]
 fn repository_navigation_tier0_note_identity_returns_diagnostic() {
-    let store = JsonStore::from_srsj(&tier0_nav_fixture_srsj(Some("Example Governance")))
-        .expect("fixture must load");
+    let store =
+        srs_repository::srsj::open_srsj(&tier0_nav_fixture_srsj(Some("Example Governance")))
+            .expect("fixture must load");
     let nav = repository_navigation(&store).expect("navigation must return Ok, not Err");
 
     assert_eq!(nav.identity.instance_id, NOTE_INSTANCE_ID);
@@ -303,7 +288,8 @@ fn repository_navigation_tier0_note_identity_returns_diagnostic() {
 /// Tier-0 note with no title in the index: display label falls back to the instance ID.
 #[test]
 fn repository_navigation_tier0_note_identity_no_title_uses_id_as_label() {
-    let store = JsonStore::from_srsj(&tier0_nav_fixture_srsj(None)).expect("fixture must load");
+    let store =
+        srs_repository::srsj::open_srsj(&tier0_nav_fixture_srsj(None)).expect("fixture must load");
     let nav = repository_navigation(&store).expect("navigation must return Ok, not Err");
 
     assert_eq!(nav.identity.instance_id, NOTE_INSTANCE_ID);
@@ -316,7 +302,7 @@ fn repository_navigation_tier0_note_identity_no_title_uses_id_as_label() {
 #[test]
 fn repository_navigation_root_is_member_of_its_own_sub_container() {
     let srsj = serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-repo-root-is-member",
             "srsVersion": "2.0-draft",
@@ -415,18 +401,12 @@ fn repository_navigation_root_is_member_of_its_own_sub_container() {
                     "targetInstanceId": DECISIONS_ID,
                     "createdAt": "2026-01-01T00:00:00Z"
                 }]
-            },
-            "manifest.json": {
-                "containerIndex": [
-                    {"containerId": ARTICLES_CONTAINER_ID, "title": "Articles"},
-                    {"containerId": DECISIONS_CONTAINER_ID, "title": "Decision Log"}
-                ]
             }
         }
     })
     .to_string();
 
-    let store = JsonStore::from_srsj(&srsj).expect("fixture srsj must load");
+    let store = srs_repository::srsj::open_srsj(&srsj).expect("fixture srsj must load");
     let nav = repository_navigation(&store).expect("navigation must succeed");
 
     assert_eq!(nav.sections.len(), 2);
@@ -449,8 +429,8 @@ fn repository_navigation_root_is_member_of_its_own_sub_container() {
 /// Uses the gallery fixture, which has no manifest.container field.
 #[test]
 fn repository_navigation_without_manifest_container_returns_diagnostic() {
-    let srsj = include_str!("fixtures/gallery.srsj");
-    let store = JsonStore::from_srsj(srsj).expect("gallery fixture must load");
+    let srsj = include_str!("../../srs-repository/tests/fixtures/gallery.srsj");
+    let store = srs_repository::srsj::open_srsj(srsj).expect("gallery fixture must load");
     let nav = repository_navigation(&store).expect("navigation must return ok (not error)");
 
     assert_eq!(nav.root_container_id, "");

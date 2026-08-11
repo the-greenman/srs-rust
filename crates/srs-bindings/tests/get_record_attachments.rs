@@ -1,11 +1,10 @@
 use srs_repository::attachment_service::{get_record_attachments, GetRecordAttachmentsInput};
-use srs_repository::JsonStore;
 
 const REC_ID: &str = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 fn minimal_srsj() -> String {
     serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-get-record-attachments",
             "srsVersion": "2.0-draft",
@@ -31,7 +30,7 @@ fn minimal_srsj() -> String {
 #[test]
 fn get_record_attachments_returns_none_for_missing_id() {
     let srsj = minimal_srsj();
-    let store = JsonStore::from_srsj(&srsj).expect("load store");
+    let store = srs_repository::srsj::open_srsj(&srsj).expect("load store");
     let input = GetRecordAttachmentsInput {
         instance_id: "00000000-0000-4000-8000-000000000000".to_string(),
     };
@@ -42,7 +41,7 @@ fn get_record_attachments_returns_none_for_missing_id() {
 #[test]
 fn get_record_attachments_empty_when_no_source_refs() {
     let srsj = minimal_srsj();
-    let store = JsonStore::from_srsj(&srsj).expect("load store");
+    let store = srs_repository::srsj::open_srsj(&srsj).expect("load store");
     let input = GetRecordAttachmentsInput {
         instance_id: REC_ID.to_string(),
     };

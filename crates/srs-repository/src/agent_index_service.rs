@@ -106,16 +106,15 @@ mod tests {
 
     #[test]
     fn test_build_agent_index_cross_store_roundtrip() {
-        // Verifies the service works correctly against a JsonStore (not just MemoryStore).
-        use crate::json_store::JsonStore;
+        // Verifies the service works correctly against a FileStore (not just MemoryStore).
 
-        let srsj = r#"{"srsj":"1","manifest":{"instanceIndex":[],"repositoryId":"agent-index-test","namespace":"com.example.test","srsVersion":"2.0-draft","title":"Agent Index Test"},"data":{"package/package.json":{"$schema":"https://srs.semanticops.com/schema/2.0/package-manifest.json","id":"test-pkg","namespace":"com.example.test","name":"primary","version":"1.0.0","title":"Primary","description":"","status":"active","createdAt":"2026-01-01T00:00:00Z","fields":[],"types":[],"relationTypes":[],"views":[],"documentViews":[]}}}"#;
+        let srsj = r#"{"srsj":"2","manifest":{"instanceIndex":[],"repositoryId":"agent-index-test","namespace":"com.example.test","srsVersion":"2.0-draft","title":"Agent Index Test"},"data":{"package/package.json":{"$schema":"https://srs.semanticops.com/schema/2.0/package-manifest.json","id":"test-pkg","namespace":"com.example.test","name":"primary","version":"1.0.0","title":"Primary","description":"","status":"active","createdAt":"2026-01-01T00:00:00Z","fields":[],"types":[],"relationTypes":[],"views":[],"documentViews":[]}}}"#;
 
-        let store = JsonStore::from_srsj(srsj).unwrap();
+        let store = crate::srsj::open_srsj(srsj).unwrap();
         let result = build_agent_index(&store);
         assert!(
             result.is_ok(),
-            "build_agent_index on JsonStore-backed repo should not error"
+            "build_agent_index on FileStore-backed repo should not error"
         );
         let idx = result.unwrap();
         assert_eq!(idx.repository_id.as_deref(), Some("agent-index-test"));

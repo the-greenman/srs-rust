@@ -1,8 +1,8 @@
-use srs_repository::{tag_service, JsonStore};
+use srs_repository::{tag_service, FileStore};
 
-fn gallery_store() -> JsonStore {
-    let srsj = include_str!("fixtures/gallery.srsj");
-    JsonStore::from_srsj(srsj).expect("gallery srsj must load")
+fn gallery_store() -> FileStore {
+    let srsj = include_str!("../../srs-repository/tests/fixtures/gallery.srsj");
+    srs_repository::srsj::open_srsj(srsj).expect("gallery srsj must load")
 }
 
 #[test]
@@ -14,7 +14,7 @@ fn list_tags_empty_on_gallery() {
 
 fn vocab_srsj() -> String {
     serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-repo-vocab",
             "srsVersion": "2.0-draft",
@@ -62,7 +62,7 @@ fn vocab_srsj() -> String {
 
 #[test]
 fn list_tags_returns_terms_from_vocabulary() {
-    let store = JsonStore::from_srsj(&vocab_srsj()).expect("vocab srsj must load");
+    let store = srs_repository::srsj::open_srsj(&vocab_srsj()).expect("vocab srsj must load");
     let terms = tag_service::list_terms(&store).expect("list_terms must succeed");
     assert_eq!(terms.len(), 1, "one term registered");
     assert_eq!(terms[0].key, "category:core");

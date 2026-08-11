@@ -1294,7 +1294,6 @@ fn id_prefix(id: &str) -> Result<&str, RepositoryError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::json_store::JsonStore;
     use crate::store::memory::MemoryStore;
     use crate::store::{FileStore, RepositoryStore};
     use crate::validation::validate_repository;
@@ -1469,10 +1468,9 @@ mod tests {
             extra: std::collections::BTreeMap::new(),
         });
 
-        // Import into a .srsj JsonStore bundle — this is the exact `srs repo copy
+        // Import into a .srsj FileStore bundle — this is the exact `srs repo copy
         // --to *.srsj` path used to regenerate single-file snapshots.
-        let tmp = TempDir::new().unwrap();
-        let target = JsonStore::create(tmp.path().join("repo.srsj")).unwrap();
+        let target = crate::tree_session::new_tree_session();
         import_repository_snapshot(&target, &snapshot).unwrap();
 
         let copied = target.load_manifest().unwrap();
@@ -1530,8 +1528,7 @@ mod tests {
         // Import into a JSON store (the .srsj bundle backend) and confirm the
         // blueprint survives: get_blueprint_by_id is exactly the path the
         // blueprint-schema service (and the web guides editor) consult.
-        let tmp = TempDir::new().unwrap();
-        let target = JsonStore::create(tmp.path().join("repo.srsj")).unwrap();
+        let target = crate::tree_session::new_tree_session();
         import_repository_snapshot(&target, &snapshot).unwrap();
 
         // package.json must index the blueprint.
@@ -1710,9 +1707,7 @@ mod tests {
             }),
         });
 
-        let tmp = TempDir::new().unwrap();
-        let json_path = tmp.path().join("repo.srsj");
-        let json_store = JsonStore::create(&json_path).unwrap();
+        let json_store = crate::tree_session::new_tree_session();
         import_repository_snapshot(&json_store, &snapshot).unwrap();
 
         let out = TempDir::new().unwrap();
@@ -1794,9 +1789,7 @@ mod tests {
             }),
         });
 
-        let tmp = TempDir::new().unwrap();
-        let json_path = tmp.path().join("repo.srsj");
-        let json_store = JsonStore::create(&json_path).unwrap();
+        let json_store = crate::tree_session::new_tree_session();
         import_repository_snapshot(&json_store, &snapshot).unwrap();
 
         let out = TempDir::new().unwrap();
@@ -2083,15 +2076,14 @@ mod tests {
     // --- Batch atomicity test (ADR-021) ---
 
     #[test]
-    fn json_store_partial_import_leaves_file_unchanged() {
-        // Two valid instances are written to in-memory state before a path-collision
-        // error on the 3rd instance forces abort_batch(). The .srsj file on disk
-        // must be unchanged from its pre-import state.
+    fn srsj_partial_import_is_never_projected_to_the_file() {
+        // Two valid instances reach the session tree before the 3rd fails. The
+        // `.srsj` file must never carry that partial state: a session projects
+        // only on success, which is exactly what `with_store` does in the CLI.
         let tmp = TempDir::new().unwrap();
         let srsj_path = tmp.path().join("target.srsj");
-        let target = JsonStore::create(&srsj_path).unwrap();
-
-        let initial_contents = std::fs::read_to_string(&srsj_path).unwrap();
+        let session = crate::srsj::SrsjSession::create(&srsj_path).unwrap();
+        let target = session.store();
 
         let mut snapshot = {
             let source = MemoryStore::uninitialized();
@@ -2100,9 +2092,9 @@ mod tests {
         };
 
         // Instance 3 has an unknown tier, which cannot be mapped to a storage path and
-        // triggers InvalidSnapshotData after instances 1 and 2 have been saved in-memory.
-        // (A plain id8 path collision is no longer an error — see srs-rust#696 — so this
-        // uses a genuine per-instance failure to exercise abort_batch's rollback.)
+        // triggers InvalidSnapshotData after instances 1 and 2 have been saved in the
+        // session tree. (A plain id8 path collision is no longer an error — see
+        // srs-rust#696 — so this uses a genuine per-instance failure.)
         snapshot.instances = vec![
             SnapshotInstance {
                 instance_id: "aaaaaaaa-0001-0001-0001-000000000001".to_string(),
@@ -2127,16 +2119,17 @@ mod tests {
             },
         ];
 
-        let result = import_repository_snapshot(&target, &snapshot);
+        let result = import_repository_snapshot(target, &snapshot);
         assert!(
             matches!(result, Err(RepositoryError::InvalidSnapshotData { .. })),
             "expected InvalidSnapshotData from unknown tier, got: {result:?}"
         );
 
-        let final_contents = std::fs::read_to_string(&srsj_path).unwrap();
-        assert_eq!(
-            final_contents, initial_contents,
-            "abort_batch must leave the disk file in its pre-import state (no partial records)"
+        // The failure short-circuits before any flush — exactly `with_store`'s
+        // `f(...)?; session.flush()?` ordering — so the file never appears.
+        assert!(
+            !srsj_path.exists(),
+            "a failed import must never be projected to the .srsj file"
         );
     }
 

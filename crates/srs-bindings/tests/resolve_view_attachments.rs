@@ -1,13 +1,12 @@
 use srs_repository::attachment_service::{
     resolve_document_view_attachments, ResolveDocumentViewAttachmentsInput,
 };
-use srs_repository::JsonStore;
 
 const REC_ID: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 fn minimal_srsj() -> String {
     serde_json::json!({
-        "srsj": "1",
+        "srsj": "2",
         "manifest": {
             "repositoryId": "test-resolve-view-attachments",
             "srsVersion": "2.0-draft",
@@ -33,7 +32,7 @@ fn minimal_srsj() -> String {
 #[test]
 fn binding_resolve_document_view_attachments_empty_ids() {
     let srsj = minimal_srsj();
-    let store = JsonStore::from_srsj(&srsj).expect("load store");
+    let store = srs_repository::srsj::open_srsj(&srsj).expect("load store");
     let input = ResolveDocumentViewAttachmentsInput {
         instance_ids: vec![],
     };
@@ -44,7 +43,7 @@ fn binding_resolve_document_view_attachments_empty_ids() {
 #[test]
 fn binding_resolve_document_view_attachments_no_source_refs() {
     let srsj = minimal_srsj();
-    let store = JsonStore::from_srsj(&srsj).expect("load store");
+    let store = srs_repository::srsj::open_srsj(&srsj).expect("load store");
     let input = ResolveDocumentViewAttachmentsInput {
         instance_ids: vec![REC_ID.to_string()],
     };
