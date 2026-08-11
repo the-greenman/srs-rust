@@ -1,6 +1,8 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
-  "aiGuidance": "A decision made by the group. Title states the decision; approved records whether it was ratified.",
+  "aiGuidance": {
+    "purpose": "A decision made by the group. Title states the decision; approved records whether it was ratified."
+  },
   "createdAt": "2026-07-22T00:00:00Z",
   "description": "A decision record",
   "fields": [

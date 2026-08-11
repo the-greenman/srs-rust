@@ -100,7 +100,6 @@ fn export_tree_synthesizes_marker() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: exploded-basic fixture is pre-RFC-038 (embed+file dup root, aiGuidance-less fields) and the catalog-backed store ops it drives are now fatally strict — fixture regeneration + codec alignment is Phase 4 (this suite's owner)"]
 fn single_record_edit_single_file_diff() {
     let base = fixture_map();
     let store = open_tree(base.clone()).unwrap();
@@ -142,7 +141,10 @@ fn type_edit_preserves_extra() {
         other => panic!("type not found: {other:?}"),
     };
     assert_eq!(
-        rt.extra.get("aiGuidance").and_then(|v| v.as_str()),
+        rt.extra
+            .get("aiGuidance")
+            .and_then(|v| v.get("purpose"))
+            .and_then(|v| v.as_str()),
         Some(
             "A decision made by the group. Title states the decision; \
              approved records whether it was ratified."
@@ -162,7 +164,7 @@ fn type_edit_preserves_extra() {
         "$schema must survive load → edit → save"
     );
     assert!(
-        written["aiGuidance"]
+        written["aiGuidance"]["purpose"]
             .as_str()
             .unwrap()
             .starts_with("A decision made"),
@@ -172,7 +174,6 @@ fn type_edit_preserves_extra() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: exploded-basic fixture is pre-RFC-038 (embed+file dup root, aiGuidance-less fields) and the catalog-backed store ops it drives are now fatally strict — fixture regeneration + codec alignment is Phase 4 (this suite's owner)"]
 fn decoys_untouched_after_edits() {
     let base = fixture_map();
     let store = open_tree(base.clone()).unwrap();
@@ -224,7 +225,6 @@ fn export_tree_disk_store_errors() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: exploded-basic fixture is pre-RFC-038 (embed+file dup root, aiGuidance-less fields) and the catalog-backed store ops it drives are now fatally strict — fixture regeneration + codec alignment is Phase 4 (this suite's owner)"]
 fn materialize_from_srsj_parity() {
     // Build a .srsj envelope from the fixture's SRS files (what a FileStore
     // session holds), load it as a FileStore, materialize into a tree, and
@@ -306,7 +306,6 @@ fn srsj_with_noncanonical_instance_paths(base: &BTreeMap<String, Vec<u8>>) -> St
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: exploded-basic fixture is pre-RFC-038 (embed+file dup root, aiGuidance-less fields) and the catalog-backed store ops it drives are now fatally strict — fixture regeneration + codec alignment is Phase 4 (this suite's owner)"]
 fn materialize_preserves_noncanonical_paths_and_keeps_repo_upgrade_detectable() {
     // Regression 2 (srs-rust#696): loading a `.srsj` whose instance files sit at NON-canonical
     // paths (bare full-UUID filenames, as srs-web's gallery/sample fixtures use) must preserve
@@ -347,7 +346,6 @@ fn materialize_preserves_noncanonical_paths_and_keeps_repo_upgrade_detectable() 
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: exploded-basic fixture is pre-RFC-038 (embed+file dup root, aiGuidance-less fields) and the catalog-backed store ops it drives are now fatally strict — fixture regeneration + codec alignment is Phase 4 (this suite's owner)"]
 fn materialize_loads_id8_colliding_records() {
     // Regression 1, the browser-load symptom (srs-rust#696): a `.srsj` whose two records share
     // their first 8 hex chars — like gallery.srsj's `…5801`/`…5802` decisions — at unique
@@ -433,7 +431,7 @@ fn materialize_preserves_definition_extras() {
         "$schema must survive materialize_tree from a FileStore"
     );
     assert!(
-        type_file["aiGuidance"]
+        type_file["aiGuidance"]["purpose"]
             .as_str()
             .is_some_and(|s| s.starts_with("A decision made")),
         "aiGuidance must survive materialize_tree from a FileStore"

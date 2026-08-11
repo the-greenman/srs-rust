@@ -1,4 +1,5 @@
 {
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "id": "22222222-2222-4222-8222-222222222221",
   "namespace": "com.example.treefix",
   "name": "title",
@@ -7,5 +8,8 @@
   "fieldType": {
     "datatype": "string"
   },
-  "createdAt": "2026-07-22T00:00:00Z"
+  "createdAt": "2026-07-22T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "The decision being made, stated as a short sentence."
+  }
 }
