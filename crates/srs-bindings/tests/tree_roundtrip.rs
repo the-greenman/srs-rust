@@ -45,7 +45,6 @@ fn fixture_map() -> BTreeMap<String, Vec<u8>> {
 /// The load_tree → edit → export_tree binding flow: the byte-diff is exactly
 /// the edit.
 #[test]
-#[ignore = "srs-rust#783 Phase 3: shared exploded-basic fixture is pre-RFC-038 (embed+file dup root, aiGuidance-less fields) and catalog-backed store ops are now fatally strict — fixture regeneration + codec alignment is Phase 4 (see tests/tree_session.rs)"]
 fn tree_binding_flow_single_edit_single_diff() {
     let mut base = fixture_map();
     // update_record rewrites manifest.json through the store's writer, which
@@ -95,7 +94,6 @@ fn tree_binding_flow_single_edit_single_diff() {
 
 /// The load(srsj) → export_srsj binding flow round-trips with parity.
 #[test]
-#[ignore = "srs-rust#783 Phase 3: shared exploded-basic fixture is pre-RFC-038 (embed+file dup root, aiGuidance-less fields) and catalog-backed store ops are now fatally strict — fixture regeneration + codec alignment is Phase 4 (see tests/tree_session.rs)"]
 fn srsj_codec_flow_roundtrip_parity() {
     // Build an .srsj the way a FileStore session would carry it.
     let base = fixture_map();
