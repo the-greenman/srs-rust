@@ -36,7 +36,12 @@ fn fixture_srsj() -> String {
         },
         "data": {
             "package/package.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                 "id": "pkg-container-view-001",
+                "title": "Test Package",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
                 "namespace": "com.test",
                 "name": "test-package",
                 "version": "1.0.0",
@@ -48,26 +53,29 @@ fn fixture_srsj() -> String {
                 "blueprints": []
             },
             "package/fields/title.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
                 "id": FIELD_TITLE,
                 "namespace": "com.test",
                 "name": "title",
                 "version": 1,
                 "description": "Title",
-                "aiGuidance": {},
+                "aiGuidance": {"purpose": "Test guidance"},
                 "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/fields/status.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
                 "id": FIELD_STATUS,
                 "namespace": "com.test",
                 "name": "status",
                 "version": 1,
                 "description": "Status",
-                "aiGuidance": {},
+                "aiGuidance": {"purpose": "Test guidance"},
                 "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/views/decision-view.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/view.json",
                 "id": VIEW_ID,
                 "namespace": "com.test",
                 "name": "decision-view",
@@ -80,6 +88,7 @@ fn fixture_srsj() -> String {
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/document-views/dv.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
                 "id": DV_ID,
                 "namespace": "com.test",
                 "name": "dv",
@@ -192,7 +201,12 @@ fn fixture_srsj_with_excluded_states() -> String {
         },
         "data": {
             "package/package.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                 "id": "pkg-container-view-excluded-001",
+                "title": "Test Package",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
                 "namespace": "com.test",
                 "name": "test-package",
                 "version": "1.0.0",
@@ -204,16 +218,18 @@ fn fixture_srsj_with_excluded_states() -> String {
                 "blueprints": []
             },
             "package/fields/title.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
                 "id": FIELD_TITLE,
                 "namespace": "com.test",
                 "name": "title",
                 "version": 1,
                 "description": "Title",
-                "aiGuidance": {},
+                "aiGuidance": {"purpose": "Test guidance"},
                 "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/views/decision-view.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/view.json",
                 "id": VIEW_ID,
                 "namespace": "com.test",
                 "name": "decision-view",
@@ -223,6 +239,7 @@ fn fixture_srsj_with_excluded_states() -> String {
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/document-views/dv.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
                 "id": DV_ID,
                 "namespace": "com.test",
                 "name": "dv",

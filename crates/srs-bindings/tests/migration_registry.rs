@@ -19,7 +19,12 @@ fn minimal_srsj() -> String {
         },
         "data": {
             "package/package.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                 "id": "pkg-migration-test",
+                "title": "Test Package",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
                 "namespace": "com.test",
                 "name": "test-package",
                 "version": "1.0.0",
@@ -120,19 +125,20 @@ fn apply_migration_via_registry_migrate_identity() {
         },
         "data": {
             "package/package.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                 "id": "pkg-migration-test",
+                "title": "Test Package",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
                 "namespace": "com.test",
                 "name": "primary",
                 "version": "1.0.0",
                 "fields": [], "types": [], "relationTypes": [],
                 "views": [], "documentViews": [], "blueprints": []
             },
-            format!("containers/{container_id}.json"): {
-                "containerId": container_id,
-                "title": "Test Repo",
-                "identityInstanceId": note_id,
-                "memberInstanceIds": [note_id]
-            },
+            // Embed-only root ([R1]) — a containers/*.json file sharing the
+            // embed's id is a fatal SRS038-R12-DUPLICATE-ID.
             "records/notes/identity.json": {
                 "instanceId": note_id,
                 "title": "Test Repo",

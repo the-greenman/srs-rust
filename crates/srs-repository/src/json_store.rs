@@ -1017,6 +1017,8 @@ impl RepositoryStore for JsonStore {
             path: PathBuf::from(relative_path),
             source,
         })?;
+        let mut v = v;
+        crate::store::inject_definition_schema(&mut v, srs_schema::TYPE_SCHEMA_ID);
         self.state
             .borrow_mut()
             .data
@@ -1051,6 +1053,8 @@ impl RepositoryStore for JsonStore {
                 path: PathBuf::from(relative_path),
                 source,
             })?;
+        let mut v = v;
+        crate::store::inject_definition_schema(&mut v, srs_schema::RELATION_TYPE_SCHEMA_ID);
         self.state
             .borrow_mut()
             .data
@@ -1072,6 +1076,8 @@ impl RepositoryStore for JsonStore {
             path: PathBuf::from(relative_path),
             source,
         })?;
+        let mut v = v;
+        crate::store::inject_definition_schema(&mut v, srs_schema::VIEW_SCHEMA_ID);
         self.state
             .borrow_mut()
             .data
@@ -1101,6 +1107,8 @@ impl RepositoryStore for JsonStore {
             path: PathBuf::from(relative_path),
             source,
         })?;
+        let mut v = v;
+        crate::store::inject_definition_schema(&mut v, srs_schema::DOCUMENT_VIEW_SCHEMA_ID);
         self.state
             .borrow_mut()
             .data
@@ -1134,6 +1142,8 @@ impl RepositoryStore for JsonStore {
             path: PathBuf::from(relative_path),
             source,
         })?;
+        let mut v = v;
+        crate::store::inject_definition_schema(&mut v, srs_schema::THEME_SCHEMA_ID);
         self.state
             .borrow_mut()
             .data
@@ -1445,6 +1455,23 @@ impl RepositoryStore for JsonStore {
         container: &srs_core::types::container::Container,
     ) -> Result<(), RepositoryError> {
         let id = &container.container_id;
+        // The inline root container is authoritative in the manifest ([R1]):
+        // never materialise a duplicate file for it ([R12]) — update the embed.
+        // Mirrors the trait default; this override previously always wrote a
+        // file, so `repo create` on JsonStore produced an embed+file duplicate.
+        {
+            let mut state = self.state.borrow_mut();
+            if state
+                .manifest
+                .container
+                .as_ref()
+                .is_some_and(|c| &c.container_id == id)
+            {
+                state.manifest.container = Some(container.clone());
+                drop(state);
+                return self.flush();
+            }
+        }
         let key = Self::container_data_key(id);
         let val = serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
             path: std::path::PathBuf::from(&key),

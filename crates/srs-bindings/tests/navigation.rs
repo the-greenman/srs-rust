@@ -43,7 +43,12 @@ fn nav_fixture_srsj() -> String {
         },
         "data": {
             "package/package.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                 "id": "pkg-nav-001",
+                "title": "Test Package",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
                 "namespace": "com.test",
                 "name": "test-nav-package",
                 "version": "1.0.0",
@@ -55,12 +60,13 @@ fn nav_fixture_srsj() -> String {
                 "blueprints": []
             },
             "package/fields/title.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
                 "id": FIELD_TITLE_ID,
                 "namespace": "com.test",
                 "name": "title",
                 "version": 1,
                 "description": "Title",
-                "aiGuidance": {},
+                "aiGuidance": {"purpose": "Test guidance"},
                 "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
@@ -87,14 +93,6 @@ fn nav_fixture_srsj() -> String {
                 "typeNamespace": "com.test",
                 "typeName": "section",
                 "fieldValues": {"title": "Decision Log"}
-            },
-            format!("containers/{ROOT_CONTAINER_ID}.json"): {
-                "containerId": ROOT_CONTAINER_ID,
-                "containerType": "root",
-                "title": "Governance Repo",
-                "rootInstanceIds": [IDENTITY_ID],
-                "memberInstanceIds": [IDENTITY_ID, ARTICLES_ID, DECISIONS_ID],
-                "createdAt": "2026-01-01T00:00:00Z"
             },
             format!("containers/{ARTICLES_CONTAINER_ID}.json"): {
                 "containerId": ARTICLES_CONTAINER_ID,
@@ -169,16 +167,15 @@ fn repository_navigation_returns_identity_and_sections() {
 }
 
 /// Fixture for un-migrated repos where identityInstanceId points to a Tier-0 note.
-/// `note_title` controls whether the index entry carries a title (Some) or not (None).
-/// The note file itself is absent — the graceful branch must not attempt to load it.
+/// `note_title` controls whether the note body carries a title (RFC-038: titles
+/// are body-derived — the manifest index is retired and inert).
 fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
-    let mut note_entry = serde_json::json!({
+    let mut note_body = serde_json::json!({
         "instanceId": NOTE_INSTANCE_ID,
-        "path": "records/notes/intent.json",
-        "tier": 0
+        "sections": []
     });
     if let Some(t) = note_title {
-        note_entry["title"] = serde_json::Value::String(t.to_string());
+        note_body["title"] = serde_json::Value::String(t.to_string());
     }
 
     serde_json::json!({
@@ -193,16 +190,18 @@ fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
                 "identityInstanceId": NOTE_INSTANCE_ID,
                 "memberInstanceIds": [NOTE_INSTANCE_ID, ARTICLES_ID, DECISIONS_ID]
             },
-            "instanceIndex": [
-                note_entry,
-                {"instanceId": ARTICLES_ID, "path": format!("records/tier-2/{ARTICLES_ID}.json"), "tier": 2},
-                {"instanceId": DECISIONS_ID, "path": format!("records/tier-2/{DECISIONS_ID}.json"), "tier": 2}
-            ],
+            "instanceIndex": [],
             "packageRef": {"mode": "local", "path": "package"}
         },
         "data": {
+            "records/notes/intent.json": note_body,
             "package/package.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                 "id": "pkg-nav-tier0",
+                "title": "Test Package",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
                 "namespace": "com.test",
                 "name": "test-nav-tier0-package",
                 "version": "1.0.0",
@@ -214,12 +213,13 @@ fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
                 "blueprints": []
             },
             "package/fields/title.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
                 "id": FIELD_TITLE_ID,
                 "namespace": "com.test",
                 "name": "title",
                 "version": 1,
                 "description": "Title",
-                "aiGuidance": {},
+                "aiGuidance": {"purpose": "Test guidance"},
                 "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
@@ -238,13 +238,6 @@ fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
                 "typeNamespace": "com.test",
                 "typeName": "section",
                 "fieldValues": {"title": "Decision Log"}
-            },
-            format!("containers/{ROOT_CONTAINER_ID}.json"): {
-                "containerId": ROOT_CONTAINER_ID,
-                "containerType": "root",
-                "title": "Governance Repo",
-                "memberInstanceIds": [NOTE_INSTANCE_ID, ARTICLES_ID, DECISIONS_ID],
-                "createdAt": "2026-01-01T00:00:00Z"
             },
             format!("containers/{ARTICLES_CONTAINER_ID}.json"): {
                 "containerId": ARTICLES_CONTAINER_ID,
@@ -344,7 +337,12 @@ fn repository_navigation_root_is_member_of_its_own_sub_container() {
         },
         "data": {
             "package/package.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                 "id": "pkg-nav-rim",
+                "title": "Test Package",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
                 "namespace": "com.test",
                 "name": "test-nav-root-is-member",
                 "version": "1.0.0",
@@ -356,12 +354,13 @@ fn repository_navigation_root_is_member_of_its_own_sub_container() {
                 "blueprints": []
             },
             "package/fields/title.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
                 "id": FIELD_TITLE_ID,
                 "namespace": "com.test",
                 "name": "title",
                 "version": 1,
                 "description": "Title",
-                "aiGuidance": {},
+                "aiGuidance": {"purpose": "Test guidance"},
                 "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
@@ -388,14 +387,6 @@ fn repository_navigation_root_is_member_of_its_own_sub_container() {
                 "typeNamespace": "com.test",
                 "typeName": "section",
                 "fieldValues": {"title": "Decision Log"}
-            },
-            format!("containers/{ROOT_CONTAINER_ID}.json"): {
-                "containerId": ROOT_CONTAINER_ID,
-                "containerType": "root",
-                "title": "Governance Repo",
-                "rootInstanceIds": [IDENTITY_ID],
-                "memberInstanceIds": [IDENTITY_ID, ARTICLES_ID, DECISIONS_ID],
-                "createdAt": "2026-01-01T00:00:00Z"
             },
             // Both sub-containers have their root record also in memberInstanceIds —
             // this is the "root is also a member" shape that triggered the bug.

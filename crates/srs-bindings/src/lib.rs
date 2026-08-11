@@ -1425,7 +1425,12 @@ mod tests {
             },
             "data": {
                 "package/package.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                     "id": "pkg-bindings-001",
+                    "title": "Test Package",
+                    "description": "",
+                    "status": "active",
+                    "createdAt": "2026-01-01T00:00:00Z",
                     "namespace": "com.test",
                     "name": "bind-package",
                     "version": "1.0.0",
@@ -1436,16 +1441,18 @@ mod tests {
                     "documentViews": []
                 },
                 "package/fields/body.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
                     "id": "field-bind-00001",
                     "namespace": "com.test",
                     "name": "body",
                     "version": 1,
                     "fieldType": {"datatype": "string"},
                     "description": "Body",
-                    "aiGuidance": null,
+                    "aiGuidance": {"purpose": "Test guidance"},
                     "createdAt": "2026-01-01T00:00:00Z"
                 },
                 "package/types/bind-type.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
                     "id": "type-bind-00001",
                     "namespace": "com.test",
                     "name": "bind-type",
@@ -1521,7 +1528,12 @@ mod tests {
             },
             "data": {
                 "package/package.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                     "id": "pkg-container-001",
+                    "title": "Test Package",
+                    "description": "",
+                    "status": "active",
+                    "createdAt": "2026-01-01T00:00:00Z",
                     "namespace": "com.test",
                     "name": "container-package",
                     "version": "1.0.0",
@@ -1532,16 +1544,18 @@ mod tests {
                     "documentViews": []
                 },
                 "package/fields/title.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
                     "id": "field-title-00001",
                     "namespace": "com.test",
                     "name": "title",
                     "version": 1,
                     "fieldType": {"datatype": "string"},
                     "description": "Title",
-                    "aiGuidance": null,
+                    "aiGuidance": {"purpose": "Test guidance"},
                     "createdAt": "2026-01-01T00:00:00Z"
                 },
                 "package/types/container-item-type.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
                     "id": "type-container-001",
                     "namespace": "com.test",
                     "name": "container-item-type",
@@ -1724,7 +1738,12 @@ mod tests {
             },
             "data": {
                 "package/package.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                     "id": "pkg-gfvbn-001",
+                    "title": "Test Package",
+                    "description": "",
+                    "status": "active",
+                    "createdAt": "2026-01-01T00:00:00Z",
                     "namespace": "com.test",
                     "name": "gfvbn-package",
                     "version": "1.0.0",
@@ -1735,16 +1754,18 @@ mod tests {
                     "documentViews": []
                 },
                 "package/fields/title.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
                     "id": "field-gfvbn-title",
                     "namespace": "com.test",
                     "name": "title",
                     "version": 1,
                     "fieldType": {"datatype": "string"},
                     "description": "Title",
-                    "aiGuidance": null,
+                    "aiGuidance": {"purpose": "Test guidance"},
                     "createdAt": "2026-01-01T00:00:00Z"
                 },
                 "package/types/titled-type.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
                     "id": "type-gfvbn-001",
                     "namespace": "com.test",
                     "name": "titled-type",
@@ -1830,7 +1851,12 @@ mod tests {
             },
             "data": {
                 "package/package.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                     "id": "pkg-fed-001",
+                    "title": "Test Package",
+                    "description": "",
+                    "status": "active",
+                    "createdAt": "2026-01-01T00:00:00Z",
                     "namespace": "com.test",
                     "name": "fed-package",
                     "version": "1.0.0",
@@ -2063,13 +2089,21 @@ mod tests {
             },
             "data": {
                 "package/package.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                     "id": "00000000-0000-0000-0000-000000000099",
+                    "title": "Test Package",
+                    "description": "",
+                    "status": "active",
+                    "createdAt": "2026-01-01T00:00:00Z",
                     "namespace": "com.test",
                     "name": "test-package",
                     "version": "1",
+                    "fields": [],
+                    "types": [],
                     "relationTypes": ["relation-types/precedes.json"]
                 },
                 "package/relation-types/precedes.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
                     "id": "00000000-0000-0000-0000-000000000001",
                     "version": 1,
                     "namespace": "com.semanticops.srs",
@@ -2078,7 +2112,12 @@ mod tests {
                     "description": "Source precedes target",
                     "category": "association",
                     "createdAt": "2026-01-01T00:00:00Z"
-                }
+                },
+                // RFC-038: catalog-backed E2 endpoint resolution needs real
+                // (shape-valid) instance bodies at the declared paths.
+                "records/id-a.json": {"instanceId": "id-a", "sections": []},
+                "records/id-b.json": {"instanceId": "id-b", "sections": []},
+                "records/id-c.json": {"instanceId": "id-c", "sections": []}
             }
         })
         .to_string();
@@ -2180,16 +2219,18 @@ mod tests {
                     "createdAt": "2026-01-01T00:00:00Z"
                 },
                 "package/fields/max_per_file_bytes.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
                     "id": MAX_FILE,
                     "namespace": "com.semanticops.base",
                     "name": "max_per_file_bytes",
                     "version": 1,
                     "description": "max per-file bytes",
-                    "aiGuidance": null,
+                    "aiGuidance": {"purpose": "Test guidance"},
                     "fieldType": {"datatype": "number"},
                     "createdAt": "2026-01-01T00:00:00Z"
                 },
                 "package/types/repo_settings.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
                     "id": TYPE_ID,
                     "namespace": "com.semanticops.base",
                     "name": "repo_settings",
@@ -2223,7 +2264,8 @@ mod tests {
                 &serde_json::to_string(&serde_json::json!({
                     "documentId": DOC_ID,
                     "contentPath": "big-file.bin",
-                    "contentType": "application/octet-stream"
+                    "contentType": "application/octet-stream",
+                    "createdAt": "2026-01-01T00:00:00Z"
                 }))
                 .unwrap(),
             )

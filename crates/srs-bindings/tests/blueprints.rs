@@ -26,7 +26,12 @@ fn blueprint_srsj() -> String {
         },
         "data": {
             "package/package.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                 "id": "pkg-blueprint-list-001",
+                "title": "Test Package",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
                 "namespace": "com.test",
                 "name": "test-package",
                 "version": "1.0.0",
@@ -38,16 +43,18 @@ fn blueprint_srsj() -> String {
                 "blueprints": ["blueprints/guide.json"]
             },
             "package/fields/title.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
                 "id": "field-title-001",
                 "namespace": "com.test",
                 "name": "title",
                 "version": 1,
                 "fieldType": {"datatype": "string"},
                 "description": "Title field",
-                "aiGuidance": null,
+                "aiGuidance": {"purpose": "Test guidance"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/types/guide.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
                 "id": "type-guide-001",
                 "namespace": "com.test",
                 "name": "guide",
@@ -59,6 +66,7 @@ fn blueprint_srsj() -> String {
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/types/section.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
                 "id": "type-section-001",
                 "namespace": "com.test",
                 "name": "section",

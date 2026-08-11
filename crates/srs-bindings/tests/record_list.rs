@@ -32,7 +32,12 @@ fn fixture_srsj() -> String {
         },
         "data": {
             "package/package.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                 "id": "pkg-record-list-001",
+                "title": "Test Package",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
                 "namespace": "com.test",
                 "name": "test-package",
                 "version": "1.0.0",
@@ -44,22 +49,24 @@ fn fixture_srsj() -> String {
                 "blueprints": []
             },
             "package/fields/title.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
                 "id": FIELD_TITLE,
                 "namespace": "com.test",
                 "name": "title",
                 "version": 1,
                 "description": "Title",
-                "aiGuidance": {},
+                "aiGuidance": {"purpose": "Test guidance"},
                 "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/fields/summary.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
                 "id": FIELD_SUMMARY,
                 "namespace": "com.test",
                 "name": "summary",
                 "version": 1,
                 "description": "Summary",
-                "aiGuidance": {},
+                "aiGuidance": {"purpose": "Test guidance"},
                 "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },

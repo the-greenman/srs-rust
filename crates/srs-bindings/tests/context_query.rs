@@ -31,7 +31,12 @@ fn fixture_store() -> JsonStore {
         },
         "data": {
             "package/package.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                 "id": "pkg-context-001",
+                "title": "Test Package",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
                 "namespace": "com.test",
                 "name": "test-package",
                 "version": "1.0.0",
@@ -43,16 +48,18 @@ fn fixture_store() -> JsonStore {
                 "blueprints": []
             },
             "package/fields/title.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
                 "id": FIELD_TITLE,
                 "namespace": "com.test",
                 "name": "title",
                 "version": 1,
                 "description": "Title field",
-                "aiGuidance": null,
+                "aiGuidance": {"purpose": "Test guidance"},
                 "fieldType": {"datatype": "string"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "package/types/decision.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
                 "id": TYPE_ID,
                 "namespace": "com.test",
                 "name": "decision",
