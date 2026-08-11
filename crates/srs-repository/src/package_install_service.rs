@@ -16,7 +16,7 @@
 //! exactly parallel to the repo-loading machinery in `store.rs`
 //! (`load_package_from_dir`). All *target-repository* I/O goes through the
 //! [`RepositoryStore`] trait, so [`install_package_bundle`] works against
-//! `FileStore`, `FileStore`, and `MemoryStore` alike.
+//! `FileStore` (disk or tree session) and `MemoryStore` alike.
 //!
 //! ## Conflict semantics
 //!
@@ -597,7 +597,7 @@ pub fn install_package(
 /// Install an in-memory [`PackageSourceBundle`] into the repository.
 ///
 /// Source-agnostic core of the install: all target I/O goes through the store,
-/// so this runs against `FileStore`, `FileStore`, and `MemoryStore`.
+/// so this runs against `FileStore` (disk and tree session) and `MemoryStore`.
 ///
 /// Explicit IDs from the source are honoured for everything installed, which is
 /// what makes re-running the install skip everything (idempotence).

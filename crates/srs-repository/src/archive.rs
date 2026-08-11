@@ -166,12 +166,19 @@ pub(crate) fn tree_entries(
         .chain(["relations".to_string(), "containers".to_string()])
         .chain([src_docs_dir.to_string(), SRS_MARKER_DIR.to_string()])
         .collect();
-    // Extension aggregates sit at manifest-declared paths, not in a reserved
-    // directory, so each is named directly.
+    // Files the manifest names directly rather than placing in a reserved
+    // directory: the extension aggregates, and `relationsPath` — retired by
+    // RFC-038 Change K, but the corpus still carries it until the Phase-6 flip
+    // and a snapshot must not drop a relations collection that lives outside
+    // `relations/`.
     let manifest_value = serde_json::to_value(&manifest).unwrap_or(serde_json::Value::Null);
     let declared_paths = [
         manifest_value
             .get("changelogPath")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        manifest_value
+            .get("relationsPath")
             .and_then(|v| v.as_str())
             .map(str::to_string),
         manifest.federation_path.clone(),
