@@ -1,8 +1,7 @@
 //! Shared JSON intermediate for Type definition files (mirror of
 //! [`crate::field_json`]).
 //!
-//! Both loaders (`store.rs` FileStore and `json_store.rs` FileStore) parse
-//! type definition files through [`TypeJson`] and convert with
+//! `FileStore` parses type definition files through [`TypeJson`] and converts with
 //! [`TypeJson::into_record_type`]. The `#[serde(flatten)]` tail preserves
 //! non-modelled keys (`$schema`, `aiGuidance`, …) into [`RecordType::extra`]
 //! so they survive load → edit → save (previously they were silently dropped
