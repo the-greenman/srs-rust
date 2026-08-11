@@ -134,12 +134,12 @@ fn srsj_from_tree(tree: &BTreeMap<String, Vec<u8>>) -> Result<String, Repository
     let manifest: serde_json::Value = serde_json::from_slice(manifest_bytes)
         .map_err(|source| invalid(format!("invalid manifest.json: {source}")))?;
 
-    let opaque_prefix = manifest
-        .get("sourceDocumentsPath")
-        .and_then(|v| v.as_str())
-        .and_then(crate::vfs::normalize_relative)
-        .filter(|p| !p.is_empty())
-        .unwrap_or_else(|| "source-documents".to_string());
+    // The same rule the catalog and the archive use, so all three agree about
+    // which payloads are opaque.
+    let opaque_prefix = crate::catalog::declared_location(
+        manifest.get("sourceDocumentsPath").and_then(|v| v.as_str()),
+    )
+    .unwrap_or_else(|| "source-documents".to_string());
     let opaque_prefix = format!("{opaque_prefix}/");
 
     let gitkeep = format!("{SRS_MARKER_DIR}/.gitkeep");

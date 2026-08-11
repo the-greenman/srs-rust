@@ -218,7 +218,7 @@ pub(crate) fn tree_entries(
             source
                 .list_files_recursive(&dir)
                 .into_iter()
-                .filter(|p| !is_foreign_tooling(p)),
+                .filter(|p| !crate::catalog::is_foreign_tooling(p)),
         );
     }
 
@@ -247,17 +247,6 @@ pub(crate) fn tree_entries(
     }
 
     Ok(with_marker(normalized))
-}
-
-/// Directories that belong to other tools, never to the repository.
-///
-/// A sweep is scoped to a reserved location, but a reserved location can
-/// contain one of these — a vendored sub-package with its own `.git`, say — and
-/// a repository's version-control metadata or dependency tree has no business
-/// in a snapshot of its semantic content.
-fn is_foreign_tooling(path: &str) -> bool {
-    path.split('/')
-        .any(|segment| matches!(segment, ".git" | "node_modules" | "target"))
 }
 
 /// The file a catalog locator lives in.

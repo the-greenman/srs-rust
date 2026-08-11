@@ -842,6 +842,59 @@ fn the_sweep_never_reaches_foreign_tooling() {
     );
 }
 
+/// The skip list is the catalog's, so the two agree on what is foreign — an
+/// opaque payload under an ordinarily-named directory is content, not tooling.
+#[test]
+fn an_opaque_payload_under_an_ordinary_directory_is_still_packed() {
+    let src_tmp = tempfile::tempdir().unwrap();
+    six_set_repository(src_tmp.path());
+    write(
+        src_tmp.path(),
+        "source-documents/target/report.txt",
+        "payload",
+    );
+
+    let bytes = srs_repository::archive_to_vec(&FileStore::new(src_tmp.path())).expect("pack");
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let names: Vec<String> = (0..zip.len())
+        .map(|i| zip.by_index(i).unwrap().name().to_string())
+        .collect();
+    assert!(
+        names.contains(&"source-documents/target/report.txt".to_string()),
+        "{names:?}"
+    );
+}
+
+/// The codec, the catalog and the archive must agree which payloads are
+/// opaque, whatever spelling the manifest uses — canonicalising an attachment
+/// changes its checksum ([R9]).
+#[test]
+fn an_oddly_spelled_source_documents_path_still_marks_payloads_opaque() {
+    let src_tmp = tempfile::tempdir().unwrap();
+    six_set_repository(src_tmp.path());
+    let manifest_path = src_tmp.path().join("manifest.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
+    manifest["sourceDocumentsPath"] = serde_json::json!("/source-documents");
+    std::fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    let raw = "{\"z\":1,\"a\":2}";
+    write(src_tmp.path(), "source-documents/payload.json", raw);
+
+    let source = FileStore::new(src_tmp.path());
+    let reloaded = open_srsj(&to_srsj_string(&source).expect("project")).expect("reopen");
+    assert_eq!(
+        reloaded
+            .load_text_file("source-documents/payload.json")
+            .unwrap(),
+        raw,
+        "an opaque payload must survive byte for byte"
+    );
+}
+
 /// A definition declared as `./fields/x.json` names a file already carried;
 /// emitting both spellings would break ADR-039 determinism.
 #[test]
