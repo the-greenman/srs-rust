@@ -30,30 +30,16 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Seek, Write};
 use zip::write::SimpleFileOptions;
 
-/// `package.json` array keys naming per-definition files (all definition kinds).
-const DEFINITION_KEYS: [&str; 10] = [
-    "fields",
-    "types",
-    "relationTypes",
-    "views",
-    "documentViews",
-    "themes",
-    "blueprints",
-    "protocols",
-    "vocabularies",
-    "lifecycles",
-];
-
 /// Enumerate the repository as a path→bytes tree.
 ///
 /// Tree-backed sessions return their snapshot verbatim (unknown files — README,
 /// CI config — ride along: the archive is a faithful snapshot of the session
-/// tree). Other stores are enumerated from the manifest: raw manifest, every
-/// package boundary's `package.json` plus every per-definition file it
-/// references, relations (real filename preserved), instanceIndex files,
-/// containerIndex files, and the whole `source-documents/` subtree.
-/// Deliberately not a blind directory sweep, so a git working tree's `.git/`
-/// is never archived from disk.
+/// tree). Every other store is enumerated from the **catalog** ([R17]): all six
+/// authoritative sets, the manifest, and the marker, including every
+/// presence-discovered local package root — whether or not a `PackageRef` names
+/// it — and every opaque payload under `sourceDocumentsPath`. Deliberately not
+/// a blind directory sweep, so a git working tree's `.git/` is never archived
+/// from disk.
 ///
 /// This is the single authoritative faithful store→tree enumeration, reused by both
 /// `archive_pack` (ADR-039) and `tree_session::materialize_tree` (ADR-040), so a `.srsj`
@@ -73,20 +59,20 @@ pub(crate) fn tree_entries(
         source.load_manifest_raw_text()?.into_bytes(),
     );
 
-    // Primary package via the raw-text trait method (works on every store),
-    // then any sub-package boundaries by their manifest packageRefs path.
-    let mut package_prefixes: Vec<(String, String)> = vec![(
-        "package".to_string(),
-        source.load_primary_package_raw_text()?,
-    )];
-    for boundary in source.list_package_boundaries()? {
-        if let Some(prefix) = boundary.selector.clone() {
-            let pkg_rel = vfs_join(&prefix, "package.json");
-            package_prefixes.push((prefix, source.load_text_file(&pkg_rel)?));
-        }
-    }
-    for (prefix, pkg_text) in package_prefixes {
-        let pkg_rel = vfs_join(&prefix, "package.json");
+    // One catalog snapshot drives the whole enumeration. The non-fatal builder
+    // keeps pack a faithful copier: archiving must not refuse a repository that
+    // `repo validate` would merely report on.
+    let cat = crate::catalog::build(source)?;
+
+    // Every presence-discovered local package root, whether or not a
+    // `PackageRef` names it ([R17]) — `""` is the repository root. The manifest
+    // is the anchor the definition set hangs from, so it travels with the files
+    // it declares, and those are carried by **declaration** rather than by
+    // catalog entry: a definition the catalog could not classify is a
+    // diagnostic, not a licence to drop the file from the snapshot.
+    for root in &cat.package_roots {
+        let pkg_rel = vfs_join(root, "package.json");
+        let pkg_text = source.load_text_file(&pkg_rel)?;
         let pkg_val: serde_json::Value =
             serde_json::from_str(&pkg_text).map_err(|e| RepositoryError::InvalidArchive {
                 message: format!("invalid {pkg_rel}: {e}"),
@@ -98,7 +84,7 @@ pub(crate) fn tree_entries(
                 continue;
             };
             for rel in arr.iter().filter_map(|v| v.as_str()) {
-                let full = vfs_join(&prefix, rel);
+                let full = vfs_join(root, rel);
                 // A dangling reference is a hard error naming the missing
                 // path — never a silent skip (ADR-039).
                 let text = source.load_text_file(&full).map_err(|e| {
@@ -117,22 +103,32 @@ pub(crate) fn tree_entries(
         }
     }
 
-    // Preserve the real relations filename (canonical first, then legacy).
-    for name in [
-        "relations/relations-collection.json",
-        "relations/relations.json",
-    ] {
-        match source.load_text_file(name) {
-            Ok(text) => {
-                entries.insert(name.to_string(), text.into_bytes());
-                break;
-            }
-            Err(e) if e.is_not_found() => {}
-            Err(e) => return Err(e),
+    // The remaining five authoritative sets, at their real storage paths (which
+    // may predate canonicalization). A locator can address a position *inside*
+    // a file — the inline root container, a relation in a transitional
+    // collection — so it is truncated to the carrying file.
+    for entry in cat
+        .instances
+        .iter()
+        .chain(&cat.relations)
+        .chain(&cat.containers)
+        .chain(&cat.source_documents)
+        .chain(&cat.extensions)
+    {
+        let Some(locator) = entry.locator.as_deref() else {
+            continue;
+        };
+        let path = locator.split('#').next().unwrap_or(locator);
+        // The inline root container lives inside manifest.json, already carried.
+        if path.is_empty() || path == "manifest.json" || entries.contains_key(path) {
+            continue;
         }
+        entries.insert(path.to_string(), source.load_text_file(path)?.into_bytes());
     }
-    // Standalone relation objects (RFC-038 Change E) — transitional dual carry
-    // until Phase 4's catalog-driven archive enumeration ([R17]).
+
+    // A relations file the catalog could not parse produces a diagnostic and no
+    // entries; copying it anyway keeps pack lossless rather than quietly
+    // dropping the repository's relations.
     for path in source.list_files_recursive("relations") {
         if path.ends_with(".json") && !entries.contains_key(&path) {
             let text = source.load_text_file(&path)?;
@@ -140,27 +136,9 @@ pub(crate) fn tree_entries(
         }
     }
 
-    // Instance and container files at their real storage paths (may predate
-    // canonicalization). RFC-038 Phase 3: enumerated from the catalog —
-    // `manifest.instanceIndex`/`containerIndex` are retired and no longer
-    // written by CRUD, so index-driven enumeration would silently drop
-    // content. The non-fatal builder keeps pack a faithful copier: archiving
-    // must not refuse a repository that `repo validate` would merely report on.
-    let cat = crate::catalog::build(source)?;
-    for entry in cat.instances.iter().chain(cat.containers.iter()) {
-        let Some(path) = entry.locator.as_deref() else {
-            continue;
-        };
-        if path == crate::catalog::ROOT_CONTAINER_LOCATOR {
-            continue; // embed lives inside manifest.json, already carried
-        }
-        if !entries.contains_key(path) {
-            let content = source.load_text_file(path)?;
-            entries.insert(path.to_string(), content.into_bytes());
-        }
-    }
-
-    // The whole source-documents subtree (sidecars + binary content).
+    // The whole source-documents subtree. The sidecars are the source-document
+    // set; the content files beside them are opaque payloads with no catalog
+    // entry of their own, and [R17] requires them too.
     let src_docs_dir = manifest
         .source_documents_path
         .as_deref()
@@ -168,12 +146,25 @@ pub(crate) fn tree_entries(
     for path in source.list_files_recursive(src_docs_dir) {
         let bytes = match source.load_binary_file(&path) {
             Ok(b) => b,
-            // Stores that keep text and binary content separately (MemoryStore,
-            // FileStore) serve sidecars through the text path.
+            // Stores that keep text and binary content separately serve
+            // sidecars through the text path.
             Err(e) if e.is_not_found() => source.load_text_file(&path)?.into_bytes(),
             Err(e) => return Err(e),
         };
         entries.insert(path, bytes);
+    }
+
+    // The marker ([R17]). Git cannot track an empty directory, so a repository
+    // whose `.srs/` holds nothing else carries the placeholder — the same one
+    // `export_tree` emits.
+    let marker_prefix = format!("{SRS_MARKER_DIR}/");
+    for path in source.list_files_recursive(SRS_MARKER_DIR) {
+        if !entries.contains_key(&path) {
+            entries.insert(path.clone(), source.load_text_file(&path)?.into_bytes());
+        }
+    }
+    if !entries.keys().any(|k| k.starts_with(&marker_prefix)) {
+        entries.insert(format!("{marker_prefix}.gitkeep"), Vec::new());
     }
 
     Ok(entries)
@@ -244,6 +235,24 @@ fn parse_manifest_value(
     crate::manifest::migrate_upstream_package(&mut manifest_val);
     Ok(manifest_val)
 }
+
+/// `package.json` array keys naming per-definition files (all definition kinds).
+///
+/// Consuming an archive predates any store, so there is no catalog to ask —
+/// this is the raw-map equivalent of the catalog's declared-definition walk,
+/// used only to tell a native tree archive from a legacy snapshot one.
+const DEFINITION_KEYS: [&str; 10] = [
+    "fields",
+    "types",
+    "relationTypes",
+    "views",
+    "documentViews",
+    "themes",
+    "blueprints",
+    "protocols",
+    "vocabularies",
+    "lifecycles",
+];
 
 /// Referenced definition files (primary package and every local sub-package
 /// boundary in the manifest's `packageRefs`) absent from the map.

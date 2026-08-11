@@ -180,6 +180,14 @@ pub struct RepositoryCatalog {
     pub definitions: Vec<CatalogEntry>,
     pub extensions: Vec<CatalogEntry>,
     pub diagnostics: Vec<CatalogDiagnostic>,
+    /// Every presence-discovered local package root, whether or not a
+    /// `PackageRef` names it — the empty string is the repository root.
+    ///
+    /// Not a seventh authoritative set: these are the anchors [R3]/[R5] use to
+    /// decide where the definition set lives. Snapshot production needs them
+    /// because [R17] requires the anchors themselves — each root's
+    /// `package.json` — to travel with the definitions they declare.
+    pub package_roots: Vec<String>,
 }
 
 impl RepositoryCatalog {
@@ -377,7 +385,7 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
                 vec!["manifest.json".to_string()],
                 format!("manifest.json missing or unparseable: {e}"),
             );
-            return Ok(b.finish());
+            return Ok(b.finish(Vec::new()));
         }
     };
     let manifest_value =
@@ -669,7 +677,7 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
 
     b.detect_duplicates();
     b.resolve_references();
-    Ok(b.finish())
+    Ok(b.finish(package_roots))
 }
 
 impl Builder<'_> {
@@ -1345,7 +1353,7 @@ impl Builder<'_> {
         }
     }
 
-    fn finish(mut self) -> RepositoryCatalog {
+    fn finish(mut self, mut package_roots: Vec<String>) -> RepositoryCatalog {
         // [R14]: deterministic total order by logical identifier, byte-wise
         // over the canonical lowercase hyphenated UUID form — ids are
         // lowercased before comparison so a mixed-case id cannot perturb the
@@ -1384,6 +1392,11 @@ impl Builder<'_> {
             definitions: self.entries.definitions,
             extensions: self.entries.extensions,
             diagnostics: self.diagnostics,
+            package_roots: {
+                package_roots.sort();
+                package_roots.dedup();
+                package_roots
+            },
         }
     }
 }
