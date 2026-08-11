@@ -265,7 +265,15 @@ pub fn build_checked(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, R
 /// Directory segments never entered by discovery ([R3], [R5]).
 const SKIPPED_SEGMENTS: &[&str] = &[".git", "node_modules", ".srs"];
 
-/// Instance-root directory names ([R3]).
+/// Directory segments that belong to another tool, never to the repository.
+///
+/// The discovery list minus `.srs`: snapshot production *does* carry the marker
+/// directory ([R17]) even though classification never enters it.
+pub(crate) fn is_foreign_tooling(path: &str) -> bool {
+    path.split('/')
+        .any(|segment| SKIPPED_SEGMENTS.contains(&segment) && segment != crate::vfs::SRS_MARKER_DIR)
+}
+
 /// Resolve a manifest-declared location to a repo-relative subpath.
 ///
 /// The single rule both classification and snapshot production use, so they
