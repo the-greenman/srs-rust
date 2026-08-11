@@ -264,7 +264,8 @@ pub fn build_checked(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, R
 const SKIPPED_SEGMENTS: &[&str] = &[".git", "node_modules", ".srs"];
 
 /// Instance-root directory names ([R3]).
-const INSTANCE_ROOT_NAMES: &[&str] = &["records", "notes", "typed-records"];
+/// The reserved instance root directory names ([R3]).
+pub(crate) const INSTANCE_ROOT_NAMES: &[&str] = &["records", "notes", "typed-records"];
 
 /// The recognised instance-sidecar suffix list ([R9]) — closed.
 /// `.revisions.json` has no declared schema yet (owed by RFC-038's schema

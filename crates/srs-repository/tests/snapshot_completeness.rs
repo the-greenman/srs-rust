@@ -427,3 +427,64 @@ fn a_colon_in_a_filename_is_not_a_traversal() {
     );
     srs_repository::archive_to_vec(&source).expect("nor the pack");
 }
+
+/// Pack is a faithful copier, not a validator: an object the catalog cannot
+/// classify produces a diagnostic and no entry, and dropping its file would
+/// turn a diagnosable repository into a lossy snapshot with a zero exit code.
+#[test]
+fn pack_carries_objects_the_catalog_cannot_classify() {
+    let src_tmp = tempfile::tempdir().unwrap();
+    six_set_repository(src_tmp.path());
+    // A record with no instanceId, a container that is not valid JSON, a
+    // relations file that will not parse, and a declared federation registry
+    // with no identity to project — each diagnosable, none classifiable.
+    write(
+        src_tmp.path(),
+        "records/tier-2/nameless.json",
+        r#"{"typeName":"x"}"#,
+    );
+    write(src_tmp.path(), "containers/broken.json", "{ not json");
+    write(src_tmp.path(), "relations/garbage.json", "{ not json");
+    write(
+        src_tmp.path(),
+        "federation/registry.json",
+        r#"{"repositories": []}"#,
+    );
+
+    let source = FileStore::new(src_tmp.path());
+    let bytes = srs_repository::archive_to_vec(&source).expect("pack must not refuse");
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let names: Vec<String> = (0..zip.len())
+        .map(|i| zip.by_index(i).unwrap().name().to_string())
+        .collect();
+    for required in [
+        "records/tier-2/nameless.json",
+        "containers/broken.json",
+        "relations/garbage.json",
+        "federation/registry.json",
+    ] {
+        assert!(
+            names.contains(&required.to_string()),
+            "{required} must be packed even though the catalog cannot classify it; got {names:?}"
+        );
+    }
+}
+
+/// A `.json` file whose entire content is a JSON string must survive the
+/// carrier with its quotes — decoding it as raw text is content corruption.
+#[test]
+fn a_json_string_document_survives_the_codec() {
+    let src_tmp = tempfile::tempdir().unwrap();
+    six_set_repository(src_tmp.path());
+    write(src_tmp.path(), "records/tier-2/quoted.json", "\"hello\"");
+
+    let source = FileStore::new(src_tmp.path());
+    let reloaded = open_srsj(&to_srsj_string(&source).expect("project")).expect("reopen");
+    assert_eq!(
+        reloaded
+            .load_text_file("records/tier-2/quoted.json")
+            .unwrap(),
+        "\"hello\"",
+        "the file's bytes must survive, quotes included"
+    );
+}
