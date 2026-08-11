@@ -223,6 +223,15 @@ fn canonicalize(value: serde_json::Value, in_carrier: bool) -> serde_json::Value
     }
 }
 
+/// The directory a `.srsj` document lives in — what a session reports as its
+/// repository root, since the document itself is the repository.
+fn session_root(path: &Path) -> PathBuf {
+    match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => PathBuf::from("."),
+    }
+}
+
 /// A file-backed `.srsj` working session: decode → operate on the tree →
 /// project back to the file.
 ///
@@ -243,7 +252,7 @@ impl SrsjSession {
             path: path.clone(),
             source,
         })?;
-        let store = open_srsj(&raw)?;
+        let store = open_srsj(&raw)?.rooted_at(session_root(&path));
         let baseline = export_tree(&store)?;
         Ok(Self {
             path,
@@ -262,9 +271,10 @@ impl SrsjSession {
         if path.exists() {
             return Err(RepositoryError::RepositoryAlreadyExists { path });
         }
+        let store = new_tree_session().rooted_at(session_root(&path));
         Ok(Self {
             path,
-            store: new_tree_session(),
+            store,
             baseline: BTreeMap::new(),
         })
     }
@@ -567,6 +577,17 @@ mod tests {
             reopened.store().load_text_file("spec/readme.md").unwrap(),
             "hello"
         );
+    }
+
+    #[test]
+    fn a_session_reports_its_document_directory_as_the_repository_root() {
+        // Not the `<memory>` sentinel: `repository_root()` reaches CLI payloads
+        // and error messages, and `repo create --store json` must name a place
+        // a human can find.
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("repo.srsj");
+        let session = SrsjSession::create(&path).unwrap();
+        assert_eq!(session.store().repository_root(), dir.path());
     }
 
     #[test]
