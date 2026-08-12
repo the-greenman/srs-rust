@@ -99,45 +99,6 @@ static MIGRATIONS: &[MigrationDefinition] = &[
         },
     },
     MigrationDefinition {
-        id: "rfc038-storage",
-        title: "Adopt RFC-038 tree-authoritative storage",
-        description: "Explodes every relations collection into one standalone object per \
-                       relation at relations/<relationId>.json, and strips the retired \
-                       manifest properties (instanceIndex, containerIndex, \
-                       sourceDocumentIndex, relationsChecksums, relationsPath). A `.srsj` \
-                       document is additionally bumped to srsj '2'. Instances are left \
-                       where they are. Structural, not revision-keyed — RFC-038 forbids a \
-                       data-model revision 3, so this migration stamps nothing. Idempotent; \
-                       aborts rather than skips. Rewrites files in place with no rollback \
-                       (srs-rust#813): run it over a clean git tree, because `git revert` \
-                       is the recovery mechanism.",
-        status_fn: |store| {
-            if !store.is_file_tree_store() {
-                return Ok(MigrationStatus::NotApplicable);
-            }
-            if crate::rfc038_storage_migration_service::migration_needed(store)? {
-                Ok(MigrationStatus::Needed)
-            } else {
-                Ok(MigrationStatus::AlreadyApplied)
-            }
-        },
-        apply_fn: |store| {
-            // Naming the migration id *is* the explicit opt-in — the same
-            // bargain `rfc039-carrier` strikes, which rewrites far more with
-            // the same absence of rollback. The `allow_non_atomic` flag guards
-            // the Rust API against an accidental in-place run, not this route.
-            let result = crate::rfc038_storage_migration_service::migrate_storage(
-                store,
-                &crate::rfc038_storage_migration_service::StorageMigrationOptions {
-                    allow_non_atomic: true,
-                },
-            )?;
-            serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
-                message: format!("failed to serialize rfc038-storage migration result: {e}"),
-            })
-        },
-    },
-    MigrationDefinition {
         id: "migrate-identity",
         title: "Graduate identity to purpose record",
         description: "Converts a Tier-0 note identity (or a container with no identity \
@@ -180,6 +141,48 @@ static MIGRATIONS: &[MigrationDefinition] = &[
             })
             .map_err(|e| RepositoryError::InvalidSnapshotData {
                 message: format!("failed to serialize repo-upgrade result: {e}"),
+            })
+        },
+    },
+    // Last by rule, not by accident: every migration above writes the manifest,
+    // and until srs-rust#828 lands each of those writes restores the
+    // `instanceIndex` this one strips.
+    MigrationDefinition {
+        id: "rfc038-storage",
+        title: "Adopt RFC-038 tree-authoritative storage",
+        description: "Explodes every relations collection into one standalone object per \
+                       relation at relations/<relationId>.json, and strips the retired \
+                       manifest properties (instanceIndex, containerIndex, \
+                       sourceDocumentIndex, relationsChecksums, relationsPath). A `.srsj` \
+                       document is additionally bumped to srsj '2'. Instances are left \
+                       where they are. Structural, not revision-keyed — RFC-038 forbids a \
+                       data-model revision 3, so this migration stamps nothing. Idempotent; \
+                       aborts rather than skips. NOT YET APPLICABLE from any client: the \
+                       published manifest.json schema still requires instanceIndex, so a \
+                       stripped manifest is one `repo validate` rejects, and there is no \
+                       rollback (srs-rust#813). Unblocked by srs-rust#828.",
+        status_fn: |store| {
+            if !store.is_file_tree_store() {
+                return Ok(MigrationStatus::NotApplicable);
+            }
+            if crate::rfc038_storage_migration_service::migration_needed(store)? {
+                Ok(MigrationStatus::Needed)
+            } else {
+                Ok(MigrationStatus::AlreadyApplied)
+            }
+        },
+        // Reports its status — that is the signal the entry exists to give —
+        // but refuses to apply, because applying it today leaves a repository
+        // the shipped schema rejects and nothing can roll that back. One line
+        // flips when srs-rust#828 lands with the #783 Phase-6 flip.
+        apply_fn: |_store| {
+            Err(RepositoryError::InvalidInput {
+                message: "rfc038-storage cannot be applied yet: the published manifest.json \
+                          schema still lists `instanceIndex` in `required`, so stripping it \
+                          leaves a repository `repo validate` rejects, and no store can roll \
+                          an in-place run back (srs-rust#813). Unblocked by srs-rust#828, \
+                          which lands with the RFC-038 enforcement flip."
+                    .to_string(),
             })
         },
     },
@@ -318,19 +321,19 @@ mod tests {
         assert_eq!(migrations.len(), 5);
         assert_eq!(migrations[0].id, "field-type");
         assert_eq!(migrations[1].id, "rfc039-carrier");
-        assert_eq!(migrations[2].id, "rfc038-storage");
-        assert_eq!(migrations[3].id, "migrate-identity");
-        assert_eq!(migrations[4].id, "repo-upgrade");
+        assert_eq!(migrations[2].id, "migrate-identity");
+        assert_eq!(migrations[3].id, "repo-upgrade");
+        assert_eq!(migrations[4].id, "rfc038-storage");
         // Unstamped manifest → field-type Needed
         assert_eq!(migrations[0].status, MigrationStatus::Needed);
         // Revision < 2 → rfc039-carrier Needed
         assert_eq!(migrations[1].status, MigrationStatus::Needed);
-        // MemoryStore is not a file tree — there is no storage layout to place.
-        assert_eq!(migrations[2].status, MigrationStatus::NotApplicable);
         // Container exists but identity_instance_id is None → migrate-identity Needed
-        assert_eq!(migrations[3].status, MigrationStatus::Needed);
+        assert_eq!(migrations[2].status, MigrationStatus::Needed);
         // Zero instances → all paths canonical → AlreadyApplied
-        assert_eq!(migrations[4].status, MigrationStatus::AlreadyApplied);
+        assert_eq!(migrations[3].status, MigrationStatus::AlreadyApplied);
+        // MemoryStore is not a file tree — there is no storage layout to place.
+        assert_eq!(migrations[4].status, MigrationStatus::NotApplicable);
     }
 
     fn indexed_srsj_store() -> crate::store::FileStore {
@@ -341,8 +344,25 @@ mod tests {
                     "srsVersion": "2.0-draft",
                     "repositoryId": "00000000-0000-4000-8000-00000000aaaa",
                     "instanceIndex": [],
+                    "packageRef": { "mode": "local", "path": "package" },
                 },
-                "data": {},
+                // A real package: the other registered migrations load it, and
+                // a fixture without one fails before it reaches an assertion.
+                "data": {
+                    "package/package.json": {
+                        "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
+                        "id": "00000000-0000-4000-8000-00000000bbbb",
+                        "namespace": "com.semanticops.test",
+                        "name": "primary",
+                        "version": "1.0.0",
+                        "title": "Test Package",
+                        "description": "Registry fixture package.",
+                        "status": "draft",
+                        "createdAt": "2026-01-01T00:00:00Z",
+                        "fields": [],
+                        "types": [],
+                    },
+                },
             })
             .to_string(),
         )
@@ -358,33 +378,52 @@ mod tests {
             .status
     }
 
-    /// Every advertised migration must be appliable through the registry:
-    /// a client that applies each `Needed` entry in order must not be stopped
-    /// by one that always errors.
+    /// `rfc038-storage` reports its status — that is what registering it is
+    /// for — but must refuse to apply while srs-rust#828 is open, because a
+    /// stripped manifest is one the shipped schema rejects and nothing can roll
+    /// that back.
     #[test]
-    fn rfc038_storage_applies_through_the_registry_and_settles() {
+    fn rfc038_storage_reports_its_status_and_refuses_to_apply() {
         let store = indexed_srsj_store();
         assert_eq!(status_of(&store, "rfc038-storage"), MigrationStatus::Needed);
 
-        apply_migration(&store, "rfc038-storage").expect("apply must succeed");
-        assert_eq!(
-            status_of(&store, "rfc038-storage"),
-            MigrationStatus::AlreadyApplied
+        let err = apply_migration(&store, "rfc038-storage").unwrap_err();
+        assert!(err.to_string().contains("srs-rust#828"), "got: {err}");
+        assert!(
+            store.load_instance_json("manifest.json").unwrap()["instanceIndex"].is_array(),
+            "a refused apply must change nothing"
         );
+    }
+
+    /// It is the last entry, so a client applying every `Needed` migration in
+    /// order runs it after — never before — the migrations that write the
+    /// manifest and would restore the index it strips.
+    #[test]
+    fn rfc038_storage_is_the_last_registered_migration() {
+        let store = indexed_srsj_store();
+        let migrations = list_migrations(&store).unwrap();
+        assert_eq!(migrations.last().unwrap().id, "rfc038-storage");
     }
 
     /// The stripped `instanceIndex` must stay stripped — a later
     /// `save_manifest` from any other migration or service must not write the
     /// retired key straight back and undo this one.
     ///
-    /// The tripwire for srs-rust#828: un-ignoring this test is the completion
-    /// signal for the manifest-schema change that makes `instanceIndex`
-    /// optional.
+    /// The tripwire for srs-rust#828: un-ignoring this test (and the
+    /// `apply_fn`) is the completion signal for the manifest-schema change
+    /// that makes `instanceIndex` optional. It drives the transform directly
+    /// because the registry route is gated on the same issue.
     #[test]
     #[ignore = "srs-rust#828: `Manifest.instance_index` cannot be skip_serializing_if until the published manifest.json schema drops `instanceIndex` from `required` — omitting it today fails validation for every repository, `repo create` included. Closed by the schema change plus the #783 Phase-6 field removal."]
     fn a_later_migration_does_not_restore_the_stripped_index() {
         let store = indexed_srsj_store();
-        apply_migration(&store, "rfc038-storage").unwrap();
+        crate::rfc038_storage_migration_service::migrate_storage(
+            &store,
+            &crate::rfc038_storage_migration_service::StorageMigrationOptions {
+                allow_non_atomic: true,
+            },
+        )
+        .unwrap();
         apply_migration(&store, "field-type").expect("field-type must succeed");
 
         let manifest = store.load_instance_json("manifest.json").unwrap();

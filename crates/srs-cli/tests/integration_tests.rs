@@ -6949,9 +6949,9 @@ fn repo_migrations_lists_the_registered_migrations() {
         vec![
             "field-type",
             "rfc039-carrier",
-            "rfc038-storage",
             "migrate-identity",
-            "repo-upgrade"
+            "repo-upgrade",
+            "rfc038-storage"
         ]
     );
 
