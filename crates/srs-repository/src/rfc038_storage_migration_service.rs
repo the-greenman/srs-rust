@@ -253,7 +253,12 @@ fn relations_candidates(
     for path in candidates {
         match store.load_instance_json(&path) {
             Ok(value) => {
-                if value.get("relations").map(Value::is_array) == Some(true) {
+                // Key presence, not shape: `store::list_relations` skips a
+                // file on the `relations` key alone, so a stricter test here
+                // would leave a `relations` value that is not an array
+                // invisible to both — unreadable, and reported migrated. A
+                // non-array is caught by the typed parse in `explode_relations`.
+                if value.get("relations").is_some() {
                     found.collections.push(path);
                 }
             }
@@ -309,17 +314,31 @@ fn explode_relations(
         .map(|r| r.relation_id)
         .collect();
 
-    let mut written: BTreeMap<String, Relation> = BTreeMap::new();
+    // ── Pass 1: read and validate everything, write nothing ──
+    //
+    // Every rejection this transform can make is decided here. `abort_batch` is
+    // a no-op on every store (srs-rust#813), so an abort *between* writes would
+    // leave the collection in place alongside a half-exploded set of objects —
+    // a state worse than the one we started from: `relation_service` then sees
+    // each exploded relation twice and fails every read with
+    // `DuplicateRelationId`, while a re-run aborts on the same entry without
+    // ever clearing it. Refuse up front or not at all.
+    let mut to_write: BTreeMap<String, Relation> = BTreeMap::new();
     for path in collections {
         let value = store.load_instance_json(path)?;
         let collection: RelationsCollection = serde_json::from_value(value)
             .map_err(|e| abort(path, format!("relations collection fails to parse: {e}")))?;
         for relation in collection.relations {
             let id = relation.relation_id.clone();
+            // `save_relation` would reject this too, but only once writing has
+            // started — the id is a filename component, so an uncanonical one
+            // is a path-traversal write primitive.
+            crate::store::require_canonical_relation_id(&id)
+                .map_err(|e| abort(path, format!("relation id '{id}': {e}")))?;
             // Checked before the on-disk lookup, so a second entry for an id
-            // this run has already written is diagnosed as the duplicate it is
-            // rather than as a collision with our own output.
-            if let Some(previous) = written.get(&id) {
+            // already seen is diagnosed as the duplicate it is rather than as a
+            // collision with our own output.
+            if let Some(previous) = to_write.get(&id) {
                 if previous != &relation {
                     return Err(abort(
                         path,
@@ -340,20 +359,23 @@ fn explode_relations(
                     ));
                 }
             }
-            // The one write mechanism for a relation: canonical-id validation,
-            // pinned `$schema`, flat `relations/<id>.json` ([R11]).
-            store.save_relation(&relation)?;
-            written.insert(id.clone(), relation);
-            expected.insert(id);
-            result.relations_exploded += 1;
+            expected.insert(id.clone());
+            to_write.insert(id, relation);
         }
     }
 
-    // Checked *before* the collections go, not after: `abort_batch` is a no-op
-    // on every store (srs-rust#813), so a check that fires after the deletes
-    // would leave the repository with neither the collections nor a complete
-    // set of objects. `list_relations` ignores collection-shaped files, so the
-    // answer is the same either side of the delete.
+    // ── Pass 2: write, verify, then remove the collections ──
+    for relation in to_write.values() {
+        // The one write mechanism for a relation: canonical-id validation,
+        // pinned `$schema`, flat `relations/<id>.json` ([R11]).
+        store.save_relation(relation)?;
+        result.relations_exploded += 1;
+    }
+
+    // Read back before the collections go: a mismatch here is a bug rather than
+    // bad data, and dropping the collections on top of it would turn it into
+    // loss. `list_relations` ignores collection-shaped files, so the answer is
+    // the same either side of the delete.
     let after: BTreeSet<String> = store
         .list_relations()?
         .into_iter()
@@ -890,6 +912,63 @@ mod tests {
             store.load_text_file("relations/broken.json").is_ok(),
             "and nothing was touched"
         );
+    }
+
+    #[test]
+    fn a_rejected_entry_leaves_no_relation_objects_behind() {
+        // Validation happens before any write. An abort between writes would
+        // leave the collection alongside a half-exploded set of objects, and
+        // `relation_service` would then see each of those twice and fail every
+        // read with DuplicateRelationId — worse than not having run at all,
+        // and with no rollback (srs-rust#813) to undo it.
+        let mut doc = legacy_srsj();
+        doc["srsj"] = json!("2");
+        let mut bad = relation(REL_B);
+        bad["relationId"] = json!("not-a-uuid");
+        // REL_A is valid and sorts first; the rejection comes after it.
+        doc["data"]["relations/relations.json"]["relations"] = json!([relation(REL_A), bad]);
+        let store = open_srsj(&doc.to_string()).unwrap();
+
+        let err = migrate_storage(
+            &store,
+            &StorageMigrationOptions {
+                allow_non_atomic: true,
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("not-a-uuid"), "got: {err}");
+        assert!(
+            store
+                .load_instance_json(&format!("relations/{REL_A}.json"))
+                .is_err(),
+            "the valid entry ahead of the rejection must not have been written"
+        );
+        assert!(
+            store.load_instance_json("relations/relations.json").is_ok(),
+            "and the collection must still be there"
+        );
+    }
+
+    #[test]
+    fn a_relations_file_whose_relations_value_is_not_an_array_is_not_invisible() {
+        // `store::list_relations` skips a file on the `relations` key alone. A
+        // stricter test here would make a non-array value invisible to both —
+        // an unreachable relations file in a repository reporting itself
+        // migrated.
+        let mut doc = legacy_srsj();
+        doc["srsj"] = json!("2");
+        doc["data"]["relations/relations.json"]["relations"] = json!({ "not": "an array" });
+        let store = open_srsj(&doc.to_string()).unwrap();
+
+        assert!(migration_needed(&store).unwrap());
+        let err = migrate_storage(
+            &store,
+            &StorageMigrationOptions {
+                allow_non_atomic: true,
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("fails to parse"), "got: {err}");
     }
 
     #[test]
