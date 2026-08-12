@@ -6973,9 +6973,10 @@ fn repo_migrations_lists_the_registered_migrations() {
     }
 
     // The fixture manifest is stamped at the current revision → field-type and
-    // rfc039-carrier are alreadyApplied; it still carries `instanceIndex` →
-    // rfc038-storage is needed; no container → migrate-identity is
-    // notApplicable; no instances → repo-upgrade is alreadyApplied.
+    // rfc039-carrier are alreadyApplied; no container → migrate-identity is
+    // notApplicable; no instances → repo-upgrade is alreadyApplied;
+    // rfc038-storage is notApplicable from any client while srs-rust#828 is
+    // open, even though the manifest still carries `instanceIndex`.
     let status = |id: &str, key: &str| {
         migrations
             .iter()
@@ -6985,7 +6986,7 @@ fn repo_migrations_lists_the_registered_migrations() {
     };
     assert_eq!(status("field-type", "alreadyApplied"), true);
     assert_eq!(status("rfc039-carrier", "alreadyApplied"), true);
-    assert_eq!(status("rfc038-storage", "needed"), true);
+    assert_eq!(status("rfc038-storage", "notApplicable"), true);
     assert_eq!(status("migrate-identity", "notApplicable"), true);
     assert_eq!(status("repo-upgrade", "alreadyApplied"), true);
 }

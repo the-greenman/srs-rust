@@ -161,20 +161,16 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        published manifest.json schema still requires instanceIndex, so a \
                        stripped manifest is one `repo validate` rejects, and there is no \
                        rollback (srs-rust#813). Unblocked by srs-rust#828.",
-        status_fn: |store| {
-            if !store.is_file_tree_store() {
-                return Ok(MigrationStatus::NotApplicable);
-            }
-            if crate::rfc038_storage_migration_service::migration_needed(store)? {
-                Ok(MigrationStatus::Needed)
-            } else {
-                Ok(MigrationStatus::AlreadyApplied)
-            }
-        },
-        // Reports its status — that is the signal the entry exists to give —
-        // but refuses to apply, because applying it today leaves a repository
-        // the shipped schema rejects and nothing can roll that back. One line
-        // flips when srs-rust#828 lands with the #783 Phase-6 flip.
+        // `NotApplicable` unconditionally while srs-rust#828 is open — not
+        // `Needed`. Every repository *structurally* needs this migration
+        // (`rfc038_storage_migration_service::migration_needed` says so, and
+        // Phase 6 acts on it), but a client cannot apply it: clients render an
+        // Apply action for each `needed` entry, and this one can only fail.
+        // Restore the real probe in the same change that unblocks `apply_fn`.
+        status_fn: |_store| Ok(MigrationStatus::NotApplicable),
+        // Refuses to apply, because applying it today leaves a repository the
+        // shipped schema rejects and nothing can roll that back. Both halves
+        // flip when srs-rust#828 lands with the #783 Phase-6 flip.
         apply_fn: |_store| {
             Err(RepositoryError::InvalidInput {
                 message: "rfc038-storage cannot be applied yet: the published manifest.json \
@@ -378,14 +374,22 @@ mod tests {
             .status
     }
 
-    /// `rfc038-storage` reports its status — that is what registering it is
-    /// for — but must refuse to apply while srs-rust#828 is open, because a
-    /// stripped manifest is one the shipped schema rejects and nothing can roll
-    /// that back.
+    /// While srs-rust#828 is open, `rfc038-storage` must offer no client a
+    /// dead end: clients render an Apply action for every `Needed` entry, and
+    /// this one can only fail. It reports `NotApplicable` and refuses, even
+    /// though the repository structurally does need it.
     #[test]
-    fn rfc038_storage_reports_its_status_and_refuses_to_apply() {
+    fn rfc038_storage_offers_no_dead_end_while_it_is_blocked() {
         let store = indexed_srsj_store();
-        assert_eq!(status_of(&store, "rfc038-storage"), MigrationStatus::Needed);
+        assert!(
+            crate::rfc038_storage_migration_service::migration_needed(&store).unwrap(),
+            "the repository structurally needs the migration"
+        );
+        assert_eq!(
+            status_of(&store, "rfc038-storage"),
+            MigrationStatus::NotApplicable,
+            "but no client may be offered an action that can only fail"
+        );
 
         let err = apply_migration(&store, "rfc038-storage").unwrap_err();
         assert!(err.to_string().contains("srs-rust#828"), "got: {err}");
@@ -431,9 +435,9 @@ mod tests {
             manifest.get("instanceIndex").is_none(),
             "instanceIndex was written back by a later manifest save: {manifest}"
         );
-        assert_eq!(
-            status_of(&store, "rfc038-storage"),
-            MigrationStatus::AlreadyApplied
+        assert!(
+            !crate::rfc038_storage_migration_service::migration_needed(&store).unwrap(),
+            "the repository must still read as migrated"
         );
     }
 

@@ -55,13 +55,13 @@ fn available_migrations_lists_the_registered_migrations_with_status() {
 
     // Unstamped manifest → field-type and rfc039-carrier are Needed; no
     // container → migrate-identity is NotApplicable; no instances →
-    // repo-upgrade is AlreadyApplied; the manifest still carries
-    // `instanceIndex` → rfc038-storage is Needed.
+    // repo-upgrade is AlreadyApplied; rfc038-storage is NotApplicable from any
+    // client while srs-rust#828 is open.
     assert_eq!(migrations[0].status, MigrationStatus::Needed);
     assert_eq!(migrations[1].status, MigrationStatus::Needed);
     assert_eq!(migrations[2].status, MigrationStatus::NotApplicable);
     assert_eq!(migrations[3].status, MigrationStatus::AlreadyApplied);
-    assert_eq!(migrations[4].status, MigrationStatus::Needed);
+    assert_eq!(migrations[4].status, MigrationStatus::NotApplicable);
 
     // Result serialises in camelCase for to_js.
     let json = serde_json::to_value(&migrations[0]).expect("must serialise");
