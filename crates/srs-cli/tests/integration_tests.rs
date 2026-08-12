@@ -6938,7 +6938,7 @@ fn repo_migrations_lists_the_registered_migrations() {
     let migrations = result["payload"]["migrations"]
         .as_array()
         .expect("migrations must be an array");
-    assert_eq!(migrations.len(), 4, "expected exactly four migrations");
+    assert_eq!(migrations.len(), 5, "expected exactly five migrations");
 
     let ids: Vec<&str> = migrations
         .iter()
@@ -6949,6 +6949,7 @@ fn repo_migrations_lists_the_registered_migrations() {
         vec![
             "field-type",
             "rfc039-carrier",
+            "rfc038-storage",
             "migrate-identity",
             "repo-upgrade"
         ]
@@ -6972,12 +6973,21 @@ fn repo_migrations_lists_the_registered_migrations() {
     }
 
     // The fixture manifest is stamped at the current revision → field-type and
-    // rfc039-carrier are alreadyApplied; no container → migrate-identity is
+    // rfc039-carrier are alreadyApplied; it still carries `instanceIndex` →
+    // rfc038-storage is needed; no container → migrate-identity is
     // notApplicable; no instances → repo-upgrade is alreadyApplied.
-    assert_eq!(migrations[0]["status"]["alreadyApplied"], true);
-    assert_eq!(migrations[1]["status"]["alreadyApplied"], true);
-    assert_eq!(migrations[2]["status"]["notApplicable"], true);
-    assert_eq!(migrations[3]["status"]["alreadyApplied"], true);
+    let status = |id: &str, key: &str| {
+        migrations
+            .iter()
+            .find(|m| m["id"] == id)
+            .unwrap_or_else(|| panic!("{id} must be registered"))["status"][key]
+            .clone()
+    };
+    assert_eq!(status("field-type", "alreadyApplied"), true);
+    assert_eq!(status("rfc039-carrier", "alreadyApplied"), true);
+    assert_eq!(status("rfc038-storage", "needed"), true);
+    assert_eq!(status("migrate-identity", "notApplicable"), true);
+    assert_eq!(status("repo-upgrade", "alreadyApplied"), true);
 }
 
 #[test]

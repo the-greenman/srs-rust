@@ -99,6 +99,42 @@ static MIGRATIONS: &[MigrationDefinition] = &[
         },
     },
     MigrationDefinition {
+        id: "rfc038-storage",
+        title: "Adopt RFC-038 tree-authoritative storage",
+        description: "Explodes every relations collection into one standalone object per \
+                       relation at relations/<relationId>.json, and strips the retired \
+                       manifest properties (instanceIndex, containerIndex, \
+                       sourceDocumentIndex, relationsChecksums, relationsPath). A `.srsj` \
+                       document is additionally bumped to srsj '2'. Instances are left \
+                       where they are. Structural, not revision-keyed — RFC-038 forbids a \
+                       data-model revision 3, so this migration stamps nothing. Idempotent; \
+                       aborts rather than skips. Applying it from the CLI is refused: \
+                       RFC-038 allows no public upgrade command, and no store can roll a \
+                       failed in-place run back (srs-rust#813) — drive it from Rust with \
+                       an explicit opt-in over a clean git tree.",
+        status_fn: |store| {
+            if !store.is_file_tree_store() {
+                return Ok(MigrationStatus::NotApplicable);
+            }
+            if crate::rfc038_storage_migration_service::migration_needed(store)? {
+                Ok(MigrationStatus::Needed)
+            } else {
+                Ok(MigrationStatus::AlreadyApplied)
+            }
+        },
+        apply_fn: |store| {
+            // Deliberately the guarded default: the refusal *is* the behaviour
+            // of the public route (see the description above).
+            let result = crate::rfc038_storage_migration_service::migrate_storage(
+                store,
+                &crate::rfc038_storage_migration_service::StorageMigrationOptions::default(),
+            )?;
+            serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!("failed to serialize rfc038-storage migration result: {e}"),
+            })
+        },
+    },
+    MigrationDefinition {
         id: "migrate-identity",
         title: "Graduate identity to purpose record",
         description: "Converts a Tier-0 note identity (or a container with no identity \
@@ -276,19 +312,57 @@ mod tests {
     fn list_migrations_returns_every_entry_for_store_with_no_identity_note() {
         let store = make_store_with_container_no_identity();
         let migrations = list_migrations(&store).unwrap();
-        assert_eq!(migrations.len(), 4);
+        assert_eq!(migrations.len(), 5);
         assert_eq!(migrations[0].id, "field-type");
         assert_eq!(migrations[1].id, "rfc039-carrier");
-        assert_eq!(migrations[2].id, "migrate-identity");
-        assert_eq!(migrations[3].id, "repo-upgrade");
+        assert_eq!(migrations[2].id, "rfc038-storage");
+        assert_eq!(migrations[3].id, "migrate-identity");
+        assert_eq!(migrations[4].id, "repo-upgrade");
         // Unstamped manifest → field-type Needed
         assert_eq!(migrations[0].status, MigrationStatus::Needed);
         // Revision < 2 → rfc039-carrier Needed
         assert_eq!(migrations[1].status, MigrationStatus::Needed);
+        // MemoryStore is not a file tree — there is no storage layout to place.
+        assert_eq!(migrations[2].status, MigrationStatus::NotApplicable);
         // Container exists but identity_instance_id is None → migrate-identity Needed
-        assert_eq!(migrations[2].status, MigrationStatus::Needed);
+        assert_eq!(migrations[3].status, MigrationStatus::Needed);
         // Zero instances → all paths canonical → AlreadyApplied
-        assert_eq!(migrations[3].status, MigrationStatus::AlreadyApplied);
+        assert_eq!(migrations[4].status, MigrationStatus::AlreadyApplied);
+    }
+
+    /// RFC-038 allows no public upgrade command, and no store can roll a
+    /// failed in-place run back (srs-rust#813). The registry therefore reports
+    /// `rfc038-storage`'s status — that is the signal it exists to give — but
+    /// refuses to apply it.
+    #[test]
+    fn rfc038_storage_reports_its_status_but_refuses_to_apply() {
+        let store = crate::srsj::open_srsj(
+            &serde_json::json!({
+                "srsj": "2",
+                "manifest": {
+                    "srsVersion": "2.0-draft",
+                    "repositoryId": "00000000-0000-4000-8000-00000000aaaa",
+                    "instanceIndex": [],
+                },
+                "data": {},
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let entry = list_migrations(&store)
+            .unwrap()
+            .into_iter()
+            .find(|m| m.id == "rfc038-storage")
+            .expect("registered");
+        assert_eq!(entry.status, MigrationStatus::Needed);
+
+        let err = apply_migration(&store, "rfc038-storage").unwrap_err();
+        assert!(err.to_string().contains("srs-rust#813"), "got: {err}");
+        assert!(
+            crate::rfc038_storage_migration_service::migration_needed(&store).unwrap(),
+            "the refused apply must not have changed anything"
+        );
     }
 
     #[test]
