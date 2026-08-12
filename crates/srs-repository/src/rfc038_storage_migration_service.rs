@@ -132,17 +132,22 @@ fn strip_retired_properties(manifest: &mut Value) -> Vec<&'static str> {
 /// file under `relations/` is the catalog's to diagnose
 /// (`SRS038-R9-CANDIDATE-MALFORMED`, surfaced by `repo validate`), and
 /// propagating it from here would take `repo migrations` down for every
-/// migration. [`migrate_storage`] is where it aborts.
+/// migration. [`migrate_storage`] is where it aborts — and an unreadable file
+/// counts as "needed" precisely so a client is told there is something to run,
+/// rather than reporting a repository with a corrupt relations file as already
+/// migrated.
+///
+/// `relations_candidates` runs unconditionally before the boolean combination
+/// below, so `||` costs nothing here — the scan already happened either way —
+/// and every disjunct has direct test coverage of its own.
 pub fn migration_needed(store: &dyn RepositoryStore) -> Result<bool, RepositoryError> {
     if !store.is_file_tree_store() {
         return Ok(false);
     }
     let manifest = load_raw_manifest(store)?;
-    // Deliberately not `||`: short-circuiting would leave the collection scan
-    // unexercised — and untested — whenever a retired key happens to be there.
     let retired = !retired_properties_in(&manifest).is_empty();
     let candidates = relations_candidates(store, &manifest)?;
-    Ok(retired || !candidates.collections.is_empty())
+    Ok(retired || !candidates.collections.is_empty() || !candidates.unreadable.is_empty())
 }
 
 fn load_raw_manifest(store: &dyn RepositoryStore) -> Result<Value, RepositoryError> {
@@ -158,6 +163,18 @@ pub fn migrate_storage(
     store: &dyn RepositoryStore,
     options: &StorageMigrationOptions,
 ) -> Result<StorageMigrationResult, RepositoryError> {
+    // Checked first: this is the more fundamental precondition, and it has
+    // nothing to do with rollback. A caller on a non-file-tree store who hits
+    // the atomicity message instead would be told to commit a clean git tree
+    // and pass `allow_non_atomic: true` — advice that cannot fix the actual
+    // problem, since the very next check would still fail.
+    if !store.is_file_tree_store() {
+        return Err(RepositoryError::InvalidInput {
+            message: "rfc038-storage is a file-placement transform and applies only to a \
+                      file-tree store (a directory repository or a `.srsj` tree session)"
+                .to_string(),
+        });
+    }
     if !options.allow_non_atomic {
         // ponytail: an unconditional refusal today because no store implements
         // batch rollback. When srs-rust#813 lands real staging, this becomes a
@@ -168,13 +185,6 @@ pub fn migrate_storage(
                  (srs-rust#813). Commit a clean git tree, then pass \
                  `StorageMigrationOptions { allow_non_atomic: true }`; `git revert` is the rollback."
                     .to_string(),
-        });
-    }
-    if !store.is_file_tree_store() {
-        return Err(RepositoryError::InvalidInput {
-            message: "rfc038-storage is a file-placement transform and applies only to a \
-                      file-tree store (a directory repository or a `.srsj` tree session)"
-                .to_string(),
         });
     }
 
@@ -365,7 +375,10 @@ fn explode_relations(
                 continue;
             }
             // A relation already standing alone with the same id must agree,
-            // or one of the two would be lost without anyone noticing.
+            // or one of the two would be lost without anyone noticing. If it
+            // agrees, it is already exactly where it needs to be — already
+            // counted in `expected` via the pre-loop standalone scan — so
+            // there is nothing to write and nothing new to explode.
             if let Some(existing) = load_standalone(store, &id)? {
                 if existing != relation {
                     return Err(abort(
@@ -375,6 +388,7 @@ fn explode_relations(
                         ),
                     ));
                 }
+                continue;
             }
             expected.insert(id.clone());
             to_write.insert(id, relation);
@@ -941,9 +955,13 @@ mod tests {
         // file must not take the whole command down — the catalog is what
         // diagnoses it, and `repo validate` is where it surfaces.
         let store = store_with_an_unparseable_relations_file();
+        // Not just Ok — TRUE. The fixture has no retired properties and no
+        // readable collection, so the unreadable file is the only signal; if
+        // it did not count, a repository with a corrupt relations file would
+        // report itself migrated while the transform refuses to run on it.
         assert!(
-            migration_needed(&store).is_ok(),
-            "the probe must tolerate a file it cannot read"
+            migration_needed(&store).expect("the probe must tolerate a file it cannot read"),
+            "an unreadable relations file must read as 'needed', not 'migrated'"
         );
         assert!(
             store.catalog().is_err(),
