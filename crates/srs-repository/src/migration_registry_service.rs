@@ -157,20 +157,35 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        document is additionally bumped to srsj '2'. Instances are left \
                        where they are. Structural, not revision-keyed — RFC-038 forbids a \
                        data-model revision 3, so this migration stamps nothing. Idempotent; \
-                       aborts rather than skips. NOT YET APPLICABLE from any client: the \
-                       published manifest.json schema still requires instanceIndex, so a \
-                       stripped manifest is one `repo validate` rejects, and there is no \
-                       rollback (srs-rust#813). Unblocked by srs-rust#828.",
-        // `NotApplicable` unconditionally while srs-rust#828 is open — not
-        // `Needed`. Every repository *structurally* needs this migration
-        // (`rfc038_storage_migration_service::migration_needed` says so, and
-        // Phase 6 acts on it), but a client cannot apply it: clients render an
-        // Apply action for each `needed` entry, and this one can only fail.
-        // Restore the real probe in the same change that unblocks `apply_fn`.
-        status_fn: |_store| Ok(MigrationStatus::NotApplicable),
+                       aborts rather than skips. `status` is truthful (`needed` on a \
+                       repository that structurally needs it), but `apply` currently \
+                       refuses: the published manifest.json schema still requires \
+                       instanceIndex, so a stripped manifest is one `repo validate` rejects, \
+                       and there is no rollback (srs-rust#813). Unblocked by srs-rust#828.",
+        // Truthful status — `NotApplicable` only for a store with no storage
+        // layout to place (e.g. `MemoryStore`), `Needed`/`AlreadyApplied`
+        // otherwise from the real probe. `NotApplicable` is a documented,
+        // load-bearing status (srs-usage.md, ADR-032): "the migration makes no
+        // sense for this repo" — it is not available to mean "applicable but
+        // currently blocked." A client that renders an Apply action per
+        // `needed` entry gets the same thing it already gets from any other
+        // migration's apply failure: a clear, named error (below) — not a
+        // silent, permanent misreport of repository state to every consumer
+        // of `repo migrations` (dashboards, scripts, `srs-mcp`), which is what
+        // an unconditional `NotApplicable` here would have been.
+        status_fn: |store| {
+            if !store.is_file_tree_store() {
+                return Ok(MigrationStatus::NotApplicable);
+            }
+            if crate::rfc038_storage_migration_service::migration_needed(store)? {
+                Ok(MigrationStatus::Needed)
+            } else {
+                Ok(MigrationStatus::AlreadyApplied)
+            }
+        },
         // Refuses to apply, because applying it today leaves a repository the
-        // shipped schema rejects and nothing can roll that back. Both halves
-        // flip when srs-rust#828 lands with the #783 Phase-6 flip.
+        // shipped schema rejects and nothing can roll that back. Flips when
+        // srs-rust#828 lands with the #783 Phase-6 flip.
         apply_fn: |_store| {
             Err(RepositoryError::InvalidInput {
                 message: "rfc038-storage cannot be applied yet: the published manifest.json \
@@ -374,12 +389,14 @@ mod tests {
             .status
     }
 
-    /// While srs-rust#828 is open, `rfc038-storage` must offer no client a
-    /// dead end: clients render an Apply action for every `Needed` entry, and
-    /// this one can only fail. It reports `NotApplicable` and refuses, even
-    /// though the repository structurally does need it.
+    /// `rfc038-storage` reports truthful status — `Needed` on a repository
+    /// that structurally needs it — while its apply refuses with a clear,
+    /// named blocker (srs-rust#828). `NotApplicable` is documented
+    /// (srs-usage.md, ADR-032) as "the migration makes no sense for this
+    /// repo"; it must not be borrowed to mean "applicable but blocked", or
+    /// every consumer of `repo migrations` silently undercounts the corpus.
     #[test]
-    fn rfc038_storage_offers_no_dead_end_while_it_is_blocked() {
+    fn rfc038_storage_reports_needed_and_refuses_to_apply_while_blocked() {
         let store = indexed_srsj_store();
         assert!(
             crate::rfc038_storage_migration_service::migration_needed(&store).unwrap(),
@@ -387,8 +404,8 @@ mod tests {
         );
         assert_eq!(
             status_of(&store, "rfc038-storage"),
-            MigrationStatus::NotApplicable,
-            "but no client may be offered an action that can only fail"
+            MigrationStatus::Needed,
+            "and the registry must say so"
         );
 
         let err = apply_migration(&store, "rfc038-storage").unwrap_err();
