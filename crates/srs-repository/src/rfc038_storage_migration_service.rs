@@ -208,6 +208,17 @@ fn run(store: &dyn RepositoryStore) -> Result<StorageMigrationResult, Repository
              nor ruled out as a collection; repair it (see `repo validate`) and re-run",
         ));
     }
+    // The manifest's own pointer to relations data is about to be stripped. If
+    // it names a file that exists but is not a collection, stripping would
+    // orphan that file and report success — silent loss of whatever it holds.
+    if let Some(path) = &candidates.declared_not_a_collection {
+        return Err(abort(
+            path,
+            "manifest.relationsPath names a file that is not a relations collection; \
+             stripping the pointer would orphan it. Move its content into relations/ \
+             (or remove the declaration) and re-run",
+        ));
+    }
     explode_relations(store, &candidates.collections, &mut result)?;
 
     let stripped = strip_retired_properties(&mut manifest);
@@ -243,10 +254,10 @@ fn relations_candidates(
         .into_iter()
         .filter(|p| p.ends_with(".json"))
         .collect();
-    if let Some(declared) =
-        crate::catalog::declared_location(manifest.get("relationsPath").and_then(|v| v.as_str()))
-    {
-        candidates.insert(declared);
+    let declared =
+        crate::catalog::declared_location(manifest.get("relationsPath").and_then(|v| v.as_str()));
+    if let Some(declared) = &declared {
+        candidates.insert(declared.clone());
     }
 
     let mut found = RelationsCandidates::default();
@@ -260,7 +271,11 @@ fn relations_candidates(
                 // non-array is caught by the typed parse in `explode_relations`.
                 if value.get("relations").is_some() {
                     found.collections.push(path);
+                } else if declared.as_deref() == Some(path.as_str()) {
+                    found.declared_not_a_collection = Some(path);
                 }
+                // Otherwise: an ordinary standalone relation object under
+                // `relations/`, already in its final placement.
             }
             Err(e) if e.is_not_found() => {}
             // Any other failure — bad JSON, non-UTF-8 bytes, a directory where
@@ -277,6 +292,9 @@ fn relations_candidates(
 struct RelationsCandidates {
     collections: Vec<String>,
     unreadable: Vec<String>,
+    /// `manifest.relationsPath` resolves to a readable file that is not a
+    /// collection — so stripping the pointer would orphan it.
+    declared_not_a_collection: Option<String>,
 }
 
 fn explode_relations(
@@ -311,11 +329,7 @@ fn explode_relations(
     // The pre-migration id set: standalone objects already present plus every
     // id in every collection. `list_relations` skips collection-shaped files,
     // so the two halves are disjoint by construction.
-    let mut expected: BTreeSet<String> = store
-        .list_relations()?
-        .into_iter()
-        .map(|r| r.relation_id)
-        .collect();
+    let mut expected: BTreeSet<String> = standalone_ids(store)?;
 
     // ── Pass 1: read and validate everything, write nothing ──
     //
@@ -379,11 +393,7 @@ fn explode_relations(
     // bad data, and dropping the collections on top of it would turn it into
     // loss. `list_relations` ignores collection-shaped files, so the answer is
     // the same either side of the delete.
-    let after: BTreeSet<String> = store
-        .list_relations()?
-        .into_iter()
-        .map(|r| r.relation_id)
-        .collect();
+    let after: BTreeSet<String> = standalone_ids(store)?;
     if after != expected {
         return Err(abort(
             "relations/",
@@ -400,6 +410,27 @@ fn explode_relations(
         result.collections_removed.push(path.clone());
     }
     Ok(())
+}
+
+/// The ids of the standalone relation objects already in `relations/`.
+///
+/// `list_relations` fails on any `.json` file there that is neither
+/// collection-shaped nor a valid `$schema`-pinned relation object — a stray
+/// `README.json` is enough. Left raw, that surfaced as "relation object is
+/// missing the required $schema", the same misleading diagnostic the
+/// locator-collision guard exists to avoid.
+fn standalone_ids(store: &dyn RepositoryStore) -> Result<BTreeSet<String>, RepositoryError> {
+    match store.list_relations() {
+        Ok(relations) => Ok(relations.into_iter().map(|r| r.relation_id).collect()),
+        Err(e) => Err(abort(
+            "relations/",
+            format!(
+                "cannot enumerate the standalone relation objects: {e}. Every .json file \
+                 under relations/ must be a relation object or a collection; move anything \
+                 else out (see `repo validate`) and re-run"
+            ),
+        )),
+    }
 }
 
 fn load_standalone(
@@ -447,6 +478,30 @@ pub fn migrate_srsj(content: &str) -> Result<(String, StorageMigrationResult), R
                  re-emits '{}' ([R20]/[R21])",
                 SRSJ_LEGACY_VERSION,
                 crate::srsj::SRSJ_VERSION
+            ),
+        ));
+    }
+
+    // Bumping the envelope on a pre-RFC-039 document produces a generation-2
+    // carrier still at data-model revision <= 1 — which the [R21] gate rejects
+    // at the Phase-6 flip, leaving nothing able to open it and `rfc039-carrier`
+    // (the fix) permanently out of reach. Storage generation and data-model
+    // revision advance in that order, so the data model has to be there first.
+    let revision = envelope
+        .get("manifest")
+        .and_then(|m| m.get("dataModelRevision"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    if revision < crate::rfc039_carrier_migration_service::CARRIER_REVISION {
+        return Err(abort(
+            "<srsj-input>",
+            format!(
+                "document is at dataModelRevision {revision}; bumping it to srsj '{}' would \
+                 produce a carrier the [R21] generation gate rejects, with no way left to \
+                 migrate the data model. Bring it to revision {} first — open it with a \
+                 pre-cutover binary and run `field-type` then `rfc039-carrier` — and re-run",
+                crate::srsj::SRSJ_VERSION,
+                crate::rfc039_carrier_migration_service::CARRIER_REVISION,
             ),
         ));
     }
@@ -1010,6 +1065,69 @@ mod tests {
             "got: {err}"
         );
         assert!(err.to_string().contains("cannot be read"), "got: {err}");
+    }
+
+    #[test]
+    fn a_declared_relations_path_that_is_not_a_collection_aborts() {
+        // The pointer is about to be stripped; if it names a file that is not a
+        // collection, stripping orphans whatever that file holds.
+        let mut doc = legacy_srsj();
+        doc["srsj"] = json!("2");
+        doc["data"]
+            .as_object_mut()
+            .unwrap()
+            .remove("relations/relations.json");
+        let mut orphan = relation(REL_A);
+        orphan["$schema"] = json!(crate::store::RELATION_OBJECT_SCHEMA_URL);
+        doc["data"]["legacy/edges.json"] = orphan;
+        doc["manifest"]["relationsPath"] = json!("legacy/edges.json");
+        let store = open_srsj(&doc.to_string()).unwrap();
+
+        let err = migrate_storage(
+            &store,
+            &StorageMigrationOptions {
+                allow_non_atomic: true,
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("would orphan it"), "got: {err}");
+        assert!(store.load_instance_json("legacy/edges.json").is_ok());
+    }
+
+    #[test]
+    fn a_stray_file_under_relations_aborts_with_a_diagnostic_that_names_it() {
+        // `list_relations` fails on any .json there that is neither a
+        // collection nor a valid relation object. Left raw, that surfaced as a
+        // bare "missing the required $schema".
+        let mut doc = legacy_srsj();
+        doc["srsj"] = json!("2");
+        doc["data"]["relations/README.json"] = json!({ "note": "not a relation" });
+        let store = open_srsj(&doc.to_string()).unwrap();
+
+        let err = migrate_storage(
+            &store,
+            &StorageMigrationOptions {
+                allow_non_atomic: true,
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("relations/"), "got: {err}");
+        assert!(err.to_string().contains("move anything"), "got: {err}");
+    }
+
+    #[test]
+    fn a_pre_rfc039_document_is_not_bumped_into_an_unopenable_state() {
+        // Generation 2 at data-model revision 1 is rejected by the [R21] gate
+        // at the Phase-6 flip, and `rfc039-carrier` — the fix — could no longer
+        // open it. The data model goes first.
+        let mut doc = legacy_srsj();
+        doc["manifest"]["dataModelRevision"] = json!(1);
+        let err = migrate_srsj(&doc.to_string()).unwrap_err();
+        assert!(
+            err.to_string().contains("dataModelRevision 1"),
+            "got: {err}"
+        );
+        assert!(err.to_string().contains("rfc039-carrier"), "got: {err}");
     }
 
     #[test]
