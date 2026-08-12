@@ -31,21 +31,22 @@
 //! raw envelope until the codec will accept it, then hands off to
 //! [`migrate_storage`]. Nothing about the migration itself lives there.
 //!
-//! **The `instanceIndex` strip is not durable yet (srs-rust#828).** The
+//! **The manifest strip is blocked on a schema change (srs-rust#828).** The
 //! published `manifest.json` schema still lists `instanceIndex` in `required`,
-//! so `Manifest` must keep serialising an empty index and a later
-//! `save_manifest` writes `"instanceIndex": []` back over the stripped
-//! manifest. The strip itself is correct; it settles when the schema change
-//! lands and the Phase-6 flip removes the field. Until then, run this
-//! migration last.
+//! so a manifest this transform strips is one `repo validate` rejects, and
+//! `Manifest` cannot stop serialising an empty index without breaking every
+//! repository including a freshly created one. The transform is correct — the
+//! schema is what has not caught up. Until it does, the registry's apply route
+//! refuses (see `migration_registry_service`) and the only callers are Rust:
+//! the Phase-6 fixture migration, which lands with the schema change and the
+//! enforcement flip together.
 //!
 //! **Rollback is `git revert`.** No store implements batch rollback
 //! (srs-rust#813), so an in-place run that fails partway leaves the tree as it
 //! was at the failure. The runbook is a clean git tree before the run; RFC-038
 //! names git as the recovery mechanism. [`migrate_storage`] therefore refuses
 //! to run without an explicit [`StorageMigrationOptions::allow_non_atomic`],
-//! which is why the registry's apply route refuses too — RFC-038 allows no
-//! public upgrade command.
+//! so no caller rewrites a tree in place by accident.
 
 use crate::error::RepositoryError;
 use crate::manifest::rfc038::RETIRED_PROPERTIES;
@@ -155,8 +156,7 @@ pub fn migrate_storage(
         return Err(RepositoryError::InvalidInput {
             message:
                 "rfc038-storage rewrites files in place and no store can roll a failed run back \
-                 (srs-rust#813), and RFC-038 allows no public upgrade command. Commit a clean \
-                 git tree, then run it from Rust with \
+                 (srs-rust#813). Commit a clean git tree, then pass \
                  `StorageMigrationOptions { allow_non_atomic: true }`; `git revert` is the rollback."
                     .to_string(),
         });
@@ -208,6 +208,12 @@ fn run(store: &dyn RepositoryStore) -> Result<StorageMigrationResult, Repository
 /// `relationsPath` outside it — carrying a top-level `relations` array. A
 /// standalone relation object has no such key, so the two forms cannot be
 /// confused and a half-migrated repository is enumerated correctly.
+///
+/// A file that will not parse is not a collection this transform can act on,
+/// and diagnosing it is the catalog's job (`SRS038-R9-CANDIDATE-MALFORMED`,
+/// reported by `repo validate`). Propagating the parse error from here would
+/// make one unparseable file fail `repo migrations` outright — no statuses at
+/// all, for any migration — instead of naming it as one diagnostic.
 fn collection_paths(
     store: &dyn RepositoryStore,
     manifest: &Value,
@@ -232,6 +238,7 @@ fn collection_paths(
                 }
             }
             Err(e) if e.is_not_found() => {}
+            Err(RepositoryError::Serialize { .. }) => {}
             Err(e) => return Err(e),
         }
     }
@@ -245,6 +252,26 @@ fn explode_relations(
 ) -> Result<(), RepositoryError> {
     if collections.is_empty() {
         return Ok(());
+    }
+
+    // A collection sitting where a relation object belongs would be deleted
+    // along with an object written over it, and would have made every
+    // `load_standalone` probe fail with a misleading `$schema` complaint.
+    // Refuse up front, before anything is written or removed — there is no
+    // rollback to undo either with (srs-rust#813).
+    for path in collections {
+        if let Some(stem) = path
+            .strip_prefix("relations/")
+            .and_then(|p| p.strip_suffix(".json"))
+        {
+            if crate::store::require_canonical_relation_id(stem).is_ok() {
+                return Err(abort(
+                    path,
+                    "a relations collection occupies the locator of the relation object \
+                     with that id; relations/ holds one object per relation ([R11])",
+                ));
+            }
+        }
     }
 
     // The pre-migration id set: standalone objects already present plus every
@@ -296,22 +323,6 @@ fn explode_relations(
         }
     }
 
-    for path in collections {
-        // A collection sitting at a path this run wrote a relation object to
-        // (a `relationsPath` of `relations/<uuid>.json`) would be deleted
-        // along with the object. Refuse before anything is removed — there is
-        // no rollback to undo it with (srs-rust#813).
-        if written
-            .keys()
-            .any(|id| crate::store::relation_object_path(id) == *path)
-        {
-            return Err(abort(
-                path,
-                "a relations collection occupies the path of a relation object written by \
-                 this run; removing it would delete the object",
-            ));
-        }
-    }
     for path in collections {
         store.delete_relations_json(path)?;
         result.collections_removed.push(path.clone());
@@ -754,6 +765,61 @@ mod tests {
         assert!(
             err.to_string().contains("duplicate relationId"),
             "got: {err}"
+        );
+    }
+
+    #[test]
+    fn a_collection_at_a_relation_object_locator_aborts_before_anything_is_written() {
+        // `relations/<uuid>.json` is where the object with that id belongs, so
+        // a collection there would be deleted along with the object written
+        // over it. Refused up front, with a message that names the real
+        // problem instead of a `$schema` complaint from a probe.
+        let mut doc = legacy_srsj();
+        doc["srsj"] = json!("2");
+        let collection = doc["data"]["relations/relations.json"].clone();
+        doc["data"]
+            .as_object_mut()
+            .unwrap()
+            .remove("relations/relations.json");
+        doc["data"][format!("relations/{REL_A}.json")] = collection;
+        doc["manifest"]["relationsPath"] = json!(format!("relations/{REL_A}.json"));
+
+        let store = open_srsj(&doc.to_string()).unwrap();
+        let err = migrate_storage(
+            &store,
+            &StorageMigrationOptions {
+                allow_non_atomic: true,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("occupies the locator"),
+            "got: {err}"
+        );
+        assert!(
+            store
+                .load_instance_json(&format!("relations/{REL_A}.json"))
+                .unwrap()
+                .get("relations")
+                .is_some(),
+            "the collection must still be there, untouched"
+        );
+    }
+
+    #[test]
+    fn an_unparseable_relations_file_does_not_break_the_status_probe() {
+        // `repo migrations` asks every migration for a status. One unparseable
+        // file must not take the whole command down — the catalog is what
+        // diagnoses it, and `repo validate` is where it surfaces.
+        let mut doc = legacy_srsj();
+        doc["srsj"] = json!("2");
+        doc["data"]["relations/broken.json"] = json!("{ not json");
+        let store = open_srsj(&doc.to_string()).unwrap();
+
+        assert!(migration_needed(&store).unwrap());
+        assert!(
+            store.catalog().is_err(),
+            "and the catalog still reports it as a fatal diagnostic"
         );
     }
 
