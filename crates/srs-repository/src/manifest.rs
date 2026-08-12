@@ -14,6 +14,15 @@ pub struct Manifest {
     /// The typed field survives through Phase 4 so json_store/archive and old
     /// fixtures still compile/load; it is removed (and [R2] denies the key) at
     /// the Phase-6 flip. `default` so index-less repositories load.
+    ///
+    /// Serialised unconditionally, including when empty. It cannot yet be
+    /// `skip_serializing_if = "Vec::is_empty"`: the published
+    /// `manifest.json` schema still lists `instanceIndex` in `required`, so
+    /// omitting it fails validation for every repository — `repo create`
+    /// included. The consequence is that a manifest the `rfc038-storage`
+    /// transform strips gains `"instanceIndex": []` back on the next
+    /// `save_manifest`; see srs-rust#828 and the Phase-6 flip, which removes
+    /// the field outright.
     #[serde(rename = "instanceIndex", default)]
     pub instance_index: Vec<InstanceIndexEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]

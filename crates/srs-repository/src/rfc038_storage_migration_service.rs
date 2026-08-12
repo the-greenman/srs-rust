@@ -31,6 +31,14 @@
 //! raw envelope until the codec will accept it, then hands off to
 //! [`migrate_storage`]. Nothing about the migration itself lives there.
 //!
+//! **The `instanceIndex` strip is not durable yet (srs-rust#828).** The
+//! published `manifest.json` schema still lists `instanceIndex` in `required`,
+//! so `Manifest` must keep serialising an empty index and a later
+//! `save_manifest` writes `"instanceIndex": []` back over the stripped
+//! manifest. The strip itself is correct; it settles when the schema change
+//! lands and the Phase-6 flip removes the field. Until then, run this
+//! migration last.
+//!
 //! **Rollback is `git revert`.** No store implements batch rollback
 //! (srs-rust#813), so an in-place run that fails partway leaves the tree as it
 //! was at the failure. The runbook is a clean git tree before the run; RFC-038
