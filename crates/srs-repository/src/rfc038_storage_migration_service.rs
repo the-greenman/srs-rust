@@ -126,14 +126,23 @@ fn strip_retired_properties(manifest: &mut Value) -> Vec<&'static str> {
 /// manifest property or a relations collection is present.
 ///
 /// A store that is not a file tree (`MemoryStore`) has no `manifest.json` and
-/// no relations files to place — the registry reports it `NotApplicable`.
+/// no relations files to place.
+///
+/// A probe, so it never fails on data it merely cannot read: an unparseable
+/// file under `relations/` is the catalog's to diagnose
+/// (`SRS038-R9-CANDIDATE-MALFORMED`, surfaced by `repo validate`), and
+/// propagating it from here would take `repo migrations` down for every
+/// migration. [`migrate_storage`] is where it aborts.
 pub fn migration_needed(store: &dyn RepositoryStore) -> Result<bool, RepositoryError> {
     if !store.is_file_tree_store() {
         return Ok(false);
     }
     let manifest = load_raw_manifest(store)?;
-    Ok(!retired_properties_in(&manifest).is_empty()
-        || !collection_paths(store, &manifest)?.is_empty())
+    // Deliberately not `||`: short-circuiting would leave the collection scan
+    // unexercised — and untested — whenever a retired key happens to be there.
+    let retired = !retired_properties_in(&manifest).is_empty();
+    let candidates = relations_candidates(store, &manifest)?;
+    Ok(retired || !candidates.collections.is_empty())
 }
 
 fn load_raw_manifest(store: &dyn RepositoryStore) -> Result<Value, RepositoryError> {
@@ -187,8 +196,19 @@ fn run(store: &dyn RepositoryStore) -> Result<StorageMigrationResult, Repository
     let mut manifest = load_raw_manifest(store)?;
 
     // Read the declared relationsPath before stripping it.
-    let collections = collection_paths(store, &manifest)?;
-    explode_relations(store, &collections, &mut result)?;
+    let candidates = relations_candidates(store, &manifest)?;
+    // Abort, never skip: the probe tolerates a file it cannot read, but the
+    // transform must not migrate around one. Skipping it would strip
+    // `relationsPath`, orphan the file, and then report the repository
+    // migrated.
+    if let Some(path) = candidates.unparseable.first() {
+        return Err(abort(
+            path,
+            "file under relations/ is not valid JSON, so it can be neither exploded nor \
+             ruled out as a collection; repair it (see `repo validate`) and re-run",
+        ));
+    }
+    explode_relations(store, &candidates.collections, &mut result)?;
 
     let stripped = strip_retired_properties(&mut manifest);
     if !stripped.is_empty() {
@@ -209,15 +229,15 @@ fn run(store: &dyn RepositoryStore) -> Result<StorageMigrationResult, Repository
 /// standalone relation object has no such key, so the two forms cannot be
 /// confused and a half-migrated repository is enumerated correctly.
 ///
-/// A file that will not parse is not a collection this transform can act on,
-/// and diagnosing it is the catalog's job (`SRS038-R9-CANDIDATE-MALFORMED`,
-/// reported by `repo validate`). Propagating the parse error from here would
-/// make one unparseable file fail `repo migrations` outright — no statuses at
-/// all, for any migration — instead of naming it as one diagnostic.
-fn collection_paths(
+/// A file that will not parse is reported separately rather than folded into
+/// either answer. The probe ([`migration_needed`]) tolerates it — diagnosing it
+/// is the catalog's job, and failing here would take `repo migrations` down for
+/// every migration. The transform ([`migrate_storage`]) aborts on it, because a
+/// file it cannot read is one it cannot rule out as a collection.
+fn relations_candidates(
     store: &dyn RepositoryStore,
     manifest: &Value,
-) -> Result<Vec<String>, RepositoryError> {
+) -> Result<RelationsCandidates, RepositoryError> {
     let mut candidates: BTreeSet<String> = store
         .list_files_recursive("relations")
         .into_iter()
@@ -229,20 +249,26 @@ fn collection_paths(
         candidates.insert(declared);
     }
 
-    let mut found = Vec::new();
+    let mut found = RelationsCandidates::default();
     for path in candidates {
         match store.load_instance_json(&path) {
             Ok(value) => {
                 if value.get("relations").map(Value::is_array) == Some(true) {
-                    found.push(path);
+                    found.collections.push(path);
                 }
             }
             Err(e) if e.is_not_found() => {}
-            Err(RepositoryError::Serialize { .. }) => {}
+            Err(RepositoryError::Serialize { .. }) => found.unparseable.push(path),
             Err(e) => return Err(e),
         }
     }
     Ok(found)
+}
+
+#[derive(Default)]
+struct RelationsCandidates {
+    collections: Vec<String>,
+    unparseable: Vec<String>,
 }
 
 fn explode_relations(
@@ -323,11 +349,11 @@ fn explode_relations(
         }
     }
 
-    for path in collections {
-        store.delete_relations_json(path)?;
-        result.collections_removed.push(path.clone());
-    }
-
+    // Checked *before* the collections go, not after: `abort_batch` is a no-op
+    // on every store (srs-rust#813), so a check that fires after the deletes
+    // would leave the repository with neither the collections nor a complete
+    // set of objects. `list_relations` ignores collection-shaped files, so the
+    // answer is the same either side of the delete.
     let after: BTreeSet<String> = store
         .list_relations()?
         .into_iter()
@@ -337,11 +363,16 @@ fn explode_relations(
         return Err(abort(
             "relations/",
             format!(
-                "relation id set changed: {} before, {} after",
+                "relation id set changed: {} expected, {} written",
                 expected.len(),
                 after.len()
             ),
         ));
+    }
+
+    for path in collections {
+        store.delete_relations_json(path)?;
+        result.collections_removed.push(path.clone());
     }
     Ok(())
 }
@@ -806,20 +837,58 @@ mod tests {
         );
     }
 
+    /// A store with an unparseable file under `relations/` and **no** retired
+    /// manifest property, so the collection scan is genuinely reached.
+    fn store_with_an_unparseable_relations_file() -> crate::store::FileStore {
+        let mut doc = legacy_srsj();
+        doc["srsj"] = json!("2");
+        for prop in RETIRED_PROPERTIES {
+            doc["manifest"].as_object_mut().unwrap().remove(*prop);
+        }
+        doc["data"]
+            .as_object_mut()
+            .unwrap()
+            .remove("relations/relations.json");
+        doc["data"]["relations/broken.json"] = json!("{ not json");
+        open_srsj(&doc.to_string()).unwrap()
+    }
+
     #[test]
     fn an_unparseable_relations_file_does_not_break_the_status_probe() {
         // `repo migrations` asks every migration for a status. One unparseable
         // file must not take the whole command down — the catalog is what
         // diagnoses it, and `repo validate` is where it surfaces.
-        let mut doc = legacy_srsj();
-        doc["srsj"] = json!("2");
-        doc["data"]["relations/broken.json"] = json!("{ not json");
-        let store = open_srsj(&doc.to_string()).unwrap();
-
-        assert!(migration_needed(&store).unwrap());
+        let store = store_with_an_unparseable_relations_file();
+        assert!(
+            migration_needed(&store).is_ok(),
+            "the probe must tolerate a file it cannot read"
+        );
         assert!(
             store.catalog().is_err(),
             "and the catalog still reports it as a fatal diagnostic"
+        );
+    }
+
+    #[test]
+    fn an_unparseable_relations_file_aborts_the_transform() {
+        // The probe tolerates it; the transform must not migrate around it.
+        // Skipping would strip `relationsPath`, orphan the file, and then
+        // report the repository migrated — abort, never skip.
+        let store = store_with_an_unparseable_relations_file();
+        let err = migrate_storage(
+            &store,
+            &StorageMigrationOptions {
+                allow_non_atomic: true,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("relations/broken.json"),
+            "got: {err}"
+        );
+        assert!(
+            store.load_text_file("relations/broken.json").is_ok(),
+            "and nothing was touched"
         );
     }
 
