@@ -128,7 +128,7 @@ fn strip_retired_properties(manifest: &mut Value) -> Vec<&'static str> {
 /// A store that is not a file tree (`MemoryStore`) has no `manifest.json` and
 /// no relations files to place.
 ///
-/// A probe, so it never fails on data it merely cannot read: an unparseable
+/// A probe, so it never fails on data it merely cannot read: an unreadable
 /// file under `relations/` is the catalog's to diagnose
 /// (`SRS038-R9-CANDIDATE-MALFORMED`, surfaced by `repo validate`), and
 /// propagating it from here would take `repo migrations` down for every
@@ -201,11 +201,11 @@ fn run(store: &dyn RepositoryStore) -> Result<StorageMigrationResult, Repository
     // transform must not migrate around one. Skipping it would strip
     // `relationsPath`, orphan the file, and then report the repository
     // migrated.
-    if let Some(path) = candidates.unparseable.first() {
+    if let Some(path) = candidates.unreadable.first() {
         return Err(abort(
             path,
-            "file under relations/ is not valid JSON, so it can be neither exploded nor \
-             ruled out as a collection; repair it (see `repo validate`) and re-run",
+            "file under relations/ cannot be read as JSON, so it can be neither exploded \
+             nor ruled out as a collection; repair it (see `repo validate`) and re-run",
         ));
     }
     explode_relations(store, &candidates.collections, &mut result)?;
@@ -229,7 +229,7 @@ fn run(store: &dyn RepositoryStore) -> Result<StorageMigrationResult, Repository
 /// standalone relation object has no such key, so the two forms cannot be
 /// confused and a half-migrated repository is enumerated correctly.
 ///
-/// A file that will not parse is reported separately rather than folded into
+/// A file that cannot be read is reported separately rather than folded into
 /// either answer. The probe ([`migration_needed`]) tolerates it — diagnosing it
 /// is the catalog's job, and failing here would take `repo migrations` down for
 /// every migration. The transform ([`migrate_storage`]) aborts on it, because a
@@ -263,8 +263,11 @@ fn relations_candidates(
                 }
             }
             Err(e) if e.is_not_found() => {}
-            Err(RepositoryError::Serialize { .. }) => found.unparseable.push(path),
-            Err(e) => return Err(e),
+            // Any other failure — bad JSON, non-UTF-8 bytes, a directory where
+            // a file was declared — is a file this transform cannot read.
+            // Enumerating error kinds here is how the non-UTF-8 case escaped as
+            // a raw IO error instead of the designed abort.
+            Err(_) => found.unreadable.push(path),
         }
     }
     Ok(found)
@@ -273,7 +276,7 @@ fn relations_candidates(
 #[derive(Default)]
 struct RelationsCandidates {
     collections: Vec<String>,
-    unparseable: Vec<String>,
+    unreadable: Vec<String>,
 }
 
 fn explode_relations(
@@ -468,10 +471,14 @@ pub fn migrate_srsj(content: &str) -> Result<(String, StorageMigrationResult), R
 /// removes it.
 ///
 /// The envelope manifest is the only manifest, so the shadow goes — but only
-/// once it is known to say nothing the envelope does not. Both sides are
-/// compared with the retired properties stripped, because those are exactly
-/// what this transform is about to remove anyway. A shadow that disagrees is an
-/// abort: dropping it would be silent loss.
+/// once it is known to say nothing the envelope does not. The comparison is
+/// **verbatim**: an earlier version normalised both sides by stripping the
+/// retired properties first, which quietly discarded a shadow whose only
+/// disagreement was a different `relationsPath` — and with it the collection
+/// that path named. A retired property is not noise just because this
+/// transform is about to remove it; `relationsPath` points at data. Any
+/// disagreement is an abort — dropping a differing shadow is silent loss, and
+/// this is a pathological state a human should look at.
 fn reconcile_shadow_manifest(envelope: &mut Value) -> Result<bool, RepositoryError> {
     let Some(data) = envelope.get_mut("data").and_then(|v| v.as_object_mut()) else {
         return Ok(false);
@@ -487,21 +494,19 @@ fn reconcile_shadow_manifest(envelope: &mut Value) -> Result<bool, RepositoryErr
         return Ok(false);
     }
 
-    let mut envelope_manifest = envelope
+    let envelope_manifest = envelope
         .get("manifest")
         .cloned()
         .ok_or_else(|| abort("<srsj-input>", "document declares no `manifest`"))?;
-    strip_retired_properties(&mut envelope_manifest);
 
     let data = envelope
         .get_mut("data")
         .and_then(|v| v.as_object_mut())
         .expect("data object was present a moment ago");
     for key in &shadow_keys {
-        let mut shadow = data
+        let shadow = data
             .remove(key)
             .expect("key came from this map's own key list");
-        strip_retired_properties(&mut shadow);
         if shadow != envelope_manifest {
             return Err(abort(
                 &format!("data[\"{key}\"]"),
@@ -972,6 +977,42 @@ mod tests {
     }
 
     #[test]
+    fn a_relations_file_that_is_not_utf8_is_handled_like_any_other_unreadable_one() {
+        // Classifying only JSON *parse* failures as unreadable let a non-UTF-8
+        // file escape as a raw IO error: `migration_needed` returned Err, which
+        // at the Phase-6 flip would take `repo migrations` down for every
+        // migration — the exact failure the probe exists to prevent.
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut doc = legacy_srsj();
+        doc["srsj"] = json!("2");
+        let session = open_srsj(&doc.to_string()).unwrap();
+        for (path, bytes) in crate::tree_session::export_tree(&session).unwrap() {
+            let target = dir.path().join(&path);
+            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+            std::fs::write(target, bytes).unwrap();
+        }
+        std::fs::write(dir.path().join("relations/legacy.json"), [0xff, 0xfe, 0x00]).unwrap();
+
+        let store = crate::store::FileStore::new(dir.path());
+        assert!(
+            migration_needed(&store).is_ok(),
+            "the probe must not fail on a file it cannot read"
+        );
+        let err = migrate_storage(
+            &store,
+            &StorageMigrationOptions {
+                allow_non_atomic: true,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("relations/legacy.json"),
+            "got: {err}"
+        );
+        assert!(err.to_string().contains("cannot be read"), "got: {err}");
+    }
+
+    #[test]
     fn a_malformed_collection_aborts_rather_than_being_skipped() {
         let mut doc = legacy_srsj();
         doc["data"]["relations/relations.json"]["relations"] = json!([{ "nope": true }]);
@@ -1039,9 +1080,7 @@ mod tests {
         // A `data["manifest.json"]` shadow makes a document unopenable ([R19]);
         // the transform is what removes it.
         let mut doc = legacy_srsj();
-        let mut shadow = doc["manifest"].clone();
-        shadow.as_object_mut().unwrap().remove("instanceIndex");
-        doc["data"]["manifest.json"] = shadow;
+        doc["data"]["manifest.json"] = doc["manifest"].clone();
 
         let (out, result) = migrate_srsj(&doc.to_string()).unwrap();
         assert!(result.shadow_manifest_removed);
@@ -1052,6 +1091,25 @@ mod tests {
             doc["manifest"]["repositoryId"]
         );
         assert!(after["manifest"].get("instanceIndex").is_none());
+    }
+
+    #[test]
+    fn a_shadow_manifest_differing_only_in_relations_path_aborts() {
+        // The comparison used to strip the retired properties from both sides
+        // first, so a shadow that disagreed *only* about `relationsPath` looked
+        // identical — and was dropped along with the collection it named. A
+        // retired property is not noise: `relationsPath` points at data.
+        let mut doc = legacy_srsj();
+        let mut shadow = doc["manifest"].clone();
+        shadow["relationsPath"] = json!("legacy/edges.json");
+        doc["data"]["manifest.json"] = shadow;
+        doc["data"]["legacy/edges.json"] = json!({ "relations": [relation(REL_A)] });
+
+        let err = migrate_srsj(&doc.to_string()).unwrap_err();
+        assert!(
+            err.to_string().contains("shadow manifest disagrees"),
+            "got: {err}"
+        );
     }
 
     #[test]
