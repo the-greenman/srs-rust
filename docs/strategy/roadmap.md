@@ -10,57 +10,57 @@ This is the owner operating view above the execution board. It names durable cap
 
 ```mermaid
 flowchart LR
-  S[Semantic sovereignty]
-  S --> C_Define_Meaning[Define Meaning]
-  S --> C_Preserve_Meaning[Preserve Meaning]
-  S --> C_Work_With_Meaning[Work With Meaning]
-  S --> C_Present_Facets[Present Facets]
-  S --> C_Move_and_Reconcile[Move and Reconcile]
-  S --> C_Collaborate_With_AI[Collaborate With AI]
-  S --> C_Sustain_Trust[Sustain Trust]
-  E_muDemocracy_org_36[muDemocracy.org#36: Decision Logger public release]
+  S["Semantic sovereignty"]
+  S --> C_Define_Meaning["Define Meaning"]
+  S --> C_Preserve_Meaning["Preserve Meaning"]
+  S --> C_Work_With_Meaning["Work With Meaning"]
+  S --> C_Present_Facets["Present Facets"]
+  S --> C_Move_and_Reconcile["Move and Reconcile"]
+  S --> C_Collaborate_With_AI["Collaborate With AI"]
+  S --> C_Sustain_Trust["Sustain Trust"]
+  E_muDemocracy_org_36["muDemocracy.org#36: Decision Logger public release"]
   C_Work_With_Meaning -.-> E_muDemocracy_org_36
   C_Present_Facets -.-> E_muDemocracy_org_36
-  E_muDemocracy_org_60[muDemocracy.org#60: AI-assisted decision capture]
+  E_muDemocracy_org_60["muDemocracy.org#60: AI-assisted decision capture"]
   C_Collaborate_With_AI -.-> E_muDemocracy_org_60
   C_Work_With_Meaning -.-> E_muDemocracy_org_60
-  E_muDemocracy_org_76[muDemocracy.org#76: Workflow Editor]
+  E_muDemocracy_org_76["muDemocracy.org#76: Workflow Editor"]
   C_Define_Meaning -.-> E_muDemocracy_org_76
   C_Work_With_Meaning -.-> E_muDemocracy_org_76
-  E_muDemocracy_org_83[muDemocracy.org#83: muSrs Generic Semantic Editor]
+  E_muDemocracy_org_83["muDemocracy.org#83: muSrs Generic Semantic Editor"]
   C_Work_With_Meaning -.-> E_muDemocracy_org_83
   C_Present_Facets -.-> E_muDemocracy_org_83
-  E_muDemocracy_org_92[muDemocracy.org#92: Live Governance Editor]
+  E_muDemocracy_org_92["muDemocracy.org#92: Live Governance Editor"]
   C_Work_With_Meaning -.-> E_muDemocracy_org_92
   C_Collaborate_With_AI -.-> E_muDemocracy_org_92
-  E_muDemocracy_org_94[muDemocracy.org#94: Offline Editor]
+  E_muDemocracy_org_94["muDemocracy.org#94: Offline Editor"]
   C_Move_and_Reconcile -.-> E_muDemocracy_org_94
   C_Work_With_Meaning -.-> E_muDemocracy_org_94
-  E_muDemocracy_org_95[muDemocracy.org#95: Governance Viewer]
+  E_muDemocracy_org_95["muDemocracy.org#95: Governance Viewer"]
   C_Present_Facets -.-> E_muDemocracy_org_95
   C_Work_With_Meaning -.-> E_muDemocracy_org_95
-  E_muDemocracy_org_100[muDemocracy.org#100: Public VCS storage — hosting]
+  E_muDemocracy_org_100["muDemocracy.org#100: Public VCS storage — hosting"]
   C_Preserve_Meaning -.-> E_muDemocracy_org_100
   C_Move_and_Reconcile -.-> E_muDemocracy_org_100
-  E_muDemocracy_org_101[muDemocracy.org#101: Public VCS storage — exploded repositories]
+  E_muDemocracy_org_101["muDemocracy.org#101: Public VCS storage — exploded repositories"]
   C_Preserve_Meaning -.-> E_muDemocracy_org_101
   C_Move_and_Reconcile -.-> E_muDemocracy_org_101
-  E_muDemocracy_org_117[muDemocracy.org#117: Snapshot export]
+  E_muDemocracy_org_117["muDemocracy.org#117: Snapshot export"]
   C_Preserve_Meaning -.-> E_muDemocracy_org_117
   C_Move_and_Reconcile -.-> E_muDemocracy_org_117
-  E_muDemocracy_org_118[muDemocracy.org#118: SRS VS Code Extension]
+  E_muDemocracy_org_118["muDemocracy.org#118: SRS VS Code Extension"]
   C_Work_With_Meaning -.-> E_muDemocracy_org_118
   C_Present_Facets -.-> E_muDemocracy_org_118
-  E_muDemocracy_org_120[muDemocracy.org#120: srs-vscode — CLI parity]
+  E_muDemocracy_org_120["muDemocracy.org#120: srs-vscode — CLI parity"]
   C_Work_With_Meaning -.-> E_muDemocracy_org_120
   C_Present_Facets -.-> E_muDemocracy_org_120
-  E_muDemocracy_org_124[muDemocracy.org#124: SRS for Specs]
+  E_muDemocracy_org_124["muDemocracy.org#124: SRS for Specs"]
   C_Define_Meaning -.-> E_muDemocracy_org_124
   C_Present_Facets -.-> E_muDemocracy_org_124
-  E_muDemocracy_org_133[muDemocracy.org#133: Core model foundations]
+  E_muDemocracy_org_133["muDemocracy.org#133: Core model foundations"]
   C_Define_Meaning -.-> E_muDemocracy_org_133
   C_Preserve_Meaning -.-> E_muDemocracy_org_133
-  E_muDemocracy_org_136[muDemocracy.org#136: Project governance]
+  E_muDemocracy_org_136["muDemocracy.org#136: Project governance"]
   C_Sustain_Trust -.-> E_muDemocracy_org_136
 ```
 
@@ -80,9 +80,9 @@ Delivery surfaces across all branches: Web, VS Code, CLI, WASM.
 
 ```mermaid
 flowchart LR
-  B1[B1: Coherent Semantic Kernel]
-  B2[B2: Meaning You Can Take / SRS 2.0]
-  B3[B3: Meaning You Can Continue Elsewhere]
+  B1["B1: Coherent Semantic Kernel"]
+  B2["B2: Meaning You Can Take / SRS 2.0"]
+  B3["B3: Meaning You Can Continue Elsewhere"]
   B1 --> B2
   B2 --> B3
 ```
@@ -159,9 +159,9 @@ Only release-gate `requires` edges appear here. Native `blocked-by` edges are in
 
 ```mermaid
 flowchart LR
-  B1[B1: Coherent Semantic Kernel]
-  B2[B2: Meaning You Can Take / SRS 2.0]
-  B3[B3: Meaning You Can Continue Elsewhere]
+  B1["B1: Coherent Semantic Kernel"]
+  B2["B2: Meaning You Can Take / SRS 2.0"]
+  B3["B3: Meaning You Can Continue Elsewhere"]
   B1 -->|requires| B2
   B2 -->|requires| B3
 ```

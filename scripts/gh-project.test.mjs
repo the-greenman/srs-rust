@@ -620,6 +620,8 @@ test("strategy Markdown is deterministic and matches the checked-in snapshot", (
   assert.equal(renderStrategy(strategyModel), rendered);
   assert.equal(readFileSync(STRATEGY_MARKDOWN_PATH, "utf8"), rendered);
   assert.match(rendered, /flowchart LR/);
+  assert.match(rendered, /E_muDemocracy_org_36\["muDemocracy\.org#36: Decision Logger public release"\]/);
+  assert.match(rendered, /B2\["B2: Meaning You Can Take \/ SRS 2\.0"\]/);
   assert.match(rendered, /B1: Coherent Semantic Kernel/);
   assert.match(rendered, /Proposed disposition/);
 });
