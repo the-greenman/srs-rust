@@ -248,7 +248,7 @@ pub fn delete_relation(
         }
         // InvalidRelationId: legacy collection entries may carry non-UUID ids —
         // they cannot exist as standalone objects, so fall through to the
-        // transitional collection fallback below.
+        // collection fallback below (exempt migration surface only, [R11]).
         Err(
             RepositoryError::RelationNotFound { .. } | RepositoryError::InvalidRelationId { .. },
         ) => {}

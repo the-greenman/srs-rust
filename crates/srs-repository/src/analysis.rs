@@ -614,9 +614,15 @@ fn summarize_relations(store: &dyn RepositoryStore) -> Result<RelationsSummary, 
     // is authoritative (#548).
     let candidates = crate::relation_service::relations_candidate_paths(store)?;
 
-    let found = candidates
-        .iter()
-        .find_map(|p| try_load_relations_json(store, p).map(|v| (p.clone(), v)));
+    // [R11]: a normal reader never counts collection entries — only the
+    // exempt migration surface still sees the pre-migration form.
+    let found = if store.rfc038_exempt() {
+        candidates
+            .iter()
+            .find_map(|p| try_load_relations_json(store, p).map(|v| (p.clone(), v)))
+    } else {
+        None
+    };
 
     let (relations_path, relations) = match found {
         Some((relative_path, value)) => (
