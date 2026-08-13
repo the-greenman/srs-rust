@@ -43,6 +43,23 @@ fn metamodel_store(spec: &Path) -> FileStore {
     FileStore::new(spec.join("srs"))
 }
 
+/// The live sibling spec repo is migrated by the #297 train's spec-cutover
+/// unit, after this binary releases. Until then a post-flip binary rejects it
+/// ([R2]/[R21]) — skip rather than fail, exactly like the pre-cutover skip in
+/// `discovery_conformance.rs`. Delete this guard once the spec repo is
+/// migrated (it will then never fire).
+fn spec_repo_is_migrated(spec: &Path) -> bool {
+    let manifest_path = spec.join("srs/manifest.json");
+    let Ok(raw) = std::fs::read_to_string(&manifest_path) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return false;
+    };
+    value.get("instanceIndex").is_none()
+        && value.get("dataModelRevision").and_then(|v| v.as_u64()) >= Some(2)
+}
+
 fn type_id_of(store: &FileStore, namespace: &str, name: &str) -> String {
     let package = store.load_package().expect("spec package must load");
     package
@@ -65,6 +82,10 @@ fn entity_schemas_match_the_reference_emitter_byte_for_byte() {
         eprintln!("skipping: spec repo not found (set SRS_SPEC_DIR)");
         return;
     };
+    if !spec_repo_is_migrated(&spec) {
+        eprintln!("skipping: sibling spec repo is pre-RFC-038 format (awaiting the #297 spec-cutover unit)");
+        return;
+    }
     let store = metamodel_store(&spec);
 
     for entity in ["field", "type"] {
@@ -95,6 +116,10 @@ fn bundle_envelope_matches_the_reference_emitter_byte_for_byte() {
         eprintln!("skipping: spec repo not found (set SRS_SPEC_DIR)");
         return;
     };
+    if !spec_repo_is_migrated(&spec) {
+        eprintln!("skipping: sibling spec repo is pre-RFC-038 format (awaiting the #297 spec-cutover unit)");
+        return;
+    }
     let store = metamodel_store(&spec);
 
     let result = schema_bundle(
@@ -125,6 +150,10 @@ fn the_projection_reports_what_it_could_not_express() {
         eprintln!("skipping: spec repo not found (set SRS_SPEC_DIR)");
         return;
     };
+    if !spec_repo_is_migrated(&spec) {
+        eprintln!("skipping: sibling spec repo is pre-RFC-038 format (awaiting the #297 spec-cutover unit)");
+        return;
+    }
     let store = metamodel_store(&spec);
     let type_id = type_id_of(&store, "com.semanticops.srs", "field");
     let result = type_to_json_schema(

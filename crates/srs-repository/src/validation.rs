@@ -2356,7 +2356,10 @@ mod tests {
         fs::write(path, serde_json::to_string_pretty(&value).unwrap()).unwrap();
     }
 
-    fn minimal_manifest(instance_index: serde_json::Value) -> Value {
+    // The parameter survives at 50+ call sites as documentation of which
+    // instances a test places on disk; membership itself is the tree
+    // (RFC-038 [R1]) and `instanceIndex` is denied by [R2], so it is unused.
+    fn minimal_manifest(_instance_index: serde_json::Value) -> Value {
         json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
@@ -2367,7 +2370,6 @@ mod tests {
                 "containerId": "00000000-0000-4000-8000-000000000099",
                 "title": "Test Repo"
             },
-            "instanceIndex": instance_index,
             "createdAt": "2026-01-01T00:00:00Z"
         })
     }
@@ -5319,7 +5321,6 @@ mod tests {
         {
             let mut m = store.load_manifest().unwrap();
             m.container = typed.container;
-            m.container_index = typed.container_index;
             store.save_manifest(&m).unwrap();
         }
         store
@@ -5509,7 +5510,7 @@ mod tests {
             "repositoryId": root_id,
             "title": "Test I-80",
             "container": {"containerId": root_id, "title": "Root", "memberInstanceIds": [member_id]},
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
@@ -5548,7 +5549,7 @@ mod tests {
             "repositoryId": root_id,
             "title": "Test I-80 root",
             "container": {"containerId": root_id, "title": "Root", "rootInstanceIds": [root_member_id]},
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
@@ -5593,7 +5594,6 @@ mod tests {
                 "memberInstanceIds": [member_id],
                 "rootInstanceIds": [member_id]
             },
-            "instanceIndex": [rfc013_instance_entry(member_id)],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
@@ -5645,7 +5645,6 @@ mod tests {
                 "memberInstanceIds": [identity_id],
                 "rootInstanceIds": [identity_id]
             },
-            "instanceIndex": [rfc013_instance_entry(identity_id)],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
@@ -5699,7 +5698,6 @@ mod tests {
                 "identityInstanceId": identity_id,
                 "memberInstanceIds": [identity_id]
             },
-            "instanceIndex": [rfc013_instance_entry(identity_id)],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
@@ -5756,7 +5754,6 @@ mod tests {
                 "memberInstanceIds": [member_id],
                 "rootInstanceIds": [member_id]
             },
-            "instanceIndex": [rfc013_instance_entry(member_id)],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let store = manifest_store(manifest_val);
@@ -5796,7 +5793,6 @@ mod tests {
             "repositoryId": root_id,
             "title": "I-82 suppressed test",
             "container": {"containerId": root_id, "title": "Root"},
-            "instanceIndex": [rfc013_instance_entry(member_id)],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let store = manifest_store(manifest_val).with_data(
@@ -5841,7 +5837,6 @@ mod tests {
                 "memberInstanceIds": [member_id],
                 "rootInstanceIds": [member_id]
             },
-            "instanceIndex": [rfc013_instance_entry(member_id)],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         // Use manifest_store + with_data to insert the section container file and the
@@ -5915,10 +5910,6 @@ mod tests {
                 "memberInstanceIds": [identity_id],
                 "rootInstanceIds": [section_id]
             },
-            "instanceIndex": [
-                rfc013_instance_entry(identity_id),
-                rfc013_instance_entry(section_id),
-            ],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let record_json = |id: &str| {
@@ -5988,10 +5979,6 @@ mod tests {
                 "memberInstanceIds": [identity_id, section_id],
                 "rootInstanceIds": [section_id]
             },
-            "instanceIndex": [
-                rfc013_instance_entry(identity_id),
-                rfc013_instance_entry(section_id),
-            ],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let record_json = |id: &str| {
@@ -6072,10 +6059,6 @@ mod tests {
             "containerIndex": [
                 {"containerId": section_container_id, "title": "Section"}
             ],
-            "instanceIndex": [
-                rfc013_instance_entry(identity_id),
-                rfc013_instance_entry(section_id),
-            ],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let store = manifest_store(manifest_val)
@@ -6114,7 +6097,7 @@ mod tests {
             "repositoryId": root_id,
             "title": "Embed Only",
             "container": {"containerId": root_id, "title": "Root", "identityInstanceId": "99999999-9999-4999-8999-999999999999"},
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let temp = TempDir::new().unwrap();
@@ -6154,7 +6137,6 @@ mod tests {
                 "identityInstanceId": identity_id,
                 "memberInstanceIds": [identity_id]
             },
-            "instanceIndex": [rfc013_instance_entry(identity_id)],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let temp = TempDir::new().unwrap();
@@ -6214,10 +6196,6 @@ mod tests {
                 "memberInstanceIds": [identity_id, section_id],
                 "rootInstanceIds": [identity_id]
             },
-            "instanceIndex": [
-                rfc013_instance_entry(identity_id),
-                rfc013_instance_entry(section_id)
-            ],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
@@ -6295,7 +6273,7 @@ mod tests {
             "repositoryId": root_id,
             "title": "Cross-Store I-80",
             "container": {"containerId": root_id, "title": "Root", "memberInstanceIds": [member_id]},
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "createdAt": "2026-01-01T00:00:00Z"
         });
 
@@ -6661,7 +6639,7 @@ mod tests {
 
     // ── RFC-018 I-81 extension: identity type checks ────────────────────────
 
-    fn manifest_with_identity(identity_id: &str, tier: u8, path: &str) -> Value {
+    fn manifest_with_identity(identity_id: &str, _tier: u8, _path: &str) -> Value {
         json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
@@ -6674,11 +6652,6 @@ mod tests {
                 "identityInstanceId": identity_id,
                 "memberInstanceIds": [identity_id]
             },
-            "instanceIndex": [{
-                "instanceId": identity_id,
-                "tier": tier,
-                "path": path
-            }],
             "createdAt": "2026-01-01T00:00:00Z"
         })
     }
@@ -6696,14 +6669,7 @@ mod tests {
             0,
             "records/notes/id.json",
         ));
-        let mut m = store.load_manifest().unwrap();
-        m.instance_index.push(crate::index::InstanceIndexEntry {
-            instance_id: identity_id.to_string(),
-            tier: 0,
-            path: "records/notes/id.json".to_string(),
-            title: None,
-            tags: None,
-        });
+        let m = store.load_manifest().unwrap();
         store.save_manifest(&m).unwrap();
         // Provide the actual note data so the instance-index validation loop doesn't
         // emit an I/O error for the missing file.
@@ -7769,53 +7735,6 @@ mod tests {
     }
 
     #[test]
-    fn validate_honours_manifest_relations_path() {
-        // #548: a custom manifest relationsPath must be the file validate reads, and the
-        // diagnostic must be attributed to it.
-        let temp = TempDir::new().unwrap();
-        let a = "00000000-0000-4000-8000-00000000000a";
-        let b = "00000000-0000-4000-8000-00000000000b";
-        let mut manifest = minimal_manifest(json!([
-            {"instanceId": a, "tier": 0, "path": "records/notes/a.json"},
-            {"instanceId": b, "tier": 0, "path": "records/notes/b.json"},
-        ]));
-        manifest
-            .as_object_mut()
-            .unwrap()
-            .insert("relationsPath".to_string(), json!("relations/custom.json"));
-        write_json(temp.path(), "manifest.json", &manifest);
-        write_json(temp.path(), "package/.srs", &json!({}));
-        write_json(
-            temp.path(),
-            "package/package.json",
-            &minimal_package_json(None, None),
-        );
-        write_json(temp.path(), "records/notes/a.json", &valid_note(a));
-        write_json(temp.path(), "records/notes/b.json", &valid_note(b));
-        write_json(
-            temp.path(),
-            "relations/custom.json",
-            &relations_collection(vec![bad_type_relation(
-                "00000000-0000-4000-8000-000000000103",
-                a,
-                b,
-            )]),
-        );
-
-        let store = crate::store::FileStore::new(temp.path());
-        let report = validate_repository(&store).unwrap();
-        let diag = report
-            .diagnostics
-            .iter()
-            .find(|d| d.message.contains("E1") && d.relative_path == "relations/custom.json");
-        assert!(
-            diag.is_some(),
-            "expected an E1 diagnostic attributed to relations/custom.json, got: {:?}",
-            report.diagnostics
-        );
-    }
-
-    #[test]
     fn validate_still_reads_legacy_relations_json() {
         // Back-compat: repos whose relations live only at the legacy relations/relations.json
         // path are still validated exactly as before.
@@ -8333,7 +8252,6 @@ mod tests {
         use crate::package::Package;
         use srs_core::types::field::Field;
         use srs_core::types::record_type::RecordType;
-        use srs_core::types::source_document::SourceDocumentIndexEntry;
         use std::path::PathBuf;
 
         let allowed_mime_field: Field = serde_json::from_value(json!({
@@ -8408,22 +8326,8 @@ mod tests {
             lifecycles: vec![],
         };
 
-        // Build source_document_index
-        let src_doc_index: Vec<SourceDocumentIndexEntry> = content_files
-            .iter()
-            .enumerate()
-            .map(|(i, (rel_path, _, _))| SourceDocumentIndexEntry {
-                document_id: format!("cc{:06}-0000-4000-b000-000000000001", i + 1),
-                sidecar_path: format!("{}.meta.json", rel_path),
-                content_path: rel_path.to_string(),
-                title: None,
-                sidecar_checksum: None,
-                content_checksum: None,
-            })
-            .collect();
-
-        // Build the manifest JSON for both schema validation and typed access
-        let src_doc_index_json: serde_json::Value = serde_json::to_value(&src_doc_index).unwrap();
+        // Build the manifest JSON for both schema validation and typed access.
+        // Source documents are discovered by sidecar ([R15]) — no index.
         let manifest_json = json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
@@ -8434,11 +8338,7 @@ mod tests {
                 "containerId": "00000000-0000-4000-8000-000000000099",
                 "title": "Policy Test Repo"
             },
-            "instanceIndex": [
-                {"instanceId": POLICY_RECORD_ID, "tier": 2, "path": "records/policy.json"}
-            ],
             "sourceDocumentsPath": "source-documents",
-            "sourceDocumentIndex": src_doc_index_json,
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let manifest_str = serde_json::to_string(&manifest_json).unwrap();
@@ -8721,10 +8621,6 @@ mod tests {
                 "containerId": "00000000-0000-4000-8000-000000000099",
                 "title": "Multi-policy Repo"
             },
-            "instanceIndex": [
-                {"instanceId": POLICY_RECORD_ID, "tier": 2, "path": "records/policy1.json"},
-                {"instanceId": second_id, "tier": 2, "path": "records/policy2.json"}
-            ],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let manifest_str = serde_json::to_string(&manifest_json).unwrap();
@@ -8917,7 +8813,6 @@ mod tests {
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Tombstone Test",
             "container": {"containerId": "00000000-0000-4000-8000-000000000099", "title": "Tombstone Test"},
-            "instanceIndex": [{"instanceId": POLICY_RECORD_ID, "tier": 2, "path": "records/policy.json"}],
             "sourceDocumentsPath": "source-documents",
             "sourceDocumentIndex": src_doc_index_json,
             "createdAt": "2026-01-01T00:00:00Z"
@@ -9041,7 +8936,6 @@ mod tests {
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "String MIME Test",
             "container": {"containerId": "00000000-0000-4000-8000-000000000099", "title": "String MIME Test"},
-            "instanceIndex": [{"instanceId": POLICY_RECORD_ID, "tier": 2, "path": "records/policy.json"}],
             "sourceDocumentsPath": "source-documents",
             "sourceDocumentIndex": src_doc_index_json,
             "createdAt": "2026-01-01T00:00:00Z"
@@ -9329,9 +9223,6 @@ mod tests {
                 "containerId": "00000000-0000-4000-8000-000000000099",
                 "title": "Attaches Test Repo"
             },
-            "instanceIndex": [
-                {"instanceId": ATTACHES_NOTE_ID, "tier": 0, "path": "records/note.json"}
-            ],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         if with_index_entry {
@@ -9612,9 +9503,6 @@ mod tests {
                 "containerId": "00000000-0000-4000-8000-000000000099",
                 "title": "Record Attaches Test"
             },
-            "instanceIndex": [
-                {"instanceId": ATTACHES_NOTE_ID, "tier": 2, "path": "records/rec.json"}
-            ],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let record_json = json!({

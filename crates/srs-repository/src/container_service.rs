@@ -1421,7 +1421,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let embed_id = "aaa00000-0000-4000-8000-000000000001";
         let manifest_json = format!(
-            r#"{{"srsVersion":"2.0-draft","repositoryId":"test","instanceIndex":[],"container":{{"containerId":"{embed_id}","title":"Root"}}}}"#
+            r#"{{"srsVersion":"2.0-draft","repositoryId":"test","dataModelRevision":2,"container":{{"containerId":"{embed_id}","title":"Root"}}}}"#
         );
         std::fs::write(temp.path().join("manifest.json"), &manifest_json).unwrap();
         let store = crate::FileStore::new(temp.path());

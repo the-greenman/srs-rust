@@ -525,7 +525,7 @@ mod tests {
         std::fs::create_dir_all(root.join(".srs")).unwrap();
         std::fs::write(
             root.join("manifest.json"),
-            serde_json::json!({"instanceIndex": []}).to_string(),
+            serde_json::json!({"dataModelRevision": 2}).to_string(),
         )
         .unwrap();
         std::fs::create_dir_all(root.join("package")).unwrap();

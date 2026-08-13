@@ -9,7 +9,7 @@ fn srsj_empty() -> String {
             "repositoryId": "test-list-attachments-empty",
             "srsVersion": "2.0-draft",
             "namespace": "com.test",
-            "instanceIndex": []
+            "dataModelRevision": 2
         },
         "data": {}
     })
@@ -23,16 +23,8 @@ fn srsj_with_indexed_entry() -> String {
             "repositoryId": "test-list-attachments-indexed",
             "srsVersion": "2.0-draft",
             "namespace": "com.test",
-            "instanceIndex": [],
-            "sourceDocumentsPath": "source-documents",
-            "sourceDocumentIndex": [{
-                "documentId": "doc-001",
-                "contentPath": "brief.pdf",
-                "sidecarPath": "brief.meta.json",
-                "title": "Board Brief",
-                "contentChecksum": "sha256:abc",
-                "sidecarChecksum": "sha256:def"
-            }]
+            "dataModelRevision": 2,
+            "sourceDocumentsPath": "source-documents"
         },
         "data": {
             "source-documents/brief.pdf": "pdf-content-placeholder",
@@ -55,7 +47,7 @@ fn srsj_with_unindexed_file() -> String {
             "repositoryId": "test-list-attachments-unindexed",
             "srsVersion": "2.0-draft",
             "namespace": "com.test",
-            "instanceIndex": []
+            "dataModelRevision": 2
         },
         "data": {
             "source-documents/orphan.pdf": "orphan-content-placeholder"

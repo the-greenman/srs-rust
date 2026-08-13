@@ -24,12 +24,10 @@ fn bound_view_srsj() -> String {
     serde_json::json!({
         "srsj": "2",
         "manifest": {
+            "dataModelRevision": 2,
             "repositoryId": "test-repo-docviews",
             "srsVersion": "2.0-draft",
             "namespace": "com.test",
-            "instanceIndex": [
-                {"instanceId": ROOT_ID, "path": format!("records/tier-2/{ROOT_ID}.json"), "tier": 2}
-            ],
             "packageRef": {"mode": "local", "path": "package"}
         },
         "data": {

@@ -20,7 +20,7 @@ fn write_minimal_file_repo(temp: &TempDir) {
     std::fs::create_dir_all(root.join("package")).unwrap();
 
     let manifest = json!({
-        "instanceIndex": [],
+        "dataModelRevision": 2,
         "srsVersion": "2.0-draft",
         "repositoryId": "parity-repo-id",
         "namespace": "com.test"

@@ -442,7 +442,7 @@ mod tests {
                 "repositoryId": "seed-repo-id",
                 "srsVersion": "2.0-draft",
                 "namespace": "com.mudemocracy.governance",
-                "instanceIndex": [],
+                "dataModelRevision": 2,
                 "packageRef": {"mode": "local", "path": "package"},
                 "meta": {
                     "upstreamPackage": {
@@ -476,7 +476,7 @@ mod tests {
                 "repositoryId": "seed-repo-id",
                 "srsVersion": "2.0-draft",
                 "namespace": "com.mudemocracy.governance",
-                "instanceIndex": [],
+                "dataModelRevision": 2,
                 "packageRef": {"mode": "local", "path": "package"},
                 "upstreamPackage": {
                     "packageId": "pkg-upstream-001",

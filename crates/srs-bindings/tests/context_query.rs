@@ -21,12 +21,10 @@ fn fixture_store() -> FileStore {
     let srsj = serde_json::json!({
         "srsj": "2",
         "manifest": {
+            "dataModelRevision": 2,
             "repositoryId": "test-repo-context",
             "srsVersion": "2.0-draft",
             "namespace": "com.test",
-            "instanceIndex": [
-                {"instanceId": RECORD_ID, "path": format!("records/tier-2/{RECORD_ID}.json"), "tier": 2}
-            ],
             "packageRef": {"mode": "local", "path": "package"}
         },
         "data": {

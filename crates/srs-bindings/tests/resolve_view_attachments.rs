@@ -8,12 +8,10 @@ fn minimal_srsj() -> String {
     serde_json::json!({
         "srsj": "2",
         "manifest": {
+            "dataModelRevision": 2,
             "repositoryId": "test-resolve-view-attachments",
             "srsVersion": "2.0-draft",
-            "namespace": "com.test",
-            "instanceIndex": [
-                {"instanceId": REC_ID, "path": format!("records/{REC_ID}.json"), "tier": 2}
-            ]
+            "namespace": "com.test"
         },
         "data": {
             format!("records/{REC_ID}.json"): {

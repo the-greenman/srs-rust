@@ -21,6 +21,7 @@ pub const PACKAGE_BUNDLE_SCHEMA_ID: &str =
 pub const PACKAGE_MANIFEST_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/package-manifest.json";
 pub const RECORD_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/record.json";
+pub const RELATION_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/relation.json";
 pub const RELATION_TYPE_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/relation-type.json";
 pub const RELATIONS_COLLECTION_SCHEMA_ID: &str =
@@ -48,6 +49,7 @@ pub const ALL_SCHEMA_IDS: &[&str] = &[
     PACKAGE_BUNDLE_SCHEMA_ID,
     PACKAGE_MANIFEST_SCHEMA_ID,
     RECORD_SCHEMA_ID,
+    RELATION_SCHEMA_ID,
     RELATION_TYPE_SCHEMA_ID,
     RELATIONS_COLLECTION_SCHEMA_ID,
     SOURCE_DOCUMENT_META_SCHEMA_ID,
@@ -97,6 +99,7 @@ static SCHEMA_SOURCES: &[(&str, &str)] = &[
         include_schema!("package-manifest.json"),
     ),
     (RECORD_SCHEMA_ID, include_schema!("record.json")),
+    (RELATION_SCHEMA_ID, include_schema!("relation.json")),
     (
         RELATION_TYPE_SCHEMA_ID,
         include_schema!("relation-type.json"),
@@ -232,7 +235,7 @@ mod tests {
     #[test]
     fn registry_builds_and_has_all_schema_ids() {
         let reg = SchemaRegistry::global();
-        assert_eq!(reg.schema_ids().len(), 22);
+        assert_eq!(reg.schema_ids().len(), 23);
         for id in ALL_SCHEMA_IDS {
             assert!(reg.schema_ids().contains(id), "missing: {id}");
         }

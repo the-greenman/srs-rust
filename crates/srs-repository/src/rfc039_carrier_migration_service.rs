@@ -96,6 +96,23 @@ pub fn migration_needed(store: &dyn RepositoryStore) -> Result<bool, RepositoryE
     Ok(crate::field_type_migration_service::data_model_revision(store)? < CARRIER_REVISION)
 }
 
+/// RFC-039 [R13]: the carrier migration enumerates instances from the
+/// pre-generation-2 manifest's own `instanceIndex`. Post-flip the typed
+/// `Manifest` has no such field — on an exempt load the retired key rides in
+/// `extra`, and this is the one component entitled to read it ([R21]).
+fn legacy_instance_index(
+    manifest: &crate::manifest::Manifest,
+) -> Result<Vec<crate::index::InstanceIndexEntry>, RepositoryError> {
+    match manifest.extra.get("instanceIndex") {
+        None => Ok(Vec::new()),
+        Some(v) => {
+            serde_json::from_value(v.clone()).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!("manifest.json instanceIndex is not a valid index: {e}"),
+            })
+        }
+    }
+}
+
 pub fn migrate_carrier(
     store: &dyn RepositoryStore,
 ) -> Result<CarrierMigrationResult, RepositoryError> {
@@ -152,8 +169,9 @@ fn run_migration(
 
     // ── Phase 1 — instances, enumerated from instanceIndex ([R13]) ──
     let manifest = store.load_manifest()?;
-    let index_count = manifest.instance_index.len();
-    for entry in &manifest.instance_index {
+    let legacy_index = legacy_instance_index(&manifest)?;
+    let index_count = legacy_index.len();
+    for entry in &legacy_index {
         let path = entry.path().to_string();
         let doc = store.load_instance_json(&path)?;
         let migrated = match entry.tier() {
@@ -1153,7 +1171,7 @@ fn delete_zero_referent_versions(
     // the superseded version is already gone from the tree. Verify no instance
     // still pins a bumped-away version ([R19] scope check).
     let manifest = store.load_manifest()?;
-    for entry in &manifest.instance_index {
+    for entry in &legacy_instance_index(&manifest)? {
         if entry.tier() != 2 {
             continue;
         }
@@ -1369,7 +1387,9 @@ mod tests {
     }
 
     fn migrated_store() -> (FileStore, CarrierMigrationResult) {
-        let store = crate::srsj::open_srsj(&fixture_srsj(&FixtureKnobs::default())).unwrap();
+        let store = crate::srsj::open_srsj(&fixture_srsj(&FixtureKnobs::default()))
+            .unwrap()
+            .with_rfc038_exemption();
         let result = migrate_carrier(&store).expect("migration must succeed");
         (store, result)
     }
@@ -1568,7 +1588,9 @@ mod tests {
         })
         .to_string();
 
-        let store = crate::srsj::open_srsj(&srsj).unwrap();
+        let store = crate::srsj::open_srsj(&srsj)
+            .unwrap()
+            .with_rfc038_exemption();
         migrate_carrier(&store).expect("inheriting record must migrate");
         let record = store.load_instance_json("records/r-child.json").unwrap();
         let keys: Vec<&str> = record["fieldValues"]
@@ -1592,7 +1614,8 @@ mod tests {
             reversed_pairs: true,
             ..Default::default()
         }))
-        .unwrap();
+        .unwrap()
+        .with_rfc038_exemption();
         migrate_carrier(&store).expect("migration must succeed");
 
         let record = store.load_instance_json("records/r-item.json").unwrap();
@@ -1623,7 +1646,8 @@ mod tests {
             divergent_entries: true,
             ..Default::default()
         }))
-        .unwrap();
+        .unwrap()
+        .with_rfc038_exemption();
         let err = migrate_carrier(&store).expect_err("divergent dual write must abort");
         let msg = err.to_string();
         assert!(msg.contains("[R20]"), "diagnostic cites [R20]: {msg}");
@@ -1643,7 +1667,7 @@ mod tests {
         std::fs::write(&path, &srsj).unwrap();
         let before = std::fs::read(&path).unwrap();
 
-        let session = crate::srsj::SrsjSession::open(&path).unwrap();
+        let session = crate::srsj::SrsjSession::open_for_migration(&path).unwrap();
         let err = migrate_carrier(session.store()).expect_err("unresolvable fieldId must abort");
         assert!(
             err.to_string().contains("[R10]"),
@@ -1662,7 +1686,7 @@ mod tests {
             before, after,
             "an aborted migration must never be projected"
         );
-        let reopened = crate::srsj::SrsjSession::open(&path).unwrap();
+        let reopened = crate::srsj::SrsjSession::open_for_migration(&path).unwrap();
         assert_eq!(
             crate::field_type_migration_service::data_model_revision(reopened.store()).unwrap(),
             1
@@ -1727,7 +1751,9 @@ mod tests {
     #[test]
     fn instance_count_asserted_against_index() {
         let (store, result) = migrated_store();
-        let index_len = store.load_manifest().unwrap().instance_index.len();
+        let index_len = legacy_instance_index(&store.load_manifest().unwrap())
+            .unwrap()
+            .len();
         assert_eq!(result.instances_migrated, index_len);
         assert_eq!(result.tier2_records, 2);
         assert_eq!(
@@ -1825,7 +1851,9 @@ mod tests {
             }
         })
         .to_string();
-        let store = crate::srsj::open_srsj(&srsj).unwrap();
+        let store = crate::srsj::open_srsj(&srsj)
+            .unwrap()
+            .with_rfc038_exemption();
         let result = migrate_carrier(&store).expect("sub-package type must resolve (srs-rust#809)");
         assert_eq!(result.instances_migrated, 1);
 
@@ -1859,7 +1887,9 @@ mod tests {
             "data": {}
         })
         .to_string();
-        let store = crate::srsj::open_srsj(&srsj).unwrap();
+        let store = crate::srsj::open_srsj(&srsj)
+            .unwrap()
+            .with_rfc038_exemption();
         let err = migrate_carrier(&store).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("--id field-type"), "{msg}");

@@ -639,7 +639,7 @@ mod tests {
 
     fn setup_minimal_repo(root: &std::path::Path) {
         std::fs::create_dir_all(root.join(".srs")).unwrap();
-        std::fs::write(root.join("manifest.json"), r#"{"instanceIndex":[]}"#).unwrap();
+        std::fs::write(root.join("manifest.json"), r#"{"dataModelRevision":2}"#).unwrap();
         std::fs::create_dir_all(root.join("package")).unwrap();
         std::fs::write(
             root.join("package/package.json"),
@@ -1274,7 +1274,6 @@ mod tests {
         instance_id: &str,
         instance_path: &str,
     ) -> MemoryStore {
-        use crate::index::InstanceIndexEntry;
         use crate::manifest::Manifest;
         use crate::package::Package;
         use std::path::PathBuf;
@@ -1320,21 +1319,12 @@ mod tests {
         };
 
         let manifest = Manifest {
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: instance_id.to_string(),
-                tier: 2,
-                path: instance_path.to_string(),
-                title: None,
-                tags: None,
-            }],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
 
@@ -1461,7 +1451,6 @@ mod tests {
     #[test]
     fn document_views_for_container_untyped_root_returns_empty() {
         use crate::container_service;
-        use crate::index::InstanceIndexEntry;
         use crate::manifest::Manifest;
         use crate::package::Package;
         use srs_core::types::container::Container;
@@ -1513,21 +1502,12 @@ mod tests {
         };
 
         let manifest = Manifest {
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: instance_id.to_string(),
-                tier: 0,
-                path: "records/note.json".to_string(),
-                title: None,
-                tags: None,
-            }],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
 

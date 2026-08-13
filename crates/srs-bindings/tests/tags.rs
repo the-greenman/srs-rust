@@ -19,7 +19,7 @@ fn vocab_srsj() -> String {
             "repositoryId": "test-repo-vocab",
             "srsVersion": "2.0-draft",
             "namespace": "com.test",
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "packageRef": {"mode": "local", "path": "package"}
         },
         "data": {

@@ -908,7 +908,7 @@ mod tests {
         // Minimal repo scaffold.
         std::fs::create_dir_all(root.join(".srs")).unwrap();
         let manifest_json = serde_json::json!({
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "sourceDocumentsPath": "source-documents"
         });
         std::fs::write(
@@ -1192,7 +1192,7 @@ mod tests {
             "manifest": {
                 "srsVersion": "2.0-draft",
                 "namespace": "com.test",
-                "instanceIndex": []
+                "dataModelRevision": 2
             },
             "data": {}
         })
@@ -1458,7 +1458,7 @@ mod tests {
         let doc_id = "doc-roundtrip-001";
         // RFC-038 Change K: the physical sidecar is the document's identity —
         // manifest.sourceDocumentIndex is retired and inert.
-        let manifest_json = serde_json::json!({ "instanceIndex": [] });
+        let manifest_json = serde_json::json!({ "dataModelRevision": 2 });
         std::fs::create_dir_all(root.join("source-documents")).unwrap();
         std::fs::write(root.join("source-documents/brief.pdf"), b"pdf").unwrap();
         std::fs::write(
@@ -1549,7 +1549,7 @@ mod tests {
         std::fs::create_dir_all(root.join(".srs")).unwrap();
         std::fs::write(
             root.join("manifest.json"),
-            serde_json::json!({"instanceIndex": []}).to_string(),
+            serde_json::json!({"dataModelRevision": 2}).to_string(),
         )
         .unwrap();
         std::fs::create_dir_all(root.join("package")).unwrap();
@@ -1598,7 +1598,7 @@ mod tests {
         // the sidecar on disk is the document's identity; discovery is
         // catalog-driven.
         let manifest = store.load_manifest().unwrap();
-        assert!(manifest.source_document_index.is_none());
+        assert!(!manifest.extra.contains_key("sourceDocumentIndex"));
 
         // list_attachments confirms the file appears.
         let list = list_attachments(&store, ListAttachmentsFilter::default()).unwrap();
@@ -1838,7 +1838,7 @@ mod tests {
         let doc_id = "doc-resolve-roundtrip-006";
         let record_id = "aaaa0006-0000-4000-8000-000000000006";
         // RFC-038 Change K: the physical sidecar is the document's identity.
-        let manifest_json = serde_json::json!({ "instanceIndex": [] });
+        let manifest_json = serde_json::json!({ "dataModelRevision": 2 });
         std::fs::create_dir_all(root.join("source-documents")).unwrap();
         std::fs::write(root.join("source-documents/brief.pdf"), b"pdf").unwrap();
         std::fs::write(
@@ -2022,7 +2022,7 @@ mod tests {
         let doc_id = "fs-doc-001";
         // RFC-038 Change K: the physical sidecar is the document's identity.
         let manifest_json = serde_json::json!({
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "sourceDocumentsPath": "source-documents"
         });
         std::fs::write(
@@ -2215,7 +2215,7 @@ mod tests {
         let doc_id = "doc-gra-roundtrip-004";
         let record_id = "bbbb0004-0000-4000-8000-000000000004";
         let manifest_json = serde_json::json!({
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "sourceDocumentsPath": "source-documents"
         });
         std::fs::write(
@@ -2365,7 +2365,7 @@ mod tests {
         let root = temp.path();
         std::fs::create_dir_all(root.join(".srs")).unwrap();
         let manifest_json = serde_json::json!({
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "sourceDocumentsPath": "source-documents"
         });
         std::fs::write(

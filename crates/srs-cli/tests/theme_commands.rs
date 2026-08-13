@@ -9,7 +9,7 @@ fn create_temp_repo_with_themes() -> TempDir {
     std::fs::create_dir_all(temp.path().join(".srs")).unwrap();
     std::fs::write(
         temp.path().join("manifest.json"),
-        serde_json::to_string_pretty(&serde_json::json!({ "instanceIndex": [] })).unwrap(),
+        serde_json::to_string_pretty(&serde_json::json!({ "dataModelRevision": 2 })).unwrap(),
     )
     .unwrap();
     let package_dir = temp.path().join("package");

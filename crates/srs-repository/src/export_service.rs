@@ -109,7 +109,6 @@ pub fn export_record_bundle(
 mod tests {
     use super::*;
     use crate::attachment_service::{link_attachment, LinkAttachmentInput};
-    use crate::index::InstanceIndexEntry;
     use crate::manifest::Manifest;
     use crate::package::Package;
     use crate::store::memory::MemoryStore;
@@ -189,13 +188,6 @@ mod tests {
         let view_id = "view-noatt-0000-4000-8000-000000000002".to_string();
 
         let manifest = Manifest {
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: instance_id.clone(),
-                tier: 2,
-                path: format!("records/tier-2/dec-{}.json", &instance_id[..8]),
-                title: None,
-                tags: None,
-            }],
             ..Manifest::default()
         };
         let package = minimal_package_with_view(&view_id);
@@ -434,13 +426,6 @@ mod tests {
     /// contains only `decision.md`.
     fn canonical_golden_store() -> MemoryStore {
         let manifest = Manifest {
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: GOLDEN_INSTANCE_ID.to_string(),
-                tier: 2,
-                path: "records/tier-2/golden-exp.json".to_string(),
-                title: None,
-                tags: None,
-            }],
             ..Manifest::default()
         };
 

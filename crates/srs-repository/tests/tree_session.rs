@@ -281,26 +281,28 @@ fn materialize_from_srsj_parity() {
 /// repository authored before the slug-id8 convention (as srs-web's gallery/sample `.srsj`
 /// fixtures are). Returns a `.srsj` envelope string.
 fn srsj_with_noncanonical_instance_paths(base: &BTreeMap<String, Vec<u8>>) -> String {
-    let mut manifest: serde_json::Value = serde_json::from_slice(&base["manifest.json"]).unwrap();
-    let mut renamed: BTreeMap<String, String> = BTreeMap::new();
-    for entry in manifest["instanceIndex"].as_array_mut().unwrap() {
-        let id = entry["instanceId"].as_str().unwrap().to_string();
-        let old = entry["path"].as_str().unwrap().to_string();
-        let dir = old.rsplit_once('/').map(|(d, _)| d).unwrap_or("records");
-        let non_canonical = format!("{dir}/{id}.json");
-        entry["path"] = serde_json::json!(non_canonical);
-        renamed.insert(old, non_canonical);
-    }
+    // RFC-038: membership is the tree — non-canonical placement is expressed
+    // by renaming the instance files' data keys to bare full-UUID filenames,
+    // not by patching a manifest index (retired).
+    let manifest: serde_json::Value = serde_json::from_slice(&base["manifest.json"]).unwrap();
     let mut data = serde_json::Map::new();
     for (path, bytes) in base {
         if path == "manifest.json" || !path.ends_with(".json") || path.starts_with(".github/") {
             continue;
         }
-        let key = renamed.get(path).cloned().unwrap_or_else(|| path.clone());
-        data.insert(
-            key,
-            serde_json::from_slice::<serde_json::Value>(bytes).unwrap(),
-        );
+        let value = serde_json::from_slice::<serde_json::Value>(bytes).unwrap();
+        let key = if path.starts_with("records/") {
+            match value.get("instanceId").and_then(|v| v.as_str()) {
+                Some(id) => {
+                    let dir = path.rsplit_once('/').map(|(d, _)| d).unwrap_or("records");
+                    format!("{dir}/{id}.json")
+                }
+                None => path.clone(),
+            }
+        } else {
+            path.clone()
+        };
+        data.insert(key, value);
     }
     serde_json::json!({ "srsj": "2", "manifest": manifest, "data": data }).to_string()
 }
@@ -318,17 +320,15 @@ fn materialize_preserves_noncanonical_paths_and_keeps_repo_upgrade_detectable() 
 
     let tree = materialize_tree(&json_store).unwrap();
 
-    // (a) Real paths preserved — not re-canonicalized to the slug-id8 form on load.
-    let out = tree.load_manifest().unwrap();
-    assert!(
-        !out.instance_index.is_empty(),
-        "fixture must carry instances"
-    );
-    for e in &out.instance_index {
+    // (a) Real paths preserved — not re-canonicalized to the slug-id8 form on
+    // load. The catalog's locators are the placement surface post-RFC-038.
+    let cat = srs_repository::store::RepositoryStore::catalog(&tree).unwrap();
+    assert!(!cat.instances.is_empty(), "fixture must carry instances");
+    for e in &cat.instances {
+        let locator = e.locator.as_deref().expect("file-tree locator");
         assert!(
-            e.path().ends_with(&format!("/{}.json", e.instance_id)),
-            "materialize must preserve the non-canonical full-UUID path, got {}",
-            e.path()
+            locator.ends_with(&format!("/{}.json", e.id)),
+            "materialize must preserve the non-canonical full-UUID path, got {locator}"
         );
     }
 
@@ -352,7 +352,7 @@ fn materialize_loads_id8_colliding_records() {
     // full-UUID paths must load. The old materialize_tree re-canonicalized both onto one
     // slug-id8 path (`decision-0ce8cbdd.json`) and failed with "canonical path collision".
     let base = fixture_map();
-    let mut manifest: serde_json::Value = serde_json::from_slice(&base["manifest.json"]).unwrap();
+    let manifest: serde_json::Value = serde_json::from_slice(&base["manifest.json"]).unwrap();
     let mut data = serde_json::Map::new();
     for (path, bytes) in &base {
         if path == "manifest.json" || !path.ends_with(".json") || path.starts_with(".github/") {
@@ -371,10 +371,6 @@ fn materialize_loads_id8_colliding_records() {
     clone["instanceId"] = serde_json::json!(colliding_id);
     let clone_path = format!("records/tier-2/{colliding_id}.json");
     data.insert(clone_path.clone(), clone);
-    manifest["instanceIndex"]
-        .as_array_mut()
-        .unwrap()
-        .push(serde_json::json!({ "instanceId": colliding_id, "tier": 2, "path": clone_path }));
 
     let envelope = serde_json::json!({ "srsj": "2", "manifest": manifest, "data": data });
     let json_store = srs_repository::srsj::open_srsj(&envelope.to_string()).unwrap();

@@ -17,7 +17,7 @@ fn blueprint_srsj() -> String {
             "repositoryId": "test-repo-blueprint",
             "srsVersion": "2.0-draft",
             "namespace": "com.test",
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "packageRef": {"mode": "local", "path": "package"}
         },
         "data": {

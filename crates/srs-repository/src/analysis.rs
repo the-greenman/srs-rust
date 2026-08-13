@@ -740,33 +740,6 @@ mod tests {
             "aiGuidance".to_string(),
             json!({"suggestedEntryPoints": ["records/notes/foundation.json"]}),
         );
-        manifest
-            .instance_index
-            .push(crate::index::InstanceIndexEntry {
-                instance_id: "11111111-1111-4111-8111-111111111111".to_string(),
-                tier: 0,
-                path: "records/notes/foundation.json".to_string(),
-                title: Some(json!("Foundation")),
-                tags: None,
-            });
-        manifest
-            .instance_index
-            .push(crate::index::InstanceIndexEntry {
-                instance_id: "22222222-2222-4222-8222-222222222222".to_string(),
-                tier: 0,
-                path: "records/notes/problem.json".to_string(),
-                title: Some(json!("Problem")),
-                tags: None,
-            });
-        manifest
-            .instance_index
-            .push(crate::index::InstanceIndexEntry {
-                instance_id: "33333333-3333-4333-8333-333333333333".to_string(),
-                tier: 2,
-                path: "records/example.json".to_string(),
-                title: Some(json!("Example")),
-                tags: None,
-            });
         store.save_manifest(&manifest).unwrap();
 
         // Save the tier-2 record (RFC-038 [R1]: membership comes from the tree —
@@ -981,16 +954,7 @@ mod tests {
     fn audit_for_note_includes_notes_sharing_a_tag() {
         // Add a third note that shares a tag with foundation
         let store = fixture_store();
-        let mut manifest = store.load_manifest().unwrap();
-        manifest
-            .instance_index
-            .push(crate::index::InstanceIndexEntry {
-                instance_id: "44444444-4444-4444-8444-444444444444".to_string(),
-                tier: 0,
-                path: "records/notes/sibling.json".to_string(),
-                title: Some(json!("Sibling")),
-                tags: Some(vec!["meaning-first".to_string()]),
-            });
+        let manifest = store.load_manifest().unwrap();
         store.save_manifest(&manifest).unwrap();
         store
             .save_instance_json(
@@ -1050,7 +1014,7 @@ mod tests {
         let srsj = r#"{
             "srsj": "2",
             "manifest": {
-                "instanceIndex": [],
+                "dataModelRevision": 2,
                 "repositoryId": "cross-store-test",
                 "title": "Cross-store Test"
             },

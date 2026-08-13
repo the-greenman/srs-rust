@@ -24,6 +24,7 @@ fn tier0_fixture_srsj() -> String {
     serde_json::json!({
         "srsj": "2",
         "manifest": {
+            "dataModelRevision": 2,
             "repositoryId": "test-migrate-identity",
             "srsVersion": "2.0-draft",
             "namespace": "com.test",
@@ -33,13 +34,6 @@ fn tier0_fixture_srsj() -> String {
                 "identityInstanceId": NOTE_ID,
                 "memberInstanceIds": [NOTE_ID]
             },
-            "instanceIndex": [
-                {
-                    "instanceId": NOTE_ID,
-                    "path": "records/notes/identity.json",
-                    "tier": 0
-                }
-            ],
             "packageRef": {"mode": "local", "path": "package"}
         },
         "data": {
@@ -117,6 +111,7 @@ fn migrate_identity_no_prior_identity_succeeds() {
     let fixture = serde_json::json!({
         "srsj": "2",
         "manifest": {
+            "dataModelRevision": 2,
             "repositoryId": "test-migrate-no-identity",
             "srsVersion": "2.0-draft",
             "namespace": "com.test",
@@ -125,7 +120,7 @@ fn migrate_identity_no_prior_identity_succeeds() {
                 "title": "No Identity Repo",
                 "description": "Bootstrap from container metadata."
             },
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "packageRef": {"mode": "local", "path": "package"}
         },
         "data": {
@@ -214,6 +209,7 @@ fn sections_survive_migrate_identity() {
     let fixture = serde_json::json!({
         "srsj": "2",
         "manifest": {
+            "dataModelRevision": 2,
             "repositoryId": "test-607-sections-survive",
             "srsVersion": "2.0-draft",
             "namespace": "com.test",
@@ -227,13 +223,6 @@ fn sections_survive_migrate_identity() {
                 "memberInstanceIds": [ARTICLES_RECORD_ID]
                 // No identityInstanceId — triggers None-branch
             },
-            "instanceIndex": [
-                {
-                    "instanceId": ARTICLES_RECORD_ID,
-                    "path": format!("records/tier-2/{ARTICLES_RECORD_ID}.json"),
-                    "tier": 2
-                }
-            ],
             "packageRef": {"mode": "local", "path": "package"}
         },
         "data": {

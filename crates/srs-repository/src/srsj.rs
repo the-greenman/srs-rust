@@ -265,12 +265,25 @@ pub struct SrsjSession {
 impl SrsjSession {
     /// Open an existing `.srsj` file as a tree session.
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, RepositoryError> {
-        let path = path.into();
+        Self::open_inner(path.into(), false)
+    }
+
+    /// Open with the RFC-038 [R21] migrator exemption — the migration tooling
+    /// surface only (see [`FileStore::with_rfc038_exemption`]); every other
+    /// caller uses [`SrsjSession::open`].
+    pub fn open_for_migration(path: impl Into<PathBuf>) -> Result<Self, RepositoryError> {
+        Self::open_inner(path.into(), true)
+    }
+
+    fn open_inner(path: PathBuf, rfc038_exempt: bool) -> Result<Self, RepositoryError> {
         let raw = std::fs::read_to_string(&path).map_err(|source| RepositoryError::Io {
             path: path.clone(),
             source,
         })?;
-        let store = open_srsj(&raw)?.rooted_at(session_root(&path));
+        let mut store = open_srsj(&raw)?.rooted_at(session_root(&path));
+        if rfc038_exempt {
+            store = store.with_rfc038_exemption();
+        }
         let baseline = export_tree(&store)?;
         Ok(Self {
             path,

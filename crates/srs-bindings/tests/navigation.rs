@@ -23,6 +23,7 @@ fn nav_fixture_srsj() -> String {
     serde_json::json!({
         "srsj": "2",
         "manifest": {
+            "dataModelRevision": 2,
             "repositoryId": "test-repo-navigation",
             "srsVersion": "2.0-draft",
             "namespace": "com.test",
@@ -33,11 +34,6 @@ fn nav_fixture_srsj() -> String {
                 "memberInstanceIds": [IDENTITY_ID, ARTICLES_ID, DECISIONS_ID],
                 "rootInstanceIds": [IDENTITY_ID]
             },
-            "instanceIndex": [
-                {"instanceId": IDENTITY_ID, "path": format!("records/tier-2/{IDENTITY_ID}.json"), "tier": 2},
-                {"instanceId": ARTICLES_ID, "path": format!("records/tier-2/{ARTICLES_ID}.json"), "tier": 2},
-                {"instanceId": DECISIONS_ID, "path": format!("records/tier-2/{DECISIONS_ID}.json"), "tier": 2}
-            ],
             "packageRef": {"mode": "local", "path": "package"}
         },
         "data": {
@@ -171,6 +167,7 @@ fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
     serde_json::json!({
         "srsj": "2",
         "manifest": {
+            "dataModelRevision": 2,
             "repositoryId": "test-repo-tier0",
             "srsVersion": "2.0-draft",
             "namespace": "com.test",
@@ -180,7 +177,7 @@ fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
                 "identityInstanceId": NOTE_INSTANCE_ID,
                 "memberInstanceIds": [NOTE_INSTANCE_ID, ARTICLES_ID, DECISIONS_ID]
             },
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "packageRef": {"mode": "local", "path": "package"}
         },
         "data": {
@@ -304,6 +301,7 @@ fn repository_navigation_root_is_member_of_its_own_sub_container() {
     let srsj = serde_json::json!({
         "srsj": "2",
         "manifest": {
+            "dataModelRevision": 2,
             "repositoryId": "test-repo-root-is-member",
             "srsVersion": "2.0-draft",
             "namespace": "com.test",
@@ -314,11 +312,6 @@ fn repository_navigation_root_is_member_of_its_own_sub_container() {
                 "memberInstanceIds": [IDENTITY_ID, ARTICLES_ID, DECISIONS_ID],
                 "rootInstanceIds": [IDENTITY_ID]
             },
-            "instanceIndex": [
-                {"instanceId": IDENTITY_ID, "path": format!("records/tier-2/{IDENTITY_ID}.json"), "tier": 2},
-                {"instanceId": ARTICLES_ID, "path": format!("records/tier-2/{ARTICLES_ID}.json"), "tier": 2},
-                {"instanceId": DECISIONS_ID, "path": format!("records/tier-2/{DECISIONS_ID}.json"), "tier": 2}
-            ],
             "packageRef": {"mode": "local", "path": "package"}
         },
         "data": {

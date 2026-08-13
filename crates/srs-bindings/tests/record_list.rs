@@ -20,13 +20,10 @@ fn fixture_srsj() -> String {
     serde_json::json!({
         "srsj": "2",
         "manifest": {
+            "dataModelRevision": 2,
             "repositoryId": "test-repo-record-list",
             "srsVersion": "2.0-draft",
             "namespace": "com.test",
-            "instanceIndex": [
-                {"instanceId": REC_TITLED, "path": format!("records/tier-2/{REC_TITLED}.json"), "tier": 2},
-                {"instanceId": REC_PLAIN, "path": format!("records/tier-2/{REC_PLAIN}.json"), "tier": 2}
-            ],
             "packageRef": {"mode": "local", "path": "package"}
         },
         "data": {

@@ -452,15 +452,12 @@ mod tests {
     /// Build a MemoryStore pre-populated with two fields and one type.
     fn make_package_store(fields: Vec<Field>, record_types: Vec<RecordType>) -> MemoryStore {
         let manifest = Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let package = Package {

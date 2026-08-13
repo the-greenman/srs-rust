@@ -60,10 +60,9 @@ impl RecordTier {
 // ---------------------------------------------------------------------------
 
 /// Pinned `$schema` for standalone relation objects at `relations/<relationId>.json`
-/// (RFC-038 Change E). The mirror schema file (`relation.json`) lands with the
-/// Phase-1 schema-mirror PR; until it exists in `srs-schema` the pin is enforced
-/// in code (write always, verify on read) rather than via `SchemaRegistry`.
-pub const RELATION_OBJECT_SCHEMA_URL: &str = "https://srs.semanticops.com/schema/2.0/relation.json";
+/// (RFC-038 Change E). Mirrored as `srs_schema::RELATION_SCHEMA_ID`; the pin is
+/// additionally enforced in code (write always, verify on read).
+pub const RELATION_OBJECT_SCHEMA_URL: &str = srs_schema::RELATION_SCHEMA_ID;
 
 /// Derived locator for a relation object: `relations/<relationId>.json`.
 /// `relations/` is flat by rule (RFC-038 Change E) — no subfolders.
@@ -845,13 +844,20 @@ pub struct FileStore {
     /// (ADR-021 convention).
     repo_root: PathBuf,
     vfs: Rc<dyn Vfs>,
+    /// RFC-038 [R21] migrator exemption: skip the [R2]/[R21] manifest checks
+    /// for this store instance. See [`FileStore::with_rfc038_exemption`].
+    rfc038_exempt: bool,
 }
 
 impl FileStore {
     pub fn new(repo_root: impl Into<PathBuf>) -> Self {
         let repo_root = repo_root.into();
         let vfs = Rc::new(DiskVfs::new(repo_root.clone()));
-        Self { repo_root, vfs }
+        Self {
+            repo_root,
+            vfs,
+            rfc038_exempt: false,
+        }
     }
 
     /// Construct over an arbitrary [`Vfs`] (e.g. `MemVfs` for tree sessions).
@@ -860,7 +866,29 @@ impl FileStore {
         Self {
             repo_root: PathBuf::from("<memory>"),
             vfs,
+            rfc038_exempt: false,
         }
+    }
+
+    /// Mark this store as an RFC-038 [R21]-exempt reader: `load_manifest`
+    /// skips the [R2] retired-property deny and the [R21] generation gate.
+    ///
+    /// [R21] permits exactly one class of exempt reader — "a migration tool
+    /// operating under an explicit opt-in" — plus the named permanent
+    /// exception for external conformance fixture data (RFC-038 resolved
+    /// dispositions). The sanctioned call sites are:
+    /// - the CLI migration surface (`repo migrations`, `repo apply-migration`),
+    ///   which must inspect and transform pre-generation-2 repositories;
+    /// - migration-service unit tests exercising that surface;
+    /// - `tests/discovery_conformance.rs`, whose fixture repository
+    ///   (`srs/conformance/discovery/fixture-repo`) is conformance test data,
+    ///   never migrated, and permanently exempt.
+    ///
+    /// Do not use this anywhere else: every other reader must reject
+    /// pre-generation-2 data rather than coerce or partially read it.
+    pub fn with_rfc038_exemption(mut self) -> Self {
+        self.rfc038_exempt = true;
+        self
     }
 
     /// Tell a tree session where it came from.
@@ -1178,7 +1206,7 @@ impl RepositoryStore for FileStore {
         .unwrap_or_default();
         let mut manifest = serde_json::json!({
             "$schema": srs_schema::MANIFEST_SCHEMA_ID,
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "srsVersion": input.repository.srs_version,
             "repositoryId": input.repository.repository_id,
             "namespace": input.repository.namespace,
@@ -1233,9 +1261,11 @@ impl RepositoryStore for FileStore {
                 path: manifest_path.clone(),
                 source: e,
             })?;
-        // RFC-038 [R21] generation gate + [R2] retired-property deny —
-        // feature-inactive (no-op) until the Phase-6 flip.
-        crate::manifest::rfc038::check_manifest(&raw)?;
+        // RFC-038 [R21] generation gate + [R2] retired-property deny. Skipped
+        // only for the named exempt readers (`with_rfc038_exemption`).
+        if !self.rfc038_exempt {
+            crate::manifest::rfc038::check_manifest(&raw)?;
+        }
         crate::manifest::migrate_upstream_package(&mut raw);
         let mut manifest: Manifest =
             serde_json::from_value(raw).map_err(|e| RepositoryError::ManifestParse {
@@ -2400,16 +2430,22 @@ pub mod memory {
 
         /// Minimal empty store — empty manifest, empty package, minimal package.json.
         pub fn empty() -> Self {
+            let mut extra = std::collections::BTreeMap::new();
+            // Current storage generation ([R20]) — an unstamped manifest is
+            // generation 0 and rejected wherever it is exported to a file tree.
+            extra.insert(
+                crate::field_type_migration_service::DATA_MODEL_REVISION_KEY.to_string(),
+                serde_json::Value::from(
+                    crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION,
+                ),
+            );
             let manifest = Manifest {
-                instance_index: vec![],
                 container: None,
-                container_index: None,
                 federation_path: None,
                 upstream_package: None,
                 federation_events_path: None,
-                extra: std::collections::BTreeMap::new(),
+                extra,
                 source_documents_path: None,
-                source_document_index: None,
                 root: PathBuf::from("/memory"),
             };
             let package = Package {
@@ -2570,15 +2606,12 @@ pub mod memory {
 
         pub fn uninitialized() -> Self {
             let manifest = Manifest {
-                instance_index: vec![],
                 container: None,
-                container_index: None,
                 federation_path: None,
                 upstream_package: None,
                 federation_events_path: None,
                 extra: std::collections::BTreeMap::new(),
                 source_documents_path: None,
-                source_document_index: None,
                 root: PathBuf::from("/memory"),
             };
             let package = Package {
@@ -2684,6 +2717,15 @@ pub mod memory {
             }
 
             let mut manifest_extra = std::collections::BTreeMap::new();
+            // A freshly initialized repository is at the current storage
+            // generation ([R20]/[R21]) — without the stamp its exported
+            // manifest reads as generation 0 and every reader rejects it.
+            manifest_extra.insert(
+                crate::field_type_migration_service::DATA_MODEL_REVISION_KEY.to_string(),
+                serde_json::Value::from(
+                    crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION,
+                ),
+            );
             manifest_extra.insert(
                 "srsVersion".to_string(),
                 serde_json::Value::String(input.repository.srs_version.clone()),
@@ -2710,15 +2752,12 @@ pub mod memory {
             }
 
             *self.manifest.borrow_mut() = Manifest {
-                instance_index: vec![],
                 container: None,
-                container_index: None,
                 federation_path: None,
                 upstream_package: None,
                 federation_events_path: None,
                 extra: manifest_extra,
                 source_documents_path: None,
-                source_document_index: None,
                 root: PathBuf::from("/memory"),
             };
 
@@ -3604,15 +3643,12 @@ mod tests {
 
     fn minimal_manifest(repo_root: &std::path::Path) -> Manifest {
         Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: repo_root.to_path_buf(),
         }
     }
@@ -3643,7 +3679,7 @@ mod tests {
         std::fs::create_dir_all(root.join("package")).unwrap();
 
         let manifest = serde_json::json!({
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "srsVersion": "2.0-draft",
             "repositoryId": "test-repo-id",
             "namespace": "com.test"
@@ -3726,29 +3762,21 @@ mod tests {
         write_minimal_file_repo(&temp);
         let store = FileStore::new(temp.path());
         let manifest = store.load_manifest().unwrap();
-        assert!(manifest.instance_index.is_empty());
         assert_eq!(manifest.root, temp.path());
     }
 
     #[test]
-    fn file_store_manifest_container_and_container_index_roundtrip() {
+    fn file_store_manifest_container_roundtrip() {
         let temp = TempDir::new().unwrap();
         let root = temp.path();
         std::fs::create_dir_all(root.join("package")).unwrap();
 
         let manifest_json = serde_json::json!({
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "container": {
                 "containerId": "aaaaaaaa-0000-4000-8000-000000000001",
                 "identityInstanceId": "bbbbbbbb-0000-4000-8000-000000000002"
-            },
-            "containerIndex": [
-                {
-                    "containerId": "aaaaaaaa-0000-4000-8000-000000000001",
-                    "title": "Root",
-                    "path": "containers/root.json"
-                }
-            ]
+            }
         });
         std::fs::write(
             root.join("manifest.json"),
@@ -3773,27 +3801,13 @@ mod tests {
             Some("bbbbbbbb-0000-4000-8000-000000000002")
         );
 
-        let index = manifest
-            .container_index
-            .as_ref()
-            .expect("container_index should be Some");
-        assert_eq!(index.len(), 1);
-        assert_eq!(
-            index[0].container_id,
-            "aaaaaaaa-0000-4000-8000-000000000001"
-        );
-        assert_eq!(index[0].title.as_deref(), Some("Root"));
-        assert_eq!(index[0].path.as_deref(), Some("containers/root.json"));
-
         // Not duplicated in extra
         assert!(!manifest.extra.contains_key("container"));
-        assert!(!manifest.extra.contains_key("containerIndex"));
 
         // Write back and reload — verify round-trip
         store.save_manifest(&manifest).unwrap();
         let reloaded = store.load_manifest().unwrap();
         assert_eq!(reloaded.container, manifest.container);
-        assert_eq!(reloaded.container_index, manifest.container_index);
     }
 
     #[test]
@@ -3895,7 +3909,8 @@ mod tests {
         let manifest = minimal_manifest(&root);
         let store = MemoryStore::new(manifest.clone(), empty_package(&root));
         let loaded = store.load_manifest().unwrap();
-        assert_eq!(loaded.instance_index, manifest.instance_index);
+        assert_eq!(loaded.container, manifest.container);
+        assert_eq!(loaded.extra, manifest.extra);
     }
 
     #[test]
@@ -4752,7 +4767,7 @@ mod tests {
         // Set up primary package
         std::fs::create_dir_all(root.join("package/fields")).unwrap();
         let manifest = serde_json::json!({
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "srsVersion": "2.0-draft",
             "repositoryId": "boundary-test",
             "namespace": "com.test",
@@ -4820,7 +4835,7 @@ mod tests {
         // Primary package with one blueprint.
         std::fs::create_dir_all(root.join("package/blueprints")).unwrap();
         let manifest = serde_json::json!({
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "srsVersion": "2.0-draft",
             "repositoryId": "bp-prov-test",
             "namespace": "com.test",

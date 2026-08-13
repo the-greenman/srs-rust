@@ -73,7 +73,7 @@ fn archive_unpack_refuses_an_entry_outside_the_root() {
         for (name, body) in [
             (
                 "manifest.json",
-                r#"{"repositoryId":"x","instanceIndex":[]}"#,
+                r#"{"repositoryId":"x","dataModelRevision":2}"#,
             ),
             ("../evil.json", r#"{"pwned":true}"#),
         ] {

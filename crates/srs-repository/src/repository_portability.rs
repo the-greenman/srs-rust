@@ -374,9 +374,9 @@ pub fn export_repository_snapshot_with_options(
         instances,
         containers,
         root_container: manifest.container.clone(),
+        container_index: None,
         // Retired by RFC-038 Change K — `containers` above (catalog-backed) is
         // the real data; this field is never populated or read any more.
-        container_index: None,
         relations: load_relations(source)?,
         source_documents_path: if source_documents.is_empty() {
             None

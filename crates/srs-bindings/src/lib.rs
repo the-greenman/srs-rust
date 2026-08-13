@@ -100,6 +100,21 @@ impl SrsRepository {
         Ok(SrsRepository { store })
     }
 
+    /// Load a repository for the migration tooling surface only.
+    ///
+    /// RFC-038 [R21]: a conforming reader rejects pre-generation-2 data; a
+    /// migration tool operating under an explicit opt-in is the one exempt
+    /// reader. This is that opt-in for the WASM client's repo-upgrade flow —
+    /// it skips the [R2]/[R21] manifest checks so `available_migrations` and
+    /// `apply_migration` can inspect and transform an old document. Every
+    /// other caller uses [`SrsRepository::load`].
+    pub fn load_for_migration(srsj: &str) -> Result<SrsRepository, JsValue> {
+        let store = srs_repository::srsj::open_srsj(srsj)
+            .map_err(js_err)?
+            .with_rfc038_exemption();
+        Ok(SrsRepository { store })
+    }
+
     /// Load a repository from a `.srs` binary archive (ZIP bytes).
     ///
     /// Native tree archives (ADR-039) load layout-faithfully; legacy snapshot
@@ -1419,11 +1434,6 @@ mod tests {
                 "srsVersion": "2.0-draft",
                 "dataModelRevision": 2,
                 "namespace": "com.test",
-                "instanceIndex": [{
-                    "instanceId": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-                    "tier": 0,
-                    "path": "records/notes/binding-test-note.json"
-                }],
                 "packageRef": {"mode": "local", "path": "package"}
             },
             "data": {
@@ -1522,11 +1532,7 @@ mod tests {
                 "srsVersion": "2.0-draft",
                 "dataModelRevision": 2,
                 "namespace": "com.test",
-                "instanceIndex": [],
-                "containerIndex": [{
-                    "containerId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-                    "title": "Test Container"
-                }],
+                "dataModelRevision": 2,
                 "packageRef": {"mode": "local", "path": "package"}
             },
             "data": {
@@ -1732,11 +1738,6 @@ mod tests {
                 "srsVersion": "2.0-draft",
                 "dataModelRevision": 2,
                 "namespace": "com.test",
-                "instanceIndex": [{
-                    "instanceId": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
-                    "tier": 2,
-                    "path": "records/titled-record.json"
-                }],
                 "packageRef": {"mode": "local", "path": "package"}
             },
             "data": {
@@ -1849,7 +1850,7 @@ mod tests {
                 "repositoryId": "test-repo-federation",
                 "srsVersion": "2.0-draft",
                 "namespace": "com.test",
-                "instanceIndex": [],
+                "dataModelRevision": 2,
                 "packageRef": {"mode": "local", "path": "package"}
             },
             "data": {
@@ -2084,13 +2085,7 @@ mod tests {
 
         let srsj = serde_json::json!({
             "srsj": "2",
-            "manifest": {
-                "instanceIndex": [
-                    {"instanceId": "id-a", "tier": 0, "path": "records/id-a.json"},
-                    {"instanceId": "id-b", "tier": 0, "path": "records/id-b.json"},
-                    {"instanceId": "id-c", "tier": 0, "path": "records/id-c.json"}
-                ]
-            },
+            "manifest": { "dataModelRevision": 2 },
             "data": {
                 "package/package.json": {
                     "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
@@ -2194,15 +2189,7 @@ mod tests {
                     "containerId": "00000000-0000-4000-8000-000000000099",
                     "title": "Size Warning Test"
                 },
-                "instanceIndex": [
-                    {"instanceId": RECORD_ID, "tier": 2, "path": "records/policy.json"}
-                ],
                 "sourceDocumentsPath": "source-documents",
-                "sourceDocumentIndex": [{
-                    "documentId": DOC_ID,
-                    "sidecarPath": "big-file.bin.meta.json",
-                    "contentPath": "big-file.bin"
-                }],
                 "packageRef": {"mode": "local", "path": "package"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
