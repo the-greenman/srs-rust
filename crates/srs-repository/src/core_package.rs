@@ -39,12 +39,38 @@ struct EmbeddedCorePackageJson {
     package_id: String,
     package_name: String,
     package_version: String,
+    /// RFC-038 [R21]: a *package* has a generation too — absent ⇒ 0, and a
+    /// generation-2 reader rejects an unstamped bundle (acceptance test 17).
+    #[serde(default)]
+    data_model_revision: u64,
     #[serde(deserialize_with = "crate::field_json::deserialize_fields_compat")]
     fields: Vec<Field>,
     #[serde(rename = "types")]
     record_types: Vec<RecordType>,
     #[serde(default)]
     relation_types: Vec<RelationTypeDefinition>,
+}
+
+/// Parse a package bundle, applying the RFC-038 [R21] generation gate: a
+/// bundle below `dataModelRevision: 2` (absent ⇒ 0) is rejected, not coerced.
+pub(crate) fn parse_package_bundle(json: &str) -> Result<EmbeddedCorePackage, RepositoryError> {
+    let raw: EmbeddedCorePackageJson =
+        serde_json::from_str(json).map_err(|e| RepositoryError::InvalidSnapshotData {
+            message: format!("package bundle does not parse: {e}"),
+        })?;
+    if raw.data_model_revision < 2 {
+        return Err(RepositoryError::StorageGenerationUnsupported {
+            declared: raw.data_model_revision,
+        });
+    }
+    Ok(EmbeddedCorePackage {
+        package_id: raw.package_id,
+        package_name: raw.package_name,
+        package_version: raw.package_version,
+        fields: raw.fields,
+        record_types: raw.record_types,
+        relation_types: raw.relation_types,
+    })
 }
 
 static CORE_PACKAGE: OnceLock<EmbeddedCorePackage> = OnceLock::new();
@@ -55,16 +81,8 @@ static CORE_PACKAGE: OnceLock<EmbeddedCorePackage> = OnceLock::new();
 /// (ADR-025). Do not call this from service logic — use `store.load_package()`.
 pub fn core_package() -> &'static EmbeddedCorePackage {
     CORE_PACKAGE.get_or_init(|| {
-        let raw: EmbeddedCorePackageJson = serde_json::from_str(CORE_BUNDLE_JSON)
-            .expect("embedded assets/core-bundle.srsj must parse — file is corrupted or invalid");
-        EmbeddedCorePackage {
-            package_id: raw.package_id,
-            package_name: raw.package_name,
-            package_version: raw.package_version,
-            fields: raw.fields,
-            record_types: raw.record_types,
-            relation_types: raw.relation_types,
-        }
+        parse_package_bundle(CORE_BUNDLE_JSON)
+            .expect("embedded assets/core-bundle.srsj must parse at generation 2 ([R21])")
     })
 }
 
@@ -395,5 +413,31 @@ mod tests {
             a, b,
             "core_package() must return the same pointer each call"
         );
+    }
+}
+
+#[cfg(test)]
+mod rfc038_bundle_gate_tests {
+    use super::*;
+
+    /// RFC-038 acceptance test 17, reader half: the stamped bundle is
+    /// accepted; the same bundle unstamped is rejected under [R21].
+    #[test]
+    fn unstamped_bundle_is_rejected_and_stamped_bundle_accepted() {
+        // The embedded (stamped) bundle parses.
+        let stamped = core_package();
+        assert_eq!(stamped.package_name, "core");
+
+        // The identical bundle with the stamp removed is generation 0 — rejected.
+        let mut raw: serde_json::Value = serde_json::from_str(CORE_BUNDLE_JSON).unwrap();
+        raw.as_object_mut().unwrap().remove("dataModelRevision");
+        let err = match parse_package_bundle(&raw.to_string()) {
+            Err(e) => e,
+            Ok(_) => panic!("unstamped bundle must be rejected"),
+        };
+        assert!(matches!(
+            err,
+            RepositoryError::StorageGenerationUnsupported { declared: 0 }
+        ));
     }
 }

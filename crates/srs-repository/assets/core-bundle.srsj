@@ -1,6 +1,7 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/package-bundle.json",
   "schemaVersion": "2.0",
+  "dataModelRevision": 2,
   "packageId": "3a000001-0000-4000-a000-000000000001",
   "packageName": "core",
   "packageVersion": "1.0.0",
