@@ -2138,6 +2138,18 @@ function strategyCell(v) {
 
 function strategyId(s) { return String(s).replace(/[^A-Za-z0-9_]/g, "_"); }
 
+// Mermaid's bare node text grammar is deliberately narrow. Quote every label so
+// issue references (#), punctuation, and future human-authored titles cannot turn a
+// generated map into invalid diagram syntax.
+function strategyMermaidLabel(v) {
+  return String(v)
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("[", "(")
+    .replaceAll("]", ")")
+    .replace(/\r?\n/g, "<br/>");
+}
+
 function validateStrategy(model) {
   const errors = [];
   const warnings = [];
@@ -2200,12 +2212,12 @@ function renderStrategy(model) {
     model.purpose, "",
     "This is the owner operating view above the execution board. It names durable capability branches and release promises; it does not change GitHub hierarchy, labels, priorities or release fields.", "",
     "## Capability map", "",
-    "```mermaid", "flowchart LR", "  S[Semantic sovereignty]",
+    "```mermaid", "flowchart LR", "  S[\"Semantic sovereignty\"]",
   ];
-  for (const cap of model.capabilities) lines.push(`  S --> C_${strategyId(cap)}[${cap}]`);
+  for (const cap of model.capabilities) lines.push(`  S --> C_${strategyId(cap)}[\"${strategyMermaidLabel(cap)}\"]`);
   for (const epic of model.epics) {
     const id = `E_${strategyId(epic.ref)}`;
-    lines.push(`  ${id}[${epic.ref}: ${epic.name}]`);
+    lines.push(`  ${id}[\"${strategyMermaidLabel(`${epic.ref}: ${epic.name}`)}\"]`);
     for (const cap of epic.capabilities) lines.push(`  C_${strategyId(cap)} -.-> ${id}`);
   }
   lines.push("```", "", `Delivery surfaces across all branches: ${model.deliverySurfaces.join(", ")}.`, "");
@@ -2215,14 +2227,14 @@ function renderStrategy(model) {
     lines.push(`| ${cap} | ${epics || "—"} |`);
   }
   lines.push("", "## Release staircase", "", "```mermaid", "flowchart LR");
-  for (const b of model.boundaries) lines.push(`  ${b.id}[${b.id}: ${b.name}]`);
+  for (const b of model.boundaries) lines.push(`  ${b.id}[\"${strategyMermaidLabel(`${b.id}: ${b.name}`)}\"]`);
   for (const b of model.boundaries) for (const need of b.requires || []) lines.push(`  ${need} --> ${b.id}`);
   lines.push("```", "");
   for (const b of model.boundaries) {
     lines.push(`### ${b.id} — ${b.name}`, "", `**Actor:** ${b.actor}`, "", `**Promise:** ${b.promise}`, "", `**Durable artifact:** ${b.durableArtifact}`, "", `**Entry criteria:** ${b.entryCriteria.join("; ")}`, "", `**Included capabilities:** ${b.includedCapabilities.join(", ")}`, "", `**Root issues:** ${b.rootIssues.map(strategyIssueLink).join(", ")}`, "", `**Explicit exclusions:** ${b.exclusions.join("; ")}`, "", `**End-to-end walkthrough:** ${b.walkthrough}`, "", `**Compatibility promise:** ${b.compatibilityPromise}`, "", `**What becomes stable:** ${b.stableAfter}`, "");
   }
   lines.push("## Critical path", "", "Only release-gate `requires` edges appear here. Native `blocked-by` edges are intentionally live-only and are shown by `strategy --status`; conceptual relationships never enter the scheduler graph.", "", "```mermaid", "flowchart LR");
-  for (const b of model.boundaries) lines.push(`  ${b.id}[${b.id}: ${b.name}]`);
+  for (const b of model.boundaries) lines.push(`  ${b.id}[\"${strategyMermaidLabel(`${b.id}: ${b.name}`)}\"]`);
   for (const b of model.boundaries) for (const need of b.requires || []) lines.push(`  ${need} -->|requires| ${b.id}`);
   lines.push("```", "", "## Epic disposition (proposal only)", "", "No GitHub hierarchy, label, priority or release-field change is implied by this table.", "", "| Epic | Proposed disposition | Proposed role | Rationale |", "| --- | --- | --- | --- |");
   for (const e of model.epics) lines.push(`| ${strategyIssueLink(e.ref)} ${strategyCell(e.name)} | ${e.disposition} | ${strategyCell(e.role)} | ${strategyCell(e.notes)} |`);
