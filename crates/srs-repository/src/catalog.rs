@@ -294,9 +294,9 @@ pub(crate) fn declared_location(value: Option<&str>) -> Option<String> {
 pub(crate) const INSTANCE_ROOT_NAMES: &[&str] = &["records", "notes", "typed-records"];
 
 /// The recognised instance-sidecar suffix list ([R9]) — closed.
-/// `.revisions.json` has no declared schema yet (owed by RFC-038's schema
-/// changes), so a resolving sidecar is currently an error per [R9]'s third
-/// conjunct: recognition is not conferred by filename alone.
+/// `.revisions.json` is classified by `revisions.json`; recognition is not
+/// conferred by filename alone, so a resolving sidecar that fails that schema
+/// is an error per [R9]'s third conjunct.
 const SIDECAR_SUFFIX_REVISIONS: &str = ".revisions.json";
 
 /// TRANSITIONAL shim masking a filed corpus defect (the-greenman/srs#369):
@@ -309,48 +309,43 @@ const LEGACY_SOURCE_DOCUMENT_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/source-document.json";
 
 /// Definition arrays of `package-manifest.json`, the entity kind each declares,
-/// and the schema it validates against (`None` = schema owed, e.g. protocols).
-const DEFINITION_ARRAYS: &[(&str, CatalogKind, Option<&str>)] = &[
-    (
-        "fields",
-        CatalogKind::Field,
-        Some(srs_schema::FIELD_SCHEMA_ID),
-    ),
-    ("types", CatalogKind::Type, Some(srs_schema::TYPE_SCHEMA_ID)),
-    ("views", CatalogKind::View, Some(srs_schema::VIEW_SCHEMA_ID)),
+/// and the schema it validates against. Every declared kind has a schema as of
+/// the #297 cutover — no definition kind is left unchecked.
+const DEFINITION_ARRAYS: &[(&str, CatalogKind, &str)] = &[
+    ("fields", CatalogKind::Field, srs_schema::FIELD_SCHEMA_ID),
+    ("types", CatalogKind::Type, srs_schema::TYPE_SCHEMA_ID),
+    ("views", CatalogKind::View, srs_schema::VIEW_SCHEMA_ID),
     (
         "documentViews",
         CatalogKind::DocumentView,
-        Some(srs_schema::DOCUMENT_VIEW_SCHEMA_ID),
+        srs_schema::DOCUMENT_VIEW_SCHEMA_ID,
     ),
-    (
-        "themes",
-        CatalogKind::Theme,
-        Some(srs_schema::THEME_SCHEMA_ID),
-    ),
+    ("themes", CatalogKind::Theme, srs_schema::THEME_SCHEMA_ID),
     (
         "relationTypes",
         CatalogKind::RelationType,
-        Some(srs_schema::RELATION_TYPE_SCHEMA_ID),
+        srs_schema::RELATION_TYPE_SCHEMA_ID,
     ),
     (
         "vocabularies",
         CatalogKind::Vocabulary,
-        Some(srs_schema::VOCABULARY_SCHEMA_ID),
+        srs_schema::VOCABULARY_SCHEMA_ID,
     ),
     (
         "lifecycles",
         CatalogKind::Lifecycle,
-        Some(srs_schema::LIFECYCLE_SCHEMA_ID),
+        srs_schema::LIFECYCLE_SCHEMA_ID,
     ),
     (
         "blueprints",
         CatalogKind::Blueprint,
-        Some(srs_schema::BLUEPRINT_SCHEMA_ID),
+        srs_schema::BLUEPRINT_SCHEMA_ID,
     ),
-    // protocol.json is an owed schema (RFC-038 Schema changes); until it lands
-    // a protocol is classified by parse + `protocolId` presence only.
-    ("protocols", CatalogKind::Protocol, None),
+    (
+        "protocols",
+        CatalogKind::Protocol,
+        srs_schema::PROTOCOL_SCHEMA_ID,
+    ),
 ];
 
 struct Builder<'a> {
@@ -489,7 +484,7 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
     let mut package_roots: Vec<String> = Vec::new();
     let mut instance_roots: BTreeSet<String> = root_instance_roots.clone();
     // Declared definition path → (kind, schema id, owning package root).
-    let mut declared_defs: BTreeMap<String, (CatalogKind, Option<&'static str>)> = BTreeMap::new();
+    let mut declared_defs: BTreeMap<String, (CatalogKind, &'static str)> = BTreeMap::new();
 
     for pkg_path in pkg_candidates {
         // A package root nested inside a reserved instance root must not
@@ -592,7 +587,7 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
         } else if under(path, "containers") {
             b.classify_container_candidate(path);
         } else if let Some((kind, schema)) = declared_defs.get(path) {
-            b.classify_definition_candidate(path, *kind, *schema);
+            b.classify_definition_candidate(path, *kind, schema);
         }
         // Everything else — package-root files not declared as definitions,
         // and files outside every reserved location — is application content:
@@ -600,36 +595,35 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
     }
 
     // Recognised sidecars ([R9]): closed suffix list, base must resolve to a
-    // discovered instance in the same directory, and the suffix must have a
-    // declared schema — which `.revisions.json` does not yet have (owed).
-    //
-    // Non-fatal (Warning, not Error): `.revisions.json` is a legitimate,
-    // long-standing first-class feature (`revision_service.rs`'s field-level
-    // revision history), not a data-integrity problem — only its formal
-    // schema is owed. Phase 3 wires many new consumers onto `store.catalog()`
-    // ([R24]: fatal diagnostics fail the calling operation); treating a
-    // recognized-but-schema-owed sidecar as fatal would make every operation
-    // (not just `repo validate`) hard-fail for any repository that has ever
-    // recorded a revision — e.g. `record_store::get_record_by_id` becomes
-    // unusable repo-wide. `repo validate` still surfaces this via the
-    // non-fatal diagnostic; an unresolved base (below) stays a real [R9]
-    // orphan and remains fatal.
+    // discovered instance in the same directory, and the object must validate
+    // against the suffix's declared schema. `revisions.json` landed with the
+    // #297 spec cutover, so all three conjuncts are now checked for real and a
+    // failure is the error [R9] specifies. The schema declares `$schema` as an
+    // optional property with a `const` value, so a wrongly-declared `$schema`
+    // fails here too.
     for path in sidecar_files {
         let base = path
             .strip_suffix(SIDECAR_SUFFIX_REVISIONS)
             .unwrap_or(&path)
             .to_string();
-        if discovered_instances.contains(&format!("{base}.json")) {
-            b.warn(
-                codes::SIDECAR_SCHEMA,
-                vec![path.clone()],
-                "sidecar suffix '.revisions.json' has no declared schema (owed by RFC-038); recognition is not conferred by filename alone".to_string(),
-            );
-        } else {
+        if !discovered_instances.contains(&format!("{base}.json")) {
             b.error(
                 codes::SIDECAR_ORPHANED,
                 vec![path.clone()],
                 format!("orphaned sidecar: base name '{base}.json' resolves to no discovered instance in the same directory"),
+            );
+            continue;
+        }
+        let Some(value) = b.read_candidate(&path) else {
+            continue;
+        };
+        if let Err(e) =
+            SchemaRegistry::global().validate_by_id(srs_schema::REVISIONS_SCHEMA_ID, &value)
+        {
+            b.error(
+                codes::SIDECAR_SCHEMA,
+                vec![path.clone()],
+                format!("sidecar fails its suffix's declared schema revisions.json: {e}"),
             );
         }
     }
@@ -1119,46 +1113,44 @@ impl Builder<'_> {
         &mut self,
         path: &str,
         kind: CatalogKind,
-        schema: Option<&'static str>,
+        schema_id: &'static str,
     ) {
         let Some(value) = self.read_candidate(path) else {
             return;
         };
         let registry = SchemaRegistry::global();
-        if let Some(schema_id) = schema {
-            if let Some(declared) = value.get("$schema").and_then(|v| v.as_str()) {
-                if declared != schema_id {
-                    let code = if registry.schema_ids().contains(&declared) {
-                        codes::SCHEMA_INADMISSIBLE
-                    } else {
-                        codes::SCHEMA_UNRESOLVABLE
-                    };
-                    self.error(
-                        code,
-                        vec![path.to_string()],
-                        format!(
-                            "declared schema {declared} does not match the declared definition kind '{}' ({schema_id})",
-                            kind.as_str()
-                        ),
-                    );
-                    return;
-                }
-                if let Err(e) = registry.validate_by_id(schema_id, &value) {
-                    self.error(
-                        codes::SCHEMA_VALIDATION,
-                        vec![path.to_string()],
-                        format!("object fails its declared schema {schema_id}: {e}"),
-                    );
-                    return;
-                }
-            } else if let Err(e) = registry.validate_by_id(schema_id, &value) {
+        if let Some(declared) = value.get("$schema").and_then(|v| v.as_str()) {
+            if declared != schema_id {
+                let code = if registry.schema_ids().contains(&declared) {
+                    codes::SCHEMA_INADMISSIBLE
+                } else {
+                    codes::SCHEMA_UNRESOLVABLE
+                };
                 self.error(
-                    codes::SHAPE_NO_MATCH,
+                    code,
                     vec![path.to_string()],
-                    format!("object declares no $schema and does not validate as {schema_id}: {e}"),
+                    format!(
+                        "declared schema {declared} does not match the declared definition kind '{}' ({schema_id})",
+                        kind.as_str()
+                    ),
                 );
                 return;
             }
+            if let Err(e) = registry.validate_by_id(schema_id, &value) {
+                self.error(
+                    codes::SCHEMA_VALIDATION,
+                    vec![path.to_string()],
+                    format!("object fails its declared schema {schema_id}: {e}"),
+                );
+                return;
+            }
+        } else if let Err(e) = registry.validate_by_id(schema_id, &value) {
+            self.error(
+                codes::SHAPE_NO_MATCH,
+                vec![path.to_string()],
+                format!("object declares no $schema and does not validate as {schema_id}: {e}"),
+            );
+            return;
         }
         let id_prop = if kind == CatalogKind::Protocol {
             "protocolId"

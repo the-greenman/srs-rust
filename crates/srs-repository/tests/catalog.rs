@@ -293,8 +293,10 @@ fn malformed_candidate_fatal_inside_reserved_location_untouched_outside() {
     ));
 }
 
+/// [R9]'s three conjuncts, now that `revisions.json` exists (srs#297 unit 3):
+/// recognised suffix + resolving base + passes the suffix's declared schema.
 #[test]
-fn revisions_sidecar_orphaned_vs_schemaless() {
+fn revisions_sidecar_orphaned_vs_schema_failure() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
     write(root, "manifest.json", MINIMAL_MANIFEST);
@@ -303,8 +305,8 @@ fn revisions_sidecar_orphaned_vs_schemaless() {
         "records/a.json",
         &note_json("00000000-0000-4000-8000-000000000001"),
     );
-    // Base resolves to a discovered instance, but the suffix has no declared
-    // schema (owed by RFC-038) — recognition is not conferred by filename.
+    // Base resolves, but the object fails revisions.json — an error, not the
+    // pre-#297 warning: recognition is not conferred by filename alone.
     write(root, "records/a.revisions.json", "{}");
     // Base resolves to nothing: orphaned.
     write(root, "records/b.revisions.json", "{}");
@@ -312,6 +314,104 @@ fn revisions_sidecar_orphaned_vs_schemaless() {
     let counts = code_counts(&cat);
     assert_eq!(counts.get(codes::SIDECAR_SCHEMA), Some(&1));
     assert_eq!(counts.get(codes::SIDECAR_ORPHANED), Some(&1));
+    assert!(
+        cat.diagnostics
+            .iter()
+            .filter(|d| d.code == codes::SIDECAR_SCHEMA)
+            .all(|d| d.severity == DiagnosticSeverity::Error),
+        "{:?}",
+        cat.diagnostics
+    );
+}
+
+/// The long-standing shape `revision_service` writes must classify clean —
+/// the tightening above must not make every repository that ever recorded a
+/// revision fail to load ([R24]).
+#[test]
+fn conforming_revisions_sidecar_is_silent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    write(root, "manifest.json", MINIMAL_MANIFEST);
+    let rec = "00000000-0000-4000-8000-000000000001";
+    write(root, "records/a.json", &note_json(rec));
+    write(
+        root,
+        "records/a.revisions.json",
+        &serde_json::to_string(&serde_json::json!({
+            "recordId": rec,
+            "revisions": [srs_core::types::revision::Revision {
+                revision_id: "11111111-0000-4000-8000-000000000001".to_string(),
+                record_id: rec.to_string(),
+                field_id: "22222222-0000-4000-8000-000000000001".to_string(),
+                value: serde_json::json!("hello"),
+                prior_revision_id: None,
+                agent: srs_core::types::revision::RevisionAgent::Human,
+                provenance: None,
+                source_refs: None,
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        }))
+        .unwrap(),
+    );
+    let cat = catalog::build(&FileStore::new(root)).unwrap();
+    let counts = code_counts(&cat);
+    assert_eq!(
+        counts.get(codes::SIDECAR_SCHEMA),
+        None,
+        "{:?}",
+        cat.diagnostics
+    );
+    assert_eq!(counts.get(codes::SIDECAR_ORPHANED), None);
+}
+
+/// [R8] shape-matching for a declared protocol definition: it carries no
+/// `$schema`, so it can only classify once `protocol.json` is registered.
+#[test]
+fn declared_protocol_definition_classifies_by_shape() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    write(root, "manifest.json", MINIMAL_MANIFEST);
+    let pkg: serde_json::Value = serde_json::from_str(&srs_package_json()).unwrap();
+    let mut pkg = pkg.as_object().unwrap().clone();
+    pkg.insert(
+        "protocols".to_string(),
+        serde_json::json!(["protocols/entry.json"]),
+    );
+    write(
+        root,
+        "pkg/package.json",
+        &serde_json::to_string(&pkg).unwrap(),
+    );
+    let protocol = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/install-package/protocols/entry-9a1b0c90.json"),
+    )
+    .unwrap();
+    write(root, "pkg/protocols/entry.json", &protocol);
+    let cat = catalog::build(&FileStore::new(root)).unwrap();
+    assert!(cat.diagnostics.is_empty(), "{:?}", cat.diagnostics);
+    assert_eq!(
+        cat.definitions
+            .iter()
+            .filter(|e| e.kind == CatalogKind::Protocol)
+            .count(),
+        1
+    );
+
+    // And a protocol-shaped object that fails protocol.json is now an error
+    // rather than a parse-and-hope pass ([R8]).
+    write(
+        root,
+        "pkg/protocols/entry.json",
+        r#"{"protocolId": "9a1b0c90-0009-4aaa-8bbb-00000000a001"}"#,
+    );
+    let cat = catalog::build(&FileStore::new(root)).unwrap();
+    assert_eq!(
+        code_counts(&cat).get(codes::SHAPE_NO_MATCH),
+        Some(&1),
+        "{:?}",
+        cat.diagnostics
+    );
 }
 
 #[test]
