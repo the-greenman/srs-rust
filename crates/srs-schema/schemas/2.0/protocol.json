@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/protocol.json",
+  "title": "SRS Protocol Definition (ext:protocol)",
+  "description": "An epistemically ordered process for building quality Records through structured conversation or facilitation. A Protocol is a package definition — declared in package-manifest.json's `protocols` array and stored under the package's `protocols/` subtree — not an instance Record. RFC-038 [R8] classifies a declared definition against the schema for its declared kind; this file is that schema, owed by RFC-038's Schema-changes table and landed by the #297 cutover. Property names carry the `protocol` prefix, which is the shape the corpus, the CLI and the reference implementation all use.",
+  "type": "object",
+  "required": [
+    "protocolId",
+    "protocolNamespace",
+    "protocolName",
+    "protocolVersion",
+    "protocolTargetType",
+    "protocolStages",
+    "protocolCreatedAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://srs.semanticops.com/schema/2.0/protocol.json",
+      "description": "Optional schema declaration. When present it must name this schema — a Protocol is classified by the package manifest's `protocols` array, so the declaration is confirmation, not the classifier."
+    },
+    "protocolId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable UUID identity for this Protocol definition. Globally stable across copy and import."
+    },
+    "protocolNamespace": {
+      "type": "string",
+      "description": "The namespace this Protocol belongs to. Canonical form is namespace/name@version."
+    },
+    "protocolName": {
+      "type": "string",
+      "description": "snake_case or kebab-case name, unique within the namespace."
+    },
+    "protocolVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonically increasing version within this UUID lineage. Starts at 1. Changing namespace or name requires a new UUID."
+    },
+    "protocolDescription": {
+      "type": "string",
+      "description": "What this Protocol is for and when to run it."
+    },
+    "protocolTargetType": {
+      "type": "string",
+      "description": "The Record type this Protocol converges on — a Type UUID or its canonical namespace/name form. Loose exploratory Protocols whose output is input context for a tighter Protocol may carry an empty string."
+    },
+    "protocolStages": {
+      "type": "array",
+      "description": "The stages, in declaration order. Execution sequence is determined by dependsOn resolution, not by array position; `order` is display order (Invariant 31).",
+      "items": {
+        "$ref": "#/$defs/ProtocolStage"
+      }
+    },
+    "protocolTags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "protocolCreatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "ProtocolStage": {
+      "type": "object",
+      "description": "A named stage in a Protocol. Stages carry epistemic dependencies (dependsOn), not merely ordering: a stage may proceed only when its dependencies are sufficient.",
+      "required": [
+        "stageId",
+        "name",
+        "order"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "stageId": {
+          "type": "string",
+          "description": "Stable key within this Protocol. Referenced by other stages' dependsOn (Invariant 29)."
+        },
+        "name": {
+          "type": "string",
+          "description": "Short human-readable stage name."
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Display and presentation order only. Must be consistent with the partial order implied by dependsOn (Invariant 31)."
+        },
+        "purpose": {
+          "type": "string",
+          "description": "What understanding this stage builds."
+        },
+        "question": {
+          "type": "string",
+          "description": "The core question this stage answers."
+        },
+        "dependsOn": {
+          "type": "array",
+          "description": "stageId values within the enclosing Protocol. Epistemic dependencies, not just ordering. A stage may not depend on itself (Invariant 29).",
+          "items": {
+            "type": "string"
+          }
+        },
+        "completionCriteria": {
+          "type": "string",
+          "description": "How to know this stage is sufficient to proceed."
+        },
+        "contributesTo": {
+          "type": "array",
+          "description": "The Record Fields this stage feeds (Invariant 30).",
+          "items": {
+            "$ref": "#/$defs/FieldRef"
+          }
+        },
+        "outputType": {
+          "$ref": "#/$defs/TypeRef",
+          "description": "Present when this stage produces its own intermediate Record."
+        },
+        "aiGuidance": {
+          "description": "Extraction guidance for an AI assistant working this stage. A plain string, or the structured AiGuidance object used elsewhere in the model.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object"
+            }
+          ]
+        }
+      }
+    },
+    "FieldRef": {
+      "type": "object",
+      "description": "A reference to a Field, optionally scoped to the Type it appears in.",
+      "required": [
+        "fieldId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "fieldId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "typeId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Which Type this Field appears in, when the same fieldId appears in several."
+        }
+      }
+    },
+    "TypeRef": {
+      "type": "object",
+      "description": "The pre-RFC-009 spec-level TypeRef used in Protocol contexts: typeVersion is optional. Distinct from blueprint.json's ExactTypeRef, where it is required.",
+      "required": [
+        "typeId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "typeId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "typeVersion": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

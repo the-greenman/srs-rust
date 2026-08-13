@@ -20,12 +20,14 @@ pub const PACKAGE_BUNDLE_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/package-bundle.json";
 pub const PACKAGE_MANIFEST_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/package-manifest.json";
+pub const PROTOCOL_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/protocol.json";
 pub const RECORD_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/record.json";
 pub const RELATION_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/relation.json";
 pub const RELATION_TYPE_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/relation-type.json";
 pub const RELATIONS_COLLECTION_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/relations-collection.json";
+pub const REVISIONS_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/revisions.json";
 pub const SOURCE_DOCUMENT_META_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/source-document-meta.json";
 pub const THEME_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/theme.json";
@@ -48,10 +50,12 @@ pub const ALL_SCHEMA_IDS: &[&str] = &[
     NOTE_SCHEMA_ID,
     PACKAGE_BUNDLE_SCHEMA_ID,
     PACKAGE_MANIFEST_SCHEMA_ID,
+    PROTOCOL_SCHEMA_ID,
     RECORD_SCHEMA_ID,
     RELATION_SCHEMA_ID,
     RELATION_TYPE_SCHEMA_ID,
     RELATIONS_COLLECTION_SCHEMA_ID,
+    REVISIONS_SCHEMA_ID,
     SOURCE_DOCUMENT_META_SCHEMA_ID,
     TERM_SCHEMA_ID,
     VOCABULARY_SCHEMA_ID,
@@ -98,6 +102,7 @@ static SCHEMA_SOURCES: &[(&str, &str)] = &[
         PACKAGE_MANIFEST_SCHEMA_ID,
         include_schema!("package-manifest.json"),
     ),
+    (PROTOCOL_SCHEMA_ID, include_schema!("protocol.json")),
     (RECORD_SCHEMA_ID, include_schema!("record.json")),
     (RELATION_SCHEMA_ID, include_schema!("relation.json")),
     (
@@ -108,6 +113,7 @@ static SCHEMA_SOURCES: &[(&str, &str)] = &[
         RELATIONS_COLLECTION_SCHEMA_ID,
         include_schema!("relations-collection.json"),
     ),
+    (REVISIONS_SCHEMA_ID, include_schema!("revisions.json")),
     (
         SOURCE_DOCUMENT_META_SCHEMA_ID,
         include_schema!("source-document-meta.json"),
@@ -235,7 +241,7 @@ mod tests {
     #[test]
     fn registry_builds_and_has_all_schema_ids() {
         let reg = SchemaRegistry::global();
-        assert_eq!(reg.schema_ids().len(), 23);
+        assert_eq!(reg.schema_ids().len(), 25);
         for id in ALL_SCHEMA_IDS {
             assert!(reg.schema_ids().contains(id), "missing: {id}");
         }
