@@ -43,11 +43,28 @@ fn core_bundle_matches_committed_sha256() {
     }
     let canonical_content = std::fs::read_to_string(&canonical).unwrap();
     let embedded_str = std::str::from_utf8(embedded).expect("core-bundle.srsj is valid UTF-8");
+
+    // RFC-038 [R21] / acceptance test 17: the vendored copy carries the
+    // `dataModelRevision: 2` stamp the reader gate requires; the *published*
+    // bundle is stamped by the #297 train's data unit. Until that lands the
+    // two differ by exactly the stamp line, so compare modulo it —
+    // symmetric, so the comparison stays byte-exact once both are stamped.
+    let strip_stamp = |s: &str| -> String {
+        s.lines()
+            .filter(|l| !l.trim_start().starts_with("\"dataModelRevision\""))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert!(
+        embedded_str.contains("\"dataModelRevision\": 2"),
+        "the vendored bundle must carry the generation stamp ([R21])"
+    );
     assert_eq!(
-        embedded_str.trim(),
-        canonical_content.trim(),
+        strip_stamp(embedded_str.trim()),
+        strip_stamp(canonical_content.trim()),
         "Embedded core-bundle.srsj has drifted from the canonical srs repo. \
          Copy packages/com.semanticops.core/1.0.0/core-bundle.srsj to \
-         crates/srs-repository/assets/core-bundle.srsj and update core-bundle.sha256."
+         crates/srs-repository/assets/core-bundle.srsj, re-stamp \
+         dataModelRevision: 2, and update core-bundle.sha256."
     );
 }
