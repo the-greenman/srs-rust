@@ -3465,8 +3465,6 @@ fn create_temp_repo_with_protocol_package() -> TempDir {
                 "containerId": "00000000-0000-4000-8000-000000009900",
                 "title": "Protocol Test Repo"
             },
-            "dataModelRevision": 2,
-            "dataModelRevision": 2,
             "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap(),
@@ -4810,7 +4808,6 @@ fn create_temp_repo_with_package() -> TempDir {
             "containerId": "00000000-0000-4000-8000-000000009902",
             "title": "Package Test Repo"
         },
-        "dataModelRevision": 2,
         "createdAt": "2026-01-01T00:00:00Z"
     });
     std::fs::write(
@@ -5145,7 +5142,6 @@ fn create_temp_repo_with_views() -> TempDir {
                 "containerId": "00000000-0000-4000-8000-000000009901",
                 "title": "Views Test Repo"
             },
-            "dataModelRevision": 2,
             "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap(),

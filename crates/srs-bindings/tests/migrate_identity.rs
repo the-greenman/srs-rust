@@ -120,7 +120,6 @@ fn migrate_identity_no_prior_identity_succeeds() {
                 "title": "No Identity Repo",
                 "description": "Bootstrap from container metadata."
             },
-            "dataModelRevision": 2,
             "packageRef": {"mode": "local", "path": "package"}
         },
         "data": {

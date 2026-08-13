@@ -31,15 +31,14 @@
 //! raw envelope until the codec will accept it, then hands off to
 //! [`migrate_storage`]. Nothing about the migration itself lives there.
 //!
-//! **The manifest strip is blocked on a schema change (srs-rust#828).** The
-//! published `manifest.json` schema still lists `instanceIndex` in `required`,
-//! so a manifest this transform strips is one `repo validate` rejects, and
-//! `Manifest` cannot stop serialising an empty index without breaking every
-//! repository including a freshly created one. The transform is correct — the
-//! schema is what has not caught up. Until it does, the registry's apply route
-//! refuses (see `migration_registry_service`) and the only callers are Rust:
-//! the Phase-6 fixture migration, which lands with the schema change and the
-//! enforcement flip together.
+//! **Ordering: the data model first ([R21]).** Both surfaces refuse a
+//! repository below data-model revision 2: stripping storage from a
+//! pre-carrier repository would remove the legacy `instanceIndex` that
+//! `rfc039-carrier` enumerates from, letting it stamp revision 2 over zero
+//! migrated instances. Run `field-type` then `rfc039-carrier` first. (The
+//! historical srs-rust#828 blocker — the published schema requiring
+//! `instanceIndex` — closed with the Phase-6 enforcement flip; the registry's
+//! apply route now runs the transform directly.)
 //!
 //! **Rollback is `git revert`.** No store implements batch rollback
 //! (srs-rust#813), so an in-place run that fails partway leaves the tree as it
@@ -186,6 +185,28 @@ pub fn migrate_storage(
                  `StorageMigrationOptions { allow_non_atomic: true }`; `git revert` is the rollback."
                     .to_string(),
         });
+    }
+
+    // Same [R21] ordering guard as `migrate_srsj`: stripping storage from a
+    // pre-carrier repository removes the legacy `instanceIndex` that
+    // `rfc039-carrier` enumerates from — the carrier would then migrate zero
+    // instances, stamp revision 2 anyway, and strand the repository in the
+    // wrong carrier with the sanctioned fix reporting AlreadyApplied. Storage
+    // generation and data-model revision advance in that order, so the data
+    // model has to be there first.
+    let revision = load_raw_manifest(store)?
+        .get("dataModelRevision")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    if revision < crate::rfc039_carrier_migration_service::CARRIER_REVISION {
+        return Err(abort(
+            MANIFEST_PATH,
+            format!(
+                "repository is at dataModelRevision {revision}; run `field-type` then \
+                 `rfc039-carrier` first, then re-run rfc038-storage (revision {} required)",
+                crate::rfc039_carrier_migration_service::CARRIER_REVISION,
+            ),
+        ));
     }
 
     store.begin_batch();
@@ -658,6 +679,38 @@ mod tests {
                 },
             },
         })
+    }
+
+    /// [R21] ordering guard on the store surface: applying `rfc038-storage`
+    /// to a pre-carrier repository would strip the legacy `instanceIndex`
+    /// the carrier migration enumerates from, letting it stamp revision 2
+    /// over zero migrated instances. Both transform surfaces refuse.
+    #[test]
+    fn a_pre_carrier_repository_is_refused_on_the_store_surface() {
+        let mut doc = legacy_srsj();
+        doc["srsj"] = json!("2");
+        doc["manifest"]["dataModelRevision"] = json!(1);
+        let store = open_srsj(&doc.to_string())
+            .expect("opens")
+            .with_rfc038_exemption();
+        let err = migrate_storage(
+            &store,
+            &StorageMigrationOptions {
+                allow_non_atomic: true,
+            },
+        )
+        .expect_err("a revision-1 repository must be refused");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("dataModelRevision 1") && msg.contains("rfc039-carrier"),
+            "the refusal names the revision and the required ladder: {msg}"
+        );
+        // Nothing was written: the legacy index survives for the carrier.
+        assert!(store
+            .load_instance_json("manifest.json")
+            .unwrap()
+            .get("instanceIndex")
+            .is_some());
     }
 
     /// The same repository already in the final layout, as a store.

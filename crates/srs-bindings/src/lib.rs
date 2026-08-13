@@ -1532,7 +1532,6 @@ mod tests {
                 "srsVersion": "2.0-draft",
                 "dataModelRevision": 2,
                 "namespace": "com.test",
-                "dataModelRevision": 2,
                 "packageRef": {"mode": "local", "path": "package"}
             },
             "data": {

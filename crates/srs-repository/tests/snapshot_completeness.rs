@@ -39,7 +39,6 @@ fn six_set_repository(root: &Path) {
               "repositoryId": "{REPO_ID}",
               "namespace": "com.example.snapshot",
               "dataModelRevision": 2,
-              "dataModelRevision": 2,
               "declaredExtensions": ["ext:changelog", "ext:federation"],
               "changelogPath": "changelog.json",
               "federationPath": "federation/registry.json",

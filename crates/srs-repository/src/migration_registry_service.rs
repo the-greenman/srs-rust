@@ -352,8 +352,12 @@ mod tests {
         crate::srsj::open_srsj(
             &serde_json::json!({
                 "srsj": "2",
+                // The stamped-but-unstripped transitional state (#242 Phase B):
+                // exactly what the transform exists to clean up. A pre-carrier
+                // (rev < 2) repository is refused by the [R21] ordering guard.
                 "manifest": {
                     "srsVersion": "2.0-draft",
+                    "dataModelRevision": 2,
                     "repositoryId": "00000000-0000-4000-8000-00000000aaaa",
                     "instanceIndex": [],
                     "packageRef": { "mode": "local", "path": "package" },
