@@ -144,9 +144,8 @@ static MIGRATIONS: &[MigrationDefinition] = &[
             })
         },
     },
-    // Last by rule, not by accident: every migration above writes the manifest,
-    // and until srs-rust#828 lands each of those writes restores the
-    // `instanceIndex` this one strips.
+    // Last by rule, not by accident: this transform must see the final state
+    // of everything the other migrations write.
     MigrationDefinition {
         id: "rfc038-storage",
         title: "Adopt RFC-038 tree-authoritative storage",
@@ -157,11 +156,9 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        document is additionally bumped to srsj '2'. Instances are left \
                        where they are. Structural, not revision-keyed — RFC-038 forbids a \
                        data-model revision 3, so this migration stamps nothing. Idempotent; \
-                       aborts rather than skips. `status` is truthful (`needed` on a \
-                       repository that structurally needs it), but `apply` currently \
-                       refuses: the published manifest.json schema still requires \
-                       instanceIndex, so a stripped manifest is one `repo validate` rejects, \
-                       and there is no rollback (srs-rust#813). Unblocked by srs-rust#828.",
+                       aborts rather than skips. Runs without staging: the repository \
+                       must be under version control with a clean tree — git revert is \
+                       the rollback (srs-rust#813).",
         // Truthful status — `NotApplicable` only for a store with no storage
         // layout to place (e.g. `MemoryStore`), `Needed`/`AlreadyApplied`
         // otherwise from the real probe. `NotApplicable` is a documented,
@@ -183,17 +180,18 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                 Ok(MigrationStatus::AlreadyApplied)
             }
         },
-        // Refuses to apply, because applying it today leaves a repository the
-        // shipped schema rejects and nothing can roll that back. Flips when
-        // srs-rust#828 lands with the #783 Phase-6 flip.
-        apply_fn: |_store| {
-            Err(RepositoryError::InvalidInput {
-                message: "rfc038-storage cannot be applied yet: the published manifest.json \
-                          schema still lists `instanceIndex` in `required`, so stripping it \
-                          leaves a repository `repo validate` rejects, and no store can roll \
-                          an in-place run back (srs-rust#813). Unblocked by srs-rust#828, \
-                          which lands with the RFC-038 enforcement flip."
-                    .to_string(),
+        // The registry apply path is the [R21] explicit opt-in — the caller
+        // asserted a clean, version-controlled tree; git revert is the
+        // rollback (srs-rust#813 ships only this guard's opt-in).
+        apply_fn: |store| {
+            let result = crate::rfc038_storage_migration_service::migrate_storage(
+                store,
+                &crate::rfc038_storage_migration_service::StorageMigrationOptions {
+                    allow_non_atomic: true,
+                },
+            )?;
+            serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!("rfc038-storage result serialisation failed: {e}"),
             })
         },
     },
@@ -321,6 +319,9 @@ mod tests {
         // same id as manifest.container would be a fatal SRS038-R12-DUPLICATE-ID.
         let mut manifest = store.load_manifest().unwrap();
         manifest.container = Some(bare_container(container_id));
+        // This fixture models a PRE-migration repository: strip the
+        // generation stamp MemoryStore now writes by default.
+        manifest.extra.remove("dataModelRevision");
         write_manifest(&store, &manifest).unwrap();
         store
     }
@@ -378,6 +379,7 @@ mod tests {
             .to_string(),
         )
         .unwrap()
+        .with_rfc038_exemption()
     }
 
     fn status_of(store: &dyn RepositoryStore, id: &str) -> MigrationStatus {
@@ -390,29 +392,30 @@ mod tests {
     }
 
     /// `rfc038-storage` reports truthful status — `Needed` on a repository
-    /// that structurally needs it — while its apply refuses with a clear,
-    /// named blocker (srs-rust#828). `NotApplicable` is documented
-    /// (srs-usage.md, ADR-032) as "the migration makes no sense for this
-    /// repo"; it must not be borrowed to mean "applicable but blocked", or
-    /// every consumer of `repo migrations` silently undercounts the corpus.
+    /// that structurally needs it — and applies through the registry route
+    /// (the [R21] explicit opt-in; srs-rust#828 closed by the schema change
+    /// plus the Phase-6 field removal).
     #[test]
-    fn rfc038_storage_reports_needed_and_refuses_to_apply_while_blocked() {
+    fn rfc038_storage_reports_needed_and_applies_through_the_registry() {
         let store = indexed_srsj_store();
-        assert!(
-            crate::rfc038_storage_migration_service::migration_needed(&store).unwrap(),
-            "the repository structurally needs the migration"
-        );
         assert_eq!(
             status_of(&store, "rfc038-storage"),
             MigrationStatus::Needed,
-            "and the registry must say so"
+            "an index-carrying repository structurally needs the transform"
         );
-
-        let err = apply_migration(&store, "rfc038-storage").unwrap_err();
-        assert!(err.to_string().contains("srs-rust#828"), "got: {err}");
+        apply_migration(&store, "rfc038-storage").expect("apply must succeed post-#828");
+        assert_eq!(
+            status_of(&store, "rfc038-storage"),
+            MigrationStatus::AlreadyApplied,
+            "the applied repository no longer needs the transform"
+        );
         assert!(
-            store.load_instance_json("manifest.json").unwrap()["instanceIndex"].is_array(),
-            "a refused apply must change nothing"
+            store
+                .load_instance_json("manifest.json")
+                .unwrap()
+                .get("instanceIndex")
+                .is_none(),
+            "the retired property is stripped"
         );
     }
 
@@ -435,7 +438,6 @@ mod tests {
     /// that makes `instanceIndex` optional. It drives the transform directly
     /// because the registry route is gated on the same issue.
     #[test]
-    #[ignore = "srs-rust#828: `Manifest.instance_index` cannot be skip_serializing_if until the published manifest.json schema drops `instanceIndex` from `required` — omitting it today fails validation for every repository, `repo create` included. Closed by the schema change plus the #783 Phase-6 field removal."]
     fn a_later_migration_does_not_restore_the_stripped_index() {
         let store = indexed_srsj_store();
         crate::rfc038_storage_migration_service::migrate_storage(

@@ -359,7 +359,7 @@ mod tests {
     // ── Test helpers ──────────────────────────────────────────────────────
 
     fn write_manifest(dir: &TempDir, extra: &serde_json::Value) {
-        let mut manifest = serde_json::json!({"instanceIndex": []});
+        let mut manifest = serde_json::json!({"dataModelRevision": 2});
         if let (Some(obj), Some(ext)) = (manifest.as_object_mut(), extra.as_object()) {
             for (k, v) in ext {
                 obj.insert(k.clone(), v.clone());

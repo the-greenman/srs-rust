@@ -4260,15 +4260,12 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
         };
         let package = Package {
@@ -4901,15 +4898,12 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
         };
         let package = Package {
@@ -5147,7 +5141,6 @@ mod tests {
     /// UUID-order output: C-last, A-first, B-middle  ← neither asc nor desc alphabetical
     fn make_field_sort_store(direction: SortDirection) -> crate::store::memory::MemoryStore {
         use crate::container_service;
-        use crate::index::InstanceIndexEntry;
         use crate::package::Package;
         use srs_core::types::container::Container;
         use srs_core::types::field::{AiGuidance, Field, FieldType};
@@ -5247,15 +5240,12 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
         };
         let package = Package {
@@ -5331,14 +5321,7 @@ mod tests {
             store.ensure_instance_dir("records").unwrap();
             store.save_instance_json(&path, &value).unwrap();
 
-            let mut manifest = store.load_manifest().unwrap();
-            manifest.instance_index.push(InstanceIndexEntry {
-                instance_id: id.to_string(),
-                tier: 2,
-                path: path.clone(),
-                title: None,
-                tags: None,
-            });
+            let manifest = store.load_manifest().unwrap();
             store.save_manifest(&manifest).unwrap();
 
             container_service::add_member(&store, "00000000-0000-4000-8000-000000000c01", id)
@@ -5625,15 +5608,12 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
         };
 
@@ -6047,15 +6027,12 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
         };
         let package = Package {
@@ -6548,21 +6525,17 @@ mod tests {
         dv: srs_core::types::view::DocumentView,
         records: &[(&str, Option<&str>)], // (instance_id, lifecycle_state)
     ) -> crate::store::memory::MemoryStore {
-        use crate::index::InstanceIndexEntry;
         use crate::manifest::Manifest;
         use crate::package::Package;
         use crate::store::RepositoryStore;
 
         let manifest = Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
         };
         let package = Package {
@@ -6604,14 +6577,7 @@ mod tests {
             store
                 .save_instance_json(&path, &serde_json::to_value(&record).unwrap())
                 .unwrap();
-            let mut manifest = store.load_manifest().unwrap();
-            manifest.instance_index.push(InstanceIndexEntry {
-                instance_id: id.to_string(),
-                tier: 2,
-                path,
-                title: None,
-                tags: None,
-            });
+            let manifest = store.load_manifest().unwrap();
             store.save_manifest(&manifest).unwrap();
         }
 
@@ -7042,7 +7008,6 @@ mod tests {
 
         // Write records
         std::fs::create_dir_all(repo_root.join("records")).unwrap();
-        let mut index_entries = Vec::new();
         for (id, state) in records {
             let record = srs_core::types::record::Record {
                 field_meta: None,
@@ -7064,14 +7029,12 @@ mod tests {
                 serde_json::to_string_pretty(&record).unwrap(),
             )
             .unwrap();
-            index_entries.push(serde_json::json!({"instanceId": id, "tier": 2, "path": path}));
         }
 
-        // Write manifest.json
+        // Write manifest.json — membership is the tree (RFC-038 [R1]).
         std::fs::write(
             repo_root.join("manifest.json"),
-            serde_json::to_string_pretty(&serde_json::json!({"instanceIndex": index_entries}))
-                .unwrap(),
+            serde_json::to_string_pretty(&serde_json::json!({"dataModelRevision": 2})).unwrap(),
         )
         .unwrap();
 
@@ -7634,15 +7597,12 @@ mod tests {
         );
 
         let manifest = crate::manifest::Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
         };
         let package = Package {
@@ -7891,15 +7851,12 @@ mod tests {
 
     fn minimal_manifest_no_index() -> crate::manifest::Manifest {
         crate::manifest::Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
         }
     }
@@ -8008,11 +7965,11 @@ mod tests {
 
     #[test]
     fn resolve_container_title_filestore_falls_back_to_container_file() {
-        // Cross-store test: containerIndex entry exists with a path but no title.
-        // FileStore.load_container finds the file via the indexed path; the fix returns
-        // the container file's title rather than falling through to the manifest title.
+        // Cross-store test: the container file under containers/ carries the
+        // title; resolution discovers it through the store (catalog-backed),
+        // no containerIndex involved (RFC-038 Change J).
         use crate::store::FileStore;
-        use srs_core::types::container::{Container, ContainerIndexEntry};
+        use srs_core::types::container::Container;
 
         let tmp = tempfile::TempDir::new().unwrap();
         let repo_root = tmp.path();
@@ -8043,14 +8000,10 @@ mod tests {
         )
         .unwrap();
 
-        // Index entry has path (so FileStore can locate the file) but NO title —
-        // the index scan in resolve_container_title finds no usable title and
-        // triggers the store.load_container fallback.
         std::fs::write(
             repo_root.join("manifest.json"),
             serde_json::to_string_pretty(&serde_json::json!({
-                "instanceIndex": [],
-                "containerIndex": [{"containerId": cid, "path": container_path}]
+                "dataModelRevision": 2
             }))
             .unwrap(),
         )
@@ -8059,22 +8012,12 @@ mod tests {
         let store = FileStore::new(repo_root);
 
         let manifest = crate::manifest::Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: Some(vec![ContainerIndexEntry {
-                container_id: cid.to_string(),
-                title: None,
-                path: Some(container_path.to_string()),
-                container_type: None,
-                tags: None,
-                extra: std::collections::BTreeMap::new(),
-            }]),
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: repo_root.to_path_buf(),
         };
 
@@ -8214,15 +8157,12 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
         };
         let package = Package {
@@ -8410,15 +8350,12 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
         };
         let package = Package {
@@ -8637,15 +8574,12 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
         };
         let package = crate::package::Package {
@@ -8781,15 +8715,12 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
         };
         let package = crate::package::Package {
@@ -8962,15 +8893,12 @@ mod tests {
         relations: &[Relation],
     ) -> crate::store::memory::MemoryStore {
         let manifest = crate::manifest::Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
         };
         let package = crate::package::Package {
@@ -9015,7 +8943,6 @@ mod tests {
         id: &str,
         label_field: Option<(&str, &str)>,
     ) {
-        use crate::index::InstanceIndexEntry;
         use srs_core::types::record::{FieldValues, Record};
         let mut field_values = FieldValues::new();
         if let Some((name, val)) = label_field {
@@ -9041,14 +8968,7 @@ mod tests {
         store
             .save_instance_json(&path, &serde_json::to_value(&record).unwrap())
             .unwrap();
-        let mut manifest = store.load_manifest().unwrap();
-        manifest.instance_index.push(InstanceIndexEntry {
-            instance_id: id.to_string(),
-            tier: 2,
-            path,
-            title: None,
-            tags: None,
-        });
+        let manifest = store.load_manifest().unwrap();
         store.save_manifest(&manifest).unwrap();
     }
 
@@ -9367,7 +9287,6 @@ mod tests {
 
     #[test]
     fn relations_block_display_label_identity_field() {
-        use crate::index::InstanceIndexEntry;
         use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::record::Record;
         use srs_core::types::record_type::{FieldAssignment, RecordType};
@@ -9418,15 +9337,12 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
         };
         let package = crate::package::Package {
@@ -9478,14 +9394,7 @@ mod tests {
         store
             .save_instance_json(&path, &serde_json::to_value(&target).unwrap())
             .unwrap();
-        let mut manifest2 = store.load_manifest().unwrap();
-        manifest2.instance_index.push(InstanceIndexEntry {
-            instance_id: "rec-named".to_string(),
-            tier: 2,
-            path,
-            title: None,
-            tags: None,
-        });
+        let manifest2 = store.load_manifest().unwrap();
         store.save_manifest(&manifest2).unwrap();
 
         let section = rp_section_for(vec![RelationPresentationEntry {
@@ -9514,7 +9423,6 @@ mod tests {
 
     #[test]
     fn relations_block_display_label_title_field_fallback() {
-        use crate::index::InstanceIndexEntry;
         use srs_core::types::record::Record;
 
         let store = make_rp_store(
@@ -9545,14 +9453,7 @@ mod tests {
         store
             .save_instance_json(&path, &serde_json::to_value(&target).unwrap())
             .unwrap();
-        let mut manifest = store.load_manifest().unwrap();
-        manifest.instance_index.push(InstanceIndexEntry {
-            instance_id: "rec-titled".to_string(),
-            tier: 2,
-            path,
-            title: None,
-            tags: None,
-        });
+        let manifest = store.load_manifest().unwrap();
         store.save_manifest(&manifest).unwrap();
 
         let mut section = rp_section_for(vec![RelationPresentationEntry {
@@ -9694,15 +9595,12 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
         };
         let package = crate::package::Package {
@@ -9864,19 +9762,21 @@ mod tests {
         };
 
         let the_rtd = test_rtd(rtype, "Links To", None, false);
-        let the_rel = test_rel("rr1", rtype, src_id, tgt_id);
+        let the_rel = test_rel(
+            "00000000-0000-4000-8000-0000000000b1",
+            rtype,
+            src_id,
+            tgt_id,
+        );
 
         // ── MemoryStore path ───────────────────────────────────────────────
         let manifest = crate::manifest::Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
         };
         let package = crate::package::Package {
@@ -9952,23 +9852,18 @@ mod tests {
 
         std::fs::write(
             repo_root.join("manifest.json"),
-            serde_json::to_string_pretty(&serde_json::json!({
-                "instanceIndex": [
-                    {"instanceId": src_id, "tier": 2, "path": format!("records/{src_id}.json")},
-                    {"instanceId": tgt_id, "tier": 2, "path": format!("records/{tgt_id}.json")}
-                ]
-            }))
-            .unwrap(),
+            serde_json::to_string_pretty(&serde_json::json!({"dataModelRevision": 2})).unwrap(),
         )
         .unwrap();
 
+        // Standalone relation object ([R11]) — collections are retired.
         std::fs::create_dir_all(repo_root.join("relations")).unwrap();
+        let mut rel_value = serde_json::to_value(&the_rel).unwrap();
+        rel_value["$schema"] =
+            serde_json::Value::String(crate::store::RELATION_OBJECT_SCHEMA_URL.to_string());
         std::fs::write(
-            repo_root.join("relations/relations-collection.json"),
-            serde_json::to_string_pretty(&serde_json::json!({
-                "relations": [serde_json::to_value(&the_rel).unwrap()]
-            }))
-            .unwrap(),
+            repo_root.join(format!("relations/{}.json", the_rel.relation_id)),
+            serde_json::to_string_pretty(&rel_value).unwrap(),
         )
         .unwrap();
 
@@ -10595,15 +10490,12 @@ mod tests {
         };
 
         let manifest = crate::manifest::Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: std::path::PathBuf::from("/memory"),
         };
         let package = Package {

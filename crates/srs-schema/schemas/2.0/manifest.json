@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://srs.semanticops.com/schema/2.0/manifest.json",
   "title": "SRS Repository Manifest (ext:repository)",
-  "description": "Root file for a SRS ext:repository. Acts as the authoritative index and entry point for the repository. Every repository must have exactly one manifest.json at its root.",
+  "description": "Root file for a SRS ext:repository: the repository identity and entry point. Membership is the tree (RFC-038 [R1]) — the manifest carries no index; the retired instanceIndex/containerIndex/sourceDocumentIndex/relationsChecksums/relationsPath properties are denied at dataModelRevision >= 2 ([R2]). Every repository must have exactly one manifest.json at its root.",
   "type": "object",
   "required": [
     "$schema",
@@ -10,7 +10,6 @@
     "repositoryId",
     "title",
     "container",
-    "instanceIndex",
     "createdAt"
   ],
   "additionalProperties": false,
@@ -54,13 +53,6 @@
       "$ref": "#/$defs/Container",
       "description": "Embedded Container record. Canonical source of truth for this repository's identity."
     },
-    "containerIndex": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/ContainerIndexEntry"
-      },
-      "description": "Index of all Containers in this repository."
-    },
     "packageRef": {
       "$ref": "#/$defs/PackageRef",
       "description": "Reference to the SRS Package that supplies field and type definitions (single package)."
@@ -76,34 +68,9 @@
       "$ref": "#/$defs/UpstreamPackage",
       "description": "RFC-014 (ext:import-tracking). Top-level normative provenance stamp for a repository initialised from an upstream Package. Records the package identity, version, and install time. MUST be written at the top level (not inside meta) by conformant tools (R7). On read, tools MUST prefer this field and fall back to meta.upstreamPackage for pre-RFC-014 repositories (R9)."
     },
-    "instanceIndex": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/InstanceIndexEntry"
-      },
-      "description": "Authoritative list of all instances in this repository. Files not listed here are not members."
-    },
-    "relationsPath": {
-      "type": "string",
-      "description": "Relative path from manifest.json to the relations collection file."
-    },
     "sourceDocumentsPath": {
       "type": "string",
       "description": "Relative path from manifest.json to the source-documents/ directory."
-    },
-    "sourceDocumentIndex": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/SourceDocumentIndexEntry"
-      },
-      "description": "Optional explicit index of source documents."
-    },
-    "relationsChecksums": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/RelationsChecksumEntry"
-      },
-      "description": "Optional checksums for each relations file. Enables fast no-op detection during re-import."
     },
     "changelogPath": {
       "type": "string",
@@ -234,37 +201,6 @@
         }
       }
     },
-    "ContainerIndexEntry": {
-      "type": "object",
-      "required": [
-        "containerId",
-        "path"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "containerId": {
-          "type": "string",
-          "format": "uuid"
-        },
-        "title": {
-          "type": "string"
-        },
-        "path": {
-          "type": "string",
-          "description": "Relative path from manifest.json to the container file."
-        },
-        "containerType": {
-          "type": "string",
-          "description": "Soft-deprecated hint (RFC-009). SHOULD equal the resolved root Type's name field. See RFC-009 I-64."
-        },
-        "tags": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      }
-    },
     "PackageRef": {
       "type": "object",
       "required": [
@@ -296,106 +232,6 @@
         "packageVersion": {
           "type": "string",
           "description": "Semver of the package (both local and external modes). SHOULD be set when the version is known)."
-        }
-      }
-    },
-    "InstanceIndexEntry": {
-      "type": "object",
-      "required": [
-        "instanceId",
-        "tier",
-        "path"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "instanceId": {
-          "type": "string",
-          "format": "uuid"
-        },
-        "tier": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2
-          ]
-        },
-        "path": {
-          "type": "string",
-          "description": "Relative path from manifest.json to the instance file."
-        },
-        "title": {
-          "type": "string",
-          "description": "Denormalised title for quick display."
-        },
-        "typeId": {
-          "type": "string",
-          "format": "uuid"
-        },
-        "typeName": {
-          "type": "string",
-          "description": "Denormalised typeName for quick filtering."
-        },
-        "tags": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "checksum": {
-          "type": "string",
-          "pattern": "^[a-z0-9]+:.+$",
-          "description": "Digest of the instance file: '<algorithm>:<hex>'."
-        }
-      }
-    },
-    "SourceDocumentIndexEntry": {
-      "type": "object",
-      "required": [
-        "documentId",
-        "sidecarPath",
-        "contentPath"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "documentId": {
-          "type": "string",
-          "format": "uuid"
-        },
-        "sidecarPath": {
-          "type": "string"
-        },
-        "contentPath": {
-          "type": "string",
-          "description": "Relative path from sourceDocumentsPath to the document file. MAY contain forward-slash-separated sub-path segments (e.g., 'audio/meeting.mp4'); MUST be resolved relative to sourceDocumentsPath (RFC-017 [R9])."
-        },
-        "title": {
-          "type": "string"
-        },
-        "sidecarChecksum": {
-          "type": "string",
-          "pattern": "^[a-z0-9]+:.+$"
-        },
-        "contentChecksum": {
-          "type": "string",
-          "pattern": "^[a-z0-9]+:.+$"
-        }
-      }
-    },
-    "RelationsChecksumEntry": {
-      "type": "object",
-      "required": [
-        "path",
-        "checksum"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "path": {
-          "type": "string"
-        },
-        "checksum": {
-          "type": "string",
-          "pattern": "^[a-z0-9]+:.+$"
         }
       }
     },
@@ -464,13 +300,19 @@
     },
     "Slice": {
       "type": "object",
-      "required": ["origin", "spec", "exportedAt"],
+      "required": [
+        "origin",
+        "spec",
+        "exportedAt"
+      ],
       "additionalProperties": false,
       "description": "ext:slices (RFC-026). Present when this archive is a partial export (slice) of a source repository.",
       "properties": {
         "origin": {
           "type": "object",
-          "required": ["repositoryId"],
+          "required": [
+            "repositoryId"
+          ],
           "additionalProperties": false,
           "properties": {
             "repositoryId": {
@@ -480,7 +322,9 @@
             }
           }
         },
-        "spec": { "$ref": "#/$defs/SliceSpec" },
+        "spec": {
+          "$ref": "#/$defs/SliceSpec"
+        },
         "exportedAt": {
           "type": "string",
           "format": "date-time",
@@ -488,20 +332,27 @@
         },
         "externalRelationRefs": {
           "type": "array",
-          "items": { "$ref": "#/$defs/SliceExternalRef" },
+          "items": {
+            "$ref": "#/$defs/SliceExternalRef"
+          },
           "description": "Relations cut at export because exactly one endpoint fell outside the closure. Provenance only — not a validation error (RFC-026 R8). Relations where both endpoints are outside the closure are omitted entirely."
         }
       }
     },
     "SliceSpec": {
       "type": "object",
-      "required": ["type", "id"],
+      "required": [
+        "type",
+        "id"
+      ],
       "additionalProperties": false,
       "description": "Identifies the closure rule and boundary that scoped this slice.",
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["container"],
+          "enum": [
+            "container"
+          ],
           "description": "Closure rule. 'container' = container-membership closure (records, relations, definitions, and source documents reachable from a container). Package export is not a slice: a package's definitions are distributed as a package-bundle.json (RFC-003), not as a slice type."
         },
         "id": {
@@ -513,7 +364,12 @@
     },
     "SliceExternalRef": {
       "type": "object",
-      "required": ["relationId", "sourceInstanceId", "targetInstanceId", "relationType"],
+      "required": [
+        "relationId",
+        "sourceInstanceId",
+        "targetInstanceId",
+        "relationType"
+      ],
       "additionalProperties": false,
       "description": "A relation cut at export time because exactly one endpoint was outside the closure. The relationType field is a provenance copy and is NOT subject to RFC-005 definition-lookup in the slice archive (RFC-026 R15).",
       "properties": {

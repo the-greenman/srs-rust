@@ -229,9 +229,6 @@ mod tests {
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Test",
             "container": {"containerId": "00000000-0000-4000-8000-000000000099", "title": "Test"},
-            "instanceIndex": [
-                {"instanceId": RECORD_ID, "tier": 2, "path": "records/policy.json"}
-            ],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         serde_json::from_value(manifest_val).unwrap()
@@ -264,9 +261,6 @@ mod tests {
             "repositoryId": "00000000-0000-4000-8000-000000000001",
             "title": "Test",
             "container": {"containerId": "00000000-0000-4000-8000-000000000001", "title": "Test"},
-            "instanceIndex": [
-                {"instanceId": "aa000001-0000-4000-a000-000000000001", "tier": 2, "path": "records/other.json"}
-            ],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let manifest: Manifest = serde_json::from_value(manifest_val).unwrap();
@@ -407,10 +401,6 @@ mod tests {
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Test",
             "container": {"containerId": "00000000-0000-4000-8000-000000000099", "title": "Test"},
-            "instanceIndex": [
-                {"instanceId": RECORD_ID, "tier": 2, "path": "records/policy.json"},
-                {"instanceId": RECORD_ID_2, "tier": 2, "path": "records/policy2.json"}
-            ],
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let manifest: Manifest = serde_json::from_value(manifest_val).unwrap();
@@ -523,12 +513,10 @@ mod tests {
             "manifest.json",
             json!({"$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
                 "srsVersion": "2.0",
+                "dataModelRevision": 2,
                 "repositoryId": "00000000-0000-4000-8000-000000000099",
                 "title": "Roundtrip Test",
                 "container": {"containerId": "00000000-0000-4000-8000-000000000099", "title": "Roundtrip Test"},
-                "instanceIndex": [
-                    {"instanceId": RECORD_ID, "tier": 2, "path": "records/policy.json"}
-                ],
                 "createdAt": "2026-01-01T00:00:00Z"}),
         );
 

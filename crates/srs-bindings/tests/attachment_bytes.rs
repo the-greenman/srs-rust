@@ -16,7 +16,7 @@ fn filestore_with_repo(tmp: &std::path::Path) -> FileStore {
     std::fs::create_dir_all(tmp.join("package")).unwrap();
     std::fs::write(
         tmp.join("manifest.json"),
-        serde_json::json!({"instanceIndex": []}).to_string(),
+        serde_json::json!({"dataModelRevision": 2}).to_string(),
     )
     .unwrap();
     std::fs::write(
@@ -87,7 +87,7 @@ fn get_attachment_bytes_unknown_document_id() {
             "repositoryId": "att-bytes-unknown",
             "srsVersion": "2.0-draft",
             "namespace": "com.test",
-            "instanceIndex": []
+            "dataModelRevision": 2
         },
         "data": {}
     })
@@ -118,7 +118,7 @@ fn get_attachment_bytes_srsj_tombstone() {
             "repositoryId": "att-bytes-tombstone",
             "srsVersion": "2.0-draft",
             "namespace": "com.test",
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "sourceDocumentsPath": "source-documents"
         },
         "data": {

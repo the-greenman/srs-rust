@@ -470,7 +470,6 @@ fn select_column_view_id(dv: &DocumentView, container_id: &str) -> Option<String
 mod tests {
     use super::*;
     use crate::container_service;
-    use crate::index::InstanceIndexEntry;
     use crate::manifest::Manifest;
     use crate::package::Package;
     use crate::store::memory::MemoryStore;
@@ -639,24 +638,12 @@ mod tests {
         instances: Vec<(&str, u8, serde_json::Value)>,
     ) -> MemoryStore {
         let manifest = Manifest {
-            instance_index: instances
-                .iter()
-                .map(|(id, tier, _)| InstanceIndexEntry {
-                    instance_id: id.to_string(),
-                    tier: *tier,
-                    path: format!("records/{id}.json"),
-                    title: None,
-                    tags: None,
-                })
-                .collect(),
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let package = Package {
@@ -922,24 +909,12 @@ mod tests {
         instances: Vec<(&str, u8, Option<&str>, serde_json::Value)>,
     ) -> MemoryStore {
         let manifest = Manifest {
-            instance_index: instances
-                .iter()
-                .map(|(id, tier, title, _)| InstanceIndexEntry {
-                    instance_id: id.to_string(),
-                    tier: *tier,
-                    path: format!("records/{id}.json"),
-                    title: title.map(|t| serde_json::Value::String(t.to_string())),
-                    tags: None,
-                })
-                .collect(),
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let package = Package {

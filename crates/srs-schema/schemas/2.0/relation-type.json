@@ -4,9 +4,21 @@
   "title": "SRS Relation Type Definition",
   "description": "Declares a named relation type within a package's relation type vocabulary. Relation types describe the semantic meaning and structural shape of a class of relations.",
   "type": "object",
-  "required": ["$schema", "id", "version", "key", "namespace", "label", "description", "category", "createdAt"],
+  "required": [
+    "$schema",
+    "id",
+    "version",
+    "key",
+    "namespace",
+    "label",
+    "description",
+    "category",
+    "createdAt"
+  ],
   "properties": {
-    "$schema": { "type": "string" },
+    "$schema": {
+      "type": "string"
+    },
     "id": {
       "type": "string",
       "format": "uuid",
@@ -35,7 +47,19 @@
     },
     "category": {
       "type": "string",
-      "enum": ["composition", "refinement", "dependency", "sequence", "derivation", "evidence", "governance", "association", "lifecycle", "provenance", "other"],
+      "enum": [
+        "composition",
+        "refinement",
+        "dependency",
+        "sequence",
+        "derivation",
+        "evidence",
+        "governance",
+        "association",
+        "lifecycle",
+        "provenance",
+        "other"
+      ],
       "description": "Structural category."
     },
     "canonicalDirection": {
@@ -52,12 +76,16 @@
     },
     "allowedSourceTypes": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "Allowed semanticObjectType values for the source instance. Absent means any type is permitted."
     },
     "allowedTargetTypes": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "Allowed semanticObjectType values for the target instance. Absent means any type is permitted."
     },
     "requireSameSemanticObjectType": {
@@ -66,7 +94,12 @@
     },
     "status": {
       "type": "string",
-      "enum": ["active", "deprecated", "tombstone", "retired"],
+      "enum": [
+        "active",
+        "deprecated",
+        "tombstone",
+        "retired"
+      ],
       "description": "Lifecycle status. Absent means active. deprecated: resolves but new writes rejected. tombstone: resolves for reads only. retired: does not resolve."
     },
     "createdAt": {
@@ -84,5 +117,6 @@
       "additionalProperties": true,
       "description": "Arbitrary metadata per substrate Change H policy. Unknown top-level fields are rejected; use this instead."
     }
-  }
+  },
+  "additionalProperties": false
 }

@@ -1,34 +1,19 @@
-use crate::index::InstanceIndexEntry;
 use serde::{Deserialize, Serialize};
 use srs_core::extensions::import_tracking::UpstreamPackage;
-use srs_core::types::container::{Container, ContainerIndexEntry};
-use srs_core::types::source_document::SourceDocumentIndexEntry;
+use srs_core::types::container::Container;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Manifest {
-    /// RETIRED by RFC-038 Change K — membership comes from the tree via the
-    /// catalog; no service reads or writes this since srs-rust#783 Phase 3.
-    /// The typed field survives through Phase 4 so json_store/archive and old
-    /// fixtures still compile/load; it is removed (and [R2] denies the key) at
-    /// the Phase-6 flip. `default` so index-less repositories load.
-    ///
-    /// Serialised unconditionally, including when empty. It cannot yet be
-    /// `skip_serializing_if = "Vec::is_empty"`: the published
-    /// `manifest.json` schema still lists `instanceIndex` in `required`, so
-    /// omitting it fails validation for every repository — `repo create`
-    /// included. The consequence is that a manifest the `rfc038-storage`
-    /// transform strips gains `"instanceIndex": []` back on the next
-    /// `save_manifest`; see srs-rust#828 and the Phase-6 flip, which removes
-    /// the field outright.
-    #[serde(rename = "instanceIndex", default)]
-    pub instance_index: Vec<InstanceIndexEntry>,
+    // The RFC-038 Change-K retired properties (`instanceIndex`,
+    // `containerIndex`, `sourceDocumentIndex`, `relationsChecksums`,
+    // `relationsPath`) have no typed fields: membership is the tree via the
+    // catalog, and `rfc038::check_manifest` denies the raw keys at load so
+    // the `extra` catch-all can never silently absorb one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub container: Option<Container>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub container_index: Option<Vec<ContainerIndexEntry>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub federation_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -37,8 +22,6 @@ pub struct Manifest {
     pub upstream_package: Option<UpstreamPackage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_documents_path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_document_index: Option<Vec<SourceDocumentIndexEntry>>,
     // all other manifest fields preserved for round-trip write
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
@@ -50,30 +33,24 @@ pub struct Manifest {
 impl Default for Manifest {
     fn default() -> Self {
         Self {
-            instance_index: Vec::new(),
             container: None,
-            container_index: None,
             federation_path: None,
             federation_events_path: None,
             upstream_package: None,
             source_documents_path: None,
-            source_document_index: None,
             extra: std::collections::BTreeMap::new(),
             root: PathBuf::new(),
         }
     }
 }
 
-/// RFC-038 [R2] deny + [R21] generation gate (srs-rust#783 Phase 3).
-///
-/// Both checks are implemented here but **feature-inactive** until the Phase-6
-/// enforcement flip: every vendored fixture is still rev-2-with-index, so
-/// activating them now would fail every load. A crate-internal, thread-local,
-/// test-only switch activates them for their own tests; the Phase-6 flip makes
-/// them unconditional and deletes the switch.
+/// RFC-038 [R2] retired-property deny + [R21] generation gate — active for
+/// every reader since the srs-rust#783 Phase-6 flip. The only exempt readers
+/// are stores constructed through [`crate::store::FileStore`]'s named
+/// exemption (the migration tooling entry points and the discovery
+/// conformance fixture loader — see `with_rfc038_exemption`).
 pub(crate) mod rfc038 {
     use crate::error::RepositoryError;
-    use std::cell::Cell;
 
     /// The manifest properties retired by RFC-038 Change K.
     pub(crate) const RETIRED_PROPERTIES: &[&str] = &[
@@ -84,43 +61,11 @@ pub(crate) mod rfc038 {
         "relationsPath",
     ];
 
-    thread_local! {
-        static ENFORCEMENT_ACTIVE: Cell<bool> = const { Cell::new(false) };
-    }
-
-    pub(crate) fn enforcement_active() -> bool {
-        ENFORCEMENT_ACTIVE.with(|a| a.get())
-    }
-
-    /// Test-only activation for the [R2]/[R21] checks. Thread-local so
-    /// parallel tests against un-migrated fixtures are unaffected. Deleted at
-    /// the Phase-6 flip.
-    #[cfg(test)]
-    pub(crate) struct EnforcementGuard;
-
-    #[cfg(test)]
-    impl EnforcementGuard {
-        pub(crate) fn activate() -> Self {
-            ENFORCEMENT_ACTIVE.with(|a| a.set(true));
-            EnforcementGuard
-        }
-    }
-
-    #[cfg(test)]
-    impl Drop for EnforcementGuard {
-        fn drop(&mut self) {
-            ENFORCEMENT_ACTIVE.with(|a| a.set(false));
-        }
-    }
-
     /// Apply the [R21] generation gate then the [R2] retired-property deny to
     /// a raw `manifest.json` value. Checked against the raw JSON (not the
     /// typed struct) so the `extra` catch-all can never silently absorb a
-    /// retired key. No-op while enforcement is inactive.
+    /// retired key.
     pub(crate) fn check_manifest(raw: &serde_json::Value) -> Result<(), RepositoryError> {
-        if !enforcement_active() {
-            return Ok(());
-        }
         let declared = raw
             .get("dataModelRevision")
             .and_then(|v| v.as_u64())
@@ -174,23 +119,11 @@ pub(crate) fn migrate_upstream_package(raw: &mut serde_json::Value) {
 
 #[cfg(test)]
 mod rfc038_tests {
-    use super::rfc038::{check_manifest, EnforcementGuard};
+    use super::rfc038::check_manifest;
     use crate::error::RepositoryError;
 
     #[test]
-    fn check_manifest_is_noop_when_enforcement_inactive() {
-        // No guard activated — every vendored fixture is still rev-2-with-index,
-        // so the deny/gate must stay silent until the Phase-6 flip.
-        let raw = serde_json::json!({
-            "dataModelRevision": 2,
-            "instanceIndex": [],
-        });
-        assert!(check_manifest(&raw).is_ok());
-    }
-
-    #[test]
-    fn r2_denies_retired_properties_when_enforcement_active() {
-        let _guard = EnforcementGuard::activate();
+    fn r2_denies_a_rev2_manifest_still_carrying_instance_index() {
         let raw = serde_json::json!({
             "dataModelRevision": 2,
             "instanceIndex": [],
@@ -200,11 +133,13 @@ mod rfc038_tests {
             err,
             RepositoryError::RetiredManifestProperty { ref property } if property == "instanceIndex"
         ));
+        // [R2]: the diagnostic names the file and the property.
+        let msg = err.to_string();
+        assert!(msg.contains("manifest.json") && msg.contains("instanceIndex"));
     }
 
     #[test]
     fn r2_names_every_retired_property_not_just_instance_index() {
-        let _guard = EnforcementGuard::activate();
         for prop in [
             "containerIndex",
             "sourceDocumentIndex",
@@ -221,8 +156,7 @@ mod rfc038_tests {
     }
 
     #[test]
-    fn r21_denies_generation_below_2_when_enforcement_active() {
-        let _guard = EnforcementGuard::activate();
+    fn r21_denies_generation_below_2() {
         // Absent dataModelRevision ⇒ generation 0.
         let err = check_manifest(&serde_json::json!({})).unwrap_err();
         assert!(matches!(
@@ -239,20 +173,8 @@ mod rfc038_tests {
 
     #[test]
     fn r21_and_r2_pass_together_on_a_clean_generation_2_manifest() {
-        let _guard = EnforcementGuard::activate();
         let raw = serde_json::json!({ "dataModelRevision": 2 });
         assert!(check_manifest(&raw).is_ok());
-    }
-
-    #[test]
-    fn enforcement_guard_is_thread_local_and_drops_cleanly() {
-        // The guard's Drop must deactivate enforcement so later tests on this
-        // thread (or a reused thread-pool worker) are unaffected.
-        {
-            let _guard = EnforcementGuard::activate();
-            assert!(super::rfc038::enforcement_active());
-        }
-        assert!(!super::rfc038::enforcement_active());
     }
 }
 
@@ -288,36 +210,23 @@ mod tests {
     }
 
     #[test]
-    fn live_manifest_loads_and_has_correct_first_entry() {
+    fn live_manifest_loads_with_enforcement_active() {
+        // The vendored spec-repo fixture is migrated: loading it through the
+        // enforcing path proves [R2]/[R21] pass on final-format data, and the
+        // retired keys are gone rather than riding in `extra`.
         let repo_root = srs_spec_repo();
         let manifest =
             crate::store::RepositoryStore::load_manifest(&crate::store::FileStore::new(&repo_root))
                 .unwrap();
-
-        assert!(!manifest.instance_index.is_empty());
-        assert_eq!(
-            manifest.instance_index[0].path(),
-            "records/notes/origin-purpose.json"
-        );
-    }
-
-    #[test]
-    fn string_index_entries_are_rejected() {
-        let result: Result<Manifest, _> = serde_json::from_str(
-            r#"{
-                "instanceIndex": [
-                    "records/notes/foo.json"
-                ]
-            }"#,
-        );
-
-        assert!(result.is_err());
+        for prop in super::rfc038::RETIRED_PROPERTIES {
+            assert!(!manifest.extra.contains_key(*prop), "{prop} survived");
+        }
+        assert!(manifest.container.is_some());
     }
 
     #[test]
     fn manifest_with_container_roundtrips() {
         let json = r#"{
-            "instanceIndex": [],
             "container": {
                 "containerId": "550e8400-e29b-41d4-a716-446655440000",
                 "identityInstanceId": "aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa"
@@ -346,43 +255,15 @@ mod tests {
     }
 
     #[test]
-    fn manifest_with_container_index_roundtrips() {
-        let json = r#"{
-            "instanceIndex": [],
-            "containerIndex": [
-                {"containerId": "c1", "title": "Alpha", "path": "containers/alpha.json"},
-                {"containerId": "c2", "path": "containers/beta.json"}
-            ]
-        }"#;
-        let manifest: Manifest = serde_json::from_str(json).unwrap();
-        let index = manifest.container_index.as_ref().unwrap();
-        assert_eq!(index.len(), 2);
-        assert_eq!(index[0].container_id, "c1");
-        assert_eq!(index[0].title.as_deref(), Some("Alpha"));
-        assert_eq!(index[0].path.as_deref(), Some("containers/alpha.json"));
-        assert_eq!(index[1].container_id, "c2");
-        assert_eq!(index[1].title, None);
-        // must not appear in extra
-        assert!(!manifest.extra.contains_key("containerIndex"));
-
-        // serialise and re-parse
-        let serialised = serde_json::to_string(&manifest).unwrap();
-        let reparsed: Manifest = serde_json::from_str(&serialised).unwrap();
-        assert_eq!(reparsed.container_index, manifest.container_index);
-    }
-
-    #[test]
     fn manifest_absent_container_fields_are_none() {
-        let json = r#"{"instanceIndex": []}"#;
+        let json = r#"{}"#;
         let manifest: Manifest = serde_json::from_str(json).unwrap();
         assert!(manifest.container.is_none());
-        assert!(manifest.container_index.is_none());
     }
 
     #[test]
     fn manifest_federation_fields_roundtrip() {
         let json = r#"{
-            "instanceIndex": [],
             "federationPath": "custom/registry.json",
             "federationEventsPath": "custom/events.json"
         }"#;
@@ -411,7 +292,7 @@ mod tests {
 
     #[test]
     fn manifest_absent_federation_fields_are_none() {
-        let json = r#"{"instanceIndex": []}"#;
+        let json = r#"{}"#;
         let manifest: Manifest = serde_json::from_str(json).unwrap();
         assert!(manifest.federation_path.is_none());
         assert!(manifest.federation_events_path.is_none());
@@ -420,7 +301,6 @@ mod tests {
     #[test]
     fn manifest_upstream_package_roundtrips() {
         let json = r#"{
-            "instanceIndex": [],
             "upstreamPackage": {
                 "packageId": "1cd9622e-3d05-4214-a683-4cb81d0c44d9",
                 "namespace": "com.mudemocracy.governance",
@@ -445,7 +325,7 @@ mod tests {
 
     #[test]
     fn manifest_absent_upstream_package_is_none() {
-        let json = r#"{"instanceIndex": []}"#;
+        let json = r#"{}"#;
         let manifest: Manifest = serde_json::from_str(json).unwrap();
         assert!(manifest.upstream_package.is_none());
     }
@@ -453,7 +333,6 @@ mod tests {
     #[test]
     fn migrate_upstream_package_renames_id_to_package_id() {
         let mut raw = serde_json::json!({
-            "instanceIndex": [],
             "upstreamPackage": {
                 "id": "old-id-value",
                 "namespace": "com.example",
@@ -471,7 +350,6 @@ mod tests {
     #[test]
     fn migrate_upstream_package_lifts_from_meta() {
         let mut raw = serde_json::json!({
-            "instanceIndex": [],
             "meta": {
                 "upstreamPackage": {
                     "packageId": "meta-pkg-id",
@@ -490,7 +368,6 @@ mod tests {
     #[test]
     fn migrate_upstream_package_top_level_wins_over_meta() {
         let mut raw = serde_json::json!({
-            "instanceIndex": [],
             "upstreamPackage": {
                 "packageId": "top-level-id",
                 "namespace": "com.example",
@@ -518,7 +395,6 @@ mod tests {
     #[test]
     fn manifest_source_documents_path_roundtrips() {
         let json = r#"{
-            "instanceIndex": [],
             "sourceDocumentsPath": "attachments"
         }"#;
         let manifest: Manifest = serde_json::from_str(json).unwrap();
@@ -539,41 +415,9 @@ mod tests {
     }
 
     #[test]
-    fn manifest_source_document_index_roundtrips() {
-        let json = r#"{
-            "instanceIndex": [],
-            "sourceDocumentsPath": "source-documents",
-            "sourceDocumentIndex": [
-                {
-                    "documentId": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
-                    "sidecarPath": "my-doc.meta.json",
-                    "contentPath": "my-doc.pdf"
-                }
-            ]
-        }"#;
-        let manifest: Manifest = serde_json::from_str(json).unwrap();
-        let idx = manifest.source_document_index.as_ref().unwrap();
-        assert_eq!(idx.len(), 1);
-        assert_eq!(idx[0].document_id, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
-        assert_eq!(idx[0].sidecar_path, "my-doc.meta.json");
-        assert_eq!(idx[0].content_path, "my-doc.pdf");
-        assert!(idx[0].title.is_none());
-        // must not appear in extra
-        assert!(!manifest.extra.contains_key("sourceDocumentIndex"));
-
-        let serialised = serde_json::to_string(&manifest).unwrap();
-        let reparsed: Manifest = serde_json::from_str(&serialised).unwrap();
-        assert_eq!(
-            reparsed.source_document_index,
-            manifest.source_document_index
-        );
-    }
-
-    #[test]
     fn manifest_absent_source_doc_fields_are_none() {
-        let json = r#"{"instanceIndex": []}"#;
+        let json = r#"{}"#;
         let manifest: Manifest = serde_json::from_str(json).unwrap();
         assert!(manifest.source_documents_path.is_none());
-        assert!(manifest.source_document_index.is_none());
     }
 }

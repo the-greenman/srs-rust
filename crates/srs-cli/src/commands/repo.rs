@@ -1,4 +1,6 @@
-use crate::commands::{with_store, CliContext, RepoCommand, RepoExtensionsCommand, StoreBackend};
+use crate::commands::{
+    with_migration_store, with_store, CliContext, RepoCommand, RepoExtensionsCommand, StoreBackend,
+};
 use crate::output;
 use crate::payload::{
     InstancePathRename, MigrationSummaryPayload, RepoAgentIndexPayload, RepoApplyMigrationPayload,
@@ -130,7 +132,7 @@ fn cmd_repo_migrate_identity(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_repo_migrations(ctx: CliContext) -> Result<String> {
-    let migrations = with_store(&ctx, |store| {
+    let migrations = with_migration_store(&ctx, |store| {
         migration_registry_service::list_migrations(store).map_err(anyhow::Error::from)
     })?;
     output::serialize(
@@ -145,7 +147,7 @@ fn cmd_repo_migrations(ctx: CliContext) -> Result<String> {
 }
 
 fn cmd_repo_apply_migration(ctx: CliContext, id: String) -> Result<String> {
-    let result = with_store(&ctx, |store| {
+    let result = with_migration_store(&ctx, |store| {
         migration_registry_service::apply_migration(store, &id).map_err(anyhow::Error::from)
     })?;
     output::serialize(

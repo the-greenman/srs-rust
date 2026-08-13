@@ -26,7 +26,7 @@ fn write(root: &Path, rel: &str, content: &str) {
     std::fs::write(p, content).unwrap();
 }
 
-const MINIMAL_MANIFEST: &str = r#"{"instanceIndex": []}"#;
+const MINIMAL_MANIFEST: &str = r#"{"dataModelRevision": 2}"#;
 
 fn note_json(id: &str) -> String {
     format!(r#"{{"instanceId": "{id}", "sections": [{{"name": "body", "content": "x"}}]}}"#)
@@ -72,23 +72,11 @@ fn fixture_catalog_reproduces_identity_sets_ignoring_manifest() {
     let store = FileStore::new(fixture_repo());
     let cat = catalog::build(&store).unwrap();
 
-    // The known instance identity set. The manifest's instanceIndex happens to
-    // record it, so it doubles as the expected-value oracle — but the catalog
-    // derived membership from the tree, not the index.
-    let manifest_json: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(fixture_repo().join("manifest.json")).unwrap(),
-    )
-    .unwrap();
-    let indexed_ids: BTreeSet<String> = manifest_json["instanceIndex"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|e| e["instanceId"].as_str().unwrap().to_string())
-        .collect();
-    assert_eq!(indexed_ids.len(), 266);
-
+    // The known instance identity set — 266 instances, the figure the
+    // pre-migration manifest index recorded and the fixture-migration
+    // baseline verified (srs#297).
     let catalog_ids: BTreeSet<String> = cat.instances.iter().map(|e| e.id.clone()).collect();
-    assert_eq!(catalog_ids, indexed_ids);
+    assert_eq!(catalog_ids.len(), 266);
     assert_eq!(cat.instances.len(), 266);
     let notes = cat
         .instances
@@ -194,14 +182,15 @@ fn fixture_catalog_is_deterministic_and_r14_ordered() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn catalog_ignores_manifest_index_for_membership() {
+fn catalog_denies_a_manifest_still_carrying_an_index() {
+    // Post-flip a manifest with `instanceIndex` is not "ignored" — it is an
+    // [R2] error, fatal to the load (no partial catalog).
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    // Index lists a phantom instance and omits the real one on disk.
     write(
         root,
         "manifest.json",
-        r#"{"instanceIndex": [{"instanceId": "00000000-0000-4000-8000-00000000dead", "tier": 0, "path": "records/phantom.json"}]}"#,
+        r#"{"dataModelRevision": 2, "instanceIndex": [{"instanceId": "00000000-0000-4000-8000-00000000dead", "tier": 0, "path": "records/phantom.json"}]}"#,
     );
     write(
         root,
@@ -209,9 +198,9 @@ fn catalog_ignores_manifest_index_for_membership() {
         &note_json("00000000-0000-4000-8000-000000000001"),
     );
     let cat = catalog::build(&FileStore::new(root)).unwrap();
-    let ids: Vec<&str> = cat.instances.iter().map(|e| e.id.as_str()).collect();
-    assert_eq!(ids, ["00000000-0000-4000-8000-000000000001"]);
-    assert!(cat.diagnostics.is_empty(), "{:?}", cat.diagnostics);
+    let counts = code_counts(&cat);
+    assert_eq!(counts.get(codes::MANIFEST_INVALID), Some(&1), "{cat:?}");
+    assert!(cat.instances.is_empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -527,7 +516,7 @@ fn extension_set_enumerates_with_kind_id_identity() {
         root,
         "manifest.json",
         r#"{
-          "instanceIndex": [],
+          "dataModelRevision": 2,
           "repositoryId": "0e0e0e0e-0000-4000-8000-000000000001",
           "declaredExtensions": ["ext:changelog", "ext:federation"],
           "changelogPath": "changelog.json",
@@ -575,7 +564,7 @@ fn extension_locations_require_the_owning_extension_declared() {
         root,
         "manifest.json",
         r#"{
-          "instanceIndex": [],
+          "dataModelRevision": 2,
           "repositoryId": "0e0e0e0e-0000-4000-8000-000000000001",
           "changelogPath": "changelog.json",
           "federationPath": "federation/registry.json"

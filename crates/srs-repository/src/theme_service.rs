@@ -292,7 +292,7 @@ mod tests {
 
     fn setup_minimal_repo(root: &std::path::Path) {
         std::fs::create_dir_all(root.join(".srs")).unwrap();
-        std::fs::write(root.join("manifest.json"), r#"{"instanceIndex":[]}"#).unwrap();
+        std::fs::write(root.join("manifest.json"), r#"{"dataModelRevision":2}"#).unwrap();
         std::fs::create_dir_all(root.join("package")).unwrap();
         std::fs::write(
             root.join("package/package.json"),

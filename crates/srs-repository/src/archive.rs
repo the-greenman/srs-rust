@@ -896,7 +896,7 @@ mod tests {
             "repositoryId": "test-id",
             "namespace": "com.example",
             "srsVersion": "2.0-draft",
-            "instanceIndex": []
+            "dataModelRevision": 2
         });
         let mut buf = Vec::new();
         let mut zw = zip::ZipWriter::new(Cursor::new(&mut buf));
@@ -985,7 +985,7 @@ mod tests {
         // Without the to_value fix, load_text_file("manifest.json") emits them in HashMap
         // iteration order (non-deterministic across process runs). With the fix, to_value
         // normalises all keys — typed fields and extra — into BTreeMap (sorted) order (ADR-017).
-        let srsj = r#"{"srsj":"2","manifest":{"instanceIndex":[],"repositoryId":"det-test-id","namespace":"com.example.det","srsVersion":"2.0-draft","title":"Det Test","zzz":"last","aaa":"first","createdAt":"2026-01-01T00:00:00Z"},"data":{"package/package.json":{"id":"p","namespace":"com.example.det","name":"n","version":"1","fields":[],"types":[],"relationTypes":[],"views":[],"documentViews":[]}}}"#;
+        let srsj = r#"{"srsj":"2","manifest":{"dataModelRevision":2,"repositoryId":"det-test-id","namespace":"com.example.det","srsVersion":"2.0-draft","title":"Det Test","zzz":"last","aaa":"first","createdAt":"2026-01-01T00:00:00Z"},"data":{"package/package.json":{"id":"p","namespace":"com.example.det","name":"n","version":"1","fields":[],"types":[],"relationTypes":[],"views":[],"documentViews":[]}}}"#;
 
         let store = crate::srsj::open_srsj(srsj).unwrap();
         let archive_bytes = pack_to_bytes(&store);
@@ -1149,8 +1149,7 @@ mod tests {
 
         let note_id = new_instance_id();
         let note_value = serde_json::json!({
-            "id": note_id,
-            "tier": 0,
+            "instanceId": note_id,
             "title": "FileStore Note",
             "sections": []
         });
@@ -1164,16 +1163,7 @@ mod tests {
             )
             .expect("save instance to FileStore");
 
-        let mut manifest = source.load_manifest().expect("load FileStore manifest");
-        manifest
-            .instance_index
-            .push(crate::index::InstanceIndexEntry {
-                instance_id: note_id.clone(),
-                tier: 0,
-                path: format!("records/notes/{}.json", &note_id[..8]),
-                title: Some(serde_json::Value::String("FileStore Note".to_string())),
-                tags: None,
-            });
+        let manifest = source.load_manifest().expect("load FileStore manifest");
         source.save_manifest(&manifest).expect("save manifest");
 
         let zip_dir = tempdir().unwrap();
@@ -1187,11 +1177,11 @@ mod tests {
         let zip_file2 = std::fs::File::open(&zip_path).expect("open zip file");
         archive_unpack(zip_file2, &target).expect("archive_unpack FileStore");
 
-        let unpacked = target
-            .load_manifest()
-            .expect("load target FileStore manifest");
-        assert_eq!(unpacked.instance_index.len(), 1);
-        assert_eq!(unpacked.instance_index[0].instance_id, note_id);
+        // RFC-038 [R1]: membership is the tree — the unpacked note is
+        // discovered via the catalog, not a manifest index.
+        let cat = target.catalog().expect("target catalog");
+        assert_eq!(cat.instances.len(), 1);
+        assert_eq!(cat.instances[0].id, note_id);
     }
 
     #[test]
@@ -1209,16 +1199,6 @@ mod tests {
 
         let mut manifest = source.load_manifest().expect("load manifest");
         manifest.source_documents_path = Some("source-documents".to_string());
-        manifest.source_document_index = Some(vec![
-            srs_core::types::source_document::SourceDocumentIndexEntry {
-                document_id: "test-doc-aaaa".to_string(),
-                sidecar_path: "my-doc.meta.json".to_string(),
-                content_path: "my-doc.pdf".to_string(),
-                title: None,
-                sidecar_checksum: None,
-                content_checksum: None,
-            },
-        ]);
         source.save_manifest(&manifest).expect("save manifest");
 
         let zip_bytes = pack_to_bytes(&source);
@@ -1266,16 +1246,6 @@ mod tests {
 
         let mut manifest = source.load_manifest().expect("load manifest");
         manifest.source_documents_path = Some("source-documents".to_string());
-        manifest.source_document_index = Some(vec![
-            srs_core::types::source_document::SourceDocumentIndexEntry {
-                document_id: "subdir-doc-bbbb".to_string(),
-                sidecar_path: "reports/2026/analysis.meta.json".to_string(),
-                content_path: "reports/2026/analysis.pdf".to_string(),
-                title: None,
-                sidecar_checksum: None,
-                content_checksum: None,
-            },
-        ]);
         source.save_manifest(&manifest).expect("save manifest");
 
         let zip_bytes = pack_to_bytes(&source);
@@ -1312,16 +1282,6 @@ mod tests {
 
         let mut manifest = source.load_manifest().expect("load manifest");
         manifest.source_documents_path = Some("source-documents".to_string());
-        manifest.source_document_index = Some(vec![
-            srs_core::types::source_document::SourceDocumentIndexEntry {
-                document_id: "tombstone-doc-dddd".to_string(),
-                sidecar_path: "gone.meta.json".to_string(),
-                content_path: "gone.pdf".to_string(),
-                title: None,
-                sidecar_checksum: None,
-                content_checksum: None,
-            },
-        ]);
         source.save_manifest(&manifest).expect("save manifest");
 
         let zip_bytes = pack_to_bytes(&source);
@@ -1371,16 +1331,6 @@ mod tests {
 
         let mut manifest = source.load_manifest().expect("load manifest");
         manifest.source_documents_path = Some("source-documents".to_string());
-        manifest.source_document_index = Some(vec![
-            srs_core::types::source_document::SourceDocumentIndexEntry {
-                document_id: "checksum-doc-cccc".to_string(),
-                sidecar_path: "doc.meta.json".to_string(),
-                content_path: "doc.pdf".to_string(),
-                title: Some("Checksum Doc".to_string()),
-                sidecar_checksum: Some("sha256:aaa111".to_string()),
-                content_checksum: Some("sha256:bbb222".to_string()),
-            },
-        ]);
         source.save_manifest(&manifest).expect("save manifest");
 
         let zip_bytes = pack_to_bytes(&source);
@@ -1389,16 +1339,14 @@ mod tests {
         let target = FileStore::new(target_dir.path());
         archive_unpack(Cursor::new(&zip_bytes), &target).expect("unpack failed");
 
-        let restored = target.load_manifest().expect("load restored manifest");
-        let idx = restored
-            .source_document_index
-            .as_ref()
-            .expect("source_document_index missing");
-        assert_eq!(idx.len(), 1);
-        assert_eq!(idx[0].document_id, "checksum-doc-cccc");
-        assert_eq!(idx[0].title, Some("Checksum Doc".to_string()));
-        assert_eq!(idx[0].sidecar_checksum, Some("sha256:aaa111".to_string()));
-        assert_eq!(idx[0].content_checksum, Some("sha256:bbb222".to_string()));
+        // RFC-038 Change K: sourceDocumentIndex (and its checksum/title
+        // metadata) is retired — the sidecar is the document identity and the
+        // catalog is the discovery surface.
+        let cat = target.catalog().expect("target catalog");
+        assert!(cat
+            .source_documents
+            .iter()
+            .any(|e| e.id == "checksum-doc-cccc"));
     }
 
     #[test]
@@ -1439,16 +1387,6 @@ mod tests {
 
         let mut manifest = source.load_manifest().expect("load FileStore manifest");
         manifest.source_documents_path = Some("source-documents".to_string());
-        manifest.source_document_index = Some(vec![
-            srs_core::types::source_document::SourceDocumentIndexEntry {
-                document_id: "filestore-doc-dddd".to_string(),
-                sidecar_path: "report.meta.json".to_string(),
-                content_path: "report.pdf".to_string(),
-                title: None,
-                sidecar_checksum: None,
-                content_checksum: None,
-            },
-        ]);
         source.save_manifest(&manifest).expect("save manifest");
 
         let zip_dir = tempdir().unwrap();
@@ -1462,13 +1400,11 @@ mod tests {
         let zip_file2 = std::fs::File::open(&zip_path).expect("open zip");
         archive_unpack(zip_file2, &target).expect("archive_unpack");
 
-        let restored = target.load_manifest().expect("load target manifest");
-        let idx = restored
-            .source_document_index
-            .as_ref()
-            .expect("source_document_index missing");
-        assert_eq!(idx.len(), 1);
-        assert_eq!(idx[0].document_id, "filestore-doc-dddd");
+        let cat = target.catalog().expect("target catalog");
+        assert!(cat
+            .source_documents
+            .iter()
+            .any(|e| e.id == "filestore-doc-dddd"));
 
         let content_path = target_dir
             .path()

@@ -212,7 +212,7 @@ pub fn create_relation(
 
     // JSON-schema gate preserved from the collection era: validate the relation
     // shape against the relations-collection schema's item definition. The
-    // standalone relation.json mirror schema lands with the Phase-1 schema-mirror
+    // standalone relation.json mirror schema is in srs-schema (Phase-6 sync)
     // PR; until then this is the schema-level check available in srs-schema.
     schema_validate_relation(&relation)?;
 
@@ -2090,13 +2090,7 @@ mod tests {
     fn test_rebuild_precedes_chain_roundtrip_json_store() {
         let srsj = serde_json::json!({
             "srsj": "2",
-            "manifest": {
-                "instanceIndex": [
-                    {"instanceId": "id-a", "tier": 0, "path": "records/id-a.json"},
-                    {"instanceId": "id-b", "tier": 0, "path": "records/id-b.json"},
-                    {"instanceId": "id-c", "tier": 0, "path": "records/id-c.json"}
-                ]
-            },
+            "manifest": { "dataModelRevision": 2 },
             "data": {
                 "package/package.json": {
                     "id": "00000000-0000-0000-0000-000000000099",

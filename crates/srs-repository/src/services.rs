@@ -569,7 +569,6 @@ pub fn delete_note(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::index::InstanceIndexEntry;
     use crate::manifest::Manifest;
     use crate::store::memory::MemoryStore;
     use srs_core::types::note::NoteSection;
@@ -607,21 +606,12 @@ mod tests {
             v
         };
         let manifest = Manifest {
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: note.instance_id.clone(),
-                tier: 0,
-                path: path.to_string(),
-                title: note.title.clone().map(serde_json::Value::String),
-                tags: note.tags.clone(),
-            }],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         MemoryStore::new(
@@ -663,30 +653,12 @@ mod tests {
             v
         };
         let manifest = Manifest {
-            instance_index: vec![
-                InstanceIndexEntry {
-                    instance_id: note_a.instance_id.clone(),
-                    tier: 0,
-                    path: path_a.to_string(),
-                    title: note_a.title.clone().map(serde_json::Value::String),
-                    tags: note_a.tags.clone(),
-                },
-                InstanceIndexEntry {
-                    instance_id: note_b.instance_id.clone(),
-                    tier: 0,
-                    path: path_b.to_string(),
-                    title: note_b.title.clone().map(serde_json::Value::String),
-                    tags: note_b.tags.clone(),
-                },
-            ],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         MemoryStore::new(
@@ -886,15 +858,12 @@ mod tests {
         // RFC-038: tier comes from body shape classification, not the index —
         // a real Tier-1 typed-record file makes the instance discoverable.
         let manifest = Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(
@@ -1290,21 +1259,12 @@ mod tests {
             v
         };
         let manifest = Manifest {
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: note.instance_id.clone(),
-                tier: 0,
-                path: note_path.to_string(),
-                title: note.title.clone().map(serde_json::Value::String),
-                tags: note.tags.clone(),
-            }],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let package = Package {
@@ -1397,15 +1357,12 @@ mod tests {
         // Manufacture a store where a tier-2 Record exists, not a note
         // (RFC-038: tier comes from body shape, not the index).
         let manifest = Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(
@@ -1658,49 +1615,6 @@ mod tests {
     }
 
     // --- Fault-injection tests: ADR-007 delete-ordering invariant for delete_note ---
-
-    #[test]
-    fn delete_note_old_file_first_ordering_leaves_dangling_index_entry() {
-        // Documents the bug: when the file is deleted before the manifest is
-        // committed, an interrupted write leaves a dangling manifest entry rather
-        // than a safe orphaned file.
-        use crate::store::memory::FailPoint;
-
-        let note = make_note("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "Fault Note A");
-        let path = "records/notes/fault-note-a.json";
-        let store = store_with_note(&note, path);
-        let instance_id = &note.instance_id;
-
-        // Simulate old file-first ordering: delete the file, then fail the manifest write.
-        store.arm_fail_at(FailPoint::SaveManifest);
-        store.delete_instance_file(path).unwrap();
-
-        // Build and attempt to save manifest without the entry — the armed fault fires.
-        let mut manifest_without = store.load_manifest().unwrap();
-        manifest_without
-            .instance_index
-            .retain(|e| e.instance_id() != instance_id);
-        let err = store.save_manifest(&manifest_without);
-        assert!(
-            matches!(err, Err(RepositoryError::Io { .. })),
-            "expected manifest write to fail (injected fault)"
-        );
-
-        // File is gone (already deleted above).
-        assert!(
-            store.load_instance_json(path).is_err(),
-            "file must be gone after explicit delete"
-        );
-        // Manifest still has the entry — dangling index entry (the bug).
-        let manifest_after = store.load_manifest().unwrap();
-        assert!(
-            manifest_after
-                .instance_index
-                .iter()
-                .any(|e| e.instance_id() == instance_id),
-            "dangling manifest entry must remain when file-first ordering is interrupted"
-        );
-    }
 
     // delete_note_index_first_manifest_fail_leaves_note_intact retired by
     // RFC-038 Phase 3 (srs-rust#783): delete_note no longer writes

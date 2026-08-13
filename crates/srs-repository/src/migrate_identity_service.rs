@@ -324,7 +324,6 @@ mod tests {
     use super::*;
     use crate::container_service::get_container;
     use crate::core_purpose;
-    use crate::index::InstanceIndexEntry;
     use crate::repository_portability::copy_repository;
     use crate::store::memory::MemoryStore;
     use crate::store::RecordTier;
@@ -651,13 +650,6 @@ mod tests {
         let mut root = bare_container(container_id);
         root.identity_instance_id = Some(instance_id.to_string());
         manifest.container = Some(root);
-        manifest.instance_index.push(InstanceIndexEntry {
-            instance_id: instance_id.to_string(),
-            tier: 2,
-            path: format!("records/tier-2/{instance_id}.json"),
-            title: None,
-            tags: None,
-        });
         write_manifest(&store, &manifest).unwrap();
 
         let err = migrate_identity(&store).unwrap_err();

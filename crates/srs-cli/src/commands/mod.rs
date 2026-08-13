@@ -257,6 +257,30 @@ pub fn with_store<T>(
     }
 }
 
+/// `with_store` for the migration tooling surface only (`repo migrations`,
+/// `repo apply-migration`): the store is opened under the RFC-038 [R21]
+/// migrator exemption so pre-generation-2 repositories can be inspected and
+/// transformed. Every other command uses [`with_store`] and rejects them.
+pub fn with_migration_store<T>(
+    ctx: &CliContext,
+    f: impl FnOnce(&dyn RepositoryStore) -> Result<T>,
+) -> Result<T> {
+    match ctx.store {
+        StoreBackend::File => {
+            let store = FileStore::new(&ctx.repo).with_rfc038_exemption();
+            f(&store)
+        }
+        StoreBackend::Json => {
+            let mut session = SrsjSession::open_for_migration(&ctx.repo).with_context(|| {
+                format!("Failed to open .srsj session at {}", ctx.repo.display())
+            })?;
+            let result = f(session.store())?;
+            session.flush()?;
+            Ok(result)
+        }
+    }
+}
+
 /// Create a new file-backed store at `path` and call `f` with it.
 ///
 /// Used by commands that initialize a brand-new repository at a target

@@ -39,7 +39,7 @@ fn six_set_repository(root: &Path) {
               "repositoryId": "{REPO_ID}",
               "namespace": "com.example.snapshot",
               "dataModelRevision": 2,
-              "instanceIndex": [],
+              "dataModelRevision": 2,
               "declaredExtensions": ["ext:changelog", "ext:federation"],
               "changelogPath": "changelog.json",
               "federationPath": "federation/registry.json",
@@ -519,39 +519,6 @@ fn json_payloads_survive_the_codec_byte_for_byte() {
     }
 }
 
-/// `manifest.relationsPath` may point outside `relations/`. The field is
-/// retired by RFC-038 Change K, but the corpus carries it until the Phase-6
-/// flip and a snapshot must not drop the collection it names.
-#[test]
-fn pack_carries_a_relations_collection_named_by_the_manifest() {
-    let src_tmp = tempfile::tempdir().unwrap();
-    six_set_repository(src_tmp.path());
-    let manifest_path = src_tmp.path().join("manifest.json");
-    let mut manifest: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
-    manifest["relationsPath"] = serde_json::json!("legacy/relations.json");
-    std::fs::write(
-        &manifest_path,
-        serde_json::to_string_pretty(&manifest).unwrap(),
-    )
-    .unwrap();
-    write(
-        src_tmp.path(),
-        "legacy/relations.json",
-        r#"{"relations": []}"#,
-    );
-
-    let bytes = srs_repository::archive_to_vec(&FileStore::new(src_tmp.path())).expect("pack");
-    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
-    let names: Vec<String> = (0..zip.len())
-        .map(|i| zip.by_index(i).unwrap().name().to_string())
-        .collect();
-    assert!(
-        names.contains(&"legacy/relations.json".to_string()),
-        "a manifest-named relations collection must be packed: {names:?}"
-    );
-}
-
 /// Instance roots are anchored per package root ([R3]), so a sub-package's
 /// `records/` is a reserved location too — and unclassifiable objects under it
 /// must be swept like the top-level ones.
@@ -599,8 +566,9 @@ fn pack_sweeps_instance_roots_under_a_sub_package() {
 /// and whatever credentials it holds into the snapshot.
 #[test]
 fn a_declared_path_resolving_to_the_root_does_not_pack_the_whole_tree() {
+    // relationsPath is retired ([R2]) — a manifest declaring it no longer
+    // loads at all, so only the live declared-location properties remain.
     for (property, value) in [
-        ("relationsPath", "."),
         ("sourceDocumentsPath", ""),
         ("changelogPath", "./"),
         ("federationPath", "a/.."),

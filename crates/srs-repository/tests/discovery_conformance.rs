@@ -106,7 +106,11 @@ fn ext_discovery_fixture_scenarios() {
         scenarios_path.display()
     );
 
-    let store = FileStore::new(&fixture_repo);
+    // Named permanent [R21]/[R2]-independent reader (RFC-038 resolved
+    // dispositions): the fixture-repo is conformance test data, never
+    // migrated, and this loader is the one sanctioned non-migration exempt
+    // call site.
+    let store = FileStore::new(&fixture_repo).with_rfc038_exemption();
 
     let mut failures: Vec<(String, String)> = Vec::new();
     for scenario in &file.scenarios {

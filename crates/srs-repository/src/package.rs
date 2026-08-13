@@ -932,7 +932,7 @@ mod tests {
             "srsVersion": "2.0-draft",
             "repositoryId": "test-repo-id",
             "namespace": "com.test",
-            "instanceIndex": []
+            "dataModelRevision": 2
         });
         std::fs::write(
             root.join("manifest.json"),

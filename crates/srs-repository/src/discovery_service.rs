@@ -388,7 +388,6 @@ fn find_tier1(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::index::InstanceIndexEntry;
     use crate::manifest::Manifest;
     use crate::package::Package;
     use crate::store::memory::MemoryStore;
@@ -508,29 +507,19 @@ mod tests {
     fn store_with(records: Vec<Record>) -> MemoryStore {
         let store = MemoryStore::new(
             Manifest {
-                instance_index: vec![],
                 container: None,
-                container_index: None,
                 federation_path: None,
                 upstream_package: None,
                 federation_events_path: None,
                 extra: std::collections::BTreeMap::new(),
                 source_documents_path: None,
-                source_document_index: None,
                 root: PathBuf::from("/memory"),
             },
             package(),
         );
-        let mut manifest = store.load_manifest().unwrap();
+        let manifest = store.load_manifest().unwrap();
         for record in &records {
             let path = format!("records/{}.json", record.instance_id);
-            manifest.instance_index.push(InstanceIndexEntry {
-                instance_id: record.instance_id.clone(),
-                tier: 2,
-                path: path.clone(),
-                title: None,
-                tags: record.tags.clone(),
-            });
             store
                 .save_instance_json(&path, &serde_json::to_value(record).unwrap())
                 .unwrap();
@@ -569,7 +558,7 @@ mod tests {
     /// struct exists yet (CLAUDE.md storage boundary rules).
     fn store_with_all_tiers() -> MemoryStore {
         let store = store_with(fixtures());
-        let mut manifest = store.load_manifest().unwrap();
+        let manifest = store.load_manifest().unwrap();
 
         let note = note_fixture(
             NOTE1,
@@ -581,13 +570,6 @@ mod tests {
             &["policy"],
         );
         let note_path = format!("records/notes/{NOTE1}.json");
-        manifest.instance_index.push(InstanceIndexEntry {
-            instance_id: NOTE1.to_string(),
-            tier: 0,
-            path: note_path.clone(),
-            title: note.title.clone().map(serde_json::Value::String),
-            tags: note.tags.clone(),
-        });
         store
             .save_instance_json(&note_path, &serde_json::to_value(&note).unwrap())
             .unwrap();
@@ -602,13 +584,6 @@ mod tests {
             "tags": typed_tags,
         });
         let typed_path = format!("records/typed-records/{TYPED1}.json");
-        manifest.instance_index.push(InstanceIndexEntry {
-            instance_id: TYPED1.to_string(),
-            tier: 1,
-            path: typed_path.clone(),
-            title: Some(serde_json::Value::String("Budget planning".to_string())),
-            tags: Some(typed_tags.iter().map(|t| t.to_string()).collect()),
-        });
         store.save_instance_json(&typed_path, &typed).unwrap();
 
         store.save_manifest(&manifest).unwrap();

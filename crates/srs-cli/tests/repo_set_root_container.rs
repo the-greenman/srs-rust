@@ -7,7 +7,7 @@ use tempfile::TempDir;
 fn create_minimal_repo(dir: &std::path::Path) {
     std::fs::write(
         dir.join("manifest.json"),
-        r#"{"srsVersion":"2.0-draft","repositoryId":"test-repo","title":"Test Repo","instanceIndex":[]}"#,
+        r#"{"srsVersion":"2.0-draft","repositoryId":"test-repo","title":"Test Repo","dataModelRevision":2}"#,
     )
     .unwrap();
 }

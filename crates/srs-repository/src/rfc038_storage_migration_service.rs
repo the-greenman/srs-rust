@@ -782,7 +782,13 @@ mod tests {
         let doc = legacy_srsj();
         let mut pre = doc.clone();
         pre["srsj"] = json!("2");
-        let before = open_srsj(&pre.to_string()).unwrap().catalog().unwrap();
+        // Reading the pre-migration state is the [R21] migrator exemption —
+        // taken explicitly, as the transform itself does.
+        let before = open_srsj(&pre.to_string())
+            .unwrap()
+            .with_rfc038_exemption()
+            .catalog()
+            .unwrap();
         let after = migrated_store(&doc).catalog().unwrap();
 
         assert_eq!(ids(&before), ids(&after));

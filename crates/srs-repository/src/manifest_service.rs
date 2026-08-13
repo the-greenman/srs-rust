@@ -574,7 +574,7 @@ mod tests {
         // Write minimal manifest so load_manifest succeeds after validation
         std::fs::write(
             temp.path().join("manifest.json"),
-            r#"{"srsVersion":"2.0-draft","repositoryId":"test","instanceIndex":[]}"#,
+            r#"{"srsVersion":"2.0-draft","repositoryId":"test","dataModelRevision":2}"#,
         )
         .unwrap();
 
@@ -591,7 +591,7 @@ mod tests {
         let store = crate::FileStore::new(temp.path());
         std::fs::write(
             temp.path().join("manifest.json"),
-            r#"{"srsVersion":"2.0-draft","repositoryId":"test","instanceIndex":[]}"#,
+            r#"{"srsVersion":"2.0-draft","repositoryId":"test","dataModelRevision":2}"#,
         )
         .unwrap();
 
@@ -616,7 +616,7 @@ mod tests {
         let store = crate::FileStore::new(temp.path());
         std::fs::write(
             temp.path().join("manifest.json"),
-            r#"{"srsVersion":"2.0-draft","repositoryId":"test","instanceIndex":[]}"#,
+            r#"{"srsVersion":"2.0-draft","repositoryId":"test","dataModelRevision":2}"#,
         )
         .unwrap();
         create_package_dir(&temp, "package/sub");
@@ -633,7 +633,7 @@ mod tests {
         let store = crate::FileStore::new(temp.path());
         std::fs::write(
             temp.path().join("manifest.json"),
-            r#"{"srsVersion":"2.0-draft","repositoryId":"test","instanceIndex":[]}"#,
+            r#"{"srsVersion":"2.0-draft","repositoryId":"test","dataModelRevision":2}"#,
         )
         .unwrap();
         create_package_dir(&temp, "package/sub");
@@ -656,7 +656,7 @@ mod tests {
         let store = crate::FileStore::new(temp.path());
         std::fs::write(
             temp.path().join("manifest.json"),
-            r#"{"srsVersion":"2.0-draft","repositoryId":"test","instanceIndex":[]}"#,
+            r#"{"srsVersion":"2.0-draft","repositoryId":"test","dataModelRevision":2}"#,
         )
         .unwrap();
         create_package_dir(&temp, "package/sub");
@@ -1023,7 +1023,6 @@ mod tests {
 
     #[test]
     fn conformance_lifecycle_state_detected_as_used() {
-        use crate::index::InstanceIndexEntry;
         use crate::manifest::Manifest;
         use crate::store::memory::MemoryStore;
         use std::path::PathBuf;
@@ -1039,21 +1038,12 @@ mod tests {
             "lifecycleState": "active"
         });
         let manifest = Manifest {
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: "abc123".to_string(),
-                tier: 2,
-                path: record_path.to_string(),
-                title: None,
-                tags: None,
-            }],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(
@@ -1091,7 +1081,6 @@ mod tests {
 
     #[test]
     fn conformance_declared_lifecycle_not_in_undeclared() {
-        use crate::index::InstanceIndexEntry;
         use crate::manifest::Manifest;
         use crate::store::memory::MemoryStore;
         use std::path::PathBuf;
@@ -1109,21 +1098,12 @@ mod tests {
         let mut extra = std::collections::BTreeMap::new();
         extra.insert("declaredExtensions".to_string(), json!(["ext:lifecycle"]));
         let manifest = Manifest {
-            instance_index: vec![InstanceIndexEntry {
-                instance_id: "abc123".to_string(),
-                tier: 2,
-                path: record_path.to_string(),
-                title: None,
-                tags: None,
-            }],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra,
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(
@@ -1168,14 +1148,8 @@ mod tests {
         // Minimal manifest with one Tier 2 record entry
         let manifest_json = json!({
             "srsVersion": "2.0-draft",
-            "repositoryId": "test-repo",
-            "instanceIndex": [
-                {
-                    "instanceId": "rec001",
-                    "tier": 2,
-                    "path": "records/rec001.json"
-                }
-            ]
+            "dataModelRevision": 2,
+            "repositoryId": "test-repo"
         });
         std::fs::write(
             repo.join("manifest.json"),

@@ -10,7 +10,6 @@ fn create_temp_repo() -> TempDir {
 
     // Create minimal manifest.json
     let manifest = serde_json::json!({
-        "instanceIndex": [],
         "dataModelRevision": 2
     });
     let manifest_path = temp.path().join("manifest.json");
@@ -131,16 +130,6 @@ fn create_navigation_repo() -> TempDir {
                 "rootInstanceIds": [identity],
                 "memberInstanceIds": [decisions, articles]
             },
-            "containerIndex": [
-                {"containerId": root_container, "title": "Example Governance", "path": "containers/root.json"},
-                {"containerId": articles_container, "title": "Articles", "path": "containers/articles.json"},
-                {"containerId": decisions_container, "title": "Decision Log", "path": "containers/decisions.json"}
-            ],
-            "instanceIndex": [
-                {"instanceId": identity, "tier": 2, "path": "records/identity.json"},
-                {"instanceId": articles, "tier": 2, "path": "records/articles.json"},
-                {"instanceId": decisions, "tier": 2, "path": "records/decisions.json"}
-            ]
         }),
     );
 
@@ -1760,17 +1749,13 @@ fn make_valid_validate_repo() -> TempDir {
     let manifest = serde_json::json!({
         "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
         "srsVersion": "2.0",
+        "dataModelRevision": 2,
         "repositoryId": "00000000-0000-4000-8000-000000000099",
         "title": "Test Repo",
         "container": {
             "containerId": "00000000-0000-4000-8000-000000000099",
             "title": "Test Repo"
         },
-        "instanceIndex": [{
-            "instanceId": note_id,
-            "tier": 0,
-            "path": "records/notes/note.json"
-        }],
         "createdAt": "2026-01-01T00:00:00Z"
     });
 
@@ -1813,27 +1798,8 @@ fn fixture_repo_with_single_record(fixture_name: &str, record_rel_path: &str) ->
         .join(fixture_name);
     copy_dir_recursive(&fixture_root, temp.path());
 
-    let manifest_path = temp.path().join("manifest.json");
-    let mut manifest: Value =
-        serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
-    let filtered: Vec<Value> = manifest["instanceIndex"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|entry| entry["path"] == record_rel_path)
-        .cloned()
-        .collect();
-    manifest["instanceIndex"] = Value::Array(filtered);
-    std::fs::write(
-        &manifest_path,
-        serde_json::to_string_pretty(&manifest).unwrap(),
-    )
-    .unwrap();
-
-    // RFC-038 [R1]: membership comes from the tree, not manifest.instanceIndex —
-    // filtering the index above no longer hides sibling fixture files (e.g. other
-    // deliberately-invalid records under the same instance root) from the catalog.
-    // Delete every instance file under `records/` except the one selected.
+    // RFC-038 [R1]: membership comes from the tree — isolating one record
+    // means deleting every other instance file under `records/`.
     let records_dir = temp.path().join("records");
     if records_dir.is_dir() {
         for entry in walkdir_json_files(&records_dir) {
@@ -1886,13 +1852,13 @@ fn repo_validate_invalid_note_returns_ok_false() {
     let manifest = serde_json::json!({
         "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
         "srsVersion": "2.0",
+        "dataModelRevision": 2,
         "repositoryId": "00000000-0000-4000-8000-000000000099",
         "title": "Test Repo",
         "container": {
             "containerId": "00000000-0000-4000-8000-000000000099",
             "title": "Test Repo"
         },
-        "instanceIndex": [{"instanceId": note_id, "tier": 0, "path": "records/notes/bad.json"}],
         "createdAt": "2026-01-01T00:00:00Z"
     });
 
@@ -1932,13 +1898,13 @@ fn repo_validate_tier_schema_mismatch_returns_ok_false() {
     let manifest = serde_json::json!({
         "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
         "srsVersion": "2.0",
+        "dataModelRevision": 2,
         "repositoryId": "00000000-0000-4000-8000-000000000099",
         "title": "Test Repo",
         "container": {
             "containerId": "00000000-0000-4000-8000-000000000099",
             "title": "Test Repo"
         },
-        "instanceIndex": [{"instanceId": note_id, "tier": 0, "path": "records/notes/wrong.json"}],
         "createdAt": "2026-01-01T00:00:00Z"
     });
 
@@ -2137,8 +2103,7 @@ fn repo_extensions_list_returns_declared_extensions() {
     let manifest: Value = serde_json::json!({
         "srsVersion": "2.0-draft",
         "repositoryId": "test-repo",
-        "instanceIndex": [],
-        "dataModelRevision": 1,
+        "dataModelRevision": 2,
         "declaredExtensions": ["ext:repository", "ext:relations"]
     });
     std::fs::write(
@@ -2180,8 +2145,7 @@ fn repo_extensions_disable_removes_extension() {
     let manifest: Value = serde_json::json!({
         "srsVersion": "2.0-draft",
         "repositoryId": "test-repo",
-        "instanceIndex": [],
-        "dataModelRevision": 1,
+        "dataModelRevision": 2,
         "declaredExtensions": ["ext:test"]
     });
     std::fs::write(
@@ -2228,13 +2192,8 @@ fn note_update_rewrites_note_and_manifest() {
 
     let manifest: Value = serde_json::json!({
         "srsVersion": "2.0-draft",
+        "dataModelRevision": 2,
         "repositoryId": "test-repo",
-        "instanceIndex": [{
-            "instanceId": note_id,
-            "tier": 0,
-            "path": "records/notes/original.json",
-            "title": "Original Title"
-        }]
     });
     std::fs::write(
         temp.path().join("manifest.json"),
@@ -2292,13 +2251,8 @@ fn note_delete_removes_note_and_manifest_entry() {
 
     let manifest: Value = serde_json::json!({
         "srsVersion": "2.0-draft",
+        "dataModelRevision": 2,
         "repositoryId": "test-repo",
-        "instanceIndex": [{
-            "instanceId": note_id,
-            "tier": 0,
-            "path": "records/notes/delete-me.json",
-            "title": "To Delete"
-        }]
     });
     std::fs::write(
         temp.path().join("manifest.json"),
@@ -2355,14 +2309,8 @@ fn note_tag_add_adds_tag_to_note() {
 
     let manifest: Value = serde_json::json!({
         "srsVersion": "2.0-draft",
+        "dataModelRevision": 2,
         "repositoryId": "test-repo",
-        "instanceIndex": [{
-            "instanceId": note_id,
-            "tier": 0,
-            "path": "records/notes/test.json",
-            "title": "Test Note",
-            "tags": ["existing"]
-        }]
     });
     std::fs::write(
         temp.path().join("manifest.json"),
@@ -2409,14 +2357,8 @@ fn note_tag_remove_removes_tag_from_note() {
 
     let manifest: Value = serde_json::json!({
         "srsVersion": "2.0-draft",
+        "dataModelRevision": 2,
         "repositoryId": "test-repo",
-        "instanceIndex": [{
-            "instanceId": note_id,
-            "tier": 0,
-            "path": "records/notes/test.json",
-            "title": "Test Note",
-            "tags": ["keep", "remove"]
-        }]
     });
     std::fs::write(
         temp.path().join("manifest.json"),
@@ -2791,11 +2733,6 @@ fn record_list_returns_records_by_type() {
         "srsVersion": "2.0-draft",
         "dataModelRevision": 2,
         "repositoryId": "test-repo",
-        "instanceIndex": [{
-            "instanceId": record_id,
-            "tier": 2,
-            "path": format!("records/test-items/{}.json", record_id)
-        }]
     });
     std::fs::write(
         temp.path().join("manifest.json"),
@@ -2864,12 +2801,8 @@ fn record_get_returns_record_by_id() {
 
     let manifest: Value = serde_json::json!({
         "srsVersion": "2.0-draft",
+        "dataModelRevision": 2,
         "repositoryId": "test-repo",
-        "instanceIndex": [{
-            "instanceId": record_id,
-            "tier": 2,
-            "path": format!("records/test-items/{}.json", record_id)
-        }]
     });
     std::fs::write(
         temp.path().join("manifest.json"),
@@ -3057,12 +2990,8 @@ fn record_delete_removes_file_and_manifest_entry() {
 
     let manifest: Value = serde_json::json!({
         "srsVersion": "2.0-draft",
+        "dataModelRevision": 2,
         "repositoryId": "test-repo",
-        "instanceIndex": [{
-            "instanceId": record_id,
-            "tier": 2,
-            "path": format!("package/records/{}.json", record_id)
-        }]
     });
     std::fs::write(
         temp.path().join("manifest.json"),
@@ -3264,11 +3193,8 @@ fn relation_create_writes_standalone_object() {
 
     let manifest: Value = serde_json::json!({
         "srsVersion": "2.0-draft",
+        "dataModelRevision": 2,
         "repositoryId": "test-repo",
-        "instanceIndex": [
-            { "instanceId": "note-1", "tier": 0, "path": "records/notes/note-1.json" },
-            { "instanceId": "note-2", "tier": 0, "path": "records/notes/note-2.json" }
-        ]
     });
     std::fs::write(
         temp.path().join("manifest.json"),
@@ -3532,13 +3458,14 @@ fn create_temp_repo_with_protocol_package() -> TempDir {
         serde_json::to_string_pretty(&serde_json::json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": "00000000-0000-4000-8000-000000009900",
             "title": "Protocol Test Repo",
             "container": {
                 "containerId": "00000000-0000-4000-8000-000000009900",
                 "title": "Protocol Test Repo"
             },
-            "instanceIndex": [],
+            "dataModelRevision": 2,
             "dataModelRevision": 2,
             "createdAt": "2026-01-01T00:00:00Z"
         }))
@@ -3955,9 +3882,7 @@ fn make_container_test_repo() -> TempDir {
     let temp = TempDir::new().expect("Failed to create temp dir");
     std::fs::create_dir(temp.path().join(".srs")).expect("Failed to create .srs dir");
     let manifest = serde_json::json!({
-        "instanceIndex": [],
-        "dataModelRevision": 1,
-        "containerIndex": []
+        "dataModelRevision": 2
     });
     std::fs::write(
         temp.path().join("manifest.json"),
@@ -4673,17 +4598,9 @@ fn container_scope_relation_list_filters_to_internal() {
         )
         .unwrap();
     }
+    // Containers are discovered from containers/ ([R5]) — no containerIndex.
     let manifest = serde_json::json!({
-        "instanceIndex": [
-            {"instanceId": n1, "tier": 0, "path": "records/notes/n1.json"},
-            {"instanceId": n2, "tier": 0, "path": "records/notes/n2.json"},
-            {"instanceId": n3, "tier": 0, "path": "records/notes/n3.json"}
-        ],
-        "containerIndex": [{
-            "containerId": cid,
-            "title": "Scope",
-            "path": "containers/scope-00000000.json"
-        }]
+        "dataModelRevision": 2
     });
     std::fs::write(
         temp.path().join("manifest.json"),
@@ -4886,14 +4803,14 @@ fn create_temp_repo_with_package() -> TempDir {
     let manifest = serde_json::json!({
         "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
         "srsVersion": "2.0",
+        "dataModelRevision": 2,
         "repositoryId": "00000000-0000-4000-8000-000000009902",
         "title": "Package Test Repo",
         "container": {
             "containerId": "00000000-0000-4000-8000-000000009902",
             "title": "Package Test Repo"
         },
-        "instanceIndex": [],
-        "dataModelRevision": 1,
+        "dataModelRevision": 2,
         "createdAt": "2026-01-01T00:00:00Z"
     });
     std::fs::write(
@@ -5221,14 +5138,14 @@ fn create_temp_repo_with_views() -> TempDir {
         serde_json::to_string_pretty(&serde_json::json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
+            "dataModelRevision": 2,
             "repositoryId": "00000000-0000-4000-8000-000000009901",
             "title": "Views Test Repo",
             "container": {
                 "containerId": "00000000-0000-4000-8000-000000009901",
                 "title": "Views Test Repo"
             },
-            "instanceIndex": [],
-            "dataModelRevision": 1,
+            "dataModelRevision": 2,
             "createdAt": "2026-01-01T00:00:00Z"
         }))
         .unwrap(),
@@ -6974,9 +6891,9 @@ fn repo_migrations_lists_the_registered_migrations() {
 
     // The fixture manifest is stamped at the current revision → field-type and
     // rfc039-carrier are alreadyApplied; no container → migrate-identity is
-    // notApplicable; no instances → repo-upgrade is alreadyApplied; the
-    // manifest still carries `instanceIndex` → rfc038-storage is needed
-    // (truthful status; its apply refuses until srs-rust#828).
+    // notApplicable; no instances → repo-upgrade is alreadyApplied; no retired
+    // manifest properties and no collection file → rfc038-storage is
+    // alreadyApplied.
     let status = |id: &str, key: &str| {
         migrations
             .iter()
@@ -6986,7 +6903,7 @@ fn repo_migrations_lists_the_registered_migrations() {
     };
     assert_eq!(status("field-type", "alreadyApplied"), true);
     assert_eq!(status("rfc039-carrier", "alreadyApplied"), true);
-    assert_eq!(status("rfc038-storage", "needed"), true);
+    assert_eq!(status("rfc038-storage", "alreadyApplied"), true);
     assert_eq!(status("migrate-identity", "notApplicable"), true);
     assert_eq!(status("repo-upgrade", "alreadyApplied"), true);
 }
@@ -7010,11 +6927,6 @@ fn legacy_rev1_array_field_values_record_is_rejected_with_r9_diagnostic() {
                 "containerId": "00000000-0000-4000-8000-00000000aa00",
                 "title": "Legacy Repo"
             },
-            "instanceIndex": [{
-                "instanceId": "00000000-0000-4000-8000-00000000aa01",
-                "tier": 2,
-                "path": "records/old.json"
-            }],
             "createdAt": "2026-01-01T00:00:00Z"
         }),
     );
@@ -7081,13 +6993,12 @@ fn legacy_rev1_array_field_values_record_is_rejected_with_r9_diagnostic() {
         }),
     );
 
-    let result = run_srs_in_dir(temp.path(), &["repo", "validate"]);
+    let (_status, result) = run_srs_any_status_in_dir(temp.path(), &["repo", "validate"]);
     assert_eq!(result["ok"], false, "expected ok false: {result:?}");
     let diags = result["diagnostics"].as_array().unwrap();
-    // RFC-038 Phase 3: the catalog's schema validation reports the rev-1
-    // array-carrier breach directly against record.json (fieldValues must be
-    // an object) — it preempts the loader's dataModelRevision-worded [R9]
-    // message, but the rejection itself is the same contract.
+    // Post-flip the [R21] generation gate rejects the revision-1 repository
+    // outright, naming dataModelRevision — the same rejection contract the
+    // [R9] loader message carried, enforced one layer earlier.
     assert!(
         diags.iter().any(|d| {
             d.as_str()
@@ -7173,7 +7084,9 @@ fn repo_apply_migration_field_type_rewrites_a_legacy_field_end_to_end() {
     // Before: RFC-038's catalog now reports the legacy field's schema breach
     // directly (the softer "needs migrating" compat warning is preempted for
     // schema-invalid legacy definitions), so validate flags the file itself.
-    let before = run_srs_in_dir(repo, &["repo", "validate"]);
+    // Post-flip the [R21] generation gate rejects the un-migrated repository
+    // before per-file diagnostics are reached.
+    let (_status, before) = run_srs_any_status_in_dir(repo, &["repo", "validate"]);
     assert_eq!(before["ok"], false, "legacy repo must not validate clean");
     let diags = before["diagnostics"]
         .as_array()
@@ -7182,8 +7095,8 @@ fn repo_apply_migration_field_type_rewrites_a_legacy_field_end_to_end() {
         diags
             .iter()
             .filter_map(|d| d.as_str())
-            .any(|m| m.contains("legacy_status.json")),
-        "validate must name the legacy field file: {before:?}"
+            .any(|m| m.contains("dataModelRevision")),
+        "validate must name the generation gate: {before:?}"
     );
 
     let applied = run_srs_in_dir(repo, &["repo", "apply-migration", "--id", "field-type"]);
@@ -7209,10 +7122,13 @@ fn repo_apply_migration_field_type_rewrites_a_legacy_field_end_to_end() {
         serde_json::json!(["draft", "active"])
     );
 
-    // ...and after completing the ladder to the current revision (rfc039-carrier
-    // is migration #2), the warning is gone.
+    // ...and after completing the ladder to the current revision
+    // (rfc039-carrier is migration #2, rfc038-storage is the placement
+    // transform), the repository validates clean.
     let carrier = run_srs_in_dir(repo, &["repo", "apply-migration", "--id", "rfc039-carrier"]);
     assert_eq!(carrier["ok"], true, "expected ok: {carrier:?}");
+    let storage = run_srs_in_dir(repo, &["repo", "apply-migration", "--id", "rfc038-storage"]);
+    assert_eq!(storage["ok"], true, "expected ok: {storage:?}");
     let after = run_srs_in_dir(repo, &["repo", "validate"]);
     assert_eq!(
         after["payload"]["diagnostics"].as_array().unwrap().len(),
@@ -7330,23 +7246,13 @@ fn create_repo_with_tier0_identity() -> TempDir {
             "repositoryId": container_id,
             "namespace": "com.test",
             "srsVersion": "2.0-draft",
+            "dataModelRevision": 2,
             "container": {
                 "containerId": container_id,
                 "title": "Test Repo",
                 "identityInstanceId": note_id,
                 "memberInstanceIds": [note_id]
             },
-            "containerIndex": [{
-                "containerId": container_id,
-                "title": "Test Repo",
-                "path": format!("containers/{container_id}.json")
-            }],
-            "instanceIndex": [{
-                "instanceId": note_id,
-                "tier": 0,
-                "path": "records/notes/identity.json",
-                "title": "Test Repo"
-            }]
         }),
     );
 

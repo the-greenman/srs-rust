@@ -2281,7 +2281,11 @@ mod tests {
 
         let temp = tempfile::TempDir::new().unwrap();
         std::fs::create_dir_all(temp.path().join(".srs")).unwrap();
-        std::fs::write(temp.path().join("manifest.json"), r#"{"instanceIndex":[]}"#).unwrap();
+        std::fs::write(
+            temp.path().join("manifest.json"),
+            r#"{"dataModelRevision":2}"#,
+        )
+        .unwrap();
         std::fs::create_dir_all(temp.path().join("package")).unwrap();
         std::fs::write(
             temp.path().join("package/package.json"),

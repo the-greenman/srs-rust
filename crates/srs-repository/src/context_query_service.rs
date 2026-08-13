@@ -288,15 +288,12 @@ mod tests {
             extra: std::collections::BTreeMap::new(),
         };
         let manifest = Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let package = Package {
@@ -457,15 +454,12 @@ mod tests {
             ..Default::default()
         };
         let manifest = Manifest {
-            instance_index: vec![],
             container: None,
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let package = Package {
@@ -771,11 +765,7 @@ mod tests {
         let srsj = serde_json::json!({
             "srsj": "2",
             "manifest": {
-                "instanceIndex": [{
-                    "instanceId": rec.instance_id,
-                    "tier": 2,
-                    "path": record_path
-                }],
+                "dataModelRevision": 2,
                 "packageRef": {"mode": "local", "path": "package"}
             },
             "data": {

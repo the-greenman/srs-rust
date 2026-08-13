@@ -28,21 +28,10 @@ fn lifecycle_srsj() -> String {
     serde_json::json!({
         "srsj": "2",
         "manifest": {
+            "dataModelRevision": 2,
             "repositoryId": "test-lc-repo",
             "srsVersion": "2.0-draft",
             "namespace": "com.test.lc",
-            "instanceIndex": [
-                {
-                    "instanceId": "rec-lc-001",
-                    "tier": 2,
-                    "path": "records/tier-2/rec-lc-001.json"
-                },
-                {
-                    "instanceId": "rec-lc-002",
-                    "tier": 2,
-                    "path": "records/tier-2/rec-lc-002.json"
-                }
-            ],
             "packageRef": {"mode": "local", "path": "package"}
         },
         "data": {
@@ -109,7 +98,6 @@ fn lifecycle_srsj() -> String {
                 "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
                 "id": "rtd-lc-supersedes",
                 "namespace": "com.test.lc",
-                "name": "supersedes",
                 "version": 1,
                 "key": "supersedes",
                 "label": "Supersedes",
@@ -121,7 +109,6 @@ fn lifecycle_srsj() -> String {
                 "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
                 "id": "rtd-lc-refines",
                 "namespace": "com.test.lc",
-                "name": "refines",
                 "version": 1,
                 "key": "refines",
                 "label": "Refines",
@@ -133,7 +120,6 @@ fn lifecycle_srsj() -> String {
                 "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
                 "id": "rtd-lc-depends-on",
                 "namespace": "com.test.lc",
-                "name": "depends-on",
                 "version": 1,
                 "key": "depends-on",
                 "label": "Depends On",

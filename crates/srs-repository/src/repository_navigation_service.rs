@@ -204,7 +204,6 @@ fn section_containers_by_root(
 #[cfg(test)]
 mod tests {
     use crate::container_service;
-    use crate::index::InstanceIndexEntry;
     use crate::manifest::Manifest;
     use crate::package::Package;
     use crate::store::memory::MemoryStore;
@@ -277,14 +276,7 @@ mod tests {
     }
 
     fn add_record(store: MemoryStore, record: Record, path: &str) -> MemoryStore {
-        let mut manifest = store.load_manifest().unwrap();
-        manifest.instance_index.push(InstanceIndexEntry {
-            instance_id: record.instance_id.clone(),
-            tier: 2,
-            path: path.to_string(),
-            title: None,
-            tags: None,
-        });
+        let manifest = store.load_manifest().unwrap();
         store.save_manifest(&manifest).unwrap();
         let raw = serde_json::to_value(record).unwrap();
         store.with_data(path, raw)
@@ -308,7 +300,6 @@ mod tests {
 
     fn nav_store() -> MemoryStore {
         let manifest = Manifest {
-            instance_index: vec![],
             container: Some(Container {
                 container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
                 title: String::new(),
@@ -325,13 +316,11 @@ mod tests {
                 meta: None,
                 extra: std::collections::BTreeMap::new(),
             }),
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(manifest, empty_package());
@@ -474,7 +463,6 @@ mod tests {
         // no containerIndex entry. This is the shape written by `repo set-root-container`
         // and by RFC-013 migrations of pre-container repos (e.g. the spec repo, srs#165).
         let manifest = Manifest {
-            instance_index: vec![],
             container: Some(Container {
                 container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
                 title: "Embed Only".to_string(),
@@ -494,13 +482,11 @@ mod tests {
                 meta: None,
                 extra: std::collections::BTreeMap::new(),
             }),
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(manifest, empty_package());
@@ -569,7 +555,6 @@ mod tests {
     fn tier0_note_store(note_title: Option<&str>) -> MemoryStore {
         let note_id = "00000000-0000-4000-8000-00000000d100".to_string();
         let manifest = Manifest {
-            instance_index: vec![],
             // Embed-only root ([R1]): a containers/*.json file sharing the
             // embed's id is a fatal SRS038-R12-DUPLICATE-ID under the catalog.
             container: Some(Container {
@@ -588,13 +573,11 @@ mod tests {
                 meta: None,
                 extra: std::collections::BTreeMap::new(),
             }),
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(manifest, empty_package());
@@ -728,7 +711,6 @@ mod tests {
         // rootInstanceIds only (memberInstanceIds contains only the identity), and
         // asserts that navigation returns the same sections as if they were in memberInstanceIds.
         let manifest = Manifest {
-            instance_index: vec![],
             container: Some(Container {
                 container_id: "00000000-0000-4000-8000-00000000e000".to_string(),
                 title: "Root IDs Only".to_string(),
@@ -748,13 +730,11 @@ mod tests {
                 meta: None,
                 extra: std::collections::BTreeMap::new(),
             }),
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(manifest, empty_package());
@@ -816,7 +796,6 @@ mod tests {
         // When an ID appears in both rootInstanceIds and memberInstanceIds, it must appear
         // as a section exactly once (no duplicate NavigationNode).
         let manifest = Manifest {
-            instance_index: vec![],
             container: Some(Container {
                 container_id: "00000000-0000-4000-8000-00000000f000".to_string(),
                 title: "Dedup Test".to_string(),
@@ -838,13 +817,11 @@ mod tests {
                 meta: None,
                 extra: std::collections::BTreeMap::new(),
             }),
-            container_index: None,
             federation_path: None,
             upstream_package: None,
             federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
-            source_document_index: None,
             root: PathBuf::from("/memory"),
         };
         let store = MemoryStore::new(manifest, empty_package());
