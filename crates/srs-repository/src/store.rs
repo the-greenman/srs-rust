@@ -795,22 +795,6 @@ pub trait RepositoryStore {
         self.load_text_file("manifest.json")
     }
 
-    /// Returns `None` if no relations file exists.
-    /// Tries `relations/relations-collection.json` first (canonical write path),
-    /// then `relations/relations.json` (legacy alternate convention).
-    fn load_relations_raw_text(&self) -> Result<Option<String>, RepositoryError> {
-        match self.load_text_file("relations/relations-collection.json") {
-            Ok(s) => return Ok(Some(s)),
-            Err(e) if e.is_not_found() => {}
-            Err(e) => return Err(e),
-        }
-        match self.load_text_file("relations/relations.json") {
-            Ok(s) => Ok(Some(s)),
-            Err(e) if e.is_not_found() => Ok(None),
-            Err(e) => Err(e),
-        }
-    }
-
     // --- Catalog (RFC-038 Change L / [R23]; srs-rust#783 Phase 1) ---
     //
     // The store enumeration seam: one materialised snapshot of the six

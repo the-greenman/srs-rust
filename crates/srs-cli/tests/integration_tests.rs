@@ -3058,32 +3058,36 @@ fn record_create_rejects_invalid_stdin_shape() {
 fn relation_list_returns_relations() {
     let temp = create_temp_repo();
 
-    // Setup relations directory and file
+    // Standalone relation objects ([R11]) — collections are retired.
     std::fs::create_dir_all(temp.path().join("relations")).unwrap();
-    let relations = serde_json::json!({
-        "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
-        "relations": [
-            {
-                "relationId": "r1",
-                "relationType": "contains",
-                "sourceInstanceId": "note-1",
-                "targetInstanceId": "note-2",
+    for (rid, rtype, source, target) in [
+        (
+            "eeeeeeee-0000-4000-8000-0000000000d1",
+            "contains",
+            "note-1",
+            "note-2",
+        ),
+        (
+            "eeeeeeee-0000-4000-8000-0000000000d2",
+            "references",
+            "note-2",
+            "note-3",
+        ),
+    ] {
+        std::fs::write(
+            temp.path().join(format!("relations/{rid}.json")),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+                "relationId": rid,
+                "relationType": rtype,
+                "sourceInstanceId": source,
+                "targetInstanceId": target,
                 "createdAt": "2026-01-01T00:00:00Z"
-            },
-            {
-                "relationId": "r2",
-                "relationType": "references",
-                "sourceInstanceId": "note-2",
-                "targetInstanceId": "note-3",
-                "createdAt": "2026-01-01T00:00:00Z"
-            }
-        ]
-    });
-    std::fs::write(
-        temp.path().join("relations/relations-collection.json"),
-        serde_json::to_string_pretty(&relations).unwrap(),
-    )
-    .unwrap();
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
 
     let result = run_srs_in_dir(temp.path(), &["relation", "list"]);
     assert_eq!(
@@ -3101,38 +3105,42 @@ fn relation_list_returns_relations() {
 fn relation_list_filters_by_source_target_and_type() {
     let temp = create_temp_repo();
 
+    // Standalone relation objects ([R11]) — collections are retired.
     std::fs::create_dir_all(temp.path().join("relations")).unwrap();
-    let relations = serde_json::json!({
-        "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
-        "relations": [
-            {
-                "relationId": "r1",
-                "relationType": "contains",
-                "sourceInstanceId": "note-1",
-                "targetInstanceId": "note-2",
+    for (rid, rtype, source, target) in [
+        (
+            "eeeeeeee-0000-4000-8000-0000000000e1",
+            "contains",
+            "note-1",
+            "note-2",
+        ),
+        (
+            "eeeeeeee-0000-4000-8000-0000000000e2",
+            "references",
+            "note-2",
+            "note-3",
+        ),
+        (
+            "eeeeeeee-0000-4000-8000-0000000000e3",
+            "contains",
+            "note-1",
+            "note-4",
+        ),
+    ] {
+        std::fs::write(
+            temp.path().join(format!("relations/{rid}.json")),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+                "relationId": rid,
+                "relationType": rtype,
+                "sourceInstanceId": source,
+                "targetInstanceId": target,
                 "createdAt": "2026-01-01T00:00:00Z"
-            },
-            {
-                "relationId": "r2",
-                "relationType": "references",
-                "sourceInstanceId": "note-2",
-                "targetInstanceId": "note-3",
-                "createdAt": "2026-01-01T00:00:00Z"
-            },
-            {
-                "relationId": "r3",
-                "relationType": "contains",
-                "sourceInstanceId": "note-1",
-                "targetInstanceId": "note-4",
-                "createdAt": "2026-01-01T00:00:00Z"
-            }
-        ]
-    });
-    std::fs::write(
-        temp.path().join("relations/relations-collection.json"),
-        serde_json::to_string_pretty(&relations).unwrap(),
-    )
-    .unwrap();
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
 
     let by_source = run_srs_in_dir(temp.path(), &["relation", "list", "--source", "note-1"]);
     let source_relations = by_source["payload"]["relations"].as_array().unwrap();
@@ -3142,7 +3150,10 @@ fn relation_list_filters_by_source_target_and_type() {
     let by_target = run_srs_in_dir(temp.path(), &["relation", "list", "--target", "note-2"]);
     let target_relations = by_target["payload"]["relations"].as_array().unwrap();
     assert_eq!(target_relations.len(), 1);
-    assert_eq!(target_relations[0]["relationId"], "r1");
+    assert_eq!(
+        target_relations[0]["relationId"],
+        "eeeeeeee-0000-4000-8000-0000000000e1"
+    );
 
     let by_type = run_srs_in_dir(temp.path(), &["relation", "list", "--type", "contains"]);
     let typed_relations = by_type["payload"]["relations"].as_array().unwrap();
@@ -3156,32 +3167,36 @@ fn relation_list_filters_by_source_target_and_type() {
 fn relation_get_returns_relation_by_id() {
     let temp = create_temp_repo();
 
+    // Standalone relation objects ([R11]) — collections are retired.
     std::fs::create_dir_all(temp.path().join("relations")).unwrap();
-    let relations = serde_json::json!({
-        "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
-        "relations": [
-            {
-                "relationId": "r1",
-                "relationType": "contains",
-                "sourceInstanceId": "note-1",
-                "targetInstanceId": "note-2",
-                "createdAt": "2026-01-01T00:00:00Z"
-            }
-        ]
-    });
+    let rid = "eeeeeeee-0000-4000-8000-0000000000e1";
     std::fs::write(
-        temp.path().join("relations/relations-collection.json"),
-        serde_json::to_string_pretty(&relations).unwrap(),
+        temp.path().join(format!("relations/{rid}.json")),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+            "relationId": rid,
+            "relationType": "contains",
+            "sourceInstanceId": "note-1",
+            "targetInstanceId": "note-2",
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap(),
     )
     .unwrap();
 
-    let result = run_srs_in_dir(temp.path(), &["relation", "get", "r1"]);
+    let result = run_srs_in_dir(
+        temp.path(),
+        &["relation", "get", "eeeeeeee-0000-4000-8000-0000000000e1"],
+    );
     assert_eq!(
         result["ok"], true,
         "relation get should succeed: {:?}",
         result["diagnostics"]
     );
-    assert_eq!(result["payload"]["relation"]["relationId"], "r1");
+    assert_eq!(
+        result["payload"]["relation"]["relationId"],
+        "eeeeeeee-0000-4000-8000-0000000000e1"
+    );
     assert_eq!(result["payload"]["relation"]["relationType"], "contains");
 }
 
@@ -3287,49 +3302,60 @@ fn relation_create_writes_standalone_object() {
 fn relation_delete_removes_relation() {
     let temp = create_temp_repo();
 
+    // Standalone relation objects ([R11]) — collections are retired.
     std::fs::create_dir_all(temp.path().join("relations")).unwrap();
-    let relations = serde_json::json!({
-        "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
-        "relations": [
-            {
-                "relationId": "r1",
-                "relationType": "contains",
-                "sourceInstanceId": "note-1",
-                "targetInstanceId": "note-2",
+    for (rid, rtype, source, target) in [
+        (
+            "eeeeeeee-0000-4000-8000-0000000000e1",
+            "contains",
+            "note-1",
+            "note-2",
+        ),
+        (
+            "eeeeeeee-0000-4000-8000-0000000000e2",
+            "references",
+            "note-2",
+            "note-3",
+        ),
+    ] {
+        std::fs::write(
+            temp.path().join(format!("relations/{rid}.json")),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+                "relationId": rid,
+                "relationType": rtype,
+                "sourceInstanceId": source,
+                "targetInstanceId": target,
                 "createdAt": "2026-01-01T00:00:00Z"
-            },
-            {
-                "relationId": "r2",
-                "relationType": "references",
-                "sourceInstanceId": "note-2",
-                "targetInstanceId": "note-3",
-                "createdAt": "2026-01-01T00:00:00Z"
-            }
-        ]
-    });
-    std::fs::write(
-        temp.path().join("relations/relations-collection.json"),
-        serde_json::to_string_pretty(&relations).unwrap(),
-    )
-    .unwrap();
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
 
-    let deleted = run_srs_in_dir(temp.path(), &["relation", "delete", "r2"]);
+    let deleted = run_srs_in_dir(
+        temp.path(),
+        &["relation", "delete", "eeeeeeee-0000-4000-8000-0000000000e2"],
+    );
     assert_eq!(deleted["ok"], true, "relation delete should succeed");
-    assert_eq!(deleted["payload"]["relationId"], "r2");
+    assert_eq!(
+        deleted["payload"]["relationId"],
+        "eeeeeeee-0000-4000-8000-0000000000e2"
+    );
     assert_eq!(
         deleted["payload"]["path"],
-        "relations/relations-collection.json"
+        "relations/eeeeeeee-0000-4000-8000-0000000000e2.json"
     );
 
-    let content =
-        std::fs::read_to_string(temp.path().join("relations/relations-collection.json")).unwrap();
-    let collection: Value = serde_json::from_str(&content).unwrap();
-    let has_r2 = collection["relations"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|r| r["relationId"] == "r2");
-    assert!(!has_r2, "deleted relation should be removed");
+    // The standalone object is gone; the sibling survives untouched ([R11]).
+    assert!(!temp
+        .path()
+        .join("relations/eeeeeeee-0000-4000-8000-0000000000e2.json")
+        .exists());
+    assert!(temp
+        .path()
+        .join("relations/eeeeeeee-0000-4000-8000-0000000000e1.json")
+        .exists());
 }
 
 // --- Phase 4: Extension command group ---
