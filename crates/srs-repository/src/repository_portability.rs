@@ -555,6 +555,25 @@ fn do_import(
         // [R11], since the Phase-6 flip: relations import as one standalone
         // object per relation — a collection file would be denied by the
         // catalog on the next load of the target.
+        //
+        // Pass 1 — validate everything before the first write (no store can
+        // roll a partial import back): every id canonical (it becomes a
+        // filename) and unique ([R12] — a duplicate would silently last-win
+        // as a file overwrite).
+        let mut seen = std::collections::BTreeSet::new();
+        for relation in &snapshot.relations {
+            crate::store::require_canonical_relation_id(&relation.relation_id)?;
+            if !seen.insert(relation.relation_id.as_str()) {
+                return Err(RepositoryError::DuplicateRelationId {
+                    relation_id: relation.relation_id.clone(),
+                    locators: vec![format!(
+                        "snapshot relations (relationId {} appears more than once)",
+                        relation.relation_id
+                    )],
+                });
+            }
+        }
+        // Pass 2 — write.
         target.ensure_relations_dir("relations")?;
         for relation in &snapshot.relations {
             target.save_relation(relation)?;

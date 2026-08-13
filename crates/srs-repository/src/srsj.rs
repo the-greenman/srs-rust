@@ -59,9 +59,8 @@ pub fn tree_from_srsj(content: &str) -> Result<BTreeMap<String, Vec<u8>>, Reposi
     if envelope.srsj != SRSJ_VERSION {
         return Err(invalid(format!(
             "unsupported srsj version '{}' — this build reads srsj '{}' only \
-             (RFC-038 [R20]). A pre-cutover document must be converted by the \
-             `rfc038-storage` transform before it can be opened; until that \
-             lands, use a binary from before the cutover.",
+             (RFC-038 [R20]). Convert a pre-cutover document with the \
+             `rfc038-storage` transform (`migrate_srsj`) before opening it.",
             envelope.srsj, SRSJ_VERSION
         )));
     }

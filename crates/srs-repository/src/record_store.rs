@@ -2740,7 +2740,7 @@ mod tests {
         )
         .unwrap();
 
-        // One incident relation in the transitional collection…
+        // One incident relation as a standalone object…
         let rel_json = json!({
             "relations": [{
                 "relationId": "eeeeeeee-0000-4000-8000-000000000021",

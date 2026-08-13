@@ -286,14 +286,12 @@ pub(crate) struct LocatedRelation {
 /// Load every relation in the repository with its locator, enforcing [R12]
 /// (duplicate `relationId` is an error naming every locator).
 ///
-/// **Transitional dual read (RFC-038 Phase 2):** existing repositories still
-/// carry a relations-collection file (`manifest.relationsPath` →
-/// `relations/relations-collection.json` → `relations/relations.json`), while
-/// the write path produces one standalone object per relation. Both forms are
-/// merged here — collection entries first (their stored order), then standalone
-/// objects in ascending `relationId`. Enumeration order carries no meaning;
-/// `precedes` is the only ordering semantics. The collection half is removed at
-/// the Phase-6 flip, after the Phase-5 transform explodes collections.
+/// Since the Phase-6 flip, standalone `relations/<relationId>.json` objects
+/// are the only live form ([R11]) — a collection file is an error for every
+/// normal reader. The [R21]-exempt migration surface still merges collection
+/// entries (their stored order) with standalone objects, because it reads the
+/// pre-migration state by definition. Enumeration order carries no meaning;
+/// `precedes` is the only ordering semantics.
 // phase-3: route discovery and duplicate detection via RepositoryCatalog.
 pub(crate) fn load_relations_with_locators(
     store: &dyn RepositoryStore,
@@ -500,14 +498,24 @@ pub(crate) fn resolve_relations_source(
 /// candidate order and store-read method are shared. Returns an empty collection at the
 /// default write path if no file is found.
 ///
-/// Transitional (RFC-038 Phase 2): the collection is read-and-shrink only — new
-/// relations are written as standalone objects, never appended here. Removed at
-/// the Phase-6 flip.
+/// Post-flip: readable only through the [R21]-exempt migration surface ([R11]);
+/// read-and-shrink only — new relations are always standalone objects.
 fn load_relations_collection(
     store: &dyn RepositoryStore,
 ) -> Result<(String, RelationsCollection), RepositoryError> {
     match resolve_relations_source(store)? {
         Some((relative_path, value)) => {
+            // [R11], since the Phase-6 flip: only the [R21]-exempt migration
+            // surface may still read a collection file — a normal reader
+            // errors, matching the catalog's SRS038-R11-COLLECTION-RETIRED.
+            if !store.rfc038_exempt() {
+                return Err(RepositoryError::InvalidSnapshotData {
+                    message: format!(
+                        "{relative_path}: relations-collection files are retired at \
+                         dataModelRevision >= 2 ([R11]) — run the rfc038-storage migration"
+                    ),
+                });
+            }
             let collection: RelationsCollection =
                 serde_json::from_value(value).map_err(|e| RepositoryError::RecordLoad {
                     path: std::path::PathBuf::from(&relative_path),
@@ -1054,7 +1062,7 @@ mod tests {
     }
 
     #[test]
-    fn load_relations_respects_manifest_relations_path() {
+    fn load_relations_denies_declared_relations_path_collection() {
         let store = MemoryStore::default();
         let mut manifest = store.load_manifest().unwrap();
         manifest
@@ -1078,9 +1086,13 @@ mod tests {
             .save_relations_json("relations/custom.json", &relations)
             .unwrap();
 
-        let result = load_relations(&store).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].relation_id, "rc1");
+        // Post-flip: a declared relationsPath collection is denied for a
+        // normal reader ([R11]); only the exempt migration surface reads it.
+        let err = load_relations(&store).unwrap_err();
+        assert!(
+            err.to_string().contains("[R11]"),
+            "declared-path collection denied: {err}"
+        );
     }
 
     #[test]
@@ -1200,15 +1212,14 @@ mod tests {
 
     #[test]
     fn duplicate_relation_id_names_all_locators() {
-        // [R12]: the same relationId in the collection AND as a standalone object
-        // is an error naming every locator — on read AND on delete (a delete must
-        // not resolve the ambiguity by precedence).
+        // [R12] across forms survives only on the [R21]-exempt migration
+        // surface — a normal reader is denied at the collection itself ([R11]).
         let dup_id = "dd00d0d0-0000-4000-a000-00000000dddd";
-        let store = MemoryStore::default();
-        store
-            .save_relations_json(
-                "relations/relations-collection.json",
-                &json!({
+        let doc = serde_json::json!({
+            "srsj": "2",
+            "manifest": { "dataModelRevision": 2 },
+            "data": {
+                "relations/relations-collection.json": {
                     "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
                     "relations": [{
                         "relationId": dup_id,
@@ -1217,14 +1228,18 @@ mod tests {
                         "targetInstanceId": "note-2",
                         "createdAt": "2026-01-01T00:00:00Z"
                     }]
-                }),
-            )
-            .unwrap();
-        store
+                }
+            }
+        });
+        let exempt = crate::srsj::open_srsj(&doc.to_string())
+            .unwrap()
+            .with_rfc038_exemption();
+        exempt
             .save_relation(&make_relation(dup_id, "note-1", "note-2", "contains"))
             .unwrap();
 
-        let err = load_relations(&store).unwrap_err();
+        // Exempt surface: the duplicate is detected and names both locators.
+        let err = load_relations(&exempt).unwrap_err();
         match &err {
             RepositoryError::DuplicateRelationId {
                 relation_id,
@@ -1242,21 +1257,15 @@ mod tests {
             other => panic!("expected DuplicateRelationId, got {other:?}"),
         }
 
-        // Delete fails fast on the same diagnosable state instead of deleting
-        // the standalone copy and leaving the collection copy re-enumerating.
-        let err = delete_relation(&store, dup_id).unwrap_err();
+        // Normal reader: the collection itself is the error ([R11]).
+        let normal =
+            crate::srsj::open_srsj(&crate::srsj::to_srsj_string(&exempt).unwrap()).unwrap();
+        let err = load_relations(&normal).unwrap_err();
         assert!(
-            matches!(err, RepositoryError::DuplicateRelationId { .. }),
-            "delete must fail fast on a cross-form duplicate, got {err:?}"
-        );
-        assert!(
-            store
-                .load_relations_json(&format!("relations/{dup_id}.json"))
-                .is_ok(),
-            "neither copy may be deleted through the duplicate state"
+            err.to_string().contains("[R11]"),
+            "normal reader is denied at the collection: {err}"
         );
     }
-
     #[test]
     fn create_relation_refuses_duplicate_id() {
         let store = make_store_with_relations();
@@ -1389,7 +1398,7 @@ mod tests {
     }
 
     #[test]
-    fn relation_delete_returns_manifest_relations_path() {
+    fn relation_delete_denies_declared_relations_path_collection() {
         let store = MemoryStore::default();
         let mut manifest = store.load_manifest().unwrap();
         manifest
@@ -1411,9 +1420,14 @@ mod tests {
             .save_relations_json("relations/custom.json", &relations)
             .unwrap();
 
-        let result = delete_relation(&store, "r-custom").unwrap();
-        assert_eq!(result.path, "relations/custom.json");
-        assert_eq!(result.relation_id, "r-custom");
+        // Post-flip the declared-path collection is denied ([R11]) — the
+        // delete fails on the collection rather than rewriting the retired
+        // form.
+        let err = delete_relation(&store, "r-custom").unwrap_err();
+        assert!(
+            err.to_string().contains("[R11]"),
+            "collection delete path denied: {err}"
+        );
     }
 
     #[test]
