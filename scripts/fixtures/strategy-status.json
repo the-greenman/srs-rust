@@ -1,0 +1,21 @@
+{
+  "issues": {
+    "muDemocracy.org#36": {"state":"open","title":"Decision Logger","labels":[{"name":"priority: P0"}]},
+    "srs#256": {"state":"open","title":"Kernel migration","labels":[{"name":"blocks-gate"}]},
+    "srs-rust#1": {"state":"closed","title":"Migrated corpus","labels":[]},
+    "muDemocracy.org#133": {"state":"open","title":"Core model","labels":[]},
+    "muDemocracy.org#117": {"state":"open","title":"Snapshot","labels":[]},
+    "muDemocracy.org#124": {"state":"open","title":"Specs","labels":[]},
+    "srs#375": {"state":"open","title":"Preservation audit","labels":[]},
+    "muDemocracy.org#94": {"state":"open","title":"Offline editor","labels":[]},
+    "muDemocracy.org#100": {"state":"open","title":"VCS hosting","labels":[]},
+    "muDemocracy.org#101": {"state":"open","title":"Exploded repository","labels":[]}
+  },
+  "children": {
+    "srs#256": [{"number":1,"repository":{"name":"srs-rust"}}],
+    "muDemocracy.org#133": [{"number":1,"repository":{"name":"srs-rust"}}]
+  },
+  "blockers": {
+    "muDemocracy.org#117": [{"number":256,"state":"open","repository":{"name":"srs"}}]
+  }
+}

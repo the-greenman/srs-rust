@@ -10,6 +10,10 @@ checkout — every operation hits the GitHub API, so nothing depends on a siblin
 Everything lives on **Project #5 "SRS"** (`https://github.com/users/the-greenman/projects/5`).
 User stories and implementation issues coexist on it.
 
+The [owner strategic map](strategy/roadmap.md) sits above this execution view. It is a
+versioned capability and release-boundary map: it proposes no GitHub mutations, keeps its
+live overlay out of committed files, and is regenerated with `gh-project strategy --write`.
+
 ## The priority model (top-down)
 
 ```

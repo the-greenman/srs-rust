@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "title": "SRS owner strategic map",
+  "purpose": "An owner operating view above the execution board. It preserves release intent while GitHub issues carry delivery detail.",
+  "capabilities": [
+    "Define Meaning",
+    "Preserve Meaning",
+    "Work With Meaning",
+    "Present Facets",
+    "Move and Reconcile",
+    "Collaborate With AI",
+    "Sustain Trust"
+  ],
+  "deliverySurfaces": ["Web", "VS Code", "CLI", "WASM"],
+  "knownEpicRefs": [
+    "muDemocracy.org#36", "muDemocracy.org#60", "muDemocracy.org#76", "muDemocracy.org#83", "muDemocracy.org#92",
+    "muDemocracy.org#94", "muDemocracy.org#95", "muDemocracy.org#100", "muDemocracy.org#101", "muDemocracy.org#117",
+    "muDemocracy.org#118", "muDemocracy.org#120", "muDemocracy.org#124", "muDemocracy.org#133", "muDemocracy.org#136"
+  ],
+  "boundaries": [
+    {
+      "id": "B1",
+      "name": "Coherent Semantic Kernel",
+      "actor": "A maintainer of a first-party SRS package",
+      "promise": "One authoritative semantic model can be migrated and regenerated without silent meaning loss.",
+      "durableArtifact": "A migrated first-party corpus with generated conformance evidence.",
+      "entryCriteria": ["Epic #256 has an agreed closure checklist", "First-party corpus inventory is known"],
+      "includedCapabilities": ["Define Meaning", "Preserve Meaning", "Present Facets"],
+      "rootIssues": ["srs#256", "muDemocracy.org#133"],
+      "exclusions": ["Independent portable archive", "Offline reintegration", "Runtime AI ratification"],
+      "walkthrough": "Regenerate the first-party corpus from the authoritative model, validate it with independent Node and Rust paths, and inspect the same canonical state through more than one DocumentView.",
+      "compatibilityPromise": "The migrated kernel has one source of truth; generated projections are reproducible from it.",
+      "stableAfter": "Core model identity, reference resolution and regeneration invariants are stable enough to build outward.",
+      "requires": []
+    },
+    {
+      "id": "B2",
+      "name": "Meaning You Can Take / SRS 2.0",
+      "actor": "An independent user with no access to the originating service",
+      "promise": "A Decision Logger export can be opened, validated, understood and rendered offline as a self-contained semantic repository.",
+      "durableArtifact": "A portable .srs archive plus a generic offline-readable rendering and conformance proof.",
+      "entryCriteria": ["B1 conformance evidence is green", "Archive completeness and version-closure acceptance tests are defined"],
+      "includedCapabilities": ["Define Meaning", "Preserve Meaning", "Present Facets", "Move and Reconcile"],
+      "rootIssues": ["muDemocracy.org#117", "muDemocracy.org#124", "srs#375"],
+      "exclusions": ["Editing and reintegration", "Cryptographic authority profiles", "Federation negotiation"],
+      "walkthrough": "Export a Decision Logger repository, disconnect from the originating service, then open it in a generic reader that recovers definitions, records, relations, provenance and a readable facet while accurately reporting any missing evidence.",
+      "compatibilityPromise": "Frozen publications resolve their declared version closure reproducibly; their canonical state is independent of the presentation View.",
+      "stableAfter": "The public SRS standard boundary: Evolution gives way to Continuity by default.",
+      "requires": ["B1"]
+    },
+    {
+      "id": "B3",
+      "name": "Meaning You Can Continue Elsewhere",
+      "actor": "A collaborator continuing work from a clone or export",
+      "promise": "A user can edit offline, inspect the semantic diff and reintegrate without losing identity, relations, provenance or unsupported content.",
+      "durableArtifact": "A reintegrated repository with a reviewable semantic diff and preserved unsupported-content diagnostics.",
+      "entryCriteria": ["B2 portable archive walkthrough passes", "Semantic diff and reintegration conflict model are specified"],
+      "includedCapabilities": ["Preserve Meaning", "Work With Meaning", "Move and Reconcile", "Sustain Trust"],
+      "rootIssues": ["muDemocracy.org#94", "muDemocracy.org#100", "muDemocracy.org#101"],
+      "exclusions": ["Cross-community federation", "AI meeting runtime", "Third-party authoring UX beyond the interchange contract"],
+      "walkthrough": "Clone or export a repository, make an offline change, inspect the semantic diff, and reintegrate it while verifying record identities, relations, provenance and opaque extensions remain intact.",
+      "compatibilityPromise": "Interchange does not silently discard data a conforming reader cannot interpret; it preserves or diagnoses it.",
+      "stableAfter": "Offline continuation and reintegration form a reliable cross-installation collaboration boundary.",
+      "requires": ["B2"]
+    }
+  ],
+  "epics": [
+    {"ref":"muDemocracy.org#36","name":"Decision Logger public release","capabilities":["Work With Meaning","Present Facets"],"disposition":"keep release","role":"candidate outcome release","notes":"R1 shipped; later Decision Logger outcomes remain independently releasable."},
+    {"ref":"muDemocracy.org#60","name":"AI-assisted decision capture","capabilities":["Collaborate With AI","Work With Meaning"],"disposition":"keep release","role":"candidate outcome release","notes":"Sequenced after preservation proof; not a B1–B3 gate."},
+    {"ref":"muDemocracy.org#76","name":"Workflow Editor","capabilities":["Define Meaning","Work With Meaning"],"disposition":"keep release","role":"candidate outcome release","notes":"A human authoring surface, not the semantic kernel."},
+    {"ref":"muDemocracy.org#83","name":"muSrs Generic Semantic Editor","capabilities":["Work With Meaning","Present Facets"],"disposition":"keep release","role":"candidate outcome release","notes":"Validates semantic editing and inspection, including provenance work."},
+    {"ref":"muDemocracy.org#92","name":"Live Governance Editor","capabilities":["Work With Meaning","Collaborate With AI"],"disposition":"keep release","role":"candidate outcome release","notes":"A governance-product outcome after the portable core is proven."},
+    {"ref":"muDemocracy.org#94","name":"Offline Editor","capabilities":["Move and Reconcile","Work With Meaning"],"disposition":"keep release","role":"candidate outcome release","notes":"Primary B3 outcome and reintegration proof."},
+    {"ref":"muDemocracy.org#95","name":"Governance Viewer","capabilities":["Present Facets","Work With Meaning"],"disposition":"keep release","role":"candidate outcome release","notes":"A readable user-facing facet of durable governance meaning."},
+    {"ref":"muDemocracy.org#100","name":"Public VCS storage — hosting","capabilities":["Preserve Meaning","Move and Reconcile"],"disposition":"demote to workstream","role":"preservation and offline-reintegration workstream","notes":"Supports B3 rather than defining a standalone product release."},
+    {"ref":"muDemocracy.org#101","name":"Public VCS storage — exploded repositories","capabilities":["Preserve Meaning","Move and Reconcile"],"disposition":"reparent","role":"preservation and offline-reintegration workstream","notes":"Supports B3 alongside archive and semantic-diff work."},
+    {"ref":"muDemocracy.org#117","name":"Snapshot export","capabilities":["Preserve Meaning","Move and Reconcile"],"disposition":"keep release","role":"candidate outcome release","notes":"Principal B2 portable-archive outcome."},
+    {"ref":"muDemocracy.org#118","name":"SRS VS Code Extension","capabilities":["Work With Meaning","Present Facets"],"disposition":"demote to workstream","role":"cross-cutting delivery workstream","notes":"Supports authoring and inspection releases; delivery surface, not a capability branch."},
+    {"ref":"muDemocracy.org#120","name":"srs-vscode — CLI parity","capabilities":["Work With Meaning","Present Facets"],"disposition":"merge","role":"VS Code delivery workstream","notes":"Proposed merge into the cross-cutting VS Code workstream."},
+    {"ref":"muDemocracy.org#124","name":"SRS for Specs","capabilities":["Define Meaning","Present Facets"],"disposition":"keep release","role":"candidate outcome release","notes":"Contributes the spec-authoring package and B2 standard convergence."},
+    {"ref":"muDemocracy.org#133","name":"Core model foundations","capabilities":["Define Meaning","Preserve Meaning"],"disposition":"demote to workstream","role":"standards-convergence gate","notes":"B1/B2 convergence work, not a separate product release."},
+    {"ref":"muDemocracy.org#136","name":"Project governance","capabilities":["Sustain Trust"],"disposition":"demote to workstream","role":"Sustain Trust workstream","notes":"Keeps purpose, principles and decisions inspectable across releases."}
+  ]
+}
