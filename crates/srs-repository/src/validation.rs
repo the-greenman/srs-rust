@@ -1303,6 +1303,22 @@ pub fn validate_repository(
             None
         }
     };
+    // [R11]: a collection file at ANY resolved candidate path — including an
+    // out-of-tree manifest relationsPath, which the catalog walker treats as
+    // [R10] application content — is retired at generation 2. Reported here so
+    // validate and the readers can never disagree about it; the contents are
+    // still checked below (validate diagnoses everything it can see).
+    if let Some((relations_path, _)) = &relations_source {
+        if !store.rfc038_exempt() {
+            diagnostics.push(ValidationDiagnostic {
+                severity: DiagnosticSeverity::Error,
+                relative_path: relations_path.clone(),
+                schema_id: None,
+                message: "SRS038-R11-COLLECTION-RETIRED: relations-collection files are                           retired at dataModelRevision >= 2 ([R11]) — run the                           rfc038-storage migration"
+                    .to_string(),
+            });
+        }
+    }
     // Collection relation ids + path, captured for the [R12] duplicate check
     // against standalone relation objects below.
     let mut collection_relation_ids: HashSet<String> = HashSet::new();

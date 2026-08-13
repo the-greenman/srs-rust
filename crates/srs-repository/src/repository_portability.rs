@@ -2722,3 +2722,61 @@ mod tests {
         assert_eq!(sidecar["title"], "My Test Doc");
     }
 }
+
+#[cfg(test)]
+mod rfc038_import_guard_tests {
+    use super::*;
+    use crate::store::memory::MemoryStore;
+    use crate::store::RepositoryStore;
+
+    fn snapshot_with_relations(
+        relations: Vec<srs_core::types::relation::Relation>,
+    ) -> RepositorySnapshot {
+        let source = MemoryStore::empty();
+        let mut snapshot = export_repository_snapshot(&source).expect("empty snapshot builds");
+        snapshot.relations = relations;
+        snapshot
+    }
+
+    fn relation(id: &str) -> srs_core::types::relation::Relation {
+        serde_json::from_value(serde_json::json!({
+            "relationId": id,
+            "relationType": "contains",
+            "sourceInstanceId": "aaaaaaaa-0000-4000-8000-000000000001",
+            "targetInstanceId": "aaaaaaaa-0000-4000-8000-000000000002",
+            "createdAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap()
+    }
+
+    /// Import pass 1 (validate before any write): a non-canonical relationId
+    /// fails the whole import before a single relation file exists.
+    #[test]
+    fn import_refuses_a_non_canonical_relation_id_before_writing() {
+        let snapshot = snapshot_with_relations(vec![relation("r1")]);
+        let target = MemoryStore::uninitialized();
+        let err = import_repository_snapshot(&target, &snapshot).unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidRelationId { ref relation_id } if relation_id == "r1"),
+            "got {err:?}"
+        );
+        assert!(
+            target.load_instance_json("relations/r1.json").is_err(),
+            "nothing may be written for a refused import"
+        );
+    }
+
+    /// Import pass 1: a duplicate relationId fails loudly instead of silently
+    /// last-winning as a file overwrite ([R12]).
+    #[test]
+    fn import_refuses_duplicate_relation_ids() {
+        let dup = "eeeeeeee-0000-4000-8000-00000000dead";
+        let snapshot = snapshot_with_relations(vec![relation(dup), relation(dup)]);
+        let target = MemoryStore::uninitialized();
+        let err = import_repository_snapshot(&target, &snapshot).unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::DuplicateRelationId { ref relation_id, .. } if relation_id == dup),
+            "got {err:?}"
+        );
+    }
+}
