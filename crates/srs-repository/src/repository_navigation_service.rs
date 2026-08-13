@@ -286,16 +286,18 @@ mod tests {
         let raw = serde_json::json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
             "relations": [{
-                "relationId": format!("rel-{source}-{target}"),
+                "relationId": format!(
+                    "eeeeeeee-{}-4000-8000-{}",
+                    &source[source.len() - 4..],
+                    &target[target.len() - 12..]
+                ),
                 "relationType": "precedes",
                 "sourceInstanceId": source,
                 "targetInstanceId": target,
                 "createdAt": "2026-01-01T00:00:00Z"
             }]
         });
-        store
-            .save_relations_json("relations/relations-collection.json", &raw)
-            .unwrap();
+        crate::store::write_relations_standalone_for_test(store, &raw);
     }
 
     fn nav_store() -> MemoryStore {

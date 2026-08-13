@@ -773,6 +773,14 @@ pub trait RepositoryStore {
         false
     }
 
+    /// RFC-038 [R21]: is this store an exempt (migration-tooling) reader?
+    /// Default `false` — only `FileStore::with_rfc038_exemption` returns true.
+    /// The catalog consults this to decide whether legacy relations
+    /// collections are enumerated (migration surface) or denied ([R11]).
+    fn rfc038_exempt(&self) -> bool {
+        false
+    }
+
     /// Verify that `relative_path` (relative to repo root) points to a directory
     /// containing a `package.json`.
     ///
@@ -1169,6 +1177,10 @@ fn load_package_from_dir(
 }
 
 impl RepositoryStore for FileStore {
+    fn rfc038_exempt(&self) -> bool {
+        self.rfc038_exempt
+    }
+
     fn repository_root(&self) -> PathBuf {
         self.repo_root.clone()
     }
@@ -3639,6 +3651,27 @@ pub mod memory {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+/// Test-support: write a `{"relations": [...]}` collection value as standalone
+/// `relations/<relationId>.json` objects — the only live form at generation 2
+/// ([R11]). Setup helper for unit tests across this crate.
+#[cfg(test)]
+pub(crate) fn write_relations_standalone_for_test(
+    store: &dyn RepositoryStore,
+    collection: &serde_json::Value,
+) {
+    for rel in collection["relations"]
+        .as_array()
+        .expect("collection must carry a relations array")
+    {
+        let id = rel["relationId"].as_str().expect("relationId");
+        let mut obj = rel.clone();
+        obj["$schema"] = serde_json::Value::String(RELATION_OBJECT_SCHEMA_URL.to_string());
+        store
+            .save_instance_json(&format!("relations/{id}.json"), &obj)
+            .expect("standalone relation write");
+    }
+}
 
 #[cfg(test)]
 mod tests {

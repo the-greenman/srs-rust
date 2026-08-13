@@ -103,15 +103,13 @@ fn nav_fixture_srsj() -> String {
                 "rootInstanceIds": [DECISIONS_ID],
                 "createdAt": "2026-01-01T00:00:00Z"
             },
-            "relations/relations.json": {
-                "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
-                "relations": [{
-                    "relationId": "rel-articles-precedes-decisions",
-                    "relationType": "precedes",
-                    "sourceInstanceId": ARTICLES_ID,
-                    "targetInstanceId": DECISIONS_ID,
-                    "createdAt": "2026-01-01T00:00:00Z"
-                }]
+            "relations/eeeeeeee-0000-4000-8000-000000000001.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+                "relationId": "eeeeeeee-0000-4000-8000-000000000001",
+                "relationType": "precedes",
+                "sourceInstanceId": ARTICLES_ID,
+                "targetInstanceId": DECISIONS_ID,
+                "createdAt": "2026-01-01T00:00:00Z"
             },
         }
     })
@@ -239,15 +237,13 @@ fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
                 "rootInstanceIds": [DECISIONS_ID],
                 "createdAt": "2026-01-01T00:00:00Z"
             },
-            "relations/relations.json": {
-                "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
-                "relations": [{
-                    "relationId": "rel-articles-precedes-decisions",
-                    "relationType": "precedes",
-                    "sourceInstanceId": ARTICLES_ID,
-                    "targetInstanceId": DECISIONS_ID,
-                    "createdAt": "2026-01-01T00:00:00Z"
-                }]
+            "relations/eeeeeeee-0000-4000-8000-0000000000aa.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+                "relationId": "eeeeeeee-0000-4000-8000-0000000000aa",
+                "relationType": "precedes",
+                "sourceInstanceId": ARTICLES_ID,
+                "targetInstanceId": DECISIONS_ID,
+                "createdAt": "2026-01-01T00:00:00Z"
             }
         }
     })
@@ -384,15 +380,13 @@ fn repository_navigation_root_is_member_of_its_own_sub_container() {
                 "memberInstanceIds": [DECISIONS_ID],
                 "createdAt": "2026-01-01T00:00:00Z"
             },
-            "relations/relations.json": {
-                "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
-                "relations": [{
-                    "relationId": "rel-articles-precedes-decisions",
-                    "relationType": "precedes",
-                    "sourceInstanceId": ARTICLES_ID,
-                    "targetInstanceId": DECISIONS_ID,
-                    "createdAt": "2026-01-01T00:00:00Z"
-                }]
+            "relations/eeeeeeee-0000-4000-8000-0000000000aa.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+                "relationId": "eeeeeeee-0000-4000-8000-0000000000aa",
+                "relationType": "precedes",
+                "sourceInstanceId": ARTICLES_ID,
+                "targetInstanceId": DECISIONS_ID,
+                "createdAt": "2026-01-01T00:00:00Z"
             }
         }
     })

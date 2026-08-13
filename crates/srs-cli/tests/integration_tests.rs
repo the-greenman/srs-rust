@@ -218,16 +218,14 @@ fn create_navigation_repo() -> TempDir {
         }),
     );
     write_json(
-        &root.join("relations/relations-collection.json"),
+        &root.join("relations/00000000-0000-4000-8000-00000000d000.json"),
         serde_json::json!({
-            "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
-            "relations": [{
-                "relationId": "00000000-0000-4000-8000-00000000d000",
-                "relationType": "precedes",
-                "sourceInstanceId": articles,
-                "targetInstanceId": decisions,
-                "createdAt": "2026-01-01T00:00:00Z"
-            }]
+            "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+            "relationId": "00000000-0000-4000-8000-00000000d000",
+            "relationType": "precedes",
+            "sourceInstanceId": articles,
+            "targetInstanceId": decisions,
+            "createdAt": "2026-01-01T00:00:00Z"
         }),
     );
 
@@ -4610,33 +4608,27 @@ fn container_scope_relation_list_filters_to_internal() {
     run_srs_in_dir(temp.path(), &["container", "members", "add", cid, n2]);
 
     std::fs::create_dir_all(temp.path().join("relations")).unwrap();
-    let relations = serde_json::json!({
-        "$schema":"https://srs.semanticops.com/schema/2.0/relations-collection.json",
-        "relations": [
-            {
-                "relationId": "r1",
+    let internal = "eeeeeeee-0000-4000-8000-0000000000c1";
+    let external = "eeeeeeee-0000-4000-8000-0000000000c2";
+    for (rid, source, target) in [(internal, n1, n2), (external, n1, n3)] {
+        std::fs::write(
+            temp.path().join(format!("relations/{rid}.json")),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+                "relationId": rid,
                 "relationType": "contains",
-                "sourceInstanceId": n1,
-                "targetInstanceId": n2
-            },
-            {
-                "relationId": "r2",
-                "relationType": "contains",
-                "sourceInstanceId": n1,
-                "targetInstanceId": n3
-            }
-        ]
-    });
-    std::fs::write(
-        temp.path().join("relations/relations-collection.json"),
-        serde_json::to_string_pretty(&relations).unwrap(),
-    )
-    .unwrap();
+                "sourceInstanceId": source,
+                "targetInstanceId": target
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
 
     let listed = run_srs_in_dir(temp.path(), &["--container", cid, "relation", "list"]);
     let arr = listed["payload"]["relations"].as_array().unwrap();
     assert_eq!(arr.len(), 1);
-    assert_eq!(arr[0]["relationId"], "r1");
+    assert_eq!(arr[0]["relationId"], internal);
 }
 
 #[test]

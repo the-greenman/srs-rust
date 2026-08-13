@@ -904,7 +904,7 @@ pub fn validate_repository(
                             schema_id: None,
                             message: format!(
                                 "RFC-017 R2: 'attaches' sourceRef sourceId '{}' does not \
-                                 resolve to any documentId in sourceDocumentIndex",
+                                 resolve to any discovered source document ([R15] sidecar identity)",
                                 source_id
                             ),
                         });
@@ -2308,6 +2308,16 @@ mod tests {
             }
         }
         manifest.join("../../../srs/srs")
+    }
+
+    /// Standalone relation files ([R11]) — collections are denied at rev >= 2.
+    fn write_relation_files(root: &std::path::Path, collection: &Value) {
+        for rel in collection["relations"].as_array().unwrap() {
+            let id = rel["relationId"].as_str().unwrap();
+            let mut obj = rel.clone();
+            obj["$schema"] = json!("https://srs.semanticops.com/schema/2.0/relation.json");
+            write_json(root, &format!("relations/{id}.json"), &obj);
+        }
     }
 
     fn write_json(dir: &Path, rel: &str, value: &Value) {
@@ -3989,9 +3999,8 @@ mod tests {
         let temp = TempDir::new().unwrap();
         setup_repo_with_inline_lifecycle_record(&temp, "superseded", rfc022_lifecycle_json());
         // Incoming supersedes edge: successor → this record.
-        write_json(
+        write_relation_files(
             temp.path(),
-            "relations/relations-collection.json",
             &json!({
                 "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
                 "relations": [{
@@ -4640,9 +4649,8 @@ mod tests {
                 }
             }),
         );
-        write_json(
+        write_relation_files(
             temp.path(),
-            "relations/relations-collection.json",
             &json!({
                 "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
                 "relations": [{
@@ -7544,15 +7552,14 @@ mod tests {
     }
 
     #[test]
-    fn validate_reads_relations_collection_json_for_e1() {
-        // #548: relations live at relations-collection.json (the default write path), not
-        // relations.json. Before the fix, validate read only relations.json and reported
-        // zero relation diagnostics — a bogus relation type slipped through at rest.
+    fn validate_reads_standalone_relation_objects_for_e1() {
+        // #548's surviving property post-[R11]: relations at rest are
+        // validated wherever they live — now standalone relations/<id>.json
+        // objects; a bogus relation type must not slip through at rest.
         let temp = TempDir::new().unwrap();
         let (a, b) = setup_repo_for_relation_validation(&temp);
-        write_json(
+        write_relation_files(
             temp.path(),
-            "relations/relations-collection.json",
             &relations_collection(vec![bad_type_relation(
                 "00000000-0000-4000-8000-000000000101",
                 &a,
@@ -7568,12 +7575,12 @@ mod tests {
             .find(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("E1"));
         assert!(
             e1.is_some(),
-            "expected an E1 diagnostic for a bogus relation type in relations-collection.json, got: {:?}",
+            "expected an E1 diagnostic for a bogus relation type in the standalone object, got: {:?}",
             report.diagnostics
         );
         assert_eq!(
             e1.unwrap().relative_path,
-            "relations/relations-collection.json",
+            "relations/00000000-0000-4000-8000-000000000101.json",
             "diagnostic should point at the authoritative relations file"
         );
     }
@@ -7584,9 +7591,8 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let (a, _b) = setup_repo_for_relation_validation(&temp);
         let ghost = "00000000-0000-4000-8000-0000000000ff";
-        write_json(
+        write_relation_files(
             temp.path(),
-            "relations/relations-collection.json",
             &relations_collection(vec![bad_type_relation(
                 "00000000-0000-4000-8000-000000000102",
                 &a,
@@ -7637,9 +7643,8 @@ mod tests {
         // forms (collection entry + standalone object).
         let temp = TempDir::new().unwrap();
         let (a, b) = setup_repo_for_relation_validation(&temp);
-        write_json(
+        write_relation_files(
             temp.path(),
-            "relations/relations-collection.json",
             &relations_collection(vec![json!({
                 "relationId": "00000000-0000-4000-8000-000000000201",
                 "relationType": "contains",
@@ -7680,60 +7685,9 @@ mod tests {
     }
 
     #[test]
-    fn validate_reports_duplicate_relation_id_across_forms() {
-        // RFC-038 [R12]: the same relationId as a collection entry AND a standalone
-        // object is an error naming both locators.
-        let temp = TempDir::new().unwrap();
-        let (a, b) = setup_repo_for_relation_validation(&temp);
-        let rel_id = "00000000-0000-4000-8000-000000000102";
-        write_json(
-            temp.path(),
-            "relations/relations-collection.json",
-            &relations_collection(vec![json!({
-                "relationId": rel_id,
-                "relationType": "contains",
-                "sourceInstanceId": a,
-                "targetInstanceId": b,
-                "createdAt": "2026-01-01T00:00:00Z"
-            })]),
-        );
-        let mut standalone = json!({
-            "relationId": rel_id,
-            "relationType": "contains",
-            "sourceInstanceId": a,
-            "targetInstanceId": b,
-            "createdAt": "2026-01-01T00:00:00Z"
-        });
-        standalone.as_object_mut().unwrap().insert(
-            "$schema".to_string(),
-            json!(crate::store::RELATION_OBJECT_SCHEMA_URL),
-        );
-        write_json(
-            temp.path(),
-            &format!("relations/{rel_id}.json"),
-            &standalone,
-        );
-
-        let store = crate::store::FileStore::new(temp.path());
-        let report = validate_repository(&store).unwrap();
-        let dup = report
-            .diagnostics
-            .iter()
-            .find(|d| d.message.contains("duplicate relationId"))
-            .unwrap_or_else(|| {
-                panic!(
-                    "expected a duplicate-relationId diagnostic, got: {:?}",
-                    report.diagnostics
-                )
-            });
-        assert!(dup.message.contains(&format!("relations/{rel_id}.json")));
-        assert!(dup.message.contains("relations/relations-collection.json"));
-    }
-
-    #[test]
-    fn validate_still_reads_legacy_relations_json() {
-        // Back-compat: repos whose relations live only at the legacy relations/relations.json
-        // path are still validated exactly as before.
+    fn validate_denies_a_legacy_relations_collection() {
+        // [R11], since the Phase-6 flip: a relations-collection file in a
+        // generation-2 repository is denied, not read.
         let temp = TempDir::new().unwrap();
         let (a, b) = setup_repo_for_relation_validation(&temp);
         write_json(
@@ -7747,14 +7701,17 @@ mod tests {
         );
 
         let store = crate::store::FileStore::new(temp.path());
+        // validate is the one operation exempt from [R24] fatality — it
+        // reports every diagnostic instead of failing the load.
         let report = validate_repository(&store).unwrap();
-        let e1 = report.diagnostics.iter().find(|d| d.message.contains("E1"));
         assert!(
-            e1.is_some(),
-            "expected E1 from legacy relations/relations.json, got: {:?}",
+            report.diagnostics.iter().any(|d| {
+                d.severity == DiagnosticSeverity::Error
+                    && d.message.contains("SRS038-R11-COLLECTION-RETIRED")
+            }),
+            "expected the [R11] collection deny, got: {:?}",
             report.diagnostics
         );
-        assert_eq!(e1.unwrap().relative_path, "relations/relations.json");
     }
 
     #[test]
@@ -7785,9 +7742,8 @@ mod tests {
         );
         write_json(temp.path(), "records/notes/a.json", &valid_note(a));
         write_json(temp.path(), "records/notes/b.json", &valid_note(b));
-        write_json(
+        write_relation_files(
             temp.path(),
-            "relations/relations-collection.json",
             &relations_collection(vec![bad_type_relation(
                 "00000000-0000-4000-8000-000000000105",
                 a,

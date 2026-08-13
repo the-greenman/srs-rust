@@ -2743,15 +2743,13 @@ mod tests {
         // One incident relation in the transitional collection…
         let rel_json = json!({
             "relations": [{
-                "relationId": "rel-test-001",
+                "relationId": "eeeeeeee-0000-4000-8000-000000000021",
                 "relationType": "depends-on",
                 "sourceInstanceId": record_a.instance_id,
                 "targetInstanceId": record_b.instance_id
             }]
         });
-        store
-            .save_relations_json("relations/relations-collection.json", &rel_json)
-            .unwrap();
+        crate::store::write_relations_standalone_for_test(&store, &rel_json);
         // …one incident standalone object, and one untouched bystander edge.
         store
             .save_relation(&srs_core::types::relation::Relation {

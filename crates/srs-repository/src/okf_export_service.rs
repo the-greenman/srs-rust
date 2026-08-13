@@ -395,8 +395,16 @@ mod tests {
         add_member(&store, &c.container_id, &r2.instance_id).unwrap();
 
         let relations = [
-            make_precedes_relation("rel-1", &r1.instance_id, &r2.instance_id),
-            make_precedes_relation("rel-2", &r2.instance_id, &r3.instance_id),
+            make_precedes_relation(
+                "eeeeeeee-0000-4000-8000-000000000001",
+                &r1.instance_id,
+                &r2.instance_id,
+            ),
+            make_precedes_relation(
+                "eeeeeeee-0000-4000-8000-000000000002",
+                &r2.instance_id,
+                &r3.instance_id,
+            ),
         ];
         let rel_json = serde_json::json!({
             "relations": relations
@@ -409,9 +417,7 @@ mod tests {
                 }))
                 .collect::<Vec<_>>()
         });
-        store
-            .save_relations_json("relations/relations-collection.json", &rel_json)
-            .unwrap();
+        crate::store::write_relations_standalone_for_test(&store, &rel_json);
 
         let bundle = export_okf_bundle(
             &store,
@@ -531,15 +537,13 @@ mod tests {
 
         let rel_json = serde_json::json!({
             "relations": [{
-                "relationId": "rel-mix-1",
+                "relationId": "eeeeeeee-0000-4000-8000-000000000011",
                 "relationType": "precedes",
                 "sourceInstanceId": note_id,
                 "targetInstanceId": rec_id,
             }]
         });
-        store
-            .save_relations_json("relations/relations-collection.json", &rel_json)
-            .unwrap();
+        crate::store::write_relations_standalone_for_test(&store, &rel_json);
 
         let bundle = export_okf_bundle(
             &store,

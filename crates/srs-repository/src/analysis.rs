@@ -731,10 +731,6 @@ mod tests {
         manifest
             .extra
             .insert("title".to_string(), json!("Fixture Repo"));
-        manifest.extra.insert(
-            "relationsPath".to_string(),
-            json!("relations/relations.json"),
-        );
         manifest.source_documents_path = Some("source-documents".to_string());
         manifest.extra.insert(
             "aiGuidance".to_string(),
@@ -791,29 +787,25 @@ mod tests {
 
         // Save relations — full, catalog-valid Relation objects (the catalog parses
         // every relations/ file strictly as part of the six authoritative sets).
-        store
-            .save_relations_json(
-                "relations/relations.json",
-                &json!({
-                    "relations": [
-                        {
-                            "relationId": "44444444-4444-4444-8444-444444444444",
-                            "relationType": "derived-from",
-                            "sourceInstanceId": "22222222-2222-4222-8222-222222222222",
-                            "targetInstanceId": "11111111-1111-4111-8111-111111111111",
-                            "createdAt": "2026-01-01T00:00:00Z"
-                        },
-                        {
-                            "relationId": "55555555-5555-4555-8555-555555555555",
-                            "relationType": "contains",
-                            "sourceInstanceId": "11111111-1111-4111-8111-111111111111",
-                            "targetInstanceId": "22222222-2222-4222-8222-222222222222",
-                            "createdAt": "2026-01-01T00:00:00Z"
-                        }
-                    ]
-                }),
-            )
-            .unwrap();
+        let coll = json!({
+            "relations": [
+                {
+                    "relationId": "44444444-4444-4444-8444-444444444444",
+                    "relationType": "derived-from",
+                    "sourceInstanceId": "22222222-2222-4222-8222-222222222222",
+                    "targetInstanceId": "11111111-1111-4111-8111-111111111111",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
+                {
+                    "relationId": "55555555-5555-4555-8555-555555555555",
+                    "relationType": "contains",
+                    "sourceInstanceId": "11111111-1111-4111-8111-111111111111",
+                    "targetInstanceId": "22222222-2222-4222-8222-222222222222",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }
+            ]
+        });
+        crate::store::write_relations_standalone_for_test(&store, &coll);
 
         // Save a schema file (as text via load_text_file key)
         store

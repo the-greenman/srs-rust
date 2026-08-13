@@ -149,6 +149,10 @@ pub mod codes {
     pub const RELATION_FILENAME_MISMATCH: &str = "SRS038-R11-FILENAME-MISMATCH";
     /// A file nested in a subdirectory of `relations/`, which must be flat ([R11]).
     pub const RELATIONS_NOT_FLAT: &str = "SRS038-R11-NOT-FLAT";
+
+    /// [R11]: at `dataModelRevision >= 2` a live repository must not contain a
+    /// relations-collection file.
+    pub const RELATIONS_COLLECTION_RETIRED: &str = "SRS038-R11-COLLECTION-RETIRED";
     /// Two objects in the same authoritative set declaring the same logical id ([R12]).
     pub const DUPLICATE_ID: &str = "SRS038-R12-DUPLICATE-ID";
     /// A reference resolving to nothing in the set it targets ([R13]).
@@ -847,10 +851,6 @@ impl Builder<'_> {
     }
 
     /// Classify a file under `relations/` (Change E; [R11]).
-    ///
-    /// Transitional (pre-Phase-6 flip): the legacy collection files are still
-    /// enumerated because every vendored fixture carries one; the [R11]
-    /// collection deny activates with the Phase-6 enforcement flip.
     fn classify_relations_file(&mut self, path: &str) {
         let rel = path.strip_prefix("relations/").unwrap_or(path);
         if rel.contains('/') {
@@ -873,19 +873,33 @@ impl Builder<'_> {
             return;
         };
         if rel == "relations.json" || rel == "relations-collection.json" {
-            // Legacy collection (see doc comment above).
-            match serde_json::from_value::<RelationsCollection>(value) {
-                Ok(collection) => {
-                    for relation in collection.relations {
-                        self.push_relation(relation, path, true);
+            // [R11], active since the Phase-6 flip: a live repository at
+            // generation 2 must not contain a relations-collection file.
+            // The one reader still entitled to enumerate one is the [R21]
+            // exempt migration surface — it reads the pre-migration state by
+            // definition (e.g. an upgrade preview before rfc038-storage runs).
+            if self.store.rfc038_exempt() {
+                match serde_json::from_value::<RelationsCollection>(value) {
+                    Ok(collection) => {
+                        for relation in collection.relations {
+                            self.push_relation(relation, path, true);
+                        }
                     }
+                    Err(e) => self.error(
+                        codes::CANDIDATE_MALFORMED,
+                        vec![path.to_string()],
+                        format!("relations collection fails to parse: {e}"),
+                    ),
                 }
-                Err(e) => self.error(
-                    codes::CANDIDATE_MALFORMED,
-                    vec![path.to_string()],
-                    format!("relations collection fails to parse: {e}"),
-                ),
+                return;
             }
+            self.error(
+                codes::RELATIONS_COLLECTION_RETIRED,
+                vec![path.to_string()],
+                "relations-collection files are retired at dataModelRevision >= 2 ([R11]) \
+                 — run the rfc038-storage migration"
+                    .to_string(),
+            );
             return;
         }
         // Standalone relation object ([R11]): one relation per file, filename
