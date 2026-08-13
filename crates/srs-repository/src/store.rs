@@ -2752,7 +2752,13 @@ pub mod memory {
             }
 
             *self.manifest.borrow_mut() = Manifest {
-                container: None,
+                // Same default root container as FileStore's initialize —
+                // repo creation must yield the same repository (and the same
+                // catalog) on every backend (RFC-038 acceptance test 3).
+                container: Some(default_repository_container(
+                    &input.repository.repository_id,
+                    input.repository.title.as_deref().unwrap_or_default(),
+                )),
                 federation_path: None,
                 upstream_package: None,
                 federation_events_path: None,
