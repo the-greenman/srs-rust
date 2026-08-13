@@ -9,7 +9,6 @@
     "createdAt": "2026-01-01T00:00:00Z",
     "dataModelRevision": 2,
     "description": "An empty governance document: the canonical MuDemocracy governance package installed with zero records, ready for a clerk to capture their first decision.",
-    "instanceIndex": [],
     "meta": {},
     "namespace": "com.mudemocracy.governance",
     "repositoryId": "395ebea2-d8f6-497b-b18c-04c9eacafc94",
