@@ -46,7 +46,9 @@ fn migrate_document(path: &str) {
 }
 
 fn migrate_directory(path: &str) {
-    let store = FileStore::new(path);
+    // The [R21] migrator exemption: this tool exists to read the pre-migration
+    // state the enforcing reader refuses.
+    let store = FileStore::new(path).with_rfc038_exemption();
     let revision = srs_repository::field_type_migration_service::data_model_revision(&store)
         .unwrap_or_else(|e| {
             eprintln!("{path}: cannot read data-model revision: {e}");

@@ -2160,15 +2160,13 @@ mod tests {
         // Write a relation of this type directly, bypassing instance-existence validation
         let rel_json = serde_json::json!({
             "relations": [{
-                "relationId": "rel-test-rt-001",
+                "relationId": "eeeeeeee-0000-4000-8000-000000000031",
                 "relationType": "test-link",
                 "sourceInstanceId": "source-001",
                 "targetInstanceId": "target-001"
             }]
         });
-        store
-            .save_relations_json("relations/relations-collection.json", &rel_json)
-            .unwrap();
+        crate::store::write_relations_standalone_for_test(&store, &rel_json);
 
         let result = delete_relation_type(&store, "rt-001");
         match result {
@@ -2179,7 +2177,7 @@ mod tests {
             }) => {
                 assert_eq!(entity_type, "relation-type");
                 assert_eq!(id, "rt-001");
-                assert!(used_by.contains(&"rel-test-rt-001".to_string()));
+                assert!(used_by.contains(&"eeeeeeee-0000-4000-8000-000000000031".to_string()));
             }
             other => panic!("expected CannotDeleteInUse, got {:?}", other),
         }

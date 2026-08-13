@@ -212,7 +212,7 @@ pub fn create_relation(
 
     // JSON-schema gate preserved from the collection era: validate the relation
     // shape against the relations-collection schema's item definition. The
-    // standalone relation.json mirror schema is in srs-schema (Phase-6 sync)
+    // standalone relation.json mirror schema is registered in srs-schema
     // PR; until then this is the schema-level check available in srs-schema.
     schema_validate_relation(&relation)?;
 
@@ -761,21 +761,21 @@ mod tests {
             "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
             "relations": [
                 {
-                    "relationId": "r1",
+                    "relationId": "aaaaaaaa-0000-4000-8000-000000000001",
                     "relationType": "contains",
                     "sourceInstanceId": "note-1",
                     "targetInstanceId": "note-2",
                     "createdAt": "2026-01-01T00:00:00Z"
                 },
                 {
-                    "relationId": "r2",
+                    "relationId": "aaaaaaaa-0000-4000-8000-000000000002",
                     "relationType": "references",
                     "sourceInstanceId": "note-2",
                     "targetInstanceId": "note-3",
                     "createdAt": "2026-01-01T00:00:00Z"
                 },
                 {
-                    "relationId": "r3",
+                    "relationId": "aaaaaaaa-0000-4000-8000-000000000003",
                     "relationType": "contains",
                     "sourceInstanceId": "note-1",
                     "targetInstanceId": "note-4",
@@ -783,9 +783,7 @@ mod tests {
                 }
             ]
         });
-        store
-            .save_relations_json("relations/relations-collection.json", &relations)
-            .unwrap();
+        crate::store::write_relations_standalone_for_test(&store, &relations);
         store
     }
 
@@ -842,7 +840,10 @@ mod tests {
         };
         let result = list_relations(&store, filter).unwrap();
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].relation_id, "r1");
+        assert_eq!(
+            result[0].relation_id,
+            "aaaaaaaa-0000-4000-8000-000000000001"
+        );
     }
 
     #[test]
@@ -862,7 +863,7 @@ mod tests {
     #[test]
     fn get_relation_by_id_finds_relation() {
         let store = make_store_with_relations();
-        let result = get_relation_by_id(&store, "r2").unwrap();
+        let result = get_relation_by_id(&store, "aaaaaaaa-0000-4000-8000-000000000002").unwrap();
         match result {
             GetRelationResult::Found(relation) => {
                 assert_eq!(relation.relation_type, "references");
@@ -1135,11 +1136,11 @@ mod tests {
 
     #[test]
     fn create_relation_writes_only_its_own_file() {
-        // A pre-existing collection is left byte-for-byte untouched by create.
+        // Pre-existing standalone relation files are left byte-for-byte
+        // untouched by create ([R11]: one object per file, no shared writes).
         let store = make_store_with_relations();
-        let before = store
-            .load_relations_json("relations/relations-collection.json")
-            .unwrap();
+        let sibling = "relations/aaaaaaaa-0000-4000-8000-000000000001.json";
+        let before = store.load_relations_json(sibling).unwrap();
 
         let def = links_def(None, None, None);
         let rel = make_relation(
@@ -1150,10 +1151,8 @@ mod tests {
         );
         create_relation(&store, rel, &[def]).unwrap();
 
-        let after = store
-            .load_relations_json("relations/relations-collection.json")
-            .unwrap();
-        assert_eq!(before, after, "collection must be untouched by create");
+        let after = store.load_relations_json(sibling).unwrap();
+        assert_eq!(before, after, "sibling relation file untouched by create");
         assert!(store
             .load_relations_json("relations/da000002-0000-4000-a000-000000000002.json")
             .is_ok());
@@ -1181,21 +1180,18 @@ mod tests {
             &[def],
         )
         .unwrap();
-        let before = store
-            .load_relations_json("relations/relations-collection.json")
-            .unwrap();
+        let sibling = "relations/aaaaaaaa-0000-4000-8000-000000000001.json";
+        let before = store.load_relations_json(sibling).unwrap();
 
         let result = delete_relation(&store, "da000002-0000-4000-a000-000000000002").unwrap();
         assert_eq!(
             result.path,
             "relations/da000002-0000-4000-a000-000000000002.json"
         );
-        let after = store
-            .load_relations_json("relations/relations-collection.json")
-            .unwrap();
+        let after = store.load_relations_json(sibling).unwrap();
         assert_eq!(
             before, after,
-            "collection must be untouched by standalone delete"
+            "sibling relation file untouched by standalone delete"
         );
         assert!(store
             .load_relations_json("relations/da000002-0000-4000-a000-000000000002.json")
@@ -1352,16 +1348,20 @@ mod tests {
         assert!(all
             .iter()
             .any(|r| r.relation_id == "da00000b-0000-4000-a000-00000000000b"));
-        // No duplicate-id error, and the shared collection is what it always was.
+        // No duplicate-id error, and the base relation files are untouched.
         let base = make_store_with_relations();
-        assert_eq!(
-            base.load_relations_json("relations/relations-collection.json")
-                .unwrap(),
-            merged
-                .load_relations_json("relations/relations-collection.json")
-                .unwrap(),
-            "merge touched no shared file"
-        );
+        for id in [
+            "aaaaaaaa-0000-4000-8000-000000000001",
+            "aaaaaaaa-0000-4000-8000-000000000002",
+            "aaaaaaaa-0000-4000-8000-000000000003",
+        ] {
+            let path = format!("relations/{id}.json");
+            assert_eq!(
+                base.load_relations_json(&path).unwrap(),
+                merged.load_relations_json(&path).unwrap(),
+                "merge touched no shared file"
+            );
+        }
     }
 
     #[test]
@@ -1374,13 +1374,18 @@ mod tests {
     #[test]
     fn relation_delete_removes() {
         let store = make_store_with_relations();
-        let result = delete_relation(&store, "r2").unwrap();
-        assert_eq!(result.relation_id, "r2");
-        assert_eq!(result.path, "relations/relations-collection.json");
+        let result = delete_relation(&store, "aaaaaaaa-0000-4000-8000-000000000002").unwrap();
+        assert_eq!(result.relation_id, "aaaaaaaa-0000-4000-8000-000000000002");
+        assert_eq!(
+            result.path,
+            "relations/aaaaaaaa-0000-4000-8000-000000000002.json"
+        );
 
         let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
         assert_eq!(all.len(), 2);
-        assert!(!all.iter().any(|r| r.relation_id == "r2"));
+        assert!(!all
+            .iter()
+            .any(|r| r.relation_id == "aaaaaaaa-0000-4000-8000-000000000002"));
     }
 
     #[test]
@@ -1800,14 +1805,14 @@ mod tests {
             "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
             "relations": [
                 {
-                    "relationId": "rp1",
+                    "relationId": "eeeeeeee-0000-4000-8000-000000000051",
                     "relationType": "precedes",
                     "sourceInstanceId": "sec-a",
                     "targetInstanceId": "sec-b",
                     "createdAt": "2026-01-01T00:00:00Z"
                 },
                 {
-                    "relationId": "rp2",
+                    "relationId": "eeeeeeee-0000-4000-8000-000000000052",
                     "relationType": "precedes",
                     "sourceInstanceId": "sec-b",
                     "targetInstanceId": "sec-c",
@@ -1815,9 +1820,7 @@ mod tests {
                 }
             ]
         });
-        store
-            .save_relations_json("relations/relations-collection.json", &relations)
-            .unwrap();
+        crate::store::write_relations_standalone_for_test(&store, &relations);
         store
     }
 
@@ -1951,30 +1954,27 @@ mod tests {
     fn test_rebuild_precedes_chain_clears_existing_precedes() {
         let store = make_store_for_rebuild_chain(&["id-a", "id-b", "id-c"]);
         // Pre-populate with old precedes edges (b→c and c→a — wrong order)
-        store
-            .save_relations_json(
-                "relations/relations-collection.json",
-                &json!({
-                    "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
-                    "relations": [
-                        {
-                            "relationId": "old-1",
-                            "relationType": "precedes",
-                            "sourceInstanceId": "id-b",
-                            "targetInstanceId": "id-c",
-                            "createdAt": "2026-01-01T00:00:00Z"
-                        },
-                        {
-                            "relationId": "old-2",
-                            "relationType": "precedes",
-                            "sourceInstanceId": "id-c",
-                            "targetInstanceId": "id-a",
-                            "createdAt": "2026-01-01T00:00:00Z"
-                        }
-                    ]
-                }),
-            )
-            .unwrap();
+        crate::store::write_relations_standalone_for_test(
+            &store,
+            &json!({
+                "relations": [
+                    {
+                        "relationId": "eeeeeeee-0000-4000-8000-00000000ff01",
+                        "relationType": "precedes",
+                        "sourceInstanceId": "id-b",
+                        "targetInstanceId": "id-c",
+                        "createdAt": "2026-01-01T00:00:00Z"
+                    },
+                    {
+                        "relationId": "eeeeeeee-0000-4000-8000-00000000ff02",
+                        "relationType": "precedes",
+                        "sourceInstanceId": "id-c",
+                        "targetInstanceId": "id-a",
+                        "createdAt": "2026-01-01T00:00:00Z"
+                    }
+                ]
+            }),
+        );
         let result = rebuild_precedes_chain(
             &store,
             RebuildPrecedesChainInput {
@@ -1991,11 +1991,15 @@ mod tests {
             .collect();
         assert_eq!(precedes.len(), 2, "old edges replaced by new edges");
         assert!(
-            !precedes.iter().any(|r| r.relation_id == "old-1"),
+            !precedes
+                .iter()
+                .any(|r| r.relation_id == "eeeeeeee-0000-4000-8000-00000000ff01"),
             "old-1 must be removed"
         );
         assert!(
-            !precedes.iter().any(|r| r.relation_id == "old-2"),
+            !precedes
+                .iter()
+                .any(|r| r.relation_id == "eeeeeeee-0000-4000-8000-00000000ff02"),
             "old-2 must be removed"
         );
         assert_eq!(result.created[0].source_id, "id-a");
@@ -2041,30 +2045,27 @@ mod tests {
         let store = make_store_for_rebuild_chain(&["id-a", "id-b"]);
         // Pre-populate with a non-precedes edge involving id-a (should survive)
         // and a precedes edge (should be cleared)
-        store
-            .save_relations_json(
-                "relations/relations-collection.json",
-                &json!({
-                    "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
-                    "relations": [
-                        {
-                            "relationId": "keep-me",
-                            "relationType": "contains",
-                            "sourceInstanceId": "id-a",
-                            "targetInstanceId": "id-b",
-                            "createdAt": "2026-01-01T00:00:00Z"
-                        },
-                        {
-                            "relationId": "remove-me",
-                            "relationType": "precedes",
-                            "sourceInstanceId": "id-a",
-                            "targetInstanceId": "id-b",
-                            "createdAt": "2026-01-01T00:00:00Z"
-                        }
-                    ]
-                }),
-            )
-            .unwrap();
+        crate::store::write_relations_standalone_for_test(
+            &store,
+            &json!({
+                "relations": [
+                    {
+                        "relationId": "eeeeeeee-0000-4000-8000-00000000fe01",
+                        "relationType": "contains",
+                        "sourceInstanceId": "id-a",
+                        "targetInstanceId": "id-b",
+                        "createdAt": "2026-01-01T00:00:00Z"
+                    },
+                    {
+                        "relationId": "eeeeeeee-0000-4000-8000-00000000fe02",
+                        "relationType": "precedes",
+                        "sourceInstanceId": "id-a",
+                        "targetInstanceId": "id-b",
+                        "createdAt": "2026-01-01T00:00:00Z"
+                    }
+                ]
+            }),
+        );
         let result = rebuild_precedes_chain(
             &store,
             RebuildPrecedesChainInput {
@@ -2077,11 +2078,13 @@ mod tests {
         let all = list_relations(&store, ListRelationsFilter::default()).unwrap();
         assert_eq!(all.len(), 2, "non-precedes edge must survive");
         assert!(
-            all.iter().any(|r| r.relation_id == "keep-me"),
+            all.iter()
+                .any(|r| r.relation_id == "eeeeeeee-0000-4000-8000-00000000fe01"),
             "contains edge must be preserved"
         );
         assert!(
-            !all.iter().any(|r| r.relation_id == "remove-me"),
+            !all.iter()
+                .any(|r| r.relation_id == "eeeeeeee-0000-4000-8000-00000000fe02"),
             "old precedes edge must be removed"
         );
     }

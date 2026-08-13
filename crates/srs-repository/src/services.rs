@@ -1107,27 +1107,25 @@ mod tests {
             )
             .unwrap();
 
-        store
-            .save_relations_json(
-                "relations/relations-collection.json",
-                &serde_json::json!({
-                    "relations": [
-                        {
-                            "relationId": "rel-incident-collection",
-                            "relationType": "evidences",
-                            "sourceInstanceId": "11111111-1111-1111-8111-111111111111",
-                            "targetInstanceId": "other-instance"
-                        },
-                        {
-                            "relationId": "rel-bystander",
-                            "relationType": "evidences",
-                            "sourceInstanceId": "other-instance",
-                            "targetInstanceId": "other-instance"
-                        }
-                    ]
-                }),
-            )
-            .unwrap();
+        crate::store::write_relations_standalone_for_test(
+            &store,
+            &serde_json::json!({
+                "relations": [
+                    {
+                        "relationId": "eeeeeeee-0000-4000-8000-000000000041",
+                        "relationType": "evidences",
+                        "sourceInstanceId": "11111111-1111-1111-8111-111111111111",
+                        "targetInstanceId": "other-instance"
+                    },
+                    {
+                        "relationId": "eeeeeeee-0000-4000-8000-000000000042",
+                        "relationType": "evidences",
+                        "sourceInstanceId": "other-instance",
+                        "targetInstanceId": "other-instance"
+                    }
+                ]
+            }),
+        );
         store
             .save_relation(&srs_core::types::relation::Relation {
                 relation_id: "dd000001-0000-4000-a000-000000000001".to_string(),
@@ -1157,7 +1155,7 @@ mod tests {
                 .iter()
                 .map(|r| r.relation_id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["rel-bystander"],
+            vec!["eeeeeeee-0000-4000-8000-000000000042"],
             "cascade must remove exactly the incident relations"
         );
     }

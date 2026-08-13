@@ -8931,9 +8931,7 @@ mod tests {
             let coll = serde_json::json!({
                 "relations": relations.iter().map(|r| serde_json::to_value(r).unwrap()).collect::<Vec<_>>()
             });
-            store
-                .save_relations_json("relations/relations-collection.json", &coll)
-                .unwrap();
+            crate::store::write_relations_standalone_for_test(&store, &coll);
         }
         store
     }
@@ -9036,8 +9034,18 @@ mod tests {
         let store = make_rp_store(
             vec![test_rtd("links-to", "Links To", None, false)],
             &[
-                test_rel("r1", "links-to", "rec-src", "rec-a"),
-                test_rel("r2", "links-to", "rec-src", "rec-b"),
+                test_rel(
+                    "eeeeeeee-0000-4000-8000-0000000000a1",
+                    "links-to",
+                    "rec-src",
+                    "rec-a",
+                ),
+                test_rel(
+                    "eeeeeeee-0000-4000-8000-0000000000a2",
+                    "links-to",
+                    "rec-src",
+                    "rec-b",
+                ),
             ],
         );
         add_rp_record(&store, "rec-src", None);
@@ -9053,8 +9061,18 @@ mod tests {
         let record = src_rec("rec-src");
         let package = store.load_package().unwrap();
         let relations = vec![
-            test_rel("r1", "links-to", "rec-src", "rec-a"),
-            test_rel("r2", "links-to", "rec-src", "rec-b"),
+            test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000a1",
+                "links-to",
+                "rec-src",
+                "rec-a",
+            ),
+            test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000a2",
+                "links-to",
+                "rec-src",
+                "rec-b",
+            ),
         ];
         let mut diag = Vec::new();
         let out = render_relations_block(
@@ -9070,7 +9088,12 @@ mod tests {
     fn relations_block_inverse_edges_rendered() {
         let store = make_rp_store(
             vec![test_rtd("links-to", "Links To", None, false)],
-            &[test_rel("r1", "links-to", "rec-other", "rec-src")],
+            &[test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000a1",
+                "links-to",
+                "rec-other",
+                "rec-src",
+            )],
         );
         add_rp_record(&store, "rec-other", None);
         add_rp_record(&store, "rec-src", None);
@@ -9083,7 +9106,12 @@ mod tests {
         }]);
         let record = src_rec("rec-src");
         let package = store.load_package().unwrap();
-        let relations = vec![test_rel("r1", "links-to", "rec-other", "rec-src")];
+        let relations = vec![test_rel(
+            "eeeeeeee-0000-4000-8000-0000000000a1",
+            "links-to",
+            "rec-other",
+            "rec-src",
+        )];
         let mut diag = Vec::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
@@ -9101,8 +9129,18 @@ mod tests {
         let store = make_rp_store(
             vec![test_rtd("links-to", "Links To", None, false)],
             &[
-                test_rel("r1", "links-to", "rec-src", "rec-fwd"),
-                test_rel("r2", "links-to", "rec-inv", "rec-src"),
+                test_rel(
+                    "eeeeeeee-0000-4000-8000-0000000000a1",
+                    "links-to",
+                    "rec-src",
+                    "rec-fwd",
+                ),
+                test_rel(
+                    "eeeeeeee-0000-4000-8000-0000000000a2",
+                    "links-to",
+                    "rec-inv",
+                    "rec-src",
+                ),
             ],
         );
         add_rp_record(&store, "rec-src", None);
@@ -9118,8 +9156,18 @@ mod tests {
         let record = src_rec("rec-src");
         let package = store.load_package().unwrap();
         let relations = vec![
-            test_rel("r1", "links-to", "rec-src", "rec-fwd"),
-            test_rel("r2", "links-to", "rec-inv", "rec-src"),
+            test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000a1",
+                "links-to",
+                "rec-src",
+                "rec-fwd",
+            ),
+            test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000a2",
+                "links-to",
+                "rec-inv",
+                "rec-src",
+            ),
         ];
         let mut diag = Vec::new();
         let out = render_relations_block(
@@ -9135,7 +9183,12 @@ mod tests {
     fn relations_block_label_ladder_entry_override_wins() {
         let store = make_rp_store(
             vec![test_rtd("links-to", "RTD Label", None, false)],
-            &[test_rel("r1", "links-to", "rec-src", "rec-a")],
+            &[test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000a1",
+                "links-to",
+                "rec-src",
+                "rec-a",
+            )],
         );
         add_rp_record(&store, "rec-a", None);
         add_rp_record(&store, "rec-src", None);
@@ -9148,7 +9201,12 @@ mod tests {
         }]);
         let record = src_rec("rec-src");
         let package = store.load_package().unwrap();
-        let relations = vec![test_rel("r1", "links-to", "rec-src", "rec-a")];
+        let relations = vec![test_rel(
+            "eeeeeeee-0000-4000-8000-0000000000a1",
+            "links-to",
+            "rec-src",
+            "rec-a",
+        )];
         let mut diag = Vec::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
@@ -9168,7 +9226,12 @@ mod tests {
     fn relations_block_label_ladder_rtd_label_fallback() {
         let store = make_rp_store(
             vec![test_rtd("links-to", "RTD Label", None, false)],
-            &[test_rel("r1", "links-to", "rec-src", "rec-a")],
+            &[test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000a1",
+                "links-to",
+                "rec-src",
+                "rec-a",
+            )],
         );
         add_rp_record(&store, "rec-a", None);
         add_rp_record(&store, "rec-src", None);
@@ -9181,7 +9244,12 @@ mod tests {
         }]);
         let record = src_rec("rec-src");
         let package = store.load_package().unwrap();
-        let relations = vec![test_rel("r1", "links-to", "rec-src", "rec-a")];
+        let relations = vec![test_rel(
+            "eeeeeeee-0000-4000-8000-0000000000a1",
+            "links-to",
+            "rec-src",
+            "rec-a",
+        )];
         let mut diag = Vec::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
@@ -9197,7 +9265,12 @@ mod tests {
     fn relations_block_label_ladder_humanized_fallback() {
         let store = make_rp_store(
             vec![test_rtd("depends-on", "", None, false)],
-            &[test_rel("r1", "depends-on", "rec-src", "rec-a")],
+            &[test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000a1",
+                "depends-on",
+                "rec-src",
+                "rec-a",
+            )],
         );
         add_rp_record(&store, "rec-a", None);
         add_rp_record(&store, "rec-src", None);
@@ -9210,7 +9283,12 @@ mod tests {
         }]);
         let record = src_rec("rec-src");
         let package = store.load_package().unwrap();
-        let relations = vec![test_rel("r1", "depends-on", "rec-src", "rec-a")];
+        let relations = vec![test_rel(
+            "eeeeeeee-0000-4000-8000-0000000000a1",
+            "depends-on",
+            "rec-src",
+            "rec-a",
+        )];
         let mut diag = Vec::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
@@ -9254,8 +9332,18 @@ mod tests {
         let store = make_rp_store(
             vec![test_rtd("links-to", "Links To", None, false)],
             &[
-                test_rel("r1", "links-to", "rec-src", "rec-a"),
-                test_rel("r2", "links-to", "rec-src", "rec-a"),
+                test_rel(
+                    "eeeeeeee-0000-4000-8000-0000000000a1",
+                    "links-to",
+                    "rec-src",
+                    "rec-a",
+                ),
+                test_rel(
+                    "eeeeeeee-0000-4000-8000-0000000000a2",
+                    "links-to",
+                    "rec-src",
+                    "rec-a",
+                ),
             ],
         );
         add_rp_record(&store, "rec-a", None);
@@ -9270,8 +9358,18 @@ mod tests {
         let record = src_rec("rec-src");
         let package = store.load_package().unwrap();
         let relations = vec![
-            test_rel("r1", "links-to", "rec-src", "rec-a"),
-            test_rel("r2", "links-to", "rec-src", "rec-a"),
+            test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000a1",
+                "links-to",
+                "rec-src",
+                "rec-a",
+            ),
+            test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000a2",
+                "links-to",
+                "rec-src",
+                "rec-a",
+            ),
         ];
         let mut diag = Vec::new();
         let out = render_relations_block(
@@ -9366,11 +9464,9 @@ mod tests {
         let store = crate::store::memory::MemoryStore::new(manifest, package);
         add_rp_record(&store, "rec-src", None);
         let relations_coll = serde_json::json!({
-            "relations": [serde_json::to_value(test_rel("r1", "links-to", "rec-src", "rec-named")).unwrap()]
+            "relations": [serde_json::to_value(test_rel("eeeeeeee-0000-4000-8000-0000000000a1", "links-to", "rec-src", "rec-named")).unwrap()]
         });
-        store
-            .save_relations_json("relations/relations-collection.json", &relations_coll)
-            .unwrap();
+        crate::store::write_relations_standalone_for_test(&store, &relations_coll);
 
         let target = Record {
             field_meta: None,
@@ -9405,7 +9501,12 @@ mod tests {
         }]);
         let record = src_rec("rec-src");
         let package2 = store.load_package().unwrap();
-        let relations = vec![test_rel("r1", "links-to", "rec-src", "rec-named")];
+        let relations = vec![test_rel(
+            "eeeeeeee-0000-4000-8000-0000000000a1",
+            "links-to",
+            "rec-src",
+            "rec-named",
+        )];
         let mut diag = Vec::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package2, "markdown", &mut diag,
@@ -9427,7 +9528,12 @@ mod tests {
 
         let store = make_rp_store(
             vec![test_rtd("links-to", "Links To", None, false)],
-            &[test_rel("r1", "links-to", "rec-src", "rec-titled")],
+            &[test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000a1",
+                "links-to",
+                "rec-src",
+                "rec-titled",
+            )],
         );
         add_rp_record(&store, "rec-src", None);
 
@@ -9466,7 +9572,12 @@ mod tests {
 
         let record = src_rec("rec-src");
         let package = store.load_package().unwrap();
-        let relations = vec![test_rel("r1", "links-to", "rec-src", "rec-titled")];
+        let relations = vec![test_rel(
+            "eeeeeeee-0000-4000-8000-0000000000a1",
+            "links-to",
+            "rec-src",
+            "rec-titled",
+        )];
         let mut diag = Vec::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
@@ -9482,7 +9593,12 @@ mod tests {
     fn relations_block_display_label_instance_id_fallback() {
         let store = make_rp_store(
             vec![test_rtd("links-to", "Links To", None, false)],
-            &[test_rel("r1", "links-to", "rec-src", "rec-no-label")],
+            &[test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000a1",
+                "links-to",
+                "rec-src",
+                "rec-no-label",
+            )],
         );
         add_rp_record(&store, "rec-no-label", None);
         add_rp_record(&store, "rec-src", None);
@@ -9495,7 +9611,12 @@ mod tests {
         }]);
         let record = src_rec("rec-src");
         let package = store.load_package().unwrap();
-        let relations = vec![test_rel("r1", "links-to", "rec-src", "rec-no-label")];
+        let relations = vec![test_rel(
+            "eeeeeeee-0000-4000-8000-0000000000a1",
+            "links-to",
+            "rec-src",
+            "rec-no-label",
+        )];
         let mut diag = Vec::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
@@ -9511,7 +9632,12 @@ mod tests {
     fn relations_block_retired_entry_skipped_with_diagnostic() {
         let store = make_rp_store(
             vec![test_rtd("old-type", "Old Type", None, true)],
-            &[test_rel("r1", "old-type", "rec-src", "rec-a")],
+            &[test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000a1",
+                "old-type",
+                "rec-src",
+                "rec-a",
+            )],
         );
         add_rp_record(&store, "rec-a", None);
 
@@ -9523,7 +9649,12 @@ mod tests {
         }]);
         let record = src_rec("rec-src");
         let package = store.load_package().unwrap();
-        let relations = vec![test_rel("r1", "old-type", "rec-src", "rec-a")];
+        let relations = vec![test_rel(
+            "eeeeeeee-0000-4000-8000-0000000000a1",
+            "old-type",
+            "rec-src",
+            "rec-a",
+        )];
         let mut diag = Vec::new();
         let out = render_relations_block(
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
@@ -9634,9 +9765,7 @@ mod tests {
             let coll = serde_json::json!({
                 "relations": relations.iter().map(|r| serde_json::to_value(r).unwrap()).collect::<Vec<_>>()
             });
-            store
-                .save_relations_json("relations/relations-collection.json", &coll)
-                .unwrap();
+            crate::store::write_relations_standalone_for_test(&store, &coll);
         }
         store
     }
@@ -9652,7 +9781,12 @@ mod tests {
                 forward_label: None,
                 inverse_label: None,
             }],
-            &[test_rel("r1", "links-to", "rec-src", "rec-tgt")],
+            &[test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000a1",
+                "links-to",
+                "rec-src",
+                "rec-tgt",
+            )],
         );
         add_rp_record(&store, "rec-tgt", None);
 
@@ -9683,7 +9817,12 @@ mod tests {
             vec![test_rtd("links-to", "Links To", None, false)],
             "rec-src",
             vec![],
-            &[test_rel("r1", "links-to", "rec-src", "rec-tgt")],
+            &[test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000a1",
+                "links-to",
+                "rec-src",
+                "rec-tgt",
+            )],
         );
         add_rp_record(&store, "rec-tgt", None);
 
@@ -9803,9 +9942,7 @@ mod tests {
         let coll = serde_json::json!({
             "relations": [serde_json::to_value(&the_rel).unwrap()]
         });
-        mem_store
-            .save_relations_json("relations/relations-collection.json", &coll)
-            .unwrap();
+        crate::store::write_relations_standalone_for_test(&mem_store, &coll);
 
         let mem_result = render_document_view(RenderDocumentViewOptions {
             store: &mem_store,

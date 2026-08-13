@@ -552,20 +552,13 @@ fn do_import(
     }
 
     if !snapshot.relations.is_empty() {
-        // Transitional (RFC-038 Phase 2): snapshot import collapses all relations
-        // (including standalone objects read via the dual read) back into one
-        // collection file. Readable via the dual read; the Phase-5 transform
-        // explodes collections and Phase 4 moves the codecs to per-file carry.
+        // [R11], since the Phase-6 flip: relations import as one standalone
+        // object per relation — a collection file would be denied by the
+        // catalog on the next load of the target.
         target.ensure_relations_dir("relations")?;
-        let value = serde_json::to_value(serde_json::json!({
-            "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
-            "relations": snapshot.relations
-        }))
-        .map_err(|source| RepositoryError::Serialize {
-            path: std::path::PathBuf::from("relations/relations-collection.json"),
-            source,
-        })?;
-        target.save_relations_json("relations/relations-collection.json", &value)?;
+        for relation in &snapshot.relations {
+            target.save_relation(relation)?;
+        }
     }
 
     Ok(())
