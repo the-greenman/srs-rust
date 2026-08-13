@@ -1,26 +1,5 @@
 {
-  "instanceIndex": [
-    {
-      "instanceId": "00000000-0000-4000-8000-000000003510",
-      "tier": 2,
-      "path": "records/text-1.json"
-    },
-    {
-      "instanceId": "00000000-0000-4000-8000-000000003511",
-      "tier": 2,
-      "path": "records/text-2.json"
-    },
-    {
-      "instanceId": "00000000-0000-4000-8000-000000003512",
-      "tier": 2,
-      "path": "records/table-1.json"
-    },
-    {
-      "instanceId": "00000000-0000-4000-8000-000000003513",
-      "tier": 2,
-      "path": "records/table-2.json"
-    }
-  ],
+  "title": "RFC-008 Container Subset Fixture",
   "container": {
     "containerId": "00000000-0000-4000-8000-000000003500",
     "title": "RFC-008 Main Container",
@@ -31,19 +10,10 @@
       "00000000-0000-4000-8000-000000003513"
     ]
   },
-  "containerIndex": [
-    {
-      "containerId": "00000000-0000-4000-8000-000000003500",
-      "title": "RFC-008 Main Container",
-      "path": "containers/main.json"
-    }
-  ],
+  "srsVersion": "2.0",
   "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
   "createdAt": "2026-01-01T00:00:00Z",
   "dataModelRevision": 2,
   "namespace": "fixture.rfc008",
-  "relationsPath": "relations/relations.json",
-  "repositoryId": "00000000-0000-4000-8000-000000003500",
-  "srsVersion": "2.0",
-  "title": "RFC-008 Container Subset Fixture"
+  "repositoryId": "00000000-0000-4000-8000-000000003500"
 }

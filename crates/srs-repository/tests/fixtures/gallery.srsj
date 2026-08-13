@@ -1,128 +1,7 @@
 {
   "srsj": "2",
   "manifest": {
-    "containerIndex": [
-      {
-        "containerId": "f7562aa3-98c7-44be-b4c5-5474df6441f2",
-        "path": "containers/f7562aa3-98c7-44be-b4c5-5474df6441f2.json",
-        "title": "Articles"
-      },
-      {
-        "containerId": "b30db206-e9a7-4588-a9aa-53451aacd243",
-        "path": "containers/b30db206-e9a7-4588-a9aa-53451aacd243.json",
-        "title": "Roles"
-      },
-      {
-        "containerId": "138e2fac-6a8a-4a06-9511-5aefd99ceae9",
-        "path": "containers/138e2fac-6a8a-4a06-9511-5aefd99ceae9.json",
-        "title": "Decisions"
-      },
-      {
-        "containerId": "ece00010-0000-4000-8000-000000000010",
-        "path": "containers/ece00010-0000-4000-8000-000000000010.json",
-        "title": "Exercises"
-      }
-    ],
     "dataModelRevision": 2,
-    "instanceIndex": [
-      {
-        "instanceId": "e4f2a891-3c7d-4b5e-9f12-8a6d0b1c2e3f",
-        "path": "records/notes/e4f2a891-3c7d-4b5e-9f12-8a6d0b1c2e3f.json",
-        "tags": [],
-        "tier": 0,
-        "title": "Initial brain dump"
-      },
-      {
-        "instanceId": "ad159754-2edd-4bf8-a70f-a29a617e5809",
-        "path": "records/tier-2/ad159754-2edd-4bf8-a70f-a29a617e5809.json",
-        "tier": 2
-      },
-      {
-        "instanceId": "31291422-cd8b-4840-b884-d55023d938cb",
-        "path": "records/tier-2/31291422-cd8b-4840-b884-d55023d938cb.json",
-        "tier": 2
-      },
-      {
-        "instanceId": "7560efe9-27e3-4186-8b9d-6ab48283f1df",
-        "path": "records/tier-2/7560efe9-27e3-4186-8b9d-6ab48283f1df.json",
-        "tier": 2
-      },
-      {
-        "instanceId": "0482c489-37b4-4342-adaa-36e69dc6f780",
-        "path": "records/tier-2/0482c489-37b4-4342-adaa-36e69dc6f780.json",
-        "tier": 2
-      },
-      {
-        "instanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288",
-        "path": "records/tier-2/c503fae5-c3ab-452e-a0b4-5682ca204288.json",
-        "tier": 2
-      },
-      {
-        "instanceId": "cc58c0dd-8e3a-4dc5-9b58-f3273911a9a9",
-        "path": "records/tier-2/cc58c0dd-8e3a-4dc5-9b58-f3273911a9a9.json",
-        "tier": 2
-      },
-      {
-        "instanceId": "5bbf9209-1dc9-44b2-b0a3-f2192db5a879",
-        "path": "records/tier-2/5bbf9209-1dc9-44b2-b0a3-f2192db5a879.json",
-        "tier": 2
-      },
-      {
-        "instanceId": "8ed62308-f7b4-47e1-b1a2-5490908efd86",
-        "path": "records/tier-2/8ed62308-f7b4-47e1-b1a2-5490908efd86.json",
-        "tier": 2
-      },
-      {
-        "instanceId": "448d64d4-ae82-4971-b027-3b78b9c7a90a",
-        "path": "records/tier-2/448d64d4-ae82-4971-b027-3b78b9c7a90a.json",
-        "tier": 2
-      },
-      {
-        "instanceId": "9054911c-5285-4c3e-8198-4b9650169001",
-        "path": "records/tier-2/9054911c-5285-4c3e-8198-4b9650169001.json",
-        "tier": 2
-      },
-      {
-        "instanceId": "eb4024a0-486f-4d64-a4e4-5d80297129d2",
-        "path": "records/tier-2/eb4024a0-486f-4d64-a4e4-5d80297129d2.json",
-        "tier": 2
-      },
-      {
-        "instanceId": "3be7b057-9167-42a4-b0db-2a8b30666cef",
-        "path": "records/tier-2/3be7b057-9167-42a4-b0db-2a8b30666cef.json",
-        "tier": 2
-      },
-      {
-        "instanceId": "9af57e54-03fb-4625-9a4c-8d2a254ff2b7",
-        "path": "records/tier-2/9af57e54-03fb-4625-9a4c-8d2a254ff2b7.json",
-        "tier": 2
-      },
-      {
-        "instanceId": "4a989562-4a9d-4c86-a365-91bf14d55f06",
-        "path": "records/tier-2/4a989562-4a9d-4c86-a365-91bf14d55f06.json",
-        "tier": 2
-      },
-      {
-        "instanceId": "dd715d4a-8640-4641-b79d-e44f728c547b",
-        "path": "records/tier-2/dd715d4a-8640-4641-b79d-e44f728c547b.json",
-        "tier": 2
-      },
-      {
-        "instanceId": "a9ca11cf-fd34-4901-b5f6-51e20737cb56",
-        "path": "records/tier-2/a9ca11cf-fd34-4901-b5f6-51e20737cb56.json",
-        "tier": 2
-      },
-      {
-        "instanceId": "ee000001-0000-4000-8000-000000000001",
-        "path": "records/tier-2/ee000001-0000-4000-8000-000000000001.json",
-        "tier": 2
-      },
-      {
-        "instanceId": "ee000002-0000-4000-8000-000000000002",
-        "path": "records/tier-2/ee000002-0000-4000-8000-000000000002.json",
-        "tier": 2
-      }
-    ],
     "namespace": "com.limoma",
     "repositoryId": "8ae058dc-b52d-4e52-8e7e-969018532a04",
     "srsVersion": "2.0-draft"
@@ -1378,115 +1257,125 @@
       "typeVersion": 1,
       "updatedAt": "2026-06-27T00:00:00Z"
     },
-    "relations/relations-collection.json": {
-      "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
-      "relations": [
-        {
-          "createdAt": "2026-05-31T00:00:00Z",
-          "relationId": "33bafd90-6748-47dd-a302-3c06f22fbe05",
-          "relationType": "precedes",
-          "sourceInstanceId": "ad159754-2edd-4bf8-a70f-a29a617e5809",
-          "targetInstanceId": "31291422-cd8b-4840-b884-d55023d938cb"
-        },
-        {
-          "createdAt": "2026-05-31T00:00:00Z",
-          "relationId": "96d89162-fbf7-4036-a38c-3b09452ec073",
-          "relationType": "precedes",
-          "sourceInstanceId": "31291422-cd8b-4840-b884-d55023d938cb",
-          "targetInstanceId": "7560efe9-27e3-4186-8b9d-6ab48283f1df"
-        },
-        {
-          "createdAt": "2026-05-31T00:00:00Z",
-          "relationId": "ae90c407-4b89-444c-b55c-c47c321d620d",
-          "relationType": "precedes",
-          "sourceInstanceId": "7560efe9-27e3-4186-8b9d-6ab48283f1df",
-          "targetInstanceId": "0482c489-37b4-4342-adaa-36e69dc6f780"
-        },
-        {
-          "createdAt": "2026-05-31T00:00:00Z",
-          "relationId": "9271b98a-0993-4c15-8a03-c500e8ce1c03",
-          "relationType": "precedes",
-          "sourceInstanceId": "0482c489-37b4-4342-adaa-36e69dc6f780",
-          "targetInstanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288"
-        },
-        {
-          "createdAt": "2026-05-31T00:00:00Z",
-          "relationId": "b5806157-21bf-4304-a6be-fb648f38e6a4",
-          "relationType": "precedes",
-          "sourceInstanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288",
-          "targetInstanceId": "cc58c0dd-8e3a-4dc5-9b58-f3273911a9a9"
-        },
-        {
-          "createdAt": "2026-05-31T00:00:00Z",
-          "relationId": "3163376c-b056-464a-87e9-f31f0067a1d3",
-          "relationType": "derived-from",
-          "sourceInstanceId": "448d64d4-ae82-4971-b027-3b78b9c7a90a",
-          "targetInstanceId": "0482c489-37b4-4342-adaa-36e69dc6f780"
-        },
-        {
-          "createdAt": "2026-05-31T00:00:00Z",
-          "relationId": "74329aa8-bda6-4d4d-a67b-61466eb0028a",
-          "relationType": "derived-from",
-          "sourceInstanceId": "9054911c-5285-4c3e-8198-4b9650169001",
-          "targetInstanceId": "31291422-cd8b-4840-b884-d55023d938cb"
-        },
-        {
-          "createdAt": "2026-05-31T00:00:00Z",
-          "relationId": "9f3638e9-08cd-483b-9f11-b8b2e791d7f6",
-          "relationType": "derived-from",
-          "sourceInstanceId": "a9ca11cf-fd34-4901-b5f6-51e20737cb56",
-          "targetInstanceId": "cc58c0dd-8e3a-4dc5-9b58-f3273911a9a9"
-        },
-        {
-          "createdAt": "2026-05-31T00:00:00Z",
-          "relationId": "e458157d-6f9a-4c56-92d6-25954780c664",
-          "relationType": "evidences",
-          "sourceInstanceId": "eb4024a0-486f-4d64-a4e4-5d80297129d2",
-          "targetInstanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288"
-        },
-        {
-          "createdAt": "2026-05-31T00:00:00Z",
-          "relationId": "c7a2f118-c201-4296-8ed0-8aac2e86b9ef",
-          "relationType": "evidences",
-          "sourceInstanceId": "4a989562-4a9d-4c86-a365-91bf14d55f06",
-          "targetInstanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288"
-        },
-        {
-          "createdAt": "2026-05-31T00:00:00Z",
-          "relationId": "749dc20a-ba74-4f39-b619-5869a652e616",
-          "relationType": "evidences",
-          "sourceInstanceId": "9af57e54-03fb-4625-9a4c-8d2a254ff2b7",
-          "targetInstanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288"
-        },
-        {
-          "createdAt": "2026-05-31T00:00:00Z",
-          "relationId": "fa46f4c2-ef60-4f26-82bc-f28d3f99bf75",
-          "relationType": "delegates",
-          "sourceInstanceId": "0482c489-37b4-4342-adaa-36e69dc6f780",
-          "targetInstanceId": "8ed62308-f7b4-47e1-b1a2-5490908efd86"
-        },
-        {
-          "createdAt": "2026-05-31T00:00:00Z",
-          "relationId": "e1967251-6eca-45e9-a95c-b6c6d36f9518",
-          "relationType": "delegates",
-          "sourceInstanceId": "0482c489-37b4-4342-adaa-36e69dc6f780",
-          "targetInstanceId": "5bbf9209-1dc9-44b2-b0a3-f2192db5a879"
-        },
-        {
-          "createdAt": "2026-05-31T00:00:00Z",
-          "relationId": "a069348a-c079-43a3-afd8-5e2633c8993a",
-          "relationType": "evidences",
-          "sourceInstanceId": "dd715d4a-8640-4641-b79d-e44f728c547b",
-          "targetInstanceId": "8ed62308-f7b4-47e1-b1a2-5490908efd86"
-        },
-        {
-          "createdAt": "2026-05-31T00:00:00Z",
-          "relationId": "783716de-7cf3-49c5-8c35-b2e46f247ea2",
-          "relationType": "evidences",
-          "sourceInstanceId": "3be7b057-9167-42a4-b0db-2a8b30666cef",
-          "targetInstanceId": "8ed62308-f7b4-47e1-b1a2-5490908efd86"
-        }
-      ]
+    "relations/3163376c-b056-464a-87e9-f31f0067a1d3.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "relationId": "3163376c-b056-464a-87e9-f31f0067a1d3",
+      "relationType": "derived-from",
+      "sourceInstanceId": "448d64d4-ae82-4971-b027-3b78b9c7a90a",
+      "targetInstanceId": "0482c489-37b4-4342-adaa-36e69dc6f780"
+    },
+    "relations/33bafd90-6748-47dd-a302-3c06f22fbe05.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "relationId": "33bafd90-6748-47dd-a302-3c06f22fbe05",
+      "relationType": "precedes",
+      "sourceInstanceId": "ad159754-2edd-4bf8-a70f-a29a617e5809",
+      "targetInstanceId": "31291422-cd8b-4840-b884-d55023d938cb"
+    },
+    "relations/74329aa8-bda6-4d4d-a67b-61466eb0028a.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "relationId": "74329aa8-bda6-4d4d-a67b-61466eb0028a",
+      "relationType": "derived-from",
+      "sourceInstanceId": "9054911c-5285-4c3e-8198-4b9650169001",
+      "targetInstanceId": "31291422-cd8b-4840-b884-d55023d938cb"
+    },
+    "relations/749dc20a-ba74-4f39-b619-5869a652e616.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "relationId": "749dc20a-ba74-4f39-b619-5869a652e616",
+      "relationType": "evidences",
+      "sourceInstanceId": "9af57e54-03fb-4625-9a4c-8d2a254ff2b7",
+      "targetInstanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288"
+    },
+    "relations/783716de-7cf3-49c5-8c35-b2e46f247ea2.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "relationId": "783716de-7cf3-49c5-8c35-b2e46f247ea2",
+      "relationType": "evidences",
+      "sourceInstanceId": "3be7b057-9167-42a4-b0db-2a8b30666cef",
+      "targetInstanceId": "8ed62308-f7b4-47e1-b1a2-5490908efd86"
+    },
+    "relations/9271b98a-0993-4c15-8a03-c500e8ce1c03.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "relationId": "9271b98a-0993-4c15-8a03-c500e8ce1c03",
+      "relationType": "precedes",
+      "sourceInstanceId": "0482c489-37b4-4342-adaa-36e69dc6f780",
+      "targetInstanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288"
+    },
+    "relations/96d89162-fbf7-4036-a38c-3b09452ec073.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "relationId": "96d89162-fbf7-4036-a38c-3b09452ec073",
+      "relationType": "precedes",
+      "sourceInstanceId": "31291422-cd8b-4840-b884-d55023d938cb",
+      "targetInstanceId": "7560efe9-27e3-4186-8b9d-6ab48283f1df"
+    },
+    "relations/9f3638e9-08cd-483b-9f11-b8b2e791d7f6.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "relationId": "9f3638e9-08cd-483b-9f11-b8b2e791d7f6",
+      "relationType": "derived-from",
+      "sourceInstanceId": "a9ca11cf-fd34-4901-b5f6-51e20737cb56",
+      "targetInstanceId": "cc58c0dd-8e3a-4dc5-9b58-f3273911a9a9"
+    },
+    "relations/a069348a-c079-43a3-afd8-5e2633c8993a.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "relationId": "a069348a-c079-43a3-afd8-5e2633c8993a",
+      "relationType": "evidences",
+      "sourceInstanceId": "dd715d4a-8640-4641-b79d-e44f728c547b",
+      "targetInstanceId": "8ed62308-f7b4-47e1-b1a2-5490908efd86"
+    },
+    "relations/ae90c407-4b89-444c-b55c-c47c321d620d.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "relationId": "ae90c407-4b89-444c-b55c-c47c321d620d",
+      "relationType": "precedes",
+      "sourceInstanceId": "7560efe9-27e3-4186-8b9d-6ab48283f1df",
+      "targetInstanceId": "0482c489-37b4-4342-adaa-36e69dc6f780"
+    },
+    "relations/b5806157-21bf-4304-a6be-fb648f38e6a4.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "relationId": "b5806157-21bf-4304-a6be-fb648f38e6a4",
+      "relationType": "precedes",
+      "sourceInstanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288",
+      "targetInstanceId": "cc58c0dd-8e3a-4dc5-9b58-f3273911a9a9"
+    },
+    "relations/c7a2f118-c201-4296-8ed0-8aac2e86b9ef.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "relationId": "c7a2f118-c201-4296-8ed0-8aac2e86b9ef",
+      "relationType": "evidences",
+      "sourceInstanceId": "4a989562-4a9d-4c86-a365-91bf14d55f06",
+      "targetInstanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288"
+    },
+    "relations/e1967251-6eca-45e9-a95c-b6c6d36f9518.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "relationId": "e1967251-6eca-45e9-a95c-b6c6d36f9518",
+      "relationType": "delegates",
+      "sourceInstanceId": "0482c489-37b4-4342-adaa-36e69dc6f780",
+      "targetInstanceId": "5bbf9209-1dc9-44b2-b0a3-f2192db5a879"
+    },
+    "relations/e458157d-6f9a-4c56-92d6-25954780c664.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "relationId": "e458157d-6f9a-4c56-92d6-25954780c664",
+      "relationType": "evidences",
+      "sourceInstanceId": "eb4024a0-486f-4d64-a4e4-5d80297129d2",
+      "targetInstanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288"
+    },
+    "relations/fa46f4c2-ef60-4f26-82bc-f28d3f99bf75.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+      "createdAt": "2026-05-31T00:00:00Z",
+      "relationId": "fa46f4c2-ef60-4f26-82bc-f28d3f99bf75",
+      "relationType": "delegates",
+      "sourceInstanceId": "0482c489-37b4-4342-adaa-36e69dc6f780",
+      "targetInstanceId": "8ed62308-f7b4-47e1-b1a2-5490908efd86"
     }
   }
 }
