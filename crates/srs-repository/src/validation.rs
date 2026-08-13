@@ -5510,7 +5510,6 @@ mod tests {
             "repositoryId": root_id,
             "title": "Test I-80",
             "container": {"containerId": root_id, "title": "Root", "memberInstanceIds": [member_id]},
-            "dataModelRevision": 2,
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
@@ -5549,7 +5548,6 @@ mod tests {
             "repositoryId": root_id,
             "title": "Test I-80 root",
             "container": {"containerId": root_id, "title": "Root", "rootInstanceIds": [root_member_id]},
-            "dataModelRevision": 2,
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
@@ -6097,7 +6095,6 @@ mod tests {
             "repositoryId": root_id,
             "title": "Embed Only",
             "container": {"containerId": root_id, "title": "Root", "identityInstanceId": "99999999-9999-4999-8999-999999999999"},
-            "dataModelRevision": 2,
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let temp = TempDir::new().unwrap();
@@ -6273,7 +6270,6 @@ mod tests {
             "repositoryId": root_id,
             "title": "Cross-Store I-80",
             "container": {"containerId": root_id, "title": "Root", "memberInstanceIds": [member_id]},
-            "dataModelRevision": 2,
             "createdAt": "2026-01-01T00:00:00Z"
         });
 

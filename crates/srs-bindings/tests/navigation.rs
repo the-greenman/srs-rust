@@ -177,7 +177,6 @@ fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
                 "identityInstanceId": NOTE_INSTANCE_ID,
                 "memberInstanceIds": [NOTE_INSTANCE_ID, ARTICLES_ID, DECISIONS_ID]
             },
-            "dataModelRevision": 2,
             "packageRef": {"mode": "local", "path": "package"}
         },
         "data": {

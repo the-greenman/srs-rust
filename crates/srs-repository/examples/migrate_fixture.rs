@@ -54,7 +54,8 @@ fn migrate_directory(path: &str) {
         });
     if revision < 2 {
         // Pre-RFC-039 fixture: bring it to the carrier generation first —
-        // `rfc038-storage` refuses anything below revision 2.
+        // both transform surfaces refuse anything below revision 2 ([R21]
+        // ordering guard).
         srs_repository::field_type_migration_service::migrate_field_types(&store).unwrap_or_else(
             |e| {
                 eprintln!("{path}: field-type migration failed: {e}");
