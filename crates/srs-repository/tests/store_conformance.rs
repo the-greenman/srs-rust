@@ -555,3 +555,120 @@ fn batch_abort_rolls_back() {
         "find_instance must return None after abort_batch — aborted writes must not be visible (ADR-021)"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Area 5: catalog equality across the store matrix (RFC-038 acceptance test 3)
+// ---------------------------------------------------------------------------
+//
+// FileStore(Disk) = FileStore(MemVfs `.srsj` session) = MemoryStore: the same
+// logical content produces the same catalog — same ids, kinds and tiers, in
+// the same [R14] order — and equivalent (here: empty) diagnostics. The
+// database-shaped store is excluded (srs-rust#706).
+
+fn make_relation(id: &str, source: &str, target: &str) -> srs_core::types::relation::Relation {
+    serde_json::from_value(serde_json::json!({
+        "relationId": id,
+        "relationType": "precedes",
+        "sourceInstanceId": source,
+        "targetInstanceId": target,
+        "createdAt": "2026-01-01T00:00:00Z"
+    }))
+    .expect("relation fixture must deserialize")
+}
+
+/// Write one logical content set through the trait surface.
+fn populate_matrix_content(store: &dyn RepositoryStore) {
+    let rec_a = "0a000001-0000-4000-8000-000000000001";
+    let rec_b = "0a000002-0000-4000-8000-000000000002";
+    let note_c = "0a000003-0000-4000-8000-000000000003";
+    store
+        .save_record(&make_record(rec_a, "MatrixA", Some(vec!["m".into()])))
+        .unwrap();
+    store
+        .save_record(&make_record(rec_b, "MatrixB", None))
+        .unwrap();
+    store
+        .save_note(&make_note(note_c, "Matrix Note", None))
+        .unwrap();
+    store
+        .save_container(&make_container(
+            "0c000001-0000-4000-8000-000000000001",
+            "Matrix Container",
+        ))
+        .unwrap();
+    store
+        .save_relation(&make_relation(
+            "0d000001-0000-4000-8000-000000000001",
+            rec_a,
+            rec_b,
+        ))
+        .unwrap();
+}
+
+/// The identity projection compared across backends: `(kind, id, tier)` per
+/// set, in enumeration order. Locators are deliberately excluded — [R23]: a
+/// locator is not semantic identity, and the backends may place files
+/// differently.
+fn catalog_identity(store: &dyn RepositoryStore) -> Vec<(String, String, Option<u8>)> {
+    let cat = store.catalog().expect("catalog must build");
+    assert!(
+        cat.diagnostics.is_empty(),
+        "matrix content must be diagnostic-free: {:?}",
+        cat.diagnostics
+    );
+    let mut out = Vec::new();
+    for (label, set) in [
+        ("instance", &cat.instances),
+        ("relation", &cat.relations),
+        ("container", &cat.containers),
+        ("source-document", &cat.source_documents),
+    ] {
+        for e in set {
+            out.push((label.to_string(), e.id.clone(), e.tier));
+        }
+    }
+    out
+}
+
+#[test]
+fn store_matrix_produces_identical_catalogs() {
+    // MemoryStore arm — initialized with the same repository metadata as the
+    // file-backed arms, so the root-container embed matches too.
+    let mem = MemoryStore::uninitialized();
+    mem.initialize_repository(&init_input()).unwrap();
+    populate_matrix_content(&mem);
+    let mem_identity = catalog_identity(&mem);
+    assert!(
+        !mem_identity.is_empty(),
+        "the matrix content must enumerate — an empty baseline proves nothing"
+    );
+
+    // FileStore(Disk) arm.
+    let (disk, _tmp) = init_file_store();
+    populate_matrix_content(&disk);
+    let disk_identity = catalog_identity(&disk);
+
+    // FileStore(MemVfs) arm, through the real `.srsj` codec round-trip.
+    let (json, _tmp2) = init_json_store();
+    populate_matrix_content(&json);
+    let json_identity = catalog_identity(&json);
+
+    assert_eq!(
+        mem_identity, disk_identity,
+        "MemoryStore vs FileStore(Disk)"
+    );
+    assert_eq!(
+        disk_identity, json_identity,
+        "FileStore(Disk) vs .srsj codec"
+    );
+
+    // The `.srsj` projection of the populated disk store reopens to the same
+    // catalog — codec encode/decode changes nothing ([R17]/[R19]).
+    let projected = srs_repository::srsj::to_srsj_string(&disk).expect("project to .srsj");
+    let reopened = open_srsj(&projected).expect("projected document must reopen");
+    assert_eq!(
+        disk_identity,
+        catalog_identity(&reopened),
+        "a .srsj round-trip must preserve the catalog identity"
+    );
+}
