@@ -27,12 +27,13 @@ ways a dangling reference can arrive — `container create` / `container update`
 membership list wholesale, and an imported or hand-authored repository can carry one from
 outside this implementation entirely.
 
-There is already one sanctioned [R24] exemption: `repo validate` (and
-`container_service::validate_container_invariants`) build through the unchecked
+There are already sanctioned [R24] exemptions. `repo validate` and
+`container_service::validate_container_invariants` build through the unchecked
 `catalog::build` because their entire purpose is to *report* an incoherent repository, which
-they could not do if incoherence failed the call. Repair is the second half of that same
-workflow — `repo validate` names the offending container and id, and something has to be able
-to act on the answer.
+they could not do if incoherence failed the call; `archive::pack` does the same so that
+archiving stays a faithful copier — it must not refuse a repository `repo validate` would
+merely report on. Repair is the missing half of the first of those workflows: `repo validate`
+names the offending container and id, and something has to be able to act on the answer.
 
 ## Decision
 
@@ -65,16 +66,21 @@ require their incoming id to resolve.
 - A repository bricked by a dangling container reference is repairable through the CLI —
   `repo validate` (already exempt) names the offending container and id, and
   `container roots remove` / `container members remove` act on it. No hand-edited JSON.
-- The exemption is narrow, mechanically identifiable (the `*_unchecked` store methods and the
-  two `*_for_repair` service helpers), and reuses the shared bodies of the checked path, so
-  the two cannot drift.
+- The exemption is narrow and reuses the shared bodies of the checked path, so the checked and
+  unchecked variants cannot drift.
+- Reviewing the exemption set means grepping for two things, not one: the `*_unchecked` store
+  methods introduced here (used by the two `*_for_repair` service helpers and by
+  `validate_container_invariants`), and any remaining direct `crate::catalog::build` call.
+  `archive::pack` is the one such direct caller left, with its own documented rationale.
 - Store-agnostic by construction: the unchecked builder is a free function over
   `&dyn RepositoryStore`, so disk and `.srsj`/tree sessions behave identically.
 
 **Negative / trade-offs:**
-- A second [R24] exemption exists, and each one is a place where a caller sees a repository
-  the rest of the system considers unloadable. The mitigation is scope: removal is the only
-  mutation that qualifies, and the reasoning is written at both helpers.
+- This is the first [R24] exemption granted to a **write**; the existing ones (`repo validate`,
+  `validate_container_invariants`, `archive::pack`) all only read. Every exemption is a place
+  where a caller sees a repository the rest of the system considers unloadable, and a writing
+  one more so. The mitigation is scope: removal is the only mutation that qualifies, and the
+  reasoning is written at both helpers.
 - `remove_member` / `remove_root` no longer fail fast on an unrelated fatal diagnostic
   elsewhere in the repository. That is the point, but it does mean a caller can successfully
   remove a membership entry from a repository that is still broken for other reasons.
