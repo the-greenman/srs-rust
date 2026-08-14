@@ -662,7 +662,7 @@ pub fn validate_container_invariants(
     // by construction already persisted, so its own dangling reference would
     // otherwise fail the fatal catalog build before this function ever got
     // to describe the problem.
-    let cat = crate::catalog::build(store)?;
+    let cat = store.catalog_unchecked()?;
     let container: Container = match cat
         .containers
         .iter()
