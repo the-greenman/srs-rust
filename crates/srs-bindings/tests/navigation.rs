@@ -124,8 +124,17 @@ fn repository_navigation_returns_identity_and_sections() {
     let nav = repository_navigation(&store).expect("navigation must succeed");
 
     assert_eq!(nav.root_container_id, ROOT_CONTAINER_ID);
-    assert_eq!(nav.identity.instance_id, IDENTITY_ID);
-    assert_eq!(nav.identity.display_label, "Governance Repo");
+    assert_eq!(
+        nav.identity.as_ref().expect("identity present").instance_id,
+        IDENTITY_ID
+    );
+    assert_eq!(
+        nav.identity
+            .as_ref()
+            .expect("identity present")
+            .display_label,
+        "Governance Repo"
+    );
 
     assert_eq!(nav.sections.len(), 2);
     // precedes relation: articles (a200) precedes decisions (a300)
@@ -259,8 +268,17 @@ fn repository_navigation_tier0_note_identity_returns_diagnostic() {
             .expect("fixture must load");
     let nav = repository_navigation(&store).expect("navigation must return Ok, not Err");
 
-    assert_eq!(nav.identity.instance_id, NOTE_INSTANCE_ID);
-    assert_eq!(nav.identity.display_label, "Example Governance");
+    assert_eq!(
+        nav.identity.as_ref().expect("identity present").instance_id,
+        NOTE_INSTANCE_ID
+    );
+    assert_eq!(
+        nav.identity
+            .as_ref()
+            .expect("identity present")
+            .display_label,
+        "Example Governance"
+    );
     assert_eq!(nav.diagnostics.len(), 1);
     assert!(nav.diagnostics[0].contains("Tier-0"));
 
@@ -284,8 +302,17 @@ fn repository_navigation_tier0_note_identity_no_title_uses_id_as_label() {
         srs_repository::srsj::open_srsj(&tier0_nav_fixture_srsj(None)).expect("fixture must load");
     let nav = repository_navigation(&store).expect("navigation must return Ok, not Err");
 
-    assert_eq!(nav.identity.instance_id, NOTE_INSTANCE_ID);
-    assert_eq!(nav.identity.display_label, NOTE_INSTANCE_ID);
+    assert_eq!(
+        nav.identity.as_ref().expect("identity present").instance_id,
+        NOTE_INSTANCE_ID
+    );
+    assert_eq!(
+        nav.identity
+            .as_ref()
+            .expect("identity present")
+            .display_label,
+        NOTE_INSTANCE_ID
+    );
     assert_eq!(nav.diagnostics.len(), 1);
 }
 
@@ -420,7 +447,9 @@ fn repository_navigation_without_manifest_container_returns_diagnostic() {
     let nav = repository_navigation(&store).expect("navigation must return ok (not error)");
 
     assert_eq!(nav.root_container_id, "");
-    assert_eq!(nav.identity.instance_id, ""); // NavigationNode::default(), not null
+    // ADR-044 (srs-rust#838): absence is None and an omitted JSON key, never an
+    // empty-string node standing in for one.
+    assert!(nav.identity.is_none());
     assert!(nav.sections.is_empty());
     assert_eq!(nav.diagnostics.len(), 1);
     assert!(nav.diagnostics[0].contains("manifest.container is absent"));
