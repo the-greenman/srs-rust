@@ -566,16 +566,20 @@ pub trait RepositoryStore {
         &self,
         container_id: &str,
     ) -> Result<srs_core::types::container::Container, RepositoryError> {
-        let Some(path) = catalog_file_container_locator(self, container_id)? else {
-            return Err(RepositoryError::ContainerNotFound {
-                container_id: container_id.to_string(),
-            });
-        };
-        let val = self.load_instance_json(&path)?;
-        serde_json::from_value(val).map_err(|source| RepositoryError::ManifestParse {
-            path: PathBuf::from(&path),
-            source,
-        })
+        let locator = catalog_file_container_locator(self, container_id)?;
+        load_container_at(self, container_id, locator)
+    }
+
+    /// [`load_container`] with the locator resolved from the **unchecked**
+    /// catalog builder — the repair seam (ADR-045). Identical in every other
+    /// respect; the only difference is that a fatal [R24] diagnostic elsewhere
+    /// in the repository does not stop the load.
+    fn load_container_unchecked(
+        &self,
+        container_id: &str,
+    ) -> Result<srs_core::types::container::Container, RepositoryError> {
+        let locator = unchecked_file_container_locator(self, container_id)?;
+        load_container_at(self, container_id, locator)
     }
 
     /// Persist a container by its logical `container_id`.
@@ -587,40 +591,19 @@ pub trait RepositoryStore {
         &self,
         container: &srs_core::types::container::Container,
     ) -> Result<(), RepositoryError> {
-        let id = &container.container_id;
-        let val = serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
-            path: PathBuf::from("containers"),
-            source,
-        })?;
-        if let Some(path) = catalog_file_container_locator(self, id)? {
-            // Existing file-backed container — overwrite in place.
-            return self.save_instance_json(&path, &val);
-        }
-        // The inline root container is authoritative in the manifest ([R1]):
-        // never materialise a duplicate file for it — update the embed.
-        let mut manifest = self.load_manifest()?;
-        if manifest
-            .container
-            .as_ref()
-            .is_some_and(|c| &c.container_id == id)
-        {
-            manifest.container = Some(container.clone());
-            return self.save_manifest(&manifest);
-        }
-        // New container — collision-safe `containers/` filename, no index write.
-        let slug = container
-            .title
-            .to_lowercase()
-            .chars()
-            .map(|c| if c.is_alphanumeric() { c } else { '-' })
-            .collect::<String>();
-        let prefix = &id[..id.len().min(8)];
-        let mut filename = format!("containers/{slug}-{prefix}.json");
-        if !matches!(self.load_instance_json(&filename), Err(ref e) if e.is_not_found()) {
-            filename = format!("containers/{slug}-{id}.json");
-        }
-        self.ensure_instance_dir("containers")?;
-        self.save_instance_json(&filename, &val)
+        let locator = catalog_file_container_locator(self, &container.container_id)?;
+        save_container_at(self, container, locator)
+    }
+
+    /// [`save_container`] with the locator resolved from the **unchecked**
+    /// catalog builder — the repair seam (ADR-045). See
+    /// [`load_container_unchecked`](RepositoryStore::load_container_unchecked).
+    fn save_container_unchecked(
+        &self,
+        container: &srs_core::types::container::Container,
+    ) -> Result<(), RepositoryError> {
+        let locator = unchecked_file_container_locator(self, &container.container_id)?;
+        save_container_at(self, container, locator)
     }
 
     /// Delete a **file-backed** container by its logical `container_id` —
@@ -809,6 +792,14 @@ pub trait RepositoryStore {
 
     /// Enumerate the repository into a [`crate::catalog::RepositoryCatalog`].
     fn catalog(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+        Err(RepositoryError::CatalogUnsupported)
+    }
+
+    /// [`catalog`](RepositoryStore::catalog) without [R24] fatality applied —
+    /// the repair seam (ADR-045). Every diagnostic travels in the result instead
+    /// of failing the call, so an operation that can only *reduce* incoherence
+    /// still works on a repository no ordinary command can load.
+    fn catalog_unchecked(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
         Err(RepositoryError::CatalogUnsupported)
     }
 
@@ -1837,6 +1828,10 @@ impl RepositoryStore for FileStore {
         crate::catalog::build_checked(self)
     }
 
+    fn catalog_unchecked(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+        crate::catalog::build(self)
+    }
+
     fn catalog_validity_token(&self) -> Result<String, RepositoryError> {
         Ok(crate::catalog::build(self)?.validity_token())
     }
@@ -2264,13 +2259,92 @@ fn catalog_file_container_locator<S: RepositoryStore + ?Sized>(
     store: &S,
     container_id: &str,
 ) -> Result<Option<String>, RepositoryError> {
-    let cat = store.catalog()?;
-    Ok(cat
-        .containers
+    Ok(file_container_locator_in(store.catalog()?, container_id))
+}
+
+/// [`catalog_file_container_locator`] over the **unchecked** builder: a fatal
+/// [R24] diagnostic elsewhere in the repository does not stop the lookup. Backs
+/// the repair seam (ADR-045) and nothing else.
+fn unchecked_file_container_locator<S: RepositoryStore + ?Sized>(
+    store: &S,
+    container_id: &str,
+) -> Result<Option<String>, RepositoryError> {
+    Ok(file_container_locator_in(
+        store.catalog_unchecked()?,
+        container_id,
+    ))
+}
+
+fn file_container_locator_in(
+    cat: crate::catalog::RepositoryCatalog,
+    container_id: &str,
+) -> Option<String> {
+    cat.containers
         .into_iter()
         .filter(|e| e.locator.as_deref() != Some(crate::catalog::ROOT_CONTAINER_LOCATOR))
         .find(|e| e.id == container_id)
-        .and_then(|e| e.locator))
+        .and_then(|e| e.locator)
+}
+
+/// The body shared by `load_container` and `load_container_unchecked` — the two
+/// differ only in which catalog builder resolved `locator`.
+fn load_container_at<S: RepositoryStore + ?Sized>(
+    store: &S,
+    container_id: &str,
+    locator: Option<String>,
+) -> Result<srs_core::types::container::Container, RepositoryError> {
+    let Some(path) = locator else {
+        return Err(RepositoryError::ContainerNotFound {
+            container_id: container_id.to_string(),
+        });
+    };
+    let val = store.load_instance_json(&path)?;
+    serde_json::from_value(val).map_err(|source| RepositoryError::ManifestParse {
+        path: PathBuf::from(&path),
+        source,
+    })
+}
+
+/// The body shared by `save_container` and `save_container_unchecked`.
+fn save_container_at<S: RepositoryStore + ?Sized>(
+    store: &S,
+    container: &srs_core::types::container::Container,
+    locator: Option<String>,
+) -> Result<(), RepositoryError> {
+    let id = &container.container_id;
+    let val = serde_json::to_value(container).map_err(|source| RepositoryError::Serialize {
+        path: PathBuf::from("containers"),
+        source,
+    })?;
+    if let Some(path) = locator {
+        // Existing file-backed container — overwrite in place.
+        return store.save_instance_json(&path, &val);
+    }
+    // The inline root container is authoritative in the manifest ([R1]):
+    // never materialise a duplicate file for it — update the embed.
+    let mut manifest = store.load_manifest()?;
+    if manifest
+        .container
+        .as_ref()
+        .is_some_and(|c| &c.container_id == id)
+    {
+        manifest.container = Some(container.clone());
+        return store.save_manifest(&manifest);
+    }
+    // New container — collision-safe `containers/` filename, no index write.
+    let slug = container
+        .title
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>();
+    let prefix = &id[..id.len().min(8)];
+    let mut filename = format!("containers/{slug}-{prefix}.json");
+    if !matches!(store.load_instance_json(&filename), Err(ref e) if e.is_not_found()) {
+        filename = format!("containers/{slug}-{id}.json");
+    }
+    store.ensure_instance_dir("containers")?;
+    store.save_instance_json(&filename, &val)
 }
 
 /// Inject `$schema` into a serialized definition value when absent. The typed
@@ -3246,6 +3320,10 @@ pub mod memory {
 
         fn catalog(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
             crate::catalog::build_checked(self)
+        }
+
+        fn catalog_unchecked(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+            crate::catalog::build(self)
         }
 
         fn catalog_validity_token(&self) -> Result<String, RepositoryError> {

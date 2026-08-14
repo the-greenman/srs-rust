@@ -220,6 +220,54 @@ fn load_container_with_embed_fallback(
     }
 }
 
+/// [`load_container_with_embed_fallback`] for a **repair** operation (ADR-045).
+///
+/// Two deliberate differences, both required for the caller to be able to act on
+/// a repository whose catalog build is fatal under [R24]:
+/// - the file-backed lookup goes through `load_container_unchecked`;
+/// - the embed fallback reads `manifest.container` directly rather than calling
+///   `resolve_root_container`, which routes through the **checked**
+///   `store.load_container` and so would re-raise the very error being repaired.
+fn load_container_for_repair(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+) -> Result<(Container, bool), RepositoryError> {
+    match store.load_container_unchecked(container_id) {
+        Ok(c) => Ok((c, false)),
+        Err(RepositoryError::ContainerNotFound { .. }) => match store.load_manifest()?.container {
+            Some(c) if c.container_id == container_id => Ok((c, true)),
+            _ => Err(RepositoryError::ContainerNotFound {
+                container_id: container_id.to_string(),
+            }),
+        },
+        Err(e) => Err(e),
+    }
+}
+
+/// [`save_container_syncing_embed`] for a **repair** operation (ADR-045) — the
+/// write half of [`load_container_for_repair`]. Mirrors the
+/// `sync_file_backed_root = false` behaviour of its checked counterpart.
+fn save_container_for_repair(
+    store: &dyn RepositoryStore,
+    container: &Container,
+    is_embed_only: bool,
+) -> Result<(), RepositoryError> {
+    if is_embed_only {
+        let mut manifest = store.load_manifest()?;
+        if manifest
+            .container
+            .as_ref()
+            .map(|mc| mc.container_id.as_str())
+            == Some(container.container_id.as_str())
+        {
+            manifest.container = Some(container.clone());
+            write_manifest(store, &manifest)?;
+        }
+        return Ok(());
+    }
+    store.save_container_unchecked(container)
+}
+
 /// Save a container, syncing `manifest.container` when appropriate.
 ///
 /// `sync_file_backed_root`: when true and the container is a file-backed root, do a
@@ -379,11 +427,43 @@ pub(crate) fn list_members(
     Ok(combined)
 }
 
+/// Membership writes may only name an instance that actually exists.
+///
+/// A container reference that resolves to nothing is a fatal [R13] catalog
+/// diagnostic, so persisting one turns the repository into something no command
+/// can load — including the `remove` that would undo it. The check therefore
+/// belongs here, ahead of any write, in the one path the CLI, MCP and WASM
+/// adapters all route through (ADR-010; srs-rust#841). Blank ids get their own
+/// message: `InstanceNotFound { id: "" }` reads as a lookup failure when the real
+/// problem is an empty argument.
+fn require_resolvable_instance(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+) -> Result<(), RepositoryError> {
+    if instance_id.trim().is_empty() {
+        return Err(RepositoryError::InvalidInput {
+            message: "instance_id must not be empty".to_string(),
+        });
+    }
+    if !store
+        .catalog()?
+        .instances
+        .iter()
+        .any(|e| e.id == instance_id)
+    {
+        return Err(RepositoryError::InstanceNotFound {
+            id: instance_id.to_string(),
+        });
+    }
+    Ok(())
+}
+
 pub fn add_member(
     store: &dyn RepositoryStore,
     container_id: &str,
     instance_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
+    require_resolvable_instance(store, instance_id)?;
     let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
     let mut members = container.member_instance_ids.unwrap_or_default();
     if members.iter().any(|id| id == instance_id) {
@@ -396,12 +476,16 @@ pub fn add_member(
     Ok(members)
 }
 
+/// Remove a member — a **repair** operation (ADR-045), so it reads and writes
+/// through the unchecked catalog. Dropping a membership entry can only reduce
+/// incoherence, and it is the only way back out of a repository bricked by a
+/// dangling container reference (srs-rust#841).
 pub fn remove_member(
     store: &dyn RepositoryStore,
     container_id: &str,
     instance_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
-    let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
+    let (mut container, is_embed_only) = load_container_for_repair(store, container_id)?;
     let mut members = container.member_instance_ids.unwrap_or_default();
     members.retain(|id| id != instance_id);
     if members.is_empty() {
@@ -409,7 +493,7 @@ pub fn remove_member(
     } else {
         container.member_instance_ids = Some(members.clone());
     }
-    save_container_syncing_embed(store, &container, is_embed_only, false)?;
+    save_container_for_repair(store, &container, is_embed_only)?;
     Ok(container.member_instance_ids.unwrap_or_default())
 }
 
@@ -426,6 +510,7 @@ pub fn add_root(
     container_id: &str,
     instance_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
+    require_resolvable_instance(store, instance_id)?;
     let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
     let mut roots = container.root_instance_ids.unwrap_or_default();
     if roots.iter().any(|id| id == instance_id) {
@@ -438,12 +523,14 @@ pub fn add_root(
     Ok(container.root_instance_ids.unwrap_or_default())
 }
 
+/// Remove a root — a **repair** operation on the same terms as
+/// [`remove_member`] (ADR-045).
 pub fn remove_root(
     store: &dyn RepositoryStore,
     container_id: &str,
     instance_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
-    let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
+    let (mut container, is_embed_only) = load_container_for_repair(store, container_id)?;
     let mut roots = container.root_instance_ids.unwrap_or_default();
     roots.retain(|id| id != instance_id);
     if roots.is_empty() {
@@ -451,8 +538,81 @@ pub fn remove_root(
     } else {
         container.root_instance_ids = Some(roots.clone());
     }
-    save_container_syncing_embed(store, &container, is_embed_only, false)?;
+    save_container_for_repair(store, &container, is_embed_only)?;
     Ok(container.root_instance_ids.unwrap_or_default())
+}
+
+/// RFC-038 Change F: remove `instance_id` from `memberInstanceIds` and
+/// `rootInstanceIds` of every Container that names it. Called from the instance
+/// delete paths (srs-rust#834) so a delete never leaves a dangling container
+/// reference — `SRS038-R13-DANGLING-REFERENCE`, which [R24] makes fatal, i.e. a
+/// successful delete would render the repository unloadable.
+///
+/// [R22] forbids a routine delete from writing `manifest.json`, from writing
+/// `manifest.container`, and from writing "any object other than its own target"
+/// — but all three prohibitions are conditioned on the same qualifier: "A
+/// routine instance create, update, or delete **that is not an explicit
+/// container-membership operation**…". Change F classifies exactly this case out
+/// of that qualifier: "Deleting a root-container member is therefore **not** a
+/// routine unscoped operation: it is an explicit container-membership operation,
+/// and it writes the manifest." So none of the three apply here, which is what
+/// permits both the inline-root manifest write and the file-backed container
+/// writes below.
+///
+/// `containers_for_instance` matches `memberInstanceIds` *and* `rootInstanceIds`
+/// across file-backed containers and the inline root alike — exactly the set the
+/// catalog draws its container references from.
+///
+/// `identityInstanceId` is cleared in the same edit when it names the deleted
+/// instance. It is not an [R13] reference — the catalog does not resolve it — but
+/// leaving it behind only trades the fatal diagnostic for an invalid repository:
+/// `validate` reports **I-81 as an error** ("identityInstanceId is not in
+/// rootInstanceIds or memberInstanceIds") and `repository_navigation` fails
+/// outright on the unresolvable identity. RFC-029 states that a root container
+/// with no `identityInstanceId` is valid, so clearing is the state that stays
+/// valid; `srs container update` re-points an identity when a successor exists
+/// (clearing one deliberately has no encoding — srs-rust#837).
+///
+/// Two consequences worth knowing, neither introduced here:
+/// - a root container left with no identity *and* no roots has no navigation —
+///   `repository_navigation` returns `NotFound`, which is what `repo create`'s
+///   scaffolded shape becomes once its sole purpose record is deleted;
+/// - when roots do remain, navigation silently promotes the first one to the
+///   identity node and drops it from `sections`. That fallback predates this
+///   cascade and fires for any identity-less root container — srs-rust#838.
+///
+/// Only containers that list the instance are visited, so an identity naming a
+/// non-member is not reached. RFC-013 requires an identity to be a member, and
+/// I-81 enforces it on the root container, so that shape is already invalid.
+///
+/// The edits are applied to one loaded container and written once rather than
+/// through `remove_member`/`remove_root`: they must land in a single write (the
+/// inline root's is a non-atomic `manifest.json` truncate), and no existing
+/// helper can clear an identity.
+pub(crate) fn remove_instance_from_all_containers(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+) -> Result<(), RepositoryError> {
+    for summary in containers_for_instance(store, instance_id)? {
+        let (mut container, is_embed_only) =
+            load_container_with_embed_fallback(store, &summary.container_id)?;
+        for ids in [
+            &mut container.member_instance_ids,
+            &mut container.root_instance_ids,
+        ] {
+            if let Some(v) = ids.as_mut() {
+                v.retain(|id| id != instance_id);
+                if v.is_empty() {
+                    *ids = None;
+                }
+            }
+        }
+        if container.identity_instance_id.as_deref() == Some(instance_id) {
+            container.identity_instance_id = None;
+        }
+        save_container_syncing_embed(store, &container, is_embed_only, false)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn is_member(
@@ -502,7 +662,7 @@ pub fn validate_container_invariants(
     // by construction already persisted, so its own dangling reference would
     // otherwise fail the fatal catalog build before this function ever got
     // to describe the problem.
-    let cat = crate::catalog::build(store)?;
+    let cat = store.catalog_unchecked()?;
     let container: Container = match cat
         .containers
         .iter()
@@ -965,20 +1125,36 @@ mod tests {
         assert!(report.ok);
     }
 
+    /// An incoherent container, built the only way still open to it.
+    ///
+    /// `add_member`/`add_root` reject an id that resolves to nothing (srs-rust#841),
+    /// so these `validate_container_invariants` tests — whose whole subject is an
+    /// already-incoherent container — construct the state through `create_container`,
+    /// which takes the membership list wholesale.
+    fn create_container_with_membership(
+        store: &dyn RepositoryStore,
+        id: &str,
+        roots: &[&str],
+        members: &[&str],
+    ) -> Container {
+        let mut c = minimal_container(id, "Invalid");
+        let own = |v: &[&str]| -> Option<Vec<String>> {
+            (!v.is_empty()).then(|| v.iter().map(|s| s.to_string()).collect())
+        };
+        c.root_instance_ids = own(roots);
+        c.member_instance_ids = own(members);
+        create_container(store, c).unwrap()
+    }
+
     #[test]
     fn validate_invariants_fails_invalid_member_id() {
         let store = make_store();
-        let created = create_container(
+        let created = create_container_with_membership(
             &store,
-            minimal_container("550e8400-e29b-41d4-a716-446655440000", "Invalid"),
-        )
-        .unwrap();
-        add_member(
-            &store,
-            &created.container_id,
-            "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-        )
-        .unwrap();
+            "550e8400-e29b-41d4-a716-446655440000",
+            &[],
+            &["dddddddd-dddd-4ddd-8ddd-dddddddddddd"],
+        );
         let report = validate_container_invariants(&store, &created.container_id).unwrap();
         assert!(!report.ok);
     }
@@ -986,17 +1162,12 @@ mod tests {
     #[test]
     fn validate_invariants_fails_invalid_root_id() {
         let store = make_store();
-        let created = create_container(
+        let created = create_container_with_membership(
             &store,
-            minimal_container("550e8400-e29b-41d4-a716-446655440000", "Invalid"),
-        )
-        .unwrap();
-        add_root(
-            &store,
-            &created.container_id,
-            "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-        )
-        .unwrap();
+            "550e8400-e29b-41d4-a716-446655440000",
+            &["dddddddd-dddd-4ddd-8ddd-dddddddddddd"],
+            &[],
+        );
         let report = validate_container_invariants(&store, &created.container_id).unwrap();
         assert!(!report.ok);
     }
@@ -1005,8 +1176,7 @@ mod tests {
     fn validate_invariants_fails_container_id_in_member_ids() {
         let store = make_store();
         let id = "550e8400-e29b-41d4-a716-446655440000";
-        let created = create_container(&store, minimal_container(id, "Invalid")).unwrap();
-        add_member(&store, &created.container_id, id).unwrap();
+        let created = create_container_with_membership(&store, id, &[], &[id]);
         let report = validate_container_invariants(&store, &created.container_id).unwrap();
         assert!(!report.ok);
     }
@@ -1015,8 +1185,7 @@ mod tests {
     fn validate_invariants_fails_container_id_in_root_ids() {
         let store = make_store();
         let id = "550e8400-e29b-41d4-a716-446655440000";
-        let created = create_container(&store, minimal_container(id, "Invalid")).unwrap();
-        add_root(&store, &created.container_id, id).unwrap();
+        let created = create_container_with_membership(&store, id, &[id], &[]);
         let report = validate_container_invariants(&store, &created.container_id).unwrap();
         assert!(!report.ok);
     }
@@ -1154,6 +1323,148 @@ mod tests {
         assert!(!is_member(&store, id, member).unwrap());
     }
 
+    // --- srs-rust#841: membership writes may not brick the repository ---
+
+    const UNRESOLVABLE: &str = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+
+    fn seeded_container(store: &MemoryStore, id: &str) -> String {
+        create_container(store, minimal_container(id, "Guarded"))
+            .unwrap()
+            .container_id
+    }
+
+    #[test]
+    fn add_root_succeeds_with_resolvable_instance_id() {
+        let store = make_store();
+        let cid = seeded_container(&store, "550e8400-e29b-41d4-a716-446655440000");
+        let member = "11111111-1111-4111-8111-111111111111";
+        assert_eq!(add_root(&store, &cid, member).unwrap(), vec![member]);
+        // idempotent
+        assert_eq!(add_root(&store, &cid, member).unwrap(), vec![member]);
+    }
+
+    #[test]
+    fn add_root_rejects_blank_instance_id() {
+        let store = make_store();
+        let cid = seeded_container(&store, "550e8400-e29b-41d4-a716-446655440000");
+        for blank in ["", "   "] {
+            assert!(matches!(
+                add_root(&store, &cid, blank),
+                Err(RepositoryError::InvalidInput { .. })
+            ));
+        }
+        assert!(get_container(&store, &cid)
+            .unwrap()
+            .root_instance_ids
+            .is_none());
+    }
+
+    #[test]
+    fn add_root_rejects_unresolvable_instance_id() {
+        let store = make_store();
+        let cid = seeded_container(&store, "550e8400-e29b-41d4-a716-446655440000");
+        assert!(matches!(
+            add_root(&store, &cid, UNRESOLVABLE),
+            Err(RepositoryError::InstanceNotFound { .. })
+        ));
+        assert!(get_container(&store, &cid)
+            .unwrap()
+            .root_instance_ids
+            .is_none());
+    }
+
+    #[test]
+    fn add_member_rejects_blank_instance_id() {
+        let store = make_store();
+        let cid = seeded_container(&store, "550e8400-e29b-41d4-a716-446655440000");
+        for blank in ["", "   "] {
+            assert!(matches!(
+                add_member(&store, &cid, blank),
+                Err(RepositoryError::InvalidInput { .. })
+            ));
+        }
+        assert!(get_container(&store, &cid)
+            .unwrap()
+            .member_instance_ids
+            .is_none());
+    }
+
+    #[test]
+    fn add_member_rejects_unresolvable_instance_id() {
+        let store = make_store();
+        let cid = seeded_container(&store, "550e8400-e29b-41d4-a716-446655440000");
+        assert!(matches!(
+            add_member(&store, &cid, UNRESOLVABLE),
+            Err(RepositoryError::InstanceNotFound { .. })
+        ));
+        assert!(get_container(&store, &cid)
+            .unwrap()
+            .member_instance_ids
+            .is_none());
+    }
+
+    /// The repair path (ADR-045) on a file-backed container: a dangling root
+    /// makes the checked catalog fatal, and `remove_root` is the way back out.
+    #[test]
+    fn remove_root_repairs_bricked_file_backed_container() {
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        create_container_with_membership(&store, id, &[UNRESOLVABLE], &[]);
+        assert!(store.catalog().is_err(), "container should be bricked");
+
+        remove_root(&store, id, UNRESOLVABLE).unwrap();
+
+        store
+            .catalog()
+            .expect("repository loads again after repair");
+        assert!(get_container(&store, id)
+            .unwrap()
+            .root_instance_ids
+            .is_none());
+    }
+
+    #[test]
+    fn remove_member_repairs_bricked_file_backed_container() {
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        create_container_with_membership(&store, id, &[], &[UNRESOLVABLE]);
+        assert!(store.catalog().is_err(), "container should be bricked");
+
+        remove_member(&store, id, UNRESOLVABLE).unwrap();
+
+        store
+            .catalog()
+            .expect("repository loads again after repair");
+    }
+
+    /// The same repair on the embed-only root container ([R1]) — the shape the
+    /// #841 reproduction actually hits, and the one whose fallback must not
+    /// route through the checked `resolve_root_container`.
+    #[test]
+    fn remove_root_repairs_bricked_embed_root_container() {
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        let mut root = minimal_container(id, "Root");
+        root.root_instance_ids = Some(vec![UNRESOLVABLE.to_string()]);
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.container = Some(root);
+        store.save_manifest(&manifest).unwrap();
+        assert!(store.catalog().is_err(), "repository should be bricked");
+
+        remove_root(&store, id, UNRESOLVABLE).unwrap();
+
+        store
+            .catalog()
+            .expect("repository loads again after repair");
+        assert!(store
+            .load_manifest()
+            .unwrap()
+            .container
+            .unwrap()
+            .root_instance_ids
+            .is_none());
+    }
+
     #[test]
     fn validate_container_invariants_unchanged() {
         let store = make_store();
@@ -1162,8 +1473,18 @@ mod tests {
         // Clean container passes
         let report = validate_container_invariants(&store, id).unwrap();
         assert!(report.ok);
-        // Adding the container's own ID as member fails
-        add_member(&store, id, id).unwrap();
+        // The container's own ID as a member fails. `add_member` no longer accepts
+        // it (a containerId is not an instance — srs-rust#841), so the invalid state
+        // comes in through the wholesale membership patch.
+        update_container(
+            &store,
+            id,
+            ContainerPatch {
+                member_instance_ids: Some(vec![id.to_string()]),
+                ..ContainerPatch::default()
+            },
+        )
+        .unwrap();
         let report = validate_container_invariants(&store, id).unwrap();
         assert!(!report.ok);
     }

@@ -312,8 +312,12 @@ mod tests {
     #[test]
     fn missing_instance_fails_the_export() {
         let store = make_store();
-        let c = create_container(&store, minimal_container("", "Partial")).unwrap();
-        add_member(&store, &c.container_id, "does-not-exist").unwrap();
+        // `add_member` now rejects an id that resolves to nothing (srs-rust#841),
+        // so the dangling state this test is about comes in through the wholesale
+        // membership list on `create_container`.
+        let mut seed = minimal_container("", "Partial");
+        seed.member_instance_ids = Some(vec!["does-not-exist".to_string()]);
+        let c = create_container(&store, seed).unwrap();
 
         let err = export_okf_bundle(
             &store,

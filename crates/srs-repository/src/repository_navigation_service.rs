@@ -32,7 +32,11 @@ pub struct NavigationNode {
 #[serde(rename_all = "camelCase")]
 pub struct RepositoryNavigation {
     pub root_container_id: String,
-    pub identity: NavigationNode,
+    /// The repository identity node, or `None` when the root container names no
+    /// `identityInstanceId` — a state RFC-029 explicitly permits. Never inferred from an
+    /// unrelated record; see ADR-044.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity: Option<NavigationNode>,
     pub sections: Vec<NavigationNode>,
     pub diagnostics: Vec<String>,
 }
@@ -44,7 +48,7 @@ pub fn repository_navigation(
     let Some(container_ref) = &manifest.container else {
         return Ok(RepositoryNavigation {
             root_container_id: String::new(),
-            identity: NavigationNode::default(),
+            identity: None,
             sections: Vec::new(),
             diagnostics: vec![
                 "repository-navigation: manifest.container is absent; repo predates RFC-013 root container (epic #95)"
@@ -57,30 +61,32 @@ pub fn repository_navigation(
     // embed-only roots (the embed is the canonical repository-identity source, RFC-013).
     let root_container = container_service::resolve_root_container(store, &manifest)?
         .expect("manifest.container presence checked above");
-    let identity_id = container_ref
-        .identity_instance_id
-        .clone()
-        .or_else(|| {
-            root_container
-                .root_instance_ids
-                .as_ref()
-                .and_then(|ids| ids.first().cloned())
-        })
-        .ok_or_else(|| RepositoryError::NotFound {
-            path: PathBuf::from("manifest.container.identityInstanceId"),
-        })?;
+    // The identity comes from identityInstanceId and from nothing else. RFC-029 (line 104) makes a
+    // root container with no identityInstanceId valid, so its absence is reported, never inferred
+    // from the first root — inferring it would present an ordinary section as the repository's
+    // identity and simultaneously drop it from `sections` (ADR-044, srs-rust#838).
+    let identity_id = container_ref.identity_instance_id.clone();
 
     let (field_name_index, identity_field_index) = record_label::build_label_indexes(store)?;
     let mut diagnostics = Vec::new();
 
-    let identity =
-        {
+    let identity = match &identity_id {
+        None => {
+            let container_id = &container_ref.container_id;
+            diagnostics.push(format!(
+                "repository-navigation: root container {container_id} has no identityInstanceId; \
+                 no repository identity node (RFC-029 permits this) - set one with \
+                 `repo set-root-container`"
+            ));
+            None
+        }
+        Some(identity_id) => {
             let note_entry = store
                 .catalog()?
                 .instances
                 .into_iter()
-                .find(|e| e.id == identity_id && e.tier == Some(0));
-            if let Some(entry) = note_entry {
+                .find(|e| &e.id == identity_id && e.tier == Some(0));
+            Some(if let Some(entry) = note_entry {
                 // Transitional grace for un-migrated repos whose identityInstanceId points to a
                 // Tier-0 note. Surface a diagnostic and use the catalog-derived title as the
                 // display label so the repo remains openable. Remove once all repos are
@@ -89,16 +95,16 @@ pub fn repository_navigation(
                     .title
                     .unwrap_or_else(|| identity_id.clone());
                 diagnostics.push(format!(
-                "repository-navigation: identity {identity_id} is a Tier-0 note (un-migrated); \
-                 run identity migration to upgrade to a Tier-2 purpose record - see #426"
-            ));
+                    "repository-navigation: identity {identity_id} is a Tier-0 note (un-migrated); \
+                     run identity migration to upgrade to a Tier-2 purpose record - see #426"
+                ));
                 NavigationNode {
                     instance_id: identity_id.clone(),
                     display_label: label,
                     ..Default::default()
                 }
             } else {
-                let identity_record = record_store::get_record_by_id(store, &identity_id)?
+                let identity_record = record_store::get_record_by_id(store, identity_id)?
                     .ok_or_else(|| RepositoryError::NotFound {
                         path: PathBuf::from(format!("instance/{identity_id}")),
                     })?;
@@ -108,8 +114,9 @@ pub fn repository_navigation(
                     &field_name_index,
                     None,
                 )
-            }
-        };
+            })
+        }
+    };
 
     // RFC-013 I-80/R2: root-container membership = memberInstanceIds ∪ rootInstanceIds.
     let member_ids: Vec<String> = {
@@ -123,7 +130,8 @@ pub fn repository_navigation(
     };
     let mut section_records = Vec::new();
     for id in &member_ids {
-        if id == &identity_id {
+        // With no identity, nothing is excluded — every root stays in `sections`.
+        if identity_id.as_deref() == Some(id.as_str()) {
             continue;
         }
         match record_store::get_record_by_id(store, id)? {
@@ -300,7 +308,26 @@ mod tests {
         crate::store::write_relations_standalone_for_test(store, &raw);
     }
 
+    /// The identity node, which these fixtures always set. Absence is asserted explicitly
+    /// by the `navigation_absent_identity_*` tests rather than unwrapped here.
+    fn identity_of(nav: &super::RepositoryNavigation) -> &super::NavigationNode {
+        nav.identity.as_ref().expect("identity present")
+    }
+
     fn nav_store() -> MemoryStore {
+        nav_store_with_identity(Some("00000000-0000-4000-8000-00000000a100".to_string()))
+    }
+
+    /// `nav_store()` with the root container's `identityInstanceId` under test control.
+    /// Passing `None` builds the RFC-029-valid identity-less shape (srs-rust#838).
+    ///
+    /// The identity must be set on **both** the manifest embed and the materialised root
+    /// container: `create_container` syncs a file-backed root back into `manifest.container`
+    /// (`save_container_syncing_embed`), so an embed-only value is overwritten by the
+    /// container write below. Before srs-rust#838 this fixture set it on the embed alone —
+    /// the container write nulled it, and the happy-path assertions passed only because the
+    /// first-root fallback re-promoted a100. That is exactly the fabrication this change removes.
+    fn nav_store_with_identity(identity: Option<String>) -> MemoryStore {
         let manifest = Manifest {
             container: Some(Container {
                 container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
@@ -309,7 +336,7 @@ mod tests {
                 name: None,
                 description: None,
                 container_type: None,
-                identity_instance_id: Some("00000000-0000-4000-8000-00000000a100".to_string()),
+                identity_instance_id: identity.clone(),
                 root_instance_ids: None,
                 member_instance_ids: None,
                 tags: None,
@@ -363,7 +390,7 @@ mod tests {
                 name: None,
                 description: None,
                 container_type: None,
-                identity_instance_id: None,
+                identity_instance_id: identity,
                 member_instance_ids: Some(vec![
                     "00000000-0000-4000-8000-00000000a100".to_string(),
                     "00000000-0000-4000-8000-00000000a300".to_string(),
@@ -436,10 +463,10 @@ mod tests {
         let nav = super::repository_navigation(&store).unwrap();
 
         assert_eq!(
-            nav.identity.instance_id,
+            identity_of(&nav).instance_id,
             "00000000-0000-4000-8000-00000000a100"
         );
-        assert_eq!(nav.identity.display_label, "Example Governance");
+        assert_eq!(identity_of(&nav).display_label, "Example Governance");
 
         let labels: Vec<&str> = nav
             .sections
@@ -518,10 +545,10 @@ mod tests {
             "00000000-0000-4000-8000-00000000a000"
         );
         assert_eq!(
-            nav.identity.instance_id,
+            identity_of(&nav).instance_id,
             "00000000-0000-4000-8000-00000000a100"
         );
-        assert_eq!(nav.identity.display_label, "Embed Governance");
+        assert_eq!(identity_of(&nav).display_label, "Embed Governance");
         assert_eq!(nav.sections.len(), 1);
         assert_eq!(nav.sections[0].display_label, "Articles");
         assert!(nav.diagnostics.is_empty(), "{:?}", nav.diagnostics);
@@ -543,7 +570,7 @@ mod tests {
         let nav = super::repository_navigation(&store).unwrap();
 
         assert_eq!(nav.root_container_id, "");
-        assert_eq!(nav.identity.instance_id, "");
+        assert!(nav.identity.is_none());
         assert!(nav.sections.is_empty());
         assert_eq!(
             nav.diagnostics,
@@ -606,10 +633,10 @@ mod tests {
         let nav = super::repository_navigation(&store).unwrap();
 
         assert_eq!(
-            nav.identity.instance_id,
+            identity_of(&nav).instance_id,
             "00000000-0000-4000-8000-00000000d100"
         );
-        assert_eq!(nav.identity.display_label, "Test Governance");
+        assert_eq!(identity_of(&nav).display_label, "Test Governance");
         assert_eq!(nav.diagnostics.len(), 1);
         assert!(nav.diagnostics[0].contains("Tier-0"));
         assert!(nav.sections.is_empty());
@@ -621,11 +648,11 @@ mod tests {
         let nav = super::repository_navigation(&store).unwrap();
 
         assert_eq!(
-            nav.identity.instance_id,
+            identity_of(&nav).instance_id,
             "00000000-0000-4000-8000-00000000d100"
         );
         assert_eq!(
-            nav.identity.display_label,
+            identity_of(&nav).display_label,
             "00000000-0000-4000-8000-00000000d100"
         );
         assert_eq!(nav.diagnostics.len(), 1);
@@ -638,6 +665,66 @@ mod tests {
     // repository_navigation can never reach its own member-does-not-resolve
     // diagnostic branch through storage. The Tier-0-identity diagnostic half is
     // still covered by navigation_tier0_note_identity_returns_diagnostic.
+
+    #[test]
+    fn navigation_absent_identity_keeps_all_roots_as_sections() {
+        // Regression for srs-rust#838: with no identityInstanceId, navigation used to promote the
+        // first rootInstanceIds entry to the identity node and then exclude it from `sections` —
+        // presenting an ordinary section as the repository's identity and silently dropping it
+        // from navigation. RFC-029 (line 104) makes this state valid, so it must be reported,
+        // not inferred (ADR-044).
+        let store = nav_store_with_identity(None);
+
+        let nav = super::repository_navigation(&store).unwrap();
+
+        assert!(
+            nav.identity.is_none(),
+            "identity must be absent, not inferred from the first root"
+        );
+
+        // All three members survive as sections — including a100, which the old fallback ate.
+        assert_eq!(nav.sections.len(), 3);
+        let ids: Vec<&str> = nav
+            .sections
+            .iter()
+            .map(|s| s.instance_id.as_str())
+            .collect();
+        assert!(
+            ids.contains(&"00000000-0000-4000-8000-00000000a100"),
+            "the first root must remain a section, got {ids:?}"
+        );
+
+        assert_eq!(nav.diagnostics.len(), 1, "got {:?}", nav.diagnostics);
+        assert!(
+            nav.diagnostics[0].contains("has no identityInstanceId"),
+            "got {:?}",
+            nav.diagnostics[0]
+        );
+        assert!(
+            nav.diagnostics[0].contains("00000000-0000-4000-8000-00000000a000"),
+            "diagnostic must name the root container, got {:?}",
+            nav.diagnostics[0]
+        );
+    }
+
+    #[test]
+    fn navigation_absent_identity_omits_identity_key_in_json() {
+        // ADR-044: absence is an omitted key, never an empty-string node. Locks the wire shape
+        // that clients (srs-web, srs-gov) branch on.
+        let store = nav_store_with_identity(None);
+        let nav = super::repository_navigation(&store).unwrap();
+
+        let json = serde_json::to_value(&nav).unwrap();
+        assert!(
+            json.get("identity").is_none(),
+            "identity key must be omitted entirely, got {json}"
+        );
+
+        // And present when there is one, so the skip_serializing_if is not simply always-on.
+        let present = super::repository_navigation(&nav_store()).unwrap();
+        let present_json = serde_json::to_value(&present).unwrap();
+        assert!(present_json.get("identity").is_some());
+    }
 
     #[test]
     fn repository_navigation_root_is_member_of_its_own_sub_container() {
@@ -775,7 +862,7 @@ mod tests {
         let nav = super::repository_navigation(&store).unwrap();
 
         assert_eq!(
-            nav.identity.instance_id,
+            identity_of(&nav).instance_id,
             "00000000-0000-4000-8000-00000000e100"
         );
         assert_eq!(

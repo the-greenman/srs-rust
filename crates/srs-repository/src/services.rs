@@ -269,8 +269,9 @@ pub fn create_note_in_context(
 
 /// Service: Delete a note with optional container-scoped membership check.
 ///
-/// If `input.container_id` is Some, the note must be a member of that container.
-/// The membership is removed before the note is deleted.
+/// If `input.container_id` is Some, the note must be a member of that container —
+/// the scope is a *guard*, not a mutation. Removing the membership is
+/// `delete_note`'s own cascade (srs-rust#834), which clears every container.
 pub fn delete_note_in_context(
     store: &dyn RepositoryStore,
     input: DeleteNoteInput,
@@ -284,7 +285,6 @@ pub fn delete_note_in_context(
                 )),
             });
         }
-        container_service::remove_member(store, cid, &input.id)?;
     }
 
     delete_note(store, &input.id)
@@ -530,21 +530,30 @@ pub fn update_note(
 
 /// Service: Delete a note by ID
 ///
-/// RFC-038 Change F / [R22] scoped cascade: the Relations incident to this note
-/// are removed in the same batch operation, so the delete never leaves dangling
-/// relation endpoints behind.
+/// RFC-038 Change F: the note's incident references are removed before the note
+/// itself, so the delete never leaves a dangling reference behind. Container
+/// membership goes first, outside the batch (srs-rust#834); the incident
+/// Relations follow as [R22] cascade targets, batched with the note's own
+/// removal. See `record_store::delete_record` for the full ordering rationale —
+/// the two delete paths share it.
 ///
-/// Follows ADR-007 index-first ordering for deletes: removes the manifest entry and
-/// persists the manifest before touching the file. File deletion is best-effort after
-/// the index is committed (leaves an orphaned file rather than a dangling index entry
-/// if interrupted). Interim (RFC-038 plan, Phase 2): the manifest index write stays
-/// until Phase 3 removes the service-layer index writes.
+/// No manifest *index* is written: Phase 3 removed the service-layer
+/// `instance_index` writes that ADR-007's index-first ordering used to govern.
+/// The only manifest write reachable from here is `manifest.container`, when the
+/// note is a member of the inline root container ([R1]).
 pub fn delete_note(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<DeleteNoteResult, RepositoryError> {
     match store.find_instance(id)? {
         Some(r) if r.tier == 0 => {
+            // Change F: container membership is an *explicit container-membership
+            // operation*, outside [R22]'s routine-write prohibition. Removed
+            // before the instance so the repository stays loadable in every
+            // interleaving — see `record_store::delete_record` for the full
+            // ordering rationale (#834).
+            container_service::remove_instance_from_all_containers(store, id)?;
+
             store.begin_batch();
             let write_result = crate::relation_service::delete_relations_incident_to(store, id)
                 .and_then(|_| store.delete_instance(id));

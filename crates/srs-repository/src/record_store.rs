@@ -493,17 +493,20 @@ pub fn validate_record_input(
 
 /// Delete a Tier 2 record by its instance ID.
 ///
-/// RFC-038 Change F / [R22] scoped cascade: the Relations incident to this record
-/// (as source or target) are removed first, so the delete never leaves dangling
-/// relation endpoints behind — if the process is interrupted between the cascade
-/// and the file delete, the worst case is an orphaned-but-still-valid record, never
-/// a dangling relation reference. This replaces the former `CannotDeleteInUse`
-/// refusal. The batch seam is a no-op on FileStore until #813.
+/// RFC-038 Change F: the incident references are removed before the record
+/// itself, so the delete never leaves a dangling reference behind — if the
+/// process is interrupted mid-way, the worst case is an orphaned-but-still-valid
+/// record, never a dangling reference. Two kinds of incident reference:
 ///
-/// One catalog snapshot for the whole operation ([R24]): the locator and tier
-/// check both come from it. Writes/deletes only the record's own file and its
-/// incident relations — never `manifest.json` ([R22] — srs-rust#783 Phase 3
-/// completes this; the interim Phase-2 `manifest.instance_index` write is gone).
+/// - **Container membership** — an *explicit container-membership operation*
+///   under Change F, so it may write `manifest.json` where [R22] forbids routine
+///   writes from doing so (the root container is inline, [R1]). srs-rust#834.
+/// - **Relations** — the [R22] scoped cascade; incident relation files are
+///   declared targets of this delete. The batch seam is a no-op on FileStore
+///   until #813.
+///
+/// The record's own tier and locator come from one catalog snapshot ([R24]).
+/// `manifest.instance_index` is never written (srs-rust#783 Phase 3).
 pub fn delete_record(
     store: &dyn RepositoryStore,
     instance_id: &str,
@@ -517,6 +520,17 @@ pub fn delete_record(
         .ok_or_else(|| RepositoryError::NotFound {
             path: std::path::PathBuf::from("records"),
         })?;
+
+    // Change F: container membership is an *explicit container-membership
+    // operation*, outside [R22]'s routine-write prohibition. Removed before the
+    // instance: there is no transaction across these writes (the batch seam is
+    // a no-op until #813), so the ordering is what guarantees the repository
+    // stays loadable in every interleaving. The residue it can leave is a live
+    // instance short its container references — including on an `Ok` return,
+    // since the file delete below is best-effort. That is repairable with
+    // `container members add` / `container roots add`, and `container update`
+    // for an identity; the unloadable repository it replaces was not.
+    container_service::remove_instance_from_all_containers(store, instance_id)?;
 
     store.begin_batch();
     // [R22] cascade: incident relation files are declared targets of this delete.
@@ -886,8 +900,10 @@ pub fn create_record_in_context(
 
 /// Delete a record with optional container-scoped membership check.
 ///
-/// If `container_id` is Some, the record must be a member of that container;
-/// membership is removed before the record is deleted.
+/// If `container_id` is Some, the record must be a member of that container —
+/// the scope is a *guard*, not a mutation. Removing the membership is
+/// `delete_record`'s own cascade (srs-rust#834), which clears every container,
+/// so doing it here as well would be a second implementation of the same step.
 pub fn delete_record_in_context(
     store: &dyn RepositoryStore,
     id: String,
@@ -902,7 +918,6 @@ pub fn delete_record_in_context(
                 )),
             });
         }
-        container_service::remove_member(store, cid, &id)?;
     }
 
     let instance_id = delete_record(store, &id)?;
@@ -5778,10 +5793,15 @@ mod tests {
     }
 
     #[test]
-    fn delete_record_never_touches_manifest_even_when_save_manifest_would_fail() {
+    fn delete_record_of_a_non_member_never_touches_manifest() {
         // Arm a manifest-write fault that would have fired under the retired
         // index-first ordering. delete_record must still succeed, because it
         // no longer calls save_manifest on the routine path.
+        //
+        // Scope: this record is not a member of the inline root container. A
+        // record that *is* one does write manifest.json — the explicit
+        // container-membership operation Change F sanctions (srs-rust#834) —
+        // covered by tests/delete_membership_cascade.rs.
         use crate::store::memory::FailPoint;
 
         let store = make_store_with_package();
@@ -5800,8 +5820,8 @@ mod tests {
         let result = delete_record(&store, &instance_id);
         assert!(
             result.is_ok(),
-            "delete_record must not touch manifest.json, so an armed SaveManifest \
-             fault must never fire ([R22])"
+            "a routine delete must not touch manifest.json, so an armed \
+             SaveManifest fault must never fire ([R22])"
         );
         assert!(store.find_instance(&instance_id).unwrap().is_none());
     }
