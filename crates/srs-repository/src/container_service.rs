@@ -455,6 +455,79 @@ pub fn remove_root(
     Ok(container.root_instance_ids.unwrap_or_default())
 }
 
+/// RFC-038 Change F: remove `instance_id` from `memberInstanceIds` and
+/// `rootInstanceIds` of every Container that names it. Called from the instance
+/// delete paths (srs-rust#834) so a delete never leaves a dangling container
+/// reference — `SRS038-R13-DANGLING-REFERENCE`, which [R24] makes fatal, i.e. a
+/// successful delete would render the repository unloadable.
+///
+/// [R22] forbids a routine delete from writing `manifest.json`, from writing
+/// `manifest.container`, and from writing "any object other than its own target"
+/// — but all three prohibitions are conditioned on the same qualifier: "A
+/// routine instance create, update, or delete **that is not an explicit
+/// container-membership operation**…". Change F classifies exactly this case out
+/// of that qualifier: "Deleting a root-container member is therefore **not** a
+/// routine unscoped operation: it is an explicit container-membership operation,
+/// and it writes the manifest." So none of the three apply here, which is what
+/// permits both the inline-root manifest write and the file-backed container
+/// writes below.
+///
+/// `containers_for_instance` matches `memberInstanceIds` *and* `rootInstanceIds`
+/// across file-backed containers and the inline root alike — exactly the set the
+/// catalog draws its container references from.
+///
+/// `identityInstanceId` is cleared in the same edit when it names the deleted
+/// instance. It is not an [R13] reference — the catalog does not resolve it — but
+/// leaving it behind only trades the fatal diagnostic for an invalid repository:
+/// `validate` reports **I-81 as an error** ("identityInstanceId is not in
+/// rootInstanceIds or memberInstanceIds") and `repository_navigation` fails
+/// outright on the unresolvable identity. RFC-029 states that a root container
+/// with no `identityInstanceId` is valid, so clearing is the state that stays
+/// valid; `srs container update` re-points an identity when a successor exists
+/// (clearing one deliberately has no encoding — srs-rust#837).
+///
+/// Two consequences worth knowing, neither introduced here:
+/// - a root container left with no identity *and* no roots has no navigation —
+///   `repository_navigation` returns `NotFound`, which is what `repo create`'s
+///   scaffolded shape becomes once its sole purpose record is deleted;
+/// - when roots do remain, navigation silently promotes the first one to the
+///   identity node and drops it from `sections`. That fallback predates this
+///   cascade and fires for any identity-less root container — srs-rust#838.
+///
+/// Only containers that list the instance are visited, so an identity naming a
+/// non-member is not reached. RFC-013 requires an identity to be a member, and
+/// I-81 enforces it on the root container, so that shape is already invalid.
+///
+/// The edits are applied to one loaded container and written once rather than
+/// through `remove_member`/`remove_root`: they must land in a single write (the
+/// inline root's is a non-atomic `manifest.json` truncate), and no existing
+/// helper can clear an identity.
+pub(crate) fn remove_instance_from_all_containers(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+) -> Result<(), RepositoryError> {
+    for summary in containers_for_instance(store, instance_id)? {
+        let (mut container, is_embed_only) =
+            load_container_with_embed_fallback(store, &summary.container_id)?;
+        for ids in [
+            &mut container.member_instance_ids,
+            &mut container.root_instance_ids,
+        ] {
+            if let Some(v) = ids.as_mut() {
+                v.retain(|id| id != instance_id);
+                if v.is_empty() {
+                    *ids = None;
+                }
+            }
+        }
+        if container.identity_instance_id.as_deref() == Some(instance_id) {
+            container.identity_instance_id = None;
+        }
+        save_container_syncing_embed(store, &container, is_embed_only, false)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn is_member(
     store: &dyn RepositoryStore,
     container_id: &str,
