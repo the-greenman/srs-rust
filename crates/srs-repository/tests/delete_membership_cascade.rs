@@ -288,14 +288,23 @@ fn deleting_a_container_identity_record_leaves_a_valid_repository() {
         "repository must still validate: {errors:?}"
     );
 
-    // The cost, pinned rather than left to be discovered: an empty repository
-    // has no identity and no roots, so navigation reports that it cannot
-    // resolve one — loudly, naming the field.
-    let err = repository_navigation_service::repository_navigation(&store)
-        .expect_err("an identity-less, root-less container has no navigation");
+    // #834 pinned the cost here as a hard error: navigation could not resolve an
+    // identity, so it failed outright. #838/ADR-044 removes that cost — an
+    // identity-less root container is valid under RFC-029, so navigation now
+    // succeeds and reports the absence instead of failing. What must still hold
+    // is that the absence is stated, never inferred or papered over.
+    let nav = repository_navigation_service::repository_navigation(&store)
+        .expect("an identity-less container still navigates (RFC-029 permits it)");
     assert!(
-        err.to_string().contains("identityInstanceId"),
-        "the diagnostic must name what is missing, got {err}"
+        nav.identity.is_none(),
+        "identity must be absent, not inferred from a root: {nav:?}"
+    );
+    assert!(
+        nav.diagnostics
+            .iter()
+            .any(|d| d.contains("identityInstanceId")),
+        "the diagnostic must name what is missing, got {:?}",
+        nav.diagnostics
     );
 }
 
