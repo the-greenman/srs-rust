@@ -4244,6 +4244,76 @@ fn container_roots_add_list_remove() {
     assert_eq!(removed["payload"]["rootInstanceIds"], serde_json::json!([]));
 }
 
+// --- srs-rust#841: a membership write must never brick the repository ---
+
+/// Create the container these three tests share and return its id.
+fn make_guarded_container(temp: &TempDir) -> &'static str {
+    const CID: &str = "00000000-0000-4000-8000-000000000001";
+    let payload = serde_json::json!({ "containerId": CID, "title": "Guarded" }).to_string();
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+    CID
+}
+
+#[test]
+fn container_roots_add_rejects_blank_instance_id() {
+    let temp = make_container_test_repo();
+    let cid = make_guarded_container(&temp);
+    for blank in ["", "   "] {
+        let (_, result) =
+            run_srs_any_status_in_dir(temp.path(), &["container", "roots", "add", cid, blank]);
+        assert_eq!(result["ok"], false, "blank id must be rejected: {result}");
+    }
+    // The repository still loads — nothing was persisted.
+    let listed = run_srs_in_dir(temp.path(), &["container", "roots", "list", cid]);
+    assert_eq!(listed["ok"], true);
+    assert_eq!(listed["payload"]["rootInstanceIds"], serde_json::json!([]));
+}
+
+#[test]
+fn container_members_add_rejects_unresolvable_instance_id() {
+    let temp = make_container_test_repo();
+    let cid = make_guarded_container(&temp);
+    let ghost = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    let (_, result) =
+        run_srs_any_status_in_dir(temp.path(), &["container", "members", "add", cid, ghost]);
+    assert_eq!(result["ok"], false, "unresolvable id must be rejected");
+    let listed = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
+    assert_eq!(listed["ok"], true);
+    assert_eq!(
+        listed["payload"]["memberInstanceIds"],
+        serde_json::json!([])
+    );
+}
+
+/// The recovery half (ADR-045): a repository already bricked by a dangling
+/// container reference is repairable through the CLI alone.
+#[test]
+fn container_roots_remove_repairs_bricked_repository() {
+    let temp = make_container_test_repo();
+    let cid = "00000000-0000-4000-8000-000000000001";
+    let ghost = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    // `container create` still takes the membership list wholesale, so it is the
+    // way to reach the bricked state the guard now blocks on the add path.
+    let payload = serde_json::json!({
+        "containerId": cid,
+        "title": "Bricked",
+        "rootInstanceIds": [ghost],
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+
+    // Every ordinary read routes through the checked catalog and now fails.
+    let (_, bricked) = run_srs_any_status_in_dir(temp.path(), &["container", "roots", "list", cid]);
+    assert_eq!(bricked["ok"], false, "repository should be bricked");
+
+    let repaired = run_srs_in_dir(temp.path(), &["container", "roots", "remove", cid, ghost]);
+    assert_eq!(repaired["ok"], true, "removal must work on a bricked repo");
+
+    let after = run_srs_in_dir(temp.path(), &["container", "roots", "list", cid]);
+    assert_eq!(after["ok"], true, "repository must load again: {after}");
+    assert_eq!(after["payload"]["rootInstanceIds"], serde_json::json!([]));
+}
+
 #[test]
 fn container_validate_passes_clean() {
     let temp = make_container_test_repo();
