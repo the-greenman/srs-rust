@@ -650,9 +650,9 @@ async fn tool_record_update_replaces_field_values() {
         "direct service read should see updated title"
     );
 
-    // Repository still consistent: no error diagnostics. Transitional
-    // warnings (e.g. the [R9] `.revisions.json` sidecar whose schema is
-    // owed by RFC-038) are reported without failing validate.
+    // Repository still consistent: no error diagnostics. Non-error
+    // diagnostics (e.g. [R9]'s PACKAGE_JSON_UNPARSEABLE warning) are
+    // reported without failing validate.
     let validate = call(&client, "repo_validate", serde_json::json!({})).await;
     let errors: Vec<_> = validate.structured_content.as_ref().unwrap()["diagnostics"]
         .as_array()
@@ -759,9 +759,9 @@ async fn tool_record_transition_promotes_draft_to_active() {
         "lifecycle state must be active after promote: {result}"
     );
 
-    // Repository still consistent: no error diagnostics. Transitional
-    // warnings (e.g. the [R9] `.revisions.json` sidecar whose schema is
-    // owed by RFC-038) are reported without failing validate.
+    // Repository still consistent: no error diagnostics. Non-error
+    // diagnostics (e.g. [R9]'s PACKAGE_JSON_UNPARSEABLE warning) are
+    // reported without failing validate.
     let validate = call(&client, "repo_validate", serde_json::json!({})).await;
     let errors: Vec<_> = validate.structured_content.as_ref().unwrap()["diagnostics"]
         .as_array()
@@ -833,9 +833,9 @@ async fn tool_record_successor_creates_linked_pair() {
         "relation target is the predecessor: {result}"
     );
 
-    // Repository still consistent: no error diagnostics. Transitional
-    // warnings (e.g. the [R9] `.revisions.json` sidecar whose schema is
-    // owed by RFC-038) are reported without failing validate.
+    // Repository still consistent: no error diagnostics. Non-error
+    // diagnostics (e.g. [R9]'s PACKAGE_JSON_UNPARSEABLE warning) are
+    // reported without failing validate.
     let validate = call(&client, "repo_validate", serde_json::json!({})).await;
     let errors: Vec<_> = validate.structured_content.as_ref().unwrap()["diagnostics"]
         .as_array()
@@ -895,9 +895,9 @@ async fn tool_note_graduate_promotes_to_record() {
     let record_id = result["record"]["instanceId"].as_str().unwrap();
     assert!(!record_id.is_empty(), "record instanceId must be non-empty");
 
-    // Repository still consistent: no error diagnostics. Transitional
-    // warnings (e.g. the [R9] `.revisions.json` sidecar whose schema is
-    // owed by RFC-038) are reported without failing validate.
+    // Repository still consistent: no error diagnostics. Non-error
+    // diagnostics (e.g. [R9]'s PACKAGE_JSON_UNPARSEABLE warning) are
+    // reported without failing validate.
     let validate = call(&client, "repo_validate", serde_json::json!({})).await;
     let errors: Vec<_> = validate.structured_content.as_ref().unwrap()["diagnostics"]
         .as_array()
@@ -993,9 +993,9 @@ async fn tool_container_member_add_then_remove() {
         "removed instance must not appear in memberInstanceIds: {members_after:?}"
     );
 
-    // Repository still consistent: no error diagnostics. Transitional
-    // warnings (e.g. the [R9] `.revisions.json` sidecar whose schema is
-    // owed by RFC-038) are reported without failing validate.
+    // Repository still consistent: no error diagnostics. Non-error
+    // diagnostics (e.g. [R9]'s PACKAGE_JSON_UNPARSEABLE warning) are
+    // reported without failing validate.
     let validate = call(&client, "repo_validate", serde_json::json!({})).await;
     let errors: Vec<_> = validate.structured_content.as_ref().unwrap()["diagnostics"]
         .as_array()
