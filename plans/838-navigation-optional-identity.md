@@ -33,7 +33,7 @@ that file, so no scope expansion is needed.
 
 | ADR | Decision | Status |
 |---|---|---|
-| [ADR-044](../docs/adr/044-navigation-identity-optional-never-inferred.md) | A derived payload field with no source in the data is absent + diagnosed, never inferred from an unrelated record | proposed |
+| [ADR-044](../docs/adr/044-navigation-identity-optional-never-inferred.md) | A derived payload field with no source in the data is absent + diagnosed, never inferred from an unrelated record | accepted |
 | [ADR-010](../docs/adr/010-service-boundary-contract.md) | Service returns a typed result struct; all logic in `srs-repository` | accepted (governs) |
 | [ADR-011](../docs/adr/011-cli-output-contract.md) | Payload shape is a named struct in `payload.rs`; golden schema is the contract-change record | accepted (governs) |
 | [ADR-013](../docs/adr/013-wasm-binding-strategy.md) | Bindings serialize the same service struct as the CLI — no separate shape | accepted (governs) |
@@ -313,7 +313,8 @@ cargo clippy --workspace -- -D warnings
 - [x] An identity-less root container returns `identity` absent, all roots in `sections`, and a
       diagnostic naming the absence — verified end-to-end via `srs repo navigation` in dogfooding
 - [x] ADR-044 exists and is cross-referenced from the changed service
-- [x] `srs/srs-usage.md` documents that `navigation.identity` may be absent
+- [x] `srs/srs-usage.md` documents that `navigation.identity` may be absent — shipped as a separate
+      branch/PR in the `srs` repo (the file is not in this tree): **the-greenman/srs#381**
 
 ## Coordination Rules
 
