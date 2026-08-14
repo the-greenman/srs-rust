@@ -16,6 +16,43 @@ pub fn validate_container(container: &Container) -> Result<(), CoreError> {
             key: "title".to_string(),
         });
     }
+    // A blank membership/identity id can never resolve to an instance, so it is a
+    // guaranteed fatal [R13] dangling reference at the next catalog build — i.e. a
+    // write that would make the repository unloadable. Reject it here, the one place
+    // `create_container` and `update_container` both route through (srs-rust#841).
+    reject_blank_ids(
+        "identityInstanceId",
+        container.identity_instance_id.iter().map(String::as_str),
+    )?;
+    reject_blank_ids(
+        "rootInstanceIds",
+        container
+            .root_instance_ids
+            .iter()
+            .flatten()
+            .map(String::as_str),
+    )?;
+    reject_blank_ids(
+        "memberInstanceIds",
+        container
+            .member_instance_ids
+            .iter()
+            .flatten()
+            .map(String::as_str),
+    )?;
+    Ok(())
+}
+
+fn reject_blank_ids<'a>(
+    key: &str,
+    mut ids: impl Iterator<Item = &'a str>,
+) -> Result<(), CoreError> {
+    if ids.any(|id| id.trim().is_empty()) {
+        return Err(CoreError::InvalidFieldValue {
+            key: key.to_string(),
+            reason: "instance id must not be blank".to_string(),
+        });
+    }
     Ok(())
 }
 
@@ -83,5 +120,43 @@ mod tests {
                 key: "title".to_string()
             })
         );
+    }
+
+    fn blank(key: &str) -> Result<(), CoreError> {
+        Err(CoreError::InvalidFieldValue {
+            key: key.to_string(),
+            reason: "instance id must not be blank".to_string(),
+        })
+    }
+
+    #[test]
+    fn validate_container_blank_root_instance_id_fails() {
+        let mut c = minimal();
+        c.root_instance_ids = Some(vec![String::new()]);
+        assert_eq!(validate_container(&c), blank("rootInstanceIds"));
+    }
+
+    #[test]
+    fn validate_container_whitespace_member_instance_id_fails() {
+        let mut c = minimal();
+        c.member_instance_ids = Some(vec!["   ".to_string()]);
+        assert_eq!(validate_container(&c), blank("memberInstanceIds"));
+    }
+
+    #[test]
+    fn validate_container_blank_identity_instance_id_fails() {
+        let mut c = minimal();
+        c.identity_instance_id = Some(String::new());
+        assert_eq!(validate_container(&c), blank("identityInstanceId"));
+    }
+
+    #[test]
+    fn validate_container_passes_with_populated_membership() {
+        let mut c = minimal();
+        let id = "6ba7b810-9dad-11d1-80b4-00c04fd430c8".to_string();
+        c.identity_instance_id = Some(id.clone());
+        c.root_instance_ids = Some(vec![id.clone()]);
+        c.member_instance_ids = Some(vec![id]);
+        assert!(validate_container(&c).is_ok());
     }
 }
