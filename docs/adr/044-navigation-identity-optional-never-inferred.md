@@ -1,6 +1,6 @@
 # ADR-044: Navigation identity is optional, never inferred
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-08-14
 - **Supersedes:** —
 - **Superseded by:** —
