@@ -740,6 +740,51 @@ Must return `ok: false` with a message referencing the absent `meta` or `upstrea
 
 **Done when.** `set-root-container` returns the two IDs in its payload; `manifest.json` on disk carries `.container.containerId` and `.container.identityInstanceId` matching what was passed; `repo validate` reports 0 errors; empty-flag inputs return `ok: false` with a clear diagnostic without corrupting the manifest.
 
+#### S17b — A container that stands alone (identity-less navigation, #838)
+
+**Intention.** *"I deleted the record that stated my repository's purpose. I want navigation to tell me the purpose is gone — not quietly appoint one of my sections to the role and drop it from the sidebar."*
+
+**Capabilities exercised.** RFC-029's rule that a root container with no `identityInstanceId` is **valid**; ADR-044's rule that a derived field with no source in the data is reported absent, never inferred; the #834 delete cascade as the route into that state; recovery via `repo set-root-container`.
+
+**CLI surface.** `repo create`, `record create --type --container`, `container roots add`, `record delete`, `repo navigation`, `repo validate`, `repo set-root-container`.
+
+**Steps.**
+
+1. Create a repo and give it one section record alongside the scaffolded identity:
+   ```bash
+   srs repo create --repo /tmp/dogfood-s17b --namespace com.example.s17b \
+     --package-name s17b-pkg --package-version 1.0.0 --srs-version 2.0-draft
+   ROOT=$(python3 -c "import json;print(json.load(open('/tmp/dogfood-s17b/manifest.json'))['container']['containerId'])")
+   IDENTITY=$(python3 -c "import json;print(json.load(open('/tmp/dogfood-s17b/manifest.json'))['container']['identityInstanceId'])")
+   echo '{"fieldValues":{"title":"Articles","statement":"The articles section"}}' \
+     | srs record create --repo /tmp/dogfood-s17b --type com.semanticops.core/purpose --container "$ROOT"
+   ```
+   Capture the new record's `instanceId` as `$SEC`, then `srs container roots add --repo /tmp/dogfood-s17b "$ROOT" "$SEC"`.
+2. Baseline — `srs repo navigation --repo /tmp/dogfood-s17b --pretty`. Confirm `identity.displayLabel` is the scaffolded purpose record, `sections` is exactly `["Articles"]`, `diagnostics` empty.
+3. Delete the identity record. Per #834 the cascade clears the now-dangling pointer:
+   ```bash
+   srs record delete --repo /tmp/dogfood-s17b "$IDENTITY"
+   python3 -c "import json;print(json.load(open('/tmp/dogfood-s17b/manifest.json'))['container'].get('identityInstanceId','<ABSENT>'))"
+   ```
+   Confirm `identityInstanceId` is now **absent** from the manifest.
+4. Navigate the identity-less repo — the heart of the scenario:
+   ```bash
+   srs repo navigation --repo /tmp/dogfood-s17b --pretty
+   ```
+   Confirm **all three** signals: `ok: true`; the `identity` key is **omitted from the JSON entirely** (not an empty node); `sections` still contains `"Articles"`; and `diagnostics` has exactly one entry naming the root container's absent `identityInstanceId`.
+5. Confirm the repo is genuinely valid, not merely tolerated: `srs repo validate --repo /tmp/dogfood-s17b` → **0 errors**.
+6. Recover by naming an identity explicitly:
+   ```bash
+   srs repo set-root-container --repo /tmp/dogfood-s17b \
+     --container-id "$ROOT" --identity-instance-id "$SEC"
+   srs repo navigation --repo /tmp/dogfood-s17b --pretty
+   ```
+   `identity.displayLabel` is now `"Articles"`, `sections` is empty (the identity is correctly excluded from its own navigation), diagnostics empty.
+
+**Negative case.** The pre-#838 behaviour is the negative case, and it is what must never return: at step 4, `identity` must **not** be `"Articles"`, and `sections` must **not** be `[]`. If navigation ever names a record as the repository's identity that no `identityInstanceId` points at, the inference has come back.
+
+**Done when.** An identity-less root container validates with 0 errors, navigation returns `ok: true` with no `identity` key, every root remains a section, and a diagnostic names the absence. Re-pointing `identityInstanceId` restores the identity node and re-excludes it from `sections`. At no point is a section silently promoted to identity, and at no point does navigation fail outright on a repository the spec considers valid.
+
 ---
 
 ### S18 — Graduate a Note to a typed Record (`note graduate`)
@@ -3037,7 +3082,8 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario); `repo validate` now includes manifest.json schema validation — see S1 negative case; RFC-013 I-79/I-80/I-81/I-82 root-container invariants — see S1 negative case (I-79) and S15 step 10 (full happy path); **I-82 union fix (#699)**: I-82 now fires for non-identity members declared via `rootInstanceIds` only (not just `memberInstanceIds`); deduplication ensures exactly one diagnostic when an ID is in both arrays; verified by `i82_fires_for_root_instance_ids_member`, `i82_fires_for_both_arrays_no_duplicates`, and `i82_no_warning_for_root_instance_ids_member_that_roots_a_section_container` unit tests; blueprint semantic validation + protocol stage-dependency validation — see S13 (`repo validate` on a repo with a protocol); **RFC-018 I-81** identity type check (Warning when `identityInstanceId` resolves to a Tier-0 Note or wrong Tier-2 type) — see S20; **`repo create` always scaffolds a `com.semanticops.core/purpose` Tier-2 record and sets `identityInstanceId` unconditionally (#424)** — happy path covered by S17 step 3 (navigation reads back the purpose record); **`repo create` now also registers the root container in `containerIndex` so `FileStore::load_container` succeeds on the root container (#518)** — `scaffold_purpose_record` was missing the `save_container` call; fixed with ADR-024 rollback; verified by `create_repository_with_intent_container_loadable_from_file_store` and `create_repository_with_intent_container_in_container_index` unit tests; dogfooded on branch: `repo create` → `repo validate` → `migrate-identity` returns `ok: false` with `"already a purpose record; no migration needed"` (no crash, no ContainerNotFound); **ext:lifecycle V7/V8/V9 invariants now enforced at validate time (#239)**: V7 (type declares both `lifecycle` and `lifecycleRef`), V8 (lifecycleRef UUID does not resolve), V9 (inline TypeLifecycle structural errors + `initialState`/`isInitial` key mismatch) — see S6 negative case; **RFC-020 Rule [N+33]** identityFieldId effective-field-set check (a Type's `identityFieldId`, own or inherited, must resolve to a `fieldId` in that Type's effective field set; runs independent of whether any record of that Type exists, and one Type's resolution error does not block others) — see S1 negative case (#376); **`repo map` now includes `payload.corePackage` summary** (id, name, version, types, fields) from the embedded `com.semanticops.core` package (#423) — see S24; **`com.semanticops.spec/invariant` number uniqueness (#555)**: duplicate `invariant-number` field values across spec-invariant records produce `"duplicate invariant number"` errors at validate time (one error per offending record, symmetric) — see S1 negative case |
 | `implicit core type availability` (`srs type list` shows `com.semanticops.core/*`; `srs repo map` shows `corePackage`; zero-config `com.semanticops.core/purpose` resolution, #423) | S24 |
 | `repo init-new` (re-stamp seed identity) | S16 |
-| `repo set-root-container` (write manifest.container pointer) | S17 |
+| `repo set-root-container` (write manifest.container pointer) | S17; identity re-pointing after loss — S17b step 6 |
+| `repo navigation` (RFC-013 identity + precedes-ordered sections) | S1 (label parity), S15 step 2 (governance scaffold), S17 step 3 (read back the pinned pointer); **`identity` is optional (#838, ADR-044)** — S17b. When the root container names no `identityInstanceId` (valid per RFC-029) the `identity` key is **omitted from the JSON**, every root stays in `sections`, and a diagnostic names the absence; the pre-#838 fallback that promoted `rootInstanceIds[0]` to identity — and thereby deleted it from `sections` — is gone. Verified end-to-end on branch: `repo create` → section record → `record delete <identity>` (#834 cascade clears the pointer) → `repo navigation` (no `identity` key, `sections: ["Articles"]`, 1 diagnostic) → `repo validate` (0 errors) → `set-root-container` (identity restored, re-excluded from sections). **Known gap:** a Tier-0 Note as a root-container member makes `repo navigation` fail outright (`ok: false`, record-only loader) — filed as #842, not caused by #838 |
 | `repo copy` | S9, S10 |
 | `repo upgrade` (in-place path normalisation) | S9b |
 | `.srsj` write determinism (idempotent, minimal-diff) | S10 |
