@@ -3072,6 +3072,69 @@ echo '{"fieldValues":[{"fieldId":"00000000-0000-4000-8000-000000000001","value":
 array-of-objects with `cells` required and `additionalProperties: false`; validate reports 0
 errors; the negative case names `dataModelRevision` and `[R9]` in its diagnostic.
 
+---
+
+### S25 — Add something to a container, and get back out when a repository is already broken (#841, ADR-045)
+
+**Intention.** *"I want to put this record in a container. If I fumble the id, I want to be told — not to discover an hour later that the whole repository has stopped loading. And if a repository reaches me already in that state, I want to fix it with the CLI, not a text editor."*
+
+This is the trust-boundary half of container membership. A `rootInstanceIds` / `memberInstanceIds` entry that resolves to nothing is a fatal `SRS038-R13-DANGLING-REFERENCE`, and under [R24] a fatal diagnostic fails the *whole* catalog load — so a bad membership write does not break one container, it makes every command on the repository fail. Before #841 the add commands accepted such an id, reported `ok: true`, and persisted it, and the `remove` that would undo it failed on the same fatal build. The scenario covers both halves: the guard, and the way back out.
+
+**Capabilities exercised.** Membership writes validated at the service boundary (ADR-010) so the CLI, MCP and WASM adapters inherit the same rule; `repo validate`'s [R24] reporting exemption as the *discovery* half of a repair; membership **removal** as the *repair* half (ADR-045 — removal can only reduce the reference set, so it reads and writes through the unchecked catalog).
+
+**CLI surface.** `note create`, `container members add`, `container roots add`, `container roots remove`, `container create`, `repo validate`, `repo navigation`.
+
+**Steps.**
+
+```bash
+SRS=./target/debug/srs
+R=/tmp/dogfood-841
+$SRS repo create --repo "$R" --namespace com.example.dogfood --package-name dogfood \
+    --package-version 1.0.0 --srs-version 2.0-draft
+ROOT=$(python3 -c "import json;print(json.load(open('$R/manifest.json'))['container']['containerId'])")
+
+# 1. Happy path — the instance exists first, then joins the container.
+NOTE=$(echo '{"title":"Charter","sections":[{"name":"why","content":"To prove membership writes resolve."}]}' \
+  | $SRS note create --repo "$R" | python3 -c "import json,sys;print(json.load(sys.stdin)['payload']['note']['instanceId'])")
+$SRS container members add --repo "$R" "$ROOT" "$NOTE"     # ok: true, member listed
+$SRS container members add --repo "$R" "$ROOT" "$NOTE"     # idempotent — same list back
+```
+
+**Negative case.** All three unresolvable forms are rejected, and the repository is untouched:
+
+```bash
+$SRS container roots add --repo "$R" "$ROOT" ""
+# → {"ok":false,"diagnostics":["invalid input: instance_id must not be empty"]}
+$SRS container roots add --repo "$R" "$ROOT" "   "
+# → same — whitespace is not an id
+$SRS container members add --repo "$R" "$ROOT" dddddddd-dddd-4ddd-8ddd-dddddddddddd
+# → {"ok":false,"diagnostics":["instance not found: dddddddd-dddd-4ddd-8ddd-dddddddddddd"]}
+$SRS repo validate --repo "$R"      # ok: true, 0 errors — nothing was written
+```
+
+**Recovery round trip.** `container create` still takes the membership list wholesale (see srs-rust#845), which is both the remaining way in and a convenient way to manufacture the broken state:
+
+```bash
+GHOST=dddddddd-dddd-4ddd-8ddd-dddddddddddd
+CID=22222222-3333-4444-5555-666666666666
+echo "{\"containerId\":\"$CID\",\"title\":\"Bricked\",\"rootInstanceIds\":[\"$GHOST\"]}" \
+  | $SRS container create --repo "$R"                  # ok: true — the write that breaks it
+
+$SRS repo navigation --repo "$R"                       # ok: false — catalog load failed
+$SRS container roots list --repo "$R" "$CID"           # ok: false — same
+$SRS note list --repo "$R"                             # ok: false — same
+
+$SRS repo validate --repo "$R"                         # STILL WORKS — names the container file and the id
+$SRS container roots remove --repo "$R" "$CID" "$GHOST"  # STILL WORKS — ok: true, rootInstanceIds: []
+$SRS repo validate --repo "$R"                         # ok: true — repository loads again
+```
+
+**Done when.** The happy-path add succeeds and is idempotent; all three unresolvable forms return `ok: false` with a message that names the actual problem (empty argument vs unresolvable id — not one message for both) and leave the container byte-identical; on a bricked repository `repo validate` and `container roots/members remove` both still return a useful answer while every ordinary command fails; and after the removal the repository loads again with `repo validate` reporting 0 errors. Nothing in the round trip touches a JSON file by hand.
+
+**Verified 2026-08-14 (#841)** on branch `feat/841-container-membership-blank-id`, repo `/tmp/dogfood-841`: all three negative forms rejected; happy path and idempotent re-add `ok: true`; brick → `repo navigation` / `container roots list` / `note list` all `ok: false` with `SRS038-R13-DANGLING-REFERENCE`, `repo validate` reporting `[containers/bricked-22222222.json]` and the ghost id; `container roots remove` `ok: true` with `rootInstanceIds: []`; `repo validate` `ok: true` afterwards.
+
+> **Known unrelated failure in this scenario.** After the repair, `repo navigation` reports `failed to load record at "records/notes/charter-….json": missing field 'typeId'` — a Tier-0 note that is an ordinary member of the root container is read by the record-only loader. This is **srs-rust#842**, independent of #841: it reproduces on a clean repo with no bricking involved (`repo create` → `note create` → `container members add` → `repo navigation`). Use `repo validate` as this scenario's load check until #842 lands.
+
 
 ## Coverage matrix
 
@@ -3104,6 +3167,8 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `relation rebuild-precedes-chain` | CLI: _gap — no CLI command yet, tracked in #609_; WASM binding (`SrsRepository::rebuild_precedes_chain`) verified via 6 service unit tests in `crates/srs-repository/src/relation_service.rs` (creates n-1 edges, clears existing precedes, empty/single inputs, preserves non-precedes edges, cross-store roundtrip) and smoke test `test_rebuild_precedes_chain_binding_smoke` in `crates/srs-bindings/src/lib.rs` (#606) |
 | `relation-type` | CLI: _gap — no scenario yet_; WASM read binding (`list_relation_types`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#411) |
 | `container` (create/members/roots/validate/…) | S4; container CRUD on `.srsj` (create/list/delete) verified end-to-end on branch (#466); slug-named container path resolution (`.srsj` packed from FileStore with `manifest.containerIndex.path` entries) covered by `srs-repository` unit tests (`json_store_container_slug_path_resolution`, `json_store_save_container_writes_manifest_index`, etc.); **pre-#466 shadow containerIndex migration** (open-time derivation of missing `path` in `from_srsj`, #490) — dogfooded on branch: `container list` on a hand-crafted pre-#466 `.srsj` returns the container; `repo validate` produces no `[/containerIndex/N] "path" is a required property` error (the regressed behaviour); covered by unit tests `from_srsj_shadow_migration_derives_path_for_pathless_entry` and `from_srsj_shadow_migration_skips_entry_with_no_matching_data_key`; **embed-only root container visibility (#698)**: fixed `container list`, `container get`, `container members add/remove`, and `container update` for repos where `manifest.container` exists without a matching `containerIndex` entry (the RFC-013 native init shape, `FileStore::initialize_repository` without `create_container`); `add_member`/`remove_member`/`add_root`/`remove_root` write through to `manifest.container` only (no `save_container` call, no nested batch conflict); `update_container` syncs both `save_container` and `manifest.container` atomically when root is file-backed; embed-only roots excluded from `export_repository_snapshot_with_options` snapshot.containers (already present in `snapshot.root_container`) preventing double-import during `repo copy`/archive roundtrips; verified 2026-07-23 (#698): stripped `containerIndex` + container file from a fresh repo → `container list` (root returned ✅), `container get <root-id>` (full container returned ✅), note create + `container members add` (manifest.container.memberInstanceIds updated ✅), `container update` (title written to manifest.container ✅), `container members remove` (member removed from manifest.container ✅), `container get <unknown-id>` (ok: false, ContainerNotFound ✅), `repo validate` (ok: true, 0 errors ✅) |
+| `container members add` / `container roots add` — write-boundary guard (#841): the instance id must resolve to a real instance; blank, whitespace-only and well-formed-but-non-existent UUIDs all return `ok: false` with no write. One guard in `container_service`, so the CLI, MCP and WASM adapters inherit it (ADR-010) | S25 |
+| `container members remove` / `container roots remove` — repair path (ADR-045, #841): reads and writes through the unchecked catalog, so an already-bricked repository is recoverable through the CLI. Paired with `repo validate`'s [R24] reporting exemption as the discovery half | S25 |
 | `container update` (`rootInstanceIds`/`memberInstanceIds`/`identityInstanceId` patch fields, `deny_unknown_fields`) | S4 (extended — patch membership fields, unknown-field error); verified end-to-end in worktree dogfood (#422) |
 | `container resolve-view` (structured container view, `--view-id`; `ColumnSpec.isIdentityColumn`, ADR-023, #376; Tier-0/1 members projected, #256) | S14 |
 | `container resolve-view` authored `excludeLifecycleStates` (ADR-020) | S15 |
