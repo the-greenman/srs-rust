@@ -3,9 +3,14 @@
 #
 # The release gate (the-greenman/srs#392 row 2). Every merge to master auto-tags a release that
 # humans and CI pull; nothing checked that the binary in it can still read the corpora it exists to
-# read. Both directions have bitten: build.276 read migrated repositories as *silently empty*, and
-# build.285 rejected pre-cutover ones loudly. Both were caught by hand and recorded as ledger
-# warnings. This makes them a red X.
+# read. That has bitten by hand more than once — build.285 rejects a pre-cutover corpus loudly, and
+# a binary that reads a corpus as empty is the quieter twin. Each was caught by a person and
+# recorded as a ledger warning. This makes them a red X.
+#
+# The silent-emptiness half is deliberately NOT attributed to a specific build here: build.276,
+# which an earlier draft named, does not reproduce it — against today's migrated corpora it fails
+# loudly with `missing field 'instanceIndex'`. The zero-instance check below stands on its own
+# merit (nothing else distinguishes an empty read from a clean one), not on that incident.
 #
 # Usage:
 #   SRS=/path/to/srs ./scripts/check-corpus-conformance.sh <label>=<repo-path> [...]
