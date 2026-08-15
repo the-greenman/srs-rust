@@ -5227,7 +5227,10 @@ mod tests {
             meta: None,
             extra: std::collections::BTreeMap::new(),
         };
-        crate::container_service::create_container(&store, container).unwrap();
+        // A dangling root is exactly what this test is about, and no service
+        // writer will produce one any more (srs-rust#845) — plant it through the
+        // ADR-045 repair seam.
+        store.save_container_unchecked(&container).unwrap();
 
         let report = validate_repository(&store).unwrap();
         assert!(

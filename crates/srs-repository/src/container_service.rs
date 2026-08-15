@@ -163,6 +163,8 @@ pub fn create_container(
     validate_container(&container)
         .map_err(|source| RepositoryError::ContainerValidation { source })?;
 
+    require_resolvable_instances(store, declared_membership(&container))?;
+
     store.save_container(&container)?;
     Ok(container)
 }
@@ -386,6 +388,8 @@ pub fn update_container(
     validate_container(&container)
         .map_err(|source| RepositoryError::ContainerValidation { source })?;
 
+    require_resolvable_instances(store, declared_membership(&container))?;
+
     save_container_syncing_embed(store, &container, is_embed_only, true)?;
     Ok(container)
 }
@@ -427,7 +431,7 @@ pub(crate) fn list_members(
     Ok(combined)
 }
 
-/// Membership writes may only name an instance that actually exists.
+/// Membership writes may only name instances that actually exist.
 ///
 /// A container reference that resolves to nothing is a fatal [R13] catalog
 /// diagnostic, so persisting one turns the repository into something no command
@@ -436,26 +440,47 @@ pub(crate) fn list_members(
 /// adapters all route through (ADR-010; srs-rust#841). Blank ids get their own
 /// message: `InstanceNotFound { id: "" }` reads as a lookup failure when the real
 /// problem is an empty argument.
-fn require_resolvable_instance(
+///
+/// This is the *single* guard for every membership-writing entry point: the
+/// incremental writers `add_member`/`add_root` pass one id, the wholesale
+/// writers `create_container`/`update_container` pass their entire membership
+/// list (srs-rust#845). An empty list loads no catalog — creating a container
+/// with no membership must not depend on the repository being loadable.
+fn require_resolvable_instances<'a>(
     store: &dyn RepositoryStore,
-    instance_id: &str,
+    instance_ids: impl IntoIterator<Item = &'a str>,
 ) -> Result<(), RepositoryError> {
-    if instance_id.trim().is_empty() {
-        return Err(RepositoryError::InvalidInput {
-            message: "instance_id must not be empty".to_string(),
-        });
+    let mut ids = instance_ids.into_iter().peekable();
+    if ids.peek().is_none() {
+        return Ok(());
     }
-    if !store
-        .catalog()?
-        .instances
-        .iter()
-        .any(|e| e.id == instance_id)
-    {
-        return Err(RepositoryError::InstanceNotFound {
-            id: instance_id.to_string(),
-        });
+    let catalog = store.catalog()?;
+    for instance_id in ids {
+        if instance_id.trim().is_empty() {
+            return Err(RepositoryError::InvalidInput {
+                message: "instance_id must not be empty".to_string(),
+            });
+        }
+        if !catalog.instances.iter().any(|e| e.id == instance_id) {
+            return Err(RepositoryError::InstanceNotFound {
+                id: instance_id.to_string(),
+            });
+        }
     }
     Ok(())
+}
+
+/// Every membership id a container declares — `rootInstanceIds` ∪
+/// `memberInstanceIds`. `identityInstanceId` is deliberately excluded: it is not
+/// a container reference in the [R13] reference set, and its dangling case is
+/// srs-rust#837's separate question.
+fn declared_membership(container: &Container) -> impl Iterator<Item = &str> {
+    container
+        .root_instance_ids
+        .iter()
+        .chain(container.member_instance_ids.iter())
+        .flatten()
+        .map(String::as_str)
 }
 
 pub fn add_member(
@@ -463,7 +488,7 @@ pub fn add_member(
     container_id: &str,
     instance_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
-    require_resolvable_instance(store, instance_id)?;
+    require_resolvable_instances(store, [instance_id])?;
     let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
     let mut members = container.member_instance_ids.unwrap_or_default();
     if members.iter().any(|id| id == instance_id) {
@@ -510,7 +535,7 @@ pub fn add_root(
     container_id: &str,
     instance_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
-    require_resolvable_instance(store, instance_id)?;
+    require_resolvable_instances(store, [instance_id])?;
     let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
     let mut roots = container.root_instance_ids.unwrap_or_default();
     if roots.iter().any(|id| id == instance_id) {
@@ -1127,10 +1152,13 @@ mod tests {
 
     /// An incoherent container, built the only way still open to it.
     ///
-    /// `add_member`/`add_root` reject an id that resolves to nothing (srs-rust#841),
-    /// so these `validate_container_invariants` tests — whose whole subject is an
-    /// already-incoherent container — construct the state through `create_container`,
-    /// which takes the membership list wholesale.
+    /// Every membership-writing service entry point now rejects an id that
+    /// resolves to nothing — the incremental `add_member`/`add_root`
+    /// (srs-rust#841) and the wholesale `create_container`/`update_container`
+    /// (srs-rust#845). Tests whose whole subject is an *already*-incoherent
+    /// container therefore write through the ADR-045 repair seam, which is what
+    /// that seam is for: it is the only surface in the codebase that can express
+    /// a state the service layer will no longer produce.
     fn create_container_with_membership(
         store: &dyn RepositoryStore,
         id: &str,
@@ -1143,7 +1171,8 @@ mod tests {
         };
         c.root_instance_ids = own(roots);
         c.member_instance_ids = own(members);
-        create_container(store, c).unwrap()
+        store.save_container_unchecked(&c).unwrap();
+        c
     }
 
     #[test]
@@ -1473,18 +1502,10 @@ mod tests {
         // Clean container passes
         let report = validate_container_invariants(&store, id).unwrap();
         assert!(report.ok);
-        // The container's own ID as a member fails. `add_member` no longer accepts
-        // it (a containerId is not an instance — srs-rust#841), so the invalid state
-        // comes in through the wholesale membership patch.
-        update_container(
-            &store,
-            id,
-            ContainerPatch {
-                member_instance_ids: Some(vec![id.to_string()]),
-                ..ContainerPatch::default()
-            },
-        )
-        .unwrap();
+        // The container's own ID as a member fails. No service writer accepts it
+        // any more (a containerId is not an instance — srs-rust#841/#845), so the
+        // invalid state is planted through the ADR-045 repair seam.
+        create_container_with_membership(&store, id, &[], &[id]);
         let report = validate_container_invariants(&store, id).unwrap();
         assert!(!report.ok);
     }
@@ -1621,6 +1642,8 @@ mod tests {
         let store = make_store();
         let id = "550e8400-e29b-41d4-a716-446655440000";
         create_container(&store, minimal_container(id, "Container")).unwrap();
+        seed_instance(&store, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        seed_instance(&store, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
         let patch = ContainerPatch {
             root_instance_ids: Some(vec![
                 "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb".to_string(),
