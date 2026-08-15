@@ -137,7 +137,8 @@ impl FieldJson {
             version: self.version,
             description: self.description.unwrap_or_default(),
             instructions: self.instructions,
-            ai_guidance: self.ai_guidance.unwrap_or_default(),
+            // Absent stays absent, authored-but-empty stays authored (#768/#832).
+            ai_guidance: self.ai_guidance,
             field_type,
             default_value: self.default_value,
             editor_hint: self.editor_hint,
@@ -347,6 +348,29 @@ mod tests {
         assert!(
             written.get("aiGuidance").is_none(),
             "absent guidance must stay absent, not become {{\"purpose\": \"\"}}: {written}"
+        );
+    }
+
+    #[test]
+    fn authored_empty_ai_guidance_survives_the_write_path() {
+        // srs-rust#832, the other half of #768's distinction. `aiGuidance` is
+        // *required* by field.json, so dropping an authored `{"purpose": ""}` on
+        // write turns a conforming Field into one that fails [R8] — and every
+        // Type assigning it into an [R13] dangling reference. `repo copy`
+        // round-trips every Field through this struct, so it turned a valid
+        // repository into an unloadable bundle in one step, silently.
+        let field = parse(serde_json::json!({
+            "id": "f-1", "namespace": "com.test", "name": "amendment_rule", "version": 1,
+            "description": "d", "createdAt": "2026-01-01T00:00:00Z",
+            "aiGuidance": {"purpose": ""},
+            "fieldType": {"datatype": "string"}
+        }))
+        .unwrap();
+        let written = serde_json::to_value(&field).unwrap();
+        assert_eq!(
+            written.get("aiGuidance"),
+            Some(&serde_json::json!({"purpose": ""})),
+            "an authored empty purpose must survive the round-trip: {written}"
         );
     }
 

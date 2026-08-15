@@ -49,10 +49,10 @@ fn make_field(id: &str, name: &str) -> Field {
         field_type: FieldType::string(),
         description: "A test field".to_string(),
         instructions: None,
-        ai_guidance: AiGuidance {
+        ai_guidance: Some(AiGuidance {
             purpose: "Test guidance".to_string(),
             ..Default::default()
-        },
+        }),
         default_value: None,
         editor_hint: None,
         tags: None,

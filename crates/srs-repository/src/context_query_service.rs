@@ -103,11 +103,11 @@ pub fn get_field_context(
     let (field_name, field_namespace, ai_guidance) =
         match package_service::get_field_by_id(store, &query.field_id)? {
             package_service::GetFieldResult::Found(field) => {
-                let guidance = if field.ai_guidance.purpose.is_empty() {
-                    None
-                } else {
-                    serde_json::to_value(&field.ai_guidance).ok()
-                };
+                let guidance = field
+                    .ai_guidance
+                    .as_ref()
+                    .filter(|g| !g.purpose.is_empty())
+                    .and_then(|g| serde_json::to_value(g).ok());
                 (
                     Some(field.name.clone()),
                     Some(field.namespace.clone()),
@@ -255,7 +255,7 @@ mod tests {
             // MemoryStore-typed-Package fixture never round-trips through JSON/catalog
             // validation, and `field_context_ai_guidance_null` specifically exercises
             // the empty-guidance → `ai_guidance: None` behavior.
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: None,
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -414,10 +414,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Name field".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
-            },
+            }),
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -449,10 +449,10 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
         };
-        name_field.ai_guidance = AiGuidance {
+        name_field.ai_guidance = Some(AiGuidance {
             purpose: "Write the full legal name".to_string(),
             ..Default::default()
-        };
+        });
         let manifest = Manifest {
             container: None,
             federation_path: None,

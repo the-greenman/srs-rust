@@ -4076,10 +4076,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Heading".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
-            },
+            }),
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -4097,10 +4097,10 @@ mod tests {
             field_type: FieldType::text(),
             description: "Body text".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
-            },
+            }),
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -4118,10 +4118,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Caption for tables".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
-            },
+            }),
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -4722,10 +4722,10 @@ mod tests {
             field_type,
             description: name.to_string(),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
-            },
+            }),
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -5159,10 +5159,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Heading".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
-            },
+            }),
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -5487,10 +5487,10 @@ mod tests {
             field_type: FieldType::text(),
             description: "Body".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
-            },
+            }),
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -5884,10 +5884,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Heading".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
-            },
+            }),
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -5905,10 +5905,10 @@ mod tests {
             field_type: FieldType::text(),
             description: "Body text".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
-            },
+            }),
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -5926,10 +5926,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Caption for tables".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
-            },
+            }),
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -7398,10 +7398,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Heading field".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
-            },
+            }),
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -7420,10 +7420,10 @@ mod tests {
             description: "Other field (used as explicit titleFieldId in precedence test)"
                 .to_string(),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
-            },
+            }),
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -7445,10 +7445,10 @@ mod tests {
             field_type: FieldType::closed(),
             description: "Closed-domain field, ineligible as titleFieldId under [N+1]".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
-            },
+            }),
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -8050,10 +8050,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Heading".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
-            },
+            }),
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -9398,10 +9398,10 @@ mod tests {
             field_type: FieldType::string(),
             description: "Name".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
-            },
+            }),
             default_value: None,
             editor_hint: None,
             tags: None,
@@ -10496,10 +10496,10 @@ mod tests {
             field_type: FieldType::string(),
             description: name.to_string(),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
-            },
+            }),
             default_value: None,
             editor_hint: None,
             tags: None,

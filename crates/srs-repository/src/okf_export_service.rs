@@ -454,10 +454,10 @@ mod tests {
             version: 1,
             description: String::new(),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
-            },
+            }),
             field_type: FieldType::string(),
             default_value: None,
             editor_hint: None,

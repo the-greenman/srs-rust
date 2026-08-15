@@ -1309,7 +1309,6 @@ mod tests {
     use crate::store::memory::MemoryStore;
     use crate::store::{FileStore, RepositoryStore};
     use crate::validation::validate_repository;
-    use srs_core::types::field::AiGuidance;
     use tempfile::TempDir;
 
     fn make_input() -> InitializeRepositoryInput {
@@ -1403,7 +1402,7 @@ mod tests {
             field_type: srs_core::types::field::FieldType::string(),
             description: "".to_string(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: None,
             default_value: None,
             editor_hint: None,
             tags: None,

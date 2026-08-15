@@ -304,11 +304,11 @@ fn resolve_brief_type(
     for fa in &field_assignments {
         match get_field_by_id(store, &fa.field_id)? {
             GetFieldResult::Found(field) => {
-                let field_ai = if field.ai_guidance.purpose.is_empty() {
-                    None
-                } else {
-                    serde_json::to_value(&field.ai_guidance).ok()
-                };
+                let field_ai = field
+                    .ai_guidance
+                    .as_ref()
+                    .filter(|g| !g.purpose.is_empty())
+                    .and_then(|g| serde_json::to_value(g).ok());
                 let field_type = field.field_type.clone();
                 fields.push(BriefFieldResult {
                     field_id: field.id.clone(),
@@ -492,10 +492,10 @@ mod tests {
             version: 1,
             description: format!("A {name}"),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: format!("captures the {name}"),
                 ..Default::default()
-            },
+            }),
             field_type: vt.clone(),
             default_value: None,
             editor_hint: None,
@@ -819,10 +819,10 @@ mod tests {
                 version: 1,
                 description: format!("{name} field"),
                 instructions: None,
-                ai_guidance: AiGuidance {
+                ai_guidance: Some(AiGuidance {
                     purpose: "Test guidance".to_string(),
                     ..Default::default()
-                },
+                }),
                 field_type: vt.clone(),
                 default_value: None,
                 editor_hint: None,
