@@ -4285,6 +4285,58 @@ fn container_members_add_rejects_unresolvable_instance_id() {
     );
 }
 
+/// `container create` may not persist a membership id that resolves to nothing
+/// (srs-rust#845) — the wholesale half of the #841 guard. Reported `ok: true`
+/// before this landed, leaving a repository no command could load.
+#[test]
+fn container_create_rejects_unresolvable_membership_id() {
+    let temp = make_container_test_repo();
+    let ghost = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    for key in ["rootInstanceIds", "memberInstanceIds"] {
+        let cid = "00000000-0000-4000-8000-000000000001";
+        let payload = serde_json::json!({
+            "containerId": cid,
+            "title": "Bricked",
+            key: [ghost],
+        })
+        .to_string();
+        let (_, result) =
+            run_srs_stdin_any_status_in_dir(temp.path(), &["container", "create"], &payload);
+        assert_eq!(
+            result["ok"], false,
+            "{key}: unresolvable id must be rejected"
+        );
+        // Nothing persisted: the repository still loads.
+        let listed = run_srs_in_dir(temp.path(), &["container", "list"]);
+        assert_eq!(listed["ok"], true, "{key}: repository must still load");
+        assert_eq!(
+            listed["payload"]["containers"],
+            serde_json::json!([]),
+            "{key}: no container may have been written"
+        );
+    }
+}
+
+/// The same guard on the other wholesale writer (srs-rust#845).
+#[test]
+fn container_update_rejects_unresolvable_membership_id() {
+    let temp = make_container_test_repo();
+    let cid = make_guarded_container(&temp);
+    let ghost = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    for key in ["rootInstanceIds", "memberInstanceIds"] {
+        let payload = serde_json::json!({ key: [ghost] }).to_string();
+        let (_, result) =
+            run_srs_stdin_any_status_in_dir(temp.path(), &["container", "update", cid], &payload);
+        assert_eq!(
+            result["ok"], false,
+            "{key}: unresolvable id must be rejected"
+        );
+        let listed = run_srs_in_dir(temp.path(), &["container", "roots", "list", cid]);
+        assert_eq!(listed["ok"], true, "{key}: repository must still load");
+        assert_eq!(listed["payload"]["rootInstanceIds"], serde_json::json!([]));
+    }
+}
+
 /// The recovery half (ADR-045): a repository already bricked by a dangling
 /// container reference is repairable through the CLI alone.
 #[test]
@@ -4292,15 +4344,18 @@ fn container_roots_remove_repairs_bricked_repository() {
     let temp = make_container_test_repo();
     let cid = "00000000-0000-4000-8000-000000000001";
     let ghost = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
-    // `container create` still takes the membership list wholesale, so it is the
-    // way to reach the bricked state the guard now blocks on the add path.
-    let payload = serde_json::json!({
-        "containerId": cid,
-        "title": "Bricked",
-        "rootInstanceIds": [ghost],
-    })
-    .to_string();
-    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+    // No CLI writer can reach this state any more (srs-rust#841 closed the add
+    // path, #845 the create/update path), which is the point: the repository was
+    // damaged by something other than this tool, and `remove` is still the way
+    // back out.
+    write_json(
+        &temp.path().join("containers/bricked.json"),
+        serde_json::json!({
+            "containerId": cid,
+            "title": "Bricked",
+            "rootInstanceIds": [ghost],
+        }),
+    );
 
     // Every ordinary read routes through the checked catalog and now fails.
     let (_, bricked) = run_srs_any_status_in_dir(temp.path(), &["container", "roots", "list", cid]);

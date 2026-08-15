@@ -312,12 +312,13 @@ mod tests {
     #[test]
     fn missing_instance_fails_the_export() {
         let store = make_store();
-        // `add_member` now rejects an id that resolves to nothing (srs-rust#841),
-        // so the dangling state this test is about comes in through the wholesale
-        // membership list on `create_container`.
-        let mut seed = minimal_container("", "Partial");
-        seed.member_instance_ids = Some(vec!["does-not-exist".to_string()]);
-        let c = create_container(&store, seed).unwrap();
+        // Every service writer now rejects an id that resolves to nothing —
+        // `add_member` (srs-rust#841) and `create_container` (srs-rust#845) — so
+        // the dangling state this test is about is planted through the ADR-045
+        // repair seam, the one surface that can still express it.
+        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440099", "Partial");
+        c.member_instance_ids = Some(vec!["does-not-exist".to_string()]);
+        store.save_container_unchecked(&c).unwrap();
 
         let err = export_okf_bundle(
             &store,
