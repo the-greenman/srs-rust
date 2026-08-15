@@ -120,9 +120,15 @@ jobs:
   # Corpus conformance gate (the-greenman/srs#392 row 2)
   # ---------------------------------------------------------------------------------------------
   # Every merge to master publishes a release humans and CI pull. Nothing checked that the binary
-  # inside it can still read the corpora it exists to read, and both directions have bitten:
-  # build.276 read migrated repositories as SILENTLY EMPTY, build.285 rejected pre-cutover ones
-  # loudly. Both were found by hand and written down as ledger warnings. This makes them a red X.
+  # inside it can still read the corpora it exists to read. That has bitten by hand more than once
+  # — a build that rejects a migrated corpus, or reads one as empty — and each time it was found by
+  # a person and written down as a ledger warning. This makes it a red X.
+  #
+  # (An earlier draft of this comment attributed the silent-emptiness half specifically to
+  # build.276. That does not reproduce: run against today's migrated corpora, build.276 fails
+  # LOUDLY with `manifest parse error ... missing field 'instanceIndex'`. The emptiness check below
+  # is kept on its merits — a zero-instance read is indistinguishable from a clean one by every
+  # other signal — not on that attribution.)
   #
   # ORDERING: publish first, gate after. This is not a preference — gate-before-publish deadlocks.
   # The binary that performs a corpus migration is the binary the corpus needs in order to migrate:
@@ -133,46 +139,82 @@ jobs:
   #
   # FAILURE SEMANTICS: this job is required for the workflow to be green, but it is a SEPARATE job,
   # so a red gate never retracts or blocks the release itself. Its corpus checkouts always track
-  # each repository's DEFAULT BRANCH, which is conformant by that repository's own CI (srs:
-  # release-drift.yml; muDemocracy.org: ci.yml, added by srs#392 row 1). So a corpus repo mid-
-  # migration reddens srs-rust only for as long as its own default branch is non-conformant — which
-  # is a state that repo's own CI is already red for. It cannot redden srs-rust permanently, and it
-  # is deliberately not made non-blocking: a gate that cannot fail is the thing this replaces.
+  # each repository's DEFAULT BRANCH, on the reasoning that a default branch is conformant by its
+  # own repository's CI — `srs` has `release-drift.yml` today. For muDemocracy.org that backstop is
+  # the conformance job added by srs#392 row 1, which lands in a SEPARATE PR of this unit: until
+  # that merges, muSrs's default branch has no CI of its own, so this gate would be the first thing
+  # to notice a break there rather than the second. Land row 1 first, or accept that ordering.
+  #
+  # So a corpus repo mid-migration reddens srs-rust only for as long as its own default branch is
+  # non-conformant. It cannot redden srs-rust permanently, and the gate is deliberately not made
+  # non-blocking: a gate that cannot fail is the thing this replaces.
   corpus-gate:
     name: Corpus conformance gate
     needs: release
     runs-on: ubuntu-latest
+    # Read-only: this job validates, it never publishes. The workflow-level `contents: write` is
+    # for the release job alone.
+    permissions:
+      contents: read
+    env:
+      # The `secrets` context is not available in a step-level `if:`, so the optional corpus token
+      # is surfaced through `env`, which is. Empty when the secret is unset.
+      CORPUS_READ_TOKEN: ${{ secrets.CORPUS_READ_TOKEN }}
     steps:
       - name: Checkout srs-rust
         uses: actions/checkout@v4
         with:
           path: srs-rust
 
-      # The two first-party corpus repositories, always at their DEFAULT BRANCH (no `ref:`) — see
-      # the header note on failure semantics. This is the same cross-repo checkout `ci.yml`'s
-      # schema-drift job already does against `the-greenman/srs` with the default token, on every
-      # push and PR; consolidating on that convention rather than an anonymous `git clone`, which
-      # would be rate-limited from shared Actions egress IPs and would fail in a way indistinguish-
-      # able from a genuine corpus break.
+      # `srs` is PUBLIC, so the default GITHUB_TOKEN reads it — this is the same cross-repo checkout
+      # `ci.yml`'s schema-drift job already does against it on every push and PR. Default branch
+      # (no `ref:`); see the header note on failure semantics.
+      #
+      # `persist-credentials: false`: nothing here pushes, and the workflow-level token is
+      # `contents: write`. Leaving it in a foreign repo's .git/config would put a write-scoped
+      # credential on disk for a job that only reads.
       - name: Checkout srs (spec repo + gallery)
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/srs
           path: corpora/srs
+          persist-credentials: false
 
+      # muDemocracy.org is PRIVATE, and this repository's GITHUB_TOKEN is an installation token
+      # scoped to srs-rust alone — no `permissions:` key can widen it across repositories, and an
+      # anonymous clone cannot read it either. Cross-repo private read needs a credential this
+      # workflow does not have, so the muSrs leg is CONDITIONAL on one being supplied.
+      #
+      # Set a `CORPUS_READ_TOKEN` secret (a PAT or App token with read access to muDemocracy.org)
+      # to switch it on. Without it the leg is SKIPPED — loudly, in the step below, never silently:
+      # a gate that quietly validates two corpora while its comments claim three is worth less than
+      # no gate at all. muSrs is not unguarded meanwhile; muDemocracy.org's own conformance job
+      # (srs#392 row 1) validates it on every push there, against its pinned binary. What the skip
+      # costs is specifically the fresh-binary check — the case where a new srs-rust build breaks a
+      # corpus that its own CI still passes.
       - name: Checkout muDemocracy.org (muSrs)
+        id: musrs
+        continue-on-error: true
+        if: ${{ env.CORPUS_READ_TOKEN != '' }}
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/muDemocracy.org
           path: corpora/muDemocracy.org
+          token: ${{ env.CORPUS_READ_TOKEN }}
+          persist-credentials: false
 
       # Which commit each corpus was at, so a gate failure can be attributed to a corpus change
-      # rather than to the binary without re-running anything.
+      # rather than to the binary without re-running anything — and an explicit line for any corpus
+      # that was not fetched, so reduced coverage is visible in the log rather than inferred from
+      # the absence of a line.
       - name: Record corpus provenance
         run: |
-          for repo in srs muDemocracy.org; do
-            echo "$repo @ $(git -C "corpora/$repo" rev-parse HEAD)"
-          done
+          echo "srs @ $(git -C corpora/srs rev-parse HEAD)"
+          if [ -d corpora/muDemocracy.org/.git ]; then
+            echo "muDemocracy.org @ $(git -C corpora/muDemocracy.org rev-parse HEAD)"
+          else
+            echo "::warning::muSrs was NOT validated by this gate — no CORPUS_READ_TOKEN secret is set, and muDemocracy.org is private. Set that secret to include it. muSrs is still validated by muDemocracy.org's own CI against its pinned binary; what is missing here is the check against THIS build."
+          fi
 
       # The PUBLISHED asset, not the local build. If the tarball is corrupt or the wrong artifact
       # got attached, that is exactly as bad as a binary that cannot read the corpus, and only
@@ -205,7 +247,16 @@ jobs:
         env:
           SRS: /tmp/srs-release/srs
         run: |
-          srs-rust/scripts/check-corpus-conformance.sh \
-            "srs-spec=$GITHUB_WORKSPACE/corpora/srs/srs" \
-            "gallery=$GITHUB_WORKSPACE/corpora/srs/docs/spec/examples/gallery-project-v2" \
-            "muSrs=$GITHUB_WORKSPACE/corpora/muDemocracy.org/muSrs"
+          set -euo pipefail
+          corpora=(
+            "srs-spec=$GITHUB_WORKSPACE/corpora/srs/srs"
+            "gallery=$GITHUB_WORKSPACE/corpora/srs/docs/spec/examples/gallery-project-v2"
+          )
+          # Only if the optional muSrs leg was actually fetched. The check treats a missing corpus
+          # path as an error — correctly, since a corpus that vanished is not a corpus that passed
+          # — so passing a path that was never checked out would turn "no token configured" into a
+          # spurious red. The skip is already announced by the provenance step above.
+          if [ -d "$GITHUB_WORKSPACE/corpora/muDemocracy.org/muSrs" ]; then
+            corpora+=("muSrs=$GITHUB_WORKSPACE/corpora/muDemocracy.org/muSrs")
+          fi
+          srs-rust/scripts/check-corpus-conformance.sh "${corpora[@]}"
