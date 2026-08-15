@@ -1004,29 +1004,40 @@ fn cmd_attachment_list(repo: &str, explain: bool, json: bool) -> Result<()> {
 
 /// Canonical seed for com.mudemocracy.governance @1.0.0.
 ///
-/// Vendored from the deterministic seed artifact (ADR-017) — never hand-edit it.
+/// **A deliberate, bounded fork of the published package, not a byte-copy — see
+/// ADR-046**, which carries the measured divergence inventory, the three repair
+/// rows that are not staleness, and the convergence point. Those rows are
+/// `aiGuidance.purpose` on 8 Fields for [R7] (row 2); `articles-and-roles`,
+/// `decision-deliberation` and `governance-document` on `container-subset`
+/// pending the srs#383 collapse (row 1a); and `decision-log` on
+/// `containerScope: explicit` (row 1b) — all four views, not three: `decision-log`
+/// is `type-query` on both sides and reads as untouched, but the published
+/// `containerScope: repository` form carries no `containerIds`, so
+/// `rebind_document_views_to_scaffold` leaves it unbound. Never hand-edit the
+/// asset: a change outside the inventory is out of contract.
 ///
-/// **No longer a byte-copy** (srs-rust#783 Phase 4): upstream is pre-RFC-032
-/// data (`valueType`, `repeatable`) that a conforming RFC-038 reader cannot
-/// load, so the vendored copy has been carried through the registered
-/// `field-type` and `rfc039-carrier` migrations and given the `$schema`
-/// declarations and non-empty `aiGuidance.purpose` values [R7] requires — each
-/// purpose taken verbatim from the field's own `description`. Re-vendoring must
-/// repeat that until the upstream package is reseeded (Governance Epic 15,
-/// muDemocracy.org#136), and `build-governance-seed.mjs --check` will not match
-/// until it is.
+/// The migration half of the divergence is closed — the published 1.0.0 and
+/// 1.1.0 seeds are themselves `srsj: "2"`, `dataModelRevision: 2` and on the
+/// `fieldType` carrier — so what remains is the repairs above, which is why a
+/// bare `cp` of the published artifact is not a re-vendor while the fork stands:
+/// it reverts all three and breaks `repo_create_document_views_bind_to_scaffolded_containers`
+/// and `governance_scaffold_service::scaffold_rebinds_document_views_to_created_containers`.
 ///
-/// Regenerate from the canonical package and re-vendor when the package is republished:
+/// Once Governance Epic 15 (muDemocracy.org#136) republishes a package needing
+/// no repair, re-vendor byte-for-byte from its seed artifact:
 ///
 /// ```sh
 /// # in the srs spec repo, with a built srs binary:
 /// SRS_BIN=<srs-rust>/target/debug/srs node scripts/build-governance-seed.mjs
-/// cp <srs>/packages/com.mudemocracy.governance/1.0.0/seed/empty-governance-document.srsj \
-///    <srs-rust>/crates/srs-gov/assets/governance-seed.srsj
+/// SEED=<srs>/packages/com.mudemocracy.governance/<version>/seed/empty-governance-document.srsj
+/// cp "$SEED" <srs-rust>/crates/srs-gov/assets/governance-seed.srsj
+/// # both copies, or scaffold::fixture_seed_is_byte_identical_to_the_shipped_asset goes red:
+/// cp "$SEED" <srs-rust>/crates/srs-repository/tests/fixtures/governance-seed.srsj
 /// ```
 ///
-/// `build-governance-seed.mjs --check` proved the seed rebuilds byte-for-byte
-/// (srs#38) — see the migration note above for why that no longer holds.
+/// `build-governance-seed.mjs --check` proved the upstream seed rebuilds
+/// byte-for-byte (muDemocracy.org#38); it will not match the vendored copy until
+/// convergence.
 const GOVERNANCE_SEED: &str = include_str!("../assets/governance-seed.srsj");
 
 fn cmd_repo_create(
