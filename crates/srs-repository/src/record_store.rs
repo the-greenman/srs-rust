@@ -543,8 +543,22 @@ pub fn delete_record(
         }
     }
     // The record's own file, deleted only after its incident relations are gone.
-    let _ = store.delete_instance_file(&path);
-    let _ = revision_service::delete_sidecar(store, &path);
+    //
+    // Both deletes propagate their failure (srs-rust#839). They were best-effort
+    // until the #834 cascade above started running first: a swallowed failure now
+    // means the instance survives on disk stripped of every container reference
+    // and every incident relation, reported as successfully deleted — the caller
+    // is told the record is gone while it sits there belonging to nothing.
+    // Truthful diagnostics over convenience: no `ok: true` over damage.
+    //
+    // The sidecar goes first so every failure leaves a re-runnable state. The
+    // record file is what makes the instance discoverable ([R1]: membership is
+    // the tree), so while it exists a repeat `delete_record` finds the instance
+    // again and completes the remaining steps — the earlier ones being
+    // idempotent no-ops. Deleting it before the sidecar would strand an orphan
+    // sidecar that no later call could reach.
+    revision_service::delete_sidecar(store, &path)?;
+    store.delete_instance_file(&path)?;
 
     Ok(instance_id.to_string())
 }
@@ -5827,10 +5841,12 @@ mod tests {
     }
 
     #[test]
-    fn delete_record_file_fail_leaves_record_still_discoverable() {
-        // Best-effort file delete: when it fails, the record's file is still on
-        // disk, so — unlike the retired index model — it remains fully
-        // discoverable via the catalog (membership is the tree, [R1]).
+    fn delete_record_file_fail_surfaces_and_is_re_runnable() {
+        // srs-rust#839. The file delete was best-effort and returned `Ok`. Since
+        // the #834 cascade runs first, that swallowed failure leaves the instance
+        // on disk stripped of every container reference and incident relation,
+        // reported as deleted — the worst interleaving of the two. So the failure
+        // must surface, and the partial state must be re-runnable to completion.
         use crate::store::memory::FailPoint;
 
         let store = make_store_with_package();
@@ -5846,16 +5862,25 @@ mod tests {
         let instance_id = record.instance_id.clone();
 
         store.arm_fail_at(FailPoint::DeleteInstanceFile);
-        let result = delete_record(&store, &instance_id);
+        let err = delete_record(&store, &instance_id)
+            .expect_err("a failed file delete must not be reported as a successful delete");
         assert!(
-            result.is_ok(),
-            "delete_record must succeed even when the best-effort file delete fails"
+            matches!(err, RepositoryError::Io { .. }),
+            "expected the underlying I/O failure, got: {err:?}"
         );
 
-        // File delete failed, so the record is still there — and still discoverable.
+        // The file survived, so the instance is still discoverable ([R1]:
+        // membership is the tree) — which is what makes the re-run possible.
         assert!(
             store.find_instance(&instance_id).unwrap().is_some(),
             "a record whose file delete failed remains discoverable via the catalog"
+        );
+
+        // Re-run: the earlier steps are idempotent no-ops and the delete completes.
+        delete_record(&store, &instance_id).expect("re-running the delete must complete it");
+        assert!(
+            store.find_instance(&instance_id).unwrap().is_none(),
+            "the record must be gone after the successful re-run"
         );
     }
 
