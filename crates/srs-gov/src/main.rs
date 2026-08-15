@@ -1014,7 +1014,11 @@ fn cmd_attachment_list(repo: &str, explain: bool, json: bool) -> Result<()> {
 /// is `type-query` on both sides and reads as untouched, but the published
 /// `containerScope: repository` form carries no `containerIds`, so
 /// `rebind_document_views_to_scaffold` leaves it unbound. Never hand-edit the
-/// asset: a change outside the inventory is out of contract.
+/// asset: a change outside the inventory is out of contract. The one edit made
+/// under it is row 4's repair (#850) — `externallinks` had lost
+/// `fieldType.cardinality: "list"` at vendor time, so it installed single-valued
+/// where the published package is repeatable. Restoring it narrows the fork; it
+/// is not a precedent for editing the asset to avoid an upstream fix.
 ///
 /// The migration half of the divergence is closed — the published 1.0.0 and
 /// 1.1.0 seeds are themselves `srsj: "2"`, `dataModelRevision: 2` and on the

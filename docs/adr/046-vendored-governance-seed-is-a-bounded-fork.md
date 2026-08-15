@@ -35,20 +35,33 @@ differing property falls in one of these rows — the inventory is complete, not
 | 1b | `decision-log`'s section source | `type-query`, `containerScope: explicit` + `containerIds` | `type-query`, `containerScope: repository` |
 | 2 | `aiGuidance.purpose` on 8 Fields | authored text, verbatim from each field's `description` | `""` |
 | 3 | definition `$schema` | present on all 39 shared entries | present on 18 |
-| 4 | `package/fields/externallinks-fc434475.json` `fieldType` | `{datatype: string, format: uri}` | `{cardinality: "list", …}` |
+| 4 | ~~`package/fields/externallinks-fc434475.json` `fieldType`~~ — **REPAIRED**, srs-rust#850 | ~~`{datatype: string, format: uri}`~~ → now `{cardinality: "list", datatype: string, format: uri}` | `{cardinality: "list", …}` |
 | 5 | `package/package.json` index + identity: `title` renamed (`governance` vs `MuDemocracy Governance`), `description` emptied, `themes`/`vocabularies` keys added, `fields` 22 vs 20, `types` +1, `lifecycles`/`protocols` entries | — | — |
 | 6 | `package/protocols/decision-7a088176.json` | absent | present |
 | 7 | lifecycle entry key | `governancelifecycle-3c504040.json` | `governance-lifecycle-3c504040.json` |
 | 8 | `manifest.meta.upstreamPackage` | `{}` | populated |
 
-sha256: vendored `28a41897…`, published `24817893…`. Top-level `manifest.upstreamPackage` is present
-and equal in both — only the `meta` copy was emptied. To regenerate this inventory, diff the two
-files' `data` maps entry by entry; nothing else in the tree derives it.
+sha256: vendored `1c5ebb4f…` (was `28a41897…` as first measured, before row 4 was repaired — see
+below), published `24817893…`. Top-level `manifest.upstreamPackage` is present and equal in both —
+only the `meta` copy was emptied. To regenerate this inventory, diff the two files' `data` maps
+entry by entry; nothing else in the tree derives it.
 
 Rows 1a–3 are the fork proper (below). Rows 4–8 are **unintended** and converge by being fixed, not
-preserved — row 4 in particular is data loss: the vendored copy dropped `cardinality: "list"`, so
-`externallinks` is single-valued in what `srs-gov` installs and repeatable in what the package
-publishes. Tracked as #850; do not "converge" it by copying the vendored value upstream.
+preserved — row 4 in particular was data loss: the vendored copy dropped `cardinality: "list"`, so
+`externallinks` was single-valued in what `srs-gov` installs and repeatable in what the package
+publishes.
+
+**Row 4 is now repaired** (#850). `cardinality: "list"` was restored on the vendored entry — and on
+`crates/srs-repository/tests/fixtures/governance-seed.srsj`, which is byte-identical to it by
+construction — bringing the vendored `fieldType` to exactly what 1.0.0 and 1.1.0 both publish. Both
+published versions carry the correct cardinality in the seed *and* in
+`package/fields/externallinks-fc434475.json`, so the loss happened at vendor time and there is
+nothing to fix upstream. Repairing data loss is inside this fork's contract by decision 1 below:
+row 4 was already classified as unintended, and restoring it narrows the fork rather than widening
+it. A re-audit at the time of the repair found it to be the *only* remaining `fieldType`
+divergence across every shared entry, and no Type carries an assignment-level
+`repeatable`/`minItems`/`maxItems` divergence either — the vendored and published seeds now agree
+on cardinality entirely. Do not "converge" this row by copying the vendored value upstream.
 
 1.1.0 is also published and matches 1.0.0 on all eight rows, so the choice of baseline does not
 change the fork's shape — but it additionally revises authored text (`rationale`'s
@@ -102,7 +115,9 @@ rather than carrying its own account.
    re-vendor repeats them, and `build-governance-seed.mjs --check` (which proved the upstream seed
    rebuilds byte-for-byte, muDemocracy.org#38) will not match the vendored copy.
 
-The seed bytes are unchanged by this ADR.
+The seed bytes were unchanged by this ADR as first accepted. They have since changed exactly once,
+for the row-4 repair recorded above (#850) — a one-line restoration of `cardinality: "list"` that
+narrows the fork. Rows 1a–3 and 5–8 are untouched.
 
 ## Consequences
 
