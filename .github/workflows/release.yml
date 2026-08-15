@@ -186,15 +186,17 @@ jobs:
       # workflow does not have, so the muSrs leg is CONDITIONAL on one being supplied.
       #
       # Set a `CORPUS_READ_TOKEN` secret (a PAT or App token with read access to muDemocracy.org)
-      # to switch it on. Without it the leg is SKIPPED — loudly, in the step below, never silently:
-      # a gate that quietly validates two corpora while its comments claim three is worth less than
-      # no gate at all. muSrs is not unguarded meanwhile; muDemocracy.org's own conformance job
-      # (srs#392 row 1) validates it on every push there, against its pinned binary. What the skip
-      # costs is specifically the fresh-binary check — the case where a new srs-rust build breaks a
-      # corpus that its own CI still passes.
+      # to switch it on. Without it the leg is SKIPPED — announced loudly by the step below, never
+      # silently: a gate that quietly validates two corpora while its comments claim three is worth
+      # less than no gate at all.
+      #
+      # NO `continue-on-error` here, deliberately. The `if` already covers the one benign case (no
+      # secret configured). Once a secret IS configured, a failing checkout is a real failure —
+      # PATs expire and access gets revoked routinely — and swallowing it would leave the gate
+      # green over two of three corpora while the provenance step reported "no secret is set",
+      # which is false. A configured-but-broken token must be red and must name itself.
       - name: Checkout muDemocracy.org (muSrs)
         id: musrs
-        continue-on-error: true
         if: ${{ env.CORPUS_READ_TOKEN != '' }}
         uses: actions/checkout@v4
         with:
@@ -204,16 +206,22 @@ jobs:
           persist-credentials: false
 
       # Which commit each corpus was at, so a gate failure can be attributed to a corpus change
-      # rather than to the binary without re-running anything — and an explicit line for any corpus
-      # that was not fetched, so reduced coverage is visible in the log rather than inferred from
-      # the absence of a line.
+      # rather than to the binary without re-running anything — and an explicit line when a corpus
+      # was not fetched, so reduced coverage is visible in the log rather than inferred from the
+      # absence of a line.
+      #
+      # Keyed on the checkout step's own outcome, not on a directory test. Two steps testing
+      # different things for the same question disagree exactly when it matters: a `.git` test says
+      # "fetched" while the corpus directory inside it has been renamed away.
       - name: Record corpus provenance
+        env:
+          MUSRS_OUTCOME: ${{ steps.musrs.outcome }}
         run: |
           echo "srs @ $(git -C corpora/srs rev-parse HEAD)"
-          if [ -d corpora/muDemocracy.org/.git ]; then
+          if [ "$MUSRS_OUTCOME" = "success" ]; then
             echo "muDemocracy.org @ $(git -C corpora/muDemocracy.org rev-parse HEAD)"
           else
-            echo "::warning::muSrs was NOT validated by this gate — no CORPUS_READ_TOKEN secret is set, and muDemocracy.org is private. Set that secret to include it. muSrs is still validated by muDemocracy.org's own CI against its pinned binary; what is missing here is the check against THIS build."
+            echo "::warning::muSrs was NOT validated by this gate — muDemocracy.org is private and no CORPUS_READ_TOKEN secret is set. Set that secret to include it. NOTE: muSrs has no standing CI of its own until the-greenman/srs#392 row 1 (the muDemocracy.org conformance job) merges, so until then this skip means muSrs is validated by nothing on a schedule."
           fi
 
       # The PUBLISHED asset, not the local build. If the tarball is corrupt or the wrong artifact
@@ -246,17 +254,21 @@ jobs:
       - name: Validate first-party corpora
         env:
           SRS: /tmp/srs-release/srs
+          MUSRS_OUTCOME: ${{ steps.musrs.outcome }}
         run: |
           set -euo pipefail
           corpora=(
             "srs-spec=$GITHUB_WORKSPACE/corpora/srs/srs"
             "gallery=$GITHUB_WORKSPACE/corpora/srs/docs/spec/examples/gallery-project-v2"
           )
-          # Only if the optional muSrs leg was actually fetched. The check treats a missing corpus
-          # path as an error — correctly, since a corpus that vanished is not a corpus that passed
-          # — so passing a path that was never checked out would turn "no token configured" into a
-          # spurious red. The skip is already announced by the provenance step above.
-          if [ -d "$GITHUB_WORKSPACE/corpora/muDemocracy.org/muSrs" ]; then
+          # Keyed on whether the CHECKOUT ran, not on whether the corpus directory is there — the
+          # same predicate the provenance step uses, for the same reason. Testing for the directory
+          # would silently drop muSrs if it were renamed or removed inside a repository that was
+          # fetched successfully, and dropping a corpus is precisely what
+          # check-corpus-conformance.sh's "a corpus that vanished is not a corpus that passed"
+          # error exists to prevent. Skipping when no token is configured is the only case that
+          # should reduce coverage, and it is announced above.
+          if [ "$MUSRS_OUTCOME" = "success" ]; then
             corpora+=("muSrs=$GITHUB_WORKSPACE/corpora/muDemocracy.org/muSrs")
           fi
           srs-rust/scripts/check-corpus-conformance.sh "${corpora[@]}"
