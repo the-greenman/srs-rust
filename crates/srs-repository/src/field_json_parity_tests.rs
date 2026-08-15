@@ -59,10 +59,10 @@ fn cross_store_field_json_parity() {
         field_type: FieldType::string(),
         description: "Parity test field".to_string(),
         instructions: Some("Cross-store parity check.".to_string()),
-        ai_guidance: AiGuidance {
+        ai_guidance: Some(AiGuidance {
             purpose: "Test guidance".to_string(),
             ..Default::default()
-        },
+        }),
         default_value: None,
         editor_hint: None,
         tags: None,

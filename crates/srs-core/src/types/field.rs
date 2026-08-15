@@ -126,8 +126,15 @@ pub struct Field {
     /// empty", and writing it back during a migration would make the loss
     /// permanent. A Field with no guidance therefore fails `field.json`'s
     /// `required` check, which is the visible outcome the issue asks for.
-    #[serde(default, skip_serializing_if = "AiGuidance::is_empty")]
-    pub ai_guidance: AiGuidance,
+    ///
+    /// `Option` is what carries that distinction (srs-rust#832). Skipping on an
+    /// *all-empty* `AiGuidance` conflated the two cases the paragraph above says
+    /// must stay apart: an authored `{"purpose": ""}` serialized as nothing, so
+    /// `repo copy` — which round-trips every Field through this struct — turned a
+    /// conforming repository into a bundle that fails `field.json`'s `required`
+    /// check and cascades into [R13] for every Type assigning the dropped Field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_guidance: Option<AiGuidance>,
     /// RFC-032 — the decomposed value type: datatype × cardinality ×
     /// value-domain × format × constraints.
     pub field_type: FieldType,
@@ -168,7 +175,7 @@ impl Field {
             version: 1,
             description: String::new(),
             instructions: None,
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: None,
             field_type,
             default_value: None,
             editor_hint: None,
@@ -227,10 +234,10 @@ mod tests {
     fn sample() -> Field {
         Field {
             description: "A test field".to_string(),
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "captures test data".to_string(),
                 ..Default::default()
-            },
+            }),
             default_value: Some(json!("a")),
             created_at: "2026-01-01T00:00:00Z".to_string(),
             ..Field::new(
@@ -373,11 +380,9 @@ mod tests {
             "createdAt": "2026-01-01T00:00:00Z"
         }"#;
         let field: Field = serde_json::from_str(json_str).unwrap();
-        assert_eq!(field.ai_guidance.purpose, "captures test data");
-        assert_eq!(
-            field.ai_guidance.extraction.as_deref(),
-            Some("extract verbatim")
-        );
+        let guidance = field.ai_guidance.as_ref().expect("aiGuidance was present");
+        assert_eq!(guidance.purpose, "captures test data");
+        assert_eq!(guidance.extraction.as_deref(), Some("extract verbatim"));
         assert_eq!(field.editor_hint, Some(EditorHint::RichText));
         assert_eq!(
             field.tags,
@@ -421,10 +426,10 @@ mod tests {
         let reg = srs_schema::SchemaRegistry::global();
         let field = Field {
             description: "A short summary".to_string(),
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "captures the summary".to_string(),
                 ..Default::default()
-            },
+            }),
             created_at: "2026-01-01T00:00:00Z".to_string(),
             ..Field::new(
                 "00000000-0000-4000-8000-000000000010",
@@ -467,10 +472,10 @@ mod tests {
         for shape in shapes {
             let field = Field {
                 description: "d".to_string(),
-                ai_guidance: AiGuidance {
+                ai_guidance: Some(AiGuidance {
                     purpose: "p".to_string(),
                     ..Default::default()
-                },
+                }),
                 created_at: "2026-01-01T00:00:00Z".to_string(),
                 ..Field::new(
                     "00000000-0000-4000-8000-000000000010",

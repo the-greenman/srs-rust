@@ -196,7 +196,7 @@ fn type_version_selects_the_version_the_caller_asked_for() {
     // projection that resolves the version and then re-looks-up by name returns
     // a *different* Type with `ok: true` and no diagnostic — a wrong answer
     // from the capability's primary entry point.
-    use srs_core::types::field::{AiGuidance, Field, FieldType};
+    use srs_core::types::field::{Field, FieldType};
     use srs_core::types::record_type::{FieldAssignment, RecordType};
     use srs_repository::manifest::Manifest;
     use srs_repository::package::Package;
@@ -206,7 +206,7 @@ fn type_version_selects_the_version_the_caller_asked_for() {
 
     let mk_field = |id: &str, name: &str| Field {
         description: String::new(),
-        ai_guidance: AiGuidance::default(),
+        ai_guidance: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
         ..Field::new(id, "com.probe", name, FieldType::string())
     };

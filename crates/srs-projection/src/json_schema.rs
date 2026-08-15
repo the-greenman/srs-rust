@@ -662,13 +662,13 @@ pub fn to_canonical_json<T: Serialize>(value: &T) -> Result<String, serde_json::
 #[cfg(test)]
 mod tests {
     use super::*;
-    use srs_core::types::field::{AiGuidance, ExactTypeRef, FieldTypeConstraints};
+    use srs_core::types::field::{ExactTypeRef, FieldTypeConstraints};
     use srs_core::types::record_type::FieldAssignment;
 
     fn field(id: &str, name: &str, ft: FieldType) -> Field {
         Field {
             description: String::new(),
-            ai_guidance: AiGuidance::default(),
+            ai_guidance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             ..Field::new(id, "com.test", name, ft)
         }

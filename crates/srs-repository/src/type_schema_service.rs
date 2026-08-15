@@ -183,15 +183,16 @@ fn field_to_property(
     // aiGuidance.purpose becomes `description`; any richer structured
     // guidance (extraction, negativeGuidance, examples) is preserved under a
     // vendor key, since it has no standard JSON Schema keyword to land on.
-    if !field.ai_guidance.purpose.is_empty() {
-        prop.insert("description".into(), json!(field.ai_guidance.purpose));
-    }
-    let has_structured_guidance = field.ai_guidance.extraction.is_some()
-        || field.ai_guidance.negative_guidance.is_some()
-        || field.ai_guidance.examples.is_some();
-    if has_structured_guidance {
-        if let Ok(guidance) = serde_json::to_value(&field.ai_guidance) {
-            prop.insert("x-srs-ai-guidance".into(), guidance);
+    if let Some(g) = field.ai_guidance.as_ref() {
+        if !g.purpose.is_empty() {
+            prop.insert("description".into(), json!(g.purpose));
+        }
+        let has_structured_guidance =
+            g.extraction.is_some() || g.negative_guidance.is_some() || g.examples.is_some();
+        if has_structured_guidance {
+            if let Ok(guidance) = serde_json::to_value(g) {
+                prop.insert("x-srs-ai-guidance".into(), guidance);
+            }
         }
     }
 
@@ -410,10 +411,10 @@ mod tests {
             version: 1,
             description: format!("{name} description"),
             instructions: None,
-            ai_guidance: AiGuidance {
+            ai_guidance: Some(AiGuidance {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
-            },
+            }),
             field_type,
             default_value: None,
             editor_hint: None,

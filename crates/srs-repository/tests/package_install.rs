@@ -228,7 +228,7 @@ fn install_skips_identical_uuid_definitions() {
         field_type: srs_core::types::field::FieldType::string(),
         description: "Short label for this record.".to_string(),
         instructions: None,
-        ai_guidance: srs_core::types::field::AiGuidance::default(),
+        ai_guidance: None,
         default_value: None,
         editor_hint: None,
         tags: None,
