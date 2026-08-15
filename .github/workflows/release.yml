@@ -159,7 +159,7 @@ jobs:
     env:
       # The `secrets` context is not available in a step-level `if:`, so the optional corpus token
       # is surfaced through `env`, which is. Empty when the secret is unset.
-      CORPUS_READ_TOKEN: ${{ secrets.CORPUS_READ_TOKEN }}
+      CORPUS_TOKEN: ${{ secrets.CORPUS_TOKEN }}
     steps:
       - name: Checkout srs-rust
         uses: actions/checkout@v4
@@ -185,8 +185,15 @@ jobs:
       # anonymous clone cannot read it either. Cross-repo private read needs a credential this
       # workflow does not have, so the muSrs leg is CONDITIONAL on one being supplied.
       #
-      # Set a `CORPUS_READ_TOKEN` secret (a PAT or App token with read access to muDemocracy.org)
-      # to switch it on. Without it the leg is SKIPPED — announced loudly by the step below, never
+      # Set a `CORPUS_TOKEN` secret on THIS repository to switch it on: a fine-grained PAT whose
+      # repository access is muDemocracy.org alone, with `Contents: Read-only` and nothing else.
+      # Named for the `BOARD_TOKEN` convention `srs` and `srs-web` already use — deliberately NOT a
+      # second name with a `secrets.A || secrets.B` fallback, which is what board-sync.yml has to do
+      # because this repo called the same thing BOARD_SECRET.
+      #
+      # It will expire; fine-grained PATs always do. When it does, the checkout fails and this job
+      # goes red naming itself, which is the intended behaviour — see the note on
+      # `continue-on-error` below. Without it the leg is SKIPPED — announced loudly by the step below, never
       # silently: a gate that quietly validates two corpora while its comments claim three is worth
       # less than no gate at all.
       #
@@ -197,12 +204,12 @@ jobs:
       # which is false. A configured-but-broken token must be red and must name itself.
       - name: Checkout muDemocracy.org (muSrs)
         id: musrs
-        if: ${{ env.CORPUS_READ_TOKEN != '' }}
+        if: ${{ env.CORPUS_TOKEN != '' }}
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/muDemocracy.org
           path: corpora/muDemocracy.org
-          token: ${{ env.CORPUS_READ_TOKEN }}
+          token: ${{ env.CORPUS_TOKEN }}
           persist-credentials: false
 
       # Which commit each corpus was at, so a gate failure can be attributed to a corpus change
@@ -221,7 +228,7 @@ jobs:
           if [ "$MUSRS_OUTCOME" = "success" ]; then
             echo "muDemocracy.org @ $(git -C corpora/muDemocracy.org rev-parse HEAD)"
           else
-            echo "::warning::muSrs was NOT validated by this gate — muDemocracy.org is private and no CORPUS_READ_TOKEN secret is set. Set that secret to include it. NOTE: muSrs has no standing CI of its own until the-greenman/srs#392 row 1 (the muDemocracy.org conformance job) merges, so until then this skip means muSrs is validated by nothing on a schedule."
+            echo "::warning::muSrs was NOT validated by this gate — muDemocracy.org is private and no CORPUS_TOKEN secret is set. Set that secret to include it. NOTE: muSrs has no standing CI of its own until the-greenman/srs#392 row 1 (the muDemocracy.org conformance job) merges, so until then this skip means muSrs is validated by nothing on a schedule."
           fi
 
       # The PUBLISHED asset, not the local build. If the tarball is corrupt or the wrong artifact
