@@ -420,6 +420,7 @@
       "createdAt": "2026-06-26T00:00:00Z",
       "description": "External reference URLs attached to this decision — documents, minutes, or other materials that provide rationale or context.",
       "fieldType": {
+        "cardinality": "list",
         "datatype": "string",
         "format": "uri"
       },
