@@ -148,18 +148,30 @@ jobs:
         with:
           path: srs-rust
 
-      # The two first-party corpus repositories, always at their DEFAULT BRANCH — see the header
-      # note on failure semantics. Anonymous shallow clones, not actions/checkout: both repos are
-      # public, so no credential is needed, and an unauthenticated clone is read-only by
-      # construction rather than by convention. It also sidesteps the question of whether this
-      # repository's GITHUB_TOKEN is scoped to reach them — it is not, and does not need to be.
-      - name: Clone the first-party corpora (default branches, read-only)
+      # The two first-party corpus repositories, always at their DEFAULT BRANCH (no `ref:`) — see
+      # the header note on failure semantics. This is the same cross-repo checkout `ci.yml`'s
+      # schema-drift job already does against `the-greenman/srs` with the default token, on every
+      # push and PR; consolidating on that convention rather than an anonymous `git clone`, which
+      # would be rate-limited from shared Actions egress IPs and would fail in a way indistinguish-
+      # able from a genuine corpus break.
+      - name: Checkout srs (spec repo + gallery)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/srs
+          path: corpora/srs
+
+      - name: Checkout muDemocracy.org (muSrs)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/muDemocracy.org
+          path: corpora/muDemocracy.org
+
+      # Which commit each corpus was at, so a gate failure can be attributed to a corpus change
+      # rather than to the binary without re-running anything.
+      - name: Record corpus provenance
         run: |
-          set -euo pipefail
           for repo in srs muDemocracy.org; do
-            git clone --depth 1 --quiet \
-              "https://github.com/${{ github.repository_owner }}/$repo.git" "corpora/$repo"
-            echo "$repo @ $(git -C "corpora/$repo" rev-parse --short HEAD) ($(git -C "corpora/$repo" rev-parse --abbrev-ref HEAD))"
+            echo "$repo @ $(git -C "corpora/$repo" rev-parse HEAD)"
           done
 
       # The PUBLISHED asset, not the local build. If the tarball is corrupt or the wrong artifact
