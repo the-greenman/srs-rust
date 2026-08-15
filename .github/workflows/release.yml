@@ -20,6 +20,9 @@ jobs:
   release:
     name: Build and Release (linux x86_64)
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.package.outputs.tag }}
+      archive: ${{ steps.package.outputs.archive }}
     steps:
       - uses: actions/checkout@v4
 
@@ -112,3 +115,85 @@ jobs:
           (Claude Code, Codex, Cursor, Copilot, Goose) to add \"work with SRS repositories\"
           as a capability." \
             --latest
+
+  # ---------------------------------------------------------------------------------------------
+  # Corpus conformance gate (the-greenman/srs#392 row 2)
+  # ---------------------------------------------------------------------------------------------
+  # Every merge to master publishes a release humans and CI pull. Nothing checked that the binary
+  # inside it can still read the corpora it exists to read, and both directions have bitten:
+  # build.276 read migrated repositories as SILENTLY EMPTY, build.285 rejected pre-cutover ones
+  # loudly. Both were found by hand and written down as ledger warnings. This makes them a red X.
+  #
+  # ORDERING: publish first, gate after. This is not a preference — gate-before-publish deadlocks.
+  # The binary that performs a corpus migration is the binary the corpus needs in order to migrate:
+  # withholding the release until the corpora already validate means a cutover can never start, so
+  # the first deliberate breaking change would stop releases indefinitely with no way out except
+  # disabling the gate. Publishing first keeps the escape hatch open (a consumer can still pin the
+  # build deliberately) while the failure is loud and attributable beside it.
+  #
+  # FAILURE SEMANTICS: this job is required for the workflow to be green, but it is a SEPARATE job,
+  # so a red gate never retracts or blocks the release itself. Its corpus checkouts always track
+  # each repository's DEFAULT BRANCH, which is conformant by that repository's own CI (srs:
+  # release-drift.yml; muDemocracy.org: ci.yml, added by srs#392 row 1). So a corpus repo mid-
+  # migration reddens srs-rust only for as long as its own default branch is non-conformant — which
+  # is a state that repo's own CI is already red for. It cannot redden srs-rust permanently, and it
+  # is deliberately not made non-blocking: a gate that cannot fail is the thing this replaces.
+  corpus-gate:
+    name: Corpus conformance gate
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout srs-rust
+        uses: actions/checkout@v4
+        with:
+          path: srs-rust
+
+      # The two first-party corpus repositories, always at their DEFAULT BRANCH — see the header
+      # note on failure semantics. Anonymous shallow clones, not actions/checkout: both repos are
+      # public, so no credential is needed, and an unauthenticated clone is read-only by
+      # construction rather than by convention. It also sidesteps the question of whether this
+      # repository's GITHUB_TOKEN is scoped to reach them — it is not, and does not need to be.
+      - name: Clone the first-party corpora (default branches, read-only)
+        run: |
+          set -euo pipefail
+          for repo in srs muDemocracy.org; do
+            git clone --depth 1 --quiet \
+              "https://github.com/${{ github.repository_owner }}/$repo.git" "corpora/$repo"
+            echo "$repo @ $(git -C "corpora/$repo" rev-parse --short HEAD) ($(git -C "corpora/$repo" rev-parse --abbrev-ref HEAD))"
+          done
+
+      # The PUBLISHED asset, not the local build. If the tarball is corrupt or the wrong artifact
+      # got attached, that is exactly as bad as a binary that cannot read the corpus, and only
+      # downloading what was published can catch it.
+      - name: Download the release just published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ needs.release.outputs.tag }}" \
+            --repo ${{ github.repository }} \
+            --pattern "${{ needs.release.outputs.archive }}" \
+            --pattern "${{ needs.release.outputs.archive }}.sha256" \
+            --dir /tmp/srs-release
+
+      - name: Verify checksum and extract
+        working-directory: /tmp/srs-release
+        run: |
+          set -euo pipefail
+          archive="${{ needs.release.outputs.archive }}"
+          expected="$(awk '{print $1}' "$archive.sha256")"
+          actual="$(sha256sum "$archive" | awk '{print $1}')"
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::released archive does not match its published .sha256 (expected=$expected actual=$actual)"
+            exit 1
+          fi
+          tar -xzf "$archive"
+          chmod +x srs
+
+      - name: Validate first-party corpora
+        env:
+          SRS: /tmp/srs-release/srs
+        run: |
+          srs-rust/scripts/check-corpus-conformance.sh \
+            "srs-spec=$GITHUB_WORKSPACE/corpora/srs/srs" \
+            "gallery=$GITHUB_WORKSPACE/corpora/srs/docs/spec/examples/gallery-project-v2" \
+            "muSrs=$GITHUB_WORKSPACE/corpora/muDemocracy.org/muSrs"
