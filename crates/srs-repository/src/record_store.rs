@@ -5880,9 +5880,9 @@ mod tests {
             &store,
             &record_path,
             srs_core::types::revision::Revision {
-                revision_id: "00000000-0000-4000-8000-0000000000r1".to_string(),
+                revision_id: "00000000-0000-4000-8000-00000000e001".to_string(),
                 record_id: instance_id.clone(),
-                field_id: "test-name".to_string(),
+                field_id: "00000000-0000-4000-8000-00000000f001".to_string(),
                 value: serde_json::json!("v"),
                 prior_revision_id: None,
                 agent: srs_core::types::revision::RevisionAgent::Human,
@@ -5916,8 +5916,17 @@ mod tests {
             "the record must remain discoverable after a failed {target}"
         );
 
+        let sidecar_path = revision_service::sidecar_path_for(&record_path);
+
         // Re-run: the earlier steps are idempotent no-ops and the delete completes.
         delete_record(&store, &instance_id).expect("re-running the delete must complete it");
+        // Both files are gone — this is the orphan-sidecar claim the ordering
+        // exists for: because the sidecar goes first, no interleaving can leave
+        // it behind a deleted record file where nothing could reach it again.
+        assert!(
+            store.load_instance_json(&sidecar_path).is_err(),
+            "the revision sidecar must not outlive the record it belongs to"
+        );
         assert!(
             store.find_instance(&instance_id).unwrap().is_none(),
             "the record must be gone after the successful re-run"
