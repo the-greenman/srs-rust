@@ -2436,12 +2436,20 @@ pub mod memory {
 
     /// Fault-injection point for `MemoryStore`. When armed, the next call to the
     /// named operation returns an `Io` error; subsequent calls proceed normally.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum FailPoint {
         /// Fail the next `save_manifest` call.
         SaveManifest,
-        /// Fail the next `delete_instance_file` call.
+        /// Fail the next `delete_instance_file` call, whatever its path.
         DeleteInstanceFile,
+        /// Fail the next `delete_instance_file` call **for this exact path**.
+        ///
+        /// `revision_service::delete_sidecar` routes through `delete_instance_file`
+        /// too, so an operation that deletes both a sidecar and a record file
+        /// cannot target either one with the path-blind variant above — the
+        /// one-shot fault fires on whichever comes first and is consumed there
+        /// (srs-rust#839).
+        DeleteInstanceFileAt(String),
         /// Fail the next `load_package` call.
         LoadPackage,
     }
@@ -3272,7 +3280,11 @@ pub mod memory {
         }
 
         fn delete_instance_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-            let should_fail = matches!(*self.fail_at.borrow(), Some(FailPoint::DeleteInstanceFile));
+            let should_fail = match &*self.fail_at.borrow() {
+                Some(FailPoint::DeleteInstanceFile) => true,
+                Some(FailPoint::DeleteInstanceFileAt(p)) => p == relative_path,
+                _ => false,
+            };
             if should_fail {
                 *self.fail_at.borrow_mut() = None;
                 return Err(RepositoryError::Io {

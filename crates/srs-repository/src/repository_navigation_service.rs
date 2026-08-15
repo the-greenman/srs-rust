@@ -150,32 +150,19 @@ pub fn repository_navigation(
             continue;
         };
         let section_container_id = section_containers.get(id).cloned();
-        section_members.push(if entry.tier == Some(2) {
-            let record = record_store::get_record_by_id(store, id)?.ok_or_else(|| {
-                RepositoryError::NotFound {
-                    path: PathBuf::from(format!("instance/{id}")),
-                }
-            })?;
-            SectionMember {
-                created_at: record.created_at.clone(),
-                node: node_for_record(
-                    &record,
-                    &identity_field_index,
-                    &field_name_index,
-                    section_container_id,
-                ),
-            }
-        } else {
-            // A Tier-0/Tier-1 member has no type binding and no identity field,
-            // so the catalog-derived title is the only label there is — the same
-            // projection the identity slot above uses. The type keys stay at
-            // their defaults rather than being invented (ADR-044), matching the
-            // shape that slot already emits for a Tier-0 identity.
+        section_members.push(if entry.tier == Some(1) {
+            // Tier-1 is the one shape no loader can return: the catalog admits
+            // `typed-record.json`, but `srs-core` has no TypedRecord type, so
+            // `get_instance_by_id` would route it to `load_record_by_id` and
+            // fail on the missing `typeId`. Fall back to the catalog-derived
+            // title — the same projection the identity slot above uses. The type
+            // keys stay at their defaults rather than being invented (ADR-044).
             //
-            // No `created_at`: the projection does not carry one. That only
-            // affects the fallback tiebreak for a member no `precedes` edge
-            // reaches — `precedes` is the ordering mechanism (Rule [N+12]) — and
-            // the instance_id component keeps the tiebreak a total order.
+            // `created_at` is unavailable here because the projection does not
+            // carry one. That affects only the fallback tiebreak for a member no
+            // `precedes` edge reaches — `precedes` is the ordering mechanism
+            // (Rule [N+12]) — and the instance_id component keeps it a total
+            // order. Closing this properly means a TypedRecord core type.
             let title = crate::store::catalog_instance_ref(store, entry)?.title;
             SectionMember {
                 created_at: None,
@@ -184,6 +171,41 @@ pub fn repository_navigation(
                     display_label: title.unwrap_or_else(|| id.clone()),
                     section_container_id,
                     ..Default::default()
+                },
+            }
+        } else {
+            // Tier 0 and Tier 2 both load through the tier-aware seam, whose own
+            // doc comment names container members and roots as its reason to
+            // exist. Going through it (rather than the catalog projection) keeps
+            // a Tier-0 note's real `createdAt`, so it takes its rightful place in
+            // the fallback ordering instead of sorting ahead of every timestamped
+            // section.
+            let instance = record_store::get_instance_by_id(store, id)?.ok_or_else(|| {
+                RepositoryError::NotFound {
+                    path: PathBuf::from(format!("instance/{id}")),
+                }
+            })?;
+            let created_at = instance.created_at().map(str::to_string);
+            SectionMember {
+                created_at,
+                node: match instance {
+                    record_store::LoadedInstance::Record(record) => node_for_record(
+                        &record,
+                        &identity_field_index,
+                        &field_name_index,
+                        section_container_id,
+                    ),
+                    // A Note has no type binding and no identity field, so its
+                    // own title is the only label there is.
+                    record_store::LoadedInstance::Note(note) => NavigationNode {
+                        display_label: note
+                            .title
+                            .clone()
+                            .unwrap_or_else(|| note.instance_id.clone()),
+                        instance_id: note.instance_id,
+                        section_container_id,
+                        ..Default::default()
+                    },
                 },
             }
         });
@@ -539,6 +561,54 @@ mod tests {
             Some("00000000-0000-4000-8000-00000000c000")
         );
         assert!(nav.diagnostics.is_empty());
+    }
+
+    /// srs-rust#842: a Tier-0 note section must take its place in the fallback
+    /// ordering by its own `createdAt`, like any other section.
+    ///
+    /// The fixture's sections carry no `precedes` edge between them here, so the
+    /// canonical `(created_at, instance_id)` tiebreak decides. Resolving a Note
+    /// through the catalog's title projection would drop its timestamp, and
+    /// `sort_by_precedes_chain` keys a missing one on `""` — which sorts before
+    /// every ISO timestamp, silently pinning every Tier-0 section to the front.
+    #[test]
+    fn tier_0_section_orders_by_its_own_created_at() {
+        let store = nav_store_with_identity(None);
+        // a100 = 2026-01-01, a200 = 2026-01-02 (which `precedes` a300); this
+        // note is timestamped between a100 and a200, so that is where it belongs.
+        let note_id = "00000000-0000-4000-8000-00000000a250";
+        store
+            .save_note(&srs_core::types::note::Note {
+                instance_id: note_id.to_string(),
+                title: Some("Middle Note".to_string()),
+                tags: None,
+                sections: vec![],
+                graduated_at: None,
+                source_refs: None,
+                created_at: Some("2026-01-01T12:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+            })
+            .unwrap();
+        container_service::add_member(&store, "00000000-0000-4000-8000-00000000a000", note_id)
+            .unwrap();
+
+        let nav = super::repository_navigation(&store).unwrap();
+        let labels: Vec<&str> = nav
+            .sections
+            .iter()
+            .map(|s| s.display_label.as_str())
+            .collect();
+        assert_eq!(
+            labels,
+            vec![
+                "Example Governance",
+                "Middle Note",
+                "Articles",
+                "Decision Log"
+            ],
+            "the Tier-0 note must sort by its own createdAt, not ahead of everything"
+        );
     }
 
     #[test]

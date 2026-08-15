@@ -4112,16 +4112,16 @@ mod tests {
         );
     }
 
-    // KNOWN GAP (srs-rust#783 Phase 3, flagged not resolved): the vendored
-    // spec-repo fixture faithfully mirrors the real `srs/srs` repository,
-    // which has genuine pre-existing data defects that RFC-038's stricter
-    // catalog validation newly surfaces (a document-view missing `$schema`, a
-    // `fieldType` shape matching no schema variant, dangling
-    // `FieldAssignment.fieldId`s in `package/types/meta.*.json` — the srs#307
-    // calibration case). `tests/catalog.rs` is deliberately calibrated to
-    // exactly these defects, so the fixture must NOT be repaired here; the
-    // fix belongs upstream in the `srs` repo (spec independence — CLAUDE.md).
-    // Re-enable once upstream repairs land and the fixture is re-vendored.
+    // Resolved (srs-rust#825). The defects this test was ignored for — a
+    // document-view missing `$schema`, a `fieldType` shape matching no schema
+    // variant, dangling `FieldAssignment.fieldId`s (the srs#307 calibration
+    // case) — were fixture staleness, all fixed upstream. The fixture is
+    // re-vendored from `srs` master and validates clean.
+    //
+    // The standing rule still holds: the fixture must NOT be repaired here. It
+    // is calibration data for `tests/catalog.rs`, and a hand-edit would decouple
+    // it from the corpus it exists to represent — fixes belong upstream in the
+    // `srs` repo (spec independence — CLAUDE.md), followed by a re-vendor.
     #[test]
     fn live_srs_repo_validates_cleanly() {
         let repo_root = srs_spec_repo();

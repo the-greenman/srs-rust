@@ -444,23 +444,31 @@ pub(crate) fn list_members(
 /// This is the *single* guard for every membership-writing entry point: the
 /// incremental writers `add_member`/`add_root` pass one id, the wholesale
 /// writers `create_container`/`update_container` pass their entire membership
-/// list (srs-rust#845). An empty list loads no catalog — creating a container
-/// with no membership must not depend on the repository being loadable.
+/// list (srs-rust#845). An empty list loads no catalog, so a container with no
+/// membership needs nothing from this function.
+///
+/// Blank ids are rejected in a first pass, **before** the catalog is built:
+/// their message is the whole point of separating them, and on a repository
+/// whose catalog build is already fatal it is the only way the caller hears
+/// "you passed an empty argument" instead of a `CatalogLoad` about unrelated
+/// damage.
 fn require_resolvable_instances<'a>(
     store: &dyn RepositoryStore,
     instance_ids: impl IntoIterator<Item = &'a str>,
 ) -> Result<(), RepositoryError> {
-    let mut ids = instance_ids.into_iter().peekable();
-    if ids.peek().is_none() {
-        return Ok(());
-    }
-    let catalog = store.catalog()?;
-    for instance_id in ids {
+    let ids: Vec<&str> = instance_ids.into_iter().collect();
+    for instance_id in &ids {
         if instance_id.trim().is_empty() {
             return Err(RepositoryError::InvalidInput {
                 message: "instance_id must not be empty".to_string(),
             });
         }
+    }
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let catalog = store.catalog()?;
+    for instance_id in ids {
         if !catalog.instances.iter().any(|e| e.id == instance_id) {
             return Err(RepositoryError::InstanceNotFound {
                 id: instance_id.to_string(),
@@ -1386,6 +1394,25 @@ mod tests {
             .unwrap()
             .root_instance_ids
             .is_none());
+    }
+
+    /// The blank-id message must survive an already-bricked repository — that is
+    /// where it matters most, and it is the one diagnostic the catalog cannot
+    /// give. The check therefore runs ahead of the catalog build.
+    #[test]
+    fn blank_instance_id_is_reported_even_on_a_bricked_repository() {
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        create_container_with_membership(&store, id, &[UNRESOLVABLE], &[]);
+        assert!(store.catalog().is_err(), "repository should be bricked");
+
+        assert!(
+            matches!(
+                add_member(&store, id, "  "),
+                Err(RepositoryError::InvalidInput { .. })
+            ),
+            "a blank id must be named as such, not buried under a CatalogLoad"
+        );
     }
 
     #[test]

@@ -5840,13 +5840,19 @@ mod tests {
         assert!(store.find_instance(&instance_id).unwrap().is_none());
     }
 
-    #[test]
-    fn delete_record_file_fail_surfaces_and_is_re_runnable() {
-        // srs-rust#839. The file delete was best-effort and returned `Ok`. Since
-        // the #834 cascade runs first, that swallowed failure leaves the instance
-        // on disk stripped of every container reference and incident relation,
-        // reported as deleted — the worst interleaving of the two. So the failure
-        // must surface, and the partial state must be re-runnable to completion.
+    /// srs-rust#839, for each of the two deletes `delete_record` ends with.
+    ///
+    /// Both were best-effort and returned `Ok`. Since the #834 cascade runs
+    /// first, a swallowed failure leaves the instance on disk stripped of every
+    /// container reference and incident relation, reported as deleted — the
+    /// worst interleaving of the two. So each failure must surface, and each
+    /// partial state must be re-runnable to completion.
+    ///
+    /// The fault is armed **by path**: `revision_service::delete_sidecar` routes
+    /// through `delete_instance_file` too, so the path-blind `DeleteInstanceFile`
+    /// variant fires on whichever delete runs first and is consumed there,
+    /// leaving the other one untested.
+    fn assert_delete_fault_surfaces_and_re_runs(fail_on_sidecar: bool) {
         use crate::store::memory::FailPoint;
 
         let store = make_store_with_package();
@@ -5861,19 +5867,53 @@ mod tests {
         .unwrap();
         let instance_id = record.instance_id.clone();
 
-        store.arm_fail_at(FailPoint::DeleteInstanceFile);
+        let record_path = store
+            .catalog()
+            .unwrap()
+            .instances
+            .iter()
+            .find(|e| e.id == instance_id)
+            .and_then(|e| e.locator.clone())
+            .expect("the new record has a catalog locator");
+        // Give the record a revision sidecar so both deletes have something to do.
+        revision_service::append(
+            &store,
+            &record_path,
+            srs_core::types::revision::Revision {
+                revision_id: "00000000-0000-4000-8000-0000000000r1".to_string(),
+                record_id: instance_id.clone(),
+                field_id: "test-name".to_string(),
+                value: serde_json::json!("v"),
+                prior_revision_id: None,
+                agent: srs_core::types::revision::RevisionAgent::Human,
+                provenance: None,
+                source_refs: None,
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .expect("sidecar write");
+
+        let target = if fail_on_sidecar {
+            revision_service::sidecar_path_for(&record_path)
+        } else {
+            record_path.clone()
+        };
+
+        store.arm_fail_at(FailPoint::DeleteInstanceFileAt(target.clone()));
         let err = delete_record(&store, &instance_id)
-            .expect_err("a failed file delete must not be reported as a successful delete");
+            .map(|ok| panic!("expected {target} to fail the delete, got Ok({ok})"))
+            .unwrap_err();
         assert!(
             matches!(err, RepositoryError::Io { .. }),
-            "expected the underlying I/O failure, got: {err:?}"
+            "expected the underlying I/O failure for {target}, got: {err:?}"
         );
 
-        // The file survived, so the instance is still discoverable ([R1]:
-        // membership is the tree) — which is what makes the re-run possible.
+        // The record file survived either way — the sidecar is deleted first
+        // precisely so that stays true — so the instance is still discoverable
+        // ([R1]: membership is the tree), which is what makes the re-run possible.
         assert!(
             store.find_instance(&instance_id).unwrap().is_some(),
-            "a record whose file delete failed remains discoverable via the catalog"
+            "the record must remain discoverable after a failed {target}"
         );
 
         // Re-run: the earlier steps are idempotent no-ops and the delete completes.
@@ -5882,6 +5922,16 @@ mod tests {
             store.find_instance(&instance_id).unwrap().is_none(),
             "the record must be gone after the successful re-run"
         );
+    }
+
+    #[test]
+    fn delete_record_instance_file_fail_surfaces_and_is_re_runnable() {
+        assert_delete_fault_surfaces_and_re_runs(false);
+    }
+
+    #[test]
+    fn delete_record_sidecar_fail_surfaces_and_is_re_runnable() {
+        assert_delete_fault_surfaces_and_re_runs(true);
     }
 
     // ── get_field_value_by_name tests ─────────────────────────────────────────
