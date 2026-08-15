@@ -67,3 +67,34 @@ fn scaffold_from_raw_seed_produces_valid_repository() {
         "fresh scaffold must not ship dangling document-view container refs: {dangling:?}"
     );
 }
+
+/// The fixture must stay byte-identical to the asset `srs-gov` actually ships
+/// (ADR-046). The scaffold behaviour this file exercises — and the two repairs
+/// the fork exists for — are properties of `crates/srs-gov/assets/governance-seed.srsj`;
+/// they are only evidence about the shipped seed while the copy under test is
+/// that seed. Nothing else asserted this, so fixture drift would have left the
+/// asset unguarded while the tests stayed green.
+#[test]
+fn fixture_seed_is_byte_identical_to_the_shipped_asset() {
+    let fixture = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/governance-seed.srsj"
+    ))
+    .expect("governance-seed.srsj fixture must exist");
+    let asset = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../srs-gov/assets/governance-seed.srsj"
+    ))
+    .expect("srs-gov's governance-seed.srsj asset must exist");
+
+    // `assert!`, not `assert_eq!`: these are ~50 KB each, and a byte-vector dump would bury the
+    // instruction under 400 KB of decimals.
+    assert!(
+        fixture == asset,
+        "crates/srs-repository/tests/fixtures/governance-seed.srsj has drifted from \
+         crates/srs-gov/assets/governance-seed.srsj — re-copy the asset (ADR-046). \
+         fixture {} bytes, asset {} bytes",
+        fixture.len(),
+        asset.len()
+    );
+}
