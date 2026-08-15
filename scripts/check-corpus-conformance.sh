@@ -76,14 +76,24 @@ for spec in "$@"; do
       errors="$(printf '%s' "$out" | jq -r '.payload.summary.errors' 2>/dev/null)"
       checked="$(printf '%s' "$out" | jq -r '.payload.summary.checked' 2>/dev/null)"
       warnings="$(printf '%s' "$out" | jq -r '.payload.summary.warnings' 2>/dev/null)"
-      if ! [[ "$errors" =~ ^[0-9]+$ ]] || ! [[ "$checked" =~ ^[0-9]+$ ]]; then
-        echo "::error::$label: ok=true but payload.summary is not readable (checked=$checked errors=$errors)."
+      if ! [[ "$errors" =~ ^[0-9]+$ ]] || ! [[ "$checked" =~ ^[0-9]+$ ]] || ! [[ "$warnings" =~ ^[0-9]+$ ]]; then
+        echo "::error::$label: ok=true but payload.summary is not readable (checked=$checked errors=$errors warnings=$warnings)."
         echo "  The envelope changed shape; this gate has stopped checking rather than gone green."
         failed=1
         continue
       fi
-      # An empty corpus is the silent-failure mode this gate exists for: build.276 read migrated
-      # repositories as zero instances and reported success. Zero checked is never a pass.
+      # An empty corpus is the silent-failure mode this gate exists for: a binary that reads a
+      # migrated repository as zero instances and reports success. Zero checked is never a pass.
+      #
+      # KNOWN CEILING — this catches TOTAL emptiness only. A binary that silently drops *some*
+      # instance family (say every `governance/decision` record) would report a smaller non-zero
+      # count and pass. The obvious fix — a recorded minimum per corpus — was rejected: the counts
+      # move with ordinary authoring, so a baseline would go red on content changes that are not
+      # regressions, and a gate whose failures are usually wrong gets ignored or disabled, which
+      # costs more than the case it adds. The per-corpus count IS printed on every run, so a drop
+      # from 32 to 11 is visible in the log and in the diff between two runs; making it fail
+      # automatically needs a stable expected value this repository does not have. Revisit if the
+      # corpora ever carry a declared instance count.
       if [ "$checked" -eq 0 ]; then
         echo "::error::$label: srs repo validate checked 0 instances — the corpus loaded as EMPTY."
         echo "  This is the silent-emptiness failure the gate exists to catch, not a clean result."
@@ -91,6 +101,11 @@ for spec in "$@"; do
         continue
       fi
       echo "$label: checked $checked, $errors errors, $warnings warnings"
+      # Defensive, and deliberately kept: today the CLI emits the ok:false envelope whenever the
+      # validation report is not ok, so an ok:true envelope always carries errors == 0 and this
+      # branch does not fire. It is the assertion that that stays true — if a future binary starts
+      # reporting per-instance errors inside a successful load, this reports them instead of
+      # printing "0 errors" from a field nobody checked.
       if [ "$errors" -ne 0 ]; then
         printf '%s' "$out" \
           | jq -r '.payload.diagnostics[]? | select(.severity == "error") | "::error::'"$label"': \(.path // "?"): \(.message)"'
