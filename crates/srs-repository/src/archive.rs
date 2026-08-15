@@ -760,7 +760,9 @@ fn legacy_snapshot_from_map(
         .and_then(|v| serde_json::from_value(v.clone()).ok());
 
     // Restore container JSON files from the archive so import_repository_snapshot
-    // can call create_container() for each one.
+    // can materialise each one. (It writes them via `import_container_file`, not
+    // `create_container` — bulk import shares `repo validate`'s [R24] disposition
+    // rather than enforcing it, per the #688 migration ramp.)
     let mut containers: Vec<Container> = Vec::new();
     if let Some(index) = &container_index {
         for entry in index {
