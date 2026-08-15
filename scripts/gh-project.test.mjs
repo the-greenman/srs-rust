@@ -591,6 +591,9 @@ const strategyModel = JSON.parse(readFileSync(STRATEGY_MODEL_PATH, "utf8"));
 test("strategy model maps the complete known epic inventory exactly once", () => {
   const validation = validateStrategy(strategyModel);
   assert.deepEqual(validation.errors, []);
+  assert.equal(strategyModel.mission.status, "ratified");
+  assert.equal(strategyModel.mission.ratifiedOn, "2026-08-15");
+  assert.equal(strategyModel.mission.roadmapTests.length, 6);
   assert.equal(strategyModel.knownEpicRefs.length, 15);
   assert.equal(strategyModel.epics.length, 15);
   assert.equal(new Set(strategyModel.epics.map((e) => e.ref)).size, 15);
@@ -615,6 +618,16 @@ test("strategy validation catches duplicate IDs, unknown references, boundary cy
   assert.match(validateStrategy(cyclic).errors.join("\n"), /boundary dependency cycle/);
 });
 
+test("strategy validation requires the ratified mission contract", () => {
+  const missing = structuredClone(strategyModel);
+  missing.mission.protocol = "";
+  assert.match(validateStrategy(missing).errors.join("\n"), /mission: missing protocol/);
+
+  const unratified = structuredClone(strategyModel);
+  unratified.mission.status = "draft";
+  assert.match(validateStrategy(unratified).errors.join("\n"), /mission: status must be ratified/);
+});
+
 test("strategy Markdown is deterministic and matches the checked-in snapshot", () => {
   const rendered = renderStrategy(strategyModel);
   assert.equal(renderStrategy(strategyModel), rendered);
@@ -624,6 +637,10 @@ test("strategy Markdown is deterministic and matches the checked-in snapshot", (
   assert.match(rendered, /B2\["B2: Meaning You Can Take \/ SRS 2\.0"\]/);
   assert.match(rendered, /B1: Coherent Semantic Kernel/);
   assert.match(rendered, /Proposed disposition/);
+  assert.match(rendered, /## Mission and roadmap constitution/);
+  assert.match(rendered, /AI may observe, extract, propose, question, organise, explain and coach/);
+  assert.match(rendered, /It does not prescribe a governance process/);
+  assert.match(rendered, /roadmap\.json is a temporary bootstrap source/);
 });
 
 test("strategy live overlay traverses only roots and transitive sub-issues, with shared work cached", () => {

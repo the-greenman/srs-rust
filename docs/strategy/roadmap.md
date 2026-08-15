@@ -6,6 +6,70 @@ An owner operating view above the execution board. It preserves release intent w
 
 This is the owner operating view above the execution board. It names durable capability branches and release promises; it does not change GitHub hierarchy, labels, priorities or release fields.
 
+## Mission and roadmap constitution
+
+**Status:** Ratified on 2026-08-15. The project owner is currently the sole decision-maker.
+
+> Increase collective agency by helping groups develop the practice of making clear, accountable decisions together in an age of AI.
+
+### μDemocracy
+
+muDemocracy helps groups turn ordinary conversation into a living practice of collective decision-making. It uses AI to make skilled facilitation and coaching more accessible while leaving judgment, commitment and authority with the people involved.
+
+### SRS
+
+SRS is an open standard for portable semantic documents that people and AI can understand and use. It preserves semantic sovereignty: people and groups can possess, inspect, understand, move, present and continue working with their meaning without depending on the application, service, storage provider or AI model that created it.
+
+### First application and product promise
+
+The first application of SRS is the shared context created when groups make decisions: discussions, evidence, decisions, actions, roles, purposes, objectives, agreements and the relationships between them.
+
+Record a meeting. Let AI help identify what was decided, what needs action and what remains unresolved. Discuss and edit the proposed wording together. Explicitly agree it. Return later to understand why it happened, what followed and whether it needs review. Keep the resulting meaning in a portable repository owned by the group.
+
+### Human–AI constitution
+
+> AI may observe, extract, propose, question, organise, explain and coach. People decide, agree, ratify and remain accountable.
+
+- **Blueprint:** A Blueprint defines what meaningful structure a group is trying to create.
+
+- **Protocol:** A Protocol turns semantic structure into a practice people can perform together. It guides questions and stages, focuses a shared presentation on what must be discussed, identifies the semantic output being created and declares the human actions required to advance or ratify it.
+
+- **View:** A View presents a facet of semantic state for a particular audience or moment; it never owns or changes the underlying meaning.
+
+### Sovereignty promises
+
+- **Portable document:** An SRS repository carries enough definitions, structure, relationships, provenance, process state and navigation information for an independent implementation to explain what it contains and how it can be used.
+
+- **Storage independence:** SRS may be used as an ordinary file or repository stored wherever its owner chooses. Database-backed and multi-user applications provide a clean, semantically complete export and import boundary. Storage convenience must never become semantic captivity.
+
+### Scope boundary
+
+SRS may describe, preserve, present and resume a group-chosen meaning-making Protocol. It does not prescribe a governance process, encode a universal authority model or execute arbitrary business automation.
+
+### Stability promise
+
+Before the first full public release, SRS changes its roots when practical evidence shows they are incomplete or contradictory. At the first public release, the default changes to Continuity: identity, meaning, references, provenance, Protocol state and established documents remain recoverable across future evolution.
+
+### Semantic source transition
+
+roadmap.json is a temporary bootstrap source, not the intended permanent semantic home. Once the post-#256 model is usable, the mission, roadmap entities and their relationships should move into an SRS repository, with this owner map generated as a DocumentView or equivalent projection.
+
+### Roadmap test
+
+Roadmap boundaries and critical-path work are judged against these questions:
+
+1. Does it help a group practise and improve collective decision-making?
+
+2. Does it complete the meeting-to-ratified-record loop?
+
+3. Does it make meaning independently understandable and navigable?
+
+4. Does it preserve meaning across tools, storage systems, AI providers and time?
+
+5. Does it keep AI assistive and human authority explicit?
+
+6. Does it establish or protect a root invariant that becomes expensive to change after release?
+
 ## Capability map
 
 ```mermaid
