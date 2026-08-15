@@ -1,0 +1,26 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "Names a Type by UUID + exact version."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "A version-exact reference to a Type in the package (RFC-009 ExactTypeRef).",
+  "fields": [
+    {
+      "fieldId": "4b000021-0000-4000-a000-000000000021",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Type Id"
+    },
+    {
+      "fieldId": "4b000022-0000-4000-a000-000000000022",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Type Version"
+    }
+  ],
+  "id": "4c000005-0000-4000-a000-000000000005",
+  "name": "exact-type-ref",
+  "namespace": "com.semanticops.srs",
+  "version": 1
+}

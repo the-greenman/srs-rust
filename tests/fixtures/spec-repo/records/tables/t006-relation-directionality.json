@@ -51,9 +51,17 @@
           "the source material",
           "the claim it supports"
         ]
+      },
+      {
+        "cells": [
+          "`precedes`",
+          "the earlier item",
+          "the later item"
+        ]
       }
     ]
   },
+  "updatedAt": "2026-07-14T10:58:53.803451642+00:00",
   "instanceId": "b1000000-0000-4000-a000-000000000006",
   "tags": [
     "construct:reference",

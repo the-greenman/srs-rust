@@ -3,7 +3,7 @@
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
     "title": "Lifecycle (ext:lifecycle)",
-    "content": "**4.** `Type.lifecycle.initialState` must reference a `name` that appears in `lifecycle.states[]` and where `isInitial === true`.\n\n**5.** Every `from` and `to` value in `lifecycle.transitions[]` must reference a `name` that appears in `lifecycle.states[]`.\n\n**6.** `Record.lifecycleState`, when present, must reference a `name` in the associated `Type.lifecycle.states[]`."
+    "content": ""
   },
   "instanceId": "078b205b-a636-5f5c-b120-f84a7bcd5463",
   "sourceRefs": [

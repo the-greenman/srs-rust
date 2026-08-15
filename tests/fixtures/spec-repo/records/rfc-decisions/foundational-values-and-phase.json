@@ -1,0 +1,38 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "instanceId": "92ac4529-261f-4e60-9434-7245ad2716be",
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc-decision",
+  "typeVersion": 2,
+  "fieldValues": {
+    "title": "Adopt SRS foundational values and a phase-specific temporal stance",
+    "rfc_status": "accepted",
+    "decision_date": "2026-08-02",
+    "decision_rationale": "Epic 256's audited decision history shows strong preferences for Semantic Integrity and Shared Coherence. Its weaker Evolution tendency reflects the standard's formation phase. The owner ratified data sovereignty through portability as the governing core, accepted evidence-led Evolution for formation, and precommitted the public standard to reverse to Continuity at its first full public release.",
+    "decision_statement": "The SRS standard adopts Semantic Integrity and Shared Coherence as defaults. During formation it adopts evidence-led Evolution so demonstrated structural defects can be corrected before users depend on them. At the first full public release, the temporal default reverses to Continuity. Rust, web, and other implementation layers may adopt their own profiles without weakening the standard's semantic or conformance boundaries.",
+    "decision_scope": "SRS standard layer",
+    "governing_values": [
+      "data-sovereignty",
+      "semantic-integrity",
+      "evidence-led-evolution",
+      "shared-coherence"
+    ],
+    "project_phase": "formation",
+    "alternatives_considered": "- Continue making technical decisions without a constitutional frame.\n- Preserve the current model immediately, including pre-release contradictions and gaps.\n- Make Evolution the permanent default after public release.\n- Apply one undifferentiated preference profile to the standard and every implementation layer.",
+    "accepted_costs": "Formation may require breaking migrations, concentrated change, and rejection of familiar structures. The project accepts those costs only where practical implementation, corpus, migration, authoring, or user evidence demonstrates that change is necessary for semantic integrity or shared coherence. The hard release transition deliberately forecloses continued pre-release freedom to break the public standard casually.",
+    "evidence_refs": [
+      "https://github.com/the-greenman/srs/issues/256",
+      "docs/research/epic-256-decision-map/decision-ledger.json",
+      "docs/research/epic-256-decision-map/cube-analysis.md",
+      "docs/research/epic-256-decision-map/values-statement.md",
+      "https://github.com/the-greenman/muDemocracy.org/issues/136"
+    ],
+    "review_trigger": "The first full public release triggers the precommitted temporal reversal: `public-standard` replaces `formation`, and Continuity becomes the default. After that trigger, a breaking standard change requires an explicit version boundary, migration and compatibility analysis, recovery evidence, and owner ratification."
+  },
+  "tags": [
+    "topic:meta",
+    "topic:rfc"
+  ],
+  "createdAt": "2026-08-02T00:00:00Z"
+}

@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 12,
+    "invariant_number": "12",
     "title": "Every fieldId in View.fieldViews[] must reference a valid Field.id",
     "normative_statement": "Every `fieldId` in `View.fieldViews[]` must reference a valid `Field.id` in the effective package set. View compatibility is field-centric (based on required field presence), not Type-bound.",
     "applies_to": "ext:views-l1"

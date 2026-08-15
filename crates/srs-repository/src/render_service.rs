@@ -3228,7 +3228,6 @@ mod tests {
     // rejects on load; the fixture is calibration substrate for
     // tests/catalog.rs and must not be repaired here — upstream srs-repo fix.
     #[test]
-    #[ignore = "srs-rust#783 Phase 3: vendored srs/srs corpus is fatally catalog-invalid under RFC-038 — fix belongs upstream in the srs repo"]
     fn render_document_view_produces_output() {
         let repo_root = srs_spec_repo();
         if !repo_root.join("manifest.json").exists() {

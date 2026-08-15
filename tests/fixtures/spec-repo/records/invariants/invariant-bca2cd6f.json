@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-08-09T14:30:00Z",
+  "fieldValues": {
+    "invariant_number": "I-140",
+    "title": "The projected schema describes the fieldValues object",
+    "normative_statement": "A Type's projected JSON Schema describes the `fieldValues` object, not the whole Record document. `instanceId`, `typeId`, `tags`, `meta`, `sourceRefs`, and `fieldMeta` are envelope members governed by `record.json`, and are outside the projected schema's `additionalProperties: false`. (RFC-039 [R17])"
+  },
+  "instanceId": "bca2cd6f-0a8f-4ab7-badb-30bd7ca9f4d7",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant"
+}

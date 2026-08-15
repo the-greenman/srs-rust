@@ -1,0 +1,21 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-09T08:27:41.214398471+00:00",
+  "fieldValues": {
+    "extension_id": "ext:changelog",
+    "title": "Changelog",
+    "extension_depends": "",
+    "content": "**Introduced by**: RFC-018 (srs#141). **Required for**: repositories using `repo copy` round-trip workflows, sync/replication tooling, or governance use cases requiring an audit trail.\n\nMaintains a lightweight, append-only log of entity-level changes in a repository. When declared, the implementation writes a `ChangelogEntry` to a central collection file on every successful mutation. The log is queryable by timestamp range and instance identity.\n\n#### Opt-in Declaration\n\nDeclare `\"ext:changelog\"` in `manifest.declaredExtensions`. The implementation creates `changelog/changelog.json` (or the path in `manifest.changelogPath`) on first declaration with an empty `entries` array. Enabling the extension on a repository with existing records does **not** backfill historical entries; the changelog is prospective from the point of declaration.\n\n#### `ChangelogCollection`\n\nLives at `manifest.changelogPath` (default: `changelog/changelog.json`).\n\n```json\n{\n  \"$schema\": \"https://srs.semanticops.com/schema/2.0/changelog.json\",\n  \"entries\": [\n    {\n      \"entryId\": \"<uuid4>\",\n      \"instanceId\": \"<uuid>\",\n      \"changeKind\": \"created\",\n      \"timestamp\": \"2026-07-09T08:00:00Z\",\n      \"assertedBy\": \"srs-cli/0.1.0\"\n    }\n  ]\n}\n```\n\n#### `ChangelogEntry` fields\n\n| Field | Type | Required | Description |\n|---|---|---|---|\n| `entryId` | UUID4 | yes | Freshly-minted, immutable entry identity |\n| `instanceId` | UUID | yes | The affected record (former id for deleted records) |\n| `changeKind` | enum | yes | `created` / `updated` / `deleted` / `note-created` / `note-updated` / `note-deleted` |\n| `timestamp` | date-time | yes | ISO8601 timestamp (UTC preferred) set at write time |\n| `assertedBy` | string | no | Stable identifier of the asserting agent or user |\n| `noteId` | UUID | required for note variants | UUID of the note affected; MUST be present when `changeKind` is a note variant |\n\n#### Operations that generate entries\n\n`record create`, `record update`, `record delete`, `note create`, `note update`, `note delete`.\n\n#### Query CLI\n\n```bash\nsrs changelog list --repo <path> [--since <iso8601>] [--instance <uuid>]\n```\n\nReturns entries matching the filters in the standard SRS JSON envelope. Supports AND-semantics when both `--since` and `--instance` are combined.\n\n#### Invariants\n\n- Entries are append-only: once written, an entry MUST NOT be modified or removed (R4).\n- All `entryId` values within a changelog MUST be unique (R3).\n- `noteId` MUST be present when `changeKind` is a note variant (R7).\n- Repositories without `ext:changelog` MUST NOT carry `changelogPath` in the manifest (R5)."
+  },
+  "instanceId": "86102577-a045-4087-8ddb-28ca721579a4",
+  "tags": [
+    "topic:extensions",
+    "concern:sync",
+    "concern:audit"
+  ],
+  "typeId": "2a000008-0000-4000-a000-000000000008",
+  "typeName": "extension",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-09T08:27:41.214404649+00:00"
+}

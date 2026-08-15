@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Inline LLM guidance for extracting/populating this field or type."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Inline LLM guidance for extracting/populating this field or type.",
+  "id": "4b000008-0000-4000-a000-000000000008",
+  "name": "ai_guidance",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "ref",
+    "mode": "inline",
+    "rangeType": {
+      "typeId": "4c000007-0000-4000-a000-000000000007",
+      "typeVersion": 1
+    }
+  },
+  "version": 1
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-23T16:42:10.782913481+00:00",
+  "fieldValues": {
+    "invariant_number": "I-116",
+    "title": "Result ranking is implementation-defined",
+    "normative_statement": "An implementation MAY rank DiscoveryQuery results in any order. The recall-floor guarantee of I-114 applies to inclusion in the result set only, not to rank position. (RFC-012 R4.)",
+    "applies_to": "ext:discovery; ranking is out of scope for this contract (RFC-012)"
+  },
+  "instanceId": "6debe8a7-d937-4ee5-97e5-4432c87f14d4",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-23T16:42:10.782919533+00:00"
+}

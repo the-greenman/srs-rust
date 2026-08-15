@@ -1,0 +1,19 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-17T01:42:12.310446309+00:00",
+  "fieldValues": {
+    "invariant_number": "I-110",
+    "title": "sidecar must reside in same directory as its content file",
+    "normative_statement": "A sidecar MUST reside in the same directory as the content file it describes. A `contentPath` that traverses upward (e.g., `../other/file.pdf`) is non-conformant.",
+    "applies_to": "ext:repository source-document sidecars; validators"
+  },
+  "instanceId": "5e89a360-7ec5-4b4d-b0f8-9323ffa3e549",
+  "tags": [
+    "construct:attachment"
+  ],
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-17T01:42:12.310454715+00:00"
+}

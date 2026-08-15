@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-17T01:41:59.671925675+00:00",
+  "fieldValues": {
+    "invariant_number": "I-107",
+    "title": "attachment_policy limit diagnostics at validate time",
+    "normative_statement": "A conformant implementation MAY enforce `attachment_policy` limits as hard rejections. If it does not, it MUST emit non-blocking warning diagnostics at `srs repo validate` time when: a source document content file exceeds `max_per_file_bytes` or `max_doc_bytes`; aggregate source-document bytes exceed `max_total_bytes`; an attached file's MIME type is not listed in `allowed_mime_types`. Non-blocking diagnostics MUST NOT prevent record storage or repository export.",
+    "applies_to": "`srs repo validate`; ext:repository attachment-policy enforcement"
+  },
+  "instanceId": "6a7d674a-ea06-4c2f-bf05-905da2d7cc35",
+  "tags": [
+    "construct:attachment",
+    "construct:validation"
+  ],
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-17T01:41:59.671932287+00:00"
+}

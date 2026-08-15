@@ -1,0 +1,19 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/source-document-meta.json",
+  "documentId": "73487a59-6314-4c45-8041-d78987f2cbb0",
+  "contentPath": "srs-purpose-and-scope.md",
+  "contentType": "text/markdown",
+  "encoding": "utf-8",
+  "language": "en-GB",
+  "title": "SRS — Purpose & Scope",
+  "description": "Foundational charter for SRS: the single reason it exists, the two responsibilities it holds, the deeper goal of hierarchy-free human-AI collaboration, the initial collaboration-context use case, an explicit in/out-of-scope boundary against scope creep, and the six high-level implementation patterns (field, type, record, container, relation, view). Authored with an explicit Purpose facet per section so it can be migrated into a spec section family.",
+  "processingNote": "Authored directly as a single document, staged for migration into SRS records. Each section carries Title / Purpose / Content facets. The section-purpose field that §8 anticipated is deliberately not minted during formation — see the decision record 'Defer minting `section-purpose` until the purpose concept converges' in the RFC decision log; revisited before first public release.",
+  "tags": [
+    "specification",
+    "charter",
+    "purpose",
+    "scope",
+    "foundational"
+  ],
+  "createdAt": "2026-07-16T00:00:00Z"
+}

@@ -1,0 +1,25 @@
+{
+  "containerId": "f0bf2be9-2029-4800-8ad9-282bba024a06",
+  "containerType": "section",
+  "memberInstanceIds": [
+    "214a7c1f-1bb4-5c86-932e-b47b4fc3b57b",
+    "d5d3f88f-8cc6-5247-8d35-41b189804dc5",
+    "ca3ea62e-effb-503f-ac04-22ce30ca4511",
+    "3db80d07-9d40-59e9-97b7-516a5ae212af",
+    "37e2f653-b3cc-5751-8f8f-2dfece3acf79",
+    "d3b0ec85-760f-50d2-be4a-9edea5685740",
+    "c9c16dcc-324a-5ab7-b7a5-d53ce48426bf",
+    "6d8d7d1a-0611-57ac-b2c5-654c53c941a1",
+    "e327ca1f-4cc4-5322-b837-5a27906d5abf",
+    "6bb0f695-e004-5f14-a067-5cf922da5494",
+    "c90aef1e-af6e-550e-ad07-1d5f1bfdf67f",
+    "dd0ed2ae-ada5-570c-8882-2ac89ca49c0f",
+    "a75866ba-090f-5d62-9f7c-8e179ff1825f",
+    "f58b3ca2-1d4e-5f6a-b7c8-9d0e1f2a3b4c",
+    "996e81fe-1c1f-4317-bd92-e9c8332905d8"
+  ],
+  "rootInstanceIds": [
+    "4244a790-72ff-5e1c-9b60-d4b58b90f92c"
+  ],
+  "title": "Extensions"
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "RFC-006 Reference (namespace/name@version) to a mode:closed configurable Vocabulary."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "RFC-006 Reference (namespace/name@version) to a mode:closed configurable Vocabulary.",
+  "id": "4b000015-0000-4000-a000-000000000015",
+  "name": "vocabulary_ref",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string",
+    "constraints": {
+      "pattern": "^[^/@]+/[^/@]+@[0-9]+$"
+    }
+  },
+  "version": 1
+}

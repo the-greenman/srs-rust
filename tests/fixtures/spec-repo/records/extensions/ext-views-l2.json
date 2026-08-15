@@ -5,7 +5,7 @@
     "extension_id": "ext:views-l2",
     "title": "Views L2",
     "extension_depends": "- ext:views-l1",
-    "content": "Document projection — assembling multiple Records from a Container into a coherent, ordered document. Depends on `ext:views-l1`.\n\nSee section `ext:views-l2` for type definitions (`SectionSource`, `DocumentSection`, `DocumentView`, `ThemeReference`, `ThemeVariant`), the default rendering baseline, the L1/L2 ExportConfig boundary rule, heading hierarchy, and conformance rules [N]–[N+8]."
+    "content": "Document projection — assembling multiple Records from a Container into a coherent, ordered document. Depends on `ext:views-l1`.\n\nSee section `ext:views-l2` for type definitions (`SectionSource`, `DocumentSection`, `DocumentView`, `ThemeReference`, `ThemeVariant`), the default rendering baseline, the L1/L2 ExportConfig boundary rule, heading hierarchy, and conformance rules [N]–[N+8].\n\n**Composite renderer dispatch (RFC-036).** `DocumentSection` gains `compositeRenderers?: CompositeRendererDirective[]` and `DocumentView` gains the same array at document scope. A `CompositeRendererDirective` is an `ext:views-l1` `CompositeRendererBinding` plus a required `fieldId` naming the composite-range Field it binds. `DocumentSection` is the primary site — it follows RFC-027's placement of `relationsPresentation`, matches the granularity at which the L1 View is itself selected, and is the only site that reaches records rendered through the default baseline; `DocumentView` is a document-wide default beneath it. Resolution order and the `\"baseline\"` unbind sentinel are [CR-036-6] (see `ext:views-l1`)."
   },
   "instanceId": "87e912b6-b3f3-5207-a71b-73ce5cd6b8b7",
   "sourceRefs": [

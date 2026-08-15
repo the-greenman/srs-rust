@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 57,
+    "invariant_number": "57",
     "title": "Relation.targetRepositoryId, when present, must not equal the…",
     "normative_statement": "`Relation.targetRepositoryId`, when present, must not equal the enclosing repository's own `repositoryId`. The absent-means-local convention handles intra-repository target references.",
     "applies_to": "ext:federation"

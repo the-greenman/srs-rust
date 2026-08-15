@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-11T15:16:20.450265658+00:00",
+  "fieldValues": {
+    "statement": "The canonical specification of the Semantic Record System (SRS): an open standard for portable semantic documents that both people and AI can understand, so that a complex unit of knowledge can be transferred intact rather than flattened into prose. SRS describes knowledge, never authority — the people who create knowledge own it and stay free to move it — and this repository practises that claim on itself: its records are the source of truth, and the rendered specification is a projection of them.",
+    "title": "Semantic Record System Specification"
+  },
+  "instanceId": "9288ed3d-dba7-4a3a-9fbb-a77ff919816c",
+  "typeId": "3c000001-0000-4000-a000-000000000001",
+  "typeName": "purpose",
+  "typeNamespace": "com.semanticops.core",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-31T11:33:10.791387122+00:00"
+}

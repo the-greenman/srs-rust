@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 37,
+    "invariant_number": "37",
     "title": "Every TypeRef.typeId referenced in Protocol.targetType or in any…",
     "normative_statement": "Every `TypeRef.typeId` referenced in `Protocol.targetType` or in any `ProtocolStage.outputType`, for each Protocol in `Package.protocols[]`, must appear in `Package.dependencyRefs` with `definitionType: \"type\"`. Every `FieldRef.fieldId` in any `ProtocolStage.contributesTo[]` must appear in `Package.dependencyRefs` with `definitionType: \"field\"`. If `mode === \"bundled\"`, those Types must be in `Package.types[]` and those Fields in `Package.fields[]`.",
     "applies_to": "ext:protocol — Distribution"

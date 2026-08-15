@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 58,
+    "invariant_number": "58",
     "title": "Relation with sourceRepositoryId present must also have a valid…",
     "normative_statement": "A `Relation` with `sourceRepositoryId` present must also have a valid `sourceInstanceId`. A `Relation` with `targetRepositoryId` present must also have a valid `targetInstanceId`. The repository qualifier qualifies an instance ID; it does not replace it.",
     "applies_to": "ext:federation"

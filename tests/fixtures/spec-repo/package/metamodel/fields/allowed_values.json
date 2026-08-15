@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Inline, field-fixed closed vocabulary (valueDomain == closed)."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Inline, field-fixed closed vocabulary (valueDomain == closed).",
+  "id": "4b000014-0000-4000-a000-000000000014",
+  "name": "allowed_values",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string",
+    "cardinality": "list"
+  },
+  "version": 1
+}

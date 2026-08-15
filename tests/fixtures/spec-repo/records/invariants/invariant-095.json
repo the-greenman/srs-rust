@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-09T12:34:05.084906046+00:00",
+  "fieldValues": {
+    "invariant_number": "I-95",
+    "title": "CrossFieldRule with unrecognized type value MUST be reported as a Type-level error; unknown types MUST NOT be silently ignored",
+    "normative_statement": "A `CrossFieldRule` with a `type` value not in `[\"conditional-required\", \"field-ordering\", \"mutual-exclusion\"]` MUST be reported as a Type-level validation error. Implementations MUST NOT silently ignore unknown rule types. (RFC-019 R9.)",
+    "applies_to": "ext:cross-field-validation"
+  },
+  "instanceId": "d4fbd56a-ff47-4953-83ed-5dc277f4c207",
+  "tags": [
+    "concern:validation",
+    "topic:conformance"
+  ],
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T15:00:00Z"
+}

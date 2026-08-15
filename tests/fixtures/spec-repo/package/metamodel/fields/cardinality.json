@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Whether the field holds one value or an ordered list. Default single."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Whether the field holds one value or an ordered list. Default single.",
+  "id": "4b000010-0000-4000-a000-000000000010",
+  "name": "cardinality",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string",
+    "valueDomain": "closed",
+    "allowedValues": [
+      "single",
+      "list"
+    ]
+  },
+  "version": 1
+}

@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 44,
+    "invariant_number": "44",
     "title": "Every NavigationLink.fromSectionId and NavigationLink.toSectionId…",
     "normative_statement": "Every `NavigationLink.fromSectionId` and `NavigationLink.toSectionId` must reference a `sectionId` declared in the enclosing `DocumentView.sections[]`.",
     "applies_to": "ext:views-l2 — Navigation"

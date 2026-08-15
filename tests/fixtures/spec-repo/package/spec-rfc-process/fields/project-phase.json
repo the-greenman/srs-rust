@@ -1,0 +1,21 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5a000022-0000-4000-a000-000000000022",
+  "namespace": "com.semanticops.spec",
+  "name": "project_phase",
+  "version": 1,
+  "description": "The SRS standard phase in which the decision applies.",
+  "aiGuidance": {
+    "purpose": "Makes phase-bound decisions and their transition boundary explicit.",
+    "extraction": "Use formation before the first full public release and public-standard at or after that release."
+  },
+  "fieldType": {
+    "datatype": "string",
+    "valueDomain": "closed",
+    "allowedValues": [
+      "formation",
+      "public-standard"
+    ]
+  },
+  "createdAt": "2026-08-02T00:00:00Z"
+}

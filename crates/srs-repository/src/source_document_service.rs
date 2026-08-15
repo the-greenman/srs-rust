@@ -200,15 +200,12 @@ mod tests {
         );
         let store = FileStore::new(repo_path);
         let result = list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
-        // The spec-repo fixture has 4 .meta.json sidecars:
-        //   source-documents/spec/srs-spec.md.meta.json
-        //   source-documents/ai-sessions/chatgpt-origin.md.meta.json
-        //   source-documents/ai-sessions/chatgpt-spec-review.md.meta.json
-        //   source-documents/ai-sessions/claude-collaborative-document.md.meta.json
+        // The spec-repo fixture has 5 .meta.json sidecars (srs-rust#825
+        // re-vendor added source-documents/spec/srs-purpose-and-scope.md).
         assert_eq!(
             result.entries.len(),
-            4,
-            "expected 4 sidecars, got {} entries",
+            5,
+            "expected 5 sidecars, got {} entries",
             result.entries.len()
         );
         assert!(result.errors.is_empty());
@@ -489,8 +486,8 @@ mod tests {
         let result = list_source_documents(&store, ListSourceDocumentsFilter::default()).unwrap();
         assert_eq!(
             result.entries.len(),
-            4,
-            "expected 4 sidecars, got {:?}",
+            5,
+            "expected 5 sidecars, got {:?}",
             result
                 .entries
                 .iter()

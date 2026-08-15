@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-08-09T14:30:00Z",
+  "fieldValues": {
+    "invariant_number": "I-134",
+    "title": "Removed carrier constructs are rejected at dataModelRevision >= 2",
+    "normative_statement": "`FieldValue`, `FieldValueEntry`, `FieldGroupValue`, `FieldGroupEntry`, `Type.fieldGroups`, and `FieldAssignment.{repeatable, minItems, maxItems}` are removed. An implementation MUST reject a document containing any of them at `dataModelRevision >= 2`. Definition files carry no document-local revision discriminator, so revision MUST be resolved from the enclosing repository or package manifest before this rule is applied to a definition. A manifest at `dataModelRevision >= 2` MUST NOT declare `ext:field-groups` or `ext:repeatable-fields`; a reader encountering such a declaration MUST report an error. (RFC-039 [R7]/[R15])"
+  },
+  "instanceId": "ef57abe8-5dd2-48ef-8257-a524282df5c6",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant"
+}

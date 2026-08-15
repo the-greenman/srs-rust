@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 6,
+    "invariant_number": "6",
     "title": "Record.lifecycleState, when present, must reference a name in the…",
     "normative_statement": "`Record.lifecycleState`, when present, must reference a `name` in the associated `Type.lifecycle.states[]`.",
     "applies_to": "ext:lifecycle"

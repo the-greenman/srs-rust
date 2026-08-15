@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 31,
+    "invariant_number": "31",
     "title": "For every pair of stages A and B within a Protocol where B.dependsOn…",
     "normative_statement": "For every pair of stages A and B within a `Protocol` where B.dependsOn includes A.stageId, B.order must be greater than A.order. `order` is display order; execution sequence is determined by `dependsOn` resolution. The two must not contradict each other.",
     "applies_to": "ext:protocol"

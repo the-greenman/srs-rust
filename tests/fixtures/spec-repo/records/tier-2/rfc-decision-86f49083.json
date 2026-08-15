@@ -1,0 +1,34 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-08-02T13:59:15.809689839+00:00",
+  "fieldValues": {
+    "title": "Land carrier and storage changes as one final generation",
+    "rfc_status": "accepted",
+    "decision_date": "2026-08-01",
+    "decision_rationale": "The Record carrier and repository-authority contracts define one final meaning. Supporting either half as an intermediate public generation would make partial conformance look valid and preserve a bridge with no durable semantic role.",
+    "decision_statement": "The RFC-039 carrier migration and RFC-038 repository-storage migration land as one composed first-party release train at dataModelRevision 2; neither design ships alone and no intermediate repository generation is supported.",
+    "decision_scope": "RFC-038/RFC-039 first-party migration and release generation",
+    "governing_values": [
+      "semantic-integrity",
+      "evidence-led-evolution",
+      "shared-coherence"
+    ],
+    "project_phase": "formation",
+    "alternatives_considered": "- Ship the carrier change before the repository-authority change.\n- Support an intermediate generation between the two contracts.\n- Defer one known first-party population to a later release.",
+    "accepted_costs": "The coupled train is larger, has more prerequisites, and keeps both accepted designs unavailable until the whole ecosystem is ready.",
+    "evidence_refs": [
+      "https://github.com/the-greenman/srs/blob/0c0ee75fb7b582879a908ed1e2ad5c937185ba4f/rfcs/rfc-038-tree-authoritative-storage.md#composition-with-rfc-039",
+      "https://github.com/the-greenman/srs/blob/e0fb4b050447febcd5ecb8f6ccb7864196e656d6/rfcs/rfc-039-record-field-value-carrier.md#abstract"
+    ],
+    "review_trigger": "Review if a real external compatibility population requires a staged release, or if the two contracts become independently coherent."
+  },
+  "instanceId": "86f49083-2e06-43bf-89dc-451c0a509015",
+  "tags": [
+    "topic:rfc"
+  ],
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeName": "rfc-decision",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 2,
+  "updatedAt": "2026-08-02T13:59:15.809693807+00:00"
+}

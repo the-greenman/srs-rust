@@ -1,0 +1,33 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-08-02T13:59:15.743643894+00:00",
+  "fieldValues": {
+    "title": "Keep presentation hints outside the semantic type model",
+    "rfc_status": "accepted",
+    "decision_date": "2026-07-29",
+    "decision_rationale": "Input and display choices describe how a consumer presents meaning, not what the Field means. Keeping them outside fieldType preserves concurrent legitimate views while requiring rendering to own its own portable contract.",
+    "decision_statement": "Editor and composite-renderer hints remain presentation-layer concerns and are not encoded as fieldType facets.",
+    "decision_scope": "Semantic model and rendering boundary",
+    "governing_values": [
+      "semantic-integrity",
+      "local-autonomy"
+    ],
+    "project_phase": "formation",
+    "alternatives_considered": "- Treat input widgets and composite renderers as semantic type facets.",
+    "accepted_costs": "Presentation behavior needs a separate view-layer contract and cannot be recovered from Field meaning alone.",
+    "evidence_refs": [
+      "https://github.com/the-greenman/srs/blob/de2310bc5d90ed47597c0a1a99beffa26ac396b1/rfcs/rfc-032-composite-field-range.md#rationale",
+      "https://github.com/the-greenman/srs/blob/ae52927de4e45490cb427fee2b332d5351f536cd/docs/schema/2.0/field.json"
+    ],
+    "review_trigger": "Review when a proposed view capability appears to change interoperability or validation rather than presentation alone."
+  },
+  "instanceId": "6523cf5e-959b-40e1-91d0-ca2f4c0834be",
+  "tags": [
+    "topic:rfc"
+  ],
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeName": "rfc-decision",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 2,
+  "updatedAt": "2026-08-02T13:59:15.743647779+00:00"
+}

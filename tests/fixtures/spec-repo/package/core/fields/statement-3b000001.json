@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Concisely state what this repository exists to do or achieve. This is the primary machine-readable identity text for the repository. Write one or two sentences in plain language; avoid jargon. The value must be non-empty."
+  },
+  "createdAt": "2026-07-08T00:00:00Z",
+  "description": "The purpose or mission statement of this repository. Must be non-empty.",
+  "editorHint": "textarea",
+  "id": "3b000001-0000-4000-a000-000000000001",
+  "name": "statement",
+  "namespace": "com.semanticops.core",
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
+  "version": 1
+}

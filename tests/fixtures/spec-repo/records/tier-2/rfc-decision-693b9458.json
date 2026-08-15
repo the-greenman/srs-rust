@@ -1,0 +1,35 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-08-02T13:59:15.843051410+00:00",
+  "fieldValues": {
+    "title": "Pin the CLI that defines a required semantic drift gate",
+    "rfc_status": "accepted",
+    "decision_date": "2026-08-01",
+    "decision_rationale": "A required semantic check must not change because an external latest release moved. One declared CLI version makes rendering behavior reproducible and turns upgrades into reviewable changes with re-rendered evidence.",
+    "decision_statement": "The required release-drift check uses one named srs-rust release declared once, so its semantic rendering behavior changes only through a reviewable repository commit.",
+    "decision_scope": "Required release-drift conformance gate",
+    "governing_values": [
+      "semantic-integrity",
+      "continuity",
+      "shared-coherence"
+    ],
+    "project_phase": "formation",
+    "alternatives_considered": "- Always download the latest CLI release.\n- Accept that a required check can change behavior without a commit to this repository.",
+    "accepted_costs": "The project must review and maintain a cross-repository version pin, and new CLI behavior is not adopted automatically.",
+    "evidence_refs": [
+      "https://github.com/the-greenman/srs/issues/316",
+      "https://github.com/the-greenman/srs/pull/336",
+      "https://github.com/the-greenman/srs/blob/c132784ce959787b5ee40b2472c4b996abe35363/.github/workflows/release-drift.yml#L1-L52"
+    ],
+    "review_trigger": "Review on every intentional CLI-pin advance, or when the current pin no longer validates the semantic behavior the project intends."
+  },
+  "instanceId": "693b9458-3ee8-4db4-89d4-8b65437994db",
+  "tags": [
+    "topic:rfc"
+  ],
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeName": "rfc-decision",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 2,
+  "updatedAt": "2026-08-02T13:59:15.843060169+00:00"
+}

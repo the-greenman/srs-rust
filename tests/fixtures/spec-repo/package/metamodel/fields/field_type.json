@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "The decomposed value type (RFC-032): datatype x cardinality x value-domain x format x constraints."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "The decomposed value type (RFC-032): datatype x cardinality x value-domain x format x constraints.",
+  "id": "4b000009-0000-4000-a000-000000000009",
+  "name": "field_type",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "ref",
+    "mode": "inline",
+    "rangeType": {
+      "typeId": "4c000004-0000-4000-a000-000000000004",
+      "typeVersion": 1
+    }
+  },
+  "version": 1
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Version of the source package."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Version of the source package.",
+  "id": "4b00002f-0000-4000-a000-00000000002f",
+  "name": "package_version",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

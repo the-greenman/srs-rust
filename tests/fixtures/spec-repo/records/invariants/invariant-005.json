@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 5,
+    "invariant_number": "5",
     "title": "Every from and to value in lifecycle.transitions[] must reference a…",
     "normative_statement": "Every `from` and `to` value in `lifecycle.transitions[]` must reference a `name` that appears in `lifecycle.states[]`.",
     "applies_to": "ext:lifecycle"

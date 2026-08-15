@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-17T01:41:03.699909838+00:00",
+  "fieldValues": {
+    "title": "RFC-017 Change F: `ext:json-store` — retire srsj-gzip",
+    "affected_components": "ext:json-store (.srsj files)",
+    "proposed_change": "Retire gzip-of-srsj from `ext:json-store`. Normative rules: `.srsj` files MUST be plain UTF-8 JSON, not gzip-compressed; an implementation MUST reject a file that is gzip-compressed and presented as a `.srsj` JSON Store (detection by content inspection: first two bytes `0x1f 0x8b` MUST be treated as gzip-compressed regardless of filename or MIME type); binary source-document content is not included in the JSON Store (unchanged); implementors requiring binary portability MUST use the `.srs` ZIP archive defined by `ext:repository`. Supersedes issue srs#31.",
+    "rationale": "Gzip-of-srsj was never formally specified; `ext:json-store` has always defined `.srsj` as a pretty-printed UTF-8 JSON object with no gzip variant in the spec record. The deterministic `.srs` archive now fulfils any transport-compression need with the added benefit of including binary source-document content (which `.srsj` explicitly excludes). Maintaining a gzip wrapper over `.srsj` would add format-confusion surface for no remaining benefit."
+  },
+  "instanceId": "5dca4f91-1977-439e-bdb6-ece11b45c42e",
+  "tags": [
+    "construct:archive",
+    "topic:schema"
+  ],
+  "typeId": "6a000002-0000-4000-a000-000000000002",
+  "typeName": "rfc-change",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-17T01:41:03.699929500+00:00"
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Maximum string length (datatype == string)."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Maximum string length (datatype == string).",
+  "id": "4b00001d-0000-4000-a000-00000000001d",
+  "name": "max_length",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "integer",
+    "constraints": {
+      "minimum": 0
+    }
+  },
+  "version": 1
+}

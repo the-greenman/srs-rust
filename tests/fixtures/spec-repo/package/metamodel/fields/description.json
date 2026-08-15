@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Human-readable description of this entity."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Human-readable description of this entity.",
+  "id": "4b000005-0000-4000-a000-000000000005",
+  "name": "description",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

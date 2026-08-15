@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-09T12:34:17.156909446+00:00",
+  "fieldValues": {
+    "invariant_number": "I-97",
+    "title": "validationRules are not inherited; a derived Type's own validationRules are the complete set",
+    "normative_statement": "`validationRules` are not inherited. A Type's `validationRules` array is the complete and exclusive set of cross-field rules evaluated for Records of that Type. When `ext:type-inheritance` is in use and Type B extends Type A, Type A's `validationRules` MUST NOT be evaluated for Records of Type B unless Type B's own `validationRules` explicitly restates them. (RFC-019 R11.)",
+    "applies_to": "ext:cross-field-validation; ext:type-inheritance"
+  },
+  "instanceId": "1b135eb4-7530-459f-a6c4-07151832f691",
+  "tags": [
+    "concern:validation",
+    "topic:conformance"
+  ],
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T15:00:00Z"
+}

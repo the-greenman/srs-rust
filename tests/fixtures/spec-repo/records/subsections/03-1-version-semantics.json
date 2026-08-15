@@ -3,7 +3,7 @@
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
     "title": "Version semantics",
-    "content": "Version numbers are positive integers scoped to a definition's UUID lineage.\n\n| Change | Version action |\n|---|---|\n| Documentation, typo, formatting only | Optional bump |\n| `description`, `instructions`, or `aiGuidance.purpose` reworded without semantic change | Minor bump recommended |\n| `aiGuidance.extraction` or `aiGuidance.purpose` changed in meaning | Version bump required |\n| `valueType`, `selectOptions`, or `validationRules` changed | Version bump required |\n| `name` changed | New definition required (new UUID) |\n| `namespace` changed | New definition required (new UUID) |\n\nWhen in doubt: if a downstream consumer's AI extraction, validation, or governance logic would behave differently, a version bump is required.\n\n---"
+    "content": "Version numbers are positive integers scoped to a definition's UUID lineage.\n\n| Change | Version action |\n|---|---|\n| Documentation, typo, formatting only | Optional bump |\n| `description`, `instructions`, or `aiGuidance.purpose` reworded without semantic change | Minor bump recommended |\n| `aiGuidance.extraction` or `aiGuidance.purpose` changed in meaning | Version bump required |\n| `fieldType` changed — datatype, cardinality, value domain, format, or constraints | Version bump required |\n| `name` changed | New definition required (new UUID) |\n| `namespace` changed | New definition required (new UUID) |\n\nWhen in doubt: if a downstream consumer's AI extraction, validation, or governance logic would behave differently, a version bump is required.\n\n---"
   },
   "instanceId": "8e3fb02c-3863-55a9-8bcd-0580e0c7b3a9",
   "sourceRefs": [
@@ -22,5 +22,6 @@
   "typeId": "2a000003-0000-4000-a000-000000000003",
   "typeName": "subsection",
   "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1
+  "typeVersion": 1,
+  "updatedAt": "2026-07-27T21:52:14.093763938+00:00"
 }

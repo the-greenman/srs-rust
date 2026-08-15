@@ -1,0 +1,25 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "The scalar value datatype of a map, or \"open\" for a true extension bag. datatype == map only."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "The scalar value datatype of a map, or \"open\" for a true extension bag. datatype == map only.",
+  "id": "4b00001b-0000-4000-a000-00000000001b",
+  "name": "value_range",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string",
+    "valueDomain": "closed",
+    "allowedValues": [
+      "string",
+      "number",
+      "integer",
+      "boolean",
+      "date",
+      "date-time",
+      "open"
+    ]
+  },
+  "version": 1
+}

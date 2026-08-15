@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-23T20:47:11.819458749+00:00",
+  "fieldValues": {
+    "invariant_number": "I-127",
+    "title": "memberOrder combined with typeFilter",
+    "normative_statement": "When both `typeFilter` and `memberOrder` are present on a `container-subset` section, `typeFilter` is applied first to obtain the filtered member set; `memberOrder` is then applied over that filtered set. `memberOrder` entries naming members excluded by `typeFilter` are silently skipped (no diagnostic). Unlisted filtered survivors are appended in the same topological-sort-by-`precedes` order used in Invariant I-126 step (3). The `direction` reversal of Invariant I-126 step (4) applies to the combined result after `typeFilter` and `memberOrder` are both applied. (RFC-015 Change B.)",
+    "applies_to": "ext:views-l2",
+    "rationale": "Without a fixed application order, `typeFilter` and `memberOrder` could interact ambiguously (e.g. a listed member excluded by the type filter). Filter-then-order matches the filter-then-project pattern already used elsewhere for `typeFilter` and keeps the two concerns composable and independently reasoned about."
+  },
+  "instanceId": "ab24cfd9-a1f3-45c4-aa69-c902cb4928bd",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-23T20:47:11.819476573+00:00"
+}

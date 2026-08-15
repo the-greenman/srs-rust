@@ -3,9 +3,9 @@
   "id": "4a000002-0000-4000-a000-000000000002",
   "namespace": "com.semanticops.spec",
   "name": "spec-rfc-process",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "title": "Spec RFC Process",
-  "description": "Types and fields for RFC-based change management in a specification. Provides the rfc, rfc-change, and rfc-revision types plus their associated fields. Repos that do not use RFC process do not need this package.",
+  "description": "Types, structured decisions, and public projections for RFC-based change management in a specification. Repositories that do not use an RFC process do not need this package.",
   "status": "draft",
   "dependencyRefs": [
     {
@@ -32,7 +32,15 @@
     "fields/implementation-commit.json",
     "fields/proposal-artifact-path.json",
     "fields/artifact-kind.json",
-    "fields/revision-number.json"
+    "fields/revision-number.json",
+    "fields/decision-statement.json",
+    "fields/decision-scope.json",
+    "fields/governing-values.json",
+    "fields/project-phase.json",
+    "fields/alternatives-considered.json",
+    "fields/accepted-costs.json",
+    "fields/evidence-refs.json",
+    "fields/review-trigger.json"
   ],
   "types": [
     "types/rfc.json",
@@ -44,7 +52,8 @@
   ],
   "views": [],
   "documentViews": [
-    "document-views/rfc-document-view.json"
+    "document-views/rfc-document-view.json",
+    "document-views/rfc-decision-log.json"
   ],
   "relationTypes": [
     "relation-types/rfc-targets-section.json",
@@ -53,6 +62,6 @@
     "relation-types/rfc-proposed-artifact-sequence.json"
   ],
   "createdAt": "2026-05-27T00:00:00Z",
-  "updatedAt": "2026-05-27T00:00:00Z",
+  "updatedAt": "2026-08-02T00:00:00Z",
   "dataModelRevision": 2
 }

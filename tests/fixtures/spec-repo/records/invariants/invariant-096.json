@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-09T12:34:11.254366285+00:00",
+  "fieldValues": {
+    "invariant_number": "I-96",
+    "title": "CrossFieldRule property present for wrong rule type MUST be reported as a Type-level error",
+    "normative_statement": "A `CrossFieldRule` that contains a property belonging to a different rule type MUST be reported as a Type-level validation error. Specifically: a `conditional-required` or `field-ordering` rule MUST NOT supply `fieldIds`; a `mutual-exclusion` rule MUST NOT supply `predicateFieldId`, `predicateValue`, `targetFieldId`, or `effect`. (RFC-019 R10.)",
+    "applies_to": "ext:cross-field-validation"
+  },
+  "instanceId": "c86855f1-3b63-49dd-b2a9-eaea83203591",
+  "tags": [
+    "concern:validation",
+    "topic:conformance"
+  ],
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T15:00:00Z"
+}

@@ -3,7 +3,7 @@
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
     "title": "Distribution",
-    "content": "**7.** Every `fieldId` referenced in any `FieldAssignment` within a `Package.types[]` must appear as the `id` of an entry in `Package.dependencyRefs`.\n\n**8.** If `Package.mode === \"bundled\"`: every `Reference` in `dependencyRefs` must have a matching `Field` in `fields[]` (matched on `id` and `version`).\n\n**9.** `Field.id` is stable across versions. A new `id` means a new definition, not a new version of an existing one."
+    "content": ""
   },
   "instanceId": "a848ecbd-c284-5754-b8cf-1a596de42242",
   "sourceRefs": [

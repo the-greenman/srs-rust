@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Expected output for the example input."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Expected output for the example input.",
+  "id": "4b000028-0000-4000-a000-000000000028",
+  "name": "output",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

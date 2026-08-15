@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-08-09T14:30:00Z",
+  "fieldValues": {
+    "invariant_number": "I-130",
+    "title": "Instance keys are Field.name verbatim",
+    "normative_statement": "A `fieldValues` key MUST be `Field.name` verbatim, with no case or separator transformation, at every nesting depth. The name projection MUST NOT be applied to instance keys under any circumstances, including for meta-model entities stored as Records. (RFC-039 [R2b])"
+  },
+  "instanceId": "bf34d7af-45d8-4d9d-be41-284994eed684",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant"
+}

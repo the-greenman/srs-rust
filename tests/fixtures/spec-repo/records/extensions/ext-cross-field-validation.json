@@ -5,7 +5,7 @@
     "extension_id": "ext:cross-field-validation",
     "title": "Cross-Field Validation",
     "extension_depends": "",
-    "content": "**Required for**: Types with constraints that span multiple Fields.\n\n`ValidationRule` handles single-field constraints. `CrossFieldRule` handles constraints that require evaluating more than one Field together.\n\n#### `CrossFieldRule`\n\n```typescript\n{\n  type: \"conditional-required\" | \"field-ordering\" | \"mutual-exclusion\"\n  message?: string\n\n  // conditional-required: targetFieldId becomes required when predicateFieldId equals predicateValue\n  predicateFieldId?: UUID\n  predicateValue?: string\n  targetFieldId?: UUID\n\n  // field-ordering: targetFieldId must precede or follow predicateFieldId\n  // Applies only to fields with valueType \"date\" or \"number\".\n  effect?: \"must-precede\" | \"must-follow\"\n\n  // mutual-exclusion: at most one of the listed fields may have a non-empty value\n  fieldIds?: UUID[]   // min: 2\n}\n```\n\n| Rule type | Required fields |\n|---|---|\n| `conditional-required` | `predicateFieldId`, `predicateValue`, `targetFieldId` |\n| `field-ordering` | `predicateFieldId`, `targetFieldId`, `effect` |\n| `mutual-exclusion` | `fieldIds` (min 2) |\n\nWhen `ext:cross-field-validation` is in use, `Type` gains `validationRules?: CrossFieldRule[]`.\n\n---"
+    "content": "> **Formalised by**: RFC-019 (srs#139). The `CrossFieldRule` shape and `validationRules` property are formally specified by RFC-019; refer to it for normative conformance rules (R0–R11).\n\n**Required for**: Types with constraints that span multiple Fields.\n\n`ValidationRule` handles single-field constraints. `CrossFieldRule` handles constraints that require evaluating more than one Field together.\n\n#### `CrossFieldRule`\n\n```typescript\n{\n  type: \"conditional-required\" | \"field-ordering\" | \"mutual-exclusion\"\n  message?: string\n\n  // conditional-required: targetFieldId becomes required when predicateFieldId equals predicateValue\n  predicateFieldId?: UUID\n  predicateValue?: string\n  targetFieldId?: UUID\n\n  // field-ordering: targetFieldId must precede or follow predicateFieldId\n  // Applies only to fields with datatype \"date\", \"date-time\", \"number\", or \"integer\".\n  effect?: \"must-precede\" | \"must-follow\"\n\n  // mutual-exclusion: at most one of the listed fields may have a non-empty value\n  fieldIds?: UUID[]   // min: 2\n}\n```\n\n| Rule type | Required fields |\n|---|---|\n| `conditional-required` | `predicateFieldId`, `predicateValue`, `targetFieldId` |\n| `field-ordering` | `predicateFieldId`, `targetFieldId`, `effect` |\n| `mutual-exclusion` | `fieldIds` (min 2) |\n\nWhen `ext:cross-field-validation` is in use, `Type` gains `validationRules?: CrossFieldRule[]`.\n\n---"
   },
   "instanceId": "c16793d7-005a-58d2-88d0-9e7d9b4967b1",
   "sourceRefs": [
@@ -24,5 +24,6 @@
   "typeId": "2a000008-0000-4000-a000-000000000008",
   "typeName": "extension",
   "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1
+  "typeVersion": 1,
+  "updatedAt": "2026-07-09T12:35:07.308301522+00:00"
 }

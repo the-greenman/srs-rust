@@ -1,0 +1,61 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "Describes an SRS Type: its identity and its ordered FieldAssignments."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "A named, versioned composition of Fields (core definition facets; RFC-033 v1.0.0 defers lifecycle/inheritance/cross-field/field-groups/identity).",
+  "fields": [
+    {
+      "fieldId": "4b000001-0000-4000-a000-000000000001",
+      "order": 0,
+      "required": true
+    },
+    {
+      "fieldId": "4b000002-0000-4000-a000-000000000002",
+      "order": 1,
+      "required": true
+    },
+    {
+      "fieldId": "4b000003-0000-4000-a000-000000000003",
+      "order": 2,
+      "required": true
+    },
+    {
+      "fieldId": "4b000004-0000-4000-a000-000000000004",
+      "order": 3,
+      "required": true
+    },
+    {
+      "fieldId": "4b000005-0000-4000-a000-000000000005",
+      "order": 4,
+      "required": true
+    },
+    {
+      "fieldId": "4b000031-0000-4000-a000-000000000031",
+      "order": 5,
+      "required": false,
+      "displayLabel": "Semantic Object Type"
+    },
+    {
+      "fieldId": "4b000008-0000-4000-a000-000000000008",
+      "order": 6,
+      "required": false,
+      "displayLabel": "AI Guidance"
+    },
+    {
+      "fieldId": "4b000032-0000-4000-a000-000000000032",
+      "order": 7,
+      "required": true
+    },
+    {
+      "fieldId": "4b000006-0000-4000-a000-000000000006",
+      "order": 8,
+      "required": true
+    }
+  ],
+  "id": "4c000002-0000-4000-a000-000000000002",
+  "name": "type",
+  "namespace": "com.semanticops.srs",
+  "version": 1
+}

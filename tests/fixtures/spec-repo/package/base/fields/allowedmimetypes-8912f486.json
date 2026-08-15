@@ -1,0 +1,15 @@
+{
+  "aiGuidance": {
+    "purpose": "A JSON-encoded array of accepted MIME type strings (e.g. [\"application/pdf\",\"image/png\"]). Leave absent to permit all MIME types."
+  },
+  "createdAt": "2026-07-23T00:00:00Z",
+  "description": "MIME types accepted as attachments. When absent, all MIME types are permitted.",
+  "id": "8912f486-15bf-4407-af84-c27542f655dd",
+  "name": "allowed_mime_types",
+  "namespace": "com.semanticops.base",
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
+  "version": 1
+}

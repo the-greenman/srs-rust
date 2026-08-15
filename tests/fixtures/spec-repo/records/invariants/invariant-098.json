@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-10T20:54:49.438709867+00:00",
+  "fieldValues": {
+    "invariant_number": "I-98",
+    "title": "A Record MUST NOT occupy a lifecycle state declaring requiresRelation without a satisfying Relation",
+    "normative_statement": "A Record MUST NOT rest in a lifecycle state that declares `requiresRelation` unless at least one Relation satisfies the obligation: its type equals one of the declared `relationType`(s) and the Record is the relation's target when `direction` is `incoming` (or omitted) or its source when `direction` is `outgoing`. When the state declares `enforcement: \"hard\"` (the default), an implementation MUST reject a lifecycle transition into it unless the operation, on completion, satisfies this occupancy requirement — either because a satisfying Relation already exists, or because the operation's fulfillment establishes one. The rejection MUST be machine-readable, identifying the target state key, the required relation type(s), and the direction. When the state declares `enforcement: \"advisory\"`, the transition MUST be permitted regardless of the obligation and the unsatisfied state surfaced only as an at-rest warning, never a rejection. (RFC-022 R1–R3, R2a.)",
+    "applies_to": "ext:lifecycle; requiresRelation on LifecycleState (RFC-022)"
+  },
+  "instanceId": "cd3c9215-04a8-4111-ab1d-582b8920b0df",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T15:30:00Z"
+}

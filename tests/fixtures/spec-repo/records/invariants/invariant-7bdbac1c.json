@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-08-09T14:30:00Z",
+  "fieldValues": {
+    "invariant_number": "I-141",
+    "title": "Instance keys serialise in FieldAssignment.order",
+    "normative_statement": "Instance `fieldValues` keys MUST be serialised in `FieldAssignment.order`, and nested composite objects likewise, so that a re-run of a transform is byte-idempotent and diffs are stable. This is the instance-side counterpart of the schema-key ordering in `projection-rules.md`; it supersedes the write-order signal of rfc-012:139. (RFC-039 [R18])"
+  },
+  "instanceId": "7bdbac1c-0bc5-4bcf-8d2b-37c583510ff3",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant"
+}

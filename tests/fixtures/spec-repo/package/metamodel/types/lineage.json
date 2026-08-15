@@ -1,0 +1,38 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "Tracks where a Field/Type definition was derived or forked from."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "The fork/copy history of a definition.",
+  "fields": [
+    {
+      "fieldId": "4b000029-0000-4000-a000-000000000029",
+      "order": 0,
+      "required": false,
+      "displayLabel": "Source Definition Id"
+    },
+    {
+      "fieldId": "4b00002a-0000-4000-a000-00000000002a",
+      "order": 1,
+      "required": false,
+      "displayLabel": "Source Version"
+    },
+    {
+      "fieldId": "4b00002b-0000-4000-a000-00000000002b",
+      "order": 2,
+      "required": false,
+      "displayLabel": "Forked-From Definition Id"
+    },
+    {
+      "fieldId": "4b00002c-0000-4000-a000-00000000002c",
+      "order": 3,
+      "required": false,
+      "displayLabel": "Forked-From Version"
+    }
+  ],
+  "id": "4c000009-0000-4000-a000-000000000009",
+  "name": "lineage",
+  "namespace": "com.semanticops.srs",
+  "version": 1
+}

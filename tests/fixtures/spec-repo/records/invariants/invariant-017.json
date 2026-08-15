@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 17,
+    "invariant_number": "17",
     "title": "Relation is reserved for assertions that carry semantic consequence…",
     "normative_statement": "`Relation` is reserved for assertions that carry semantic consequence beyond simple mention or citation. Lightweight prose references that do not assert structural, causal, or governance relationships must not be modelled as `Relation` records.",
     "applies_to": "core — Relation"

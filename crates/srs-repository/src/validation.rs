@@ -4123,7 +4123,6 @@ mod tests {
     // fix belongs upstream in the `srs` repo (spec independence — CLAUDE.md).
     // Re-enable once upstream repairs land and the fixture is re-vendored.
     #[test]
-    #[ignore = "srs-rust#783 Phase 3: vendored srs/srs corpus has pre-existing schema/reference defects newly caught by RFC-038 validation — fix belongs upstream in the srs repo"]
     fn live_srs_repo_validates_cleanly() {
         let repo_root = srs_spec_repo();
         if !repo_root.join("manifest.json").exists() {

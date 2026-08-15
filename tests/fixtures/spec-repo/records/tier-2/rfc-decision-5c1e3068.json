@@ -1,0 +1,33 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-08-02T13:59:15.765288813+00:00",
+  "fieldValues": {
+    "title": "Put a deterministic target-neutral IR between records and emitters",
+    "rfc_status": "accepted",
+    "decision_date": "2026-07-29",
+    "decision_rationale": "Semantic interpretation must be shared before targets render it. A deterministic neutral intermediate representation prevents each backend from inventing incompatible meanings while preserving target-specific output mechanics.",
+    "decision_statement": "Projection resolves semantic meaning into a target-neutral intermediate representation before any target back end renders it.",
+    "decision_scope": "Schema projection architecture",
+    "governing_values": [
+      "semantic-integrity",
+      "shared-coherence"
+    ],
+    "project_phase": "formation",
+    "alternatives_considered": "- Let each target define an independent semantic interpretation.",
+    "accepted_costs": "All emitters depend on a shared interpretation layer whose changes affect every target.",
+    "evidence_refs": [
+      "https://github.com/the-greenman/srs/blob/9d4f5e9063c3c09af960f3c7318ffaae90e9c0de/rfcs/rfc-035-schema-emitter.md#change-a--the-neutral-ir-fieldtype-records--ir--target",
+      "https://github.com/the-greenman/srs/blob/9d4f5e9063c3c09af960f3c7318ffaae90e9c0de/scripts/lib/schema-emitter.mjs"
+    ],
+    "review_trigger": "Review when a target requires semantic interpretation unavailable in the neutral IR, or when a proposed backend bypasses it."
+  },
+  "instanceId": "5c1e3068-6e22-42ae-ab24-882158e8035d",
+  "tags": [
+    "topic:rfc"
+  ],
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeName": "rfc-decision",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 2,
+  "updatedAt": "2026-08-02T13:59:15.765291951+00:00"
+}

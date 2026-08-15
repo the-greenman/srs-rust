@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Context-specific label override for this field within this Type."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Context-specific label override for this field within this Type.",
+  "id": "4b000036-0000-4000-a000-000000000036",
+  "name": "display_label",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

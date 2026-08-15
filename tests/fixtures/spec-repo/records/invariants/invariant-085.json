@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-08T22:25:36.645168674+00:00",
+  "fieldValues": {
+    "invariant_number": "I-85",
+    "title": "com.semanticops.core/* types and fields MUST resolve in every conforming repository without any package declaration",
+    "normative_statement": "A conforming SRS implementation MUST make all `com.semanticops.core/*` types and fields resolvable in every repository without any `packageRef` or `packageRefs` declaration in the manifest. The core base package's definitions are treated as logically present in the RFC-014 R6 package union for all repositories. An implementation that fails to resolve `com.semanticops.core/*` types and fields in a structurally valid repository is non-conformant with RFC-029.",
+    "applies_to": "com.semanticops.core namespace; ext:repository; RFC-029 R1; RFC-014 R6 (package union resolution).",
+    "rationale": "Without this invariant an implementation could claim RFC-029 conformance while failing to expose core types to type resolution, making the always-available guarantee unverifiable. The invariant makes the expectation explicit and testable: a conformance suite can check whether `com.semanticops.core/purpose` resolves in any repository regardless of its package declarations."
+  },
+  "instanceId": "9d686444-89d9-4a30-a9c3-b08bd31b62ca",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-23T22:47:33.964271638+00:00"
+}

@@ -5,13 +5,13 @@
   "name": "term_aliases",
   "version": 1,
   "description": "Alternate key strings that resolve to this vocabulary entry. An alias match in V1/V2 resolution is equivalent to a key match.",
-  "aiGuidance": {
-    "purpose": "Synonym keys that should resolve to this term. Used to unify multiple tag strings into one defined term without rewriting instance data (alias-merge).",
-    "extraction": "List each alias on a separate line or as a comma-separated list."
-  },
   "fieldType": {
     "datatype": "string",
     "format": "plain"
   },
-  "createdAt": "2026-06-03T00:00:00Z"
+  "createdAt": "2026-06-03T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "Synonym keys that should resolve to this term. Used to unify multiple tag strings into one defined term without rewriting instance data (alias-merge).",
+    "extraction": "List each alias on a separate line or as a comma-separated list."
+  }
 }

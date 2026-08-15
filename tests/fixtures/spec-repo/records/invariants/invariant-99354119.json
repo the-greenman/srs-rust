@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-08-09T14:30:00Z",
+  "fieldValues": {
+    "invariant_number": "I-131",
+    "title": "Field.name uniqueness within a Type's effective field set",
+    "normative_statement": "Within a Type's effective field set — its own `fields`, plus fields contributed through `extendsTypeId` — every referenced `Field.name` MUST be distinct. An implementation MUST reject a Type that violates this at definition time, not at instance time. (RFC-039 [R4])"
+  },
+  "instanceId": "99354119-e59f-457a-99d5-c2c3208e4a09",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant"
+}

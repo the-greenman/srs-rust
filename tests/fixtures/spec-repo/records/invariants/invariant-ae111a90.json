@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-23T16:42:10.763405098+00:00",
+  "fieldValues": {
+    "invariant_number": "I-114",
+    "title": "Content-match is a guaranteed recall floor",
+    "normative_statement": "For a `contentMatch` predicate with normalized query string `q`, an implementation that declares `ext:discovery` MUST include every instance whose Text Projection contains at least one `TextSegment` whose normalized `text` contains `q` as a substring (case-folded NFC substring match). (RFC-012 R2.)",
+    "applies_to": "ext:discovery; content-match recall floor (RFC-012)"
+  },
+  "instanceId": "ae111a90-1b1d-4ac9-a9a1-4248af051942",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-23T16:42:10.763413335+00:00"
+}

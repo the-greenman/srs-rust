@@ -1,0 +1,29 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "Pairs an optional description + input with an expected output."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "One worked example within an AiGuidance.",
+  "fields": [
+    {
+      "fieldId": "4b000005-0000-4000-a000-000000000005",
+      "order": 0,
+      "required": false
+    },
+    {
+      "fieldId": "4b000027-0000-4000-a000-000000000027",
+      "order": 1,
+      "required": false
+    },
+    {
+      "fieldId": "4b000028-0000-4000-a000-000000000028",
+      "order": 2,
+      "required": true
+    }
+  ],
+  "id": "4c000008-0000-4000-a000-000000000008",
+  "name": "ai-guidance-example",
+  "namespace": "com.semanticops.srs",
+  "version": 1
+}

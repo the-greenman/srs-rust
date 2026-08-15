@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-09T12:33:43.315004007+00:00",
+  "fieldValues": {
+    "invariant_number": "I-92",
+    "title": "field-ordering rule applies only to date/number fields; non-date/non-number reference is a Type-level error",
+    "normative_statement": "A `CrossFieldRule` with `type: \"field-ordering\"` fires when both `predicateFieldId` and `targetFieldId` are non-empty. It applies only to fields whose `fieldType.datatype` is `\"date\"`, `\"date-time\"`, `\"number\"`, or `\"integer\"`. When `effect` is `\"must-precede\"`, the predicate field value MUST be strictly less than the target field value (ISO 8601 lexicographic order for dates; numeric order for numbers). When `effect` is `\"must-follow\"`, the predicate field value MUST be strictly greater than the target field value. A violation MUST be reported as a validation error. If either field is non-empty but the other is absent or empty, the rule MUST NOT fire. A `field-ordering` rule whose `predicateFieldId` or `targetFieldId` resolves to a field with any other `fieldType.datatype` MUST be reported as a Type-level validation error. (RFC-019 R4.)",
+    "applies_to": "ext:cross-field-validation"
+  },
+  "instanceId": "94488cb9-8fe8-4c51-afa5-0c8b8bdb45c6",
+  "tags": [
+    "concern:validation",
+    "topic:conformance"
+  ],
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T15:00:00Z"
+}

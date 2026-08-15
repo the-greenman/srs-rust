@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "\"self\" or a sibling field name whose type the value conforms to (datatype == dependent only)."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "\"self\" or a sibling field name whose type the value conforms to (datatype == dependent only).",
+  "id": "4b00001a-0000-4000-a000-00000000001a",
+  "name": "depends_on",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

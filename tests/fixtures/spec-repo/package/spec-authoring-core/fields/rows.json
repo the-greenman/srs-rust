@@ -1,22 +1,21 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
-  "id": "1a000040-0000-4000-a000-000000000040",
+  "id": "ac991040-8cde-454a-8487-ff4c87744b54",
   "namespace": "com.semanticops.spec",
   "name": "rows",
   "version": 1,
-  "description": "Composite field minted from FieldGroup 'rows'",
+  "description": "Rows",
   "aiGuidance": {
-    "purpose": "Table rows: one entry per row, cells in column order"
+    "purpose": "Rows"
   },
   "fieldType": {
     "datatype": "ref",
-    "cardinality": "list",
-    "minItems": 1,
+    "mode": "inline",
     "rangeType": {
-      "typeId": "2a000040-0000-4000-a000-000000000040",
+      "typeId": "cd2c810d-e7f8-4c34-ba85-a8d3dcf64d9e",
       "typeVersion": 1
     },
-    "mode": "inline"
+    "cardinality": "list",
+    "minItems": 1
   },
   "createdAt": "2026-05-27T00:00:00Z"
 }

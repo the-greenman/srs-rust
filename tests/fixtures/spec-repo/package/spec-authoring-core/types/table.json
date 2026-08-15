@@ -4,7 +4,7 @@
   "namespace": "com.semanticops.spec",
   "name": "table",
   "version": 3,
-  "description": "A structured table with optional intro/outro prose, optional named columns, and repeatable rows of cell values. Requires ext:repeatable-fields and ext:field-groups.",
+  "description": "A structured table with optional intro/outro prose, optional named columns, and repeatable rows of cell values.",
   "fields": [
     {
       "fieldId": "1a000025-0000-4000-a000-000000000025",
@@ -25,7 +25,7 @@
       "displayLabel": "Columns"
     },
     {
-      "fieldId": "1a000040-0000-4000-a000-000000000040",
+      "fieldId": "ac991040-8cde-454a-8487-ff4c87744b54",
       "order": 3,
       "required": true,
       "displayLabel": "Rows"

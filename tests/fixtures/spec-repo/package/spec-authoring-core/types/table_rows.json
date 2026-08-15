@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "id": "cd2c810d-e7f8-4c34-ba85-a8d3dcf64d9e",
+  "namespace": "com.semanticops.spec",
+  "name": "table_rows",
+  "version": 1,
+  "description": "Rows",
+  "fields": [
+    {
+      "fieldId": "1a000033-0000-4000-a000-000000000033",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Cells"
+    }
+  ],
+  "createdAt": "2026-05-27T00:00:00Z"
+}

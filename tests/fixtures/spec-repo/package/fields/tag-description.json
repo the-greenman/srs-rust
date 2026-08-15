@@ -5,12 +5,12 @@
   "name": "tag_description",
   "version": 1,
   "description": "What this tag means and when it should be used.",
-  "aiGuidance": {
-    "purpose": "Explains what this tag means and when a contributor should apply it. Non-normative guidance for authors."
-  },
   "fieldType": {
     "datatype": "string",
     "format": "plain"
   },
-  "createdAt": "2026-05-28T00:00:00Z"
+  "createdAt": "2026-05-28T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "Explains what this tag means and when a contributor should apply it. Non-normative guidance for authors."
+  }
 }

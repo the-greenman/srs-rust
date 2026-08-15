@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 29,
+    "invariant_number": "29",
     "title": "Every stageId in ProtocolStage.dependsOn[] must reference a stageId…",
     "normative_statement": "Every `stageId` in `ProtocolStage.dependsOn[]` must reference a `stageId` declared in the enclosing `Protocol.stages[]`. A stage may not declare a dependency on itself.",
     "applies_to": "ext:protocol"

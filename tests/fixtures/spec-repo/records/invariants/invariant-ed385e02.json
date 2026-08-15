@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-23T16:42:10.851182517+00:00",
+  "fieldValues": {
+    "invariant_number": "I-124",
+    "title": "ext:discovery conformance requires passing content-match fixture scenarios",
+    "normative_statement": "An implementation that declares `ext:discovery` MUST pass all content-match conformance scenarios (`exactMatch: false`) from the fixture at `srs/conformance/discovery/scenarios.json` — its result set for each such scenario MUST be a superset of the scenario's `expectedInstanceIds`. (RFC-012 R12.)",
+    "applies_to": "ext:discovery; content-match fixture conformance (RFC-012)"
+  },
+  "instanceId": "ed385e02-c82a-451e-8973-6aa87f01cfd1",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-23T16:42:10.851188975+00:00"
+}

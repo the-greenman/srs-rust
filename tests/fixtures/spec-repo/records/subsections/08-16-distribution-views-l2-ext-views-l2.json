@@ -3,7 +3,7 @@
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
     "title": "Distribution — Views L2 (ext:views-l2)",
-    "content": "**35.** Every `DocumentSection.renderViewId` in any `DocumentView` within `Package.documentViews[]` must reference a `View.id` that appears in `Package.views[]` or `Package.dependencyRefs`. If `mode === \"bundled\"`, that `View` must be present in `Package.views[]`."
+    "content": ""
   },
   "instanceId": "fe0810ac-5ba0-5a37-8ab2-a845ea96b3af",
   "sourceRefs": [

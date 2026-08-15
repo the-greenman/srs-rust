@@ -1,0 +1,19 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-17T01:41:59.663121296+00:00",
+  "fieldValues": {
+    "invariant_number": "I-106",
+    "title": "byte-identical archive per implementation across invocations",
+    "normative_statement": "Given identical repository content, a conformant archive producer MUST produce a byte-for-byte identical `.srs` file across invocations of the same implementation. Cross-implementation byte identity is not guaranteed (I-105 allows implementation-defined Store/Deflate choice). Identical content means identical archive entry paths (forward-slash-normalised) and byte contents; filesystem timestamps, permissions, and host metadata are excluded and MUST NOT influence archive output.",
+    "applies_to": "ext:repository archive producers"
+  },
+  "instanceId": "296c61be-9c7d-4f5d-88b2-e5c827595aaf",
+  "tags": [
+    "construct:archive"
+  ],
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-17T01:41:59.663137478+00:00"
+}

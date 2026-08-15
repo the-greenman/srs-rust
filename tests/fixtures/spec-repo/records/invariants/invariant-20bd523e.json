@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-23T20:47:07.148704487+00:00",
+  "fieldValues": {
+    "invariant_number": "I-126",
+    "title": "ordering.memberOrder application algorithm",
+    "normative_statement": "When `DocumentSection.ordering.memberOrder` is present and the section's `source.type` is `container-subset`, implementations MUST apply it as the presentation sequence: (1) emit listed `instanceId`s that are current container members in the declared order; (2) skip listed `instanceId`s that are no longer container members — implementations MUST emit a diagnostic; this MUST NOT be treated as a validation failure; (3) append surviving container members not in `memberOrder`, ordered by topological sort over `precedes` edges with a `createdAt`-ascending tiebreak (the default container-subset ordering `ext:views-l2` already specifies); (4) when `ordering.direction` is `\"desc\"`, the entire output sequence produced by steps (1)–(3) MUST be reversed before emission. `memberOrder` MUST NOT be combined with `ordering.fieldId` on the same section — a section carrying both is invalid; implementations MUST report a validation error. `memberOrder` on a non-`container-subset` section MUST be ignored with a diagnostic and SHOULD be rejected at package-validation time. (RFC-015 Change B.)",
+    "applies_to": "ext:views-l2",
+    "rationale": "A departed `memberOrder` entry (step 2) is a diagnostic, not an error, because stale UUID references accumulate naturally as records are removed from containers — treating them as errors would make `memberOrder` fragile in practice. `memberOrder` on a non-`container-subset` section, by contrast, is a schema-authoring mistake with no legitimate interpretation, warranting rejection rather than silent recovery."
+  },
+  "instanceId": "20bd523e-fe89-4e1b-b7a0-e499cbc96820",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-23T20:47:07.148713910+00:00"
+}

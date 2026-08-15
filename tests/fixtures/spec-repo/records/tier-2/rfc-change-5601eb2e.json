@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-04T11:23:08.503638037+00:00",
+  "fieldValues": {
+    "title": "RFC-028 Change A: Add srs lifecycle update <lifecycleId> command",
+    "affected_components": "ext:lifecycle (CLI contract)",
+    "proposed_change": "Add an update subcommand to srs lifecycle. Synopsis: srs lifecycle update [OPTIONS] <lifecycleId>. Reads bare Lifecycle JSON from stdin (same schema as lifecycle create). The id field in stdin MUST match the positional argument. Validates schema (R2), RFC-006 VocabularyEntry substrate fields on each LifecycleState (R2a), and all RFC-006 V9 lifecycle invariants (R5): exactly-one isInitial, initial state must be active, transitions reference valid state keys, isFinal states have no outgoing transitions, transition ids unique. Full-replace write semantics (R7). Returns the stored Lifecycle JSON wrapped in the standard ok/payload envelope. Payload key: lifecycle.",
+    "rationale": "Full-replace matches srs type update and srs protocol update. Bare-JSON-only input matches srs lifecycle create and srs vocabulary create (srs protocol update wrapper acceptance is a pipeline-specific exception). Caller-owned version avoids auto-increment divergence across multi-repo lifecycle definitions. The id-must-match-argument check prevents silent overwrites from pasting the wrong lifecycle JSON."
+  },
+  "instanceId": "5601eb2e-9744-4883-8a66-8beec5e2ff21",
+  "tags": [
+    "topic:cli",
+    "construct:lifecycle"
+  ],
+  "typeId": "6a000002-0000-4000-a000-000000000002",
+  "typeName": "rfc-change",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-23T22:47:14.219533255+00:00"
+}

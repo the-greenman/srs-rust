@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-08-09T14:30:00Z",
+  "fieldValues": {
+    "invariant_number": "I-129",
+    "title": "Record fieldValues is a name-keyed object",
+    "normative_statement": "A Tier-2 `Record`'s `fieldValues` MUST be a JSON object. Each key MUST equal the `Field.name` of a Field in the effective field set of the Record's `typeId`@`typeVersion`. Unknown keys MUST be rejected; the projected schema asserts `additionalProperties: false`. (RFC-039 [R1])"
+  },
+  "instanceId": "f448175b-f3eb-486e-bbee-8ec4da0cb6a9",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant"
+}

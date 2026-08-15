@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 14,
+    "invariant_number": "14",
     "title": "View must not override, redefine, or duplicate the semantic content…",
     "normative_statement": "A `View` must not override, redefine, or duplicate the semantic content of any `Field` or `Type` it references. View-level `aiGuidance` is workflow framing; it does not redefine Field extraction semantics.",
     "applies_to": "ext:views-l1"

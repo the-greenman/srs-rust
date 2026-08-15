@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 7,
+    "invariant_number": "7",
     "title": "Every fieldId referenced in any FieldAssignment within a…",
     "normative_statement": "Every `fieldId` referenced in any `FieldAssignment` within a `Package.types[]` must appear as the `id` of an entry in `Package.dependencyRefs`.",
     "applies_to": "core — Package"

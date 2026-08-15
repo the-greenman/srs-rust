@@ -3,8 +3,8 @@
   "id": "6a000004-0000-4000-a000-000000000004",
   "namespace": "com.semanticops.spec",
   "name": "rfc-decision",
-  "version": 1,
-  "description": "A lifecycle decision for an RFC, such as acceptance, rejection, withdrawal, or supersession.",
+  "version": 2,
+  "description": "A structured decision made through the RFC process, including lifecycle dispositions, constitutional choices, and consequential applications. RFC and canonical specification artifacts remain normative; this record preserves the decision's rationale and evidence.",
   "fields": [
     {
       "fieldId": "1a000001-0000-4000-a000-000000000001",
@@ -35,6 +35,54 @@
       "order": 4,
       "required": false,
       "displayLabel": "Decision Rationale"
+    },
+    {
+      "fieldId": "5a000019-0000-4000-a000-000000000019",
+      "order": 5,
+      "required": false,
+      "displayLabel": "Decision"
+    },
+    {
+      "fieldId": "5a000020-0000-4000-a000-000000000020",
+      "order": 6,
+      "required": false,
+      "displayLabel": "Scope"
+    },
+    {
+      "fieldId": "5a000021-0000-4000-a000-000000000021",
+      "order": 7,
+      "required": false,
+      "displayLabel": "Governing Values"
+    },
+    {
+      "fieldId": "5a000022-0000-4000-a000-000000000022",
+      "order": 8,
+      "required": false,
+      "displayLabel": "Project Phase"
+    },
+    {
+      "fieldId": "5a000023-0000-4000-a000-000000000023",
+      "order": 9,
+      "required": false,
+      "displayLabel": "Alternatives Considered"
+    },
+    {
+      "fieldId": "5a000024-0000-4000-a000-000000000024",
+      "order": 10,
+      "required": false,
+      "displayLabel": "Accepted Costs"
+    },
+    {
+      "fieldId": "5a000025-0000-4000-a000-000000000025",
+      "order": 11,
+      "required": false,
+      "displayLabel": "Evidence"
+    },
+    {
+      "fieldId": "5a000026-0000-4000-a000-000000000026",
+      "order": 12,
+      "required": false,
+      "displayLabel": "Review Trigger"
     }
   ],
   "createdAt": "2026-05-27T00:00:00Z"

@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 16,
+    "invariant_number": "16",
     "title": "In a Relation, sourceInstanceId is the asserting instance and…",
     "normative_statement": "In a `Relation`, `sourceInstanceId` is the asserting instance and `targetInstanceId` is the related instance. The Relation reads: \"source [relationType] target.\" This convention must not be reversed.",
     "applies_to": "core — Relation"

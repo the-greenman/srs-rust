@@ -1,0 +1,34 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-08-02T13:59:15.785987797+00:00",
+  "fieldValues": {
+    "title": "Use authored Field names as Record value keys",
+    "rfc_status": "accepted",
+    "decision_date": "2026-07-31",
+    "decision_rationale": "Record instances and projected schemas need one legible value shape. Version-pinned Types make authored Field names stable enough to key values, avoiding a permanent UUID-key bridge or a target-specific name transform.",
+    "decision_statement": "The revision-2 Record carrier will store fieldValues as an object keyed verbatim by Field.name, with field identity recovered through the Record's version-pinned Type rather than repeated as a fieldId in each value.",
+    "decision_scope": "Revision-2 Record value carrier",
+    "governing_values": [
+      "practical-expression",
+      "evidence-led-evolution",
+      "shared-coherence"
+    ],
+    "project_phase": "formation",
+    "alternatives_considered": "- Keep the UUID-keyed FieldValue array.\n- Key the object by field UUID.\n- Transform authored names to lowerCamelCase.\n- Add a separate fieldId map to each Type.",
+    "accepted_costs": "Readable keys become load-bearing within a pinned Type version; stored write order and per-entry UUID redundancy disappear, and the ecosystem requires an atomic migration.",
+    "evidence_refs": [
+      "https://github.com/the-greenman/srs/blob/e0fb4b050447febcd5ecb8f6ccb7864196e656d6/rfcs/rfc-039-record-field-value-carrier.md#change-a--fieldvalues-becomes-an-object-keyed-by-fieldname",
+      "https://github.com/the-greenman/srs/pull/306"
+    ],
+    "review_trigger": "Review when Field-name mutation, Type-version pinning, or a new carrier format would make verbatim authored keys ambiguous or unsafe."
+  },
+  "instanceId": "7d3dda60-baf8-4204-a7c1-cb7287ca98ca",
+  "tags": [
+    "topic:rfc"
+  ],
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeName": "rfc-decision",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 2,
+  "updatedAt": "2026-08-02T13:59:15.785992331+00:00"
+}

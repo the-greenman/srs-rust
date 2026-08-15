@@ -3,7 +3,7 @@
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
     "title": "Distribution — Blueprint (ext:blueprint)",
-    "content": "**36.** Every `TypeRef.typeId` referenced in any `Blueprint.rootTypes[]`, `Blueprint.requiredTypes[]`, or in any `RelationSpec.sourceType` or `RelationSpec.targetType` within `Blueprint.structure[]`, for each Blueprint in `Package.blueprints[]`, must appear in `Package.dependencyRefs` with `definitionType: \"type\"`. If `mode === \"bundled\"`, each such Type must be present in `Package.types[]`."
+    "content": ""
   },
   "instanceId": "1623bc16-c479-5fd0-8014-36a81c692690",
   "sourceRefs": [

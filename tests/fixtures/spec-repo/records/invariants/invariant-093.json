@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-09T12:33:50.521016438+00:00",
+  "fieldValues": {
+    "invariant_number": "I-93",
+    "title": "mutual-exclusion rule MUST report error if more than one listed field is non-empty",
+    "normative_statement": "A `CrossFieldRule` with `type: \"mutual-exclusion\"` MUST report a validation error if more than one field in `fieldIds` is non-empty in the Record. If zero or one field is non-empty, the rule passes. (RFC-019 R5.)",
+    "applies_to": "ext:cross-field-validation"
+  },
+  "instanceId": "deedaca2-4e41-44b4-be6e-2c9b76702f44",
+  "tags": [
+    "concern:validation",
+    "topic:conformance"
+  ],
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T15:00:00Z"
+}

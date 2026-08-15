@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-09T12:33:34.296761210+00:00",
+  "fieldValues": {
+    "invariant_number": "I-91",
+    "title": "conditional-required rule fires on string equality; target field MUST be non-empty when rule fires",
+    "normative_statement": "A `CrossFieldRule` with `type: \"conditional-required\"` fires when the field identified by `predicateFieldId` is non-empty and its stored value is equal to `predicateValue` (case-sensitive string equality). When the rule fires, the field identified by `targetFieldId` MUST be non-empty in the Record. A violation MUST be reported as a validation error. (RFC-019 R3.)",
+    "applies_to": "ext:cross-field-validation"
+  },
+  "instanceId": "3c4b5e9c-98f8-4e0b-8808-2e8a15ad9628",
+  "tags": [
+    "concern:validation",
+    "topic:conformance"
+  ],
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T15:00:00Z"
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Inclusive numeric upper bound (datatype == number/integer)."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Inclusive numeric upper bound (datatype == number/integer).",
+  "id": "4b000020-0000-4000-a000-000000000020",
+  "name": "maximum",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "number"
+  },
+  "version": 1
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-17T01:41:43.789463341+00:00",
+  "fieldValues": {
+    "invariant_number": "I-103",
+    "title": "no-base-package: repository must load without com.semanticops.base",
+    "normative_statement": "A conformant implementation MUST NOT refuse to load, validate, or export a repository solely because the `com.semanticops.base` package is absent or because no `attachment_policy` record is present.",
+    "applies_to": "All implementations; ext:repository conformance"
+  },
+  "instanceId": "6341bcaa-c496-46cd-b1cd-6b6bcbb5223c",
+  "tags": [
+    "construct:attachment",
+    "construct:package"
+  ],
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-17T01:41:43.789474646+00:00"
+}

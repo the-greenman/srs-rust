@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 56,
+    "invariant_number": "56",
     "title": "Relation.sourceRepositoryId, when present, must not equal the…",
     "normative_statement": "`Relation.sourceRepositoryId`, when present, must not equal the enclosing repository's own `repositoryId`. The absent-means-local convention handles intra-repository source references; using `sourceRepositoryId` to refer to the current repository is not conformant.",
     "applies_to": "ext:federation"

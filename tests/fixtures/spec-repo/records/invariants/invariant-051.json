@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 51,
+    "invariant_number": "51",
     "title": "archive that includes a Relation containing a SourceReference with…",
     "normative_statement": "An archive that includes a `Relation` containing a `SourceReference` with `sourceType: \"repository-document\"` must include that document's sidecar and content file, just as if the reference appeared within an instance. A conforming archiver must scan Relations for `repository-document` references and collect the corresponding source material. An archive missing such material is malformed.",
     "applies_to": "ext:repository"

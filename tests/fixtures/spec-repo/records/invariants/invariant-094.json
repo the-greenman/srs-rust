@@ -1,0 +1,21 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-09T12:34:00.282167842+00:00",
+  "fieldValues": {
+    "invariant_number": "I-94",
+    "title": "conditional-required predicateFieldId MUST resolve to an effective-single string/date/date-time Field",
+    "normative_statement": "A `CrossFieldRule` with `type: \"conditional-required\"` MUST supply `predicateFieldId`, `predicateValue`, and `targetFieldId`. The field identified by `predicateFieldId` MUST be effective-single (`fieldType.cardinality` absent/`\"single\"` and, until #242 Phase B, effective `FieldAssignment.repeatable !== true`) and its `fieldType.datatype` MUST be one of `{\"string\", \"date\", \"date-time\"}`. String `format` and `valueDomain` do not restrict eligibility. A rule that omits a required property, selects a list/repeatable field, or resolves to any other datatype MUST be reported as a Type-level validation error. Admission of `date-time` is intentional; the scalar requirement intentionally closes the legacy repeatable-date equality hole. (RFC-019 R6; RFC-032 Rev-7 erratum; normative extension of I-11.)",
+    "applies_to": "ext:cross-field-validation"
+  },
+  "instanceId": "b2ed8b1d-90b3-4107-bf08-8b3c05cc6fb6",
+  "tags": [
+    "concern:validation",
+    "topic:conformance",
+    "construct:field"
+  ],
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T15:00:00Z"
+}

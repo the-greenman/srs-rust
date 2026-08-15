@@ -1,0 +1,16 @@
+{
+  "createdAt": "2026-06-25T08:07:58.576113152+00:00",
+  "fieldValues": {
+    "invariant_number": "011-3",
+    "title": "containerScope in SectionSource.type-query controls query boundary",
+    "normative_statement": "When SectionSource.type-query carries containerScope, implementations MUST apply the following scoping rules: (a) When containerScope is absent or \"explicit\", the query is scoped to the containers listed in containerIds[] — existing behaviour. An absent containerIds[] with explicit scope produces an empty result. (b) When containerScope is \"repository\", the query spans all containers in the repository; containerIds[] MUST be ignored. (c) When containerScope is \"subtree\", the query spans the context container and all containers reachable by contains relations from each container in containerIds[]; when containerIds[] is absent or empty, the context container is used as the subtree root. An implementation that cannot determine the context container for a subtree query MUST treat it as \"explicit\" with an empty containerIds[] and SHOULD emit a diagnostic. Implementations MUST NOT produce a validation error when containerScope is absent; absent is equivalent to \"explicit\".",
+    "applies_to": "ext:views-l2",
+    "rationale": "Three-value enum rather than a boolean because the subtree case has meaningfully different semantics from both explicit and repository. Backward compatibility is preserved by treating absent as explicit."
+  },
+  "instanceId": "187b18d0-89ab-4591-a61f-273821f2412b",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-25T08:07:58.576118141+00:00"
+}

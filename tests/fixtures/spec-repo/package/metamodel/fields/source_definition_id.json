@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "UUID of the definition this one was derived from."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "UUID of the definition this one was derived from.",
+  "id": "4b000029-0000-4000-a000-000000000029",
+  "name": "source_definition_id",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string",
+    "format": "uuid"
+  },
+  "version": 1
+}

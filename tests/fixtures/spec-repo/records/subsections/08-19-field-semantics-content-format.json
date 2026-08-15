@@ -3,7 +3,7 @@
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
     "title": "Field semantics — content format",
-    "content": "**38.** `Field.contentFormat`, when present, is only meaningful when `valueType` is `\"string\"` or `\"text\"`. Implementations must ignore `contentFormat` on fields with any other `valueType`."
+    "content": ""
   },
   "instanceId": "31bc8a13-bcef-5c71-826d-2fd5528ce021",
   "sourceRefs": [

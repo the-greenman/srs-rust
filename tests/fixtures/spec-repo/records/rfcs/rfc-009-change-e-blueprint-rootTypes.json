@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-06-24T16:05:55.734592133+00:00",
+  "fieldValues": {
+    "title": "RFC-009 Change E: Define Blueprint.rootTypes as ExactTypeRef[]",
+    "affected_components": "ext:blueprint (Blueprint), blueprint.json (new)",
+    "proposed_change": "Blueprint.rootTypes is formally defined as ExactTypeRef[] (both typeId and typeVersion required, per I-78). Completes the fully UUID-anchored chain: Blueprint.rootTypes -> DocumentView.rootTypeRefs -> Container.rootInstanceIds. Typed discovery: a DocumentView is a candidate for a Container when any rootTypeRefs entry matches any Blueprint.rootTypes entry. When match produces no candidates, fall back to DocumentViews with no rootTypeRefs. This is a structural compatibility check, not a provenance assertion. Introduces blueprint.json schema.",
+    "rationale": "ExactTypeRef (required typeVersion) is consistent with the version-exact semantics required by DocumentView.rootTypeRefs and the version-exact Record type binding. Using optional TypeRef would make the Blueprint/DocumentView comparison ambiguous. Pre-RFC-009 Blueprints with optional typeVersion must migrate (SHOULD diagnostic + unresolvable entry rather than hard reject)."
+  },
+  "instanceId": "bfc32106-910e-4aa4-8cf0-a9e437c93dd9",
+  "typeId": "6a000002-0000-4000-a000-000000000002",
+  "typeName": "rfc-change",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-24T16:05:55.734594176+00:00"
+}

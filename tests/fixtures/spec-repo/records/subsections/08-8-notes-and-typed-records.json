@@ -3,7 +3,7 @@
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
     "title": "Notes and Typed Records",
-    "content": "**18.** `NoteSection.name` values must be unique within a `Note`.\n\n**18a.** `Note.tags` values, when present, must be non-empty strings. Duplicate tag values within a single Note are permitted but have no additional meaning.\n\n**19.** `TypedField.name` values must be unique within a `Typed Record`."
+    "content": ""
   },
   "instanceId": "250ab2e5-095f-5448-99ab-4e419f27d844",
   "sourceRefs": [

@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 15,
+    "invariant_number": "15",
     "title": "Every typeId referenced by any View in Package.views[] must appear in…",
     "normative_statement": "Every `typeId` referenced by any `View` in `Package.views[]` must appear in `Package.dependencyRefs` with `definitionType: \"type\"`. If `mode === \"bundled\"`, that `Type` must be present in `types[]`.",
     "applies_to": "ext:views-l1 — Distribution"

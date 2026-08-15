@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 10,
+    "invariant_number": "10",
     "title": "All fieldId values in any CrossFieldRule within…",
     "normative_statement": "All `fieldId` values in any `CrossFieldRule` within `Type.validationRules[]` must appear in the Type's effective field list. Cross-field rules cannot reference Fields outside the Type.",
     "applies_to": "ext:cross-field-validation"

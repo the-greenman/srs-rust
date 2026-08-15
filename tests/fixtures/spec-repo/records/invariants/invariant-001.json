@@ -2,9 +2,9 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 1,
+    "invariant_number": "1",
     "title": "FieldAssignment.displayLabel and FieldAssignment.displayHint are for…",
-    "normative_statement": "`FieldAssignment.displayLabel` and `FieldAssignment.displayHint` are for rendering only. They must not affect AI guidance, extraction logic, `valueType` interpretation, or validation.",
+    "normative_statement": "`FieldAssignment.displayLabel` and `FieldAssignment.displayHint` are for rendering only. They must not affect AI guidance, extraction logic, `fieldType` interpretation, or validation. Extended by RFC-036 [CR-036-20]: they must also not affect a Record's Relations or its Discovery Text Projection (`ext:discovery`). Two repositories differing only in these values must produce identical validation results and identical Discovery output.",
     "applies_to": "core — Field"
   },
   "instanceId": "e1000001-0000-4000-a000-000000000001",

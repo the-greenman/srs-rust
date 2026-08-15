@@ -1,0 +1,14 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-08-09T14:30:00Z",
+  "fieldValues": {
+    "invariant_number": "I-132",
+    "title": "Key absence is the sole representation of an unset field",
+    "normative_statement": "A `FieldAssignment` with `required: true` means its key MUST be present in `fieldValues`. Key absence is the sole representation of an unset field: a value of `null` MUST be rejected — writers MUST omit the key instead. Structural presence and rendering presence (RFC-001 Step 2, where an empty string resolves as absent) remain distinct and MUST NOT be conflated. (RFC-039 [R5]/[R5a])"
+  },
+  "instanceId": "bbed89d6-f406-4d57-915c-37e57e879371",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant"
+}

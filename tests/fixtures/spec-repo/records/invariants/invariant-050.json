@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 50,
+    "invariant_number": "50",
     "title": "When PackageRef.mode === \"local\", the package at the declared path…",
     "normative_statement": "When `PackageRef.mode === \"local\"`, the package at the declared path must be `mode: \"bundled\"` and must include all Fields and Types referenced by any Tier 2 `Record` in the repository's instance index. This is the repository analogue of Package Invariants 7–8.",
     "applies_to": "ext:repository"
