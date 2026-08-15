@@ -128,34 +128,72 @@ pub fn repository_navigation(
         ids.extend(root_container.root_instance_ids.unwrap_or_default());
         ids.into_iter().collect()
     };
-    let mut section_records = Vec::new();
+    // Sections are resolved tier-aware (srs-rust#842). RFC-013 puts no tier
+    // constraint on the non-identity members that are the navigation sections,
+    // and RFC-029 Change B explicitly permits `repo create` to scaffold a Tier-0
+    // root note as one. Reading every member through the Tier-2-only
+    // `get_record_by_id` made a legitimate Tier-0 or Tier-1 member throw a
+    // `missing field typeId` parse error that took down the *whole* navigation
+    // payload — of a repository `repo validate` reports as healthy.
+    let instances = store.catalog()?.instances;
+    let section_containers = section_containers_by_root(store)?;
+    let mut section_members = Vec::new();
     for id in &member_ids {
         // With no identity, nothing is excluded — every root stays in `sections`.
         if identity_id.as_deref() == Some(id.as_str()) {
             continue;
         }
-        match record_store::get_record_by_id(store, id)? {
-            Some(record) => section_records.push(record),
-            None => diagnostics.push(format!(
+        let Some(entry) = instances.iter().find(|e| &e.id == id) else {
+            diagnostics.push(format!(
                 "repository-navigation: root container member {id} does not resolve"
-            )),
-        }
+            ));
+            continue;
+        };
+        let section_container_id = section_containers.get(id).cloned();
+        section_members.push(if entry.tier == Some(2) {
+            let record = record_store::get_record_by_id(store, id)?.ok_or_else(|| {
+                RepositoryError::NotFound {
+                    path: PathBuf::from(format!("instance/{id}")),
+                }
+            })?;
+            SectionMember {
+                created_at: record.created_at.clone(),
+                node: node_for_record(
+                    &record,
+                    &identity_field_index,
+                    &field_name_index,
+                    section_container_id,
+                ),
+            }
+        } else {
+            // A Tier-0/Tier-1 member has no type binding and no identity field,
+            // so the catalog-derived title is the only label there is — the same
+            // projection the identity slot above uses. The type keys stay at
+            // their defaults rather than being invented (ADR-044), matching the
+            // shape that slot already emits for a Tier-0 identity.
+            //
+            // No `created_at`: the projection does not carry one. That only
+            // affects the fallback tiebreak for a member no `precedes` edge
+            // reaches — `precedes` is the ordering mechanism (Rule [N+12]) — and
+            // the instance_id component keeps the tiebreak a total order.
+            let title = crate::store::catalog_instance_ref(store, entry)?.title;
+            SectionMember {
+                created_at: None,
+                node: NavigationNode {
+                    instance_id: id.clone(),
+                    display_label: title.unwrap_or_else(|| id.clone()),
+                    section_container_id,
+                    ..Default::default()
+                },
+            }
+        });
     }
 
     let relations = relation_service::load_relations(store)?;
-    let ordered_records = relation_graph::sort_by_precedes_chain(section_records, &relations);
-    let section_containers = section_containers_by_root(store)?;
-
-    let mut sections = Vec::new();
-    for record in ordered_records {
-        let section_container_id = section_containers.get(&record.instance_id).cloned();
-        sections.push(node_for_record(
-            &record,
-            &identity_field_index,
-            &field_name_index,
-            section_container_id,
-        ));
-    }
+    let sections = relation_graph::sort_by_precedes_chain(section_members, &relations)
+        .into_iter()
+        .map(|m| m.node)
+        .collect();
 
     Ok(RepositoryNavigation {
         root_container_id: container_ref.container_id.clone(),
@@ -163,6 +201,23 @@ pub fn repository_navigation(
         sections,
         diagnostics,
     })
+}
+
+/// A resolved section node awaiting `precedes` ordering. Carries `created_at`
+/// separately because a section member need not be a Record (srs-rust#842).
+#[derive(Clone)]
+struct SectionMember {
+    node: NavigationNode,
+    created_at: Option<String>,
+}
+
+impl relation_graph::PrecedesSortable for SectionMember {
+    fn precedes_instance_id(&self) -> &str {
+        &self.node.instance_id
+    }
+    fn precedes_created_at(&self) -> Option<&str> {
+        self.created_at.as_deref()
+    }
 }
 
 fn node_for_record(

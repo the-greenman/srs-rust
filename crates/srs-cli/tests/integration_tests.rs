@@ -277,6 +277,106 @@ fn repo_navigation_returns_identity_and_ordered_sections() {
     );
 }
 
+/// srs-rust#842, the issue's own reproduction: a Tier-0 note that is an ordinary
+/// member of the root container took down the *entire* navigation payload, on a
+/// repository `repo validate` reports as valid. RFC-013 puts no tier constraint
+/// on section members and RFC-029 Change B explicitly permits a Tier-0 note
+/// there, so all three tiers must navigate.
+#[test]
+fn repo_navigation_resolves_section_members_of_every_tier() {
+    let temp = TempDir::new().expect("temp dir");
+    let repo = temp.path().join("r842");
+    let repo_str = repo.to_str().unwrap().to_string();
+    run_srs_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            &repo_str,
+            "repo",
+            "create",
+            "--namespace",
+            "com.example.s842",
+            "--package-name",
+            "p",
+            "--package-version",
+            "1.0.0",
+            "--srs-version",
+            "2.0-draft",
+        ],
+    );
+
+    let manifest: Value =
+        serde_json::from_slice(&std::fs::read(repo.join("manifest.json")).unwrap()).unwrap();
+    let root = manifest["container"]["containerId"].as_str().unwrap();
+    // `repo create` scaffolds the Tier-2 purpose record as the identity; every
+    // other member is a section.
+    let identity = manifest["container"]["identityInstanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Tier 0 — through the ordinary CLI path, exactly as the issue reports it.
+    let note = run_srs_stdin_in_dir(
+        &repo,
+        &["note", "create"],
+        r#"{"title":"Charter","sections":[{"name":"intro","content":"text"}]}"#,
+    )["payload"]["note"]["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Tier 1 — no CLI writer produces one, but the catalog admits the shape, so
+    // a hand-authored TypedRecord is a reachable section member.
+    let typed = "aaaaaaaa-1111-4111-8111-111111111111";
+    write_json(
+        &repo.join("records/tier-1/typed-one.json"),
+        serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/typed-record.json",
+            "instanceId": typed,
+            "title": "Typed One",
+            "fields": [{
+                "name": "note",
+                "fieldType": {"datatype": "string", "cardinality": "single"},
+                "value": "hi"
+            }],
+        }),
+    );
+
+    for id in [note.as_str(), typed] {
+        let added = run_srs_in_dir(
+            &repo,
+            &["--repo", &repo_str, "container", "members", "add", root, id],
+        );
+        assert_eq!(added["ok"], true, "adding {id} must succeed");
+    }
+
+    let nav = run_srs_in_dir(&repo, &["--repo", &repo_str, "repo", "navigation"]);
+    assert_eq!(nav["ok"], true, "navigation must not fail: {nav}");
+    let sections = nav["payload"]["navigation"]["sections"]
+        .as_array()
+        .expect("sections array");
+    let mut labels: Vec<&str> = sections
+        .iter()
+        .map(|s| s["displayLabel"].as_str().unwrap())
+        .collect();
+    labels.sort_unstable();
+    assert_eq!(
+        labels,
+        vec!["Charter", "Typed One"],
+        "the Tier-0 and Tier-1 members must both appear as sections: {nav}"
+    );
+    // Tier 2 is the identity here, so its resolution is proven by the identity node.
+    assert_eq!(
+        nav["payload"]["navigation"]["identity"]["instanceId"].as_str(),
+        Some(identity.as_str())
+    );
+    assert_eq!(
+        nav["payload"]["navigation"]["diagnostics"],
+        serde_json::json!([]),
+        "a legitimate Tier-0/Tier-1 section member is not a defect to report: {nav}"
+    );
+}
+
 fn run_srs_stdin_in_dir(dir: &std::path::Path, args: &[&str], stdin: &str) -> Value {
     let exe = env!("CARGO_BIN_EXE_srs");
     let mut child = Command::new(exe)
