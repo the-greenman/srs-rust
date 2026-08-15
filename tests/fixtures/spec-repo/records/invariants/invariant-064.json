@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-06-24T16:06:22.927306133+00:00",
+  "fieldValues": {
+    "invariant_number": "I-64",
+    "title": "containerType should equal resolved root Type name when rootInstanceIds is present",
+    "normative_statement": "When a Container has one or more rootInstanceIds and also carries containerType, implementations SHOULD emit a diagnostic if containerType does not equal the resolved root Type name field (the local name within its namespace, not namespace/name). The root Record Type is authoritative; a mismatch does NOT make the Container invalid. Containers with no rootInstanceIds may carry any containerType value without triggering this rule.",
+    "applies_to": "Container (core)"
+  },
+  "instanceId": "ba699995-0306-4dcb-be1e-27f20eedcf1d",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-24T16:06:22.927309278+00:00"
+}

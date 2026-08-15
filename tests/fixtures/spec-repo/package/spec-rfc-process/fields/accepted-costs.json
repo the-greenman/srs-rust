@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5a000024-0000-4000-a000-000000000024",
+  "namespace": "com.semanticops.spec",
+  "name": "accepted_costs",
+  "version": 1,
+  "description": "The disadvantages, risks, migration burden, or foreclosed options deliberately accepted by the decision.",
+  "aiGuidance": {
+    "purpose": "Records the price deliberately paid to protect the selected value.",
+    "extraction": "State evidenced costs and risks accepted by the decision maker, not speculative disadvantages invented after the fact."
+  },
+  "fieldType": {
+    "datatype": "string",
+    "format": "markdown"
+  },
+  "createdAt": "2026-08-02T00:00:00Z"
+}

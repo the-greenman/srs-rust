@@ -1,0 +1,35 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "Carries purpose, extraction/negative guidance, and worked examples."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "LLM guidance for extracting or populating a Field or matching a Type.",
+  "fields": [
+    {
+      "fieldId": "4b000023-0000-4000-a000-000000000023",
+      "order": 0,
+      "required": true
+    },
+    {
+      "fieldId": "4b000024-0000-4000-a000-000000000024",
+      "order": 1,
+      "required": false
+    },
+    {
+      "fieldId": "4b000025-0000-4000-a000-000000000025",
+      "order": 2,
+      "required": false,
+      "displayLabel": "Negative Guidance"
+    },
+    {
+      "fieldId": "4b000026-0000-4000-a000-000000000026",
+      "order": 3,
+      "required": false
+    }
+  ],
+  "id": "4c000007-0000-4000-a000-000000000007",
+  "name": "ai-guidance",
+  "namespace": "com.semanticops.srs",
+  "version": 1
+}

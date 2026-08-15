@@ -1,0 +1,87 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "Describes a Field's value model, including composite ranges (datatype: ref -> another Type)."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "The decomposed value type (RFC-032): datatype x cardinality x value-domain x format x constraints. The recursive heart of the meta-model.",
+  "fields": [
+    {
+      "fieldId": "4b00000f-0000-4000-a000-00000000000f",
+      "order": 0,
+      "required": true
+    },
+    {
+      "fieldId": "4b000010-0000-4000-a000-000000000010",
+      "order": 1,
+      "required": false
+    },
+    {
+      "fieldId": "4b000011-0000-4000-a000-000000000011",
+      "order": 2,
+      "required": false,
+      "displayLabel": "Min Items"
+    },
+    {
+      "fieldId": "4b000012-0000-4000-a000-000000000012",
+      "order": 3,
+      "required": false,
+      "displayLabel": "Max Items"
+    },
+    {
+      "fieldId": "4b000013-0000-4000-a000-000000000013",
+      "order": 4,
+      "required": false,
+      "displayLabel": "Value Domain"
+    },
+    {
+      "fieldId": "4b000014-0000-4000-a000-000000000014",
+      "order": 5,
+      "required": false,
+      "displayLabel": "Allowed Values"
+    },
+    {
+      "fieldId": "4b000015-0000-4000-a000-000000000015",
+      "order": 6,
+      "required": false,
+      "displayLabel": "Vocabulary Ref"
+    },
+    {
+      "fieldId": "4b000016-0000-4000-a000-000000000016",
+      "order": 7,
+      "required": false
+    },
+    {
+      "fieldId": "4b000017-0000-4000-a000-000000000017",
+      "order": 8,
+      "required": false
+    },
+    {
+      "fieldId": "4b000018-0000-4000-a000-000000000018",
+      "order": 9,
+      "required": false,
+      "displayLabel": "Range Type"
+    },
+    {
+      "fieldId": "4b000019-0000-4000-a000-000000000019",
+      "order": 10,
+      "required": false
+    },
+    {
+      "fieldId": "4b00001a-0000-4000-a000-00000000001a",
+      "order": 11,
+      "required": false,
+      "displayLabel": "Depends On"
+    },
+    {
+      "fieldId": "4b00001b-0000-4000-a000-00000000001b",
+      "order": 12,
+      "required": false,
+      "displayLabel": "Value Range"
+    }
+  ],
+  "id": "4c000004-0000-4000-a000-000000000004",
+  "name": "field-type",
+  "namespace": "com.semanticops.srs",
+  "version": 1
+}

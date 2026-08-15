@@ -36,15 +36,6 @@
     "fields/tag-description.json",
     "fields/tag-roles.json",
     "fields/tag-aliases.json",
-    "fields/protocol-id.json",
-    "fields/protocol-namespace.json",
-    "fields/protocol-name.json",
-    "fields/protocol-version.json",
-    "fields/protocol-description.json",
-    "fields/protocol-target-type.json",
-    "fields/protocol-stages.json",
-    "fields/protocol-tags.json",
-    "fields/protocol-created-at.json",
     "fields/term-key.json",
     "fields/term-aliases.json",
     "fields/term-roles.json",
@@ -64,22 +55,11 @@
   "name": "srs-specification-package",
   "namespace": "com.semanticops.srs",
   "relationTypes": [
-    "relation-types/contains.json",
-    "relation-types/depends-on.json",
-    "relation-types/supersedes.json",
-    "relation-types/refines.json",
-    "relation-types/derived-from.json",
-    "relation-types/evidences.json",
-    "relation-types/precedes.json",
     "spec-authoring-core/relation-types/section-sequence.json",
     "spec-authoring-core/relation-types/subsection-sequence.json",
     "spec-authoring-core/relation-types/design-note-sequence.json",
     "spec-authoring-core/relation-types/extension-dependency.json",
-    "spec-authoring-core/relation-types/explains.json",
-    "spec-rfc-process/relation-types/rfc-change-sequence.json",
-    "spec-rfc-process/relation-types/rfc-revision-sequence.json",
-    "spec-rfc-process/relation-types/rfc-proposed-artifact-sequence.json",
-    "spec-rfc-process/relation-types/rfc-targets-section.json"
+    "spec-authoring-core/relation-types/explains.json"
   ],
   "status": "active",
   "title": "SRS Specification Package",
@@ -94,8 +74,6 @@
     "types/meta.rfc.json",
     "types/meta.section.json",
     "types/meta.subsection.json",
-    "types/tag-definition.json",
-    "types/meta.protocol.json",
     "types/meta.term.json",
     "types/meta.vocabulary.json",
     "types/meta.lifecycle.json"
@@ -105,5 +83,6 @@
   "views": [],
   "vocabularies": [
     "vocabularies/spec-taxonomy-35ee9e9e.json"
-  ]
+  ],
+  "dataModelRevision": 2
 }

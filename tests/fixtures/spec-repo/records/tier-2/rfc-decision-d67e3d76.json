@@ -1,0 +1,34 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-08-02T13:59:15.750859981+00:00",
+  "fieldValues": {
+    "title": "Express the definition-layer metamodel in its own Field and Type language",
+    "rfc_status": "accepted",
+    "decision_date": "2026-07-29",
+    "decision_rationale": "A second schema-source vocabulary would create two authorities for the same definitions. The canonical definition layer must use the Field and Type language it defines, with generated schemas retained as runtime projections.",
+    "decision_statement": "Field, Type, FieldAssignment, and the in-scope value objects are authored as SRS definitions in the canonical com.semanticops.srs/metamodel package, replacing RFC-004's parallel schema-source vocabulary.",
+    "decision_scope": "Definition-layer metamodel",
+    "governing_values": [
+      "semantic-integrity",
+      "evidence-led-evolution",
+      "shared-coherence"
+    ],
+    "project_phase": "formation",
+    "alternatives_considered": "- Keep RFC-004 schema-definition/schema-member as a second source language.\n- Define the metamodel only through hand-authored JSON Schema.",
+    "accepted_costs": "The system must bootstrap a language expressed in itself and maintain closure evidence for a recursive package.",
+    "evidence_refs": [
+      "https://github.com/the-greenman/srs/blob/e6d94bba0a9d78d0e3be3a46d9b25a50f6b0d30f/rfcs/rfc-033-self-host-metamodel-frozen-seed.md#change-a--the-self-hosted-meta-model-package-comsemanticopssrsmetamodel",
+      "https://github.com/the-greenman/srs/tree/ae52927de4e45490cb427fee2b332d5351f536cd/srs/package/metamodel"
+    ],
+    "review_trigger": "Review when a new definition-layer concern appears to require a parallel source language rather than a sanctioned metamodel extension."
+  },
+  "instanceId": "d67e3d76-cf55-47b8-a611-fe71cad41d2d",
+  "tags": [
+    "topic:rfc"
+  ],
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeName": "rfc-decision",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 2,
+  "updatedAt": "2026-08-02T13:59:15.750863991+00:00"
+}

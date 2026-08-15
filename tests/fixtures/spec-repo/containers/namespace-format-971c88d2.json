@@ -1,0 +1,14 @@
+{
+  "containerId": "971c88d2-8135-4743-a7c9-fc30e7ecf187",
+  "containerType": "section",
+  "memberInstanceIds": [
+    "a79c0adc-c4a3-516e-8305-640045eda858",
+    "b3bc0140-505a-5ab6-bfe1-4271e3c6b42f",
+    "d13710f4-628e-50a0-9f12-f297a93dc25f",
+    "7d22d50f-2dc2-51cb-ac43-dd1b0903d869"
+  ],
+  "rootInstanceIds": [
+    "5bc9b930-462d-535d-91c5-bd9e2b17c91c"
+  ],
+  "title": "Namespace Format"
+}

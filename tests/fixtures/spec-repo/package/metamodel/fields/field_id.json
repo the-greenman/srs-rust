@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "References a Field by its stable id (reference mode closes the metacircular loop)."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "References a Field by its stable id (reference mode closes the metacircular loop).",
+  "id": "4b000033-0000-4000-a000-000000000033",
+  "name": "field_id",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "ref",
+    "mode": "reference",
+    "rangeType": {
+      "typeId": "4c000001-0000-4000-a000-000000000001",
+      "typeVersion": 1
+    }
+  },
+  "version": 1
+}

@@ -3,7 +3,7 @@
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
     "title": "Distribution — Protocol (ext:protocol)",
-    "content": "**37.** Every `TypeRef.typeId` referenced in `Protocol.targetType` or in any `ProtocolStage.outputType`, for each Protocol in `Package.protocols[]`, must appear in `Package.dependencyRefs` with `definitionType: \"type\"`. Every `FieldRef.fieldId` in any `ProtocolStage.contributesTo[]` must appear in `Package.dependencyRefs` with `definitionType: \"field\"`. If `mode === \"bundled\"`, those Types must be in `Package.types[]` and those Fields in `Package.fields[]`."
+    "content": ""
   },
   "instanceId": "f3e0eeb6-0844-5d87-ba39-222ba4454eea",
   "sourceRefs": [

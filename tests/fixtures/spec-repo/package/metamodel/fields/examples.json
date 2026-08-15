@@ -1,0 +1,21 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Worked examples for the guidance."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Worked examples for the guidance.",
+  "id": "4b000026-0000-4000-a000-000000000026",
+  "name": "examples",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "ref",
+    "mode": "inline",
+    "cardinality": "list",
+    "rangeType": {
+      "typeId": "4c000008-0000-4000-a000-000000000008",
+      "typeVersion": 1
+    }
+  },
+  "version": 1
+}

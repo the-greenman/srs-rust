@@ -1,0 +1,21 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-09T12:33:19.431457764+00:00",
+  "fieldValues": {
+    "invariant_number": "I-89",
+    "title": "ext:cross-field-validation is opt-in; implementations not declaring it MUST ignore validationRules",
+    "normative_statement": "An SRS implementation that does not declare support for `ext:cross-field-validation` MUST treat `validationRules` as an unrecognized property and MUST ignore it. Conformance rules R1–R11 bind only implementations that declare support for `ext:cross-field-validation`. (RFC-019 R0.)",
+    "applies_to": "ext:cross-field-validation"
+  },
+  "instanceId": "224c0363-fdb4-4fad-b13f-f4ed6a25c1d0",
+  "tags": [
+    "concern:validation",
+    "topic:extensions",
+    "topic:conformance"
+  ],
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T15:00:00Z"
+}

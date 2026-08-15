@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-17T01:42:24.337989539+00:00",
+  "fieldValues": {
+    "invariant_number": "I-111",
+    "title": "at most one attachment_policy record per repository",
+    "normative_statement": "At most one `attachment_policy` record of the `com.semanticops.base/repo_settings` type MAY exist per repository. A conformant implementation encountering two or more MUST surface a diagnostic and treat the policy as absent (applying the no-policy defaults: all MIME types accepted, no size limits enforced, no size-or-MIME-type-policy diagnostics emitted).",
+    "applies_to": "Validators; repositories with com.semanticops.base installed"
+  },
+  "instanceId": "e0c51df4-be21-4d76-965b-5b1df3e0954c",
+  "tags": [
+    "construct:attachment",
+    "construct:package"
+  ],
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-17T01:42:24.337999741+00:00"
+}

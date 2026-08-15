@@ -1,0 +1,33 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-08-02T13:59:15.758398341+00:00",
+  "fieldValues": {
+    "title": "Make projection loss explicit in a per-emitter fidelity contract",
+    "rfc_status": "accepted",
+    "decision_date": "2026-07-29",
+    "decision_rationale": "Target projections can be useful without being fully lossless, but no emitter may silently erase authoritative meaning. Per-emitter fidelity makes every approximation inspectable, testable, and comparable.",
+    "decision_statement": "Every metamodel feature is classified as authoritative or approximated for each emitter; authoritative meaning cannot be silently dropped and approximated meaning must emit its documented lossy shape.",
+    "decision_scope": "Metamodel projection and emitters",
+    "governing_values": [
+      "semantic-integrity",
+      "shared-coherence"
+    ],
+    "project_phase": "formation",
+    "alternatives_considered": "- Describe generation as lossless despite known semantic gaps.\n- Silently omit constructs that a target cannot represent.",
+    "accepted_costs": "Each emitter maintains an explicit feature matrix, lossy-shape contract, and tests rather than claiming simple universal equivalence.",
+    "evidence_refs": [
+      "https://github.com/the-greenman/srs/blob/e6d94bba0a9d78d0e3be3a46d9b25a50f6b0d30f/rfcs/rfc-033-self-host-metamodel-frozen-seed.md#change-d--authoritative-vs-lossy-fidelity-dashboard-per-emitter",
+      "https://github.com/the-greenman/srs/blob/ae52927de4e45490cb427fee2b332d5351f536cd/docs/schema/2.0/metamodel-fidelity.md"
+    ],
+    "review_trigger": "Review when an emitter adds a feature, changes an approximation, or cannot represent a newly authoritative metamodel construct."
+  },
+  "instanceId": "dd0a33fc-c948-4bce-a599-8c54674f244a",
+  "tags": [
+    "topic:rfc"
+  ],
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeName": "rfc-decision",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 2,
+  "updatedAt": "2026-08-02T13:59:15.758404675+00:00"
+}

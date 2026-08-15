@@ -1,0 +1,21 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Ordered list of FieldAssignments that make up this Type."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Ordered list of FieldAssignments that make up this Type.",
+  "id": "4b000032-0000-4000-a000-000000000032",
+  "name": "fields",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "ref",
+    "mode": "inline",
+    "cardinality": "list",
+    "rangeType": {
+      "typeId": "4c000003-0000-4000-a000-000000000003",
+      "typeVersion": 1
+    }
+  },
+  "version": 1
+}

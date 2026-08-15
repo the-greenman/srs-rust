@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 35,
+    "invariant_number": "35",
     "title": "Every DocumentSection.renderViewId in any DocumentView within…",
     "normative_statement": "Every `DocumentSection.renderViewId` in any `DocumentView` within `Package.documentViews[]` must reference a `View.id` that appears in `Package.views[]` or `Package.dependencyRefs`. If `mode === \"bundled\"`, that `View` must be present in `Package.views[]`.",
     "applies_to": "ext:views-l2 — Distribution"

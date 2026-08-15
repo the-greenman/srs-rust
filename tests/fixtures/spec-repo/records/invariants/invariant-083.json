@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-02T20:43:41.603412887+00:00",
+  "fieldValues": {
+    "invariant_number": "I-83",
+    "title": "Multi-version repository MUST resolve definition references against union of all installed package directories",
+    "normative_statement": "A tool MUST resolve every `typeId` and `fieldId` referenced by any Tier 2 Record against the union of all installed package version directories. This extends Invariant 50 to the multi-version case: a reference is resolved if it can be found in any installed version directory. A reference that cannot be found in any installed version directory MUST be reported as a validation error. A tool MUST NOT remove any prior-version package directory if doing so would leave any such reference unresolvable.",
+    "applies_to": "ext:import-tracking; ext:repository (packageRefs, multi-version install); RFC-014 R6. Extends Invariant 50 (single-package resolution) to the multi-version case.",
+    "rationale": "SRS records reference their type and field definitions by stable UUID. In a multi-version repository, those UUIDs may resolve to different package version directories depending on when the record was created. Requiring union resolution — rather than single-version resolution — ensures that no existing record becomes unresolvable when a new package version is installed alongside the old one. This upholds the stable-UUID guarantee: a UUID that was valid at record-creation time must remain resolvable throughout the repository's lifetime."
+  },
+  "instanceId": "7e9333f3-69cc-4e74-8eb3-1fe165f65617",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-02T20:43:41.603421295+00:00"
+}

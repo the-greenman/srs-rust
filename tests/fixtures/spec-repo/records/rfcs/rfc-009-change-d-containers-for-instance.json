@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-06-24T16:05:55.714512418+00:00",
+  "fieldValues": {
+    "title": "RFC-009 Change D: Define containers_for_instance as a normative core operation",
+    "affected_components": "Container (core)",
+    "proposed_change": "containers_for_instance(instanceId: UUID) -> Container[]: returns all Containers that include the instance via (1) rootInstanceIds membership, (2) memberInstanceIds membership, or (3) transitive contains Relation traversal from rootInstanceIds. Union of three conditions. All conforming implementations MUST provide this operation (I-66). Core operation, not extension-gated.",
+    "rationale": "The three inclusion conditions are all core Container and Relation concepts. Gating behind an extension would leave implementations without a reliable root-record to container reverse lookup. Core entities need core operations."
+  },
+  "instanceId": "c59a36db-5866-4b72-bc90-f0afa4afa1e0",
+  "typeId": "6a000002-0000-4000-a000-000000000002",
+  "typeName": "rfc-change",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-24T16:05:55.714513629+00:00"
+}

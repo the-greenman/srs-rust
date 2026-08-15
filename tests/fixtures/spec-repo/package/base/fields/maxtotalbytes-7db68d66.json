@@ -1,0 +1,14 @@
+{
+  "aiGuidance": {
+    "purpose": "An integer byte count ceiling for the aggregate size of all source documents in the repository. Leave absent for no limit."
+  },
+  "createdAt": "2026-07-23T00:00:00Z",
+  "description": "Maximum aggregate size in bytes of all source documents in the repository. When absent, no limit.",
+  "id": "7db68d66-f74c-402b-ad29-3003557c8136",
+  "name": "max_total_bytes",
+  "namespace": "com.semanticops.base",
+  "fieldType": {
+    "datatype": "number"
+  },
+  "version": 1
+}

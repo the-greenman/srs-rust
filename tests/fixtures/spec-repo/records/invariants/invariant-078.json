@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-06-24T16:06:23.016625056+00:00",
+  "fieldValues": {
+    "invariant_number": "I-78",
+    "title": "Blueprint.rootTypes entries must be ExactTypeRef (typeVersion required)",
+    "normative_statement": "Each entry in Blueprint.rootTypes MUST be an ExactTypeRef: both typeId (UUID) and typeVersion (integer >= 1) MUST be present. Implementations MUST resolve each entry against the Package (the union of all packages in scope per packageRef/packageRefs) at Blueprint load time; an entry that does not resolve MUST produce a diagnostic. An empty rootTypes array is valid and produces no diagnostics.",
+    "applies_to": "ext:blueprint (Blueprint)"
+  },
+  "instanceId": "ed28a13e-4549-470e-b539-46c6101da1c9",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-24T16:06:23.016630450+00:00"
+}

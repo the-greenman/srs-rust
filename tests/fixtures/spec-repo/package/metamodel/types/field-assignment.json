@@ -1,0 +1,42 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "Describes how one Field participates in a Type (order, requiredness, label)."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "A Field's use inside a Type: the reference-mode edge that closes the metacircular loop.",
+  "fields": [
+    {
+      "fieldId": "4b000033-0000-4000-a000-000000000033",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Field"
+    },
+    {
+      "fieldId": "4b000034-0000-4000-a000-000000000034",
+      "order": 1,
+      "required": true
+    },
+    {
+      "fieldId": "4b000035-0000-4000-a000-000000000035",
+      "order": 2,
+      "required": true
+    },
+    {
+      "fieldId": "4b000036-0000-4000-a000-000000000036",
+      "order": 3,
+      "required": false,
+      "displayLabel": "Display Label"
+    },
+    {
+      "fieldId": "4b000037-0000-4000-a000-000000000037",
+      "order": 4,
+      "required": false,
+      "displayLabel": "Default Value"
+    }
+  ],
+  "id": "4c000003-0000-4000-a000-000000000003",
+  "name": "field-assignment",
+  "namespace": "com.semanticops.srs",
+  "version": 1
+}

@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 61,
+    "invariant_number": "61",
     "title": "RepositoryRegistry.entries must not contain two entries with the same…",
     "normative_statement": "`RepositoryRegistry.entries` must not contain two entries with the same `repositoryId`. A registry file with duplicate `repositoryId` values in `entries[]` is malformed.",
     "applies_to": "ext:federation"

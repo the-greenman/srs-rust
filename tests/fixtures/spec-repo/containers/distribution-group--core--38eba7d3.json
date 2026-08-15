@@ -1,0 +1,14 @@
+{
+  "containerId": "38eba7d3-1e73-4265-9a72-8b7a3fc6a157",
+  "containerType": "section",
+  "memberInstanceIds": [
+    "9a4a70af-dbce-55e3-abee-175d2491f656",
+    "8ccf7519-68ac-532e-b32b-89c5007d4cf6",
+    "f7ffc0ea-89bb-548b-876b-d320c40c8c6a",
+    "60dc0cbb-6c52-559b-9014-2fe0c41bacd1"
+  ],
+  "rootInstanceIds": [
+    "5b507597-f824-576b-b577-fd8141f1eaf1"
+  ],
+  "title": "Distribution Group (Core)"
+}

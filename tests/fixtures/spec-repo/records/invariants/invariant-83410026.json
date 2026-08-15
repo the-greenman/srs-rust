@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-17T01:42:12.303298693+00:00",
+  "fieldValues": {
+    "invariant_number": "I-109",
+    "title": "contentPath subdirectory resolution relative to sourceDocumentsPath",
+    "normative_statement": "`contentPath` in a source-document sidecar MAY contain forward-slash-separated sub-path segments. A conformant implementation MUST resolve `contentPath` relative to `sourceDocumentsPath`.",
+    "applies_to": "ext:repository source-document resolution; source-document-meta.json, manifest.json (SourceDocumentIndexEntry.contentPath)"
+  },
+  "instanceId": "83410026-2648-42ab-8bbb-9ed2031132d6",
+  "tags": [
+    "construct:attachment",
+    "topic:schema"
+  ],
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-17T01:42:12.303305027+00:00"
+}

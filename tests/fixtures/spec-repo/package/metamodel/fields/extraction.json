@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "LLM instruction for how to extract or populate."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "LLM instruction for how to extract or populate.",
+  "id": "4b000024-0000-4000-a000-000000000024",
+  "name": "extraction",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

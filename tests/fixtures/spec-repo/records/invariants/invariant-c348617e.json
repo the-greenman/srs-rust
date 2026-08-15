@@ -1,0 +1,19 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-17T01:41:59.652565772+00:00",
+  "fieldValues": {
+    "invariant_number": "I-105",
+    "title": "deterministic-ZIP archive production",
+    "normative_statement": "A conformant archive producer MUST produce deterministic ZIP archives: entries sorted byte-lexicographically by forward-slash-normalised path, `last mod` timestamps zeroed (`0x0000`), compression method Deflate (8) or Store (0) only with consistent per-file choice across invocations, `extra` fields empty, Language encoding flag (bit 11) set to 1.",
+    "applies_to": "ext:repository archive producers; `.srs` file generation"
+  },
+  "instanceId": "c348617e-60eb-4132-a399-48c39a57e8dc",
+  "tags": [
+    "construct:archive"
+  ],
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-17T01:41:59.652573840+00:00"
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Inclusive numeric lower bound (datatype == number/integer)."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Inclusive numeric lower bound (datatype == number/integer).",
+  "id": "4b00001f-0000-4000-a000-00000000001f",
+  "name": "minimum",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "number"
+  },
+  "version": 1
+}

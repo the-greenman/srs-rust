@@ -5,11 +5,11 @@
   "name": "promotion_window_until",
   "version": 1,
   "description": "The explicit end of the V10 grace window when promoting a Vocabulary from open to closed. An ISO8601 date or target package version string. Required if a grace window is declared; absent means promotion takes effect immediately.",
-  "aiGuidance": {
-    "purpose": "Bounds the grace window after open-to-closed promotion. Until this date/version, V1 violations are warnings; after it, they are errors. No unbounded windows allowed."
-  },
   "fieldType": {
     "datatype": "string"
   },
-  "createdAt": "2026-06-03T00:00:00Z"
+  "createdAt": "2026-06-03T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "Bounds the grace window after open-to-closed promotion. Until this date/version, V1 violations are warnings; after it, they are errors. No unbounded windows allowed."
+  }
 }

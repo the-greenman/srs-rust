@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-17T01:40:40.678774491+00:00",
+  "fieldValues": {
+    "title": "RFC-017 Change D: `ext:repository` deterministic-ZIP clause",
+    "affected_components": "ext:repository (.srs archive production)",
+    "proposed_change": "Strengthen `ext:repository` archive spec to require deterministic ZIP production. A conforming archive producer MUST: (1) sort entries in byte-lexicographic order of forward-slash-normalised paths; (2) set `last mod file time` and `last mod file date` to `0x0000` in all local file headers and central directory entries; (3) use only Deflate (method 8) or Store (method 0), with consistent per-file choice across invocations; (4) write empty `extra` fields (no host metadata); (5) set the Language encoding flag (bit 11) to 1. Given identical repository content, a conformant producer MUST produce a byte-for-byte identical `.srs` file across invocations of the same implementation. Cross-implementation byte identity is not guaranteed because the Store/Deflate choice is implementation-defined.",
+    "rationale": "Deterministic archives enable content-addressing, deduplication, and reproducible builds. Standard ZIP with deterministic entry ordering and zeroed metadata achieves this while remaining compatible with all existing ZIP tooling, unlike content-addressed tarballs or other formats. Alphabetic sorting without exceptions (including manifest.json) allows binary search over the central directory without special-casing."
+  },
+  "instanceId": "d975e060-9ba8-43ea-ae1b-6776ffe8145e",
+  "tags": [
+    "construct:archive",
+    "topic:schema"
+  ],
+  "typeId": "6a000002-0000-4000-a000-000000000002",
+  "typeName": "rfc-change",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-17T01:40:40.678786520+00:00"
+}

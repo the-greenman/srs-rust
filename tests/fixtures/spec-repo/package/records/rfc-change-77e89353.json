@@ -1,0 +1,15 @@
+{
+  "createdAt": "2026-06-25T08:07:22.918952836+00:00",
+  "fieldValues": {
+    "title": "RFC-011 Change C: Add containerScope to SectionSource.type-query",
+    "affected_components": "ext:views-l2, SectionSource.type-query",
+    "proposed_change": "Add optional containerScope?: \"explicit\" | \"repository\" | \"subtree\" to SectionSource.type-query. Default is \"explicit\" (existing behaviour: scope to containerIds[]). When \"repository\", the query spans all containers in the repository and containerIds[] is ignored. When \"subtree\", the query spans the container and all containers reachable by contains relations from the context container; containerIds[] constrains the subtree root when provided. Invariant I-011-3.",
+    "rationale": "The decision-log pattern requires querying all decisions across an entire repository without maintaining a static containerIds[] list. Repository scope eliminates that maintenance burden. Subtree scope provides a middle ground for hierarchical repositories where decisions are spread across many child containers."
+  },
+  "instanceId": "77e89353-7399-4527-859a-9fd92df73497",
+  "typeId": "6a000002-0000-4000-a000-000000000002",
+  "typeName": "rfc-change",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-25T08:07:22.918957223+00:00"
+}

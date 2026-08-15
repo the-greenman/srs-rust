@@ -3,7 +3,7 @@
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
     "title": "Records",
-    "content": "**28.** `Record.typeId` and `Record.typeVersion` are the authoritative Type binding. `typeNamespace` and `typeName` are denormalised convenience fields. If they conflict with the resolved `Type`, the `typeId`/`typeVersion` identity takes precedence and the Record is considered invalid until corrected."
+    "content": ""
   },
   "instanceId": "4fe78bbb-e1e7-587a-a45e-69ada9a4b8c7",
   "sourceRefs": [

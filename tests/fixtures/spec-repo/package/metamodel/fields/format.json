@@ -1,0 +1,23 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Semantic string format (JSON-Schema-aligned). datatype == string only."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Semantic string format (JSON-Schema-aligned). datatype == string only.",
+  "id": "4b000016-0000-4000-a000-000000000016",
+  "name": "format",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string",
+    "valueDomain": "closed",
+    "allowedValues": [
+      "plain",
+      "markdown",
+      "uri",
+      "uuid",
+      "email"
+    ]
+  },
+  "version": 1
+}

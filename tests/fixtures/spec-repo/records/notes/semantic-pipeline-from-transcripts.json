@@ -58,7 +58,7 @@
       ]
     },
     {
-      "content": "This requires provenance at every layer. Each generated object should preserve sourceRefs to the source documents or prior semantic objects it depends on. Relations such as derived-from, evidences, refines, depends-on, contradicts, or supersedes-context should make the chain traversable. A user should be able to challenge a final exported statement and walk back through the pipeline to see which protocol produced it, which objects informed it, and which transcript passages or documents grounded it.",
+      "content": "This requires provenance at every layer. Each generated object should preserve sourceRefs to the source documents or prior semantic objects it depends on. Relations such as derived-from, evidences, refines, depends-on, or contradicts should make the chain traversable. A user should be able to challenge a final exported statement and walk back through the pipeline to see which protocol produced it, which objects informed it, and which transcript passages or documents grounded it.",
       "name": "provenance_and_challenge",
       "tags": [
         "provenance",

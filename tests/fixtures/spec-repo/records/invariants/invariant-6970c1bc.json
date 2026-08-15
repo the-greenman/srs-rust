@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-23T20:46:53.182652896+00:00",
+  "fieldValues": {
+    "invariant_number": "I-125",
+    "title": "precedes relations are semantic-only, not presentational",
+    "normative_statement": "`precedes` relations MUST be used only to express sequences where a different order would be semantically wrong (e.g. spec sections in document order, protocol stages in execution sequence). Implementations MUST NOT create `precedes` relations between instances whose ordering is presentational (layout, curation, display preference). A `precedes` relation between two container members MUST be interpreted as a semantic claim about their sequence, not as a rendering hint. (RFC-015 Change A.)",
+    "applies_to": "ext:views-l2",
+    "rationale": "RFC-013 established a normative boundary between semantic order (`precedes`) and presentational order. This invariant makes that boundary an obligation rather than a convention: without it, `precedes` could silently accrue presentational uses, making the semantic graph unreliable for any consumer that treats `precedes` as a claim about correctness of order (e.g. protocol execution sequencing)."
+  },
+  "instanceId": "6970c1bc-42b1-4c4c-b59e-3600f8236f3d",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-23T20:46:53.182885869+00:00"
+}

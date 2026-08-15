@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-17T01:40:52.156945338+00:00",
+  "fieldValues": {
+    "title": "RFC-017 Change E: Soft size-warning conformance",
+    "affected_components": "ext:repository (attachment_policy enforcement); `srs repo validate` output",
+    "proposed_change": "When an `attachment_policy` is present, an implementation MAY enforce its limits as hard rejections. If it does not enforce them as hard limits, it MUST surface violations as non-blocking warning diagnostics at `srs repo validate` time: when a source document content file exceeds `max_per_file_bytes` or `max_doc_bytes`; when aggregate source-document bytes exceed `max_total_bytes`; when an attached file's MIME type is not listed in `allowed_mime_types`. Non-blocking diagnostics MUST NOT prevent record storage or repository export. Whether to emit a warning at write time (e.g. `srs source import`) is implementation-defined; conformance is required at validate time. Hard caps are deferred to a future extension.",
+    "rationale": "Hard size caps at the spec level would set arbitrary limits that break legitimate use cases (e.g., video-heavy documentary repositories). Soft warnings surfaced as diagnostics give operators visibility without blocking valid workflows; the application layer or a future hard-cap extension can enforce stricter limits."
+  },
+  "instanceId": "40183288-f753-460b-af34-b7db33ae67bd",
+  "tags": [
+    "construct:attachment",
+    "construct:validation"
+  ],
+  "typeId": "6a000002-0000-4000-a000-000000000002",
+  "typeName": "rfc-change",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-17T01:40:52.156957990+00:00"
+}

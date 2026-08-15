@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-23T20:47:16.989410830+00:00",
+  "fieldValues": {
+    "invariant_number": "I-128",
+    "title": "renderedPresentations default selection and viewId resolution",
+    "normative_statement": "When `manifest.renderedPresentations` is present and non-empty, a conformant viewer MUST select as the default presentation the first entry whose `isDefault` is `true`. When no entry carries `isDefault: true`, the first entry in the array is the default. The selected DocumentView governs the repository's presentation. When a `renderedPresentations` entry's `viewId` does not resolve to a DocumentView in the active packages, implementations MUST skip that entry and MUST emit a diagnostic; if all entries fail to resolve, behaviour falls back to implementation-defined selection as if `renderedPresentations` were absent. When `viewId` resolves to DocumentViews in more than one active package, implementations MUST report a validation error (ambiguous view reference). When `renderedPresentations` is absent or empty, viewer behaviour falls back to implementation-defined selection (existing behaviour unchanged; no conformance obligation is added for the absent case). (RFC-015 Change C.)",
+    "applies_to": "ext:repository",
+    "rationale": "`renderedPresentations` declares which DocumentView(s) constitute the repository's presentations so a conformant viewer opens the document the group intended, without requiring every viewer to guess. A multi-package `viewId` collision is reported as an error (not resolved by implementation-defined precedence) because silently picking one package's View over another's would be a non-deterministic, non-portable choice."
+  },
+  "instanceId": "0b8f008f-0bd1-4fe4-803b-9a7bb1a92acf",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-23T20:47:16.989424426+00:00"
+}

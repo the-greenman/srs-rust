@@ -1,0 +1,41 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "The fixed-shape constraints bag: string length/pattern and numeric bounds."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Datatype-appropriate value constraints carried by a FieldType (RFC-032 Change F).",
+  "fields": [
+    {
+      "fieldId": "4b00001c-0000-4000-a000-00000000001c",
+      "order": 0,
+      "required": false,
+      "displayLabel": "Min Length"
+    },
+    {
+      "fieldId": "4b00001d-0000-4000-a000-00000000001d",
+      "order": 1,
+      "required": false,
+      "displayLabel": "Max Length"
+    },
+    {
+      "fieldId": "4b00001e-0000-4000-a000-00000000001e",
+      "order": 2,
+      "required": false
+    },
+    {
+      "fieldId": "4b00001f-0000-4000-a000-00000000001f",
+      "order": 3,
+      "required": false
+    },
+    {
+      "fieldId": "4b000020-0000-4000-a000-000000000020",
+      "order": 4,
+      "required": false
+    }
+  ],
+  "id": "4c000006-0000-4000-a000-000000000006",
+  "name": "field-type-constraints",
+  "namespace": "com.semanticops.srs",
+  "version": 1
+}

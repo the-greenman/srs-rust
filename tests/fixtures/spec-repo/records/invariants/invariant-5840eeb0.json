@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-23T16:42:10.790833172+00:00",
+  "fieldValues": {
+    "invariant_number": "I-117",
+    "title": "Structured filters and content-match compose by conjunction",
+    "normative_statement": "When both structured filters and `contentMatch` are specified on a DiscoveryQuery, an instance MUST satisfy all structured filter predicates (exact-match, I-113) AND the content-match recall-floor predicate (I-114). The structured-filter constraints cannot be overridden or widened by content-match extra recall. (RFC-012 R5.)",
+    "applies_to": "ext:discovery; combined-predicate conjunction (RFC-012)"
+  },
+  "instanceId": "5840eeb0-ed2c-4e2e-9430-5be5265396d7",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-23T16:42:10.790843818+00:00"
+}

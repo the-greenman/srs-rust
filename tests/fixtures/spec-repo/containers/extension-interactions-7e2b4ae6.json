@@ -1,0 +1,13 @@
+{
+  "containerId": "7e2b4ae6-a732-48db-8559-9c1f94b2e7c1",
+  "containerType": "section",
+  "memberInstanceIds": [
+    "e2439781-004a-5997-bfc8-9d405232e223",
+    "1ff855f5-b20f-52c7-bc1d-c7e6311743a6",
+    "b3c4d5e6-f7a8-4b9c-ad1e-2f3a4b5c6d7e"
+  ],
+  "rootInstanceIds": [
+    "a1fc7f7c-dcba-5f4b-b9fd-04f91b2762b3"
+  ],
+  "title": "Extension Interactions"
+}

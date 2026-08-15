@@ -5,9 +5,6 @@
   "name": "tag_roles",
   "version": 1,
   "description": "Semantic roles assigned to this tag that drive system behavior (e.g., foundation tags trigger foundation note collection).",
-  "aiGuidance": {
-    "purpose": "Semantic roles that drive system behavior. 'foundation' causes the tag service to include matching notes in foundation note collection."
-  },
   "fieldType": {
     "datatype": "string",
     "cardinality": "list",
@@ -18,5 +15,8 @@
       "lifecycle"
     ]
   },
-  "createdAt": "2026-05-28T00:00:00Z"
+  "createdAt": "2026-05-28T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "Semantic roles that drive system behavior. 'foundation' causes the tag service to include matching notes in foundation note collection."
+  }
 }

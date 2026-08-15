@@ -5,12 +5,12 @@
   "name": "tag_key",
   "version": 1,
   "description": "The raw tag string (e.g., \"foundation\") used as the primary identifier for the tag.",
-  "aiGuidance": {
-    "purpose": "The canonical string identifier for this tag. Must exactly match the string used in Note.tags and NoteSection.tags.",
-    "extraction": "Use the exact tag string as it appears in usage — typically lowercase, kebab-case."
-  },
   "fieldType": {
     "datatype": "string"
   },
-  "createdAt": "2026-05-28T00:00:00Z"
+  "createdAt": "2026-05-28T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "The canonical string identifier for this tag. Must exactly match the string used in Note.tags and NoteSection.tags.",
+    "extraction": "Use the exact tag string as it appears in usage — typically lowercase, kebab-case."
+  }
 }

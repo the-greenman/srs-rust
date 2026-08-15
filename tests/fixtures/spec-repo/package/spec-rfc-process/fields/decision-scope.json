@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5a000020-0000-4000-a000-000000000020",
+  "namespace": "com.semanticops.spec",
+  "name": "decision_scope",
+  "version": 1,
+  "description": "The standard, repository, layer, RFC, or other bounded domain governed by the decision.",
+  "aiGuidance": {
+    "purpose": "Prevents a decision from silently claiming authority outside its intended boundary.",
+    "extraction": "Name the narrowest layer, artifact, repository, phase, or domain to which the decision applies."
+  },
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
+  "createdAt": "2026-08-02T00:00:00Z"
+}

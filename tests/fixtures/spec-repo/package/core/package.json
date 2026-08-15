@@ -1,0 +1,31 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+  "blueprints": [],
+  "documentViews": [],
+  "fields": [
+    "fields/statement-3b000001.json",
+    "fields/title-3b000002.json"
+  ],
+  "id": "3a000001-0000-4000-a000-000000000001",
+  "name": "core",
+  "namespace": "com.semanticops.core",
+  "relationTypes": [
+    "relation-types/contains.json",
+    "relation-types/depends-on.json",
+    "relation-types/supersedes.json",
+    "relation-types/refines.json",
+    "relation-types/derived-from.json",
+    "relation-types/evidences.json",
+    "relation-types/precedes.json"
+  ],
+  "types": [
+    "types/purpose-3c000001.json"
+  ],
+  "version": "1.0.0",
+  "views": [],
+  "dataModelRevision": 2,
+  "title": "SRS Core Package",
+  "description": "The core base package for the SRS specification. Provides com.semanticops.core/purpose — a Tier-2 type for repository identity, always available in every conforming SRS repository without a packageRef declaration (RFC-018) — and the seven canonical RelationType definitions (RFC-005).",
+  "status": "active",
+  "createdAt": "2026-07-08T00:00:00Z"
+}

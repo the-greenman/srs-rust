@@ -1,0 +1,15 @@
+{
+  "createdAt": "2026-06-25T08:07:09.122465775+00:00",
+  "fieldValues": {
+    "title": "RFC-011 Change A: Add lifecycleStates to SectionSource.type-query",
+    "affected_components": "ext:views-l2, SectionSource.type-query",
+    "proposed_change": "Add optional lifecycleStates?: string[] to SectionSource.type-query. When present and non-empty, the query result MUST include only Records whose lifecycleState matches one of the listed values (multi-value OR semantics). When absent or empty, all lifecycle states are included. Requires ext:lifecycle to be declared; implementations that do not declare ext:lifecycle MUST treat this field as absent. Invariant I-011-1.",
+    "rationale": "Replaces the single-value lifecycleState field with a multi-value array, enabling queries like include only draft and active. The singular lifecycleState field remains as a back-compat single-state filter; lifecycleStates is the preferred form when multiple states are needed."
+  },
+  "instanceId": "819fea19-2c4f-489a-a7bb-ec81fcb38bb3",
+  "typeId": "6a000002-0000-4000-a000-000000000002",
+  "typeName": "rfc-change",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-25T08:07:09.122467411+00:00"
+}

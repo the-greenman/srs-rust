@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5a000019-0000-4000-a000-000000000019",
+  "namespace": "com.semanticops.spec",
+  "name": "decision_statement",
+  "version": 1,
+  "description": "The atomic commitment made by an RFC-process decision.",
+  "aiGuidance": {
+    "purpose": "States the consequential commitment independently of its rationale.",
+    "extraction": "Record one reversible decision in direct language. Split independently reversible choices into separate decision records."
+  },
+  "fieldType": {
+    "datatype": "string",
+    "format": "markdown"
+  },
+  "createdAt": "2026-08-02T00:00:00Z"
+}

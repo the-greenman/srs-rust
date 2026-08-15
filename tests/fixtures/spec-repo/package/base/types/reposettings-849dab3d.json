@@ -1,0 +1,38 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "Use to declare a repository's attachment policy: accepted MIME types and size limits for attached and source-document files. All fields are optional — absence of a field means no restriction for that dimension. Absence of the whole record means no restrictions at all."
+  },
+  "createdAt": "2026-07-23T00:00:00Z",
+  "description": "A Tier-2 typed record carrying attachment-policy settings for a repository (RFC-017). Optional: SRS MUST operate correctly with no com.semanticops.base package installed and no repo_settings record present (RFC-017 Change C). At most one repo_settings record of this type may exist per repository (RFC-017 [R11]); an implementation encountering a second MUST surface a diagnostic and treat the policy as absent.",
+  "fields": [
+    {
+      "displayLabel": "Allowed MIME Types",
+      "fieldId": "8912f486-15bf-4407-af84-c27542f655dd",
+      "order": 0,
+      "required": false
+    },
+    {
+      "displayLabel": "Max Per-File Bytes",
+      "fieldId": "f1bce663-5f2f-48da-b803-a728021f4d14",
+      "order": 1,
+      "required": false
+    },
+    {
+      "displayLabel": "Max Document Bytes",
+      "fieldId": "78cbbc28-256d-40b6-825c-9dfc885f627b",
+      "order": 2,
+      "required": false
+    },
+    {
+      "displayLabel": "Max Total Bytes",
+      "fieldId": "7db68d66-f74c-402b-ad29-3003557c8136",
+      "order": 3,
+      "required": false
+    }
+  ],
+  "id": "849dab3d-8a56-43c6-8b33-0884626f726b",
+  "name": "repo_settings",
+  "namespace": "com.semanticops.base",
+  "version": 1
+}

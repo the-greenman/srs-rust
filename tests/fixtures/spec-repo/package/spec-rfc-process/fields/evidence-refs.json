@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5a000025-0000-4000-a000-000000000025",
+  "namespace": "com.semanticops.spec",
+  "name": "evidence_refs",
+  "version": 1,
+  "description": "Stable repository paths, issue URLs, RFC anchors, pull requests, or commit references supporting the decision.",
+  "aiGuidance": {
+    "purpose": "Makes the decision and its rationale independently auditable.",
+    "extraction": "Prefer stable issue, RFC, merged pull request, commit, and repository-path references that directly support the decision."
+  },
+  "fieldType": {
+    "datatype": "string",
+    "cardinality": "list"
+  },
+  "createdAt": "2026-08-02T00:00:00Z"
+}

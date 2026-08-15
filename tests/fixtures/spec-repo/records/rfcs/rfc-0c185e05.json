@@ -1,0 +1,22 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-21T17:31:55.341512902+00:00",
+  "fieldValues": {
+    "title": "RFC-013: Required Root Container & Structural Navigation",
+    "rfc_number": "013",
+    "rfc_status": "accepted",
+    "author": "Peter Brownell",
+    "affected_components": "`manifest.container` required; `Container.identityInstanceId`; structural navigation from membership + `precedes`.\n\n<!-- srs-integration:v1\nschema:manifest.json\nschema:container.json\nI-79\nI-80\nI-81\nI-82\n-->",
+    "proposal_artifact_path": "rfcs/rfc-013-required-root-container.md",
+    "content": "Makes `manifest.container` required, adds a reassignable identity pointer `Container.identityInstanceId` to both Container schemas, and defines a structural navigation model derived from existing primitives (container membership + `precedes` order). Full text: rfcs/rfc-013-required-root-container.md."
+  },
+  "instanceId": "0c185e05-99c7-4c04-aaf6-73af30eac451",
+  "tags": [
+    "topic:rfc"
+  ],
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeName": "rfc",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-21T17:31:55.341516084+00:00"
+}

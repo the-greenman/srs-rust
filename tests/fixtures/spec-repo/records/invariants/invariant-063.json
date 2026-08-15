@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-06-24T16:06:22.909277404+00:00",
+  "fieldValues": {
+    "invariant_number": "I-63",
+    "title": "ExactTypeRef entries in DocumentView.rootTypeRefs must resolve in the Package",
+    "normative_statement": "When DocumentView.rootTypeRefs is present and non-empty, each ExactTypeRef entry MUST resolve to a Type that exists in the Package (the union of all packages in scope per packageRef/packageRefs; matched by both typeId and typeVersion). An entry that does not resolve MUST produce a diagnostic and MUST NOT be used for Container matching.",
+    "applies_to": "ext:views-l2"
+  },
+  "instanceId": "87c56422-8124-43e4-993b-00e909af573b",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-24T16:06:22.909281403+00:00"
+}

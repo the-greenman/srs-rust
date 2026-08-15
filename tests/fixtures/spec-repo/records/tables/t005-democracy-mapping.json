@@ -88,6 +88,7 @@
       }
     ]
   },
+  "typeVersion": 3,
   "instanceId": "b1000000-0000-4000-a000-000000000005",
   "tags": [
     "construct:reference",
@@ -96,6 +97,5 @@
   ],
   "typeId": "2a000013-0000-4000-a000-000000000013",
   "typeName": "table",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 3
+  "typeNamespace": "com.semanticops.spec"
 }

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5a000023-0000-4000-a000-000000000023",
+  "namespace": "com.semanticops.spec",
+  "name": "alternatives_considered",
+  "version": 1,
+  "description": "The live alternatives considered before the decision, including the do-nothing option where relevant.",
+  "aiGuidance": {
+    "purpose": "Preserves the meaningful choices against which the accepted decision was evaluated.",
+    "extraction": "List only genuine alternatives evidenced in the decision record; include doing nothing when it was viable."
+  },
+  "fieldType": {
+    "datatype": "string",
+    "format": "markdown"
+  },
+  "createdAt": "2026-08-02T00:00:00Z"
+}

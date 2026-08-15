@@ -72,12 +72,12 @@ fn fixture_catalog_reproduces_identity_sets_ignoring_manifest() {
     let store = FileStore::new(fixture_repo());
     let cat = catalog::build(&store).unwrap();
 
-    // The known instance identity set — 266 instances, the figure the
-    // pre-migration manifest index recorded and the fixture-migration
-    // baseline verified (srs#297).
+    // The known instance identity set. Re-vendored from `srs` master at
+    // 2c68720 (srs-rust#825): the previous 266 was the pre-migration figure of
+    // a corpus that had since drifted well behind upstream.
     let catalog_ids: BTreeSet<String> = cat.instances.iter().map(|e| e.id.clone()).collect();
-    assert_eq!(catalog_ids.len(), 266);
-    assert_eq!(cat.instances.len(), 266);
+    assert_eq!(catalog_ids.len(), 392);
+    assert_eq!(cat.instances.len(), 392);
     let notes = cat
         .instances
         .iter()
@@ -88,74 +88,49 @@ fn fixture_catalog_reproduces_identity_sets_ignoring_manifest() {
         .iter()
         .filter(|e| e.kind == CatalogKind::Record)
         .count();
-    assert_eq!((notes, records), (19, 247));
+    assert_eq!((notes, records), (19, 373));
     assert!(cat
         .instances
         .iter()
         .all(|e| e.tier == Some(if e.kind == CatalogKind::Note { 0 } else { 2 })));
 
-    // Relations: enumerated from the (transitional) collection file.
-    assert_eq!(cat.relations.len(), 189);
+    // Relations: one standalone object per relation ([R11]), no collection file.
+    assert_eq!(cat.relations.len(), 200);
     assert!(cat
         .relations
         .iter()
         .all(|e| e.kind == CatalogKind::Relation && e.tier.is_none()));
 
-    // Containers: two files plus the inline root container ([R1]).
-    assert_eq!(cat.containers.len(), 3);
+    // Containers: twelve files plus the inline root container ([R1]).
+    assert_eq!(cat.containers.len(), 13);
     assert!(cat
         .containers
         .iter()
         .any(|e| e.locator.as_deref() == Some("manifest.json#/container")));
 
-    // Source documents: the four sidecars; documentId read from the sidecar.
-    assert_eq!(cat.source_documents.len(), 4);
+    assert_eq!(cat.source_documents.len(), 5);
 
     // Extension set: nothing declared.
     assert!(cat.extensions.is_empty());
 
-    // Definitions: 156 unique declared paths (the primary package and
-    // spec-rfc-process declare 4 relation-type files in common — one object
-    // each, enumerated once; [R12] applies to distinct objects sharing an
-    // id, not to one file declared twice). Two candidates fail
-    // classification (below), so 154 classify.
-    assert_eq!(cat.definitions.len(), 154);
+    assert_eq!(cat.definitions.len(), 227);
 
-    // Corpus-calibrated diagnostics, all errors:
-    // - the srs#307-shaped dangling fieldId in 3 Type definitions ([R13])
-    // - `protocol-tags.json` fails its declared field.json (valueDomain
-    //   "closed" with neither allowedValues nor vocabularyRef) ([R7]) —
-    //   which drops its id from the definition set, making meta.protocol's
-    //   FieldAssignment a 4th dangling reference ([R13])
-    // - 1 no-$schema document view failing shape classification ([R8])
-    let counts = code_counts(&cat);
-    assert_eq!(counts.get(codes::DANGLING_REFERENCE), Some(&4));
-    assert_eq!(counts.get(codes::SCHEMA_VALIDATION), Some(&1));
-    assert_eq!(counts.get(codes::SHAPE_NO_MATCH), Some(&1));
-    assert_eq!(cat.diagnostics.len(), 6);
-    assert!(cat
-        .diagnostics
-        .iter()
-        .all(|d| d.severity == DiagnosticSeverity::Error));
-    let srs307: Vec<_> = cat
-        .diagnostics
-        .iter()
-        .filter(|d| d.message.contains("f1a2b3c4-d5e6-4a7b-8c9d-0e1f2a3b4c5c"))
-        .collect();
-    assert_eq!(srs307.len(), 3, "the srs#307 calibration case ([R13])");
+    // The corpus is clean. Every defect the previous vendored copy was
+    // calibrated against — the srs#307 dangling `FieldAssignment.fieldId`, the
+    // `protocol-tags.json` [R7] failure, the no-$schema document view ([R8]) —
+    // is fixed upstream (the-greenman/srs#307 closed; protocol-tags.json
+    // deleted; the document view carries its $schema). Those were fixture
+    // staleness, not implementation behaviour, so the calibration is now
+    // "zero diagnostics" rather than an enumeration of known damage. The
+    // catalog's error-reporting paths are exercised by the purpose-built
+    // fixtures in this file, not by hoping the vendored corpus stays broken.
+    assert_eq!(code_counts(&cat), BTreeMap::new());
+    assert!(cat.diagnostics.is_empty(), "{:?}", cat.diagnostics);
 
-    // [R24]: fatal diagnostics fail the load as a whole — RFC-038 Change H's
-    // acceptance test ("a conforming implementation of [R13] fails loudly on
-    // that repository").
-    match store.catalog() {
-        Err(RepositoryError::CatalogLoad {
-            fatal, diagnostics, ..
-        }) => {
-            assert_eq!(fatal, 6);
-            assert_eq!(diagnostics.len(), 6);
-        }
-        other => panic!("expected CatalogLoad error, got {other:?}"),
-    }
+    // [R24] has nothing to fire on, so the checked catalog loads.
+    store
+        .catalog()
+        .expect("a clean corpus must load through the checked catalog");
 }
 
 #[test]

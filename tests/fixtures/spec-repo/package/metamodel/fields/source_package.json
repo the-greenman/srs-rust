@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Identifier of the package this definition was imported from."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Identifier of the package this definition was imported from.",
+  "id": "4b00002e-0000-4000-a000-00000000002e",
+  "name": "source_package",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

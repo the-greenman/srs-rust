@@ -1,0 +1,14 @@
+{
+  "aiGuidance": {
+    "purpose": "An integer byte count ceiling for any single source document content file. Leave absent for no limit."
+  },
+  "createdAt": "2026-07-23T00:00:00Z",
+  "description": "Maximum size in bytes for a single source document content file. When absent, no limit.",
+  "id": "78cbbc28-256d-40b6-825c-9dfc885f627b",
+  "name": "max_doc_bytes",
+  "namespace": "com.semanticops.base",
+  "fieldType": {
+    "datatype": "number"
+  },
+  "version": 1
+}

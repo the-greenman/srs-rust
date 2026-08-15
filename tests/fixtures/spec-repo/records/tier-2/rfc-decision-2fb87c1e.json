@@ -1,0 +1,34 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-08-02T13:59:15.800760775+00:00",
+  "fieldValues": {
+    "title": "Make the authoritative store, not the manifest, define repository content",
+    "rfc_status": "accepted",
+    "decision_date": "2026-08-01",
+    "decision_rationale": "An index can become stale or disagree with the stored objects it claims to enumerate. A common logical store-authority contract makes repository content coherent across backends while leaving each backend free to implement discovery.",
+    "decision_statement": "A repository's authoritative content is what its authoritative store reports across the instance, relation, container, source-document, definition, and extension sets; manifest.json is not content authority except for its inline root container.",
+    "decision_scope": "Repository content authority and enumeration",
+    "governing_values": [
+      "semantic-integrity",
+      "evidence-led-evolution",
+      "shared-coherence"
+    ],
+    "project_phase": "formation",
+    "alternatives_considered": "- Keep manifest indexes authoritative.\n- Let each implementation choose between index and tree authority.",
+    "accepted_costs": "Implementations must replace index-driven enumeration and accept a coordinated breaking storage migration.",
+    "evidence_refs": [
+      "https://github.com/the-greenman/srs/blob/1a1746d3ebf8346914fd88920dcaf2b80b07d877/rfcs/rfc-038-tree-authoritative-storage.md#L162-L179",
+      "https://github.com/the-greenman/srs/blob/1a1746d3ebf8346914fd88920dcaf2b80b07d877/rfcs/rfc-038-tree-authoritative-storage.md#L749-L754"
+    ],
+    "review_trigger": "Review when a new backend cannot answer the authoritative-set contract, or when a manifest field is proposed as a second content authority."
+  },
+  "instanceId": "2fb87c1e-dc5f-442d-ade0-67ee71979627",
+  "tags": [
+    "topic:rfc"
+  ],
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeName": "rfc-decision",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 2,
+  "updatedAt": "2026-08-02T13:59:15.800767088+00:00"
+}

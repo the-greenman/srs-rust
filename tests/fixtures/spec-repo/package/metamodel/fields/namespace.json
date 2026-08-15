@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Reverse-DNS logical grouping."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Reverse-DNS logical grouping.",
+  "id": "4b000002-0000-4000-a000-000000000002",
+  "name": "namespace",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

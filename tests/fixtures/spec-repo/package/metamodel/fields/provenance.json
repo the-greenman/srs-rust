@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Import provenance of this definition."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Import provenance of this definition.",
+  "id": "4b00000d-0000-4000-a000-00000000000d",
+  "name": "provenance",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "ref",
+    "mode": "inline",
+    "rangeType": {
+      "typeId": "4c00000a-0000-4000-a000-00000000000a",
+      "typeVersion": 1
+    }
+  },
+  "version": 1
+}

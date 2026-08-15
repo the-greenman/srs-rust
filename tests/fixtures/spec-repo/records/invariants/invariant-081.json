@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-06-28T14:37:38.826145632+00:00",
+  "fieldValues": {
+    "invariant_number": "I-81",
+    "title": "identityInstanceId resolves to a member of its container",
+    "normative_statement": "When present on a Container, identityInstanceId MUST equal an id contained in that Container's rootInstanceIds or memberInstanceIds. On the root container it names the repository's identity record. If it resolves to no such member, the repository is invalid. Reassigning identityInstanceId to a different member MUST NOT change the repositoryId, the container's containerId, or any instance id; the new target must already be a member before the pointer moves to it, so the repository is never transiently invalid.",
+    "applies_to": "ext:repository (Container.identityInstanceId); RFC-013"
+  },
+  "instanceId": "5d527a48-5a00-4fdc-a1e0-cf3bec546dcc",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-28T14:37:38.826157024+00:00"
+}

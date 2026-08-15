@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 9,
+    "invariant_number": "9",
     "title": "Field.id is stable across versions.",
     "normative_statement": "`Field.id` is stable across versions. A new `id` means a new definition, not a new version of an existing one.",
     "applies_to": "core — Package"

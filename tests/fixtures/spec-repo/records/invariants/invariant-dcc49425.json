@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-23T16:42:10.772695539+00:00",
+  "fieldValues": {
+    "invariant_number": "I-115",
+    "title": "Extra content-match results are permitted",
+    "normative_statement": "An implementation MAY include instances beyond the recall-floor set defined by I-114 (e.g. via stemming, phonetic matching, or semantic similarity). Returning extra results does not violate `ext:discovery` conformance. (RFC-012 R3.)",
+    "applies_to": "ext:discovery; recall floor is a minimum, not a maximum (RFC-012)"
+  },
+  "instanceId": "dcc49425-990e-4e85-8823-1359be6c91f0",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-23T16:42:10.772705616+00:00"
+}

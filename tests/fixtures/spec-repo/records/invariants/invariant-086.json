@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-08T22:25:45.835487384+00:00",
+  "fieldValues": {
+    "invariant_number": "I-86",
+    "title": "No Type or Field with namespace com.semanticops.core MAY be declared in any repository package",
+    "normative_statement": "A repository MUST NOT declare any Type or Field under the `com.semanticops.core` namespace in a local or external package. An implementation MUST reject the repository load with a conflict error if any such declaration is encountered during package loading. This reservation covers only the `com.semanticops.core` namespace; other `com.semanticops.*` sub-namespaces are governed by their own RFC or by general package conflict rules and are not affected by this invariant.",
+    "applies_to": "com.semanticops.core namespace; ext:repository; RFC-029 R2; package loading (load_package conflict detection).",
+    "rationale": "The core base package's definitions must be exclusively controlled by the SRS implementation to guarantee universal availability and consistency. Allowing repositories to declare their own `com.semanticops.core` types would create shadowing, version conflicts, and divergence between implementations. The hard conflict error (not a warning) makes this an unambiguous implementation constraint."
+  },
+  "instanceId": "890d7d54-81f6-4001-bf31-30b156844431",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-23T22:47:41.489335382+00:00"
+}

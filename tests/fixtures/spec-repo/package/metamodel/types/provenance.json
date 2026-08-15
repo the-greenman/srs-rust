@@ -1,0 +1,37 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "Records the publisher, source package, and import time of a definition."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "The import provenance of a definition.",
+  "fields": [
+    {
+      "fieldId": "4b00002d-0000-4000-a000-00000000002d",
+      "order": 0,
+      "required": false
+    },
+    {
+      "fieldId": "4b00002e-0000-4000-a000-00000000002e",
+      "order": 1,
+      "required": false,
+      "displayLabel": "Source Package"
+    },
+    {
+      "fieldId": "4b00002f-0000-4000-a000-00000000002f",
+      "order": 2,
+      "required": false,
+      "displayLabel": "Package Version"
+    },
+    {
+      "fieldId": "4b000030-0000-4000-a000-000000000030",
+      "order": 3,
+      "required": false,
+      "displayLabel": "Imported At"
+    }
+  ],
+  "id": "4c00000a-0000-4000-a000-00000000000a",
+  "name": "provenance",
+  "namespace": "com.semanticops.srs",
+  "version": 1
+}

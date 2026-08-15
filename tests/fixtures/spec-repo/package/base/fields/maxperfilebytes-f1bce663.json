@@ -1,0 +1,14 @@
+{
+  "aiGuidance": {
+    "purpose": "An integer byte count ceiling for any single attached file. Leave absent for no per-file limit."
+  },
+  "createdAt": "2026-07-23T00:00:00Z",
+  "description": "Maximum size in bytes for a single attachment file. When absent, no per-file limit.",
+  "id": "f1bce663-5f2f-48da-b803-a728021f4d14",
+  "name": "max_per_file_bytes",
+  "namespace": "com.semanticops.base",
+  "fieldType": {
+    "datatype": "number"
+  },
+  "version": 1
+}

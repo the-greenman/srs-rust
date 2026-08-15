@@ -1,13 +1,28 @@
 {
   "updatedAt": "2026-06-03T00:00:00Z",
   "container": {
-    "containerId": "4172fada-bc38-5479-ac18-4be3194a68ca",
-    "title": "Semantic Record System Specification"
+    "containerId": "6587bc86-9461-43f4-b790-504b2bcbddb5",
+    "title": "Semantic Record System Specification",
+    "identityInstanceId": "9288ed3d-dba7-4a3a-9fbb-a77ff919816c",
+    "memberInstanceIds": [
+      "9288ed3d-dba7-4a3a-9fbb-a77ff919816c",
+      "dd8920f0-458f-5b72-ad58-93229c777b87",
+      "5bc9b930-462d-535d-91c5-bd9e2b17c91c",
+      "63065301-6afc-5ae6-8d62-59cae1a3154c",
+      "74746626-1a15-5430-931e-90a147961265",
+      "5b507597-f824-576b-b577-fd8141f1eaf1",
+      "6cb78382-35a5-5acc-a26c-774a2c288e23",
+      "4244a790-72ff-5e1c-9b60-d4b58b90f92c",
+      "df42f888-4d95-5a51-963e-60d10c36533c",
+      "a1fc7f7c-dcba-5f4b-b9fd-04f91b2762b3",
+      "e538ea64-f93f-5c51-ade0-6cd358605e8c"
+    ]
   },
   "title": "Semantic Record System Specification",
   "sourceDocumentsPath": "source-documents",
+  "srsVersion": "2.0-draft",
   "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
-  "createdAt": "2024-01-01T00:00:00Z",
+  "createdAt": "2026-05-28T00:00:00Z",
   "dataModelRevision": 2,
   "declaredExtensions": [
     "ext:addressability",
@@ -34,13 +49,31 @@
   "packageRefs": [
     {
       "mode": "local",
+      "path": "package/base"
+    },
+    {
+      "mode": "local",
+      "path": "package/core"
+    },
+    {
+      "mode": "local",
       "path": "package/spec-authoring-core"
     },
     {
       "mode": "local",
       "path": "package/spec-rfc-process"
+    },
+    {
+      "mode": "local",
+      "path": "package/metamodel"
     }
   ],
-  "srsVersion": "2.0-draft",
-  "repositoryId": "4172fada-bc38-5479-ac18-4be3194a68ca"
+  "repositoryId": "4172fada-bc38-5479-ac18-4be3194a68ca",
+  "renderedPresentations": [
+    {
+      "format": "markdown",
+      "isDefault": true,
+      "viewId": "3a000004-0000-4000-a000-000000000004"
+    }
+  ]
 }

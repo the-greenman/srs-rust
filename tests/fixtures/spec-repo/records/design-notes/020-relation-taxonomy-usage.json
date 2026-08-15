@@ -3,7 +3,7 @@
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
     "title": "Relation taxonomy usage",
-    "content": "\nUse the canonical relation type strings from `ext:recommended-relations` for common relationships. Reserve custom `namespace/name` format for domain-specific relations.\n\n**Composition example** (project planning):\n```\nStage A  --contains-->  Task B\nTask B   --contains-->  Subtask C\n```\n\n**Derivation example** (Protocol output):\n```\nDecision Record  --derived-from-->  Options Analysis Note\nOptions Analysis --derived-from-->  Brain Dump Note\n```\n\n**Governance example**:\n```\nPolicy v2  --supersedes-->  Policy v1\nAmendment  --amends-->      Policy v2\n```\n\n**Evidence example**:\n```\nWorkshop photo  --evidences-->  Stage 1 completion claim\nTranscript seg  --evidences-->  Decision rationale\n```\n\nNon-governance projects use the same Relation layer. `supersedes`, `delegates`, and `ratifies` apply when the semantic object type calls for them — they are one profile of the layer, not its primary purpose."
+    "content": "\nUse the canonical relation type strings installed in the core package (formerly `ext:recommended-relations`, retired by RFC-005) for common relationships. Reserve custom `namespace/name` format for domain-specific relations.\n\n**Composition example** (project planning):\n```\nStage A  --contains-->  Task B\nTask B   --contains-->  Subtask C\n```\n\n**Derivation example** (Protocol output):\n```\nDecision Record  --derived-from-->  Options Analysis Note\nOptions Analysis --derived-from-->  Brain Dump Note\n```\n\n**Governance example**:\n```\nPolicy v2  --supersedes-->  Policy v1\nAmendment  --com.example.gov/amends-->  Policy v2   (custom namespace/name type)\n```\n\n**Evidence example**:\n```\nWorkshop photo  --evidences-->  Stage 1 completion claim\nTranscript seg  --evidences-->  Decision rationale\n```\n\nNon-governance projects use the same Relation layer. `supersedes` is canonical; domain verbs like `delegates`, `ratifies`, and `amends` are custom types that require their own installed `namespace/name` RelationTypeDefinitions (governance packages typically ship them). They apply when the semantic object type calls for them — one profile of the layer, not its primary purpose."
   },
   "instanceId": "f1000020-0000-4000-a000-000000000020",
   "sourceRefs": [
@@ -21,5 +21,6 @@
   "typeId": "2a000012-0000-4000-a000-000000000012",
   "typeName": "design-note",
   "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T10:58:53.793473334+00:00"
 }

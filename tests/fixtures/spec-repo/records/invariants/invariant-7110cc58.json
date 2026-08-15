@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-23T16:42:10.807622603+00:00",
+  "fieldValues": {
+    "invariant_number": "I-119",
+    "title": "Multi-tag filter uses AND semantics with vocabulary resolution",
+    "normative_statement": "A `tag` predicate with multiple values MUST use AND semantics — all specified tags must be present on the instance. Both query tags and stored instance tags are canonicalized via RFC-006 key-or-alias resolution when a Vocabulary is declared for the tag key; when no Vocabulary is declared, raw string comparison applies (case-sensitive). (RFC-012 R7.)",
+    "applies_to": "ext:discovery; tag predicate semantics (RFC-012)"
+  },
+  "instanceId": "7110cc58-63e2-4cd5-8cef-e1ab9457f952",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-23T16:42:10.807628857+00:00"
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-17T01:41:15.863416611+00:00",
+  "fieldValues": {
+    "title": "RFC-017 Change G: Attachment model clarification",
+    "affected_components": "ext:repository (attachment model, tombstone reference-only state, subdirectory support); source-document-meta.json, manifest.json (contentPath)",
+    "proposed_change": "Five normative clarifications: (1) Single-path attachment via `SourceReference` only — no separate `Relation` edge; (2) Attachments are managed only through core operations — a `SourceReference` whose `sourceId` resolves to no index entry is non-conformant; (3) Tombstone reference-only state — a `sourceDocumentIndex` entry MAY outlive its content; an index entry whose content file is absent is valid (NOT a validation error); an implementation MUST NOT reject or refuse to export a repository on that basis; (4) Subdirectory support — `source-documents/` MAY contain subdirectories; `contentPath` MAY contain forward-slash-separated path segments; implementations MUST resolve `contentPath` relative to `sourceDocumentsPath`; (5) Sidecar co-location — the sidecar MUST reside in the same directory as its content file.",
+    "rationale": "The `documentId` pointer is the durable spine; the content file is a prunable leaf. Keeping the index entry after content removal preserves the reference across content pruning, external-store migration, and federated retrieval transitions. Sidecar co-location ensures `source-documents/` subtrees are self-contained and moveable."
+  },
+  "instanceId": "d8192fc3-814c-4769-b0e1-02c23e7b2ea6",
+  "tags": [
+    "construct:attachment",
+    "topic:schema"
+  ],
+  "typeId": "6a000002-0000-4000-a000-000000000002",
+  "typeName": "rfc-change",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-17T01:41:15.863425100+00:00"
+}

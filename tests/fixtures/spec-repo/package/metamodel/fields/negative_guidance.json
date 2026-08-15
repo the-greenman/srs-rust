@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "What the LLM must NOT include or do."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "What the LLM must NOT include or do.",
+  "id": "4b000025-0000-4000-a000-000000000025",
+  "name": "negative_guidance",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

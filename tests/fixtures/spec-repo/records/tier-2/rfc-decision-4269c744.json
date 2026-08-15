@@ -1,0 +1,34 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-08-02T13:59:15.771038602+00:00",
+  "fieldValues": {
+    "title": "Place composite-renderer dispatch in the view layer",
+    "rfc_status": "accepted",
+    "decision_date": "2026-07-31",
+    "decision_rationale": "Composite renderer choice is a presentation arrangement, not a property of a Field or Type. View ownership permits multiple legitimate presentations of the same records while retaining a portable precedence contract.",
+    "decision_statement": "Composite renderer selection is owned by the view layer rather than Field or Type, so different views may present the same semantic records differently.",
+    "decision_scope": "Composite rendering and view semantics",
+    "governing_values": [
+      "semantic-integrity",
+      "evidence-led-evolution",
+      "local-autonomy"
+    ],
+    "project_phase": "formation",
+    "alternatives_considered": "- Keep compositeRenderer on FieldGroup or the replacement Type.\n- Put renderer selection on each instance.\n- Allow only a repository-wide renderer choice.",
+    "accepted_costs": "Renderer declarations move to view capabilities and cannot be recovered from semantic Fields alone.",
+    "evidence_refs": [
+      "https://github.com/the-greenman/srs/blob/f120e9f3174b2eddd773e259a91034eb958b60c2/rfcs/rfc-036-composite-rendering.md#change-b--three-declaration-sites-in-the-view-layer-with-a-total-precedence-order",
+      "https://github.com/the-greenman/srs/blob/ae52927de4e45490cb427fee2b332d5351f536cd/docs/schema/2.0/view.json#L107-L148"
+    ],
+    "review_trigger": "Review when renderer selection is proposed on a semantic definition or instance, or when view-level declarations cannot express a needed presentation."
+  },
+  "instanceId": "4269c744-8b73-4c8d-b6b9-e5b05e8bd1ef",
+  "tags": [
+    "topic:rfc"
+  ],
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeName": "rfc-decision",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 2,
+  "updatedAt": "2026-08-02T13:59:15.771041735+00:00"
+}

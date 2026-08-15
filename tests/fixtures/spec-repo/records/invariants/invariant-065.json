@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-06-24T16:06:22.950576867+00:00",
+  "fieldValues": {
+    "invariant_number": "I-65",
+    "title": "Container tags must resolve against Vocabulary Terms when a Vocabulary governs the key",
+    "normative_statement": "When a Vocabulary in the repository package declares Term entries for a given tag key, Container tags bearing that key MUST resolve against those Terms per RFC-006 vocabulary resolution rules. Free-string tags are valid when no Vocabulary entry governs the key.",
+    "applies_to": "Container (core), ext:vocabulary (RFC-006)"
+  },
+  "instanceId": "be8125aa-ef62-4054-8c74-28e092111524",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-24T16:06:22.950584121+00:00"
+}

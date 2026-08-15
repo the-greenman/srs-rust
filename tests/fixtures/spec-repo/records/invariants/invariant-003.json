@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 3,
+    "invariant_number": "3",
     "title": "Field's aiGuidance belongs to the Field.",
     "normative_statement": "A `Field`'s `aiGuidance` belongs to the Field. Type-level `aiGuidance` provides session framing only.",
     "applies_to": "core — Field"

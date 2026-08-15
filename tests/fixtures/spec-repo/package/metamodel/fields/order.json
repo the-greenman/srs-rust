@@ -1,0 +1,18 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Display/processing order within the Type."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Display/processing order within the Type.",
+  "id": "4b000034-0000-4000-a000-000000000034",
+  "name": "order",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "integer",
+    "constraints": {
+      "minimum": 0
+    }
+  },
+  "version": 1
+}

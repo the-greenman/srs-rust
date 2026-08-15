@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 8,
+    "invariant_number": "8",
     "title": "If Package.mode === \"bundled\": every Reference in dependencyRefs must…",
     "normative_statement": "If `Package.mode === \"bundled\"`: every `Reference` in `dependencyRefs` must have a matching `Field` in `fields[]` (matched on `id` and `version`).",
     "applies_to": "core — Package"

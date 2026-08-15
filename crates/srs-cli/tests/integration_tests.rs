@@ -541,7 +541,6 @@ fn run_srs_raw(dir: &std::path::Path, args: &[&str]) -> (bool, String) {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: runs against the vendored srs/srs corpus, which has pre-existing defects that RFC-038's fatal catalog now rejects on load — fix belongs upstream in the srs repo (see validation.rs live_srs_repo_validates_cleanly)"]
 fn note_list_returns_ok_envelope() {
     let result = run_srs(&["note", "list"]);
     assert_eq!(result["ok"], true);
@@ -550,7 +549,6 @@ fn note_list_returns_ok_envelope() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: runs against the vendored srs/srs corpus, which has pre-existing defects that RFC-038's fatal catalog now rejects on load — fix belongs upstream in the srs repo (see validation.rs live_srs_repo_validates_cleanly)"]
 fn note_list_contains_origin_purpose() {
     let result = run_srs(&["note", "list"]);
     let notes = result["payload"]["notes"].as_array().unwrap();
@@ -566,7 +564,6 @@ fn note_list_contains_origin_purpose() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: runs against the vendored srs/srs corpus, which has pre-existing defects that RFC-038's fatal catalog now rejects on load — fix belongs upstream in the srs repo (see validation.rs live_srs_repo_validates_cleanly)"]
 fn note_list_filters_by_tag() {
     // Filter by "purpose" tag - should return at least origin-purpose
     let result = run_srs(&["note", "list", "--tag", "purpose"]);
@@ -577,7 +574,6 @@ fn note_list_filters_by_tag() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: runs against the vendored srs/srs corpus, which has pre-existing defects that RFC-038's fatal catalog now rejects on load — fix belongs upstream in the srs repo (see validation.rs live_srs_repo_validates_cleanly)"]
 fn note_audit_tags_returns_tag_counts() {
     let result = run_srs(&["note", "tag", "map"]);
     assert_eq!(result["ok"], true);
@@ -586,7 +582,6 @@ fn note_audit_tags_returns_tag_counts() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: runs against the vendored srs/srs corpus, which has pre-existing defects that RFC-038's fatal catalog now rejects on load — fix belongs upstream in the srs repo (see validation.rs live_srs_repo_validates_cleanly)"]
 fn note_foundations_returns_ok_envelope() {
     // Foundation signal tags now come from vocabulary packages; returns empty
     // until a vocabulary with "foundation"-role terms is present in the package.
@@ -601,7 +596,6 @@ fn note_foundations_returns_ok_envelope() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: runs against the vendored srs/srs corpus, which has pre-existing defects that RFC-038's fatal catalog now rejects on load — fix belongs upstream in the srs repo (see validation.rs live_srs_repo_validates_cleanly)"]
 fn repo_map_returns_counts_and_structure() {
     let result = run_srs(&["repo", "map"]);
     assert_eq!(result["ok"], true);
@@ -1279,7 +1273,6 @@ fn json_store_cli_schema_record_and_roundtrip_workflow() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: runs against the vendored srs/srs corpus, which has pre-existing defects that RFC-038's fatal catalog now rejects on load — fix belongs upstream in the srs repo (see validation.rs live_srs_repo_validates_cleanly)"]
 fn migrate_packet_foundation_returns_complete_packet() {
     let result = run_srs(&["migrate", "packet", "--foundation"]);
     assert_eq!(result["ok"], true);
@@ -1294,7 +1287,6 @@ fn migrate_packet_foundation_returns_complete_packet() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: runs against the vendored srs/srs corpus, which has pre-existing defects that RFC-038's fatal catalog now rejects on load — fix belongs upstream in the srs repo (see validation.rs live_srs_repo_validates_cleanly)"]
 fn note_get_returns_note_with_sections() {
     let result = run_srs(&["note", "get", "d5c7e536-5f7d-491a-8166-5ee25a954377"]);
     assert_eq!(result["ok"], true);
@@ -2078,7 +2070,6 @@ fn field_groups_fixture_missing_required_group_in_diagnostics() {
 // Phase 1 acceptance criteria tests
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: runs against the vendored srs/srs corpus, which has pre-existing defects that RFC-038's fatal catalog now rejects on load — fix belongs upstream in the srs repo (see validation.rs live_srs_repo_validates_cleanly)"]
 fn global_repo_option_resolves_repo() {
     // Run from a temp dir that is NOT an SRS repo, pointing --repo at the live srs spec repo
     let temp = TempDir::new().unwrap();
@@ -2102,7 +2093,6 @@ fn global_repo_option_resolves_repo() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: runs against the vendored srs/srs corpus, which has pre-existing defects that RFC-038's fatal catalog now rejects on load — fix belongs upstream in the srs repo (see validation.rs live_srs_repo_validates_cleanly)"]
 fn format_json_is_default() {
     // Run without --format and verify output is valid JSON matching the envelope
     let result = run_srs(&["repo", "map"]);
@@ -2129,7 +2119,6 @@ fn format_json_is_default() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: runs against the vendored srs/srs corpus, which has pre-existing defects that RFC-038's fatal catalog now rejects on load — fix belongs upstream in the srs repo (see validation.rs live_srs_repo_validates_cleanly)"]
 fn pretty_outputs_multiline_json() {
     let temp = TempDir::new().unwrap();
     let repo_path = srs_spec_repo_dir();
@@ -2156,7 +2145,6 @@ fn pretty_outputs_multiline_json() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: runs against the vendored srs/srs corpus, which has pre-existing defects that RFC-038's fatal catalog now rejects on load — fix belongs upstream in the srs repo (see validation.rs live_srs_repo_validates_cleanly)"]
 fn format_text_returns_planned_diagnostic_until_renderer_exists() {
     let temp = TempDir::new().unwrap();
     let repo_path = srs_spec_repo_dir();
@@ -4883,7 +4871,6 @@ fn container_scope_relation_list_filters_to_internal() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: runs against the vendored srs/srs corpus, which has pre-existing defects that RFC-038's fatal catalog now rejects on load — fix belongs upstream in the srs repo (see validation.rs live_srs_repo_validates_cleanly)"]
 fn render_document_view_returns_rendered_payload() {
     let result = run_srs(&[
         "render",
@@ -4918,7 +4905,6 @@ fn render_document_view_unknown_id_returns_ok_false() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: runs against the vendored srs/srs corpus, which has pre-existing defects that RFC-038's fatal catalog now rejects on load — fix belongs upstream in the srs repo (see validation.rs live_srs_repo_validates_cleanly)"]
 fn render_document_view_writes_output_file() {
     let temp = TempDir::new().expect("tempdir");
     let out_path = temp.path().join("rendered.md");
@@ -4937,7 +4923,6 @@ fn render_document_view_writes_output_file() {
 }
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3: runs against the vendored srs/srs corpus, which has pre-existing defects that RFC-038's fatal catalog now rejects on load — fix belongs upstream in the srs repo (see validation.rs live_srs_repo_validates_cleanly)"]
 fn render_document_view_view_format_text_overrides_markup() {
     let result = run_srs(&[
         "render",
@@ -4949,9 +4934,20 @@ fn render_document_view_view_format_text_overrides_markup() {
     ]);
     assert_eq!(result["ok"], true);
     let rendered = result["payload"]["rendered"].as_str().unwrap_or("");
+    // The override governs the renderer's *own* structural markup. It cannot
+    // govern record content: a spec record whose field text contains a markdown
+    // heading renders that heading verbatim, correctly. The previous blanket
+    // `!rendered.contains("# ")` conflated the two and only held because the
+    // stale vendored corpus happened to carry no markdown in its content
+    // (srs-rust#825). Assert the renderer's own headings instead.
     assert!(
-        !rendered.contains("# "),
-        "text format should not include markdown heading markers"
+        rendered.starts_with("Semantic Record System Specification"),
+        "the document title must render bare, got: {:?}",
+        &rendered[..rendered.len().min(80)]
+    );
+    assert!(
+        !rendered.contains("# Semantic Record System Specification"),
+        "text format must not emit the renderer's own heading markers"
     );
 }
 

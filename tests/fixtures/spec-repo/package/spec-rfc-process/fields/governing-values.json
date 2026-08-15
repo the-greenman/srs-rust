@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "5a000021-0000-4000-a000-000000000021",
+  "namespace": "com.semanticops.spec",
+  "name": "governing_values",
+  "version": 1,
+  "description": "Stable identifiers for the constitutional values or principles used to derive the decision.",
+  "aiGuidance": {
+    "purpose": "Connects an operational decision to the values that justify it.",
+    "extraction": "Use stable value or principle identifiers only when the decision rationale explicitly applies them."
+  },
+  "fieldType": {
+    "datatype": "string",
+    "cardinality": "list"
+  },
+  "createdAt": "2026-08-02T00:00:00Z"
+}

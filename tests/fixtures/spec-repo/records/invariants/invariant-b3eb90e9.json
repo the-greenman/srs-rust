@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-23T16:42:10.834474858+00:00",
+  "fieldValues": {
+    "invariant_number": "I-122",
+    "title": "Text normalization is NFC + case folding, no stripping",
+    "normative_statement": "Normalization of `TextSegment.text` MUST apply Unicode Normalization Form C (NFC) followed by Unicode simple case folding (locale-independent). Implementations MUST NOT strip punctuation, diacritics, or whitespace during this normalization step; additional stemming or tokenization is permitted for ranking purposes only, not as a substitute for the normalized canonical search string. (RFC-012 R10.)",
+    "applies_to": "ext:discovery; normalization floor (RFC-012)"
+  },
+  "instanceId": "b3eb90e9-5e18-44a4-9751-4d453c37e65b",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-23T16:42:10.834483403+00:00"
+}

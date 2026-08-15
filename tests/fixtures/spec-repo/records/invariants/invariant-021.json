@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 21,
+    "invariant_number": "21",
     "title": "Container.rootInstanceIds and Container.memberInstanceIds, when…",
     "normative_statement": "`Container.rootInstanceIds` and `Container.memberInstanceIds`, when present, must reference valid SRS instance IDs (`Note.instanceId`, `Typed Record.instanceId`, or `Record.instanceId`).",
     "applies_to": "core — Container"

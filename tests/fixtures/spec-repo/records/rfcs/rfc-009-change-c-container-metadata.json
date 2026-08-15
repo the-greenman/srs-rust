@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-06-24T16:05:55.682184615+00:00",
+  "fieldValues": {
+    "title": "RFC-009 Change C: Add description and vocabulary-backed tags on Container",
+    "affected_components": "Container (core), container.json",
+    "proposed_change": "Container gains normative description?: string (boundary label). Container tags?: string[] aligns with RFC-006 vocabulary substrate: when a Vocabulary declares Terms for a tag key, tags MUST resolve against those Terms (I-65). Free-string tags valid when no Vocabulary governs the key. Containers continue to carry no typed fieldValues and do not participate in the Relation graph (Invariant 20 unchanged).",
+    "rationale": "description was already in the Rust implementation but not formally specified. tags follow the RFC-006 emergent vocabulary pattern: free strings are valid baseline; Vocabulary overlays curation."
+  },
+  "instanceId": "58054458-353c-4383-bf4b-b63901a75454",
+  "typeId": "6a000002-0000-4000-a000-000000000002",
+  "typeName": "rfc-change",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-24T16:05:55.682186201+00:00"
+}

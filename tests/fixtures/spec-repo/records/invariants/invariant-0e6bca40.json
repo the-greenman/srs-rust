@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-23T16:42:10.746651286+00:00",
+  "fieldValues": {
+    "invariant_number": "I-113",
+    "title": "Structured filter predicates are exact-match",
+    "normative_statement": "An implementation that declares `ext:discovery` MUST include in its DiscoveryQuery result set every instance that satisfies all specified structured filter predicates (`typeId`, `typeNamespace`, `typeName`, `containerId`, `tag`, `lifecycleState`, `excludeLifecycleStates`, `tier`), and MUST NOT include any instance that fails any specified structured filter predicate. (RFC-012 R1.)",
+    "applies_to": "ext:discovery; structured-filter exactness (RFC-012)"
+  },
+  "instanceId": "0e6bca40-c267-4c3f-ac36-947e63e66917",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-23T16:42:10.746921950+00:00"
+}

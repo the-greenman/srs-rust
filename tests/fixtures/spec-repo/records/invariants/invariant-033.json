@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 33,
+    "invariant_number": "33",
     "title": "Revision.priorRevisionId, when present, must reference a…",
     "normative_statement": "`Revision.priorRevisionId`, when present, must reference a `Revision.revisionId` for the same `fieldId` and `recordId`. Revision chains must be acyclic.",
     "applies_to": "ext:addressability"

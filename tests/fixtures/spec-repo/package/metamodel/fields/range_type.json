@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "The Type this field's range is (datatype == ref only)."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "The Type this field's range is (datatype == ref only).",
+  "id": "4b000018-0000-4000-a000-000000000018",
+  "name": "range_type",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "ref",
+    "mode": "inline",
+    "rangeType": {
+      "typeId": "4c000005-0000-4000-a000-000000000005",
+      "typeVersion": 1
+    }
+  },
+  "version": 1
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-17T01:40:27.943474931+00:00",
+  "fieldValues": {
+    "title": "RFC-017 Change C: No-base-package invariant",
+    "affected_components": "ext:repository conformance; com.semanticops.base (absence semantics)",
+    "proposed_change": "SRS MUST operate with no `com.semanticops.base` package installed and no `attachment_policy` record present. When the base package is absent: all MIME types are accepted for attachments; no per-file, per-document, or aggregate size limits are enforced; no diagnostics are emitted solely due to the absence of the base package. An implementation MUST NOT refuse to load, validate, or export a repository on the grounds that no base package is present.",
+    "rationale": "Without an explicit invariant, implementations may interpret base-package absence as misconfiguration. SRS's design goal is repositories that work out of the box with only the core package; this invariant enforces that goal normatively."
+  },
+  "instanceId": "20e3ec0a-a334-4bbe-a8d5-448915737767",
+  "tags": [
+    "construct:attachment",
+    "construct:package"
+  ],
+  "typeId": "6a000002-0000-4000-a000-000000000002",
+  "typeName": "rfc-change",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-17T01:40:27.943483518+00:00"
+}

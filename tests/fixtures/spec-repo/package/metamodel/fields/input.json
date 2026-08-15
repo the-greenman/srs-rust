@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Example input text."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Example input text.",
+  "id": "4b000027-0000-4000-a000-000000000027",
+  "name": "input",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

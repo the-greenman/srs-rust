@@ -1,0 +1,86 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "Describes a single SRS Field: its identity, its decomposed value type, and its AI guidance."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "The atomic semantic unit of SRS. A reusable field definition (RFC-033 self-hosted meta-model).",
+  "fields": [
+    {
+      "fieldId": "4b000001-0000-4000-a000-000000000001",
+      "order": 0,
+      "required": true
+    },
+    {
+      "fieldId": "4b000002-0000-4000-a000-000000000002",
+      "order": 1,
+      "required": true
+    },
+    {
+      "fieldId": "4b000003-0000-4000-a000-000000000003",
+      "order": 2,
+      "required": true
+    },
+    {
+      "fieldId": "4b000004-0000-4000-a000-000000000004",
+      "order": 3,
+      "required": true
+    },
+    {
+      "fieldId": "4b000005-0000-4000-a000-000000000005",
+      "order": 4,
+      "required": true
+    },
+    {
+      "fieldId": "4b000007-0000-4000-a000-000000000007",
+      "order": 5,
+      "required": false
+    },
+    {
+      "fieldId": "4b000008-0000-4000-a000-000000000008",
+      "order": 6,
+      "required": true,
+      "displayLabel": "AI Guidance"
+    },
+    {
+      "fieldId": "4b000009-0000-4000-a000-000000000009",
+      "order": 7,
+      "required": true,
+      "displayLabel": "Field Type"
+    },
+    {
+      "fieldId": "4b00000a-0000-4000-a000-00000000000a",
+      "order": 8,
+      "required": false
+    },
+    {
+      "fieldId": "4b00000b-0000-4000-a000-00000000000b",
+      "order": 9,
+      "required": false
+    },
+    {
+      "fieldId": "4b00000c-0000-4000-a000-00000000000c",
+      "order": 10,
+      "required": false
+    },
+    {
+      "fieldId": "4b00000d-0000-4000-a000-00000000000d",
+      "order": 11,
+      "required": false
+    },
+    {
+      "fieldId": "4b00000e-0000-4000-a000-00000000000e",
+      "order": 12,
+      "required": false
+    },
+    {
+      "fieldId": "4b000006-0000-4000-a000-000000000006",
+      "order": 13,
+      "required": true
+    }
+  ],
+  "id": "4c000001-0000-4000-a000-000000000001",
+  "name": "field",
+  "namespace": "com.semanticops.srs",
+  "version": 1
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-06-24T16:06:22.991119751+00:00",
+  "fieldValues": {
+    "invariant_number": "I-66",
+    "title": "All conforming implementations must provide containers_for_instance",
+    "normative_statement": "All conforming SRS implementations MUST implement the containers_for_instance operation. Given an instanceId, it returns every Container whose rootInstanceIds, memberInstanceIds, or transitive contains-Relation traversal from rootInstanceIds includes the instance. The result set MUST be consistent with the current state of those fields and relations.",
+    "applies_to": "Container (core)"
+  },
+  "instanceId": "13b3461c-ecba-4a88-877d-ae0ea8fae0c5",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-24T16:06:22.991122257+00:00"
+}

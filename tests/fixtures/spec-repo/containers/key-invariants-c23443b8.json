@@ -1,0 +1,31 @@
+{
+  "containerId": "c23443b8-8f26-425e-999f-61b7f918a931",
+  "containerType": "section",
+  "memberInstanceIds": [
+    "812a7f7f-cb3e-5927-bc10-a097ffe28178",
+    "078b205b-a636-5f5c-b120-f84a7bcd5463",
+    "a848ecbd-c284-5754-b8cf-1a596de42242",
+    "fee1b9fe-314d-5bb8-9318-35d4f03fff0b",
+    "6a3ae7a9-bb3e-5dc3-9d4e-8a2cea41fb77",
+    "826039b6-5575-5071-bd10-3b0ef9b345a5",
+    "bf712f2b-715b-5ea6-8aac-9bb065605bdd",
+    "250ab2e5-095f-5448-99ab-4e419f27d844",
+    "84e538ce-2e65-5f5e-b73e-9d674d7a3af5",
+    "4fe78bbb-e1e7-587a-a45e-69ada9a4b8c7",
+    "b8fa7bbe-4ce5-5081-81bb-0e65bbff94b7",
+    "90db4d42-c1c3-5d59-80e8-654e549eac71",
+    "d95bae97-3af2-5e03-b290-4d9f19323b0b",
+    "fe0810ac-5ba0-5a37-8ab2-a845ea96b3af",
+    "1623bc16-c479-5fd0-8014-36a81c692690",
+    "f3e0eeb6-0844-5d87-ba39-222ba4454eea",
+    "31bc8a13-bcef-5c71-826d-2fd5528ce021",
+    "cd8fdb47-61c6-51e5-8b9a-31f7745b1b42",
+    "38d8c953-8133-51c7-aa5f-05ef5d7bf44f",
+    "8c665338-6466-5721-83d8-42caefcd6506",
+    "40eb2d7e-30c4-5b7b-8626-78c4e8ce98ed"
+  ],
+  "rootInstanceIds": [
+    "df42f888-4d95-5a51-963e-60d10c36533c"
+  ],
+  "title": "Key Invariants"
+}

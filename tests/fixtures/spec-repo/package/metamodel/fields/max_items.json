@@ -1,0 +1,18 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Maximum list length (cardinality == list only)."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Maximum list length (cardinality == list only).",
+  "id": "4b000012-0000-4000-a000-000000000012",
+  "name": "max_items",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "integer",
+    "constraints": {
+      "minimum": 0
+    }
+  },
+  "version": 1
+}

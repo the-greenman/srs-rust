@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-02T20:43:49.275465140+00:00",
+  "fieldValues": {
+    "invariant_number": "I-84",
+    "title": "upstreamPackage.packageId MUST match at least one PackageRef entry's packageId",
+    "normative_statement": "When `manifest.upstreamPackage` is set, there MUST exist at least one entry in `manifest.packageRefs` (or `manifest.packageRef`) whose `packageId` matches `manifest.upstreamPackage.packageId`. A manifest where no `PackageRef` entry's `packageId` matches `upstreamPackage.packageId` MUST be reported as a validation error. Manifest-only validators MAY skip this check when no `PackageRef` entry carries `packageId` (i.e., all local-mode entries predate RFC-014 and omit the field), and SHOULD report the repository state as indeterminate rather than emitting a validation error in that case.",
+    "applies_to": "ext:import-tracking; ext:repository (manifest.upstreamPackage, manifest.packageRefs); RFC-014 R10.",
+    "rationale": "Without this invariant a manifest could declare an `upstreamPackage` for package X while listing only `PackageRef` entries for package Y, and no validator could detect the inconsistency without cross-referencing package directory files. Using `packageId` — a stable UUID — as the linkage key (rather than namespace or name, which could change) preserves the stable-UUID-as-identity-anchor principle throughout the manifest."
+  },
+  "instanceId": "eb04c8d1-20cb-497a-8f2f-f05fee219c7c",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-02T20:43:49.275483982+00:00"
+}

@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 19,
+    "invariant_number": "19",
     "title": "TypedField.name values must be unique within a Typed Record.",
     "normative_statement": "`TypedField.name` values must be unique within a `Typed Record`.",
     "applies_to": "core — Note/TypedRecord"

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Whether a string field is open or bound to a closed vocabulary. datatype == string only."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Whether a string field is open or bound to a closed vocabulary. datatype == string only.",
+  "id": "4b000013-0000-4000-a000-000000000013",
+  "name": "value_domain",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string",
+    "valueDomain": "closed",
+    "allowedValues": [
+      "open",
+      "closed"
+    ]
+  },
+  "version": 1
+}

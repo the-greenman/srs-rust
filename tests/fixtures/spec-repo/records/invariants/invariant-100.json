@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-10T20:54:49.496448543+00:00",
+  "fieldValues": {
+    "invariant_number": "I-100",
+    "title": "requiresRelation is projected structurally and validated as a warning at rest",
+    "normative_statement": "Allowed-transitions projections MUST include the target state's `requiresRelation` declaration on each transition option whose target state declares one, so clients route successor-flow presentation from structure rather than state-name matching. Repository validation MUST emit a warning-severity diagnostic for every Record at rest that violates I-98, and MUST NOT treat such a violation as a hard validation error. Transitions whose target state declares no `requiresRelation` MUST behave exactly as before RFC-022. (RFC-022 R8–R10.)",
+    "applies_to": "ext:lifecycle; requiresRelation on LifecycleState (RFC-022)"
+  },
+  "instanceId": "443a2ec7-2873-4e73-885e-da0dcbbde91f",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T15:00:00Z"
+}

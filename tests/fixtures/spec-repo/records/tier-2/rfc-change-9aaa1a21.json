@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-17T01:40:08.990244511+00:00",
+  "fieldValues": {
+    "title": "RFC-017 Change A: Add `attaches` to the `SourceReference.sourceRole` enum",
+    "affected_components": "All four SourceReference-bearing schemas: record.json, note.json, typed-record.json, relations-collection.json",
+    "proposed_change": "Add `\"attaches\"` as a new value in the `SourceReference.sourceRole` closed enum. The enum expands from `[\"evidence\", \"extracted-from\", \"quoted-from\", \"inspired-by\"]` to include `\"attaches\"`. Each of the four SourceReference-bearing schemas carries its own local `$defs.SourceReference` (not a shared `$ref`) and all four must be updated identically. An attachment is a `SourceReference` with `sourceType: \"repository-document\"`, `sourceRole: \"attaches\"`, and `sourceId` equal to the target's `documentId`. Attachment is not modelled as a `Relation` edge; no new canonical Relation type and no `com.semanticops.srs` package version bump. The `attaches` value satisfies RFC-023 invariant I-88 (sourceRole/Relation vocabulary disjointness).",
+    "rationale": "A `Relation` addresses its target via `targetInstanceId`; a source document is not an instance and has no `instanceId`. The `SourceReference` mechanism already exists to link a record to a source document by `documentId` and is the honest home for the attachment link. Reusing `sourceRefs` with a new `sourceRole` value adds no new field, avoids a category error (not forcing a document into `instanceIndex`), and delivers two properties the attachment model depends on: references are minted only through the core import path, and they are durable independent of content presence."
+  },
+  "instanceId": "9aaa1a21-7227-4628-8292-3725fe3e8131",
+  "tags": [
+    "construct:attachment",
+    "topic:schema"
+  ],
+  "typeId": "6a000002-0000-4000-a000-000000000002",
+  "typeName": "rfc-change",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-17T01:40:08.990250661+00:00"
+}

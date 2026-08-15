@@ -5,11 +5,11 @@
   "name": "lifecycle_extends_id",
   "version": 1,
   "description": "UUID of the upstream Lifecycle this container extends. Its states and transitions merge into the effective set. Must be paired with lifecycle_extends_version.",
-  "aiGuidance": {
-    "purpose": "Identifies the upstream lifecycle being extended. A downstream package uses this to add states or transitions without forking the upstream definition."
-  },
   "fieldType": {
     "datatype": "string"
   },
-  "createdAt": "2026-06-03T00:00:00Z"
+  "createdAt": "2026-06-03T00:00:00Z",
+  "aiGuidance": {
+    "purpose": "Identifies the upstream lifecycle being extended. A downstream package uses this to add states or transitions without forking the upstream definition."
+  }
 }

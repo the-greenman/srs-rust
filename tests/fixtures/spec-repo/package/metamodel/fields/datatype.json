@@ -1,0 +1,27 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "The base datatype facet (RFC-032 Change A)."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "The base datatype facet (RFC-032 Change A).",
+  "id": "4b00000f-0000-4000-a000-00000000000f",
+  "name": "datatype",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string",
+    "valueDomain": "closed",
+    "allowedValues": [
+      "string",
+      "number",
+      "integer",
+      "boolean",
+      "date",
+      "date-time",
+      "ref",
+      "dependent",
+      "map"
+    ]
+  },
+  "version": 1
+}

@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
-    "invariant_number": 60,
+    "invariant_number": "60",
     "title": "FederationEventsFile.repositoryId must match the repositoryId…",
     "normative_statement": "A `FederationEventsFile.repositoryId` must match the `repositoryId` declared in the enclosing repository's manifest. A federation events file whose `repositoryId` does not match is invalid for that repository.",
     "applies_to": "ext:federation"

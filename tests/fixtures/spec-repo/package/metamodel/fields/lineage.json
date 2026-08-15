@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Fork/copy history of this definition."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Fork/copy history of this definition.",
+  "id": "4b00000c-0000-4000-a000-00000000000c",
+  "name": "lineage",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "ref",
+    "mode": "inline",
+    "rangeType": {
+      "typeId": "4c000009-0000-4000-a000-000000000009",
+      "typeVersion": 1
+    }
+  },
+  "version": 1
+}

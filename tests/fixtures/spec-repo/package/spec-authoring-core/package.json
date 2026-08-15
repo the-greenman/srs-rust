@@ -52,7 +52,7 @@
     "types/field-definition.json",
     "types/design-note.json",
     "types/table.json",
-    "types/table-rows.json"
+    "types/table_rows.json"
   ],
   "views": [],
   "documentViews": [

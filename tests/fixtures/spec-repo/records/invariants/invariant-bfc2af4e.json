@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-07-17T01:41:43.799472086+00:00",
+  "fieldValues": {
+    "invariant_number": "I-104",
+    "title": "no-policy defaults when attachment_policy absent",
+    "normative_statement": "When no `attachment_policy` record exists, a conformant implementation MUST apply the no-policy defaults: all MIME types accepted, no size limits enforced, no size-or-MIME-type-policy diagnostics emitted.",
+    "applies_to": "All implementations; ext:repository attachment-policy handling"
+  },
+  "instanceId": "bfc2af4e-b5f8-47e9-b64d-aa0b39aba902",
+  "tags": [
+    "construct:attachment",
+    "construct:package"
+  ],
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeName": "invariant",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-17T01:41:43.799478387+00:00"
+}

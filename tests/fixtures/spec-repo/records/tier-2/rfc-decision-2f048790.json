@@ -1,0 +1,34 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "createdAt": "2026-08-02T13:59:15.778201389+00:00",
+  "fieldValues": {
+    "title": "Generate structural reference projections from semantic records",
+    "rfc_status": "accepted",
+    "decision_date": "2026-07-31",
+    "decision_rationale": "Resolved semantic records are the structural authority. Narrative stays in authored prose around stable typed slots, while tooling generates the structural reference so hand-authored pseudo-IDL and schemas cannot silently diverge.",
+    "decision_statement": "Resolved Field, Type, and value-object records are the semantic source; contributors keep narrative in published subsection records around a stable typed view slot, while tooling generates a property-table reference, optional pseudo-IDL, and schema from the resolved model.",
+    "decision_scope": "Canonical prose and structural reference publication",
+    "governing_values": [
+      "semantic-integrity",
+      "evidence-led-evolution",
+      "shared-coherence"
+    ],
+    "project_phase": "formation",
+    "alternatives_considered": "- Continue comparing hand-authored pseudo-IDL to generated schemas.\n- Generate human prose from JSON Schema and make the schema canonical.\n- Embed raw JSON Schema as the main contributor-facing reference.",
+    "accepted_costs": "The architecture needs effective-Type resolution, typed generated-view support, a complete emitter inventory, and staged residual checks before authorship can flip.",
+    "evidence_refs": [
+      "https://github.com/the-greenman/srs/issues/274",
+      "https://github.com/the-greenman/srs/issues/274#issuecomment-5145639920"
+    ],
+    "review_trigger": "Review when a generated projection cannot convey a required structural rule, or when a narrative change proposes to become a second structural authority."
+  },
+  "instanceId": "2f048790-519d-441b-8f9d-1ba0652d8c4f",
+  "tags": [
+    "topic:rfc"
+  ],
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeName": "rfc-decision",
+  "typeNamespace": "com.semanticops.spec",
+  "typeVersion": 2,
+  "updatedAt": "2026-08-02T13:59:15.778206834+00:00"
+}
