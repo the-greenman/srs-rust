@@ -1,7 +1,10 @@
 # ADR-045: Container membership removal is a repair operation
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-08-14
+- **Accepted:** 2026-08-14, on the owner merge of PR #846 (srs-rust#841), which
+  landed both this ADR and the `remove_member`/`remove_root` repair seam it
+  describes.
 - **Supersedes:** —
 - **Superseded by:** —
 
@@ -57,8 +60,15 @@ Concretely:
 
 The exemption is granted to **removal only**. Removal can only ever reduce the set of
 references a container makes, so it can never introduce a dangling reference; that is what
-distinguishes it from every other mutation. Adds keep the checked path and additionally
-require their incoming id to resolve.
+distinguishes it from every other mutation. Every membership *writer* keeps the checked path
+and additionally requires its incoming ids to resolve — `add_member`/`add_root` (#841) and,
+since srs-rust#845, `create_container`/`update_container` for their whole membership list.
+
+One consequence of that completeness is worth stating: the repair seam is now the **only**
+surface in the codebase that can express a container with a dangling reference. Tests whose
+subject is an already-incoherent container therefore construct it through
+`save_container_unchecked`, which is a legitimate use — it is the seam standing in for the
+external damage the repair path exists to undo — and not a widening of the exemption.
 
 ## Consequences
 
