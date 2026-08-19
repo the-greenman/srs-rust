@@ -43,6 +43,20 @@
 //! changes, so one snapshot is an accurate preview of everything visible in
 //! it.
 //!
+//! A diagnostic left `Ambiguous`/`ManualStep` is remembered (`seen`) so it
+//! is not retried forever once nothing about it has changed — but "nothing
+//! about it" means its own `(code, locators, message)`, not the rest of the
+//! repository: a later, unrelated repair in the same pass can remove
+//! exactly the reference that made an earlier one ambiguous. `seen` is
+//! therefore cleared and every previously-shelved diagnostic gets one more
+//! look whenever at least one repair actually succeeded since the last
+//! clear (`progress`); a pass where nothing changed terminates normally.
+//! Because no repair in this inventory can ever *introduce* a new blocking
+//! condition, this cannot cycle forever — a diagnostic that stops appearing
+//! never reappears. Retried diagnostics can leave a stale `Ambiguous`
+//! finding behind a later `Repaired` one for the same fingerprint;
+//! `dedupe_keep_last` keeps only the final verdict.
+//!
 //! ## The repair inventory
 //!
 //! | Class | Repair | Mechanism reused |
@@ -69,6 +83,15 @@
 //! reproduction hits — a fresh verbatim copy, before anything else in the
 //! repository could reference it — has no incoming references and is
 //! therefore always auto-repairable.
+//!
+//! "Ambiguous" is not necessarily final *within one `doctor()` call*: the
+//! blocking reference can itself be a fault this same `--fix` pass repairs
+//! (e.g. the referencing relation also has a dangling other endpoint, so it
+//! is deleted as a `DanglingRelationEndpoint` repair) — the fix loop's
+//! `seen`-clearing retry sweep (below) gives adopt another look once
+//! anything else in the pass has actually changed something, rather than
+//! shelving it forever on a fingerprint computed before the repository
+//! changed.
 
 use crate::catalog::{codes, CatalogDiagnostic, RepositoryCatalog};
 use crate::container_service;
@@ -88,7 +111,7 @@ pub struct DoctorInput {
 }
 
 /// The diagnosable class a finding belongs to, per the repair inventory.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DoctorClass {
     RetiredManifestKeys,
@@ -197,6 +220,21 @@ pub fn doctor(
     if input.fix {
         let mut seen: std::collections::HashSet<(&'static str, Vec<String>, String)> =
             std::collections::HashSet::new();
+        // Round-4 review: a diagnostic shelved as `Ambiguous`/`ManualStep`
+        // can become resolvable because of a LATER, unrelated repair in the
+        // same pass — e.g. a duplicate id blocked by an incoming relation
+        // becomes safe to adopt once that relation is deleted as a separate
+        // dangling-endpoint repair. `seen` alone would shelve it forever
+        // (nothing about *its own* fingerprint changed), silently defeating
+        // the fix loop's convergence promise. `progress` tracks whether any
+        // repair actually happened since `seen` was last cleared; when the
+        // search below runs dry, a clear-and-retry sweep gives every
+        // previously-shelved diagnostic one more chance — but only when
+        // something has actually changed, so a genuinely stuck diagnostic
+        // still terminates the loop rather than being retried forever (no
+        // repair in this inventory can create a NEW blocking condition, so
+        // a diagnostic that stops being reported here never starts again).
+        let mut progress = false;
         for _ in 0..MAX_FIX_ITERATIONS {
             // Not `?`: by the second iteration onward this call follows
             // disk-mutating repairs already recorded in `report`. Propagating
@@ -234,6 +272,15 @@ pub fn doctor(
                     && !seen.contains(&(d.code, d.locators.clone(), d.message.clone()))
             });
             let Some(diag) = next else {
+                if progress {
+                    // Something changed since some of these were shelved —
+                    // give every previously-seen diagnostic one more chance
+                    // rather than trusting a fingerprint computed before the
+                    // repository changed underneath it.
+                    seen.clear();
+                    progress = false;
+                    continue;
+                }
                 if manifest_fault_reported {
                     break;
                 }
@@ -251,10 +298,19 @@ pub fn doctor(
                 break;
             };
             seen.insert((diag.code, diag.locators.clone(), diag.message.clone()));
-            report
-                .findings
-                .push(classify_and_repair(store, &cat, diag, true));
+            let finding = classify_and_repair(store, &cat, diag, true);
+            if finding.outcome == DoctorOutcome::Repaired {
+                progress = true;
+            }
+            report.findings.push(finding);
         }
+        // A diagnostic retried after a `seen.clear()` sweep can appear twice
+        // in `report.findings` with the same (class, locators, message) —
+        // once shelved, once resolved (or shelved again, unchanged). Keep
+        // only the most recent verdict for each so the report never shows a
+        // stale `Ambiguous`/`ManualStep` next to the `Repaired` that
+        // superseded it.
+        dedupe_keep_last(&mut report.findings);
     } else {
         let cat = store.catalog_unchecked()?;
         for diag in &cat.diagnostics {
@@ -284,6 +340,29 @@ pub fn doctor(
 /// review round 2: doctor must never report a repository clean when
 /// `catalog::build`'s own internal manifest load failed for a reason
 /// outside the two classes `check_manifest_raw` names).
+/// Keep only the last finding for each `(class, locators, message)` —
+/// the verdict from the retry sweep in the `--fix` loop, when there was
+/// one, supersedes whatever the diagnostic was shelved as earlier in the
+/// same `doctor()` call. Order of the retained findings is otherwise
+/// unchanged.
+fn dedupe_keep_last(findings: &mut Vec<DoctorFinding>) {
+    let mut keep = vec![false; findings.len()];
+    let mut seen: std::collections::HashSet<(DoctorClass, Vec<String>, String)> =
+        std::collections::HashSet::new();
+    for (i, f) in findings.iter().enumerate().rev() {
+        let key = (f.class, f.locators.clone(), f.message.clone());
+        if seen.insert(key) {
+            keep[i] = true;
+        }
+    }
+    let mut i = 0;
+    findings.retain(|_| {
+        let k = keep[i];
+        i += 1;
+        k
+    });
+}
+
 fn unclassified_manifest_finding(diag: &CatalogDiagnostic) -> DoctorFinding {
     DoctorFinding {
         class: DoctorClass::Unrepaired,
