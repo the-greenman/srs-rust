@@ -2452,6 +2452,10 @@ pub mod memory {
         DeleteInstanceFileAt(String),
         /// Fail the next `load_package` call.
         LoadPackage,
+        /// Fail the next `catalog_unchecked` call (one-shot). Exercises a
+        /// mid-loop I/O failure in `doctor_service::doctor`'s `--fix` path,
+        /// which rebuilds the catalog between repairs.
+        CatalogUnchecked,
     }
 
     /// In-memory implementation of [`RepositoryStore`] for unit tests.
@@ -3335,6 +3339,14 @@ pub mod memory {
         }
 
         fn catalog_unchecked(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+            let should_fail = matches!(*self.fail_at.borrow(), Some(FailPoint::CatalogUnchecked));
+            if should_fail {
+                *self.fail_at.borrow_mut() = None;
+                return Err(RepositoryError::Io {
+                    path: std::path::PathBuf::from("<memory>"),
+                    source: std::io::Error::other("injected fault: catalog_unchecked"),
+                });
+            }
             crate::catalog::build(self)
         }
 

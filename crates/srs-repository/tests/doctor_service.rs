@@ -15,7 +15,7 @@ use srs_repository::doctor_service::{doctor, DoctorClass, DoctorInput, DoctorOut
 use srs_repository::repository_lifecycle::{
     create_repository, InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
 };
-use srs_repository::store::memory::MemoryStore;
+use srs_repository::store::memory::{FailPoint, MemoryStore};
 use srs_repository::{container_service, FileStore, RepositoryStore};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -418,6 +418,98 @@ fn repairs_a_relation_filename_id_mismatch() {
         .is_err());
 }
 
+/// Round-3 review finding: `store.save_relation` overwrites unconditionally
+/// by design, so a filename/id mismatch whose rename TARGET already holds
+/// its own legitimate content must not be auto-repaired — that would
+/// silently destroy the occupant. This is really a relation-id collision
+/// (both files declare the same `relationId`), which is the relation
+/// duplicate-id case doctor already leaves as a manual step everywhere
+/// else; the filename-mismatch repair must reach the same conclusion
+/// rather than blindly clobbering.
+#[test]
+fn relation_filename_mismatch_does_not_clobber_an_existing_relation_at_the_target_name() {
+    let store = MemoryStore::empty();
+    let a = "dddddddd-0000-4000-8000-000000000d04";
+    let b = "dddddddd-0000-4000-8000-000000000d05";
+    store.save_note(&note(a)).unwrap();
+    store.save_note(&note(b)).unwrap();
+    let real_id = "eeeeeeee-0000-4000-8000-000000000e06";
+    store.save_relation(&relation(real_id, a, b)).unwrap();
+    let real_content = store
+        .load_relations_json(&format!("relations/{real_id}.json"))
+        .unwrap();
+
+    // A second, wrongly-named file that ALSO declares relationId == real_id
+    // — a plausible bad copy: a filename/id mismatch AND a same-id
+    // collision with the file `save_relation` would otherwise clobber.
+    store
+        .save_relations_json("relations/wrong-name.json", &real_content)
+        .unwrap();
+
+    let report = doctor(&store, DoctorInput { fix: true }).unwrap();
+    let mismatch = report
+        .findings
+        .iter()
+        .find(|f| f.class == DoctorClass::RelationFilenameMismatch)
+        .expect("the filename mismatch must be reported");
+    assert_eq!(
+        mismatch.outcome,
+        DoctorOutcome::Ambiguous,
+        "a rename that would overwrite an existing relation must not proceed silently: {:?}",
+        report.findings
+    );
+
+    let still_there = store
+        .load_relations_json(&format!("relations/{real_id}.json"))
+        .unwrap();
+    assert_eq!(
+        still_there, real_content,
+        "the real relation's content must survive untouched"
+    );
+}
+
+/// Round-3 review finding: `instance_id_referenced` (adopt's safety check)
+/// must classify a relation the same way `catalog.rs` does — `$schema`
+/// stripped if present, never required — or a catalog-valid, schema-less
+/// relation naming the duplicate id would be silently skipped, letting
+/// adopt proceed on an id that genuinely has an incoming reference.
+#[test]
+fn adopt_detects_a_reference_from_a_relation_missing_the_schema_property() {
+    let store = MemoryStore::empty();
+    // Checked writes first — both would fail on an already-bricked catalog.
+    let other = "aaaaaaaa-0000-4000-8000-0000000000a3";
+    store.save_note(&note(other)).unwrap();
+    plant_duplicate(&store);
+
+    let relation_id = "eeeeeeee-0000-4000-8000-000000000e07";
+    // Deliberately no "$schema" key — `classify_relations_file` accepts
+    // this (strips $schema only if present), `relation_object_from_value`
+    // would reject it outright.
+    let raw = json!({
+        "relationId": relation_id,
+        "relationType": "depends-on",
+        "sourceInstanceId": other,
+        "targetInstanceId": DUP_ID,
+    });
+    store
+        .save_relations_json(&format!("relations/{relation_id}.json"), &raw)
+        .unwrap();
+
+    let report = doctor(&store, DoctorInput { fix: true }).unwrap();
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.class == DoctorClass::DuplicateInstanceId)
+        .expect("duplicate must still be reported");
+    assert_eq!(
+        finding.outcome,
+        DoctorOutcome::Ambiguous,
+        "a schema-less but catalog-valid relation referencing the duplicate id must still \
+         block adopt: {:?}",
+        report.findings
+    );
+}
+
 /// Two faults on ONE relation file: a filename/id mismatch *and* a dangling
 /// endpoint (a plausible single hand-rename of a relation whose target was
 /// later deleted). Regression for round-2 review finding #1: fixing the
@@ -584,6 +676,48 @@ fn a_pending_manifest_fix_hides_catalog_findings_from_dry_run_but_fix_clears_bot
     store
         .catalog()
         .expect("repository must load clean after a single --fix pass");
+}
+
+/// Round-3 review finding: a store I/O failure on the fix loop's catalog
+/// rebuild must not propagate as `Err` and discard everything already
+/// recorded in the report — `check_manifest_raw` runs (and records its
+/// finding) *before* the loop, at a separate call site the injected fault
+/// does not touch, so that finding surviving proves the fault handler
+/// returns `Ok(report)` with prior progress intact rather than propagating.
+#[test]
+fn a_mid_loop_catalog_rebuild_failure_does_not_discard_earlier_findings() {
+    let store = MemoryStore::empty();
+    let mut manifest = store.load_manifest().unwrap();
+    manifest
+        .extra
+        .insert("instanceIndex".to_string(), json!([]));
+    store.save_manifest(&manifest).unwrap();
+
+    // Fires on the fix loop's first `catalog_unchecked()` rebuild, which
+    // runs strictly after `check_manifest_raw` has already pushed its
+    // finding into the report.
+    store.arm_fail_at(FailPoint::CatalogUnchecked);
+
+    let report = doctor(&store, DoctorInput { fix: true }).unwrap();
+
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.class == DoctorClass::RetiredManifestKeys),
+        "the finding recorded before the injected failure must survive: {:?}",
+        report.findings
+    );
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.outcome == DoctorOutcome::ManualStep
+                && f.message.contains("failed to rebuild the catalog")),
+        "the injected failure must be named in the report, not silently swallowed or \
+         propagated as Err: {:?}",
+        report.findings
+    );
 }
 
 /// A manifest fault `check_manifest_raw`'s two named classes (retired keys,

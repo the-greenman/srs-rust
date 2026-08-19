@@ -198,7 +198,37 @@ pub fn doctor(
         let mut seen: std::collections::HashSet<(&'static str, Vec<String>, String)> =
             std::collections::HashSet::new();
         for _ in 0..MAX_FIX_ITERATIONS {
-            let cat = store.catalog_unchecked()?;
+            // Not `?`: by the second iteration onward this call follows
+            // disk-mutating repairs already recorded in `report`. Propagating
+            // the error here would discard that whole record — every repair
+            // genuinely already applied to disk — leaving the caller with
+            // nothing but an error and no idea anything happened. Truthful
+            // diagnostics (the same principle `repair_duplicate_instance`'s
+            // partial-failure path already follows) means returning what was
+            // actually done, plus a finding naming the failure, instead.
+            let cat = match store.catalog_unchecked() {
+                Ok(c) => c,
+                Err(e) => {
+                    let repaired_so_far = report
+                        .findings
+                        .iter()
+                        .filter(|f| f.outcome == DoctorOutcome::Repaired)
+                        .count();
+                    report.findings.push(DoctorFinding {
+                        class: DoctorClass::Unrepaired,
+                        locators: Vec::new(),
+                        message: format!(
+                            "failed to rebuild the catalog after {repaired_so_far} repair(s)"
+                        ),
+                        outcome: DoctorOutcome::ManualStep,
+                        detail: format!(
+                            "{e} — repairs already applied above are intact on disk; re-run \
+                             `repo doctor --fix` once the underlying I/O error is resolved"
+                        ),
+                    });
+                    break;
+                }
+            };
             let next = cat.diagnostics.iter().find(|d| {
                 d.code != codes::MANIFEST_INVALID
                     && !seen.contains(&(d.code, d.locators.clone(), d.message.clone()))
@@ -617,6 +647,23 @@ fn adopt_one(store: &dyn RepositoryStore, locator: &str) -> Result<String, Repos
 /// individual relation/container it cannot read or parse — those are
 /// diagnosed by their own catalog entries; a scan that aborted on the first
 /// unrelated fault would make adopt strictly less safe, not more.
+/// Parse a relation object the way `catalog.rs::classify_relations_file`
+/// does: strip `$schema` if present, never require it. Deliberately more
+/// lenient than [`relation_object_from_value`], which requires an exact
+/// `$schema` match — that stricter contract is right for the checked
+/// `store.load_relation` read path, but `instance_id_referenced` must
+/// classify a relation the same way the catalog does, or a relation the
+/// catalog accepts as valid (and resolvable) could be silently skipped here,
+/// wrongly telling adopt an id has no incoming reference.
+fn lenient_relation_from_value(
+    mut value: serde_json::Value,
+) -> Option<srs_core::types::relation::Relation> {
+    if let Some(obj) = value.as_object_mut() {
+        obj.remove("$schema");
+    }
+    serde_json::from_value(value).ok()
+}
+
 fn instance_id_referenced(store: &dyn RepositoryStore, cat: &RepositoryCatalog, id: &str) -> bool {
     for entry in &cat.relations {
         let Some(locator) = &entry.locator else {
@@ -625,7 +672,15 @@ fn instance_id_referenced(store: &dyn RepositoryStore, cat: &RepositoryCatalog, 
         let Ok(value) = store.load_relations_json(locator) else {
             continue;
         };
-        let Ok(relation) = relation_object_from_value(value, locator) else {
+        // Lenient parse, matching `catalog.rs::classify_relations_file`'s own
+        // acceptance criteria (`$schema` stripped if present, never required)
+        // rather than `relation_object_from_value`'s stricter "$schema is
+        // required and must match exactly" contract. Every relation the
+        // catalog itself accepts as valid — `$schema`-bearing or not — must
+        // be checked here; the strict parser silently skipping a
+        // schema-less-but-catalog-valid relation would make adopt wrongly
+        // proceed on an id that genuinely has an incoming reference.
+        let Some(relation) = lenient_relation_from_value(value) else {
             continue;
         };
         if relation.source_instance_id == id || relation.target_instance_id == id {
@@ -761,6 +816,26 @@ fn repair_relation_filename_mismatch(
         }
     };
     let correct = relation_object_path(&relation.relation_id);
+
+    // The rename target already has its own content: `store.save_relation`
+    // overwrites unconditionally by design (its own doc comment: "Overwrites
+    // an existing object with the same id"), so renaming here would silently
+    // destroy whatever is at `correct`. This is really a relation-id
+    // collision — effectively the duplicate-id case for relations, which
+    // adopt is deliberately not defined for (`duplicate_set_and_id` only
+    // auto-repairs the `"instance"` set; never guess which copy is
+    // canonical). Checked before the dry-run branch too, so a preview never
+    // claims "would rename" when renaming would actually destroy data.
+    if correct != locator && store.load_relations_json(&correct).is_ok() {
+        return (
+            DoctorOutcome::Ambiguous,
+            format!(
+                "cannot rename {locator} -> {correct}: {correct} already has its own content — \
+                 this is a relation-id collision, not a simple rename; resolve which copy is \
+                 canonical by hand"
+            ),
+        );
+    }
 
     if !fix {
         return (
