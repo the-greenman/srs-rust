@@ -331,6 +331,42 @@ fn repairs_a_dangling_relation_endpoint_by_deleting_the_relation() {
         .is_err());
 }
 
+/// A relation with BOTH endpoints dangling emits one `DANGLING_REFERENCE`
+/// diagnostic per endpoint (`catalog.rs::resolve_references`), so removing
+/// it must count as exactly one repair, not two — regression for round-2
+/// review finding #3. The rebuild-between-repairs loop in `doctor()` makes
+/// this automatic: once the first diagnostic's repair deletes the relation,
+/// the second diagnostic (same relation, other endpoint) never reappears in
+/// the rebuilt catalog, so it is never even visited.
+#[test]
+fn a_relation_with_both_endpoints_dangling_is_repaired_exactly_once() {
+    let store = MemoryStore::empty();
+    let relation_id = "eeeeeeee-0000-4000-8000-000000000e05";
+    store
+        .save_relation(&relation(
+            relation_id,
+            "cccccccc-0000-4000-8000-0000000000f1", // dangling
+            "cccccccc-0000-4000-8000-0000000000f2", // dangling
+        ))
+        .unwrap();
+
+    let report = doctor(&store, DoctorInput { fix: true }).unwrap();
+    let matching: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.class == DoctorClass::DanglingRelationEndpoint)
+        .collect();
+    assert_eq!(
+        matching.len(),
+        1,
+        "one relation removal must produce exactly one finding, not one per dangling endpoint: {:?}",
+        report.findings
+    );
+    assert_eq!(matching[0].outcome, DoctorOutcome::Repaired);
+    assert_eq!(report.repaired, 1);
+    assert!(store.load_relation(relation_id).is_err());
+}
+
 // ---------------------------------------------------------------------------
 // Class: relation filename <-> id mismatch ([R11])
 // ---------------------------------------------------------------------------
@@ -380,6 +416,76 @@ fn repairs_a_relation_filename_id_mismatch() {
     assert!(store
         .load_relations_json("relations/wrong-name.json")
         .is_err());
+}
+
+/// Two faults on ONE relation file: a filename/id mismatch *and* a dangling
+/// endpoint (a plausible single hand-rename of a relation whose target was
+/// later deleted). Regression for round-2 review finding #1: fixing the
+/// rename first must not leave the dangling-endpoint repair acting on the
+/// pre-rename locator (which `store.delete_relations_json` would silently
+/// no-op on, since it is idempotent on a missing path) — `doctor()` rebuilds
+/// the catalog between repairs precisely so the second repair sees the
+/// relation at its now-correct path.
+#[test]
+fn a_relation_with_both_a_filename_mismatch_and_a_dangling_endpoint_ends_up_fully_repaired() {
+    let store = MemoryStore::empty();
+    let survivor = "dddddddd-0000-4000-8000-000000000d03";
+    store.save_note(&note(survivor)).unwrap();
+    let relation_id = "eeeeeeee-0000-4000-8000-000000000e04";
+    store
+        .save_relation(&relation(
+            relation_id,
+            survivor,
+            "dddddddd-0000-4000-8000-0000000000ff", // dangling: no such instance
+        ))
+        .unwrap();
+
+    // Hand rename, as `repairs_a_relation_filename_id_mismatch` does.
+    let value = store
+        .load_relations_json(&format!("relations/{relation_id}.json"))
+        .unwrap();
+    store
+        .save_relations_json("relations/also-wrong-name.json", &value)
+        .unwrap();
+    store
+        .delete_relations_json(&format!("relations/{relation_id}.json"))
+        .unwrap();
+
+    store.catalog().expect_err(
+        "a relation with a filename mismatch AND a dangling endpoint must brick the checked load",
+    );
+
+    let report = doctor(&store, DoctorInput { fix: true }).unwrap();
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.class == DoctorClass::RelationFilenameMismatch
+                && f.outcome == DoctorOutcome::Repaired),
+        "{:?}",
+        report.findings
+    );
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.class == DoctorClass::DanglingRelationEndpoint
+                && f.outcome == DoctorOutcome::Repaired),
+        "{:?}",
+        report.findings
+    );
+
+    // The whole point: the repo actually loads clean afterward, and the
+    // relation (unresolvable no matter which file held it) is truly gone —
+    // not silently left dangling under its now-correct name because the
+    // second repair no-op'd against a locator that no longer existed.
+    store
+        .catalog()
+        .expect("repository must load clean — this is the failure mode the test pins");
+    assert!(
+        store.load_relation(relation_id).is_err(),
+        "the relation must actually be gone, not merely renamed and still dangling"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -478,6 +584,46 @@ fn a_pending_manifest_fix_hides_catalog_findings_from_dry_run_but_fix_clears_bot
     store
         .catalog()
         .expect("repository must load clean after a single --fix pass");
+}
+
+/// A manifest fault `check_manifest_raw`'s two named classes (retired keys,
+/// unsupported generation) do not classify — here, an `upstreamPackage`
+/// object missing required fields, which is valid JSON but fails the typed
+/// `Manifest` deserialize `catalog::build` performs internally. Regression
+/// for round-2 review finding #2: doctor must never report a repository
+/// clean (zero findings) when it is actually completely unloadable for a
+/// reason outside those two classes.
+#[test]
+fn a_manifest_fault_outside_the_two_named_classes_is_still_reported() {
+    let (tmp, store) = file_store();
+    let manifest_path = tmp.path().join("manifest.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
+    // Missing namespace/name/version/installedAt — UpstreamPackage requires
+    // all five; the typed load fails, the raw JSON parse does not.
+    manifest["upstreamPackage"] = json!({"packageId": "not-a-real-package"});
+    std::fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).unwrap();
+
+    store
+        .load_manifest()
+        .expect_err("the fixture must actually be unloadable through the typed path");
+
+    let report = doctor(&store, DoctorInput { fix: true }).unwrap();
+    assert!(
+        !report.findings.is_empty(),
+        "doctor must never report a repository clean when catalog::build's internal manifest \
+         load failed for any reason, not only the two named classes"
+    );
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.class == DoctorClass::Unrepaired
+                && f.outcome == DoctorOutcome::ManualStep
+                && f.locators.iter().any(|l| l.contains("manifest.json"))),
+        "{:?}",
+        report.findings
+    );
 }
 
 // ---------------------------------------------------------------------------

@@ -20,10 +20,28 @@
 //! `catalog::build`'s own internal `store.load_manifest()` call fail; `build`
 //! reports that as a single `MANIFEST_INVALID` diagnostic and returns an
 //! otherwise-empty catalog rather than failing the call (see `catalog::build`
-//! doc comment) — so the manifest-level classes below are diagnosed from a
-//! **raw** read (`load_manifest_raw_text`, never the checked `load_manifest`)
-//! independent of the catalog, and the redundant `MANIFEST_INVALID` catalog
-//! diagnostic is skipped in the main loop.
+//! doc comment) — so those two classes are diagnosed from a **raw** read
+//! (`load_manifest_raw_text`, never the checked `load_manifest`) independent
+//! of the catalog. `load_manifest()`'s *typed* deserialize can fail for
+//! other reasons a manual edit can produce (e.g. a malformed sub-object) that
+//! the raw probe's two named classes do not cover — `doctor()` tracks
+//! whether the raw probe actually reported something and only treats a
+//! `MANIFEST_INVALID` catalog diagnostic as redundant when it did; otherwise
+//! it is surfaced verbatim as its own manual-step finding (round-2 review:
+//! doctor must never report a repository clean when the manifest failed to
+//! load for any reason).
+//!
+//! `--fix` repairs one catalog-derived diagnostic at a time and **rebuilds
+//! the catalog before picking the next one**, rather than acting on a single
+//! snapshot taken up front. Two diagnostics can name the same locator (a
+//! relation with both an [R11] filename mismatch and an [R13] dangling
+//! endpoint) or the same underlying fault (both endpoints of one relation
+//! dangling emits one diagnostic per endpoint); repairing one can move,
+//! delete, or otherwise change what a second diagnostic's locator pointed
+//! to, so acting on the pre-repair snapshot risks silently no-op'ing against
+//! whatever used to be there. A dry run needs no such loop — nothing on disk
+//! changes, so one snapshot is an accurate preview of everything visible in
+//! it.
 //!
 //! ## The repair inventory
 //!
@@ -130,6 +148,14 @@ pub struct DoctorReport {
     pub remaining: usize,
 }
 
+/// Safety bound on the fix loop below — never expected to bind in practice
+/// (every repair either removes the diagnostic that triggered it or leaves
+/// it unrepaired, and `seen` stops an unrepaired diagnostic from being
+/// retried), but a tool that loops while writing to disk on untrusted
+/// repository content gets a hard stop rather than a hang if some future
+/// repair class ever violates that invariant.
+const MAX_FIX_ITERATIONS: usize = 10_000;
+
 /// Run doctor once. Never called from any load path — the caller (CLI/WASM
 /// handler) is the only place this is invoked, always on explicit request.
 pub fn doctor(
@@ -141,20 +167,77 @@ pub fn doctor(
         ..Default::default()
     };
 
-    check_manifest_raw(store, input.fix, &mut report);
+    // Whether the raw probe already reported a manifest-level finding — a
+    // `codes::MANIFEST_INVALID` catalog diagnostic below is redundant with
+    // it exactly when this is true, and otherwise names a manifest fault
+    // the raw probe does not classify (e.g. a malformed sub-object the
+    // typed `Manifest` shape rejects) and must be surfaced, not dropped.
+    let manifest_fault_reported = check_manifest_raw(store, input.fix, &mut report);
 
     // The catalog-derived classes. Reuses the existing repair-only unchecked
     // seam (ADR-045) rather than adding a second one (srs-rust#844's ask).
-    let cat = store.catalog_unchecked()?;
-    for diag in &cat.diagnostics {
-        if diag.code == codes::MANIFEST_INVALID {
-            // Covered by check_manifest_raw above with a more specific class;
-            // this is catalog::build's own generic fallback for the same fact.
-            continue;
+    //
+    // Dry run: one snapshot suffices — nothing on disk changes, so no
+    // repair can invalidate a locator or a fault another finding's preview
+    // describes; every finding is a preview only.
+    //
+    // `--fix`: repairs one diagnostic, then **rebuilds the catalog before
+    // picking the next one**. Two diagnostics can name the same locator
+    // (e.g. a relation with both an [R11] filename mismatch and an [R13]
+    // dangling endpoint) or the same underlying fault (a relation with both
+    // endpoints dangling emits one diagnostic per endpoint) — repairing one
+    // can move, delete, or otherwise change what a second diagnostic's
+    // locator pointed to. Acting on a diagnostic snapshot taken before an
+    // earlier repair in the same pass would silently no-op against
+    // whatever used to be there. `seen` (a diagnostic's own `(code,
+    // locators, message)`) stops an unrepaired diagnostic — `ManualStep` or
+    // `Ambiguous`, which does not change the disk state that produced it —
+    // from being retried forever once nothing distinguishes rebuild N from
+    // rebuild N+1 for that one finding.
+    if input.fix {
+        let mut seen: std::collections::HashSet<(&'static str, Vec<String>, String)> =
+            std::collections::HashSet::new();
+        for _ in 0..MAX_FIX_ITERATIONS {
+            let cat = store.catalog_unchecked()?;
+            let next = cat.diagnostics.iter().find(|d| {
+                d.code != codes::MANIFEST_INVALID
+                    && !seen.contains(&(d.code, d.locators.clone(), d.message.clone()))
+            });
+            let Some(diag) = next else {
+                if manifest_fault_reported {
+                    break;
+                }
+                // No repairable/seen diagnostic remains, but a MANIFEST_INVALID
+                // may still be sitting there unclassified by the raw probe —
+                // surface it once rather than loop on it (it is not in `seen`'s
+                // domain, since the `find` above always excludes that code).
+                if let Some(d) = cat
+                    .diagnostics
+                    .iter()
+                    .find(|d| d.code == codes::MANIFEST_INVALID)
+                {
+                    report.findings.push(unclassified_manifest_finding(d));
+                }
+                break;
+            };
+            seen.insert((diag.code, diag.locators.clone(), diag.message.clone()));
+            report
+                .findings
+                .push(classify_and_repair(store, &cat, diag, true));
         }
-        report
-            .findings
-            .push(classify_and_repair(store, &cat, diag, input.fix));
+    } else {
+        let cat = store.catalog_unchecked()?;
+        for diag in &cat.diagnostics {
+            if diag.code == codes::MANIFEST_INVALID {
+                if !manifest_fault_reported {
+                    report.findings.push(unclassified_manifest_finding(diag));
+                }
+                continue;
+            }
+            report
+                .findings
+                .push(classify_and_repair(store, &cat, diag, false));
+        }
     }
 
     report.repaired = report
@@ -166,11 +249,37 @@ pub fn doctor(
     Ok(report)
 }
 
+/// A `codes::MANIFEST_INVALID` diagnostic the raw manifest probe did not
+/// classify — surfaced verbatim rather than silently dropped (srs-rust#857
+/// review round 2: doctor must never report a repository clean when
+/// `catalog::build`'s own internal manifest load failed for a reason
+/// outside the two classes `check_manifest_raw` names).
+fn unclassified_manifest_finding(diag: &CatalogDiagnostic) -> DoctorFinding {
+    DoctorFinding {
+        class: DoctorClass::Unrepaired,
+        locators: diag.locators.clone(),
+        message: diag.message.clone(),
+        outcome: DoctorOutcome::ManualStep,
+        detail: "manifest.json failed to load through the typed path for a reason outside \
+                 doctor's raw-probe classes (retired keys, unsupported generation) — inspect \
+                 manifest.json by hand; doctor never guesses content"
+            .to_string(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Manifest-level classes (raw read, independent of the catalog)
 // ---------------------------------------------------------------------------
 
-fn check_manifest_raw(store: &dyn RepositoryStore, fix: bool, report: &mut DoctorReport) {
+/// Returns `true` when this raw probe reported at least one manifest-level
+/// finding. `doctor()` uses that to decide whether a `codes::MANIFEST_INVALID`
+/// catalog diagnostic (`catalog::build`'s own generic fallback for "the
+/// internal `load_manifest()` call failed") is redundant with a finding
+/// already pushed here, or whether it names a manifest fault this raw probe
+/// does not classify (e.g. a malformed sub-object the typed `Manifest` shape
+/// rejects but that is neither a retired key nor a low `dataModelRevision`)
+/// — in which case it must be surfaced, not silently dropped.
+fn check_manifest_raw(store: &dyn RepositoryStore, fix: bool, report: &mut DoctorReport) -> bool {
     let text = match store.load_manifest_raw_text() {
         Ok(t) => t,
         Err(e) => {
@@ -181,7 +290,7 @@ fn check_manifest_raw(store: &dyn RepositoryStore, fix: bool, report: &mut Docto
                 outcome: DoctorOutcome::ManualStep,
                 detail: "restore manifest.json — doctor never guesses content".to_string(),
             });
-            return;
+            return true;
         }
     };
     let manifest: serde_json::Value = match serde_json::from_str(&text) {
@@ -195,9 +304,11 @@ fn check_manifest_raw(store: &dyn RepositoryStore, fix: bool, report: &mut Docto
                 detail: "hand-repair manifest.json's JSON syntax — doctor never guesses content"
                     .to_string(),
             });
-            return;
+            return true;
         }
     };
+
+    let mut reported = false;
 
     let retired: Vec<&'static str> = RETIRED_PROPERTIES
         .iter()
@@ -259,6 +370,7 @@ fn check_manifest_raw(store: &dyn RepositoryStore, fix: bool, report: &mut Docto
             outcome,
             detail,
         });
+        reported = true;
     }
 
     let revision = manifest
@@ -279,7 +391,10 @@ fn check_manifest_raw(store: &dyn RepositoryStore, fix: bool, report: &mut Docto
                       already-supported repository, not generation migration"
                 .to_string(),
         });
+        reported = true;
     }
+
+    reported
 }
 
 // ---------------------------------------------------------------------------
