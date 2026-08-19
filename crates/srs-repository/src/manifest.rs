@@ -49,7 +49,16 @@ impl Default for Manifest {
 /// are stores constructed through [`crate::store::FileStore`]'s named
 /// exemption (the migration tooling entry points and the discovery
 /// conformance fixture loader — see `with_rfc038_exemption`).
+/// The data-model generation this build requires ([R21]). Below it, a
+/// repository is refused with [`crate::error::RepositoryError::StorageGenerationUnsupported`].
+/// Surfaced to MCP clients via `serverInfo` (srs-rust#858) so a stale binary
+/// and a stale repository are distinguishable at the protocol level — `pub`
+/// (not `pub(crate)`, unlike the `rfc038` module it governs) precisely so
+/// `srs-mcp` can reuse it instead of hardcoding its own copy of the floor.
+pub const MIN_SUPPORTED_DATA_MODEL_REVISION: u64 = 2;
+
 pub(crate) mod rfc038 {
+    use super::MIN_SUPPORTED_DATA_MODEL_REVISION;
     use crate::error::RepositoryError;
 
     /// The manifest properties retired by RFC-038 Change K.
@@ -70,7 +79,7 @@ pub(crate) mod rfc038 {
             .get("dataModelRevision")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
-        if declared <= 1 {
+        if declared < MIN_SUPPORTED_DATA_MODEL_REVISION {
             return Err(RepositoryError::StorageGenerationUnsupported { declared });
         }
         for prop in RETIRED_PROPERTIES {
