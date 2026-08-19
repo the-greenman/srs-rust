@@ -53,16 +53,26 @@ closes #844 for that reason — the operator can now see full current membership
 diagnosable class) on a bricked repository, without a second exemption on the read side of
 container list.
 
-One case `catalog::build` does not cover: a retired manifest property (RFC-038 Change K) or a
+One case `catalog::build` handles specially: a retired manifest property (RFC-038 Change K) or a
 `dataModelRevision` below this build's floor makes `catalog::build`'s own internal
 `store.load_manifest()` call fail. `build` already handles that by emitting a single
 `MANIFEST_INVALID` diagnostic and returning an otherwise-empty catalog rather than failing the
 whole call — but an empty catalog means every *other* diagnosable class goes dark until the
-manifest-level fault is cleared. Doctor's manifest-level classes (retired keys,
-below-floor generation) are therefore diagnosed from a **raw** read
-(`load_manifest_raw_text`, never the checked `load_manifest`) independent of the catalog pass,
-and the catalog's own `MANIFEST_INVALID` diagnostic is skipped in doctor's main loop as
-redundant with the more specific raw-read finding.
+manifest-level fault is cleared. Doctor's two named manifest-level classes (retired keys,
+below-floor generation) are therefore diagnosed from a **raw** read (`load_manifest_raw_text`,
+never the checked `load_manifest`) independent of the catalog pass.
+
+The raw probe's two classes are not exhaustive: `load_manifest()`'s *typed* deserialize can also
+fail for a manifest fault a manual edit can produce that is neither of them — a malformed
+sub-object (`upstreamPackage`, `container`, ...) the typed `Manifest` shape rejects, for one. A
+round-2 independent review caught the first version of this design unconditionally treating every
+`MANIFEST_INVALID` catalog diagnostic as redundant with the raw probe, which silently dropped that
+case: the repository was completely unloadable and `repo doctor` reported zero findings — strictly
+less informative than `repo validate` on the identical fault. `doctor()` now tracks whether the raw
+probe actually reported something (`check_manifest_raw`'s return value) and only skips a
+`MANIFEST_INVALID` diagnostic when it did; otherwise it is surfaced verbatim as a manual step
+(`unclassified_manifest_finding`), never silently dropped. See srs-rust#857 review round 2, test
+`a_manifest_fault_outside_the_two_named_classes_is_still_reported`.
 
 If a future repair class genuinely cannot be read through `catalog_unchecked` or the raw-manifest
 probe, that is a second unchecked seam and an owner decision — not something this surface invents
@@ -134,17 +144,28 @@ ambiguous case is deliberately narrower and rarer.
 **Negative / trade-offs:**
 - Doctor's read path depends on `catalog::build`'s "return an otherwise-empty catalog on a
   manifest error" behaviour to avoid a second unchecked seam. `check_manifest_raw` runs strictly
-  before `catalog_unchecked()` in `doctor()`, so a single `--fix` pass on a repository with *both*
-  a retired manifest key *and* a catalog-derived fault (dangling reference, duplicate id, filename
-  mismatch) clears both: the manifest repair lands on disk first, and the same call's
-  `catalog_unchecked()` then sees the post-repair manifest and can act on what it newly reveals.
-  The gap this leaves is on the **dry-run** side, not `--fix`: with `fix: false` the manifest is
-  never actually stripped, so `catalog_unchecked()` still sees the broken manifest and every
-  catalog-derived finding stays invisible — a dry run cannot preview them without performing the
-  very write it exists to avoid. The retired-manifest-keys finding's `detail` says so explicitly
-  in this case (`--fix` will repair this *and* whatever it newly sees in the same pass; re-run
-  `repo doctor` afterward for a preview of what, if anything, remains) rather than leaving the
-  gap silent.
+  before the catalog is (re)built in `doctor()`, so a single `--fix` pass on a repository with
+  *both* a retired manifest key *and* a catalog-derived fault (dangling reference, duplicate id,
+  filename mismatch) clears both: the manifest repair lands on disk first, and the catalog rebuild
+  that follows sees the post-repair manifest and can act on what it newly reveals. This generalizes
+  to every pair of catalog-derived faults too — `--fix` repairs one diagnostic and rebuilds the
+  catalog before picking the next, so a repair that moves or deletes a locator (the rename half of
+  a filename-mismatch fix, or removing a relation with both endpoints dangling) can never leave a
+  second diagnostic acting on a now-stale locator. A round-2 review caught the pre-loop version of
+  this design doing exactly that on a relation with both an [R11] filename mismatch and an [R13]
+  dangling endpoint: the dangling-endpoint repair, keyed on the diagnostic's pre-rename locator,
+  silently no-op'd (`delete_relations_json` is idempotent on a missing path) after the rename had
+  already moved the file, and the report claimed both were repaired while the relation, now under
+  its correct name, was still unloadable. Fixed by the rebuild-between-repairs loop; regression
+  tests: `a_relation_with_both_a_filename_mismatch_and_a_dangling_endpoint_ends_up_fully_repaired`,
+  `a_relation_with_both_endpoints_dangling_is_repaired_exactly_once`.
+  The gap this leaves is on the **dry-run** side, not `--fix`: with `fix: false` nothing on disk
+  changes, so a manifest-level fault that is pending means `catalog_unchecked()` still sees the
+  broken manifest and every catalog-derived finding stays invisible — a dry run cannot preview them
+  without performing the very write it exists to avoid. The retired-manifest-keys finding's
+  `detail` says so explicitly in this case (`--fix` will repair this *and* whatever it newly sees
+  in the same pass; re-run `repo doctor` afterward for a preview of what, if anything, remains)
+  rather than leaving the gap silent.
 - The "retired manifest keys" repair is file-tree-store only, inherited from
   `rfc038_storage_migration_service::migrate_storage`'s own pre-existing constraint (no store
   implements batch rollback — srs-rust#813). On `MemoryStore` this class stays a manual step.
