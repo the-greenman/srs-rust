@@ -244,6 +244,63 @@ fn adopt_is_ambiguous_when_the_duplicate_id_has_an_incoming_relation() {
     assert_eq!(b["instanceId"], DUP_ID);
 }
 
+/// Round-4 review finding: a diagnostic shelved as `Ambiguous` can become
+/// resolvable because of a LATER, unrelated repair in the same `--fix`
+/// pass. Here the relation that blocks adopt is itself dangling (its other
+/// endpoint doesn't resolve), so it gets deleted as a separate
+/// `DanglingRelationEndpoint` repair — which removes the very reference
+/// that made the duplicate ambiguous. The fix loop must retry and adopt it
+/// in the same pass, not leave it shelved until a second `--fix` call, and
+/// the final report must show only the `Repaired` verdict, not a stale
+/// `Ambiguous` next to it.
+#[test]
+fn adopt_retries_and_succeeds_after_a_later_repair_removes_its_blocking_reference() {
+    let store = MemoryStore::empty();
+    plant_duplicate(&store);
+    let relation_id = "eeeeeeee-0000-4000-8000-000000000e08";
+    store
+        .save_relation(&relation(
+            relation_id,
+            DUP_ID,
+            "aaaaaaaa-0000-4000-8000-0000000000ff", // dangling: no such instance
+        ))
+        .unwrap();
+
+    let report = doctor(&store, DoctorInput { fix: true }).unwrap();
+
+    let adopt_findings: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.class == DoctorClass::DuplicateInstanceId)
+        .collect();
+    assert_eq!(
+        adopt_findings.len(),
+        1,
+        "exactly one verdict per diagnostic in the final report, not a stale Ambiguous next to \
+         the Repaired that superseded it: {:?}",
+        report.findings
+    );
+    assert_eq!(
+        adopt_findings[0].outcome,
+        DoctorOutcome::Repaired,
+        "adopt must retry and succeed once the relation blocking it is deleted in the same \
+         --fix pass: {:?}",
+        report.findings
+    );
+
+    let relation_finding = report
+        .findings
+        .iter()
+        .find(|f| f.class == DoctorClass::DanglingRelationEndpoint)
+        .expect("the dangling relation must be reported");
+    assert_eq!(relation_finding.outcome, DoctorOutcome::Repaired);
+
+    let cat = store
+        .catalog()
+        .expect("repository must load clean after both repairs");
+    assert_eq!(cat.instances.len(), 2);
+}
+
 // ---------------------------------------------------------------------------
 // Class: dangling container membership (the srs-rust#834 shape)
 // ---------------------------------------------------------------------------

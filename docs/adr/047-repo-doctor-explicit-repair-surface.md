@@ -200,6 +200,22 @@ ambiguous case is deliberately narrower and rarer.
     naming the failure, and the function returns `Ok` with everything already done intact — a new
     `MemoryStore` fault-injection point (`FailPoint::CatalogUnchecked`) exercises this.
     Test: `a_mid_loop_catalog_rebuild_failure_does_not_discard_earlier_findings`.
+- A round-4 review found that `seen` (round 2's fix) shelves a diagnostic on its OWN fingerprint
+  never changing, but a diagnostic's *resolvability* can depend on the rest of the repository too:
+  a duplicate id blocked by an incoming relation stayed `Ambiguous` even when that same relation
+  was itself deleted later in the identical `--fix` pass as a separate `DanglingRelationEndpoint`
+  repair — which removed the very reference that made adopt refuse. The pass ended with the
+  duplicate reported unresolved even though it was, at that point, mechanically safe to adopt; a
+  second `--fix` call would have closed it, but the first call's report claimed less progress than
+  had actually become possible. Fixed with a `progress` flag: whenever the search for the next
+  diagnostic to repair comes up empty, if at least one repair succeeded since `seen` was last
+  cleared, every previously-shelved diagnostic gets one more look (`seen.clear()`); a pass where
+  nothing changed terminates as before. This cannot loop forever, because no repair in the
+  inventory can *introduce* a new blocking condition — a diagnostic that stops appearing never
+  reappears, so each clear-and-retry sweep is strictly making progress or is the last one.
+  Retrying can leave a stale shelved finding behind the `Repaired` verdict that superseded it for
+  the same fingerprint; `dedupe_keep_last` keeps only the final one per `(class, locators,
+  message)`. Test: `adopt_retries_and_succeeds_after_a_later_repair_removes_its_blocking_reference`.
 
 ## Rejected alternatives
 
