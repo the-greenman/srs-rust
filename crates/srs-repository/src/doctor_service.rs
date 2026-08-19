@@ -214,7 +214,12 @@ fn check_manifest_raw(store: &dyn RepositoryStore, fix: bool, report: &mut Docto
             (
                 DoctorOutcome::WouldRepair,
                 "would run the rfc038-storage migration (same transform `repo apply-migration \
-                 --id rfc038-storage` runs)"
+                 --id rfc038-storage` runs). NOTE: this manifest fault makes catalog::build's \
+                 own internal manifest read fail, so every catalog-derived finding (duplicate \
+                 ids, dangling references, filename mismatches) is invisible until it is \
+                 repaired — this dry run cannot show them. `--fix` strips the retired keys AND \
+                 then repairs whatever it can newly see in the same pass; re-run `repo doctor` \
+                 (dry run) afterward for a preview of what remains."
                     .to_string(),
             )
         } else if !store.is_file_tree_store() {
@@ -368,8 +373,8 @@ fn classify_and_repair(
 /// Parse `"duplicate {set} identifier '{id}' declared by N objects"` (the
 /// exact text `catalog::Builder::detect_duplicates` emits). Manual parsing,
 /// not a regex dependency: the producer and consumer of this format live in
-/// the same crate and change together; `catalog_message_formats_are_stable`
-/// below is the tripwire if they ever drift.
+/// the same crate and change together; the `parses_*_message` unit tests
+/// below (`tests` module) are the tripwire if they ever drift.
 fn duplicate_set_and_id(message: &str) -> Option<(&str, &str)> {
     let rest = message.strip_prefix("duplicate ")?;
     let (set_name, rest) = rest.split_once(" identifier '")?;
@@ -441,13 +446,21 @@ fn repair_duplicate_instance(
         match adopt_one(store, locator) {
             Ok(new_id) => reminted.push(format!("{locator} -> {new_id}")),
             Err(e) => {
+                // Truthful diagnostics even on a partial failure: any earlier
+                // locator in this group has already been reminted on disk —
+                // dropping it from the message would hide a real change.
+                let already = if reminted.is_empty() {
+                    "none yet".to_string()
+                } else {
+                    reminted.join(", ")
+                };
                 return (
                     DoctorOutcome::ManualStep,
                     format!(
-                        "kept '{id}' at {keeper}; failed to remint {locator}: {e} — repair the \
-                         remaining duplicate(s) by hand"
+                        "kept '{id}' at {keeper}; already adopted: {already}; failed to remint \
+                         {locator}: {e} — repair the remaining duplicate(s) by hand"
                     ),
-                )
+                );
             }
         }
     }
@@ -460,6 +473,11 @@ fn repair_duplicate_instance(
     )
 }
 
+/// Rewrites the `instanceId` field in place at `locator` via the generic
+/// `load_instance_json`/`save_instance_json` path shim (srs-rust#725/#726),
+/// not the ADR-042 typed logical-id methods — deliberately: a duplicate id
+/// cannot be addressed by logical id (that ambiguity is the fault being
+/// repaired), so the path-keyed shim is the only correct entry point here.
 fn adopt_one(store: &dyn RepositoryStore, locator: &str) -> Result<String, RepositoryError> {
     let mut value = store.load_instance_json(locator)?;
     let new_id = new_instance_id();

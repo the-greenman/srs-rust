@@ -427,6 +427,59 @@ fn repairs_retired_manifest_keys_via_the_rfc038_storage_transform() {
         .expect("manifest must load cleanly through the checked path after the strip");
 }
 
+/// A retired manifest key makes `catalog::build`'s own internal manifest
+/// read fail, so every catalog-derived finding (here: dangling container
+/// membership) is invisible to a dry run — the dry-run report says so
+/// explicitly rather than silently undercounting. A single `--fix` pass,
+/// though, strips the manifest key *and* sees (and repairs) the
+/// now-visible catalog-derived fault in the same call, because the raw
+/// manifest repair runs before `catalog_unchecked()` is built.
+#[test]
+fn a_pending_manifest_fix_hides_catalog_findings_from_dry_run_but_fix_clears_both_in_one_pass() {
+    let (_tmp, store) = file_store();
+
+    // Plant the container fault first — `save_container_unchecked` still
+    // resolves the manifest through the checked path internally, so it must
+    // land before the manifest itself is bricked.
+    let mut section = container(SECTION_ID, "Section");
+    section.member_instance_ids = Some(vec![GHOST_ID.to_string()]);
+    store.save_container_unchecked(&section).unwrap();
+
+    let mut manifest = store.load_manifest().unwrap();
+    manifest
+        .extra
+        .insert("instanceIndex".to_string(), json!([]));
+    store.save_manifest(&manifest).unwrap();
+
+    // Dry run: only the manifest-level finding is visible, and it says so.
+    let report = doctor(&store, DoctorInput { fix: false }).unwrap();
+    assert_eq!(
+        report.findings.len(),
+        1,
+        "the dangling-membership finding must be hidden behind the manifest fault: {:?}",
+        report.findings
+    );
+    let manifest_finding = &report.findings[0];
+    assert_eq!(manifest_finding.class, DoctorClass::RetiredManifestKeys);
+    assert!(
+        manifest_finding.detail.contains("invisible")
+            || manifest_finding.detail.contains("cannot show"),
+        "the dry-run detail must warn that more findings may be hidden: {}",
+        manifest_finding.detail
+    );
+
+    // --fix: both are cleared in the same pass.
+    let report = doctor(&store, DoctorInput { fix: true }).unwrap();
+    assert_eq!(
+        report.repaired, 2,
+        "one --fix pass must clear both the manifest and the now-visible container fault: {:?}",
+        report.findings
+    );
+    store
+        .catalog()
+        .expect("repository must load clean after a single --fix pass");
+}
+
 // ---------------------------------------------------------------------------
 // Class: malformed candidate — report only, never guessed, never touched.
 // ---------------------------------------------------------------------------
