@@ -133,12 +133,18 @@ ambiguous case is deliberately narrower and rarer.
 
 **Negative / trade-offs:**
 - Doctor's read path depends on `catalog::build`'s "return an otherwise-empty catalog on a
-  manifest error" behaviour to avoid a second unchecked seam. That means a repository with *both*
-  a retired manifest key *and* (say) a dangling container reference needs two `repo doctor --fix`
-  passes to clear both: the first pass sees only the manifest-level finding (from the raw probe)
-  because the catalog-derived classes are dark until the manifest parses; the second pass, run
-  after the first, sees the rest. This is documented behaviour, not a bug — `--fix` is idempotent
-  and safe to run repeatedly, and the report always says exactly what is left.
+  manifest error" behaviour to avoid a second unchecked seam. `check_manifest_raw` runs strictly
+  before `catalog_unchecked()` in `doctor()`, so a single `--fix` pass on a repository with *both*
+  a retired manifest key *and* a catalog-derived fault (dangling reference, duplicate id, filename
+  mismatch) clears both: the manifest repair lands on disk first, and the same call's
+  `catalog_unchecked()` then sees the post-repair manifest and can act on what it newly reveals.
+  The gap this leaves is on the **dry-run** side, not `--fix`: with `fix: false` the manifest is
+  never actually stripped, so `catalog_unchecked()` still sees the broken manifest and every
+  catalog-derived finding stays invisible — a dry run cannot preview them without performing the
+  very write it exists to avoid. The retired-manifest-keys finding's `detail` says so explicitly
+  in this case (`--fix` will repair this *and* whatever it newly sees in the same pass; re-run
+  `repo doctor` afterward for a preview of what, if anything, remains) rather than leaving the
+  gap silent.
 - The "retired manifest keys" repair is file-tree-store only, inherited from
   `rfc038_storage_migration_service::migrate_storage`'s own pre-existing constraint (no store
   implements batch rollback — srs-rust#813). On `MemoryStore` this class stays a manual step.
