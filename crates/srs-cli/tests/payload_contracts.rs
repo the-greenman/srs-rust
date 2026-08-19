@@ -505,6 +505,11 @@ fn repo_apply_migration() {
     check::<RepoApplyMigrationPayload>("repo-apply-migration");
 }
 
+#[test]
+fn repo_doctor() {
+    check::<RepoDoctorPayload>("repo-doctor");
+}
+
 // ── Package ───────────────────────────────────────────────────────────────────
 
 #[test]

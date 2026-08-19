@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RepoDoctorPayload",
+  "type": "object",
+  "required": [
+    "findings",
+    "fixApplied",
+    "remaining",
+    "repaired"
+  ],
+  "properties": {
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RepoDoctorFinding"
+      }
+    },
+    "fixApplied": {
+      "type": "boolean"
+    },
+    "remaining": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    },
+    "repaired": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    }
+  },
+  "definitions": {
+    "RepoDoctorFinding": {
+      "description": "One `repo doctor` finding — srs-rust#857. `class` and `outcome` are the kebab-case names of [`srs_repository::doctor_service::DoctorClass`] / [`srs_repository::doctor_service::DoctorOutcome`] (e.g. `\"duplicate-instance-id\"`, `\"repaired\"`).",
+      "type": "object",
+      "required": [
+        "class",
+        "detail",
+        "locators",
+        "message",
+        "outcome"
+      ],
+      "properties": {
+        "class": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "locators": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "message": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

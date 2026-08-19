@@ -199,6 +199,7 @@ fn main() {
     write_schema!("repo-migrate-identity", RepoMigrateIdentityPayload);
     write_schema!("repo-migrations", RepoMigrationsPayload);
     write_schema!("repo-apply-migration", RepoApplyMigrationPayload);
+    write_schema!("repo-doctor", RepoDoctorPayload);
     write_schema!("repo-agent-index", RepoAgentIndexPayload);
 
     // Attachment payloads

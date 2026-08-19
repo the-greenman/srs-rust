@@ -14,6 +14,7 @@ use srs_repository::context_query_service::{
     self, FieldContextQuery, RecordContextQuery, RevisionTraceQuery,
 };
 use srs_repository::discovery_service::{self, DiscoveryQuery};
+use srs_repository::doctor_service::{self, DoctorInput};
 use srs_repository::federation_service::{
     append_federation_event, filter_federation_events, list_federation_events,
     parse_federation_registry_json, resolve_repository, AppendFederationEventInput,
@@ -165,6 +166,21 @@ impl SrsRepository {
     /// Callers should filter `diagnostics` by `severity` to distinguish errors from warnings.
     pub fn validate(&self) -> Result<JsValue, JsValue> {
         let report = validation::validate_repository(&self.store).map_err(js_err)?;
+        to_js(&report)
+    }
+
+    /// `repo doctor` (srs-rust#857): detect and, when `fix` is true, repair
+    /// damage from raw file adds and manual edits (duplicate instance ids,
+    /// dangling container/relation references, relation filename/id
+    /// mismatches, retired manifest keys). Dry-run by default (`fix: false`)
+    /// — this never runs implicitly on any other call.
+    ///
+    /// Returns a `DoctorReport` as a JS value: `fixApplied`, `findings`
+    /// (each `{ class, locators, message, outcome, detail }`), `repaired`,
+    /// `remaining`. `class` and `outcome` are kebab-case strings, e.g.
+    /// `"duplicate-instance-id"` / `"repaired"`.
+    pub fn doctor(&self, fix: bool) -> Result<JsValue, JsValue> {
+        let report = doctor_service::doctor(&self.store, DoctorInput { fix }).map_err(js_err)?;
         to_js(&report)
     }
 

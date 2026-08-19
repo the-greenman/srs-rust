@@ -734,6 +734,15 @@ pub enum RepoCommand {
         #[arg(long)]
         id: String,
     },
+    /// Detect and repair damage from raw file adds and manual edits (srs-rust#857):
+    /// duplicate instance ids, dangling container/relation references, relation
+    /// filename/id mismatches, and retired manifest keys. Dry-run by default;
+    /// pass --fix to apply repairs. Never runs implicitly on any load path.
+    Doctor {
+        /// Apply the deterministic repairs. Without this flag, doctor only reports.
+        #[arg(long)]
+        fix: bool,
+    },
 }
 
 #[derive(Subcommand)]

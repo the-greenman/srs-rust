@@ -230,7 +230,7 @@ fn load_container_with_embed_fallback(
 /// - the embed fallback reads `manifest.container` directly rather than calling
 ///   `resolve_root_container`, which routes through the **checked**
 ///   `store.load_container` and so would re-raise the very error being repaired.
-fn load_container_for_repair(
+pub(crate) fn load_container_for_repair(
     store: &dyn RepositoryStore,
     container_id: &str,
 ) -> Result<(Container, bool), RepositoryError> {
