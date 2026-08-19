@@ -430,7 +430,22 @@ fn check_manifest_raw(store: &dyn RepositoryStore, fix: bool, report: &mut Docto
             if retired.len() == 1 { "y" } else { "ies" },
             retired.join(", ")
         );
-        let (outcome, detail) = if !fix {
+        // Checked before the `!fix` branch (round 5 review): a dry-run
+        // preview must match what `--fix` actually does, on every store —
+        // `is_file_tree_store()` gates the repair regardless of dry-run or
+        // fix, so a store where it's false must preview `ManualStep`, not
+        // `WouldRepair`, even though every production caller today
+        // (`FileStore`, disk or `.srsj` tree session) always answers `true`
+        // and only the `MemoryStore` test double can currently see this
+        // branch at all.
+        let (outcome, detail) = if !store.is_file_tree_store() {
+            (
+                DoctorOutcome::ManualStep,
+                "rfc038-storage is a file-placement transform and applies only to a file-tree \
+                 store; run `repo apply-migration --id rfc038-storage` against a disk repository"
+                    .to_string(),
+            )
+        } else if !fix {
             (
                 DoctorOutcome::WouldRepair,
                 "would run the rfc038-storage migration (same transform `repo apply-migration \
@@ -440,13 +455,6 @@ fn check_manifest_raw(store: &dyn RepositoryStore, fix: bool, report: &mut Docto
                  repaired — this dry run cannot show them. `--fix` strips the retired keys AND \
                  then repairs whatever it can newly see in the same pass; re-run `repo doctor` \
                  (dry run) afterward for a preview of what remains."
-                    .to_string(),
-            )
-        } else if !store.is_file_tree_store() {
-            (
-                DoctorOutcome::ManualStep,
-                "rfc038-storage is a file-placement transform and applies only to a file-tree \
-                 store; run `repo apply-migration --id rfc038-storage` against a disk repository"
                     .to_string(),
             )
         } else {

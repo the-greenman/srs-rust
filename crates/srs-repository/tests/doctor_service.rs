@@ -642,6 +642,43 @@ fn a_relation_with_both_a_filename_mismatch_and_a_dangling_endpoint_ends_up_full
 // same pre-existing constraint as `repo apply-migration --id rfc038-storage`.
 // ---------------------------------------------------------------------------
 
+/// Round-5 review finding: a dry-run preview must match what `--fix` will
+/// actually do on every store, including one where `is_file_tree_store()`
+/// is `false` (only `MemoryStore` today — every production caller uses
+/// `FileStore`, which always answers `true`). Before the fix this branch
+/// claimed `WouldRepair` under dry run and then `ManualStep` under `--fix`
+/// for the identical store — the same "dry run oversells `--fix`" failure
+/// mode round 1/3 fixed elsewhere, missed here.
+#[test]
+fn retired_manifest_keys_dry_run_matches_fix_on_a_non_file_tree_store() {
+    let store = MemoryStore::empty();
+    let mut manifest = store.load_manifest().unwrap();
+    manifest
+        .extra
+        .insert("instanceIndex".to_string(), json!([]));
+    store.save_manifest(&manifest).unwrap();
+
+    let dry = doctor(&store, DoctorInput { fix: false }).unwrap();
+    let fixed = doctor(&store, DoctorInput { fix: true }).unwrap();
+    let dry_outcome = dry
+        .findings
+        .iter()
+        .find(|f| f.class == DoctorClass::RetiredManifestKeys)
+        .unwrap()
+        .outcome;
+    let fix_outcome = fixed
+        .findings
+        .iter()
+        .find(|f| f.class == DoctorClass::RetiredManifestKeys)
+        .unwrap()
+        .outcome;
+    assert_eq!(
+        dry_outcome, fix_outcome,
+        "dry run must preview the same outcome --fix actually produces"
+    );
+    assert_eq!(fix_outcome, DoctorOutcome::ManualStep);
+}
+
 #[test]
 fn repairs_retired_manifest_keys_via_the_rfc038_storage_transform() {
     let (_tmp, store) = file_store();
