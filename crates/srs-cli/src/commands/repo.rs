@@ -8,15 +8,16 @@ use crate::payload::{
     RepoDiffInstanceRemoved, RepoDiffInstances, RepoDiffManifest, RepoDiffPackage,
     RepoDiffPackageCategory, RepoDiffPackageItemAdded, RepoDiffPackageItemModified,
     RepoDiffPackageItemRemoved, RepoDiffPayload, RepoDiffRelationAdded, RepoDiffRelationModified,
-    RepoDiffRelationRemoved, RepoDiffRelations, RepoDiffSummary, RepoExtensionsConformancePayload,
-    RepoExtensionsMutatePayload, RepoExtensionsPayload, RepoInitNewPayload, RepoMapPayload,
-    RepoMigrateIdentityPayload, RepoMigrationsPayload, RepoNavigationPayload,
-    RepoSetRootContainerPayload, RepoUpgradePayload, RepoValidatePayload,
+    RepoDiffRelationRemoved, RepoDiffRelations, RepoDiffSummary, RepoDoctorPayload,
+    RepoExtensionsConformancePayload, RepoExtensionsMutatePayload, RepoExtensionsPayload,
+    RepoInitNewPayload, RepoMapPayload, RepoMigrateIdentityPayload, RepoMigrationsPayload,
+    RepoNavigationPayload, RepoSetRootContainerPayload, RepoUpgradePayload, RepoValidatePayload,
 };
 use anyhow::{Context, Result};
 use srs_repository::agent_index_service::build_agent_index;
 use srs_repository::analysis::build_repo_map;
 use srs_repository::diff::diff_repositories;
+use srs_repository::doctor_service::{self, DoctorInput};
 use srs_repository::manifest_service::{
     add_declared_extension, declared_extensions_conformance, list_declared_extensions,
     remove_declared_extension, set_manifest_root_container, SetManifestRootContainerInput,
@@ -90,6 +91,7 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
         RepoCommand::MigrateIdentity => cmd_repo_migrate_identity(ctx),
         RepoCommand::Migrations => cmd_repo_migrations(ctx),
         RepoCommand::ApplyMigration { id } => cmd_repo_apply_migration(ctx, id),
+        RepoCommand::Doctor { fix } => cmd_repo_doctor(ctx, fix),
     }
 }
 
@@ -157,6 +159,13 @@ fn cmd_repo_apply_migration(ctx: CliContext, id: String) -> Result<String> {
             payload: result.payload,
         },
     )
+}
+
+fn cmd_repo_doctor(ctx: CliContext, fix: bool) -> Result<String> {
+    let report = with_store(&ctx, |store| {
+        doctor_service::doctor(store, DoctorInput { fix }).map_err(anyhow::Error::from)
+    })?;
+    output::serialize("repo doctor", RepoDoctorPayload::from(report))
 }
 
 #[allow(clippy::too_many_arguments)]

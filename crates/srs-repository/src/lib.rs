@@ -15,6 +15,7 @@ pub(crate) mod core_purpose;
 pub mod detect;
 pub mod diff;
 pub mod discovery_service;
+pub mod doctor_service;
 pub mod error;
 pub mod export_service;
 pub mod extension_service;

@@ -1846,6 +1846,66 @@ pub struct RepoApplyMigrationPayload {
     pub payload: serde_json::Value,
 }
 
+/// One `repo doctor` finding — srs-rust#857. `class` and `outcome` are the
+/// kebab-case names of [`srs_repository::doctor_service::DoctorClass`] /
+/// [`srs_repository::doctor_service::DoctorOutcome`] (e.g.
+/// `"duplicate-instance-id"`, `"repaired"`).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoDoctorFinding {
+    pub class: String,
+    pub locators: Vec<String>,
+    pub message: String,
+    pub outcome: String,
+    pub detail: String,
+}
+
+impl From<srs_repository::doctor_service::DoctorFinding> for RepoDoctorFinding {
+    fn from(f: srs_repository::doctor_service::DoctorFinding) -> Self {
+        Self {
+            class: enum_kebab_name(&f.class),
+            locators: f.locators,
+            message: f.message,
+            outcome: enum_kebab_name(&f.outcome),
+            detail: f.detail,
+        }
+    }
+}
+
+/// Serializes a unit-variant enum (`#[serde(rename_all = "kebab-case")]`) to
+/// its wire name — avoids a duplicate `DoctorClass`/`DoctorOutcome` match arm
+/// list living in both `doctor_service` and this payload module.
+fn enum_kebab_name(value: &impl Serialize) -> String {
+    match serde_json::to_value(value) {
+        Ok(serde_json::Value::String(s)) => s,
+        _ => "unknown".to_string(),
+    }
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoDoctorPayload {
+    pub fix_applied: bool,
+    pub findings: Vec<RepoDoctorFinding>,
+    pub repaired: usize,
+    pub remaining: usize,
+}
+
+impl From<srs_repository::doctor_service::DoctorReport> for RepoDoctorPayload {
+    fn from(r: srs_repository::doctor_service::DoctorReport) -> Self {
+        Self {
+            fix_applied: r.fix_applied,
+            findings: r
+                .findings
+                .into_iter()
+                .map(RepoDoctorFinding::from)
+                .collect(),
+            repaired: r.repaired,
+            remaining: r.remaining,
+        }
+    }
+}
+
 #[cfg(test)]
 mod migration_payload_tests {
     use super::*;
