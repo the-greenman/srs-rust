@@ -33,6 +33,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build release binary
+        # SRS_BUILD_NUMBER is baked into the binary via `option_env!` (srs-mcp's
+        # serverInfo.version, srs-rust#858) so a stale binary is distinguishable
+        # from a current one at the protocol level. Matches the release tag's
+        # `build.${{ github.run_number }}` suffix below.
+        env:
+          SRS_BUILD_NUMBER: ${{ github.run_number }}
         run: cargo build --release -p srs
 
       - name: Package binary
