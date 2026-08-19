@@ -176,6 +176,30 @@ ambiguous case is deliberately narrower and rarer.
   message text `catalog.rs` emits today as a drift tripwire. A structured diagnostic payload
   would be the more robust long-term shape, but it touches `CatalogDiagnostic`'s serialized form
   and is deferred rather than bundled into this unit.
+- A round-3 review caught two further "repair claims success but leaves the repository silently
+  worse" defects, both now fixed and pinned by regression tests:
+  - `repair_relation_filename_mismatch` called `store.save_relation`, which overwrites
+    unconditionally by its own documented contract ("Overwrites an existing object with the same
+    id"), with no check for an existing occupant at the rename target. A relation whose id
+    collides with an already-correctly-named relation (effectively a relation-duplicate-id, which
+    adopt is deliberately not defined for) would have its rename silently destroy the occupant's
+    content while the report claimed a clean repair. Fixed: the rename target is checked for an
+    existing object before writing; a collision reports `Ambiguous` instead of clobbering.
+    Test: `relation_filename_mismatch_does_not_clobber_an_existing_relation_at_the_target_name`.
+  - `instance_id_referenced` (adopt's safety check) parsed candidate relations with
+    `relation_object_from_value`, which *requires* an exact `$schema` match — stricter than
+    `catalog.rs::classify_relations_file`'s own acceptance (`$schema` stripped if present, never
+    required). A relation the catalog itself treats as valid and resolvable, but that happens to
+    omit `$schema`, was silently skipped by the reference check, letting adopt proceed on a
+    duplicate id that genuinely had an incoming reference. Fixed: `instance_id_referenced` now
+    parses with the same lenient rule the catalog uses (`lenient_relation_from_value`).
+    Test: `adopt_detects_a_reference_from_a_relation_missing_the_schema_property`.
+  - The same round also hardened the fix loop's own catalog-rebuild call: a store I/O failure
+    there previously propagated as `Err` via `?`, discarding every repair already applied and
+    recorded in the same `doctor()` call. It is now caught and recorded as a `ManualStep` finding
+    naming the failure, and the function returns `Ok` with everything already done intact — a new
+    `MemoryStore` fault-injection point (`FailPoint::CatalogUnchecked`) exercises this.
+    Test: `a_mid_loop_catalog_rebuild_failure_does_not_discard_earlier_findings`.
 
 ## Rejected alternatives
 
