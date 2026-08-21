@@ -676,6 +676,10 @@ mod tests {
 
     fn record_type(id: &str, name: &str, version: u32, fields: Vec<FieldAssignment>) -> RecordType {
         RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),
             name: name.to_string(),
@@ -691,12 +695,12 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: Default::default(),
         }
     }
 
     fn assign(field_id: &str, order: u32) -> FieldAssignment {
         FieldAssignment {
+            default_value: None,
             field_id: field_id.to_string(),
             order,
             required: false,

@@ -70,16 +70,22 @@ mod tests {
         DocumentSection, DocumentView, FieldView, SectionSource, ThemeMode, ThemeReference,
         ThemeVariant, View,
     };
-    use std::collections::BTreeMap;
 
     fn minimal_view() -> View {
         View {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             id: "view-1".to_string(),
             namespace: "com.semanticops.srs".to_string(),
             name: "test-view".to_string(),
             version: 1,
             description: "desc".to_string(),
             field_views: vec![FieldView {
+                display_hint: None,
+                editor_hint_override: None,
                 field_id: "f1".to_string(),
                 order: 0,
                 required: None,
@@ -92,12 +98,16 @@ mod tests {
             export_config: None,
             tags: None,
             created_at: "2026-05-29T00:00:00Z".to_string(),
-            extra: BTreeMap::new(),
         }
     }
 
     fn minimal_document_view() -> DocumentView {
         DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: "dv-1".to_string(),
             namespace: "com.semanticops.srs".to_string(),
@@ -131,7 +141,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-05-29T00:00:00Z".to_string(),
-            extra: BTreeMap::new(),
         }
     }
 

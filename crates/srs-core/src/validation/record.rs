@@ -155,6 +155,10 @@ mod tests {
 
     fn create_test_record_type() -> RecordType {
         RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "type-1".to_string(),
             namespace: "test".to_string(),
             name: "test-type".to_string(),
@@ -162,12 +166,14 @@ mod tests {
             description: "test type".to_string(),
             fields: vec![
                 FieldAssignment {
+                    default_value: None,
                     field_id: "id-required_field".to_string(),
                     order: 0,
                     required: true,
                     display_label: None,
                 },
                 FieldAssignment {
+                    default_value: None,
                     field_id: "id-optional_field".to_string(),
                     order: 1,
                     required: false,
@@ -183,7 +189,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: BTreeMap::new(),
         }
     }
 

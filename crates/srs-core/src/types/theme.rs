@@ -19,7 +19,7 @@ pub enum AssetType {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AssetDeclaration {
     #[serde(rename = "type")]
     pub asset_type: AssetType,
@@ -35,21 +35,21 @@ pub struct AssetDeclaration {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SectionWrapperOverride {
     pub section_id: String,
     pub template: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RecordWrapperOverride {
     pub type_id: String,
     pub template: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ElementTemplates {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub document_wrapper: Option<String>,
@@ -76,8 +76,12 @@ pub struct ElementTemplates {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Theme {
+    /// The `$schema` pointer the file may carry — declared by the schema itself,
+    /// preserved so a loaded-then-written definition keeps it.
+    #[serde(rename = "$schema", default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
     #[serde(default)]
     pub id: String,
     pub namespace: String,
@@ -100,8 +104,14 @@ pub struct Theme {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
     pub created_at: String,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, serde_json::Value>,
+    /// RFC-014 provenance/lineage — declared by the schema; carried so a
+    /// load/write round trip keeps it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lineage: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
 }
 
 #[cfg(test)]
@@ -111,6 +121,10 @@ mod tests {
     #[test]
     fn theme_roundtrips_minimal_json() {
         let theme = Theme {
+            schema: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             id: "00000000-0000-4000-8000-000000000901".to_string(),
             namespace: "fixture.theme".to_string(),
             name: "minimal".to_string(),
@@ -125,7 +139,6 @@ mod tests {
             typography: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: BTreeMap::new(),
         };
 
         let json = serde_json::to_string(&theme).expect("serialize");
@@ -139,6 +152,10 @@ mod tests {
         extra.insert("xCustom".to_string(), serde_json::json!(true));
 
         let theme = Theme {
+            schema: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             id: "00000000-0000-4000-8000-000000000902".to_string(),
             namespace: "fixture.theme".to_string(),
             name: "full".to_string(),
@@ -178,7 +195,6 @@ mod tests {
             typography: Some(serde_json::json!({"baseFont": "Georgia"})),
             tags: Some(vec!["theme".to_string()]),
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra,
         };
 
         let json = serde_json::to_string(&theme).expect("serialize");
@@ -186,8 +202,13 @@ mod tests {
         assert_eq!(theme, roundtrip);
     }
 
+    /// srs-rust#863 / decision `rfc-decision-2e0cd70a`: a Theme is a
+    /// **definition**, and definitions are the trust boundary — they reject
+    /// unknown keys, matching `theme.json`'s `additionalProperties: false`.
+    /// (Instance-layer tolerance is the *other* half of the same ruling and is
+    /// deliberately unchanged.) This test previously asserted the inverse.
     #[test]
-    fn theme_deserializes_unknown_top_level_fields_silently() {
+    fn theme_rejects_unknown_top_level_fields() {
         let json = r#"
         {
           "id": "00000000-0000-4000-8000-000000000905",
@@ -201,10 +222,10 @@ mod tests {
         }
         "#;
 
-        let theme: Theme = serde_json::from_str(json).expect("deserialize");
-        assert_eq!(
-            theme.extra.get("xCustom").and_then(|v| v.as_str()),
-            Some("keep")
+        let err = serde_json::from_str::<Theme>(json).expect_err("must reject");
+        assert!(
+            err.to_string().contains("xCustom"),
+            "the rejection must name the key: {err}"
         );
     }
 }

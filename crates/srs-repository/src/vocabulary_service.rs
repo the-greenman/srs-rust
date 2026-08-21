@@ -395,6 +395,8 @@ mod tests {
 
     fn make_vocab(name: &str) -> Vocabulary {
         Vocabulary {
+            schema: None,
+            tags: None,
             id: String::new(),
             version: 1,
             namespace: "com.test".to_string(),
@@ -406,7 +408,6 @@ mod tests {
             promotion_window: None,
             description: None,
             created_at: String::new(),
-            extra: std::collections::BTreeMap::new(),
         }
     }
 

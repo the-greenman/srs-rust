@@ -122,6 +122,7 @@ mod tests {
 
     fn make_blueprint(name: &str, namespace: &str) -> Blueprint {
         Blueprint {
+            schema: None,
             id: String::new(),
             namespace: namespace.to_string(),
             name: name.to_string(),

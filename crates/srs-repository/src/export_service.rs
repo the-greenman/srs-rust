@@ -122,6 +122,11 @@ mod tests {
     /// empty rendered output (section hidden per EmptyBehavior::Hide) without erroring.
     fn minimal_package_with_view(view_id: &str) -> Package {
         let doc_view = DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: view_id.to_string(),
             namespace: "test".to_string(),
@@ -160,7 +165,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
         Package {
             id: "test-pkg".to_string(),
@@ -430,6 +434,11 @@ mod tests {
         };
 
         let doc_view = DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: GOLDEN_VIEW_ID.to_string(),
             namespace: "com.example.golden".to_string(),
@@ -470,7 +479,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let package = Package {

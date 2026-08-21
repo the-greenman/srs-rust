@@ -2,19 +2,27 @@
 //! [`crate::field_json`]).
 //!
 //! `FileStore` parses type definition files through [`TypeJson`] and converts with
-//! [`TypeJson::into_record_type`]. The `#[serde(flatten)]` tail preserves
-//! non-modelled keys (`$schema`, `aiGuidance`, …) into [`RecordType::extra`]
-//! so they survive load → edit → save (previously they were silently dropped
-//! — the archive/type fidelity bug fixed under #684).
+//! [`TypeJson::into_record_type`].
+//!
+//! A Type file is **definition-layer** data, so this reader is a trust boundary:
+//! it rejects keys `type.json` does not declare (`deny_unknown_fields`, matching
+//! that schema's `additionalProperties: false`) rather than absorbing them into
+//! a catch-all — decision `rfc-decision-2e0cd70a`, srs-rust#863. Every key the
+//! schema *does* declare is modelled here and carried through to
+//! [`RecordType`], so `$schema`/`aiGuidance` still survive load → edit → save
+//! (the archive/type fidelity bug fixed under #684) — now by name rather than
+//! by bag.
 
 use srs_core::types::record_type::{
     CrossFieldRule, FieldAssignment, FieldAssignmentOverride, RecordType, TypeLifecycle,
 };
-use std::collections::BTreeMap;
 
 #[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct TypeJson {
+    /// Declared by `type.json` itself — not an unknown property.
+    #[serde(rename = "$schema", default)]
+    schema: Option<String>,
     id: String,
     namespace: String,
     name: String,
@@ -38,26 +46,41 @@ pub(crate) struct TypeJson {
     #[serde(default)]
     validation_rules: Option<Vec<CrossFieldRule>>,
     created_at: Option<String>,
-    /// Non-modelled keys (`$schema`, `aiGuidance`, …) — preserved, not dropped.
-    /// A stray `fieldGroups` would land here too; `repo validate` runs
-    /// `revision_guard::check_type_document` ([R7]) over the raw document, so
-    /// at revision ≥ 2 the construct is rejected with a named diagnostic
-    /// rather than silently absorbed.
-    #[serde(flatten)]
-    extra: BTreeMap<String, serde_json::Value>,
+    #[serde(default)]
+    ai_guidance: Option<serde_json::Value>,
+    #[serde(default)]
+    semantic_object_type: Option<String>,
+    #[serde(default)]
+    tags: Option<Vec<String>>,
+    /// RFC-039 [R7] retired this construct. It is accepted here and dropped so
+    /// that `repo validate` can still report it as a *named diagnostic* over
+    /// the raw document; rejecting it at load would leave the repository
+    /// unreadable by the very command meant to explain the problem.
+    #[serde(default, rename = "fieldGroups")]
+    _retired_field_groups: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct FieldAssignmentJson {
     field_id: String,
     order: u32,
     required: Option<bool>,
     display_label: Option<String>,
+    #[serde(default)]
+    default_value: Option<serde_json::Value>,
+    /// RFC-039 [R7] retired the assignment trio — accepted and dropped on the
+    /// same terms as `fieldGroups` above, so the diagnostic path survives.
+    #[serde(default, rename = "repeatable")]
+    _retired_repeatable: Option<serde_json::Value>,
+    #[serde(default, rename = "minItems")]
+    _retired_min_items: Option<serde_json::Value>,
+    #[serde(default, rename = "maxItems")]
+    _retired_max_items: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct FieldAssignmentOverrideJson {
     field_id: String,
     display_label: Option<String>,
@@ -67,6 +90,7 @@ struct FieldAssignmentOverrideJson {
 
 fn into_assignment(fa: FieldAssignmentJson) -> FieldAssignment {
     FieldAssignment {
+        default_value: fa.default_value,
         field_id: fa.field_id,
         order: fa.order,
         required: fa.required.unwrap_or(true),
@@ -89,6 +113,10 @@ impl TypeJson {
                 .collect()
         });
         RecordType {
+            schema: self.schema,
+            ai_guidance: self.ai_guidance,
+            semantic_object_type: self.semantic_object_type,
+            tags: self.tags,
             id: self.id,
             namespace: self.namespace,
             name: self.name,
@@ -104,17 +132,69 @@ impl TypeJson {
             lifecycle_ref: self.lifecycle_ref,
             validation_rules: self.validation_rules,
             created_at: self.created_at.unwrap_or_default(),
-            extra: self.extra,
         }
     }
+}
+
+/// Snapshot/portability compatibility reader (mirrors
+/// [`crate::field_json::deserialize_fields_compat`]).
+///
+/// A `PackageBoundarySnapshot` carries Types as JSON, so it must read them
+/// through the same definition reader the file loader uses — otherwise the two
+/// paths disagree about what a Type file may contain, and a legacy archive
+/// (revision ≤ 1, where RFC-039's retired constructs were still legal) stops
+/// loading at exactly the moment `repo validate` needs to explain why.
+pub(crate) fn deserialize_types_compat<'de, D>(deserializer: D) -> Result<Vec<RecordType>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize as _;
+    let raw = Vec::<TypeJson>::deserialize(deserializer)?;
+    Ok(raw.into_iter().map(TypeJson::into_record_type).collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// srs-rust#863: a Type file is definition-layer data, so the loader
+    /// rejects a key `type.json` does not declare — and names it.
     #[test]
-    fn extra_keys_survive_into_record_type() {
+    fn unknown_key_is_rejected_and_named() {
+        let err = serde_json::from_str::<TypeJson>(
+            r#"{
+                "id": "t1", "namespace": "com.test", "name": "thing",
+                "version": 1, "fields": [], "xUnknown": "nope"
+            }"#,
+        )
+        .expect_err("definition layer must reject unknown keys");
+        assert!(err.to_string().contains("xUnknown"), "{err}");
+    }
+
+    /// RFC-039 [R7]'s retired constructs stay *loadable* on purpose: `repo
+    /// validate` reports them as named diagnostics over the raw document, and
+    /// it cannot do that for a repository it can no longer read.
+    #[test]
+    fn retired_constructs_load_and_are_dropped() {
+        let tj: TypeJson = serde_json::from_str(
+            r#"{
+                "id": "t1", "namespace": "com.test", "name": "thing",
+                "version": 1, "fieldGroups": {"g": {}},
+                "fields": [{"fieldId": "f1", "order": 1, "repeatable": true,
+                            "minItems": 1, "maxItems": 3}]
+            }"#,
+        )
+        .expect("retired constructs must not break the reader");
+        let rt = tj.into_record_type();
+        let val = serde_json::to_value(&rt).unwrap();
+        assert!(val.get("fieldGroups").is_none());
+        assert!(val["fields"][0].get("repeatable").is_none());
+    }
+
+    /// `$schema` and `aiGuidance` are `type.json` properties, so they are
+    /// modelled fields that survive the load — not catch-all content.
+    #[test]
+    fn schema_declared_keys_survive_into_record_type() {
         let tj: TypeJson = serde_json::from_str(
             r#"{
                 "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
@@ -129,11 +209,11 @@ mod tests {
         .unwrap();
         let rt = tj.into_record_type();
         assert_eq!(
-            rt.extra.get("$schema").and_then(|v| v.as_str()),
+            rt.schema.as_deref(),
             Some("https://srs.semanticops.com/schema/2.0/type.json")
         );
         assert_eq!(
-            rt.extra.get("aiGuidance").and_then(|v| v.as_str()),
+            rt.ai_guidance.as_ref().and_then(|v| v.as_str()),
             Some("guidance text")
         );
         // Round-trip: serialization re-emits the preserved keys.

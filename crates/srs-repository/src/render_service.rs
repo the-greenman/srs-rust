@@ -4131,6 +4131,10 @@ mod tests {
         };
 
         let text_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "t-text".to_string(),
             namespace: "com.test".to_string(),
             name: "section.text".to_string(),
@@ -4138,12 +4142,14 @@ mod tests {
             description: "Text section".to_string(),
             fields: vec![
                 FieldAssignment {
+                    default_value: None,
                     field_id: "f-heading".to_string(),
                     order: 0,
                     required: true,
                     display_label: Some("Heading".to_string()),
                 },
                 FieldAssignment {
+                    default_value: None,
                     field_id: "f-body".to_string(),
                     order: 1,
                     required: false,
@@ -4160,9 +4166,12 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
         let table_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "t-table".to_string(),
             namespace: "com.test".to_string(),
             name: "section.table".to_string(),
@@ -4170,12 +4179,14 @@ mod tests {
             description: "Table section".to_string(),
             fields: vec![
                 FieldAssignment {
+                    default_value: None,
                     field_id: "f-heading".to_string(),
                     order: 0,
                     required: true,
                     display_label: Some("Heading".to_string()),
                 },
                 FieldAssignment {
+                    default_value: None,
                     field_id: "f-caption".to_string(),
                     order: 1,
                     required: false,
@@ -4192,17 +4203,23 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         // View that only matches text sections (has compatible_types constraint)
         let text_only_view = View {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             id: "v-text-only".to_string(),
             namespace: "com.test".to_string(),
             name: "text-view".to_string(),
             version: 1,
             description: "View for text sections only".to_string(),
             field_views: vec![FieldView {
+                display_hint: None,
+                editor_hint_override: None,
                 composite_renderer: None,
                 field_id: "f-body".to_string(),
                 order: 0,
@@ -4215,11 +4232,15 @@ mod tests {
             export_config: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         // DocumentView: ContainerSubset section with the text-only view
         let doc_view = DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: "dv-hetero".to_string(),
             namespace: "com.test".to_string(),
@@ -4255,7 +4276,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -4752,12 +4772,17 @@ mod tests {
         ];
 
         let row_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "t-row".to_string(),
             namespace: "com.test".to_string(),
             name: "table-row".to_string(),
             version: 1,
             description: "One table row".to_string(),
             fields: vec![FieldAssignment {
+                default_value: None,
                 field_id: "f-cells".to_string(),
                 order: 0,
                 required: false,
@@ -4773,9 +4798,12 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
         let record_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "t-table-rec".to_string(),
             namespace: "com.test".to_string(),
             name: "table-record".to_string(),
@@ -4792,6 +4820,7 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(i, id)| FieldAssignment {
+                default_value: None,
                 field_id: id.to_string(),
                 order: i as u32,
                 required: false,
@@ -4808,11 +4837,15 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         // RFC-036: the renderer binding is view-owned, not Type-owned.
         let table_view = View {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             id: "v-table".to_string(),
             namespace: "com.test".to_string(),
             name: "table-view".to_string(),
@@ -4820,6 +4853,8 @@ mod tests {
             description: "Binds the table renderer to the rows composite".to_string(),
             field_views: vec![
                 FieldView {
+                    display_hint: None,
+                    editor_hint_override: None,
                     composite_renderer: None,
                     field_id: "f-title".to_string(),
                     order: 0,
@@ -4828,6 +4863,8 @@ mod tests {
                     display_label: None,
                 },
                 FieldView {
+                    display_hint: None,
+                    editor_hint_override: None,
                     composite_renderer: composite_renderer.map(|r| CompositeRendererBinding {
                         renderer: r.to_string(),
                         roles: None,
@@ -4844,10 +4881,14 @@ mod tests {
             export_config: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let doc_view = DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: "dv-table".to_string(),
             namespace: "com.test".to_string(),
@@ -4893,7 +4934,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -5043,6 +5083,10 @@ mod tests {
         use srs_core::types::theme::{ElementTemplates, Theme};
 
         let theme = Theme {
+            schema: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             id: "th-cap".to_string(),
             namespace: "com.test".to_string(),
             name: "cap-theme".to_string(),
@@ -5069,7 +5113,6 @@ mod tests {
             typography: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
         let store = make_composite_table_store_with(
             Some("table"),
@@ -5172,12 +5215,17 @@ mod tests {
         };
 
         let record_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "t-record".to_string(),
             namespace: "com.test".to_string(),
             name: "item".to_string(),
             version: 1,
             description: "Item".to_string(),
             fields: vec![FieldAssignment {
+                default_value: None,
                 field_id: "f-heading".to_string(),
                 order: 0,
                 required: true,
@@ -5193,10 +5241,14 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let doc_view = DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: "dv-field-sort".to_string(),
             namespace: "com.test".to_string(),
@@ -5235,7 +5287,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -5500,12 +5551,17 @@ mod tests {
         };
 
         let rt = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "t-auto".to_string(),
             namespace: "com.test".to_string(),
             name: "section".to_string(),
             version: 1,
             description: "Section".to_string(),
             fields: vec![FieldAssignment {
+                default_value: None,
                 field_id: "f-auto-body".to_string(),
                 order: 0,
                 required: true,
@@ -5521,11 +5577,14 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         // Base theme targets markdown only.
         let base_theme = Theme {
+            schema: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             id: "theme-auto-base".to_string(),
             namespace: "com.test".to_string(),
             name: "base".to_string(),
@@ -5549,13 +5608,17 @@ mod tests {
             typography: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let mut themes = vec![base_theme];
         themes.extend(extra_themes);
 
         let doc_view = DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: "dv-auto-select".to_string(),
             namespace: "com.test".to_string(),
@@ -5603,7 +5666,6 @@ mod tests {
             depth_offset: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -5643,6 +5705,10 @@ mod tests {
     fn make_html_theme(id: &str, name: &str) -> srs_core::types::theme::Theme {
         use srs_core::types::theme::{ElementTemplates, Theme};
         Theme {
+            schema: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),
             name: name.to_string(),
@@ -5666,7 +5732,6 @@ mod tests {
             typography: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -5718,6 +5783,10 @@ mod tests {
         let text_theme = {
             use srs_core::types::theme::Theme;
             Theme {
+                schema: None,
+                lineage: None,
+                provenance: None,
+                updated_at: None,
                 id: "theme-auto-text".to_string(),
                 namespace: "com.test".to_string(),
                 name: "text-prose".to_string(),
@@ -5732,7 +5801,6 @@ mod tests {
                 typography: None,
                 tags: None,
                 created_at: "2026-01-01T00:00:00Z".to_string(),
-                extra: std::collections::BTreeMap::new(),
             }
         };
         let variant = ThemeVariant {
@@ -5939,6 +6007,10 @@ mod tests {
         };
 
         let text_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "t-text".to_string(),
             namespace: "com.test".to_string(),
             name: "section.text".to_string(),
@@ -5946,12 +6018,14 @@ mod tests {
             description: "Text section".to_string(),
             fields: vec![
                 FieldAssignment {
+                    default_value: None,
                     field_id: "f-heading".to_string(),
                     order: 0,
                     required: true,
                     display_label: Some("Heading".to_string()),
                 },
                 FieldAssignment {
+                    default_value: None,
                     field_id: "f-body".to_string(),
                     order: 1,
                     required: false,
@@ -5968,9 +6042,12 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
         let table_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "t-table".to_string(),
             namespace: "com.test".to_string(),
             name: "section.table".to_string(),
@@ -5978,12 +6055,14 @@ mod tests {
             description: "Table section".to_string(),
             fields: vec![
                 FieldAssignment {
+                    default_value: None,
                     field_id: "f-heading".to_string(),
                     order: 0,
                     required: true,
                     display_label: Some("Heading".to_string()),
                 },
                 FieldAssignment {
+                    default_value: None,
                     field_id: "f-caption".to_string(),
                     order: 1,
                     required: false,
@@ -6000,16 +6079,22 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let text_only_view = View {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             id: "v-text-only".to_string(),
             namespace: "com.test".to_string(),
             name: "text-view".to_string(),
             version: 1,
             description: "View for text sections only".to_string(),
             field_views: vec![FieldView {
+                display_hint: None,
+                editor_hint_override: None,
                 composite_renderer: None,
                 field_id: "f-body".to_string(),
                 order: 0,
@@ -6022,7 +6107,6 @@ mod tests {
             export_config: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -6166,6 +6250,11 @@ mod tests {
     ) -> DocumentView {
         use srs_core::types::view::EmptyBehavior;
         DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: "dv-rfc008".to_string(),
             namespace: "com.test".to_string(),
@@ -6201,7 +6290,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -6592,6 +6680,11 @@ mod tests {
         lifecycle_state: Option<String>,
     ) -> srs_core::types::view::DocumentView {
         srs_core::types::view::DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: dv_id.to_string(),
             namespace: "com.test".to_string(),
@@ -6630,7 +6723,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -7279,6 +7371,11 @@ mod tests {
         use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
 
         let dv = DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: "dv-zero-hide".to_string(),
             namespace: "com.test".to_string(),
@@ -7317,7 +7414,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
         let store = make_rfc011_store(dv, &[]);
         let result = render_document_view(RenderDocumentViewOptions {
@@ -7458,6 +7554,10 @@ mod tests {
         };
 
         let identity_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "t-identity".to_string(),
             namespace: "com.test".to_string(),
             name: "identity-type".to_string(),
@@ -7465,18 +7565,21 @@ mod tests {
             description: "Type with identityFieldId pointing to f-head".to_string(),
             fields: vec![
                 FieldAssignment {
+                    default_value: None,
                     field_id: "f-head".to_string(),
                     order: 0,
                     required: true,
                     display_label: Some("Heading".to_string()),
                 },
                 FieldAssignment {
+                    default_value: None,
                     field_id: "f-other".to_string(),
                     order: 1,
                     required: false,
                     display_label: Some("Other".to_string()),
                 },
                 FieldAssignment {
+                    default_value: None,
                     field_id: "f-closed".to_string(),
                     order: 2,
                     required: false,
@@ -7492,17 +7595,21 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         // Type WITHOUT identityFieldId (for the no-heading regression test)
         let plain_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "t-plain".to_string(),
             namespace: "com.test".to_string(),
             name: "plain-type".to_string(),
             version: 1,
             description: "Type without identityFieldId".to_string(),
             fields: vec![FieldAssignment {
+                default_value: None,
                 field_id: "f-head".to_string(),
                 order: 0,
                 required: true,
@@ -7517,7 +7624,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let make_type_query_section = |sot: &str, title_field_id: Option<String>| DocumentSection {
@@ -7544,6 +7650,11 @@ mod tests {
         };
 
         let make_dv = |id: &str, name: &str, section: DocumentSection, format: &str| DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),
@@ -7561,7 +7672,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let dv_no_title = make_dv(
@@ -7827,6 +7937,11 @@ mod tests {
 
     fn minimal_document_view() -> srs_core::types::view::DocumentView {
         srs_core::types::view::DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: "dv-test".to_string(),
             namespace: "com.test".to_string(),
@@ -7844,7 +7959,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -8062,12 +8176,17 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let item_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "t-item".to_string(),
             namespace: "com.test".to_string(),
             name: "item".to_string(),
             version: 1,
             description: "Item".to_string(),
             fields: vec![FieldAssignment {
+                default_value: None,
                 field_id: "f-heading".to_string(),
                 order: 0,
                 required: true,
@@ -8082,7 +8201,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
         (heading_field, item_type)
     }
@@ -8126,6 +8244,11 @@ mod tests {
 
         let (heading_field, item_type) = simple_field_and_type();
         let doc_view = DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: "dv-degrade".to_string(),
             namespace: "com.test".to_string(),
@@ -8152,7 +8275,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -8322,6 +8444,11 @@ mod tests {
 
         let (heading_field, item_type) = simple_field_and_type();
         let doc_view = DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: "dv-notes".to_string(),
             namespace: "com.test".to_string(),
@@ -8345,7 +8472,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -8510,6 +8636,11 @@ mod tests {
 
         let (heading_field, item_type) = simple_field_and_type();
         let doc_view = DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: "dv-fixed-note".to_string(),
             namespace: "com.test".to_string(),
@@ -8569,7 +8700,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -8675,6 +8805,11 @@ mod tests {
 
         let (heading_field, item_type) = simple_field_and_type();
         let doc_view = DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: "dv-rq-note".to_string(),
             namespace: "com.test".to_string(),
@@ -8710,7 +8845,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -9410,12 +9544,17 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let rt = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "t-named".to_string(),
             namespace: "com.test".to_string(),
             name: "named".to_string(),
             version: 1,
             description: "Named".to_string(),
             fields: vec![FieldAssignment {
+                default_value: None,
                 field_id: "f-name".to_string(),
                 order: 0,
                 required: true,
@@ -9430,7 +9569,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -9681,6 +9819,11 @@ mod tests {
         use srs_core::types::view::{DocumentSection, DocumentView, SectionSource};
 
         let dv = DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: "dv-rp-test".to_string(),
             namespace: "com.test".to_string(),
@@ -9721,7 +9864,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = crate::manifest::Manifest {
@@ -9860,6 +10002,11 @@ mod tests {
             inverse_label: None,
         };
         let dv = DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: dv_id.to_string(),
             namespace: "com.test".to_string(),
@@ -9896,7 +10043,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let the_rtd = test_rtd(rtype, "Links To", None, false);
@@ -10509,6 +10655,7 @@ mod tests {
         };
         let assignment =
             |id: &str, order: u32, required: bool, label: Option<&str>| FieldAssignment {
+                default_value: None,
                 field_id: id.to_string(),
                 order,
                 required,
@@ -10516,6 +10663,10 @@ mod tests {
             };
 
         let record_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "t-row".to_string(),
             namespace: "com.test".to_string(),
             name: "row-record".to_string(),
@@ -10536,10 +10687,14 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let doc_view = DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: "dv-row".to_string(),
             namespace: "com.test".to_string(),
@@ -10578,7 +10733,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         // The L1 View marks summary required too, so on that path the only thing
@@ -10586,6 +10740,11 @@ mod tests {
         let l1_views = if l1_view {
             use srs_core::types::view::{ExportConfig, FieldView, View};
             vec![View {
+                schema: None,
+                ai_guidance: None,
+                lineage: None,
+                provenance: None,
+                updated_at: None,
                 id: "v-row-l1".to_string(),
                 namespace: "com.test".to_string(),
                 name: "row-l1".to_string(),
@@ -10593,6 +10752,8 @@ mod tests {
                 description: "L1 View over the row record".to_string(),
                 field_views: vec![
                     FieldView {
+                        display_hint: None,
+                        editor_hint_override: None,
                         composite_renderer: None,
                         field_id: "f-heading".to_string(),
                         order: 0,
@@ -10601,6 +10762,8 @@ mod tests {
                         display_label: None,
                     },
                     FieldView {
+                        display_hint: None,
+                        editor_hint_override: None,
                         composite_renderer: None,
                         field_id: "f-summary".to_string(),
                         order: 1,
@@ -10619,7 +10782,6 @@ mod tests {
                 }),
                 tags: None,
                 created_at: "2026-01-01T00:00:00Z".to_string(),
-                extra: std::collections::BTreeMap::new(),
             }]
         } else {
             vec![]

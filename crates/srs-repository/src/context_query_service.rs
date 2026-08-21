@@ -265,12 +265,17 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let test_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "type-test-001".to_string(),
             namespace: "com.test".to_string(),
             name: "test-type".to_string(),
             version: 1,
             description: "Test type".to_string(),
             fields: vec![FieldAssignment {
+                default_value: None,
                 field_id: "field-name-001".to_string(),
                 order: 0,
                 required: true,
@@ -285,7 +290,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
         let manifest = Manifest {
             container: None,
@@ -427,12 +431,17 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let test_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "type-test-001".to_string(),
             namespace: "com.test".to_string(),
             name: "test-type".to_string(),
             version: 1,
             description: "Test type".to_string(),
             fields: vec![FieldAssignment {
+                default_value: None,
                 field_id: "field-name-001".to_string(),
                 order: 0,
                 required: true,
@@ -447,7 +456,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
         name_field.ai_guidance = Some(AiGuidance {
             purpose: "Write the full legal name".to_string(),

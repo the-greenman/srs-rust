@@ -278,6 +278,7 @@ mod tests {
 
         fn fa(field_id: &str) -> FieldAssignment {
             FieldAssignment {
+                default_value: None,
                 field_id: field_id.to_string(),
                 order: 0,
                 required: true,
@@ -287,6 +288,10 @@ mod tests {
 
         fn rt(id: &str, identity_field_id: Option<&str>, extends: Option<&str>) -> RecordType {
             RecordType {
+                schema: None,
+                ai_guidance: None,
+                semantic_object_type: None,
+                tags: None,
                 id: id.to_string(),
                 namespace: "com.test".to_string(),
                 name: id.to_string(),
@@ -302,7 +307,6 @@ mod tests {
                 lifecycle_ref: None,
                 validation_rules: None,
                 created_at: "2026-01-01T00:00:00Z".to_string(),
-                extra: std::collections::BTreeMap::new(),
             }
         }
 

@@ -40,6 +40,7 @@ pub struct PackageBoundarySnapshot {
     pub metadata: PrimaryPackageMetadata,
     #[serde(deserialize_with = "crate::field_json::deserialize_fields_compat")]
     pub fields: Vec<Field>,
+    #[serde(deserialize_with = "crate::type_json::deserialize_types_compat")]
     pub record_types: Vec<RecordType>,
     pub relation_type_definitions: Vec<RelationTypeDefinition>,
     pub views: Vec<View>,
@@ -1518,6 +1519,7 @@ mod tests {
         source.initialize_repository(&make_input()).unwrap();
         let mut snapshot = export_repository_snapshot(&source).unwrap();
         snapshot.packages[0].blueprints.push(Blueprint {
+            schema: None,
             id: "7bfa600b-f7b2-4a0e-82d4-34c02d9d6770".to_string(),
             namespace: "com.semanticops.copy".to_string(),
             name: "guide".to_string(),

@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 /// validation rules to a class of relations. Definitions are loaded from package
 /// `relationTypes[]` entries and resolved into the effective installed set.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RelationTypeDefinition {
     #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,

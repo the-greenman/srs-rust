@@ -1234,12 +1234,17 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let simple_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "type-simple-00001".to_string(),
             namespace: "com.test".to_string(),
             name: "simple-type".to_string(),
             version: 1,
             description: "Simple test type".to_string(),
             fields: vec![FieldAssignment {
+                default_value: None,
                 field_id: "field-body-00001".to_string(),
                 order: 0,
                 required: false,
@@ -1255,7 +1260,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
         let note_val = {
             let mut v = serde_json::to_value(note).unwrap();

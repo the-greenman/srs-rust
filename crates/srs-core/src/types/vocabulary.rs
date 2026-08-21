@@ -1,6 +1,5 @@
 use super::term::Term;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -16,8 +15,15 @@ pub struct PromotionWindow {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Vocabulary {
+    /// The `$schema` pointer these files carry in practice. `vocabulary.json`
+    /// and `lifecycle.json` are the two definition schemas that do not declare
+    /// it while closing the object — a spec-side gap reported under
+    /// srs-rust#863. Accepted here because a schema pointer is never unknown
+    /// *content*; strictness is for keys nobody has sanctioned.
+    #[serde(rename = "$schema", default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
     #[serde(default)]
     pub id: String,
     pub version: u32,
@@ -33,9 +39,9 @@ pub struct Vocabulary {
     pub promotion_window: Option<PromotionWindow>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
     pub created_at: String,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 impl Vocabulary {
@@ -102,6 +108,8 @@ mod tests {
 
     fn make_vocab(mode: VocabularyMode, terms: Vec<Term>) -> Vocabulary {
         Vocabulary {
+            schema: None,
+            tags: None,
             id: "v1000001-0000-4000-b000-000000000001".to_string(),
             version: 1,
             namespace: "com.test".to_string(),
@@ -113,7 +121,6 @@ mod tests {
             promotion_window: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: BTreeMap::new(),
         }
     }
 
@@ -217,13 +224,15 @@ mod tests {
         assert_eq!(v.id, "v-test");
         let serialized = serde_json::to_string(&v).unwrap();
         assert!(
-            !serialized.contains("\"extra\""),
-            "flatten must not emit an 'extra' key"
+            serialized.contains("\"$schema\""),
+            "the pointer must survive"
         );
     }
 
+    /// srs-rust#863: a Vocabulary is definition-layer data — the trust
+    /// boundary rejects unknown keys instead of absorbing them.
     #[test]
-    fn vocabulary_absorbs_unknown_fields() {
+    fn vocabulary_rejects_unknown_fields() {
         let json = r#"{
             "id": "v-test",
             "version": 1,
@@ -234,7 +243,7 @@ mod tests {
             "createdAt": "2026-01-01T00:00:00Z",
             "futureExtension": "some-value"
         }"#;
-        let v: Vocabulary = serde_json::from_str(json).expect("unknown fields must be absorbed");
-        assert_eq!(v.id, "v-test");
+        let err = serde_json::from_str::<Vocabulary>(json).expect_err("must reject");
+        assert!(err.to_string().contains("futureExtension"), "{err}");
     }
 }

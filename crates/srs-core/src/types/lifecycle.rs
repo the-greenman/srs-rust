@@ -43,8 +43,12 @@ impl RelationTypeSpec {
 /// RFC-022 relational-state obligation: a record may only *be* in a state
 /// declaring this unless a satisfying relation exists (`state ⇒ relation`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RequiresRelation {
+    /// RFC-022 Rev 4 — declared by `lifecycle.json`; carried so a load/write
+    /// round trip keeps it (enforcement itself is srs-rust#566).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enforcement: Option<String>,
     /// Relation type(s) that satisfy the obligation (any-of). No implicit default.
     pub relation_type: RelationTypeSpec,
     /// Defaults to `incoming` when absent.
@@ -61,7 +65,7 @@ impl RequiresRelation {
 /// A single state in a lifecycle state machine (substrate specialization).
 /// `key` is the machine-readable identifier (was `name` in pre-RFC-006 data).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LifecycleState {
     /// Stable UUID identity. Optional for inline lifecycle blocks; required for standalone Lifecycle.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -104,7 +108,7 @@ impl LifecycleState {
 /// A directed transition between lifecycle state keys.
 /// `name` is the display label (NOT renamed to `key` — it is not a substrate entry key).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LifecycleTransition {
     /// Stable UUID identity for this edge.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -124,8 +128,15 @@ pub struct LifecycleTransition {
 /// A standalone, installable, referenceable lifecycle container.
 /// Types may reference this via `lifecycleRef` instead of declaring an inline lifecycle.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Lifecycle {
+    /// The `$schema` pointer these files carry in practice. `vocabulary.json`
+    /// and `lifecycle.json` are the two definition schemas that do not declare
+    /// it while closing the object — a spec-side gap reported under
+    /// srs-rust#863. Accepted here because a schema pointer is never unknown
+    /// *content*; strictness is for keys nobody has sanctioned.
+    #[serde(rename = "$schema", default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
     pub id: String,
     pub version: u32,
     pub namespace: String,
@@ -139,9 +150,9 @@ pub struct Lifecycle {
     pub extends_lifecycle_version: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
     pub created_at: String,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[cfg(test)]
@@ -205,6 +216,8 @@ mod tests {
     #[test]
     fn lifecycle_roundtrips_json() {
         let lc = Lifecycle {
+            schema: None,
+            tags: None,
             id: "lc-id".to_string(),
             version: 1,
             namespace: "com.test".to_string(),
@@ -252,7 +265,6 @@ mod tests {
             extends_lifecycle_version: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
         let json = serde_json::to_string(&lc).unwrap();
         let parsed: Lifecycle = serde_json::from_str(&json).unwrap();
@@ -278,8 +290,8 @@ mod tests {
         assert_eq!(lc.id, "lc-test");
         let serialized = serde_json::to_string(&lc).unwrap();
         assert!(
-            !serialized.contains("\"extra\""),
-            "flatten must not emit an 'extra' key"
+            serialized.contains("\"$schema\""),
+            "the pointer must survive"
         );
     }
 
