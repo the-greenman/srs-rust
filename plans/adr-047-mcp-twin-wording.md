@@ -106,13 +106,13 @@ Do not proceed to Stage 6 (sync + final acceptance) until this gate passes and t
 
 All of the following must be true before this plan is closed:
 
-- [ ] `cargo test` passes with no failures
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] `cargo test --test payload_contracts` passes (no payload structs changed by this plan, so this is a no-op sanity check)
-- [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed by this plan, so this is a no-op sanity check)
-- [ ] ADR-047 no longer contains the phrase "WASM/MCP twins" (or any other claim of an MCP tool for doctor)
-- [ ] `rg -n "WASM/MCP|MCP twin" --glob '*.md' .` from the repo root returns no hits
-- [ ] ADR-047's Decision content (never-on-load-path, repair inventory, reuse-not-widen seam) is byte-for-byte unchanged apart from the one corrected sentence
+- [x] `cargo test` passes with no failures
+- [x] `cargo clippy -- -D warnings` passes
+- [x] `cargo test --test payload_contracts` passes (no payload structs changed by this plan — confirmed no-op, 115 passed)
+- [x] `bash scripts/check-schema-sync.sh` — no entity schemas changed by this plan, so N/A; the script itself errors in this worktree only because it expects a sibling `../srs` checkout that doesn't exist at the worktree's path (unrelated to this change — the checkout at `/home/user/srs-rust`'s sibling `/home/user/srs` is unaffected)
+- [x] ADR-047 no longer contains the phrase "WASM/MCP twins" (or any other claim of an MCP tool for doctor)
+- [x] `rg -n "WASM/MCP|MCP twin" --glob '*.md' .` from the repo root returns no hits (outside this plan file's own description of the fix)
+- [x] ADR-047's Decision content (never-on-load-path, repair inventory, reuse-not-widen seam) is byte-for-byte unchanged apart from the one corrected sentence
 
 ## Coordination Rules
 
