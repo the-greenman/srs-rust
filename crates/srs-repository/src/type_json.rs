@@ -163,6 +163,41 @@ where
 mod tests {
     use super::*;
 
+    /// The snapshot/bundle path must read Types exactly as the file path does,
+    /// including the retired-construct tolerance — otherwise a legacy archive
+    /// stops importing.
+    #[test]
+    fn deserialize_types_compat_matches_the_file_reader() {
+        #[derive(Debug, serde::Deserialize)]
+        struct Snapshot {
+            #[serde(deserialize_with = "super::deserialize_types_compat")]
+            types: Vec<RecordType>,
+        }
+        let snap: Snapshot = serde_json::from_str(
+            r#"{"types": [{
+                "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+                "id": "t1", "namespace": "com.test", "name": "thing",
+                "version": 1, "fieldGroups": {"g": {}},
+                "fields": [{"fieldId": "f1", "order": 1, "repeatable": true}]
+            }]}"#,
+        )
+        .expect("a snapshot carrying retired constructs must import");
+        assert_eq!(snap.types.len(), 1);
+        assert_eq!(
+            snap.types[0].schema.as_deref(),
+            Some("https://srs.semanticops.com/schema/2.0/type.json")
+        );
+
+        // …and it is the same reader, so it is equally strict about keys the
+        // schema never declared.
+        let err = serde_json::from_str::<Snapshot>(
+            r#"{"types": [{"id": "t1", "namespace": "com.test", "name": "thing",
+                 "version": 1, "fields": [], "xUnknown": 1}]}"#,
+        )
+        .expect_err("unknown keys are rejected on this path too");
+        assert!(err.to_string().contains("xUnknown"), "{err}");
+    }
+
     /// srs-rust#863: a Type file is definition-layer data, so the loader
     /// rejects a key `type.json` does not declare — and names it.
     #[test]

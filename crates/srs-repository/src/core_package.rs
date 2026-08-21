@@ -45,7 +45,10 @@ struct EmbeddedCorePackageJson {
     data_model_revision: u64,
     #[serde(deserialize_with = "crate::field_json::deserialize_fields_compat")]
     fields: Vec<Field>,
-    #[serde(rename = "types")]
+    #[serde(
+        rename = "types",
+        deserialize_with = "crate::type_json::deserialize_types_compat"
+    )]
     record_types: Vec<RecordType>,
     #[serde(default)]
     relation_types: Vec<RelationTypeDefinition>,

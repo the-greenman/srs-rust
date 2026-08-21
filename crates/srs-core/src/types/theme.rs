@@ -148,9 +148,6 @@ mod tests {
 
     #[test]
     fn theme_roundtrips_full_element_templates() {
-        let mut extra = BTreeMap::new();
-        extra.insert("xCustom".to_string(), serde_json::json!(true));
-
         let theme = Theme {
             schema: None,
             lineage: None,
