@@ -446,7 +446,6 @@ mod tests {
     use srs_core::types::blueprint::{Blueprint, RelationSpec, TypeRef};
     use srs_core::types::field::{AiGuidance, Field, FieldType};
     use srs_core::types::record_type::{FieldAssignment, RecordType};
-    use std::collections::BTreeMap;
     use std::path::PathBuf;
 
     /// Build a MemoryStore pre-populated with two fields and one type.
@@ -508,14 +507,11 @@ mod tests {
     }
 
     fn make_article_type() -> RecordType {
-        let mut extra = BTreeMap::new();
-        extra.insert(
-            "aiGuidance".to_string(),
-            serde_json::json!("Extract a structured article."),
-        );
         RecordType {
             schema: None,
-            ai_guidance: None,
+            // Type-level guidance now travels as a named field rather than an
+            // `extra` bag entry — this is what `type_brief` reads.
+            ai_guidance: Some(serde_json::json!("Extract a structured article.")),
             semantic_object_type: None,
             tags: None,
             id: "type-111".to_string(),

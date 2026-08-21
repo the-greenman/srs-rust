@@ -167,6 +167,14 @@ pub struct SectionOrdering {
     pub field_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub direction: Option<SortDirection>,
+    /// RFC-015 [N+29] — the view-owned explicit presentation sequence for a
+    /// `container-subset` section: `instanceId`s in presentation order, with
+    /// unlisted members appended in [N+12] order. Declared by
+    /// `document-view.json`, so a strict `SectionOrdering` has to model it or a
+    /// schema-valid DocumentView would stop loading. Carried, not yet consumed
+    /// — honouring it is srs-rust#567.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub member_order: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -295,7 +303,7 @@ pub struct ThemeVariant {
 /// package-validation-time anchor (RFC-009 I-63): each entry must resolve to a specific
 /// Type version in the package.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExactTypeRef {
     pub type_id: String,
     pub type_version: u32,
@@ -396,6 +404,7 @@ mod tests {
                 type_dispatch: None,
                 title_field_id: Some("field-title".to_string()),
                 ordering: Some(SectionOrdering {
+                    member_order: None,
                     field_id: Some("field-order".to_string()),
                     direction: Some(SortDirection::Asc),
                 }),

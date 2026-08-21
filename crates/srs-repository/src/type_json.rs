@@ -56,6 +56,12 @@ pub(crate) struct TypeJson {
     /// that `repo validate` can still report it as a *named diagnostic* over
     /// the raw document; rejecting it at load would leave the repository
     /// unreadable by the very command meant to explain the problem.
+    ///
+    /// Dropped, not carried — a deliberate delta from the removed `extra` bag,
+    /// which round-tripped it. A revision ≤ 1 Type file rewritten by this
+    /// binary therefore loses `fieldGroups`, which is the intended outcome of
+    /// the RFC-039 migration and is what `apply-migration --id rfc039-carrier`
+    /// does on purpose. Every first-party corpus is already revision 2.
     #[serde(default, rename = "fieldGroups")]
     _retired_field_groups: Option<serde_json::Value>,
 }

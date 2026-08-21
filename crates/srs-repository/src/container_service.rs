@@ -423,10 +423,15 @@ pub fn delete_container(
 
 /// The **one** membership operation (I-66, I-118) — the union of all three
 /// conditions: `rootInstanceIds` ∪ `memberInstanceIds` ∪ everything reachable by
-/// transitive `contains` traversal from `rootInstanceIds`. Every consumer surface
-/// routes through here (`find --container`, `container resolve-view`, the MCP
-/// container resource, `containers_for_instance`); there is no second
-/// implementation to drift from it.
+/// transitive `contains` traversal from `rootInstanceIds`. Every consumer that
+/// asks "is this a member" routes through here (`find --container`, `container
+/// resolve-view`, the MCP container resource, `containers_for_instance`).
+///
+/// `doctor_service`'s reachability check reads `memberInstanceIds` /
+/// `rootInstanceIds` / `identityInstanceId` directly and deliberately does not
+/// route through this: it answers a different question — "does any container
+/// *declare* a reference to this id", the [R13] dangling-reference question —
+/// for which a traversal-reachable instance is not a reference at all.
 ///
 /// Pure so `list_containers` can filter a whole index against one relation load.
 ///

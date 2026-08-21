@@ -97,6 +97,42 @@ fn definition_types_reject_unknown_keys() {
     );
 }
 
+/// Strictness must not reject a key the schema declares but the engine does
+/// not yet act on. `DocumentSection.ordering.memberOrder` (RFC-015 [N+29]) is
+/// the case that nearly slipped through: no first-party corpus uses it, so a
+/// corpus-only safety gate would have stayed green while a schema-valid
+/// DocumentView became unloadable.
+#[test]
+fn document_view_accepts_schema_declared_but_unconsumed_keys() {
+    let dv: DocumentView = serde_json::from_value(serde_json::json!({
+        "id": "00000000-0000-4000-8000-000000000002",
+        "namespace": "com.test", "name": "dv", "version": 1,
+        "description": "d",
+        "sections": [{
+            "sectionId": "s1",
+            "order": 0,
+            "source": {"type": "container-subset", "containerId": "c1"},
+            "ordering": {"memberOrder": [
+                "11111111-1111-4111-8111-111111111111",
+                "22222222-2222-4222-8222-222222222222"
+            ]}
+        }],
+        "createdAt": "2026-01-01T00:00:00Z"
+    }))
+    .expect("memberOrder is declared by document-view.json");
+    let ordering = dv.sections[0].ordering.as_ref().expect("ordering");
+    assert_eq!(ordering.member_order.as_ref().map(Vec::len), Some(2));
+    // Carried back out — an unconsumed key must not be a silently dropped one.
+    let back = serde_json::to_value(&dv).unwrap();
+    assert_eq!(
+        back["sections"][0]["ordering"]["memberOrder"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
 /// The `$schema` pointer every definition schema declares is a *known* key —
 /// strictness must not turn the pointer the files actually carry into a
 /// rejection.

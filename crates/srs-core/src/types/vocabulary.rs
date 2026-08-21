@@ -17,11 +17,18 @@ pub struct PromotionWindow {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Vocabulary {
-    /// The `$schema` pointer these files carry in practice. `vocabulary.json`
-    /// and `lifecycle.json` are the two definition schemas that do not declare
-    /// it while closing the object — a spec-side gap reported under
-    /// srs-rust#863. Accepted here because a schema pointer is never unknown
-    /// *content*; strictness is for keys nobody has sanctioned.
+    /// `vocabulary.json` and `lifecycle.json` are the only two definition
+    /// schemas that close the object (`additionalProperties: false`) without
+    /// declaring `$schema`, which every sibling definition schema does — a
+    /// spec-side gap reported under srs-rust#863.
+    ///
+    /// Accepted and re-emitted anyway: a schema pointer is never unknown
+    /// *content*, and the pre-existing behaviour (the removed `extra` bag)
+    /// already carried it, so dropping it here would be exactly the silent loss
+    /// `rfc-decision-2e0cd70a` forbids. Note the consequence while the gap is
+    /// open: such a file loads, but `repo validate` reports it as failing its
+    /// declared schema. No first-party corpus file carries the pointer today —
+    /// the fix belongs in the two schemas, not here.
     #[serde(rename = "$schema", default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
     #[serde(default)]
