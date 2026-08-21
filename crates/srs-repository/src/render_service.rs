@@ -5272,6 +5272,7 @@ mod tests {
                 type_dispatch: None,
                 title_field_id: Some("f-heading".to_string()),
                 ordering: Some(SectionOrdering {
+                    member_order: None,
                     field_id: Some("f-heading".to_string()),
                     direction: Some(direction),
                 }),

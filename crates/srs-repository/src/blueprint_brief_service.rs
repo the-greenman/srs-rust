@@ -507,6 +507,8 @@ mod tests {
     fn make_article_type() -> RecordType {
         RecordType {
             schema: None,
+            // Type-level guidance now travels as a named field rather than an
+            // `extra` bag entry — this is what `type_brief` reads.
             ai_guidance: Some(serde_json::json!("Extract a structured article.")),
             semantic_object_type: None,
             tags: None,

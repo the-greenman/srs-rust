@@ -42,11 +42,22 @@ impl PrecedesSortable for crate::record_store::LoadedInstance {
 /// predecessor (which a chain-following walk gets wrong on a join). Among the
 /// nodes that are ready, the canonical RFC-013 tiebreak decides — `createdAt`
 /// ascending, then `instanceId` ascending, a total order, so the output is
-/// byte-identical however the relations arrive (#532). Successors freed by the
-/// node just emitted are preferred over the rest of the ready set, which keeps
-/// a chain contiguous instead of interleaving unrelated records into the middle
-/// of it. Records left over after the traversal are in a cycle; they are
-/// appended in the same tiebreak order rather than dropped.
+/// byte-identical however the relations arrive (#532).
+///
+/// Successors freed by the node just emitted are preferred over the rest of the
+/// ready set. That is not arbitrary: [N+12] reads "order the member instances by
+/// the `precedes` relation chain among them (topological sort); instances **not
+/// connected by any `precedes` relation** are ordered by `createdAt` ascending
+/// as a tiebreak". The tiebreak is for the *unconnected* members, not a global
+/// interleaving key — so a chain stays contiguous and an unchained record takes
+/// its place among the other unchained ones, rather than being spliced into the
+/// middle of a chain because its timestamp happens to fall there. Several
+/// topological orders satisfy [N+12]; this is the one that reads it that way,
+/// and it is also the order the pre-Kahn implementation produced, so no existing
+/// document reorders.
+///
+/// Records left over after the traversal are in a cycle; they are appended in
+/// the same tiebreak order rather than dropped.
 ///
 /// Extracted from `render_service` — shared by render and tree services.
 pub(crate) fn sort_by_precedes_chain<T: PrecedesSortable>(
@@ -104,16 +115,26 @@ pub(crate) fn sort_by_precedes_chain_diagnosed<T: PrecedesSortable>(
             .then_with(|| a.cmp(b))
     };
 
+    // RFC-013 step 4 defines a fork as "a member with two successors **or two
+    // predecessors**", so a pure join — `a precedes c`, `b precedes c`, nobody
+    // with out-degree > 1 — is reportable too. Diagnosing only fan-out would
+    // leave that shape silent.
     let mut diagnostics = Vec::new();
-    let mut forks: Vec<(&str, usize)> = successors
+    let mut forks: Vec<(&str, usize, &str)> = successors
         .iter()
         .filter(|(_, tgts)| tgts.len() > 1)
-        .map(|(src, tgts)| (*src, tgts.len()))
+        .map(|(src, tgts)| (*src, tgts.len(), "successors"))
+        .chain(
+            in_degree
+                .iter()
+                .filter(|(_, d)| **d > 1)
+                .map(|(id, d)| (*id, *d, "predecessors")),
+        )
         .collect();
-    forks.sort_by(|a, b| tiebreak(a.0, b.0));
-    for (id, count) in forks {
+    forks.sort_by(|a, b| tiebreak(a.0, b.0).then_with(|| a.2.cmp(b.2)));
+    for (id, count, direction) in forks {
         diagnostics.push(format!(
-            "`precedes` fork at {id}: {count} successors. Ordering resolved by the \
+            "`precedes` fork at {id}: {count} {direction}. Ordering resolved by the \
              (createdAt, instanceId) tiebreak; the order is deterministic but the \
              document intent is ambiguous (RFC-013 step 4)."
         ));
@@ -172,8 +193,9 @@ pub(crate) fn sort_by_precedes_chain_diagnosed<T: PrecedesSortable>(
         let mut ids: Vec<&str> = remaining.iter().map(|r| r.precedes_instance_id()).collect();
         ids.sort_by(|a, b| tiebreak(a, b));
         diagnostics.push(format!(
-            "`precedes` cycle among {}. Ordering falls back to the (createdAt, \
-             instanceId) tiebreak (RFC-013 step 4).",
+            "`precedes` cycle: {} could not be placed by topological order — a \
+             cycle among them, or downstream of one. Ordering falls back to the \
+             (createdAt, instanceId) tiebreak (RFC-013 step 4).",
             ids.join(", ")
         ));
     }
@@ -340,6 +362,29 @@ mod tests {
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         assert!(diagnostics[0].contains("root"), "{}", diagnostics[0]);
         assert!(diagnostics[0].contains("fork"), "{}", diagnostics[0]);
+    }
+
+    /// RFC-013 step 4 counts "two predecessors" as a fork too. A pure join —
+    /// nobody with out-degree > 1 — must not pass silently.
+    #[test]
+    fn sort_by_precedes_chain_join_emits_diagnostic_naming_the_node() {
+        let ts = "2026-01-01T00:00:00Z";
+        let records = vec![
+            make_record("a", ts),
+            make_record("b", ts),
+            make_record("c", ts),
+        ];
+        let relations = vec![make_precedes("a", "c"), make_precedes("b", "c")];
+        let (sorted, diagnostics) = sort_by_precedes_chain_diagnosed(records, &relations);
+        let ids: Vec<&str> = sorted.iter().map(|r| r.instance_id.as_str()).collect();
+        assert_eq!(ids, vec!["a", "b", "c"]);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert!(diagnostics[0].contains("c"), "{}", diagnostics[0]);
+        assert!(
+            diagnostics[0].contains("predecessors"),
+            "{}",
+            diagnostics[0]
+        );
     }
 
     /// A cycle terminates with a deterministic order and its own diagnostic.
