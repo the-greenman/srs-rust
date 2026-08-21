@@ -451,12 +451,17 @@ fn member_ids(container: &Container, relations: &[Relation]) -> Vec<String> {
 
     // I-66 condition 3: transitive `contains` from the roots (not from
     // `memberInstanceIds` — the spec anchors the traversal on roots alone).
-    let mut frontier: VecDeque<String> = container
-        .root_instance_ids
-        .iter()
-        .flatten()
-        .cloned()
-        .collect();
+    //
+    // `traversed` is deliberately separate from `seen`: a node can already be
+    // in the output (a root, or a declared member that a root also contains)
+    // and still need walking, or everything it in turn contains is lost.
+    let mut traversed: HashSet<&str> = HashSet::new();
+    let mut frontier: VecDeque<&str> = VecDeque::new();
+    for id in container.root_instance_ids.iter().flatten() {
+        if traversed.insert(id.as_str()) {
+            frontier.push_back(id.as_str());
+        }
+    }
     while let Some(source) = frontier.pop_front() {
         let mut children: Vec<&Relation> = relations
             .iter()
@@ -470,9 +475,12 @@ fn member_ids(container: &Container, relations: &[Relation]) -> Vec<String> {
                 .then_with(|| a.target_instance_id.cmp(&b.target_instance_id))
         });
         for rel in children {
-            if seen.insert(rel.target_instance_id.as_str()) {
+            let target = rel.target_instance_id.as_str();
+            if seen.insert(target) {
                 combined.push(rel.target_instance_id.clone());
-                frontier.push_back(rel.target_instance_id.clone());
+            }
+            if traversed.insert(target) {
+                frontier.push_back(target);
             }
         }
     }
@@ -1378,6 +1386,27 @@ mod tests {
         assert_eq!(
             member_ids(&c, &rels),
             vec!["root".to_string(), "a".to_string()]
+        );
+    }
+
+    /// A `contains` child that is *also* a declared member must still be
+    /// walked through — otherwise everything it contains disappears. The
+    /// output dedup and the traversal visited-set are separate for this reason.
+    #[test]
+    fn member_ids_traverses_through_a_declared_member() {
+        let mut c = container_with_root("root");
+        c.member_instance_ids = Some(vec!["child".to_string()]);
+        let rels = vec![
+            contains_rel("r1", "root", "child", "2026-01-01T00:00:00Z"),
+            contains_rel("r2", "child", "grandchild", "2026-01-01T00:00:00Z"),
+        ];
+        assert_eq!(
+            member_ids(&c, &rels),
+            vec![
+                "root".to_string(),
+                "child".to_string(),
+                "grandchild".to_string()
+            ]
         );
     }
 
