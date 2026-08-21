@@ -39,7 +39,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use serde::de::Error as SerdeDeError;
 use serde::{Deserialize, Serialize};
 use srs_core::extensions::import_tracking::{
     ConflictState, DefinitionType, ImportMode, ImportRecord, ImportSummary,
@@ -210,23 +209,21 @@ fn validate_source_definition(
     path: &Path,
     value: &serde_json::Value,
 ) -> Result<(), RepositoryError> {
-    let parse_err = |msg: String| RepositoryError::PackageLoad {
-        path: path.to_path_buf(),
-        source: serde_json::Error::custom(msg),
-    };
-    let require_str = |key: &str| -> Result<(), RepositoryError> {
-        if value[key].as_str().is_none_or(|s| s.trim().is_empty()) {
-            return Err(parse_err(format!("missing required string '{key}'")));
-        }
-        Ok(())
-    };
     match kind {
-        // Fields and types mirror the loader's lenient FieldJson/TypeJson shapes:
-        // check the load-bearing keys instead of a strict typed parse.
+        // Fields and Types are read by `FieldJson`/`TypeJson`, not by their core
+        // structs, so those are what install has to agree with — and both reject
+        // unknown keys (`FieldJson` always did; `TypeJson` since srs-rust#863).
+        // Checking only the load-bearing keys would let install accept a file
+        // the next `load_package()` refuses, which is the worst outcome
+        // available: the repository becomes unloadable by the command that
+        // would have explained why.
         DefinitionKind::Field => {
-            require_str("id")?;
-            require_str("namespace")?;
-            require_str("name")?;
+            serde_json::from_value::<crate::field_json::FieldJson>(value.clone()).map_err(
+                |source| RepositoryError::PackageLoad {
+                    path: path.to_path_buf(),
+                    source,
+                },
+            )?;
             // RFC-032/RFC-039: a Field carries an inline `fieldType`; the
             // load-bearing key is its `datatype`.
             let datatype = value["fieldType"]["datatype"].as_str().unwrap_or("");
@@ -249,12 +246,12 @@ fn validate_source_definition(
             }
         }
         DefinitionKind::Type => {
-            require_str("id")?;
-            require_str("namespace")?;
-            require_str("name")?;
-            if !value["fields"].is_array() {
-                return Err(parse_err("missing required array 'fields'".to_string()));
-            }
+            serde_json::from_value::<crate::type_json::TypeJson>(value.clone()).map_err(
+                |source| RepositoryError::PackageLoad {
+                    path: path.to_path_buf(),
+                    source,
+                },
+            )?;
         }
         DefinitionKind::RelationType => {
             let def: srs_core::types::relation_type_definition::RelationTypeDefinition =

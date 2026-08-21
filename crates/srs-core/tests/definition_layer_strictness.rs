@@ -157,3 +157,44 @@ fn definition_types_accept_the_schema_pointer() {
         "https://srs.semanticops.com/schema/2.0/view.json"
     );
 }
+
+/// Every newly modelled key is carried *back out*. A key that loads and then
+/// vanishes on write is the silent loss `rfc-decision-2e0cd70a` forbids, and it
+/// is indistinguishable from strictness working until someone diffs a file.
+#[test]
+fn newly_modelled_keys_survive_a_round_trip() {
+    let view_json = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/view.json",
+        "id": "00000000-0000-4000-8000-000000000001",
+        "namespace": "com.test", "name": "v", "version": 1,
+        "description": "d",
+        "aiGuidance": {"purpose": "p"},
+        "lineage": {"derivedFrom": "x"},
+        "provenance": {"author": "a"},
+        "updatedAt": "2026-02-02T00:00:00Z",
+        "fieldViews": [{
+            "fieldId": "00000000-0000-4000-8000-0000000000f1",
+            "order": 0,
+            "displayHint": "block",
+            "editorHintOverride": {"kind": "textarea"}
+        }],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    let view: View = serde_json::from_value(view_json.clone()).expect("loads");
+    let back = serde_json::to_value(&view).unwrap();
+    for key in [
+        "$schema",
+        "aiGuidance",
+        "lineage",
+        "provenance",
+        "updatedAt",
+    ] {
+        assert_eq!(back[key], view_json[key], "{key} must survive");
+    }
+    for key in ["displayHint", "editorHintOverride"] {
+        assert_eq!(
+            back["fieldViews"][0][key], view_json["fieldViews"][0][key],
+            "fieldViews[0].{key} must survive"
+        );
+    }
+}

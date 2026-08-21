@@ -1415,6 +1415,77 @@ mod tests {
         );
     }
 
+    /// Builds a store holding `root-note` and `child-note` with
+    /// `root-note contains child-note`, plus a container rooted at `root-note`.
+    fn store_with_contains_child() -> (MemoryStore, Container) {
+        let store = MemoryStore::default();
+        for id in ["root-note", "child-note"] {
+            store
+                .save_instance_json(
+                    &format!("records/notes/{id}.json"),
+                    &serde_json::json!({"instanceId": id, "sections": []}),
+                )
+                .unwrap();
+        }
+        crate::store::write_relations_standalone_for_test(
+            &store,
+            &serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+                "relations": [{
+                    "relationId": "aaaaaaaa-0000-4000-8000-000000000001",
+                    "relationType": "contains",
+                    "sourceInstanceId": "root-note",
+                    "targetInstanceId": "child-note",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }]
+            }),
+        );
+        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Doc");
+        c.root_instance_ids = Some(vec!["root-note".to_string()]);
+        let created = create_container(&store, c).unwrap();
+        (store, created)
+    }
+
+    /// [R22]: the delete cascade may only write a container it actually
+    /// changes. Condition 3 makes `containers_for_instance` return containers
+    /// that merely *reach* the instance, and those declare nothing to remove —
+    /// the guard is what keeps the delete from rewriting them.
+    #[test]
+    fn delete_cascade_does_not_rewrite_a_traversal_only_container() {
+        let (store, created) = store_with_contains_child();
+        let before = get_container(&store, &created.container_id).unwrap();
+        // `child-note` is a member only by traversal.
+        assert!(is_member(&store, &created.container_id, "child-note").unwrap());
+
+        remove_instance_from_all_containers(&store, "child-note").unwrap();
+
+        let after = get_container(&store, &created.container_id).unwrap();
+        assert_eq!(
+            serde_json::to_value(&before).unwrap(),
+            serde_json::to_value(&after).unwrap(),
+            "a container the delete does not change must not be written"
+        );
+    }
+
+    /// Membership reads and membership *writes* are not symmetric, and this
+    /// pins the asymmetry rather than leaving it to be discovered.
+    ///
+    /// `remove_member` edits `memberInstanceIds`. A member that exists only
+    /// because a root `contains` it is not in that list, so removing it is a
+    /// no-op and the instance is still a member afterwards — the way to revoke
+    /// that membership is to delete the `contains` relation. Whether
+    /// `container members remove` should do that itself is a design question
+    /// raised on srs-rust#863, not something this change decides.
+    #[test]
+    fn remove_member_cannot_revoke_a_traversal_derived_membership() {
+        let (store, created) = store_with_contains_child();
+        remove_member(&store, &created.container_id, "child-note").unwrap();
+        assert!(
+            is_member(&store, &created.container_id, "child-note").unwrap(),
+            "still a member: the `contains` edge, not the member list, is what makes it one"
+        );
+    }
+
     /// I-66 anchors condition 3 on `rootInstanceIds` only — a `contains` edge
     /// out of a plain `memberInstanceIds` entry does not pull its target in.
     #[test]
