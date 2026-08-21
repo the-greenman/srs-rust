@@ -37,10 +37,11 @@ deterministically.
 **Never on any load path.** Every load-time surface — `store.catalog()`, `load_manifest()`, the
 CLI/MCP/WASM open paths — keeps behaving exactly as it does today: [R24] fatality is unchanged,
 [R21]/[R2] refusals are unchanged. `doctor_service::doctor` is reachable only from the `repo
-doctor` CLI handler and its WASM/MCP twins, all triggered by an explicit user request. A reader
-that silently repaired on open would be exactly the coercion [R21] forbids; a repair the operator
-did not ask for and cannot see is not truthful diagnostics, it is undetected loss risk with a
-happy exit code.
+doctor` CLI handler (`cmd_repo_doctor`) and the `srs-bindings` WASM binding (`SrsRepository::
+doctor`), both triggered by an explicit user request. There is no `srs-mcp` tool for it today —
+an MCP-only agent cannot invoke doctor (tracked separately: srs-rust#861). A reader that silently
+repaired on open would be exactly the coercion [R21] forbids; a repair the operator did not ask
+for and cannot see is not truthful diagnostics, it is undetected loss risk with a happy exit code.
 
 ### Read path: reuse the existing unchecked seam, don't widen it
 
