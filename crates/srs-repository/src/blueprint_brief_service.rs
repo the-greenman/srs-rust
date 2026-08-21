@@ -295,7 +295,7 @@ fn resolve_brief_type(
         },
     };
 
-    let ai_guidance = record_type.extra.get("aiGuidance").cloned();
+    let ai_guidance = record_type.ai_guidance.clone();
 
     let mut field_assignments = record_type.fields.clone();
     field_assignments.sort_by_key(|fa| fa.order);
@@ -446,7 +446,6 @@ mod tests {
     use srs_core::types::blueprint::{Blueprint, RelationSpec, TypeRef};
     use srs_core::types::field::{AiGuidance, Field, FieldType};
     use srs_core::types::record_type::{FieldAssignment, RecordType};
-    use std::collections::BTreeMap;
     use std::path::PathBuf;
 
     /// Build a MemoryStore pre-populated with two fields and one type.
@@ -506,12 +505,11 @@ mod tests {
     }
 
     fn make_article_type() -> RecordType {
-        let mut extra = BTreeMap::new();
-        extra.insert(
-            "aiGuidance".to_string(),
-            serde_json::json!("Extract a structured article."),
-        );
         RecordType {
+            schema: None,
+            ai_guidance: Some(serde_json::json!("Extract a structured article.")),
+            semantic_object_type: None,
+            tags: None,
             id: "type-111".to_string(),
             namespace: "test.ns".to_string(),
             name: "article".to_string(),
@@ -544,10 +542,9 @@ mod tests {
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra,
             lineage: None,
             provenance: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
         }
     }
 
@@ -560,6 +557,7 @@ mod tests {
             vec![make_article_type()],
         );
         let blueprint = Blueprint {
+            schema: None,
             id: String::new(),
             namespace: "test.ns".to_string(),
             name: "test-blueprint".to_string(),
@@ -617,12 +615,18 @@ mod tests {
         assert_eq!(t.fields[0].name, "summary");
         assert_eq!(t.fields[1].order, 2);
         assert_eq!(t.fields[1].name, "title");
+        assert_eq!(
+            t.ai_guidance,
+            Some(serde_json::json!("Extract a structured article.")),
+            "RecordType.aiGuidance must surface through blueprint brief post-RFC-040 typed field"
+        );
     }
 
     #[test]
     fn test_brief_unresolvable_type_is_diagnostic() {
         let store = make_package_store(vec![], vec![]);
         let blueprint = Blueprint {
+            schema: None,
             id: String::new(),
             namespace: "test.ns".to_string(),
             name: "broken-blueprint".to_string(),
@@ -847,6 +851,10 @@ mod tests {
             .collect();
 
         let proto_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "48a03f5d-4f27-42f4-b791-999f6c22f8d2".to_string(),
             namespace: "com.semanticops.srs".to_string(),
             name: "meta.protocol".to_string(),
@@ -862,10 +870,9 @@ mod tests {
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
             lineage: None,
             provenance: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
         };
 
         (fields, proto_type)
@@ -878,6 +885,7 @@ mod tests {
             vec![make_article_type()],
         );
         let blueprint = Blueprint {
+            schema: None,
             id: String::new(),
             namespace: "test.ns".to_string(),
             name: "relay-blueprint".to_string(),
@@ -937,6 +945,7 @@ mod tests {
         );
         // Create a blueprint whose root type is "type-111"
         let blueprint = Blueprint {
+            schema: None,
             id: String::new(),
             namespace: "test.ns".to_string(),
             name: "protocol-blueprint".to_string(),
@@ -1044,6 +1053,7 @@ mod tests {
             vec![make_article_type(), proto_type],
         );
         let blueprint = Blueprint {
+            schema: None,
             id: String::new(),
             namespace: "test.ns".to_string(),
             name: "validation-blueprint".to_string(),
@@ -1132,6 +1142,7 @@ mod tests {
             vec![make_article_type(), proto_type],
         );
         let blueprint = Blueprint {
+            schema: None,
             id: String::new(),
             namespace: "test.ns".to_string(),
             name: "typeid-validation-blueprint".to_string(),
@@ -1222,6 +1233,7 @@ mod tests {
             vec![make_article_type(), proto_type],
         );
         let blueprint = Blueprint {
+            schema: None,
             id: String::new(),
             namespace: "test.ns".to_string(),
             name: "valid-typeid-blueprint".to_string(),

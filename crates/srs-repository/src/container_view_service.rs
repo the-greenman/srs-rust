@@ -518,6 +518,8 @@ mod tests {
         label: Option<&str>,
     ) -> FieldView {
         FieldView {
+            display_hint: None,
+            editor_hint_override: None,
             composite_renderer: None,
             field_id: field_id.to_string(),
             order,
@@ -529,6 +531,11 @@ mod tests {
 
     fn view_with_fields(field_views: Vec<FieldView>) -> View {
         View {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             id: VIEW_ID.to_string(),
             namespace: "com.test".to_string(),
             name: "decision-view".to_string(),
@@ -540,7 +547,6 @@ mod tests {
             export_config: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -569,6 +575,11 @@ mod tests {
 
     fn document_view(id: &str, sections: Vec<DocumentSection>) -> DocumentView {
         DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),
@@ -589,7 +600,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -1594,6 +1604,10 @@ mod tests {
 
     fn record_type_with_identity(identity_field_id: Option<&str>) -> RecordType {
         RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: TYPE_ID.to_string(),
             namespace: "com.test".to_string(),
             name: "decision".to_string(),
@@ -1624,7 +1638,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
             lineage: None,
             provenance: None,
         }
@@ -1632,6 +1645,10 @@ mod tests {
 
     fn record_type_with_identity_v2(identity_field_id: Option<&str>) -> RecordType {
         RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: TYPE_ID_2.to_string(),
             namespace: "com.test".to_string(),
             name: "decision-b".to_string(),
@@ -1662,7 +1679,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
             lineage: None,
             provenance: None,
         }
@@ -2057,6 +2073,10 @@ mod tests {
             ..document_view(DV, vec![])
         };
         let make_rt = |id: &str| RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),
             name: id.to_string(),
@@ -2078,7 +2098,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
             lineage: None,
             provenance: None,
         };

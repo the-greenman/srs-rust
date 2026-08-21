@@ -63,6 +63,10 @@ fn make_field(id: &str, name: &str) -> Field {
 
 fn make_type(id: &str, name: &str) -> RecordType {
     RecordType {
+        schema: None,
+        ai_guidance: None,
+        semantic_object_type: None,
+        tags: None,
         id: id.to_string(),
         namespace: "com.test".to_string(),
         name: name.to_string(),
@@ -78,7 +82,6 @@ fn make_type(id: &str, name: &str) -> RecordType {
         lifecycle_ref: None,
         validation_rules: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
-        extra: std::collections::BTreeMap::new(),
         lineage: None,
         provenance: None,
     }
@@ -86,12 +89,19 @@ fn make_type(id: &str, name: &str) -> RecordType {
 
 fn make_view(name: &str) -> View {
     View {
+        schema: None,
+        ai_guidance: None,
+        lineage: None,
+        provenance: None,
+        updated_at: None,
         id: String::new(),
         namespace: "com.test".to_string(),
         name: name.to_string(),
         version: 1,
         description: "test view".to_string(),
         field_views: vec![FieldView {
+            display_hint: None,
+            editor_hint_override: None,
             composite_renderer: None,
             field_id: "f1".to_string(),
             order: 0,
@@ -104,12 +114,16 @@ fn make_view(name: &str) -> View {
         export_config: None,
         tags: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
-        extra: std::collections::BTreeMap::new(),
     }
 }
 
 fn make_document_view(name: &str) -> DocumentView {
     DocumentView {
+        schema: None,
+        ai_guidance: None,
+        lineage: None,
+        provenance: None,
+        updated_at: None,
         composite_renderers: None,
         id: String::new(),
         namespace: "com.test".to_string(),
@@ -143,12 +157,15 @@ fn make_document_view(name: &str) -> DocumentView {
         theme_variants: None,
         tags: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
-        extra: std::collections::BTreeMap::new(),
     }
 }
 
 fn make_theme(name: &str) -> Theme {
     Theme {
+        schema: None,
+        lineage: None,
+        provenance: None,
+        updated_at: None,
         id: String::new(),
         namespace: "com.test".to_string(),
         name: name.to_string(),
@@ -163,12 +180,12 @@ fn make_theme(name: &str) -> Theme {
         typography: None,
         tags: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
-        extra: std::collections::BTreeMap::new(),
     }
 }
 
 fn make_blueprint(name: &str) -> Blueprint {
     Blueprint {
+        schema: None,
         id: String::new(),
         namespace: "test".to_string(),
         name: name.to_string(),
@@ -190,6 +207,7 @@ fn make_blueprint(name: &str) -> Blueprint {
 
 fn make_protocol_value(id: &str, name: &str) -> serde_json::Value {
     serde_json::to_value(Protocol {
+        schema: None,
         protocol_id: id.to_string(),
         protocol_namespace: "com.test".to_string(),
         protocol_name: name.to_string(),
@@ -228,6 +246,8 @@ fn make_relation_type(id: &str, key: &str) -> RelationTypeDefinition {
 
 fn make_lifecycle(name: &str) -> Lifecycle {
     Lifecycle {
+        schema: None,
+        tags: None,
         id: String::new(),
         version: 1,
         namespace: "com.test".to_string(),
@@ -275,7 +295,6 @@ fn make_lifecycle(name: &str) -> Lifecycle {
         extends_lifecycle_version: None,
         description: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
-        extra: std::collections::BTreeMap::new(),
     }
 }
 

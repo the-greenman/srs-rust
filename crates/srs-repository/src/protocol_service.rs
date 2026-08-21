@@ -473,6 +473,7 @@ mod tests {
 
     fn make_protocol(id: &str, target_type: &str, name: &str) -> LoadedProtocol {
         let protocol = Protocol {
+            schema: None,
             protocol_id: id.to_string(),
             protocol_namespace: "com.test".to_string(),
             protocol_name: name.to_string(),

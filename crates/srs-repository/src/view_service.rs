@@ -661,12 +661,19 @@ mod tests {
 
     fn minimal_view(name: &str) -> View {
         View {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             id: String::new(),
             namespace: "com.test".to_string(),
             name: name.to_string(),
             version: 1,
             description: "test view".to_string(),
             field_views: vec![FieldView {
+                display_hint: None,
+                editor_hint_override: None,
                 composite_renderer: None,
                 field_id: "f1".to_string(),
                 order: 0,
@@ -679,12 +686,16 @@ mod tests {
             export_config: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         }
     }
 
     fn minimal_document_view(name: &str) -> DocumentView {
         DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: String::new(),
             namespace: "com.test".to_string(),
@@ -718,7 +729,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -1279,6 +1289,11 @@ mod tests {
         use std::path::PathBuf;
 
         let dv = DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: "dv-test-id".to_string(),
             namespace: "com.test".to_string(),
@@ -1315,7 +1330,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = Manifest {
@@ -1462,6 +1476,11 @@ mod tests {
 
         // DocumentView expects a typed instance, but instance is Tier 0 (Note — no typeId)
         let dv = DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: "dv-test-id".to_string(),
             namespace: "com.test".to_string(),
@@ -1498,7 +1517,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let manifest = Manifest {

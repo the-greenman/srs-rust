@@ -189,6 +189,8 @@ pub fn validate_type_lifecycle_v9(
 ) -> Vec<LifecycleDiagnostic> {
     // Build a temporary Lifecycle to reuse validate_lifecycle logic
     let lc = Lifecycle {
+        schema: None,
+        tags: None,
         id: String::new(),
         version: 1,
         namespace: String::new(),
@@ -200,7 +202,6 @@ pub fn validate_type_lifecycle_v9(
         extends_lifecycle_version: None,
         description: None,
         created_at: String::new(),
-        extra: std::collections::BTreeMap::new(),
     };
     validate_lifecycle(&lc)
 }
@@ -258,6 +259,8 @@ mod tests {
 
     fn make_lc(states: Vec<LifecycleState>, transitions: Vec<LifecycleTransition>) -> Lifecycle {
         Lifecycle {
+            schema: None,
+            tags: None,
             id: "lc-1".to_string(),
             version: 1,
             namespace: "com.test".to_string(),
@@ -269,7 +272,6 @@ mod tests {
             extends_lifecycle_version: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         }
     }
 

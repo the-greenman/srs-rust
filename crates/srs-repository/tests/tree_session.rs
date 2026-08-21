@@ -141,8 +141,8 @@ fn type_edit_preserves_extra() {
         other => panic!("type not found: {other:?}"),
     };
     assert_eq!(
-        rt.extra
-            .get("aiGuidance")
+        rt.ai_guidance
+            .as_ref()
             .and_then(|v| v.get("purpose"))
             .and_then(|v| v.as_str()),
         Some(

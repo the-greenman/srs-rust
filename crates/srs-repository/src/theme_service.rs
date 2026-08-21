@@ -315,6 +315,10 @@ mod tests {
 
     fn minimal_theme(name: &str) -> Theme {
         Theme {
+            schema: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             id: String::new(),
             namespace: "com.test".to_string(),
             name: name.to_string(),
@@ -329,7 +333,6 @@ mod tests {
             typography: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         }
     }
 
@@ -338,6 +341,11 @@ mod tests {
         theme_id: &str,
     ) -> srs_core::types::view::DocumentView {
         srs_core::types::view::DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: String::new(),
             namespace: "com.test".to_string(),
@@ -376,12 +384,16 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         }
     }
 
     fn minimal_document_view_no_theme(name: &str) -> srs_core::types::view::DocumentView {
         srs_core::types::view::DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: String::new(),
             namespace: "com.test".to_string(),
@@ -415,7 +427,6 @@ mod tests {
             theme_variants: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         }
     }
 

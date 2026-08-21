@@ -2057,6 +2057,10 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let test_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "type-test-001".to_string(),
             namespace: "com.test".to_string(),
             name: "test-type".to_string(),
@@ -2088,7 +2092,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
             lineage: None,
             provenance: None,
         };
@@ -2160,6 +2163,10 @@ mod tests {
             description: None,
         };
         let labeled_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "type-labeled-0001".to_string(),
             namespace: "com.test".to_string(),
             name: "labeled-type".to_string(),
@@ -2179,7 +2186,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
             lineage: None,
             provenance: None,
         };
@@ -2920,6 +2926,10 @@ mod tests {
         };
 
         let lc_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "type-lc-001".to_string(),
             namespace: "com.test".to_string(),
             name: "lifecycle-type".to_string(),
@@ -3006,7 +3016,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
             lineage: None,
             provenance: None,
         };
@@ -3281,6 +3290,10 @@ mod tests {
         };
 
         let lc_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "type-lc-001".to_string(),
             namespace: "com.test".to_string(),
             name: "lifecycle-type".to_string(),
@@ -3342,7 +3355,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
             lineage: None,
             provenance: None,
         };
@@ -4070,6 +4082,8 @@ mod tests {
 
         // Standalone lifecycle referenced by UUID.
         let standalone_lc = Lifecycle {
+            schema: None,
+            tags: None,
             id: "lc-ref-standalone-001".to_string(),
             version: 1,
             namespace: "com.test".to_string(),
@@ -4141,11 +4155,14 @@ mod tests {
             extends_lifecycle_version: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         // RecordType binds lifecycle via lifecycleRef; inline lifecycle is None.
         let lcref_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "type-lc-ref-001".to_string(),
             namespace: "com.test".to_string(),
             name: "lifecycle-ref-type".to_string(),
@@ -4168,7 +4185,6 @@ mod tests {
             lifecycle_ref: Some("lc-ref-standalone-001".to_string()),
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
             lineage: None,
             provenance: None,
         };
@@ -4330,6 +4346,7 @@ mod tests {
         let mut superseded = state("superseded");
         superseded.is_final = Some(true);
         superseded.requires_relation = Some(RequiresRelation {
+            enforcement: None,
             relation_type: RelationTypeSpec::One("supersedes".to_string()),
             direction: None, // incoming by default
         });
@@ -4338,6 +4355,8 @@ mod tests {
         let unreachable = state("unreachable-state");
 
         let gov_lc = Lifecycle {
+            schema: None,
+            tags: None,
             id: "lc-rfc022-001".to_string(),
             version: 1,
             namespace: "com.test".to_string(),
@@ -4353,10 +4372,13 @@ mod tests {
             extends_lifecycle_version: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
 
         let gov_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "type-rfc022-001".to_string(),
             namespace: "com.test".to_string(),
             name: "decision".to_string(),
@@ -4378,7 +4400,6 @@ mod tests {
             lifecycle_ref: Some("lc-rfc022-001".to_string()),
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
             lineage: None,
             provenance: None,
         };
@@ -4882,6 +4903,10 @@ mod tests {
             description: None,
         };
         let type_v1 = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "type-test-001".to_string(),
             namespace: "com.test".to_string(),
             name: "test-type".to_string(),
@@ -4898,11 +4923,14 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
             lineage: None,
             provenance: None,
         };
         let type_v2 = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "type-test-001".to_string(),
             namespace: "com.test.v2".to_string(),
             name: "test-type-v2".to_string(),
@@ -4919,7 +4947,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
             lineage: None,
             provenance: None,
         };
@@ -5622,6 +5649,10 @@ mod tests {
             field_ids: None,
         };
         let cfr_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            semantic_object_type: None,
+            tags: None,
             id: "type-cfr-test-001".to_string(),
             namespace: "com.test".to_string(),
             name: "cfr-test-type".to_string(),
@@ -5652,7 +5683,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: Some(vec![cfr_rule]),
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
             lineage: None,
             provenance: None,
         };
