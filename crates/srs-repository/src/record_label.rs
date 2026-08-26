@@ -288,9 +288,9 @@ mod tests {
 
         fn rt(id: &str, identity_field_id: Option<&str>, extends: Option<&str>) -> RecordType {
             RecordType {
+                extra: Default::default(),
                 schema: None,
                 ai_guidance: None,
-                semantic_object_type: None,
                 tags: None,
                 id: id.to_string(),
                 namespace: "com.test".to_string(),

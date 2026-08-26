@@ -1,6 +1,28 @@
 use crate::types::field::{Lineage, Provenance};
 pub use crate::types::lifecycle::{LifecycleState, LifecycleTransition};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use std::collections::BTreeMap;
+
+/// Deserializes `RecordType.extra`, then rejects any key other than the one
+/// legacy construct still transitioning through it. `#[serde(flatten)]`
+/// cannot be paired with a struct-level `deny_unknown_fields` (the flatten
+/// field would just absorb everything, defeating the check), so the
+/// definition-layer's reject-unknown guarantee (srs-rust#863,
+/// `rfc-decision-2e0cd70a`) is reproduced here by hand, scoped to allow
+/// exactly `semanticObjectType` through and nothing else.
+fn deserialize_type_extra<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<String, serde_json::Value>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error as _;
+    let map = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+    if let Some(key) = map.keys().find(|k| k.as_str() != "semanticObjectType") {
+        return Err(D::Error::custom(format!("unknown field `{key}`")));
+    }
+    Ok(map)
+}
 
 /// ext:cross-field-validation — rule kinds for CrossFieldRule.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -43,7 +65,7 @@ pub struct CrossFieldRule {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct RecordType {
     /// The `$schema` pointer the file may carry — declared by the schema itself,
     /// preserved so a loaded-then-written definition keeps it.
@@ -80,9 +102,6 @@ pub struct RecordType {
     /// Carried, not interpreted, beyond `blueprint brief` surfacing it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_guidance: Option<serde_json::Value>,
-    /// E4 — declared by `type.json`; carried so a load/write round trip keeps it.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub semantic_object_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
     /// RFC-040 Change E (srs#477/#486): fork/derivation metadata, same shape as
@@ -94,6 +113,20 @@ pub struct RecordType {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provenance: Option<Provenance>,
     pub created_at: String,
+    /// TRANSITIONAL single-key bag (srs#372/#383/#422; collapse execution
+    /// pending at srs#272): `semanticObjectType` was ruled a duplicate of the
+    /// Type system itself, not real Type surface — so it is deliberately NOT
+    /// re-typed as a named `RecordType` field (that would re-entrench the
+    /// construct being removed). It rides here untouched, so a load→save
+    /// round trip doesn't lose it before #383 executes the collapse. Delete
+    /// this field entirely when that lands; do not add other keys to it.
+    #[serde(
+        flatten,
+        default,
+        deserialize_with = "deserialize_type_extra",
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 /// ext:type-inheritance — per-field overrides for inherited FieldAssignments.
@@ -155,9 +188,9 @@ mod tests {
     #[test]
     fn record_type_roundtrips_json() {
         let record_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "00000000-0000-4000-8000-000000000020".to_string(),
             namespace: "test.ns".to_string(),
@@ -229,9 +262,9 @@ mod tests {
     #[test]
     fn find_field_assignment_works() {
         let rt = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "00000000-0000-4000-8000-000000000020".to_string(),
             namespace: "ns".to_string(),
@@ -367,9 +400,9 @@ mod tests {
     #[test]
     fn record_type_no_validation_rules_no_key_in_json() {
         let rt = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "rt-1".to_string(),
             namespace: "com.test".to_string(),
@@ -400,9 +433,9 @@ mod tests {
     fn minimal_record_type_passes_schema_contract() {
         let reg = srs_schema::SchemaRegistry::global();
         let rt = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "00000000-0000-4000-8000-000000000020".to_string(),
             namespace: "test".to_string(),
@@ -495,9 +528,9 @@ mod tests {
     fn type_with_identity_field_id_passes_schema() {
         let reg = srs_schema::SchemaRegistry::global();
         let rt = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "00000000-0000-4000-8000-000000000020".to_string(),
             namespace: "test".to_string(),

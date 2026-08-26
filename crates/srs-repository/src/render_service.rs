@@ -4125,9 +4125,9 @@ mod tests {
         };
 
         let text_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "t-text".to_string(),
             namespace: "com.test".to_string(),
@@ -4164,9 +4164,9 @@ mod tests {
             provenance: None,
         };
         let table_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "t-table".to_string(),
             namespace: "com.test".to_string(),
@@ -4768,9 +4768,9 @@ mod tests {
         ];
 
         let row_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "t-row".to_string(),
             namespace: "com.test".to_string(),
@@ -4798,9 +4798,9 @@ mod tests {
             provenance: None,
         };
         let record_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "t-table-rec".to_string(),
             namespace: "com.test".to_string(),
@@ -5213,9 +5213,9 @@ mod tests {
         };
 
         let record_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "t-record".to_string(),
             namespace: "com.test".to_string(),
@@ -5550,9 +5550,9 @@ mod tests {
         };
 
         let rt = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "t-auto".to_string(),
             namespace: "com.test".to_string(),
@@ -6002,9 +6002,9 @@ mod tests {
         };
 
         let text_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "t-text".to_string(),
             namespace: "com.test".to_string(),
@@ -6041,9 +6041,9 @@ mod tests {
             provenance: None,
         };
         let table_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "t-table".to_string(),
             namespace: "com.test".to_string(),
@@ -7547,9 +7547,9 @@ mod tests {
         };
 
         let identity_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "t-identity".to_string(),
             namespace: "com.test".to_string(),
@@ -7594,9 +7594,9 @@ mod tests {
 
         // Type WITHOUT identityFieldId (for the no-heading regression test)
         let plain_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "t-plain".to_string(),
             namespace: "com.test".to_string(),
@@ -8171,9 +8171,9 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let item_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "t-item".to_string(),
             namespace: "com.test".to_string(),
@@ -9539,9 +9539,9 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let rt = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "t-named".to_string(),
             namespace: "com.test".to_string(),
@@ -10658,9 +10658,9 @@ mod tests {
             };
 
         let record_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "t-row".to_string(),
             namespace: "com.test".to_string(),

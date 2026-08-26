@@ -676,9 +676,9 @@ mod tests {
 
     fn record_type(id: &str, name: &str, version: u32, fields: Vec<FieldAssignment>) -> RecordType {
         RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),

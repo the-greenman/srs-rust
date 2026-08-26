@@ -1172,9 +1172,9 @@ mod tests {
 
     fn make_type(id: &str, fields: Vec<FieldAssignment>) -> RecordType {
         RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),
@@ -1204,9 +1204,9 @@ mod tests {
         overrides: Option<Vec<FieldAssignmentOverride>>,
     ) -> RecordType {
         RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),
@@ -1675,9 +1675,9 @@ mod tests {
         lifecycle_ref: Option<String>,
     ) -> srs_core::types::record_type::RecordType {
         srs_core::types::record_type::RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "rt-test".to_string(),
             namespace: "com.test".to_string(),

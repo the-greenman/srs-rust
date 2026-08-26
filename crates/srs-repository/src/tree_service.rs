@@ -259,9 +259,9 @@ mod tests {
 
     fn make_type(id: &str, name: &str, field_ids: &[&str]) -> RecordType {
         RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),

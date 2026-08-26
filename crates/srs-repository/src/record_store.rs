@@ -2057,9 +2057,9 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let test_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "type-test-001".to_string(),
             namespace: "com.test".to_string(),
@@ -2163,9 +2163,9 @@ mod tests {
             description: None,
         };
         let labeled_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "type-labeled-0001".to_string(),
             namespace: "com.test".to_string(),
@@ -2926,9 +2926,9 @@ mod tests {
         };
 
         let lc_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "type-lc-001".to_string(),
             namespace: "com.test".to_string(),
@@ -3290,9 +3290,9 @@ mod tests {
         };
 
         let lc_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "type-lc-001".to_string(),
             namespace: "com.test".to_string(),
@@ -4159,9 +4159,9 @@ mod tests {
 
         // RecordType binds lifecycle via lifecycleRef; inline lifecycle is None.
         let lcref_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "type-lc-ref-001".to_string(),
             namespace: "com.test".to_string(),
@@ -4375,9 +4375,9 @@ mod tests {
         };
 
         let gov_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "type-rfc022-001".to_string(),
             namespace: "com.test".to_string(),
@@ -4903,9 +4903,9 @@ mod tests {
             description: None,
         };
         let type_v1 = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "type-test-001".to_string(),
             namespace: "com.test".to_string(),
@@ -4927,9 +4927,9 @@ mod tests {
             provenance: None,
         };
         let type_v2 = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "type-test-001".to_string(),
             namespace: "com.test.v2".to_string(),
@@ -5649,9 +5649,9 @@ mod tests {
             field_ids: None,
         };
         let cfr_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "type-cfr-test-001".to_string(),
             namespace: "com.test".to_string(),

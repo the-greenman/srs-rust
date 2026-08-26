@@ -506,11 +506,11 @@ mod tests {
 
     fn make_article_type() -> RecordType {
         RecordType {
+            extra: Default::default(),
             schema: None,
             // Type-level guidance now travels as a named field rather than an
             // `extra` bag entry — this is what `type_brief` reads.
             ai_guidance: Some(serde_json::json!("Extract a structured article.")),
-            semantic_object_type: None,
             tags: None,
             id: "type-111".to_string(),
             namespace: "test.ns".to_string(),
@@ -853,9 +853,9 @@ mod tests {
             .collect();
 
         let proto_type = RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "48a03f5d-4f27-42f4-b791-999f6c22f8d2".to_string(),
             namespace: "com.semanticops.srs".to_string(),

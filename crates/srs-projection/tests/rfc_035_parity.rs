@@ -218,9 +218,9 @@ fn type_version_selects_the_version_the_caller_asked_for() {
         description: None,
     };
     let mk_type = |version: u32, field_id: &str| RecordType {
+        extra: Default::default(),
         schema: None,
         ai_guidance: None,
-        semantic_object_type: None,
         tags: None,
         id: TID.to_string(),
         namespace: "com.probe".to_string(),

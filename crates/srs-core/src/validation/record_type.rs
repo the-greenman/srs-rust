@@ -398,9 +398,9 @@ mod tests {
 
     fn make_rt(lifecycle: bool, lifecycle_ref: bool) -> RecordType {
         RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: "rt-1".to_string(),
             namespace: "com.test".to_string(),

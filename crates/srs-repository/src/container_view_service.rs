@@ -1604,9 +1604,9 @@ mod tests {
 
     fn record_type_with_identity(identity_field_id: Option<&str>) -> RecordType {
         RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: TYPE_ID.to_string(),
             namespace: "com.test".to_string(),
@@ -1645,9 +1645,9 @@ mod tests {
 
     fn record_type_with_identity_v2(identity_field_id: Option<&str>) -> RecordType {
         RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: TYPE_ID_2.to_string(),
             namespace: "com.test".to_string(),
@@ -2073,9 +2073,9 @@ mod tests {
             ..document_view(DV, vec![])
         };
         let make_rt = |id: &str| RecordType {
+            extra: Default::default(),
             schema: None,
             ai_guidance: None,
-            semantic_object_type: None,
             tags: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),
