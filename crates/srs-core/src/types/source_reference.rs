@@ -6,9 +6,10 @@ use serde::{Deserialize, Serialize};
 /// Used on `Note::source_refs`, `Relation::source_refs`, and `Revision::source_refs`.
 /// No `deny_unknown_fields` — forward-compatible with future schema additions.
 ///
-/// RFC-023: the canonical provenance-role field is `source_role` (serialized as `sourceRole`).
-/// The legacy `relation_type` field (`relationType`) is retained for the RFC-023 migration
-/// window; writers must not emit it. A SourceReference MUST NOT carry both.
+/// RFC-023: `source_role` is the sole provenance-role field (serialized as `sourceRole`).
+/// The legacy `relationType` alias's migration window closed with srs#480 — the schema no
+/// longer accepts it (a hard rejection under `additionalProperties: false`), so the field is
+/// removed here too rather than kept as dead read-compatibility code (srs-rust#869).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceReference {
@@ -18,13 +19,9 @@ pub struct SourceReference {
     pub source_standard: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_id: Option<String>,
-    /// RFC-023: canonical provenance-role field. Prefer this over `relation_type` for all new writes.
+    /// RFC-023: the sole provenance-role field.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_role: Option<SourceRole>,
-    /// Deprecated (RFC-023): legacy alias for `source_role`. Retained for read compatibility
-    /// during the migration window. Writers must not emit this field.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub relation_type: Option<SourceRelationType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub confidence: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -58,19 +55,6 @@ pub enum SourceRole {
     Attaches,
 }
 
-/// The role the source plays relative to the entity it supports.
-///
-/// Deprecated (RFC-023): use `SourceRole` for new writes. Retained for the migration window.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SourceRelationType {
-    Evidence,
-    DerivedFrom,
-    QuotedFrom,
-    InspiredBy,
-    SupersedesContext,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,7 +68,6 @@ mod tests {
             source_standard: None,
             stream_id: None,
             source_role: None,
-            relation_type: None,
             confidence: None,
             note: None,
         };
@@ -104,16 +87,15 @@ mod tests {
             source_id: "doc-abc".to_string(),
             source_standard: Some("ISO-999".to_string()),
             stream_id: Some("stream-1".to_string()),
-            source_role: None,
-            relation_type: Some(SourceRelationType::Evidence),
+            source_role: Some(SourceRole::Evidence),
             confidence: Some(0.9),
             note: Some("primary source".to_string()),
         };
         let v = serde_json::to_value(&sr).unwrap();
         assert_eq!(v["sourceType"], json!("repository-document"));
-        assert_eq!(v["relationType"], json!("evidence"));
+        assert_eq!(v["sourceRole"], json!("evidence"));
         assert_eq!(v["confidence"], json!(0.9));
-        assert!(v.get("sourceRole").is_none());
+        assert!(v.get("relationType").is_none());
         let parsed: SourceReference = serde_json::from_value(v).unwrap();
         assert_eq!(parsed, sr);
     }
@@ -126,7 +108,6 @@ mod tests {
             source_standard: None,
             stream_id: None,
             source_role: Some(SourceRole::Attaches),
-            relation_type: None,
             confidence: None,
             note: None,
         };
@@ -134,11 +115,10 @@ mod tests {
         assert_eq!(v["sourceRole"], json!("attaches"));
         assert!(
             v.get("relationType").is_none(),
-            "relationType must not be emitted when only sourceRole is set"
+            "relationType is no longer a field — it must never be emitted"
         );
         let parsed: SourceReference = serde_json::from_value(v).unwrap();
         assert_eq!(parsed.source_role, Some(SourceRole::Attaches));
-        assert!(parsed.relation_type.is_none());
     }
 
     #[test]
@@ -170,21 +150,21 @@ mod tests {
     }
 
     #[test]
-    fn source_relation_type_serializes_kebab_case() {
-        assert_eq!(
-            serde_json::to_string(&SourceRelationType::DerivedFrom).unwrap(),
-            "\"derived-from\""
-        );
-        assert_eq!(
-            serde_json::to_string(&SourceRelationType::SupersedesContext).unwrap(),
-            "\"supersedes-context\""
-        );
-    }
-
-    #[test]
     fn unknown_fields_are_ignored() {
         let json = r#"{"sourceType":"transcript-chunk","sourceId":"x","unknownFuture":"val"}"#;
         let parsed: SourceReference = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.source_id, "x");
+    }
+
+    /// srs#480/#869: the legacy `relationType` field's migration window closed — the schema
+    /// now rejects it outright. Rust's reader has no `deny_unknown_fields` on this struct
+    /// (instance-layer tolerance, ruled behaviour), so a stray `relationType` key is silently
+    /// ignored rather than rejected — verify that tolerance, not a resurrection of the field.
+    #[test]
+    fn legacy_relation_type_key_is_tolerated_and_dropped() {
+        let json = r#"{"sourceType":"transcript-chunk","sourceId":"x","relationType":"evidence"}"#;
+        let parsed: SourceReference = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.source_id, "x");
+        assert!(parsed.source_role.is_none());
     }
 }

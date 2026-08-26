@@ -423,7 +423,6 @@ pub fn link_attachment(
         source_standard: None,
         stream_id: None,
         source_role: Some(SourceRole::Attaches),
-        relation_type: None,
         confidence: None,
         note: None,
     };
