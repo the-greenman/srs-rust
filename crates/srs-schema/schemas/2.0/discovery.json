@@ -97,6 +97,32 @@
         "exactMatch": {
           "type": "boolean",
           "description": "If true, the result set MUST equal expectedInstanceIds exactly (structured-filter scenario). If false, the result set MUST be a superset of expectedInstanceIds (content-match scenario)."
+        },
+        "expectedSegments": {
+          "$ref": "#/$defs/ExpectedSegments",
+          "description": "Optional. When present, the runner MUST additionally verify the exact ordered TextSegment sequence for one field of one instance — the segment COUNT and ORDER, which expectedInstanceIds/exactMatch alone cannot express (I-120's list-cardinality rule: one segment per array element, in array order)."
+        }
+      }
+    },
+    "ExpectedSegments": {
+      "type": "object",
+      "description": "A structured expectation over the exact ordered list of TextSegments one field of one instance projects. Added by RFC-012 [R11] (srs#483) to make segment count and order testable, closing the gap left by expectedInstanceIds alone.",
+      "required": ["instanceId", "fieldName", "segments"],
+      "additionalProperties": false,
+      "properties": {
+        "instanceId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The instance whose Text Projection is inspected."
+        },
+        "fieldName": {
+          "type": "string",
+          "description": "The TextSegment.fieldName to filter the instance's projection to before checking count and order."
+        },
+        "segments": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The exact ordered list of TextSegment.text values expected for fieldName. The runner MUST assert that the projected segment count equals segments.length and that segment i's text equals segments[i], for every i, in order."
         }
       }
     }

@@ -68,7 +68,7 @@
     },
     "inverseType": {
       "type": "string",
-      "description": "The relationType of the inverse relation, if one is formally declared."
+      "description": "Key of the derived inverse (e.g. supersedes -> superseded-by); need not resolve. Only the canonical forward form is ever stored or installed as a RelationTypeDefinition — inverse forms are derived display labels, never asserted (R2) — so this key is not guaranteed to name an installed RelationTypeDefinition."
     },
     "irreflexive": {
       "type": "boolean",

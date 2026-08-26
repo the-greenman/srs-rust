@@ -5,231 +5,435 @@
   "description": "An atomic, reusable field definition. Fields are the shared vocabulary of SRS — defined once, referenced across many Types.",
   "$comment": "RFC-033 frozen-seed fixed point: this hand-authored schema is the bootstrap base case, loaded as committed and never re-derived at runtime (a schema that defines Field cannot be parsed without the Field schema). Its record-level source is the com.semanticops.srs/metamodel package (the `field` Type + FieldType/ExactTypeRef/AiGuidance/AiGuidanceExample/Lineage/Provenance value-object Types); the #259 emitter regenerates this file from those records, and docs/schema/2.0/metamodel-fidelity.md declares which features round-trip authoritatively vs are approximated.",
   "type": "object",
-  "required": ["id", "namespace", "name", "version", "description", "aiGuidance", "fieldType", "createdAt"],
+  "required": [
+    "id",
+    "namespace",
+    "name",
+    "version",
+    "description",
+    "aiGuidance",
+    "fieldType",
+    "createdAt"
+  ],
   "additionalProperties": false,
   "properties": {
-    "$schema": { "type": "string" },
+    "$schema": {
+      "type": "string"
+    },
     "id": {
       "type": "string",
-      "format": "uuid",
-      "description": "Globally unique, stable identifier for this Field."
+      "format": "uuid"
     },
     "namespace": {
-      "type": "string",
-      "description": "Logical grouping. 'core' is reserved for SRS standard definitions."
+      "type": "string"
     },
     "name": {
-      "type": "string",
-      "description": "Machine-readable name within the namespace; snake_case."
+      "type": "string"
     },
     "version": {
       "type": "integer",
       "minimum": 1
     },
-    "description": { "type": "string" },
+    "description": {
+      "type": "string"
+    },
     "instructions": {
-      "type": "string",
-      "description": "Fuller guidance for a human completing this field."
+      "type": "string"
     },
-    "aiGuidance": { "$ref": "#/$defs/AiGuidance" },
+    "aiGuidance": {
+      "$ref": "#/$defs/com.semanticops.srs__ai-guidance__v1",
+      "title": "AI Guidance"
+    },
     "fieldType": {
-      "$ref": "#/$defs/FieldType",
-      "description": "RFC-032 — the decomposed value type: datatype × cardinality × value-domain × format × constraints. Replaces the pre-RFC-032 closed scalar `valueType` enum and its companion properties (`contentFormat`, `allowedValues`, `vocabularyRef`, `validationRules`)."
-    },
-    "defaultValue": {
-      "description": "Default value applied when no value is supplied. Must conform to this Field's fieldType (a value-of-self dependent — RFC-032 Change C)."
+      "$ref": "#/$defs/com.semanticops.srs__field-type__v1",
+      "title": "Field Type"
     },
     "editorHint": {
       "type": "string",
-      "enum": ["singleline", "textarea", "rich-text", "date-picker", "dropdown", "multi-select", "voice"],
-      "description": "Presentation only (not part of the type model — RFC-032). Suggested UI control; implementations and Views may override. Consolidated by the rendering follow-up #262."
+      "enum": [
+        "singleline",
+        "textarea",
+        "rich-text",
+        "date-picker",
+        "dropdown",
+        "multi-select",
+        "voice"
+      ],
+      "title": "Editor Hint"
     },
     "tags": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
-    "lineage": { "$ref": "#/$defs/Lineage" },
-    "provenance": { "$ref": "#/$defs/Provenance" },
-    "deprecatedAt": {
+    "lineage": {
+      "$ref": "#/$defs/com.semanticops.srs__lineage__v1"
+    },
+    "provenance": {
+      "$ref": "#/$defs/com.semanticops.srs__provenance__v1"
+    },
+    "createdAt": {
       "type": "string",
       "format": "date-time"
-    },
-    "createdAt": { "type": "string", "format": "date-time" }
+    }
   },
   "$defs": {
-    "FieldType": {
+    "com.semanticops.srs__ai-guidance__v1": {
       "type": "object",
-      "description": "RFC-032 Change A — orthogonal type facets. Conditional requirements (R2/R3/R9/R10) are expressed in the allOf branches below; the full semantic conformance check (R1–R11) is scripts/lib/rfc-032-fieldtype.mjs::validateFieldType.",
-      "required": ["datatype"],
+      "required": [
+        "purpose"
+      ],
       "additionalProperties": false,
+      "properties": {
+        "purpose": {
+          "type": "string"
+        },
+        "extraction": {
+          "type": "string"
+        },
+        "negativeGuidance": {
+          "type": "string",
+          "title": "Negative Guidance"
+        },
+        "examples": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/com.semanticops.srs__ai-guidance-example__v1"
+          }
+        }
+      }
+    },
+    "com.semanticops.srs__ai-guidance-example__v1": {
+      "type": "object",
+      "required": [
+        "output"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "input": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        }
+      }
+    },
+    "com.semanticops.srs__field-type__v1": {
+      "type": "object",
+      "required": [
+        "datatype"
+      ],
+      "additionalProperties": false,
+      "description": "RFC-032 Change A — orthogonal type facets. Conditional requirements (R2/R3/R9/R10) are expressed in the allOf branches below; the full semantic conformance check (R1–R11) is scripts/lib/rfc-032-fieldtype.mjs::validateFieldType.",
       "properties": {
         "datatype": {
           "type": "string",
-          "enum": ["string", "number", "integer", "boolean", "date", "date-time", "ref", "dependent", "map"],
-          "description": "The base datatype. `ref` = range is another Type (Change B); `dependent` = value-of-a-sibling-type (Change C); `map` = open string-keyed collection (Change D)."
+          "enum": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "date",
+            "date-time",
+            "ref",
+            "dependent",
+            "map"
+          ]
         },
         "cardinality": {
           "type": "string",
-          "enum": ["single", "list"],
-          "description": "Whether the field holds one value or an ordered list. Default: single. The sole cardinality mechanism (R4) — former `multiselect` and standalone `repeatable` are subsumed here."
+          "enum": [
+            "single",
+            "list"
+          ]
         },
         "minItems": {
           "type": "integer",
           "minimum": 0,
-          "description": "cardinality == list only (R4). 0 ≤ minItems ≤ maxItems."
+          "title": "Min Items"
         },
         "maxItems": {
           "type": "integer",
           "minimum": 0,
-          "description": "cardinality == list only (R4)."
+          "title": "Max Items"
         },
         "valueDomain": {
           "type": "string",
-          "enum": ["open", "closed"],
-          "description": "datatype == string only (R3). Default: open. When closed, exactly one of allowedValues or vocabularyRef is present."
+          "enum": [
+            "open",
+            "closed"
+          ],
+          "title": "Value Domain"
         },
         "allowedValues": {
           "type": "array",
-          "items": { "type": "string" },
-          "description": "Inline, field-fixed closed vocabulary (valueDomain == closed). Mutually exclusive with vocabularyRef."
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Values"
         },
         "vocabularyRef": {
           "type": "string",
-          "pattern": "^[^/@]+/[^/@]+@[0-9]+$",
-          "description": "A CONFIGURABLE data range: an RFC-006 Reference (namespace/name@version) to a mode:closed Vocabulary whose Terms are managed in package config. Mutually exclusive with allowedValues. Projects to a pure enum of the Vocabulary's effective Term keys at schema-generation time (Change G)."
+          "format": "uuid",
+          "title": "Vocabulary Ref"
         },
         "format": {
           "type": "string",
-          "enum": ["plain", "markdown", "uri", "uuid", "email"],
-          "description": "datatype == string only. Semantic string format (JSON-Schema-aligned); date/date-time are first-class datatypes, not formats."
+          "enum": [
+            "plain",
+            "markdown",
+            "uri",
+            "uuid",
+            "email"
+          ]
         },
         "constraints": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "Datatype-appropriate value constraints (R10). Carries the former ValidationRule facets (Change F).",
-          "properties": {
-            "minLength": { "type": "integer", "minimum": 0, "description": "datatype == string." },
-            "maxLength": { "type": "integer", "minimum": 0, "description": "datatype == string." },
-            "pattern": { "type": "string", "description": "datatype == string; an ECMA-262 regular expression." },
-            "minimum": { "type": "number", "description": "datatype == number/integer." },
-            "maximum": { "type": "number", "description": "datatype == number/integer." }
-          }
+          "$ref": "#/$defs/com.semanticops.srs__field-type-constraints__v1"
         },
         "rangeType": {
-          "$ref": "#/$defs/ExactTypeRef",
-          "description": "datatype == ref only, REQUIRED (R2). The Type this field's range is (Change B)."
+          "$ref": "#/$defs/com.semanticops.srs__exact-type-ref__v1",
+          "title": "Range Type"
         },
         "mode": {
           "type": "string",
-          "enum": ["inline", "reference"],
-          "description": "datatype == ref only. inline = nested object(s) conforming to rangeType; reference = target instance id(s). Default: inline. Fixed per Field (R8)."
+          "enum": [
+            "inline",
+            "reference"
+          ]
         },
         "dependsOn": {
           "type": "string",
-          "description": "datatype == dependent only, REQUIRED (R6). \"self\" (the field's own fieldType) or a sibling field name whose type the value conforms to (Change C)."
+          "title": "Depends On"
         },
         "valueRange": {
           "type": "string",
-          "enum": ["string", "number", "integer", "boolean", "date", "date-time", "open"],
-          "description": "datatype == map only, REQUIRED (R9). The scalar value datatype, or \"open\" for a true extension bag (Change D). Composite value ranges are out of scope."
+          "enum": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "date",
+            "date-time",
+            "open"
+          ],
+          "title": "Value Range"
         }
       },
       "allOf": [
         {
-          "if": { "properties": { "datatype": { "const": "ref" } }, "required": ["datatype"] },
-          "then": { "required": ["rangeType"] },
-          "else": { "not": { "anyOf": [{ "required": ["rangeType"] }, { "required": ["mode"] }] } }
+          "if": {
+            "properties": {
+              "datatype": {
+                "const": "ref"
+              }
+            },
+            "required": [
+              "datatype"
+            ]
+          },
+          "then": {
+            "required": [
+              "rangeType"
+            ]
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "rangeType"
+                  ]
+                },
+                {
+                  "required": [
+                    "mode"
+                  ]
+                }
+              ]
+            }
+          }
         },
         {
-          "if": { "properties": { "datatype": { "const": "dependent" } }, "required": ["datatype"] },
-          "then": { "required": ["dependsOn"] },
-          "else": { "not": { "required": ["dependsOn"] } }
+          "if": {
+            "properties": {
+              "datatype": {
+                "const": "dependent"
+              }
+            },
+            "required": [
+              "datatype"
+            ]
+          },
+          "then": {
+            "required": [
+              "dependsOn"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "dependsOn"
+              ]
+            }
+          }
         },
         {
-          "if": { "properties": { "datatype": { "const": "map" } }, "required": ["datatype"] },
-          "then": { "required": ["valueRange"] },
-          "else": { "not": { "required": ["valueRange"] } }
+          "if": {
+            "properties": {
+              "datatype": {
+                "const": "map"
+              }
+            },
+            "required": [
+              "datatype"
+            ]
+          },
+          "then": {
+            "required": [
+              "valueRange"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "valueRange"
+              ]
+            }
+          }
         },
         {
-          "if": { "properties": { "valueDomain": { "const": "closed" } }, "required": ["valueDomain"] },
+          "if": {
+            "properties": {
+              "valueDomain": {
+                "const": "closed"
+              }
+            },
+            "required": [
+              "valueDomain"
+            ]
+          },
           "then": {
             "oneOf": [
-              { "required": ["allowedValues"], "not": { "required": ["vocabularyRef"] } },
-              { "required": ["vocabularyRef"], "not": { "required": ["allowedValues"] } }
+              {
+                "required": [
+                  "allowedValues"
+                ],
+                "not": {
+                  "required": [
+                    "vocabularyRef"
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "vocabularyRef"
+                ],
+                "not": {
+                  "required": [
+                    "allowedValues"
+                  ]
+                }
+              }
             ]
           }
         }
       ]
     },
-    "ExactTypeRef": {
+    "com.semanticops.srs__field-type-constraints__v1": {
       "type": "object",
-      "required": ["typeId", "typeVersion"],
       "additionalProperties": false,
-      "description": "RFC-009 I-78. A version-exact reference to a Type in the Package. Both typeId and typeVersion are required. Distinct from the pre-RFC-009 spec-level TypeRef (Protocol) where typeVersion was optional.",
+      "description": "Datatype-appropriate value constraints carried by a FieldType (RFC-032 Change F).",
+      "properties": {
+        "minLength": {
+          "type": "integer",
+          "minimum": 0,
+          "title": "Min Length"
+        },
+        "maxLength": {
+          "type": "integer",
+          "minimum": 0,
+          "title": "Max Length"
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "maximum": {
+          "type": "number"
+        }
+      }
+    },
+    "com.semanticops.srs__exact-type-ref__v1": {
+      "type": "object",
+      "required": [
+        "typeId",
+        "typeVersion"
+      ],
+      "additionalProperties": false,
+      "description": "RFC-009 I-78. A version-exact reference to a Type in the Package (PINNED, rfc-decision-c8704763). Both typeId and typeVersion are required. The pre-RFC-009 version-optional Protocol TypeRef this once contrasted with is retired — Protocol.outputType is now a bare-UUID LINEAGE reference (typeVersion dropped; version-optional hybrids are forbidden).",
       "properties": {
         "typeId": {
           "type": "string",
           "format": "uuid",
-          "description": "Stable UUID of the Type."
+          "title": "Type Id"
         },
         "typeVersion": {
           "type": "integer",
           "minimum": 1,
-          "description": "Version of the Type this ref targets (required — version-exact anchor validated against the Package)."
+          "title": "Type Version"
         }
       }
     },
-    "AiGuidance": {
+    "com.semanticops.srs__lineage__v1": {
       "type": "object",
-      "required": ["purpose"],
       "additionalProperties": false,
       "properties": {
-        "purpose": {
+        "sourceDefinitionId": {
           "type": "string",
-          "description": "What this field/type captures (1-2 sentences)."
+          "format": "uuid",
+          "title": "Source Definition Id"
         },
-        "extraction": {
+        "sourceVersion": {
+          "type": "integer",
+          "title": "Source Version"
+        },
+        "forkedFromDefinitionId": {
           "type": "string",
-          "description": "LLM instruction for how to extract or populate."
+          "format": "uuid",
+          "title": "Forked-From Definition Id"
         },
-        "negativeGuidance": {
-          "type": "string",
-          "description": "What the LLM must NOT include or do."
-        },
-        "examples": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/AiGuidanceExample" }
+        "forkedFromVersion": {
+          "type": "integer",
+          "title": "Forked-From Version"
         }
       }
     },
-    "AiGuidanceExample": {
-      "type": "object",
-      "required": ["output"],
-      "additionalProperties": false,
-      "properties": {
-        "description": { "type": "string" },
-        "input": { "type": "string" },
-        "output": { "type": "string" }
-      }
-    },
-    "Lineage": {
+    "com.semanticops.srs__provenance__v1": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "sourceDefinitionId": { "type": "string", "format": "uuid" },
-        "sourceVersion": { "type": "integer" },
-        "forkedFromDefinitionId": { "type": "string", "format": "uuid" },
-        "forkedFromVersion": { "type": "integer" }
-      }
-    },
-    "Provenance": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "publisher": { "type": "string" },
-        "sourcePackage": { "type": "string" },
-        "packageVersion": { "type": "string" },
-        "importedAt": { "type": "string", "format": "date-time" }
+        "publisher": {
+          "type": "string"
+        },
+        "sourcePackage": {
+          "type": "string",
+          "title": "Source Package"
+        },
+        "packageVersion": {
+          "type": "string",
+          "title": "Package Version"
+        },
+        "importedAt": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Imported At"
+        }
       }
     }
   }

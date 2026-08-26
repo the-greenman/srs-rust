@@ -2,11 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://srs.semanticops.com/schema/2.0/type.json",
   "title": "SRS Type Definition",
-  "description": "A named collection of FieldAssignments that defines the structure of a TypedRecord or Record. Types belong to a namespace and are versioned.",
+  "description": "A named, versioned composition of Fields. Extension-owned facets (lifecycle, inheritance, cross-field-validation) are modelled as separate Types extending this one via ext:type-inheritance (RFC-040 Change A); tags and identityFieldId are core Type surface.",
   "$comment": "RFC-033 frozen-seed fixed point: this hand-authored schema is the bootstrap base case, loaded as committed and never re-derived at runtime. Its record-level source is the com.semanticops.srs/metamodel package (the `type` + `field-assignment` Types; v1.0.0 covers the core definition facets, deferring lifecycle/type-inheritance/cross-field-validation/field-groups/identityFieldId). The #259 emitter regenerates this file from those records; docs/schema/2.0/metamodel-fidelity.md declares per-emitter fidelity.",
   "type": "object",
   "required": [
-    "$schema",
     "id",
     "namespace",
     "name",
@@ -25,12 +24,10 @@
       "format": "uuid"
     },
     "namespace": {
-      "type": "string",
-      "description": "Logical grouping, e.g. 'governance', 'finance'."
+      "type": "string"
     },
     "name": {
-      "type": "string",
-      "description": "Machine-readable name within the namespace, snake_case."
+      "type": "string"
     },
     "version": {
       "type": "integer",
@@ -41,7 +38,7 @@
     },
     "semanticObjectType": {
       "type": "string",
-      "description": "Optional canonical semantic classification (e.g. 'decision', 'exercise', 'policy')."
+      "title": "Semantic Object Type"
     },
     "aiGuidance": {
       "type": "object",
@@ -62,17 +59,16 @@
     "fields": {
       "type": "array",
       "items": {
-        "$ref": "#/$defs/FieldAssignment"
-      },
-      "description": "Ordered list of fields that make up this Type."
+        "$ref": "#/$defs/com.semanticops.srs__field-assignment__v1"
+      }
     },
     "lifecycle": {
-      "$ref": "#/$defs/TypeLifecycle",
-      "description": "ext:lifecycle — inline state machine declaration. Mutually exclusive with lifecycleRef."
+      "$ref": "#/$defs/com.semanticops.srs__type-lifecycle__v1"
     },
     "lifecycleRef": {
       "type": "string",
-      "description": "ext:lifecycle — reference to an installed Lifecycle by id. Mutually exclusive with lifecycle."
+      "format": "uuid",
+      "title": "Lifecycle Ref"
     },
     "tags": {
       "type": "array",
@@ -83,39 +79,48 @@
     "extendsTypeId": {
       "type": "string",
       "format": "uuid",
-      "description": "ext:type-inheritance — the UUID of the base Type this Type specializes."
+      "x-srs-range-type": "com.semanticops.srs/type@1",
+      "title": "Extends Type Id"
     },
     "extendsTypeVersion": {
       "type": "integer",
       "minimum": 1,
-      "description": "ext:type-inheritance — the version of the base Type being extended."
+      "title": "Extends Type Version"
     },
     "fieldOrder": {
       "type": "array",
       "items": {
         "type": "string",
-        "format": "uuid"
+        "format": "uuid",
+        "x-srs-range-type": "com.semanticops.srs/field@1"
       },
-      "description": "ext:type-inheritance — explicit ordering for the merged field list (base + own). Must contain every fieldId from the effective field set exactly once."
+      "title": "Field Order"
     },
     "fieldAssignmentOverrides": {
       "type": "array",
       "items": {
-        "$ref": "#/$defs/FieldAssignmentOverride"
+        "$ref": "#/$defs/com.semanticops.srs__field-assignment-override__v1"
       },
-      "description": "ext:type-inheritance — per-field overrides applied to inherited FieldAssignments."
+      "title": "Field Assignment Overrides"
     },
     "identityFieldId": {
       "type": "string",
       "format": "uuid",
-      "description": "RFC-020 — names one fieldId from this Type's effective field set (own fields plus, under ext:type-inheritance, inherited fields) as the record's identity/display field. MUST reference a fieldId present in the effective field set (Rule [N+33]). Under ext:type-inheritance, a Type that declares no identityFieldId of its own inherits the effective identityFieldId of its base Type, resolved transitively up the ancestor chain (Rule [N+34]) — this cascading inheritance is specific to identityFieldId and is not shared with fieldOrder, which is single-level only."
+      "x-srs-range-type": "com.semanticops.srs/field@1",
+      "title": "Identity Field Id"
     },
     "validationRules": {
       "type": "array",
       "items": {
-        "$ref": "#/$defs/CrossFieldRule"
+        "$ref": "#/$defs/com.semanticops.srs__cross-field-rule__v1"
       },
-      "description": "ext:cross-field-validation — cross-field validation rules applied to Records of this Type."
+      "title": "Validation Rules"
+    },
+    "lineage": {
+      "$ref": "#/$defs/com.semanticops.srs__lineage__v1"
+    },
+    "provenance": {
+      "$ref": "#/$defs/com.semanticops.srs__provenance__v1"
     },
     "createdAt": {
       "type": "string",
@@ -123,7 +128,81 @@
     }
   },
   "$defs": {
-    "TypeLifecycle": {
+    "com.semanticops.srs__ai-guidance__v1": {
+      "type": "object",
+      "required": [
+        "purpose"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "purpose": {
+          "type": "string"
+        },
+        "extraction": {
+          "type": "string"
+        },
+        "negativeGuidance": {
+          "type": "string",
+          "title": "Negative Guidance"
+        },
+        "examples": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/com.semanticops.srs__ai-guidance-example__v1"
+          }
+        }
+      }
+    },
+    "com.semanticops.srs__ai-guidance-example__v1": {
+      "type": "object",
+      "required": [
+        "output"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "input": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        }
+      }
+    },
+    "com.semanticops.srs__field-assignment__v1": {
+      "type": "object",
+      "required": [
+        "fieldId",
+        "order",
+        "required"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "fieldId": {
+          "type": "string",
+          "format": "uuid",
+          "x-srs-range-type": "com.semanticops.srs/field@1",
+          "title": "Field"
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "displayLabel": {
+          "type": "string",
+          "title": "Display Label"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "com.semanticops.srs__type-lifecycle__v1": {
       "type": "object",
       "required": [
         "states",
@@ -134,24 +213,24 @@
       "properties": {
         "states": {
           "type": "array",
-          "minItems": 1,
           "items": {
-            "$ref": "#/$defs/LifecycleState"
-          }
+            "$ref": "#/$defs/com.semanticops.srs__lifecycle-state__v1"
+          },
+          "minItems": 1
         },
         "transitions": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/LifecycleTransition"
+            "$ref": "#/$defs/com.semanticops.srs__lifecycle-transition__v1"
           }
         },
         "initialState": {
           "type": "string",
-          "description": "Must reference a state name with isInitial: true (Invariant 4)."
+          "title": "Initial State"
         }
       }
     },
-    "LifecycleState": {
+    "com.semanticops.srs__lifecycle-state__v1": {
       "type": "object",
       "required": [
         "key"
@@ -171,8 +250,7 @@
           "type": "string"
         },
         "key": {
-          "type": "string",
-          "description": "Machine-readable state key. Unified substrate field (was name)."
+          "type": "string"
         },
         "label": {
           "type": "string"
@@ -187,10 +265,12 @@
           }
         },
         "isInitial": {
-          "type": "boolean"
+          "type": "boolean",
+          "title": "Is Initial"
         },
         "isFinal": {
-          "type": "boolean"
+          "type": "boolean",
+          "title": "Is Final"
         },
         "status": {
           "type": "string",
@@ -202,7 +282,8 @@
           ]
         },
         "requiresRelation": {
-          "$ref": "#/$defs/RequiresRelation"
+          "$ref": "#/$defs/com.semanticops.srs__requires-relation__v1",
+          "title": "Requires Relation"
         },
         "properties": {
           "type": "object",
@@ -210,7 +291,7 @@
         }
       }
     },
-    "RequiresRelation": {
+    "com.semanticops.srs__requires-relation__v1": {
       "type": "object",
       "required": [
         "relationType"
@@ -220,34 +301,30 @@
       "properties": {
         "relationType": {
           "type": "array",
-          "minItems": 1,
           "items": {
             "type": "string",
             "minLength": 1
           },
-          "description": "Relation type(s) that satisfy the obligation (any-of interpretation, unchanged from RFC-022). RFC-032 Change F normalized this declaration form from string|string[] to a list (length ≥ 1); the single-string form is removed. The distinct scalar fulfillment.relationType selector is untouched."
+          "minItems": 1,
+          "title": "Relation Type"
         },
         "direction": {
           "type": "string",
           "enum": [
             "incoming",
             "outgoing"
-          ],
-          "default": "incoming",
-          "description": "incoming: an edge whose target is the record (e.g. successor → predecessor supersedes). outgoing: an edge whose source is the record."
+          ]
         },
         "enforcement": {
           "type": "string",
           "enum": [
             "hard",
             "advisory"
-          ],
-          "default": "hard",
-          "description": "hard (default): a transition into this state MUST be rejected unless the obligation is satisfied or fulfilled (definitional relational states whose meaning is the relationship, e.g. superseded). advisory: the transition is permitted even when unsatisfied, and an unsatisfied obligation is surfaced as a warning at rest, never a rejection (evidentiary obligations that may be established later)."
+          ]
         }
       }
     },
-    "LifecycleTransition": {
+    "com.semanticops.srs__lifecycle-transition__v1": {
       "type": "object",
       "required": [
         "name",
@@ -258,11 +335,11 @@
       "properties": {
         "id": {
           "type": "string",
-          "format": "uuid",
-          "description": "Stable UUID identity for this transition edge."
+          "format": "uuid"
         },
         "name": {
-          "type": "string"
+          "type": "string",
+          "title": "Name"
         },
         "from": {
           "type": "string"
@@ -279,39 +356,7 @@
         }
       }
     },
-    "FieldAssignment": {
-      "type": "object",
-      "required": [
-        "fieldId",
-        "order",
-        "required"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "fieldId": {
-          "type": "string",
-          "format": "uuid",
-          "description": "References a Field by its stable id."
-        },
-        "order": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Display/processing order within the Type."
-        },
-        "required": {
-          "type": "boolean",
-          "description": "Whether this field must be populated before a Record can be logged."
-        },
-        "displayLabel": {
-          "type": "string",
-          "description": "Context-specific label override for this field within this Type."
-        },
-        "defaultValue": {
-          "description": "Optional default value to pre-populate the field."
-        }
-      }
-    },
-    "FieldAssignmentOverride": {
+    "com.semanticops.srs__field-assignment-override__v1": {
       "type": "object",
       "required": [
         "fieldId"
@@ -322,23 +367,23 @@
         "fieldId": {
           "type": "string",
           "format": "uuid",
-          "description": "The fieldId of the inherited field being overridden."
+          "x-srs-range-type": "com.semanticops.srs/field@1",
+          "title": "Field"
         },
         "displayLabel": {
           "type": "string",
-          "description": "Rendering-only label override."
+          "title": "Display Label"
         },
         "displayHint": {
           "type": "string",
-          "description": "Rendering-only hint text override."
+          "title": "Display Hint"
         },
         "required": {
-          "type": "boolean",
-          "description": "May tighten (false→true) but not relax (true→false) the base field's required status."
+          "type": "boolean"
         }
       }
     },
-    "CrossFieldRule": {
+    "com.semanticops.srs__cross-field-rule__v1": {
       "type": "object",
       "required": [
         "type"
@@ -351,50 +396,94 @@
           "enum": [
             "conditional-required",
             "field-ordering",
-            "mutual-exclusion"
+            "mutual-exclusion",
+            "conditional-forbidden"
           ],
-          "description": "The kind of cross-field constraint."
+          "title": "Kind"
         },
         "message": {
-          "type": "string",
-          "description": "Optional human-readable description of the rule."
+          "type": "string"
         },
         "predicateFieldId": {
           "type": "string",
           "format": "uuid",
-          "description": "Field whose value is tested. RFC-032 Rev-7 I-94: for conditional-required it must be effective-single (fieldType.cardinality absent/single — the sole cardinality mechanism since the #242 Phase-B cutover removed FieldAssignment.repeatable, RFC-039 [R7]) with datatype string, date, or date-time; string format/valueDomain do not restrict eligibility. Field-ordering uses I-92."
+          "x-srs-range-type": "com.semanticops.srs/field@1",
+          "title": "Predicate Field"
         },
         "predicateValue": {
           "type": "string",
-          "description": "Value the predicate field must equal to activate the rule (conditional-required)."
+          "title": "Predicate Value"
         },
         "targetFieldId": {
           "type": "string",
           "format": "uuid",
-          "description": "Field that is constrained when the rule fires (conditional-required, field-ordering)."
+          "x-srs-range-type": "com.semanticops.srs/field@1",
+          "title": "Target Field"
         },
         "effect": {
-          "$ref": "#/$defs/CrossFieldRuleEffect",
-          "description": "Ordering direction for a field-ordering rule."
+          "type": "string",
+          "enum": [
+            "must-precede",
+            "must-follow"
+          ]
         },
         "fieldIds": {
           "type": "array",
           "items": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "x-srs-range-type": "com.semanticops.srs/field@1"
           },
           "minItems": 2,
-          "description": "Fields of which at most one may be non-empty (mutual-exclusion)."
+          "title": "Field Ids"
         }
       }
     },
-    "CrossFieldRuleEffect": {
-      "type": "string",
-      "enum": [
-        "must-precede",
-        "must-follow"
-      ],
-      "description": "Ordering direction for a field-ordering rule: the predicate field must-precede or must-follow the target."
+    "com.semanticops.srs__lineage__v1": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sourceDefinitionId": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Source Definition Id"
+        },
+        "sourceVersion": {
+          "type": "integer",
+          "title": "Source Version"
+        },
+        "forkedFromDefinitionId": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Forked-From Definition Id"
+        },
+        "forkedFromVersion": {
+          "type": "integer",
+          "title": "Forked-From Version"
+        }
+      }
+    },
+    "com.semanticops.srs__provenance__v1": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "publisher": {
+          "type": "string"
+        },
+        "sourcePackage": {
+          "type": "string",
+          "title": "Source Package"
+        },
+        "packageVersion": {
+          "type": "string",
+          "title": "Package Version"
+        },
+        "importedAt": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Imported At"
+        }
+      }
     }
   }
 }

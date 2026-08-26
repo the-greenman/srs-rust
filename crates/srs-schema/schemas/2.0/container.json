@@ -13,6 +13,7 @@
     },
     "containerId": {
       "type": "string",
+      "format": "uuid",
       "description": "Stable UUID for this Container. Must not appear in Relation.sourceInstanceId or targetInstanceId."
     },
     "title": {
@@ -33,16 +34,17 @@
     },
     "containerType": {
       "type": "string",
+      "deprecated": true,
       "description": "Soft-deprecated hint (RFC-009). When rootInstanceIds is present, SHOULD equal the resolved root Type's name field (bare name, not namespace/name). A mismatch is diagnostic-only; the Container remains valid. See RFC-009 I-64."
     },
     "rootInstanceIds": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": { "type": "string", "format": "uuid" },
       "description": "Top-level instances this Container was created to hold. Implementations may derive nested members by traversing contains Relations from these roots."
     },
     "memberInstanceIds": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": { "type": "string", "format": "uuid" },
       "description": "Explicit membership list for all instances in scope. When present, allows membership queries without graph traversal."
     },
     "identityInstanceId": {

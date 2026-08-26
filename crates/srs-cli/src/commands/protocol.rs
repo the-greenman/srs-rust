@@ -302,7 +302,7 @@ fn cmd_run_advance(ctx: CliContext) -> Result<String> {
             if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
                 return Ok(output::err(
                     "protocol run advance",
-                    vec![format!("Protocol run not found")],
+                    vec!["Protocol run not found".to_string()],
                 ));
             }
             if let Some(RepositoryError::RunInvalidState { run_id, message }) =

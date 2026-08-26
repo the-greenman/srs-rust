@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://srs.semanticops.com/schema/2.0/manifest.json",
   "title": "SRS Repository Manifest (ext:repository)",
-  "description": "Root file for a SRS ext:repository: the repository identity and entry point. Membership is the tree (RFC-038 [R1]) — the manifest carries no index; the retired instanceIndex/containerIndex/sourceDocumentIndex/relationsChecksums/relationsPath properties are denied at dataModelRevision >= 2 ([R2]). Every repository must have exactly one manifest.json at its root.",
+  "description": "Root file for a SRS ext:repository: the repository identity and entry point. Membership is the tree (RFC-038 [R1]) — the manifest carries no index. This schema is the post-cutover (dataModelRevision >= 2) shape (RFC-038 Rev 11): the retired instanceIndex/containerIndex/sourceDocumentIndex/relationsChecksums/relationsPath properties and their $defs are dropped entirely (denied unconditionally by additionalProperties: false), matching [R21] — a conforming reader MUST reject dataModelRevision <= 1 data outright rather than partially validate it, so this schema never needs to admit those properties conditionally. Every repository must have exactly one manifest.json at its root.",
   "type": "object",
   "required": [
     "$schema",
@@ -74,15 +74,8 @@
     },
     "changelogPath": {
       "type": "string",
-      "description": "ext:changelog only. Relative path from manifest.json to the ChangelogCollection file. Default: 'changelog/changelog.json'."
-    },
-    "federationPath": {
-      "type": "string",
-      "description": "ext:federation only. Path to the RepositoryRegistry file. Default: 'federation/registry.json'."
-    },
-    "federationEventsPath": {
-      "type": "string",
-      "description": "ext:federation only. Path to the FederationEventsFile. Default: 'federation/events.json'."
+      "deprecated": true,
+      "description": "DEPRECATED (rfc-decision-2a1e1590, 2026-08-21): ext:changelog and its ChangelogCollection schema are removed under the dormancy rule (zero corpus use). Readers accept this property on existing manifests during the migration window; writers must not emit it."
     },
     "aiGuidance": {
       "type": "object",
@@ -145,22 +138,28 @@
       "properties": {
         "containerId": {
           "type": "string",
-          "format": "uuid"
+          "format": "uuid",
+          "description": "Stable UUID for this Container. Must not appear in Relation.sourceInstanceId or targetInstanceId."
         },
         "namespace": {
-          "type": "string"
+          "type": "string",
+          "description": "Optional namespace grouping."
         },
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "Optional machine-readable name within the namespace."
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "Human-readable label for this Container."
         },
         "description": {
-          "type": "string"
+          "type": "string",
+          "description": "Optional description of the Container's purpose."
         },
         "containerType": {
           "type": "string",
+          "deprecated": true,
           "description": "Soft-deprecated hint (RFC-009). When rootInstanceIds is present, SHOULD equal the resolved root Type's name field (bare name, not namespace/name). A mismatch is diagnostic-only; the Container remains valid. See RFC-009 I-64."
         },
         "rootInstanceIds": {
@@ -168,25 +167,28 @@
           "items": {
             "type": "string",
             "format": "uuid"
-          }
+          },
+          "description": "Top-level instances this Container was created to hold. Implementations may derive nested members by traversing contains Relations from these roots."
         },
         "memberInstanceIds": {
           "type": "array",
           "items": {
             "type": "string",
             "format": "uuid"
-          }
+          },
+          "description": "Explicit membership list for all instances in scope. When present, allows membership queries without graph traversal."
         },
         "identityInstanceId": {
           "type": "string",
           "format": "uuid",
-          "description": "RFC-013 / RFC-029. The instance id of the record that is this Container's identity / purpose statement. On the root container (manifest.container), names the repository's identity record. Reassignable; when present MUST equal a member id in rootInstanceIds or memberInstanceIds (RFC-013 I-81). RFC-029 additionally requires that on the root container, this MUST reference a Tier-2 Record of type com.semanticops.core/purpose (RFC-029 I-87); for non-root containers this type constraint does not apply. See RFC-013 I-81, RFC-029 R5."
+          "description": "RFC-013 / RFC-029. The instance id of the record that is this Container's identity / purpose statement. On the root container (manifest.container), names the repository's identity record. Reassignable; when present MUST equal a member id in rootInstanceIds or memberInstanceIds (RFC-013 I-81). RFC-029 additionally requires that on the root container (manifest.container), this MUST reference a Tier-2 Record of type com.semanticops.core/purpose (RFC-029 I-87); for non-root containers this type constraint does not apply. See RFC-013 I-81, RFC-029 R5."
         },
         "tags": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Vocabulary-backed topic labels (RFC-009 + RFC-006). When a Vocabulary in the package declares Terms for a tag key, tags MUST resolve per RFC-006 vocabulary resolution rules. Free-string tags are valid when no Vocabulary governs the key."
         },
         "createdAt": {
           "type": "string",
@@ -197,7 +199,8 @@
           "format": "date-time"
         },
         "meta": {
-          "type": "object"
+          "type": "object",
+          "description": "Implementation-local metadata. Cross-system keys should be namespaced."
         }
       }
     },
@@ -212,9 +215,9 @@
           "type": "string",
           "enum": [
             "local",
-            "external"
+            "remote"
           ],
-          "description": "'local': definitions live in the repository under package/. 'external': definitions are expected pre-installed in the consumer's registry."
+          "description": "LOCATOR (rfc-decision-c8704763; renamed from 'external', converging on the mode-discriminated shape ThemeReference already uses). 'local': definitions live in the repository under package/. 'remote': definitions are expected pre-installed in the consumer's registry."
         },
         "path": {
           "type": "string",
@@ -223,7 +226,7 @@
         "packageId": {
           "type": "string",
           "format": "uuid",
-          "description": "Stable UUID of the package. For external mode: identifies the upstream package (required per R4a, tool-behavioral, not JSON Schema enforced). For local mode: optional; when set, allows same-logical-package identity check without reading the package manifest file."
+          "description": "Stable UUID of the package. For remote mode: identifies the upstream package (required per R4a, tool-behavioral, not JSON Schema enforced). For local mode: optional; when set, allows same-logical-package identity check without reading the package manifest file."
         },
         "packageName": {
           "type": "string",
@@ -231,7 +234,7 @@
         },
         "packageVersion": {
           "type": "string",
-          "description": "Semver of the package (both local and external modes). SHOULD be set when the version is known)."
+          "description": "Semver of the package (both local and remote modes). SHOULD be set when the version is known)."
         }
       }
     },
@@ -358,7 +361,7 @@
         "id": {
           "type": "string",
           "format": "uuid",
-          "description": "The boundary UUID: a containerId present in the source repository's containerIndex."
+          "description": "The boundary UUID: a containerId present in the source repository's container set (tree-authoritative enumeration, RFC-038 [R1]; the manifest's containerIndex is retired, RFC-038 [R2])."
         }
       }
     },

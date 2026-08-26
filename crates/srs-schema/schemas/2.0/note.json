@@ -68,25 +68,30 @@
       "type": "object",
       "required": ["sourceType", "sourceId"],
       "additionalProperties": false,
-      "not": { "required": ["sourceRole", "relationType"] },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "sourceType": { "const": "repository-document" } },
+            "required": ["sourceType"]
+          },
+          "then": {
+            "properties": { "sourceId": { "format": "uuid" } }
+          }
+        }
+      ],
       "properties": {
         "sourceType": {
           "type": "string",
           "enum": ["transcript-chunk", "transcript-segment", "external-document", "repository-document"],
           "description": "'repository-document' is added by ext:repository."
         },
-        "sourceId": { "type": "string" },
+        "sourceId": { "type": "string", "description": "Free-form when sourceType is transcript-chunk/transcript-segment/external-document. When sourceType is repository-document, MUST be a SourceDocument.documentId (format: uuid, RFC-017) — enforced by the sibling if/then." },
         "sourceStandard": { "type": "string" },
         "streamId": { "type": "string", "format": "uuid" },
         "sourceRole": {
           "type": "string",
           "enum": ["evidence", "extracted-from", "quoted-from", "inspired-by", "attaches"],
           "description": "The role the source material plays for this instance (RFC-023). Replaces relationType. 'attaches' added by RFC-017: material attachment of a source document to a record (RFC-017 [R1])."
-        },
-        "relationType": {
-          "type": "string",
-          "enum": ["evidence", "derived-from", "quoted-from", "inspired-by", "supersedes-context"],
-          "description": "DEPRECATED (RFC-023): legacy name for sourceRole. Readers accept it during the migration window (SOURCEREF_LEGACY_RELATIONTYPE warning) using the RFC-023 Change B value mapping; writers must not emit it. Removed by a scheduled follow-up schema revision."
         },
         "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
         "note": { "type": "string" }
