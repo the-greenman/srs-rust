@@ -24,7 +24,8 @@
 
 use serde::Deserialize;
 use srs_repository::discovery_service::{find, DiscoveryQuery};
-use srs_repository::store::FileStore;
+use srs_repository::store::{FileStore, RepositoryStore};
+use srs_repository::text_projection::{project_note_text, project_text, project_typed_record_text};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -42,6 +43,64 @@ struct Scenario {
     query: DiscoveryQuery,
     expected_instance_ids: Vec<String>,
     exact_match: bool,
+    /// srs#483 (RFC-012 `[R11]`): optional exact ordered TextSegment expectation
+    /// for one field of one instance — closes the gap I-120 left untestable
+    /// (segment count/order, which `expectedInstanceIds`/`exactMatch` alone
+    /// cannot express).
+    expected_segments: Option<ExpectedSegments>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExpectedSegments {
+    instance_id: String,
+    field_name: String,
+    segments: Vec<String>,
+}
+
+/// Project one instance's full ordered `TextSegment` stream, dispatching by tier
+/// via the catalog. This is glue only — every branch calls the exact same
+/// per-tier projection function `discovery_service::find` uses internally
+/// (`project_text` / `project_note_text` / `project_typed_record_text`), never a
+/// second implementation of the algorithm itself.
+fn project_instance_text(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+) -> Vec<srs_repository::text_projection::TextSegment> {
+    let cat = store
+        .catalog()
+        .unwrap_or_else(|e| panic!("catalog() failed: {e}"));
+    let entry = cat
+        .instances
+        .iter()
+        .find(|e| e.id == instance_id)
+        .unwrap_or_else(|| {
+            panic!("expectedSegments.instanceId '{instance_id}' not found in catalog")
+        });
+
+    match entry.tier {
+        Some(0) => {
+            let note = store
+                .load_note_by_id(instance_id)
+                .unwrap_or_else(|e| panic!("load_note_by_id('{instance_id}') failed: {e}"));
+            project_note_text(&note)
+        }
+        Some(1) => {
+            let locator = entry.locator.as_deref().unwrap_or_default();
+            let value = store
+                .load_instance_json(locator)
+                .unwrap_or_else(|e| panic!("load_instance_json('{locator}') failed: {e}"));
+            project_typed_record_text(&value)
+        }
+        _ => {
+            let record = store
+                .load_record_by_id(instance_id)
+                .unwrap_or_else(|e| panic!("load_record_by_id('{instance_id}') failed: {e}"));
+            let index = srs_repository::text_projection::build_field_text_index(store)
+                .unwrap_or_else(|e| panic!("build_field_text_index failed: {e}"));
+            project_text(&record, &index)
+        }
+    }
 }
 
 /// Root of the `conformance/discovery` fixture in the sibling `srs` spec repo. Walks up from
@@ -152,6 +211,30 @@ fn ext_discovery_fixture_scenarios() {
                     format!(
                         "'{}' (exactMatch: false, recall floor): missing={missing:?} (actual must be a superset of expectedInstanceIds)",
                         scenario.name
+                    ),
+                ));
+            }
+        }
+
+        // srs#483 / I-120: segment COUNT and ORDER, via the real Text Projection.
+        if let Some(expected_segments) = &scenario.expected_segments {
+            let all_segments = project_instance_text(&store, &expected_segments.instance_id);
+            let actual_texts: Vec<&str> = all_segments
+                .iter()
+                .filter(|s| s.field_name == expected_segments.field_name)
+                .map(|s| s.text.as_str())
+                .collect();
+            let expected_texts: Vec<&str> = expected_segments
+                .segments
+                .iter()
+                .map(String::as_str)
+                .collect();
+            if actual_texts != expected_texts {
+                failures.push((
+                    scenario.name.clone(),
+                    format!(
+                        "'{}' (expectedSegments: {}#{}): expected {expected_texts:?}, got {actual_texts:?}",
+                        scenario.name, expected_segments.instance_id, expected_segments.field_name
                     ),
                 ));
             }
