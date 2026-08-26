@@ -1,0 +1,35 @@
+{
+  "instanceId": "628cf6c4-a9e4-40c2-8c5b-b73765928df9",
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeVersion": 2,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc-decision",
+  "fieldValues": {
+    "title": "A rename is a migration",
+    "rfc_status": "accepted",
+    "decision_date": "2026-08-22",
+    "decision_rationale": "The audit's naming findings (C8's five spellings, C20's double meaning, A13/C19's stale renamed references) all trace to renames executed partially - the name changed where convenient and lingered elsewhere. Shared Coherence wins by default on axis 3-9, so a name's meaning is system-wide property; changing it locally-only produces exactly the incompatible-interpretation state the axis's boundary clause forbids. The migration framing already governs carrier changes; this extends it to names as such.",
+    "decision_statement": "Axis 3-9 (Shared Coherence over Local Autonomy) with Description's preference (one name over many): a name in the standard - a property key, a substrate key, an entity name, a spec term - is a contract, and changing one is a MIGRATION, never an edit. A rename ships as: the ruled decision naming old and new; a deterministic data/schema migration where stored forms carry the name; a generation stamp where the carrier changes (dataModelRevision); and the one-name end state - the old name does not linger as an accepted alias (KEYED is key-only per the reference taxonomy; substrate renames go through supersession status per the retirement ruling). Already-executed instances of this pattern are its precedent, not exceptions: valueType to fieldType (RFC-032), properties to meta (#433), Evolution to Governance (grid cell), DocumentView to Composition (#272). A rename that cannot afford its migration is not ready to happen.",
+    "decision_scope": "Governs every future rename in spec text, schemas, substrate keys, and grid vocabulary. The pending renames it disciplines: properties→meta (srs#433, already scoped this way), Composition (#272), packageRef external→remote and the dependencyRefs→packageDependencies rename (reference-taxonomy execution), the evidence/evidences vocabulary reconciliation (#273 train). Stale-reference cleanups from past renames (A13, C19) ride the truth-sync unit.",
+    "governing_values": [
+      "shared-coherence"
+    ],
+    "project_phase": "formation",
+    "alternatives_considered": "Alias-based grace periods for renames (rejected - two live names is the C8/C20 state this rule exists to prevent; grace lives in the migration tooling, not the name space); treating prose-only renames as exempt (rejected - A13 showed normative records lagging a ruled rename for months).",
+    "accepted_costs": "Renames become heavier: even a better name waits until its migration is affordable. Accepted deliberately - the phase-bound Evolution default makes them cheap NOW, and the Continuity flip will make this rule the main guard later.",
+    "evidence_refs": [
+      "srs#435 findings C8, C20, A13, C19",
+      "rfc-decision-cce3c00e (axis 3-9, Description's preference)",
+      "rfc-decision-6fc7e142 (properties→meta - the pattern's cleanest instance)",
+      "RFC-032 (valueType→fieldType, the carrier-migration precedent)"
+    ],
+    "review_trigger": "At the Continuity flip, when rename costs rise: confirm the rule's migration bar matches the post-flip breaking-change bar."
+  },
+  "tags": [
+    "topic:rfc",
+    "cell:description"
+  ],
+  "createdAt": "2026-08-22T11:32:06.120904497+00:00",
+  "updatedAt": "2026-08-23T18:55:11.896144015+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
+}

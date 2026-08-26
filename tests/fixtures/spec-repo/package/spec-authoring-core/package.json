@@ -36,7 +36,10 @@
     "fields/outro.json",
     "fields/columns.json",
     "fields/cells.json",
-    "fields/rows.json"
+    "fields/rows.json",
+    "fields/referencedtypeid-1a000034.json",
+    "fields/referencedtypeversion-1a000035.json",
+    "fields/presentationprofile-1a000036.json"
   ],
   "types": [
     "types/specification.json",
@@ -52,9 +55,12 @@
     "types/field-definition.json",
     "types/design-note.json",
     "types/table.json",
-    "types/table_rows.json"
+    "types/table_rows.json",
+    "types/generated-type-reference-2a000014.json"
   ],
-  "views": [],
+  "views": [
+    "views/table-record-view-77f51737.json"
+  ],
   "documentViews": [
     "document-views/spec-document-view.json",
     "document-views/rationale-document-view.json",
@@ -62,5 +68,5 @@
   ],
   "createdAt": "2026-05-27T00:00:00Z",
   "updatedAt": "2026-05-29T00:00:00Z",
-  "dataModelRevision": 2
+  "dataModelRevision": 3
 }

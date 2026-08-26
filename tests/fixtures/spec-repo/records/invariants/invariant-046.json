@@ -1,28 +1,29 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-05-27T00:00:00Z",
+  "instanceId": "e1000046-0000-4000-a000-000000000046",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant",
   "fieldValues": {
     "invariant_number": "46",
-    "title": "Every instanceId in RepositoryManifest.instanceIndex must resolve to…",
-    "normative_statement": "Every `instanceId` in `RepositoryManifest.instanceIndex` must resolve to a file at the declared `path`, and that file must contain an instance whose `instanceId` matches the index entry. An index entry whose `path` does not resolve, or whose file contains a different `instanceId`, is invalid.",
+    "title": "Every instance file's own instanceId is its identity; there is no…",
+    "normative_statement": "Every instance file discovered under a reserved instance root MUST declare an `instanceId`, and that self-declared value is the instance's identity. There is no manifest index entry to cross-check it against — `RepositoryManifest.instanceIndex` is retired (RFC-038 [R2]) and the repository's authoritative store, enumerated from the tree, is the instance set (RFC-038 [R1]).",
     "applies_to": "ext:repository"
   },
-  "instanceId": "e1000046-0000-4000-a000-000000000046",
-  "sourceRefs": [
-    {
-      "note": "Invariant 46 from srs-spec.md section 08",
-      "relationType": "evidence",
-      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-      "sourceType": "repository-document"
-    }
-  ],
   "tags": [
     "concern:resolution",
     "concern:validation",
     "topic:conformance"
   ],
-  "typeId": "2a000006-0000-4000-a000-000000000006",
-  "typeName": "invariant",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1
+  "createdAt": "2026-05-27T00:00:00Z",
+  "updatedAt": "2026-08-22T22:52:33.781717084+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "sourceRefs": [
+    {
+      "note": "Invariant 46 from srs-spec.md section 08",
+      "sourceRole": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ]
 }

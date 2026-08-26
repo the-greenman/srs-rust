@@ -31,7 +31,7 @@
   "sourceRefs": [
     {
       "note": "Working session note about RFC-001 implementation sequencing",
-      "relationType": "inspired-by",
+      "sourceRole": "inspired-by",
       "sourceId": "session-note-2026-05-29-rfc001-prereqs",
       "sourceType": "external-document"
     }

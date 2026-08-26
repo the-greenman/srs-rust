@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Machine-readable state key. Unified substrate field (was name pre-RFC-006)."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Machine-readable state key. Unified substrate field (was name pre-RFC-006).",
+  "id": "4b000039-0000-4000-a000-000000000039",
+  "name": "key",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

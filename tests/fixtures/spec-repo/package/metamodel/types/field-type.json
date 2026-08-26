@@ -4,7 +4,7 @@
     "purpose": "Describes a Field's value model, including composite ranges (datatype: ref -> another Type)."
   },
   "createdAt": "2026-07-29T00:00:00Z",
-  "description": "The decomposed value type (RFC-032): datatype x cardinality x value-domain x format x constraints. The recursive heart of the meta-model.",
+  "description": "RFC-032 Change A — orthogonal type facets. Conditional requirements (R2/R3/R9/R10) are expressed in the allOf branches below; the full semantic conformance check (R1–R11) is scripts/lib/rfc-032-fieldtype.mjs::validateFieldType.",
   "fields": [
     {
       "fieldId": "4b00000f-0000-4000-a000-00000000000f",

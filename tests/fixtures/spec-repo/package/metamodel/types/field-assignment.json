@@ -1,7 +1,7 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
   "aiGuidance": {
-    "purpose": "Describes how one Field participates in a Type (order, requiredness, label)."
+    "purpose": "Describes how one Field participates in a Type (order, requiredness, label, contextual description)."
   },
   "createdAt": "2026-07-29T00:00:00Z",
   "description": "A Field's use inside a Type: the reference-mode edge that closes the metacircular loop.",
@@ -29,10 +29,9 @@
       "displayLabel": "Display Label"
     },
     {
-      "fieldId": "4b000037-0000-4000-a000-000000000037",
+      "fieldId": "4b000005-0000-4000-a000-000000000005",
       "order": 4,
-      "required": false,
-      "displayLabel": "Default Value"
+      "required": false
     }
   ],
   "id": "4c000003-0000-4000-a000-000000000003",

@@ -1,16 +1,16 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-23T16:42:10.842966898+00:00",
+  "instanceId": "e2788042-b58c-4013-8794-7fb4e6bafc9a",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant",
   "fieldValues": {
     "invariant_number": "I-123",
     "title": "ext:discovery conformance requires passing structured-filter fixture scenarios",
-    "normative_statement": "An implementation that declares `ext:discovery` MUST pass all structured-filter conformance scenarios (`exactMatch: true`) from the fixture at `srs/conformance/discovery/scenarios.json`, returning exactly the `expectedInstanceIds` set for each such scenario. (RFC-012 R11.)",
+    "normative_statement": "An implementation that declares `ext:discovery` MUST pass all structured-filter conformance scenarios (`exactMatch: true`) from the fixture at `srs/conformance/discovery/scenarios.json`, returning exactly the `expectedInstanceIds` set for each such scenario. When a scenario also carries an `expectedSegments` expectation, the implementation's Text Projection for the named field of the named instance MUST additionally match the expected segment sequence exactly in count and order — testing I-120's list-cardinality rule (\"one segment per array element in order\") that `expectedInstanceIds` alone cannot express. (RFC-012 R11; srs#483.)",
     "applies_to": "ext:discovery; structured-filter fixture conformance (RFC-012)"
   },
-  "instanceId": "e2788042-b58c-4013-8794-7fb4e6bafc9a",
-  "typeId": "2a000006-0000-4000-a000-000000000006",
-  "typeName": "invariant",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-23T16:42:10.842973885+00:00"
+  "createdAt": "2026-07-23T16:42:10.842966898+00:00",
+  "updatedAt": "2026-08-26T09:46:36.739191642+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

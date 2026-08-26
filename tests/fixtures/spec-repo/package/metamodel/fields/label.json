@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Human-readable display label for this lifecycle state."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Human-readable display label for this lifecycle state.",
+  "id": "4b00003a-0000-4000-a000-00000000003a",
+  "name": "label",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

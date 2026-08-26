@@ -59,7 +59,7 @@
     {
       "sourceType": "external-document",
       "sourceId": "user-provided-domain-template-2026-05-28",
-      "relationType": "derived-from",
+      "sourceRole": "extracted-from",
       "note": "Domain Definition template and creation prompt provided by the user on 2026-05-28"
     }
   ],

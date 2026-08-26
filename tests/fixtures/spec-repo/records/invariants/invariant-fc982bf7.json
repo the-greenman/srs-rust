@@ -1,14 +1,15 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-08-09T14:30:00Z",
-  "fieldValues": {
-    "invariant_number": "I-136",
-    "title": "Reference-mode values resolve in the instanceIndex",
-    "normative_statement": "A `mode: \"reference\"` value MUST resolve to an instance present in the repository's `instanceIndex`, and that instance MUST be of the Field's declared `rangeType` at the declared `typeVersion`. A dangling or type-mismatched target MUST be reported as an error naming the referring record, the key, and the target id. (RFC-039 [R14]; discharges RFC-032 OQ4, RFC-033:302, RFC-035:592)"
-  },
   "instanceId": "fc982bf7-aae6-4a29-a20b-0ca6841ffaed",
   "typeId": "2a000006-0000-4000-a000-000000000006",
   "typeVersion": 1,
   "typeNamespace": "com.semanticops.spec",
-  "typeName": "invariant"
+  "typeName": "invariant",
+  "fieldValues": {
+    "invariant_number": "I-136",
+    "title": "Reference-mode values resolve in the instance set",
+    "normative_statement": "A `mode: \"reference\"` value MUST resolve to an instance present in the repository's authoritative instance set, and that instance MUST be of the Field's declared `rangeType` at the declared `typeVersion`. A dangling or type-mismatched target MUST be reported as an error naming the referring record, the key, and the target id. (RFC-039 [R14], amended by RFC-038 [R25] — the reference target is the tree-enumerated instance set, not a manifest `instanceIndex`, which is retired per RFC-038 [R2]; discharges RFC-032 OQ4, RFC-033:302, RFC-035:592)"
+  },
+  "createdAt": "2026-08-09T14:30:00Z",
+  "updatedAt": "2026-08-22T22:53:27.651987853+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

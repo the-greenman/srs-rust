@@ -1,0 +1,15 @@
+{
+  "id": "1a000035-0000-4000-a000-000000000035",
+  "namespace": "com.semanticops.spec",
+  "name": "referenced_type_version",
+  "version": 1,
+  "description": "Version of the referenced_type_id Type this generated-view slot renders (PINNED pair with referenced_type_id).",
+  "aiGuidance": {
+    "purpose": "The exact version of the referenced Type — together with referenced_type_id this is an ExactTypeRef-shaped pinned pair."
+  },
+  "fieldType": {
+    "datatype": "integer"
+  },
+  "editorHint": "singleline",
+  "createdAt": "2026-08-25T00:00:00Z"
+}

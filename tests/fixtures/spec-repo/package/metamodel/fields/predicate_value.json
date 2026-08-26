@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Value the predicate field must equal to activate the rule (conditional-required)."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Value the predicate field must equal to activate the rule (conditional-required).",
+  "id": "4b00004e-0000-4000-a000-00000000004e",
+  "name": "predicate_value",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

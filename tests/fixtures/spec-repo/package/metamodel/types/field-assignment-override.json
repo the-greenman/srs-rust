@@ -1,0 +1,37 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "Describes a tighten-only required override plus rendering-only overrides (displayLabel, displayHint) for one inherited field."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "ext:type-inheritance — overrides for a single inherited FieldAssignment.",
+  "fields": [
+    {
+      "fieldId": "4b000033-0000-4000-a000-000000000033",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Field"
+    },
+    {
+      "fieldId": "4b000036-0000-4000-a000-000000000036",
+      "order": 1,
+      "required": false,
+      "displayLabel": "Display Label"
+    },
+    {
+      "fieldId": "4b00004a-0000-4000-a000-00000000004a",
+      "order": 2,
+      "required": false,
+      "displayLabel": "Display Hint"
+    },
+    {
+      "fieldId": "4b000035-0000-4000-a000-000000000035",
+      "order": 3,
+      "required": false
+    }
+  ],
+  "id": "4c00000f-0000-4000-a000-00000000000f",
+  "name": "field-assignment-override",
+  "namespace": "com.semanticops.srs",
+  "version": 1
+}

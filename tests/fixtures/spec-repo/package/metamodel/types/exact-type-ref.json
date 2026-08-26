@@ -4,7 +4,7 @@
     "purpose": "Names a Type by UUID + exact version."
   },
   "createdAt": "2026-07-29T00:00:00Z",
-  "description": "A version-exact reference to a Type in the package (RFC-009 ExactTypeRef).",
+  "description": "RFC-009 I-78. A version-exact reference to a Type in the Package (PINNED, rfc-decision-c8704763). Both typeId and typeVersion are required. The pre-RFC-009 version-optional Protocol TypeRef this once contrasted with is retired — Protocol.outputType is now a bare-UUID LINEAGE reference (typeVersion dropped; version-optional hybrids are forbidden).",
   "fields": [
     {
       "fieldId": "4b000021-0000-4000-a000-000000000021",

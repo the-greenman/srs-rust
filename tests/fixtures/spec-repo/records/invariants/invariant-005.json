@@ -1,29 +1,30 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-05-27T00:00:00Z",
+  "instanceId": "e1000005-0000-4000-a000-000000000005",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant",
   "fieldValues": {
     "invariant_number": "5",
     "title": "Every from and to value in lifecycle.transitions[] must reference a…",
-    "normative_statement": "Every `from` and `to` value in `lifecycle.transitions[]` must reference a `name` that appears in `lifecycle.states[]`.",
+    "normative_statement": "Every `from` and `to` value in `lifecycle.transitions[]` must reference a `key` that appears in `lifecycle.states[]`.",
     "applies_to": "ext:lifecycle"
   },
-  "instanceId": "e1000005-0000-4000-a000-000000000005",
-  "sourceRefs": [
-    {
-      "note": "Invariant 5 from srs-spec.md section 08",
-      "relationType": "evidence",
-      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-      "sourceType": "repository-document"
-    }
-  ],
   "tags": [
     "concern:validation",
     "construct:lifecycle",
     "construct:reference",
     "topic:conformance"
   ],
-  "typeId": "2a000006-0000-4000-a000-000000000006",
-  "typeName": "invariant",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1
+  "createdAt": "2026-05-27T00:00:00Z",
+  "updatedAt": "2026-08-22T22:50:24.461528932+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "sourceRefs": [
+    {
+      "note": "Invariant 5 from srs-spec.md section 08",
+      "sourceRole": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ]
 }

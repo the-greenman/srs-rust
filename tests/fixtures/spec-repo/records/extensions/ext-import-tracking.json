@@ -1,29 +1,29 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-05-27T00:00:00Z",
+  "instanceId": "279877f5-dd9d-569c-94d6-358ad177a6fb",
+  "typeId": "2a000008-0000-4000-a000-000000000008",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "extension",
   "fieldValues": {
     "extension_id": "ext:import-tracking",
     "title": "Import Tracking",
     "extension_depends": "",
-    "content": "**Required for**: implementations that receive packages from upstream publishers and need to track update and conflict state.\n\n#### `ImportMode`\n\n```typescript\n\"upstream-tracked\" | \"local-copy\" | \"local-fork\"\n```\n\n| Mode | Meaning |\n|---|---|\n| `\"upstream-tracked\"` | Consumer expects updates from the source Package. Conflicts surfaced when local and upstream diverge. |\n| `\"local-copy\"` | Imported as a snapshot. No update tracking. |\n| `\"local-fork\"` | Deliberately diverged. Upstream lineage preserved for reference. |\n\n#### `ImportRecord`\n\nOne record per imported definition in a consumer's local registry.\n\n```typescript\n{\n  definitionId: UUID\n  definitionType: \"field\" | \"type\" | \"view\" | \"blueprint\" | \"protocol\" | \"relation-type\"\n  namespace: string\n  name: string\n  version: integer\n\n  mode: ImportMode\n  importedAt: ISO8601\n\n  sourcePackageId: UUID\n  sourcePackageName: string\n  sourcePackageVersion: string\n\n  latestKnownUpstreamVersion?: integer\n  updateAvailable?: boolean\n  updateCheckedAt?: ISO8601\n\n  conflictState?: \"clean\" | \"local-ahead\" | \"upstream-ahead\" | \"diverged\"\n  conflictDetectedAt?: ISO8601\n\n  localVersion?: integer\n  localEditedAt?: ISO8601\n}\n```\n\n#### `ImportSummary`\n\nA consumer's complete picture of its imported definitions.\n\n```typescript\n{\n  generatedAt: ISO8601\n  fields: ImportRecord[]\n  types: ImportRecord[]\n  views: ImportRecord[]\n  blueprints: ImportRecord[]\n  protocols: ImportRecord[]\n  relationTypes: ImportRecord[]\n}\n```\n\n---\n\n#### Repository-Level Provenance (RFC-014)\n\nWhen a repository is initialised from a published SRS Package, it records provenance in `manifest.json` at `manifest.upstreamPackage`. This is a normative top-level field — the machine-readable anchor for divergence detection and non-destructive package upgrades.\n\n#### `UpstreamPackage`\n\nShape recorded at install time and updated on upgrade:\n\n```typescript\n{\n  packageId:   UUID      // Stable UUID of the upstream Package. Never changes across upgrades.\n  namespace:   string    // Reverse-DNS namespace, e.g. \"com.mudemocracy.governance\"\n  name:        string    // Package name, e.g. \"governance\"\n  version:     string    // Semver of the upstream version at last install/upgrade\n  installedAt: ISO8601   // Timestamp of the last install or upgrade event\n}\n```\n\n#### Repository-Level Divergence Detection\n\nWhen `upstreamPackage` is set, a conforming `ext:import-tracking` implementation MAY detect whether the locally installed definitions differ from the canonical content of the upstream package at that same version (RFC-014 Change E, R8). The comparison is performed against a reference copy (either a byte-for-byte snapshot stored at install time, or re-fetched from the published source if network access is available). A tool without a reference copy simply skips the check.\n\nDivergence is surfaced using the same `conflictState` vocabulary already defined for `ImportRecord`:\n\n| State | Description |\n|---|---|\n| `\"clean\"` | Local package content matches the reference copy at install time. No drift. |\n| `\"local-ahead\"` | Local package has definitions not present in the upstream at install time; all differing ids are locally-added. |\n| `\"diverged\"` | One or more local definition files differ from what the upstream declared under the same `id`+`version` key. |\n\nWhen both `local-ahead` and `diverged` conditions hold simultaneously, implementations MUST report `diverged` as the primary status and include locally-added definitions as a supplementary list.\n\nThe `\"upstream-ahead\"` state (a newer version exists upstream) requires `ext:registry` and is out of scope for local divergence detection."
+    "content": "**Retired as an independent content copy (srs#285 / srs#407).** The current, normative text for `ext:import-tracking` is published in §7 as subsection `07-12-ext-import-tracking` (`com.semanticops.spec/subsection`). This record is kept only so `ext:import-tracking` continues to resolve as an RFC-integration token (`scripts/check-rfc-integration.mjs`); it is not rendered by any document view and carries no independent content of its own. Do not edit this field to add prose — edit the published subsection instead."
   },
-  "instanceId": "279877f5-dd9d-569c-94d6-358ad177a6fb",
-  "sourceRefs": [
-    {
-      "note": "Extension ext:import-tracking from srs-spec.md - coarse source anchoring during migration",
-      "relationType": "evidence",
-      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-      "sourceType": "repository-document"
-    }
-  ],
   "tags": [
     "concern:extensibility",
     "concern:federation",
     "topic:extensions"
   ],
-  "typeId": "2a000008-0000-4000-a000-000000000008",
-  "typeName": "extension",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-07T00:00:00Z"
+  "createdAt": "2026-05-27T00:00:00Z",
+  "updatedAt": "2026-08-19T05:00:53.778876553+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "sourceRefs": [
+    {
+      "note": "Extension ext:import-tracking from srs-spec.md - coarse source anchoring during migration",
+      "sourceRole": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ]
 }

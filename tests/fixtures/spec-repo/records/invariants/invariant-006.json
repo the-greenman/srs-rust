@@ -1,21 +1,15 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-05-27T00:00:00Z",
+  "instanceId": "e1000006-0000-4000-a000-000000000006",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant",
   "fieldValues": {
     "invariant_number": "6",
-    "title": "Record.lifecycleState, when present, must reference a name in the…",
-    "normative_statement": "`Record.lifecycleState`, when present, must reference a `name` in the associated `Type.lifecycle.states[]`.",
+    "title": "Record.lifecycleState, when present, must reference a key in the…",
+    "normative_statement": "`Record.lifecycleState`, when present, must reference a `key` in the associated `Type.lifecycle.states[]`.",
     "applies_to": "ext:lifecycle"
   },
-  "instanceId": "e1000006-0000-4000-a000-000000000006",
-  "sourceRefs": [
-    {
-      "note": "Invariant 6 from srs-spec.md section 08",
-      "relationType": "evidence",
-      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-      "sourceType": "repository-document"
-    }
-  ],
   "tags": [
     "concern:validation",
     "construct:lifecycle",
@@ -23,8 +17,15 @@
     "construct:reference",
     "topic:conformance"
   ],
-  "typeId": "2a000006-0000-4000-a000-000000000006",
-  "typeName": "invariant",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1
+  "createdAt": "2026-05-27T00:00:00Z",
+  "updatedAt": "2026-08-22T22:50:25.248768041+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "sourceRefs": [
+    {
+      "note": "Invariant 6 from srs-spec.md section 08",
+      "sourceRole": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ]
 }

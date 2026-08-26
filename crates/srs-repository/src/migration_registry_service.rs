@@ -99,6 +99,32 @@ static MIGRATIONS: &[MigrationDefinition] = &[
         },
     },
     MigrationDefinition {
+        id: "metamodel-v1-1-0",
+        title: "Adopt the RFC-040 metamodel v1.1.0 engine sync",
+        description: "Stamps dataModelRevision: 3. This is data-model migration #3 \
+                       (revision 2 -> 3). A pure re-stamp: the RFC-040 train's construct \
+                       retirals (Field.defaultValue/deprecatedAt, \
+                       SourceReference.relationType, SectionSource fixed-instances/ \
+                       relation-query, ...) are enforced unconditionally at load \
+                       regardless of the stamped revision, so a repository that still \
+                       loads already carries none of them — there is no content left to \
+                       rewrite, only the generation number to record. Requires the \
+                       RFC-039 carrier migration (#2) first.",
+        status_fn: |store| {
+            if crate::field_type_migration_service::metamodel_v1_1_0_migration_needed(store)? {
+                Ok(MigrationStatus::Needed)
+            } else {
+                Ok(MigrationStatus::AlreadyApplied)
+            }
+        },
+        apply_fn: |store| {
+            let result = crate::field_type_migration_service::migrate_metamodel_v1_1_0(store)?;
+            serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!("failed to serialize metamodel-v1-1-0 migration result: {e}"),
+            })
+        },
+    },
+    MigrationDefinition {
         id: "migrate-identity",
         title: "Graduate identity to purpose record",
         description: "Converts a Tier-0 note identity (or a container with no identity \
@@ -330,22 +356,25 @@ mod tests {
     fn list_migrations_returns_every_entry_for_store_with_no_identity_note() {
         let store = make_store_with_container_no_identity();
         let migrations = list_migrations(&store).unwrap();
-        assert_eq!(migrations.len(), 5);
+        assert_eq!(migrations.len(), 6);
         assert_eq!(migrations[0].id, "field-type");
         assert_eq!(migrations[1].id, "rfc039-carrier");
-        assert_eq!(migrations[2].id, "migrate-identity");
-        assert_eq!(migrations[3].id, "repo-upgrade");
-        assert_eq!(migrations[4].id, "rfc038-storage");
+        assert_eq!(migrations[2].id, "metamodel-v1-1-0");
+        assert_eq!(migrations[3].id, "migrate-identity");
+        assert_eq!(migrations[4].id, "repo-upgrade");
+        assert_eq!(migrations[5].id, "rfc038-storage");
         // Unstamped manifest → field-type Needed
         assert_eq!(migrations[0].status, MigrationStatus::Needed);
         // Revision < 2 → rfc039-carrier Needed
         assert_eq!(migrations[1].status, MigrationStatus::Needed);
-        // Container exists but identity_instance_id is None → migrate-identity Needed
+        // Revision < 3 → metamodel-v1-1-0 Needed
         assert_eq!(migrations[2].status, MigrationStatus::Needed);
+        // Container exists but identity_instance_id is None → migrate-identity Needed
+        assert_eq!(migrations[3].status, MigrationStatus::Needed);
         // Zero instances → all paths canonical → AlreadyApplied
-        assert_eq!(migrations[3].status, MigrationStatus::AlreadyApplied);
+        assert_eq!(migrations[4].status, MigrationStatus::AlreadyApplied);
         // MemoryStore is not a file tree — there is no storage layout to place.
-        assert_eq!(migrations[4].status, MigrationStatus::NotApplicable);
+        assert_eq!(migrations[5].status, MigrationStatus::NotApplicable);
     }
 
     fn indexed_srsj_store() -> crate::store::FileStore {

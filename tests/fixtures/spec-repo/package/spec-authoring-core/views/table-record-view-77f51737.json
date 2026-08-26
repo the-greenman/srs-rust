@@ -1,0 +1,31 @@
+{
+  "id": "77f51737-191c-4229-ac24-3ae28dfc946c",
+  "namespace": "com.semanticops.spec",
+  "name": "table-record-view",
+  "version": 1,
+  "description": "Renders a com.semanticops.spec/table record inline within a DocumentSection: intro/outro prose plus rows as a markdown table (RFC-036). Columns is hidden from its own field rendering because the table composite renderer already surfaces it as the header row.",
+  "fieldViews": [
+    {
+      "fieldId": "1a000025-0000-4000-a000-000000000025",
+      "order": 0
+    },
+    {
+      "fieldId": "1a000026-0000-4000-a000-000000000026",
+      "order": 1
+    },
+    {
+      "fieldId": "1a000032-0000-4000-a000-000000000032",
+      "order": 2,
+      "visible": false
+    },
+    {
+      "fieldId": "ac991040-8cde-454a-8487-ff4c87744b54",
+      "order": 3,
+      "compositeRenderer": {
+        "renderer": "table"
+      }
+    }
+  ],
+  "createdAt": "2026-08-19T00:00:00Z",
+  "$schema": "https://srs.semanticops.com/schema/2.0/view.json"
+}

@@ -56,7 +56,7 @@
   "sourceRefs": [
     {
       "note": "User statement that SRS is a data structure for an AI age and should be understandable to an AI that knows nothing about SRS",
-      "relationType": "inspired-by",
+      "sourceRole": "inspired-by",
       "sourceId": "user-provided-ai-native-repository-note-2026-05-28",
       "sourceType": "external-document"
     }

@@ -15,6 +15,9 @@
         "type": "type-query",
         "semanticObjectType": "com.semanticops.spec/design-note"
       },
+      "typeDispatch": {
+        "com.semanticops.spec/table": "77f51737-191c-4229-ac24-3ae28dfc946c"
+      },
       "titleFieldId": "1a000001-0000-4000-a000-000000000001",
       "emptyBehavior": "hide"
     }

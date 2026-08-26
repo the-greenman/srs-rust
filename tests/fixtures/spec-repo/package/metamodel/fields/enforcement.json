@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "hard (default): the transition MUST be rejected unless the obligation is satisfied. advisory: permitted, with an unsatisfied obligation surfaced only as a warning."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "hard (default): the transition MUST be rejected unless the obligation is satisfied. advisory: permitted, with an unsatisfied obligation surfaced only as a warning.",
+  "id": "4b000049-0000-4000-a000-000000000049",
+  "name": "enforcement",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string",
+    "valueDomain": "closed",
+    "allowedValues": [
+      "hard",
+      "advisory"
+    ]
+  },
+  "version": 1
+}

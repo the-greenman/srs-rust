@@ -1,21 +1,21 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-21T21:14:23.705189366+00:00",
+  "instanceId": "212379f4-4bb7-465f-94e6-ffd037a718b4",
+  "typeId": "2a000008-0000-4000-a000-000000000008",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "extension",
   "fieldValues": {
     "extension_id": "ext:slices",
     "title": "Slices",
     "extension_depends": "",
-    "content": "**Required for**: implementations that export a subset of a repository as a standalone, independently openable `.srs` archive (a *slice*).\n\nA container slice carries the records reachable from a container's membership, their type and field definitions, intra-slice relations, and referenced source documents. It is a valid `.srs` archive in the RFC-017 format — any SRS tool can open, validate, and render it.\n\n#### Scope\n\n`ext:slices` defines **container-membership closure only**. A *package export* — distributing a package's Type/Field definitions as a `package-bundle.json` — is a different artifact class (RFC-003) and is not a slice. Record-level closure (an arbitrary set of records) is deferred to a future RFC.\n\n#### Manifest extensions (`ext:slices`)\n\nWhen `ext:slices` is declared in a slice archive's `manifest.declaredExtensions`, `RepositoryManifest` gains one optional property:\n\n```json\n\"slice\": {\n  \"origin\": { \"repositoryId\": \"<source-uuid>\" },\n  \"spec\": { \"type\": \"container\", \"id\": \"<containerId-uuid>\" },\n  \"exportedAt\": \"<ISO-8601>\",\n  \"externalRelationRefs\": [\n    {\n      \"relationId\": \"<uuid>\",\n      \"sourceInstanceId\": \"<uuid>\",\n      \"targetInstanceId\": \"<uuid>\",\n      \"relationType\": \"depends-on\"\n    }\n  ]\n}\n```\n\n| Field | Type | Required | Description |\n|---|---|---|---|\n| `origin.repositoryId` | `string (uuid)` | yes | `repositoryId` of the source repository this slice was exported from. |\n| `spec.type` | `string` | yes | Closure rule. Currently only `\"container\"` is defined. |\n| `spec.id` | `string (uuid)` | yes | The `containerId` that scoped the slice — present in the source `containerIndex`. |\n| `exportedAt` | `string (date-time)` | yes | ISO-8601 timestamp of when the slice was produced. |\n| `externalRelationRefs` | `array` | no | Relations cut at export because exactly one endpoint fell outside the closure. Provenance only — not a validation error. |\n\nThe slice archive's `manifest.repositoryId` MUST be a **new UUID** distinct from `slice.origin.repositoryId`; the archive is a standalone artifact.\n\n#### Container-membership closure\n\nThe closure root is the container identified by `spec.id`. The slice MUST include: (1) `manifest.container` set to the closure-root container; (2) all instances in the root container's `memberInstanceIds`/`rootInstanceIds`, recursively through sub-containers; (3) all type and field definitions referenced by included instances (directly or via Type FieldAssignments), copied into the slice's `package/` directory; (4) all relations with both endpoints inside the included set; (5) all `sourceDocumentIndex` entries and content files referenced by included instances; (6) any sub-container whose `memberInstanceIds` and `rootInstanceIds` are all within the included set.\n\n#### Dangling-edge policy\n\nCross-boundary relations MUST NOT appear in the slice's relations collection. They MUST be recorded in `slice.externalRelationRefs[]` with `relationId`, `sourceInstanceId`, `targetInstanceId`, and `relationType`. A non-empty list is provenance data, not a validation error. The `relationType` value in `externalRelationRefs` entries is NOT subject to RFC-005 definition-lookup in the slice archive.\n\n#### Validation relaxations\n\nAn RFC-026-aware validator MUST NOT treat the following as errors when a `slice` block is present: `externalRelationRefs` UUIDs absent from `instanceIndex`; absence of unreferenced type/field definitions; an incomplete `containerIndex`; tombstoned source document entries with absent content files. Dangling edges in the relations collection, unresolvable `typeId`/`fieldId` references, and instance schema validation errors remain errors regardless of slice status.\n\n---"
+    "content": "**Retired as an independent content copy (srs#285 / srs#411).** The current, normative text for `ext:slices` is published in §7 as subsection `07-19-ext-slices` (`com.semanticops.spec/subsection`) — published by #414, byte-identical to this record's prior content. This record is kept only so `ext:slices` continues to resolve as an RFC-integration token (`scripts/check-rfc-integration.mjs`); it is not rendered by any document view and carries no independent content of its own. Do not edit this field to add prose — edit the published subsection instead."
   },
-  "instanceId": "212379f4-4bb7-465f-94e6-ffd037a718b4",
   "tags": [
     "concern:export",
     "concern:slices",
     "topic:extensions"
   ],
-  "typeId": "2a000008-0000-4000-a000-000000000008",
-  "typeName": "extension",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-21T21:14:23.705425986+00:00"
+  "createdAt": "2026-07-21T21:14:23.705189366+00:00",
+  "updatedAt": "2026-08-23T14:55:10.213101240+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

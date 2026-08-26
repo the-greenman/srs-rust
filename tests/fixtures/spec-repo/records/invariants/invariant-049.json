@@ -1,27 +1,28 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-05-27T00:00:00Z",
+  "instanceId": "e1000049-0000-4000-a000-000000000049",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant",
   "fieldValues": {
     "invariant_number": "49",
-    "title": "archive must include all instance files listed in…",
-    "normative_statement": "An archive must include all instance files listed in `RepositoryManifest.instanceIndex`. An archive missing any indexed instance file is malformed; a conforming consumer must reject it or surface the missing instances explicitly before processing.",
+    "title": "archive must include every instance in the authoritative store's…",
+    "normative_statement": "An archive must include every instance discovered by enumerating the repository's authoritative store — the instance set (RFC-038 [R1], [R17]) — not a manifest `instanceIndex`, which is retired (RFC-038 [R2]). An archive missing any enumerated instance file is malformed; a conforming consumer must reject it or surface the missing instances explicitly before processing.",
     "applies_to": "ext:repository"
   },
-  "instanceId": "e1000049-0000-4000-a000-000000000049",
-  "sourceRefs": [
-    {
-      "note": "Invariant 49 from srs-spec.md section 08",
-      "relationType": "evidence",
-      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-      "sourceType": "repository-document"
-    }
-  ],
   "tags": [
     "concern:validation",
     "topic:conformance"
   ],
-  "typeId": "2a000006-0000-4000-a000-000000000006",
-  "typeName": "invariant",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1
+  "createdAt": "2026-05-27T00:00:00Z",
+  "updatedAt": "2026-08-22T22:52:36.353422918+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "sourceRefs": [
+    {
+      "note": "Invariant 49 from srs-spec.md section 08",
+      "sourceRole": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ]
 }

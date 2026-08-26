@@ -4,7 +4,7 @@
     "purpose": "Describes an SRS Type: its identity and its ordered FieldAssignments."
   },
   "createdAt": "2026-07-29T00:00:00Z",
-  "description": "A named, versioned composition of Fields (core definition facets; RFC-033 v1.0.0 defers lifecycle/inheritance/cross-field/field-groups/identity).",
+  "description": "A named, versioned composition of Fields. Extension-owned facets (lifecycle, inheritance, cross-field-validation) are modelled as separate Types extending this one via ext:type-inheritance (RFC-040 Change A); tags and identityFieldId are core Type surface.",
   "fields": [
     {
       "fieldId": "4b000001-0000-4000-a000-000000000001",
@@ -49,8 +49,29 @@
       "required": true
     },
     {
-      "fieldId": "4b000006-0000-4000-a000-000000000006",
+      "fieldId": "4b00000b-0000-4000-a000-00000000000b",
       "order": 8,
+      "required": false
+    },
+    {
+      "fieldId": "4b00000c-0000-4000-a000-00000000000c",
+      "order": 9,
+      "required": false
+    },
+    {
+      "fieldId": "4b00000d-0000-4000-a000-00000000000d",
+      "order": 10,
+      "required": false
+    },
+    {
+      "fieldId": "4b000058-0000-4000-a000-000000000058",
+      "order": 11,
+      "required": false,
+      "displayLabel": "Identity Field Id"
+    },
+    {
+      "fieldId": "4b000006-0000-4000-a000-000000000006",
+      "order": 12,
       "required": true
     }
   ],

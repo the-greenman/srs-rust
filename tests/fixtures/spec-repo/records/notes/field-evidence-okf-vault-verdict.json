@@ -1,0 +1,18 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "d28e2f8e-eff5-4aca-870c-151d0804d80d",
+  "sections": [
+    {
+      "content": "Empirical evidence (2026-07-31) from a real, personally-operated Obsidian vault (greenmans_creation): untyped markdown + wikilinks + AI-agent management + path-based identity — structurally the Google OKF model, operated with MORE discipline than OKF asks for, on genuine intellectual work.\n\nWHAT IT WAS FORCED TO REINVENT, IN PROSE, ENFORCED BY NOTHING: a hand-maintained Concept-Registry.md (id -> title -> file; the instanceIndex); frontmatter id 'never reused' + aliases + version (UUID lineage, versioning); status: canonical|deprecated (lifecycle); superseded_by: [[New A]], [[New B]] plus split/merge rules (supersedes relations, R11 re-instantiation); a hand-maintained Cross-References.md (first-class Relations); a four-zone flow research -> workspace -> vault -> reports (the tier ladder + graduation); CLAUDE.md context-loading profiles ('this repo is large, do not load everything' — the agent-index); a custom vault_cli with an allowlist (the CLI contract). The vault's Refactor-Protocol is the SRS mechanism set specified as a plea to future selves.\n\nWHAT HAPPENED DESPITE REAL DISCIPLINE (the 15 registered concepts DID carry their prescribed frontmatter): 71 of 935 wikilinks (8%) dangle across 48 missing targets. The top phantom, Decision-Architecture, is referenced 9 times — including from Cross-References.md itself, the map whose job is tracking connections — and nothing can distinguish renamed vs split vs never-written, because renames leave no trace when identity is a filename. A template placeholder ([[Note-Name]]) leaked into content 4 times. Two core files sit outside the registry. Git history shows concept supersession ('removed old love stories') with no lineage.\n\nTHE ARGUMENT: the landscape research infers that untyped links hit a reliability ceiling; this vault demonstrates it. The OKF model, operated by a motivated expert with AI assistance and explicit protocols, (a) converges on needing typed identity, lifecycle, relations, and validation, and (b) drifts at a measurable rate without enforcement. Loose capture was not the mistake — the four zones are the tier ladder, and that instinct was right. The failure is that loose capture with no graduation target has nowhere to put structure when structure is earned, so it accretes as unenforceable protocol prose.\n\nOWNER GOAL (2026-07-31): migrating this vault to SRS is a real personal goal — the before/after (same content; srs repo validate catching all 71 dangling references that Obsidian renders as create-on-click links) is the OKF argument in its most compelling form. GATED: a solid spec first. The registry's 15 concepts with stable ids/status/version map nearly mechanically onto Records; Cross-References.md is a relations file waiting to be typed; the zones are tiers.\n\nGraduate this note when the migration is chartered or the evidence enters the landscape research.",
+      "label": "Body",
+      "name": "body"
+    }
+  ],
+  "tags": [
+    "design-note",
+    "field-evidence",
+    "okf",
+    "landscape"
+  ],
+  "title": "Field evidence: a disciplined untyped vault converges on SRS and drifts anyway (the OKF verdict)"
+}

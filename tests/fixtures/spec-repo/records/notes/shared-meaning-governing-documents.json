@@ -64,7 +64,7 @@
     {
       "sourceType": "external-document",
       "sourceId": "srs/examples/examples/limoma.md",
-      "relationType": "evidence",
+      "sourceRole": "evidence",
       "note": "LiMoMa foundation document example showing articles, roles, decision log, and exercise book as one governing projection"
     }
   ],

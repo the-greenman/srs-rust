@@ -1,0 +1,22 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Fields of which at most one may be non-empty (mutual-exclusion)."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Fields of which at most one may be non-empty (mutual-exclusion).",
+  "id": "4b000051-0000-4000-a000-000000000051",
+  "name": "field_ids",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "ref",
+    "mode": "reference",
+    "cardinality": "list",
+    "rangeType": {
+      "typeId": "4c000001-0000-4000-a000-000000000001",
+      "typeVersion": 1
+    },
+    "minItems": 2
+  },
+  "version": 1
+}

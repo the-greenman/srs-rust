@@ -1,0 +1,22 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "The VocabularyEntry status of this lifecycle state itself (distinct from the record-level status a Type's Records carry)."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "The VocabularyEntry status of this lifecycle state itself (distinct from the record-level status a Type's Records carry).",
+  "id": "4b00003e-0000-4000-a000-00000000003e",
+  "name": "status",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string",
+    "valueDomain": "closed",
+    "allowedValues": [
+      "active",
+      "deprecated",
+      "tombstone",
+      "retired"
+    ]
+  },
+  "version": 1
+}
