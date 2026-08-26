@@ -42,8 +42,9 @@ pub(crate) struct FieldJson {
     /// RFC-032 (data-model revision 1).
     #[serde(default)]
     pub(crate) field_type: Option<FieldType>,
-    #[serde(default)]
-    pub(crate) default_value: Option<serde_json::Value>,
+    // RFC-040 [R4] (srs#477/#867): defaultValue/deprecatedAt no longer exist at any
+    // definition-layer site — removed here too, so `deny_unknown_fields` now rejects
+    // either key on load rather than silently accepting a retired shape.
     #[serde(default)]
     pub(crate) editor_hint: Option<EditorHint>,
     #[serde(default)]
@@ -52,8 +53,6 @@ pub(crate) struct FieldJson {
     pub(crate) lineage: Option<Lineage>,
     #[serde(default)]
     pub(crate) provenance: Option<Provenance>,
-    #[serde(default)]
-    pub(crate) deprecated_at: Option<String>,
     pub(crate) created_at: Option<String>,
 
     // --- data-model revision 0 (pre-RFC-032) ---------------------------------
@@ -140,12 +139,10 @@ impl FieldJson {
             // Absent stays absent, authored-but-empty stays authored (#768/#832).
             ai_guidance: self.ai_guidance,
             field_type,
-            default_value: self.default_value,
             editor_hint: self.editor_hint,
             tags: self.tags,
             lineage: self.lineage,
             provenance: self.provenance,
-            deprecated_at: self.deprecated_at,
             created_at: self.created_at.unwrap_or_default(),
         })
     }

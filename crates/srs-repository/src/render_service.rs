@@ -4079,12 +4079,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let body_field = Field {
@@ -4100,12 +4098,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let caption_field = Field {
@@ -4121,12 +4117,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
 
@@ -4142,12 +4136,14 @@ mod tests {
                     order: 0,
                     required: true,
                     display_label: Some("Heading".to_string()),
+                    description: None,
                 },
                 FieldAssignment {
                     field_id: "f-body".to_string(),
                     order: 1,
                     required: false,
                     display_label: Some("Body".to_string()),
+                    description: None,
                 },
             ],
             extends_type_id: None,
@@ -4161,6 +4157,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
         let table_type = RecordType {
             id: "t-table".to_string(),
@@ -4174,12 +4172,14 @@ mod tests {
                     order: 0,
                     required: true,
                     display_label: Some("Heading".to_string()),
+                    description: None,
                 },
                 FieldAssignment {
                     field_id: "f-caption".to_string(),
                     order: 1,
                     required: false,
                     display_label: Some("Caption".to_string()),
+                    description: None,
                 },
             ],
             extends_type_id: None,
@@ -4193,6 +4193,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
 
         // View that only matches text sections (has compatible_types constraint)
@@ -4725,12 +4727,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let fields = vec![
@@ -4762,6 +4762,7 @@ mod tests {
                 order: 0,
                 required: false,
                 display_label: None,
+                description: None,
             }],
             extends_type_id: None,
             extends_type_version: None,
@@ -4774,6 +4775,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
         let record_type = RecordType {
             id: "t-table-rec".to_string(),
@@ -4796,6 +4799,7 @@ mod tests {
                 order: i as u32,
                 required: false,
                 display_label: None,
+                description: None,
             })
             .collect(),
             extends_type_id: None,
@@ -4809,6 +4813,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
 
         // RFC-036: the renderer binding is view-owned, not Type-owned.
@@ -5162,12 +5168,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
 
@@ -5182,6 +5186,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
+                description: None,
             }],
             extends_type_id: None,
             extends_type_version: None,
@@ -5194,6 +5199,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
 
         let doc_view = DocumentView {
@@ -5490,12 +5497,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
 
@@ -5510,6 +5515,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
+                description: None,
             }],
             extends_type_id: None,
             extends_type_version: None,
@@ -5522,6 +5528,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
 
         // Base theme targets markdown only.
@@ -5887,12 +5895,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let body_field = Field {
@@ -5908,12 +5914,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let caption_field = Field {
@@ -5929,12 +5933,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
 
@@ -5950,12 +5952,14 @@ mod tests {
                     order: 0,
                     required: true,
                     display_label: Some("Heading".to_string()),
+                    description: None,
                 },
                 FieldAssignment {
                     field_id: "f-body".to_string(),
                     order: 1,
                     required: false,
                     display_label: Some("Body".to_string()),
+                    description: None,
                 },
             ],
             extends_type_id: None,
@@ -5969,6 +5973,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
         let table_type = RecordType {
             id: "t-table".to_string(),
@@ -5982,12 +5988,14 @@ mod tests {
                     order: 0,
                     required: true,
                     display_label: Some("Heading".to_string()),
+                    description: None,
                 },
                 FieldAssignment {
                     field_id: "f-caption".to_string(),
                     order: 1,
                     required: false,
                     display_label: Some("Caption".to_string()),
+                    description: None,
                 },
             ],
             extends_type_id: None,
@@ -6001,6 +6009,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
 
         let text_only_view = View {
@@ -7401,12 +7411,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let other_field = Field {
@@ -7423,12 +7431,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         // Ineligible under `[N+1]` (closed value domain), used to prove the owner's
@@ -7448,12 +7454,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
 
@@ -7469,18 +7473,21 @@ mod tests {
                     order: 0,
                     required: true,
                     display_label: Some("Heading".to_string()),
+                    description: None,
                 },
                 FieldAssignment {
                     field_id: "f-other".to_string(),
                     order: 1,
                     required: false,
                     display_label: Some("Other".to_string()),
+                    description: None,
                 },
                 FieldAssignment {
                     field_id: "f-closed".to_string(),
                     order: 2,
                     required: false,
                     display_label: Some("Closed".to_string()),
+                    description: None,
                 },
             ],
             extends_type_id: None,
@@ -7493,6 +7500,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
 
         // Type WITHOUT identityFieldId (for the no-heading regression test)
@@ -7507,6 +7516,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: Some("Heading".to_string()),
+                description: None,
             }],
             extends_type_id: None,
             extends_type_version: None,
@@ -7518,6 +7528,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
 
         let make_type_query_section = |sot: &str, title_field_id: Option<String>| DocumentSection {
@@ -8053,12 +8065,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let item_type = RecordType {
@@ -8072,6 +8082,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: Some("Heading".to_string()),
+                description: None,
             }],
             extends_type_id: None,
             extends_type_version: None,
@@ -8083,6 +8094,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
         (heading_field, item_type)
     }
@@ -9401,12 +9414,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let rt = RecordType {
@@ -9420,6 +9431,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
+                description: None,
             }],
             extends_type_id: None,
             extends_type_version: None,
@@ -9431,6 +9443,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
 
         let manifest = crate::manifest::Manifest {
@@ -10499,12 +10513,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let assignment =
@@ -10513,6 +10525,7 @@ mod tests {
                 order,
                 required,
                 display_label: label.map(|l| l.to_string()),
+                description: None,
             };
 
         let record_type = RecordType {
@@ -10537,6 +10550,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
 
         let doc_view = DocumentView {

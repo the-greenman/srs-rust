@@ -1,4 +1,3 @@
-use crate::types::blueprint::TypeRef;
 use serde::{Deserialize, Serialize};
 
 /// A reference to a Field within a Type, per ext:protocol FieldRef definition.
@@ -32,8 +31,10 @@ pub struct ProtocolStage {
     pub contributes_to: Option<Vec<FieldRef>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_guidance: Option<serde_json::Value>,
+    /// srs#487/#868: a bare-UUID LINEAGE reference (rfc-decision-c8704763) — `typeVersion`
+    /// dropped, the pre-RFC-009 version-optional `TypeRef` object form retired.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_type: Option<TypeRef>,
+    pub output_type: Option<String>,
 }
 
 /// Protocol definition.
@@ -277,19 +278,12 @@ mod tests {
             "stageId": "s1",
             "name": "Draft",
             "order": 1,
-            "outputType": {"typeId": "abc-123", "typeVersion": 1}
+            "outputType": "abc-123"
         });
         let stage: ProtocolStage = serde_json::from_value(json).unwrap();
-        assert_eq!(
-            stage.output_type,
-            Some(TypeRef {
-                type_id: "abc-123".to_string(),
-                type_version: Some(1),
-            })
-        );
+        assert_eq!(stage.output_type, Some("abc-123".to_string()));
         let reserialized = serde_json::to_value(&stage).unwrap();
-        assert_eq!(reserialized["outputType"]["typeId"], "abc-123");
-        assert_eq!(reserialized["outputType"]["typeVersion"], 1);
+        assert_eq!(reserialized["outputType"], "abc-123");
     }
 
     #[test]

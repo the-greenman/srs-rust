@@ -86,7 +86,12 @@
           "type": "integer",
           "format": "int32"
         },
-        "outputType": true,
+        "outputType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "purpose": {
           "type": [
             "string",

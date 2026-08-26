@@ -172,9 +172,9 @@ fn field_to_property(
         }
     }
 
-    if let Some(default) = &field.default_value {
-        prop.insert("default".into(), default.clone());
-    }
+    // RFC-040 [R4] (srs#477/#867): no `defaultValue` mechanism exists at any
+    // definition-layer site any more — the projection into a `default` JSON
+    // Schema keyword this block used to do is retired along with the field.
 
     // RFC-039: `x-srs-field-id` is retired — instance keys and schema keys are
     // both `Field.name`, so there is no id-keyed instance left to bridge to.
@@ -416,12 +416,10 @@ mod tests {
                 ..Default::default()
             }),
             field_type,
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         }
     }
@@ -432,6 +430,7 @@ mod tests {
             order,
             required,
             display_label: None,
+            description: None,
         }
     }
 
@@ -506,6 +505,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         }
     }
 
@@ -792,8 +793,7 @@ mod tests {
     fn type_schema_memory_roundtrip() {
         // Populate a store, project, and confirm the output serializes as JSON
         // (cross-store coverage per the storage-boundary rules).
-        let mut f = field(&fid(1), "title", FieldType::string());
-        f.default_value = Some(json!("untitled"));
+        let f = field(&fid(1), "title", FieldType::string());
         let store = store_with(vec![f], make_type(TID, vec![assignment(&fid(1), 0, true)]));
         let result = type_schema(
             &store,
@@ -806,9 +806,12 @@ mod tests {
         let serialized = serde_json::to_string(&result.schema).unwrap();
         let reparsed: Value = serde_json::from_str(&serialized).unwrap();
         assert_eq!(
-            reparsed["properties"]["title"]["default"],
-            json!("untitled")
+            reparsed["properties"]["title"]["x-srs-description"],
+            json!("title description")
         );
+        // RFC-040 [R4] (srs#477/#867): no `defaultValue` mechanism exists any more —
+        // the projected schema property must never carry a `default` keyword.
+        assert!(reparsed["properties"]["title"].get("default").is_none());
         // RFC-039: schema keys are Field.name; no id bridge key is emitted.
         assert!(reparsed["properties"]["title"]
             .get("x-srs-field-id")

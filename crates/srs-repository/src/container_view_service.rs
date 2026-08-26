@@ -503,12 +503,10 @@ mod tests {
                 ..Default::default()
             }),
             field_type: FieldType::string(),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         }
     }
@@ -1607,12 +1605,14 @@ mod tests {
                     order: 0,
                     required: true,
                     display_label: None,
+                    description: None,
                 },
                 FieldAssignment {
                     field_id: "f-status".to_string(),
                     order: 1,
                     required: false,
                     display_label: None,
+                    description: None,
                 },
             ],
             extends_type_id: None,
@@ -1625,6 +1625,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         }
     }
 
@@ -1641,12 +1643,14 @@ mod tests {
                     order: 0,
                     required: true,
                     display_label: None,
+                    description: None,
                 },
                 FieldAssignment {
                     field_id: "f-status".to_string(),
                     order: 1,
                     required: false,
                     display_label: None,
+                    description: None,
                 },
             ],
             extends_type_id: None,
@@ -1659,6 +1663,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         }
     }
 
@@ -2061,6 +2067,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
+                description: None,
             }],
             extends_type_id: None,
             extends_type_version: None,
@@ -2072,6 +2079,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
         let root = Record {
             field_meta: None,

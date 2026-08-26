@@ -256,12 +256,10 @@ mod tests {
             // validation, and `field_context_ai_guidance_null` specifically exercises
             // the empty-guidance → `ai_guidance: None` behavior.
             ai_guidance: None,
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let test_type = RecordType {
@@ -275,6 +273,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: Some("Name".to_string()),
+                description: None,
             }],
             extends_type_id: None,
             extends_type_version: None,
@@ -286,6 +285,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
         let manifest = Manifest {
             container: None,
@@ -418,12 +419,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let test_type = RecordType {
@@ -437,6 +436,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
+                description: None,
             }],
             extends_type_id: None,
             extends_type_version: None,
@@ -448,6 +448,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
         name_field.ai_guidance = Some(AiGuidance {
             purpose: "Write the full legal name".to_string(),

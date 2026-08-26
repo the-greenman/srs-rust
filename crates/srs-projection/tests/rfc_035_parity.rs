@@ -215,6 +215,7 @@ fn type_version_selects_the_version_the_caller_asked_for() {
         order: 0,
         required: false,
         display_label: None,
+        description: None,
     };
     let mk_type = |version: u32, field_id: &str| RecordType {
         id: TID.to_string(),
@@ -233,6 +234,8 @@ fn type_version_selects_the_version_the_caller_asked_for() {
         validation_rules: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
         extra: Default::default(),
+        lineage: None,
+        provenance: None,
     };
 
     let package = Package {

@@ -229,12 +229,10 @@ fn install_skips_identical_uuid_definitions() {
         description: "Short label for this record.".to_string(),
         instructions: None,
         ai_guidance: None,
-        default_value: None,
         editor_hint: None,
         tags: None,
         lineage: None,
         provenance: None,
-        deprecated_at: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
     };
     package_service::create_field(&store, title).expect("pre-create field");

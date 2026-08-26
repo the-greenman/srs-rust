@@ -1,3 +1,4 @@
+use crate::types::field::{Lineage, Provenance};
 pub use crate::types::lifecycle::{LifecycleState, LifecycleTransition};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -9,6 +10,9 @@ pub enum CrossFieldRuleKind {
     ConditionalRequired,
     FieldOrdering,
     MutualExclusion,
+    /// RFC-040 Change F (srs#477/#486): the if/then/not counterpart to
+    /// `ConditionalRequired` — the target field is forbidden when the predicate holds.
+    ConditionalForbidden,
 }
 
 /// ext:cross-field-validation — ordering direction for field-ordering rules.
@@ -69,6 +73,14 @@ pub struct RecordType {
     /// ext:cross-field-validation — cross-field constraints declared on this type.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validation_rules: Option<Vec<CrossFieldRule>>,
+    /// RFC-040 Change E (srs#477/#486): fork/derivation metadata, same shape as
+    /// `Field::lineage`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lineage: Option<Lineage>,
+    /// RFC-040 Change E (srs#477/#486): publish/import metadata, same shape as
+    /// `Field::provenance`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<Provenance>,
     pub created_at: String,
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
@@ -106,6 +118,11 @@ pub struct FieldAssignment {
     pub required: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_label: Option<String>,
+    /// RFC-040 Change C (srs#477/#486): documentation-only annotation, never a
+    /// constraint. On conflict the Field's own semantics/`aiGuidance` win — a
+    /// contradicting `description` is a data error, not an override.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 impl FieldAssignment {
@@ -139,12 +156,14 @@ mod tests {
                     order: 0,
                     required: true,
                     display_label: Some("Field One".to_string()),
+                    description: None,
                 },
                 FieldAssignment {
                     field_id: "00000000-0000-4000-8000-000000000011".to_string(),
                     order: 1,
                     required: false,
                     display_label: None,
+                    description: None,
                 },
             ],
             extends_type_id: None,
@@ -155,6 +174,8 @@ mod tests {
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: BTreeMap::new(),
         };
@@ -178,12 +199,14 @@ mod tests {
             order: 0,
             required: true,
             display_label: None,
+            description: None,
         };
         let fa_false = FieldAssignment {
             field_id: "00000000-0000-4000-8000-000000000011".to_string(),
             order: 1,
             required: false,
             display_label: None,
+            description: None,
         };
 
         assert!(fa_true.is_required());
@@ -203,6 +226,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
+                description: None,
             }],
             extends_type_id: None,
             extends_type_version: None,
@@ -212,6 +236,8 @@ mod tests {
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: BTreeMap::new(),
         };
@@ -343,6 +369,8 @@ mod tests {
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: BTreeMap::new(),
         };
@@ -367,6 +395,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
+                description: None,
             }],
             extends_type_id: None,
             extends_type_version: None,
@@ -376,6 +405,8 @@ mod tests {
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: BTreeMap::new(),
         };
@@ -461,6 +492,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
+                description: None,
             }],
             extends_type_id: None,
             extends_type_version: None,
@@ -470,6 +502,8 @@ mod tests {
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: BTreeMap::new(),
         };
