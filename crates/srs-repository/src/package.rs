@@ -1171,6 +1171,7 @@ mod tests {
             order,
             required,
             display_label: None,
+            description: None,
         }
     }
 
@@ -1192,6 +1193,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         }
     }
 
@@ -1219,6 +1222,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         }
     }
 
@@ -1686,6 +1691,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         }
     }
 

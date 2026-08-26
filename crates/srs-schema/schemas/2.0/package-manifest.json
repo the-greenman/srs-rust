@@ -99,7 +99,8 @@
     "dependencyRefs": {
       "type": "array",
       "items": { "$ref": "#/$defs/DependencyRef" },
-      "description": "Other packages this package depends on. Consumers must resolve these before using this package."
+      "description": "Other packages this package depends on. Consumers must resolve these before using this package.",
+      "$comment": "PARKED (srs#478, rfc-decision-c8704763 item 2): rules the rename to `packageDependencies`, but the currently pinned srs-rust binary (and its latest available release as of the discovery) rejects that name outright (additionalProperties:false), breaking catalog load for the whole repo. Deferred to a follow-up PR that lands together with the srs-rust mirror update. See #478's PARK comment for the ready-to-run schema + migration diff."
     },
     "createdAt": {
       "type": "string",

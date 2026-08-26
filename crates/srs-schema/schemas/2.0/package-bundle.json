@@ -310,17 +310,19 @@
           "minimum": 1
         },
         "definitionType": {
+          "$comment": "GENERATED — derived from package-manifest.json's ten definition-kind properties by scripts/gen-package-bundle-definition-type.mjs --check (rfc-decision-c8704763 item 4; finding A6). Do not hand-edit this enum.",
           "type": "string",
           "enum": [
+            "blueprint",
+            "document-view",
             "field",
-            "type",
-            "view",
-            "schema",
+            "lifecycle",
             "protocol",
             "relation-type",
             "theme",
-            "vocabulary",
-            "lifecycle"
+            "type",
+            "view",
+            "vocabulary"
           ]
         }
       }

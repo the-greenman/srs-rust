@@ -692,6 +692,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: Default::default(),
+            lineage: None,
+            provenance: None,
         }
     }
 
@@ -701,6 +703,7 @@ mod tests {
             order,
             required: false,
             display_label: None,
+            description: None,
         }
     }
 

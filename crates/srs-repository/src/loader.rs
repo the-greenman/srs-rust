@@ -97,7 +97,6 @@ mod tests {
                 source_standard: None,
                 stream_id: None,
                 source_role: Some(SourceRole::Attaches),
-                relation_type: None,
                 confidence: None,
                 note: None,
             }]),
@@ -114,6 +113,5 @@ mod tests {
 
         let sr = loaded.source_refs.as_ref().unwrap().first().unwrap();
         assert_eq!(sr.source_role, Some(SourceRole::Attaches));
-        assert!(sr.relation_type.is_none());
     }
 }

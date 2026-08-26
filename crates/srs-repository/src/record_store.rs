@@ -2031,12 +2031,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let status_field = Field {
@@ -2052,12 +2050,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let test_type = RecordType {
@@ -2072,12 +2068,14 @@ mod tests {
                     order: 0,
                     required: true,
                     display_label: Some("Name".to_string()),
+                    description: None,
                 },
                 FieldAssignment {
                     field_id: "field-status-001".to_string(),
                     order: 1,
                     required: false,
                     display_label: Some("Status".to_string()),
+                    description: None,
                 },
             ],
             extends_type_id: None,
@@ -2091,6 +2089,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
         let manifest = Manifest {
             container: None,
@@ -2146,12 +2146,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let assignment = |field_id: &str, order: u32| FieldAssignment {
@@ -2159,6 +2157,7 @@ mod tests {
             order,
             required: false,
             display_label: None,
+            description: None,
         };
         let labeled_type = RecordType {
             id: "type-labeled-0001".to_string(),
@@ -2181,6 +2180,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
         let manifest = Manifest {
             container: None,
@@ -2911,12 +2912,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
 
@@ -2931,6 +2930,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
+                description: None,
             }],
             extends_type_id: None,
             extends_type_version: None,
@@ -3007,6 +3007,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
 
         let supersedes_def = RelationTypeDefinition {
@@ -3271,12 +3273,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
 
@@ -3291,6 +3291,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
+                description: None,
             }],
             extends_type_id: None,
             extends_type_version: None,
@@ -3342,6 +3343,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
 
         let supersedes_def = RelationTypeDefinition {
@@ -4058,12 +4061,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
 
@@ -4155,6 +4156,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
+                description: None,
             }],
             extends_type_id: None,
             extends_type_version: None,
@@ -4167,6 +4169,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
 
         let supersedes_def = RelationTypeDefinition {
@@ -4313,12 +4317,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
 
@@ -4365,6 +4367,7 @@ mod tests {
                 order: 0,
                 required: true,
                 display_label: None,
+                description: None,
             }],
             extends_type_id: None,
             extends_type_version: None,
@@ -4376,6 +4379,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
 
         let supersedes_def = RelationTypeDefinition {
@@ -4863,12 +4868,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let field_assignment = FieldAssignment {
@@ -4876,6 +4879,7 @@ mod tests {
             order: 0,
             required: true,
             display_label: Some("Name".to_string()),
+            description: None,
         };
         let type_v1 = RecordType {
             id: "type-test-001".to_string(),
@@ -4895,6 +4899,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
         let type_v2 = RecordType {
             id: "type-test-001".to_string(),
@@ -4914,6 +4920,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
         let manifest = Manifest {
             container: None,
@@ -5579,12 +5587,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let target_field = Field {
@@ -5600,12 +5606,10 @@ mod tests {
                 purpose: "Test guidance".to_string(),
                 ..Default::default()
             }),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let cfr_rule = CrossFieldRule {
@@ -5629,12 +5633,14 @@ mod tests {
                     order: 0,
                     required: false,
                     display_label: None,
+                    description: None,
                 },
                 FieldAssignment {
                     field_id: "field-target-001".to_string(),
                     order: 1,
                     required: false,
                     display_label: None,
+                    description: None,
                 },
             ],
             extends_type_id: None,
@@ -5647,6 +5653,8 @@ mod tests {
             validation_rules: Some(vec![cfr_rule]),
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
         let manifest = Manifest {
             container: None,

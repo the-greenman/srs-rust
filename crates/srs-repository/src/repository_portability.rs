@@ -1403,12 +1403,10 @@ mod tests {
             description: "".to_string(),
             instructions: None,
             ai_guidance: None,
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "".to_string(),
         });
 

@@ -507,12 +507,10 @@ mod tests {
                 ..Default::default()
             }),
             field_type: srs_core::types::field::FieldType::string(),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
         }
     }

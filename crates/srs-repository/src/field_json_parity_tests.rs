@@ -63,12 +63,10 @@ fn cross_store_field_json_parity() {
             purpose: "Test guidance".to_string(),
             ..Default::default()
         }),
-        default_value: None,
         editor_hint: None,
         tags: None,
         lineage: None,
         provenance: None,
-        deprecated_at: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
     };
 

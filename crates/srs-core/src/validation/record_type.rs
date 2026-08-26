@@ -89,6 +89,9 @@ pub fn validate_cross_field_rules(
             CrossFieldRuleKind::ConditionalRequired => {
                 evaluate_conditional_required(record, rule, field_types, &mut errors);
             }
+            CrossFieldRuleKind::ConditionalForbidden => {
+                evaluate_conditional_forbidden(record, rule, field_types, &mut errors);
+            }
             CrossFieldRuleKind::FieldOrdering => {
                 evaluate_field_ordering(record, rule, field_types, &mut errors);
             }
@@ -197,6 +200,50 @@ fn evaluate_conditional_required(
         && field_value_str(record, field_types, target_field_id).is_none()
     {
         errors.push(CoreError::CrossFieldConditionalRequired {
+            predicate_field_id: predicate_field_id.to_string(),
+            predicate_value: predicate_value.to_string(),
+            target_field_id: target_field_id.to_string(),
+        });
+    }
+}
+
+/// RFC-040 Change F (srs#477/#486): the if/then/not counterpart to
+/// `evaluate_conditional_required` — the target field must be ABSENT (not
+/// populated) when the predicate holds, inverting the presence check below.
+fn evaluate_conditional_forbidden(
+    record: &Record,
+    rule: &CrossFieldRule,
+    field_types: &HashMap<String, CrossFieldFieldType>,
+    errors: &mut Vec<CoreError>,
+) {
+    let (Some(predicate_field_id), Some(predicate_value), Some(target_field_id)) = (
+        rule.predicate_field_id.as_deref(),
+        rule.predicate_value.as_deref(),
+        rule.target_field_id.as_deref(),
+    ) else {
+        errors.push(CoreError::CrossFieldRuleMisconfigured {
+            reason: "conditional-forbidden rule requires predicateFieldId, predicateValue, and targetFieldId".to_string(),
+        });
+        return;
+    };
+
+    // Same predicate-field eligibility rule as conditional-required (I-94 / RFC-019 [R6]).
+    if let Some(predicate_type) = field_types.get(predicate_field_id) {
+        if !predicate_type.field_type.is_conditional_required_eligible() {
+            errors.push(CoreError::CrossFieldRuleMisconfigured {
+                reason: format!(
+                    "conditional-forbidden: predicate field '{}' must be a single-valued string, date or date-time field",
+                    predicate_field_id
+                ),
+            });
+            return;
+        }
+    }
+
+    if field_value_str(record, field_types, predicate_field_id) == Some(predicate_value)
+        && field_value_str(record, field_types, target_field_id).is_some()
+    {
+        errors.push(CoreError::CrossFieldConditionalForbidden {
             predicate_field_id: predicate_field_id.to_string(),
             predicate_value: predicate_value.to_string(),
             target_field_id: target_field_id.to_string(),
@@ -378,6 +425,8 @@ mod tests {
                 None
             },
             validation_rules: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
         }

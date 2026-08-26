@@ -325,12 +325,10 @@ mod tests {
                 ..Default::default()
             }),
             field_type: vt.clone(),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         }
     }

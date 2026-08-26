@@ -83,6 +83,7 @@
       "required": [
         "instanceId",
         "typeId",
+        "typeVersion",
         "typeNamespace",
         "typeName",
         "fields",
@@ -97,6 +98,11 @@
         "typeId": {
           "type": "string",
           "format": "uuid"
+        },
+        "typeVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Version of the Type this record was projected from (Record.typeVersion, RFC-032/RFC-039) — the authoritative half of the record-to-type PINNED binding alongside typeId."
         },
         "typeNamespace": {
           "type": "string"

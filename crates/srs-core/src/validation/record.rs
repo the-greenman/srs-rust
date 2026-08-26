@@ -166,12 +166,14 @@ mod tests {
                     order: 0,
                     required: true,
                     display_label: None,
+                    description: None,
                 },
                 FieldAssignment {
                     field_id: "id-optional_field".to_string(),
                     order: 1,
                     required: false,
                     display_label: None,
+                    description: None,
                 },
             ],
             extends_type_id: None,
@@ -182,6 +184,8 @@ mod tests {
             lifecycle: None,
             lifecycle_ref: None,
             validation_rules: None,
+            lineage: None,
+            provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: BTreeMap::new(),
         }

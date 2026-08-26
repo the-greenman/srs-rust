@@ -68,7 +68,7 @@ pub struct BriefStageResult {
     pub completion_criteria: Option<String>,
     pub contributes_to: Option<Vec<FieldRef>>,
     pub ai_guidance: Option<serde_json::Value>,
-    pub output_type: Option<TypeRef>,
+    pub output_type: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -497,12 +497,10 @@ mod tests {
                 ..Default::default()
             }),
             field_type: vt.clone(),
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         }
     }
@@ -527,12 +525,14 @@ mod tests {
                     order: 2,
                     required: true,
                     display_label: None,
+                    description: None,
                 },
                 FieldAssignment {
                     field_id: "field-bbb".to_string(),
                     order: 1,
                     required: false,
                     display_label: None,
+                    description: None,
                 },
             ],
             extends_type_id: None,
@@ -546,6 +546,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra,
+            lineage: None,
+            provenance: None,
         }
     }
 
@@ -824,12 +826,10 @@ mod tests {
                     ..Default::default()
                 }),
                 field_type: vt.clone(),
-                default_value: None,
                 editor_hint: None,
                 tags: None,
                 lineage: None,
                 provenance: None,
-                deprecated_at: None,
                 created_at: "2026-01-01T00:00:00Z".to_string(),
             })
             .collect();
@@ -842,6 +842,7 @@ mod tests {
                 order: i as u32,
                 required: true,
                 display_label: None,
+                description: None,
             })
             .collect();
 
@@ -863,6 +864,8 @@ mod tests {
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             extra: std::collections::BTreeMap::new(),
+            lineage: None,
+            provenance: None,
         };
 
         (fields, proto_type)

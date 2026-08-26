@@ -142,6 +142,16 @@ pub enum CoreError {
         predicate_field_id: String,
     },
 
+    /// RFC-040 Change F (srs#477/#486): the if/then/not counterpart to
+    /// `CrossFieldConditionalRequired` — the target field must be ABSENT when the
+    /// predicate holds.
+    #[error("cross-field rule (conditional-forbidden): field '{target_field_id}' is forbidden when field '{predicate_field_id}' equals '{predicate_value}'")]
+    CrossFieldConditionalForbidden {
+        predicate_field_id: String,
+        predicate_value: String,
+        target_field_id: String,
+    },
+
     #[error("cross-field rule (mutual-exclusion): at most one of [{field_ids}] may have a non-empty value")]
     CrossFieldMutualExclusion { field_ids: String },
 

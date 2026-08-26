@@ -138,8 +138,9 @@ pub struct Field {
     /// RFC-032 — the decomposed value type: datatype × cardinality ×
     /// value-domain × format × constraints.
     pub field_type: FieldType,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_value: Option<serde_json::Value>,
+    // RFC-040 [R4] (srs#477/#867): no `defaultValue` mechanism exists at any
+    // definition-layer site, and no `deprecatedAt` on definitions — a definition
+    // retires by deletion with version history (`5f8204bc`). Both fields removed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub editor_hint: Option<EditorHint>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -148,8 +149,6 @@ pub struct Field {
     pub lineage: Option<Lineage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provenance: Option<Provenance>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deprecated_at: Option<String>,
     // Decision (srs-rust#769): `id` and `created_at` stay plain `String` for
     // now rather than gaining parsed newtypes. `format: "uuid"`/`"date-time"`
     // in field.json are annotations only until srs-schema opts into format
@@ -177,12 +176,10 @@ impl Field {
             instructions: None,
             ai_guidance: None,
             field_type,
-            default_value: None,
             editor_hint: None,
             tags: None,
             lineage: None,
             provenance: None,
-            deprecated_at: None,
             created_at: String::new(),
         }
     }
@@ -238,7 +235,6 @@ mod tests {
                 purpose: "captures test data".to_string(),
                 ..Default::default()
             }),
-            default_value: Some(json!("a")),
             created_at: "2026-01-01T00:00:00Z".to_string(),
             ..Field::new(
                 "00000000-0000-4000-8000-000000000010",
@@ -318,7 +314,6 @@ mod tests {
         field.schema = Some("https://srs.semanticops.com/schema/2.0/field.json".to_string());
         field.instructions = Some("fill this in".to_string());
         field.tags = Some(vec!["x".to_string()]);
-        field.deprecated_at = Some("2026-02-01T00:00:00Z".to_string());
         let s = serde_json::to_string(&field).unwrap();
         let order: Vec<&str> = [
             "\"$schema\"",
@@ -330,9 +325,7 @@ mod tests {
             "\"instructions\"",
             "\"aiGuidance\"",
             "\"fieldType\"",
-            "\"defaultValue\"",
             "\"tags\"",
-            "\"deprecatedAt\"",
             "\"createdAt\"",
         ]
         .to_vec();

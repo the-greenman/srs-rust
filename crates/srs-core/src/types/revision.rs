@@ -131,7 +131,7 @@ mod tests {
 
     #[test]
     fn revision_with_source_refs() {
-        use crate::types::source_reference::{SourceReference, SourceRelationType, SourceType};
+        use crate::types::source_reference::{SourceReference, SourceRole, SourceType};
         let rev = Revision {
             revision_id: "rev-4".to_string(),
             record_id: "rec-1".to_string(),
@@ -145,8 +145,7 @@ mod tests {
                 source_id: "chunk-99".to_string(),
                 source_standard: None,
                 stream_id: None,
-                source_role: None,
-                relation_type: Some(SourceRelationType::Evidence),
+                source_role: Some(SourceRole::Evidence),
                 confidence: Some(0.85),
                 note: None,
             }]),
@@ -156,7 +155,7 @@ mod tests {
         assert!(v["sourceRefs"].is_array());
         assert_eq!(v["sourceRefs"][0]["sourceId"], json!("chunk-99"));
         assert_eq!(v["sourceRefs"][0]["sourceType"], json!("transcript-chunk"));
-        assert_eq!(v["sourceRefs"][0]["relationType"], json!("evidence"));
+        assert_eq!(v["sourceRefs"][0]["sourceRole"], json!("evidence"));
         assert_eq!(v["sourceRefs"][0]["confidence"], json!(0.85));
         let parsed: Revision = serde_json::from_value(v).unwrap();
         let refs = parsed.source_refs.unwrap();

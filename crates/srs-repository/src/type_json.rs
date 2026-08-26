@@ -7,6 +7,7 @@
 //! so they survive load → edit → save (previously they were silently dropped
 //! — the archive/type fidelity bug fixed under #684).
 
+use srs_core::types::field::{Lineage, Provenance};
 use srs_core::types::record_type::{
     CrossFieldRule, FieldAssignment, FieldAssignmentOverride, RecordType, TypeLifecycle,
 };
@@ -37,6 +38,13 @@ pub(crate) struct TypeJson {
     lifecycle_ref: Option<String>,
     #[serde(default)]
     validation_rules: Option<Vec<CrossFieldRule>>,
+    // RFC-040 Change E (srs#477/#867): previously unmodelled here — silently
+    // preserved raw in `extra` but never typed onto `RecordType`, exactly the
+    // `FieldAssignment.repeatable`-class loss this loader must not repeat.
+    #[serde(default)]
+    lineage: Option<Lineage>,
+    #[serde(default)]
+    provenance: Option<Provenance>,
     created_at: Option<String>,
     /// Non-modelled keys (`$schema`, `aiGuidance`, …) — preserved, not dropped.
     /// A stray `fieldGroups` would land here too; `repo validate` runs
@@ -54,6 +62,12 @@ struct FieldAssignmentJson {
     order: u32,
     required: Option<bool>,
     display_label: Option<String>,
+    // RFC-040 Change C (srs#477/#867): was missing here entirely — not even
+    // caught by a flatten catch-all (`TypeJson::extra` only flattens the
+    // top-level document, not each `fields[]` entry), so a `description` on a
+    // FieldAssignment would be silently and irrecoverably dropped on load.
+    #[serde(default)]
+    description: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -71,6 +85,7 @@ fn into_assignment(fa: FieldAssignmentJson) -> FieldAssignment {
         order: fa.order,
         required: fa.required.unwrap_or(true),
         display_label: fa.display_label,
+        description: fa.description,
     }
 }
 
@@ -105,6 +120,8 @@ impl TypeJson {
             validation_rules: self.validation_rules,
             created_at: self.created_at.unwrap_or_default(),
             extra: self.extra,
+            lineage: self.lineage,
+            provenance: self.provenance,
         }
     }
 }
@@ -139,5 +156,54 @@ mod tests {
         // Round-trip: serialization re-emits the preserved keys.
         let val = serde_json::to_value(&rt).unwrap();
         assert_eq!(val["aiGuidance"], "guidance text");
+    }
+
+    /// RFC-040 (srs#477/#867) regression: the metamodel v1.1.0 additions must
+    /// round-trip through this loader like every other `FieldAssignment`/`Type`
+    /// property, not repeat the historical `FieldAssignment.repeatable`-class
+    /// loss where a nested property was silently dropped because it fell
+    /// outside every flatten catch-all.
+    #[test]
+    fn v1_1_0_metamodel_additions_round_trip() {
+        let tj: TypeJson = serde_json::from_str(
+            r#"{
+                "id": "t1",
+                "namespace": "com.test",
+                "name": "thing",
+                "version": 1,
+                "fields": [
+                    {"fieldId": "f1", "order": 1, "description": "context for f1"}
+                ],
+                "lineage": {"sourceDefinitionId": "src-1", "sourceVersion": 1},
+                "provenance": {"publisher": "com.example"}
+            }"#,
+        )
+        .unwrap();
+        let rt = tj.into_record_type();
+
+        assert_eq!(
+            rt.fields[0].description.as_deref(),
+            Some("context for f1"),
+            "FieldAssignment.description must survive load, not silently drop"
+        );
+        assert_eq!(
+            rt.lineage
+                .as_ref()
+                .and_then(|l| l.source_definition_id.as_deref()),
+            Some("src-1")
+        );
+        assert_eq!(
+            rt.provenance.as_ref().and_then(|p| p.publisher.as_deref()),
+            Some("com.example")
+        );
+
+        // And the typed properties re-emit on the wire, not just extra's raw echo.
+        let val = serde_json::to_value(&rt).unwrap();
+        assert_eq!(val["fields"][0]["description"], "context for f1");
+        assert_eq!(val["lineage"]["sourceDefinitionId"], "src-1");
+        assert_eq!(val["provenance"]["publisher"], "com.example");
+        // Not double-represented in the flatten catch-all.
+        assert!(!rt.extra.contains_key("lineage"));
+        assert!(!rt.extra.contains_key("provenance"));
     }
 }

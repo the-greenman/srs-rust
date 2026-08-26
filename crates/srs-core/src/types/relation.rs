@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub use super::source_reference::{SourceReference, SourceRelationType, SourceType};
+pub use super::source_reference::{SourceReference, SourceType};
 
 /// A flat relation record as stored in `relations-collection.json`.
 ///

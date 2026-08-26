@@ -65,21 +65,22 @@
     },
     "lineage": {
       "type": "object",
-      "description": "Provenance and lineage metadata. Structure is implementation-defined. Optional.",
+      "description": "Fork/derivation metadata — which other Blueprint definition (if any) this one was forked or derived from, and at what version. Structure is implementation-defined (cf. field.json $defs.Lineage: sourceDefinitionId, sourceVersion, forkedFromDefinitionId, forkedFromVersion). Optional.",
       "additionalProperties": true
     },
     "provenance": {
       "type": "object",
-      "description": "Source and extraction provenance metadata. Structure is implementation-defined. Optional.",
+      "description": "Publish/import metadata — where this Blueprint came from (publisher, source package, import time) when installed from an external package. Structure is implementation-defined (cf. field.json $defs.Provenance: publisher, sourcePackage, packageVersion, importedAt). Optional.",
       "additionalProperties": true
     }
   },
   "$defs": {
     "ExactTypeRef": {
+      "$comment": "Canonical source: field.json $defs.ExactTypeRef. Kept byte-identical here rather than a cross-file $ref because scripts/lib/json-schema-lite.mjs (the validate-all package/record validator) only resolves local '#/...' refs — see RFC-009 I-78, rfc-decision-c8704763 (ExactTypeRef collapsed to one shared definition).",
       "type": "object",
       "required": ["typeId", "typeVersion"],
       "additionalProperties": false,
-      "description": "RFC-009 I-78. A version-exact reference to a Type in the Package. Both typeId and typeVersion are required. Distinct from the pre-RFC-009 spec-level TypeRef (Protocol) where typeVersion was optional.",
+      "description": "RFC-009 I-78. A version-exact reference to a Type in the Package (PINNED, rfc-decision-c8704763). Both typeId and typeVersion are required. The pre-RFC-009 version-optional Protocol TypeRef this once contrasted with is retired — Protocol.outputType is now a bare-UUID LINEAGE reference (typeVersion dropped; version-optional hybrids are forbidden).",
       "properties": {
         "typeId": {
           "type": "string",

@@ -42,11 +42,6 @@
       "items": { "$ref": "#/$defs/FieldView" },
       "description": "Presentation configuration for each field. Fields omitted here are treated as visible: false."
     },
-    "protection": {
-      "type": "string",
-      "enum": ["none", "read-only", "fill-in"],
-      "description": "View-level workflow constraint. 'none' (default): no restriction. 'read-only': Records rendered through this View cannot be edited. 'fill-in': only null or empty field values may be populated."
-    },
     "exportConfig": {
       "$ref": "#/$defs/ExportConfig"
     },

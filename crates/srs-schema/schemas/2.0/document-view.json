@@ -43,6 +43,7 @@
     },
     "containerType": {
       "type": "string",
+      "deprecated": true,
       "description": "Soft-deprecated back-compat hint. When rootTypeRefs is present, MUST NOT be used for Container matching. Retained for pre-RFC-009 tools."
     },
     "rootTypeRefs": {
@@ -274,28 +275,6 @@
           "type": "object",
           "required": [
             "type",
-            "instanceIds"
-          ],
-          "additionalProperties": false,
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "fixed-instances"
-            },
-            "instanceIds": {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "format": "uuid"
-              },
-              "description": "Explicit list of instance UUIDs. For preamble, cover page, or curated sections."
-            }
-          }
-        },
-        {
-          "type": "object",
-          "required": [
-            "type",
             "semanticObjectType"
           ],
           "additionalProperties": false,
@@ -340,36 +319,6 @@
                 "subtree"
               ],
               "description": "RFC-011 [N+27]. Controls which containers are queried. 'explicit' (default): scope to containerIds[]. 'repository': all containers, ignores containerIds and any cli container override. 'subtree': traverse contains-relations from listed containers (v1: falls back to explicit with diagnostic when containerIds absent)."
-            }
-          }
-        },
-        {
-          "type": "object",
-          "required": [
-            "type",
-            "fromInstanceId",
-            "relationType"
-          ],
-          "additionalProperties": false,
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "relation-query"
-            },
-            "fromInstanceId": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "relationType": {
-              "type": "string"
-            },
-            "direction": {
-              "type": "string",
-              "enum": [
-                "forward",
-                "inverse"
-              ],
-              "description": "Default: 'forward'."
             }
           }
         },
@@ -508,23 +457,21 @@
       }
     },
     "ExactTypeRef": {
+      "$comment": "Canonical source: field.json $defs.ExactTypeRef. Kept byte-identical here rather than a cross-file $ref because scripts/lib/json-schema-lite.mjs (the validate-all package/record validator) only resolves local '#/...' refs — see RFC-009 I-78, rfc-decision-c8704763 (ExactTypeRef collapsed to one shared definition).",
       "type": "object",
-      "description": "RFC-009. A version-exact reference to a Type, used in DocumentView.rootTypeRefs. Distinct from the spec-level TypeRef (Protocol/Blueprint) where typeVersion is optional. Both typeId and typeVersion are required — this is a package-validation-time claim against a specific type version.",
-      "required": [
-        "typeId",
-        "typeVersion"
-      ],
+      "required": ["typeId", "typeVersion"],
       "additionalProperties": false,
+      "description": "RFC-009 I-78. A version-exact reference to a Type in the Package (PINNED, rfc-decision-c8704763). Both typeId and typeVersion are required. The pre-RFC-009 version-optional Protocol TypeRef this once contrasted with is retired — Protocol.outputType is now a bare-UUID LINEAGE reference (typeVersion dropped; version-optional hybrids are forbidden).",
       "properties": {
         "typeId": {
           "type": "string",
           "format": "uuid",
-          "description": "Stable UUID of the Type (the Type's id field)."
+          "description": "Stable UUID of the Type."
         },
         "typeVersion": {
           "type": "integer",
           "minimum": 1,
-          "description": "Version of the Type this ref targets (required — version-exact anchor)."
+          "description": "Version of the Type this ref targets (required — version-exact anchor validated against the Package)."
         }
       }
     }

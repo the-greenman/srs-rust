@@ -1,10 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub use super::source_reference::{SourceReference, SourceRelationType, SourceType};
-
-/// `RelationType` is a legacy alias for `SourceRelationType` kept for backward
-/// compatibility. Prefer `SourceRelationType` from `types::source_reference`.
-pub type RelationType = SourceRelationType;
+pub use super::source_reference::{SourceReference, SourceType};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -140,13 +136,6 @@ mod tests {
         let val = SourceType::RepositoryDocument;
         let json = serde_json::to_string(&val).unwrap();
         assert_eq!(json, "\"repository-document\"");
-    }
-
-    #[test]
-    fn relation_type_serializes_hyphenated() {
-        let val = RelationType::DerivedFrom;
-        let json = serde_json::to_string(&val).unwrap();
-        assert_eq!(json, "\"derived-from\"");
     }
 
     #[test]
