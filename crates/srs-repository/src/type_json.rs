@@ -212,6 +212,24 @@ mod tests {
         assert!(err.to_string().contains("xUnknown"), "{err}");
     }
 
+    /// rfc-decision-0225099b: `defaultValue` was ruled removed on both the
+    /// Field and FieldAssignment sites — there is no carry mechanism for it
+    /// left anywhere in the definition layer. A `fields[]` entry declaring it
+    /// must be rejected outright (not silently accepted-and-dropped, the
+    /// treatment retired constructs like `fieldGroups` still get).
+    #[test]
+    fn field_assignment_default_value_is_rejected_not_carried() {
+        let err = serde_json::from_str::<TypeJson>(
+            r#"{
+                "id": "t1", "namespace": "com.test", "name": "thing",
+                "version": 1,
+                "fields": [{"fieldId": "f1", "order": 1, "defaultValue": "nope"}]
+            }"#,
+        )
+        .expect_err("defaultValue must be rejected per ruling 0225099b, not carried");
+        assert!(err.to_string().contains("defaultValue"), "{err}");
+    }
+
     /// srs-rust#863: a Type file is definition-layer data, so the loader
     /// rejects a key `type.json` does not declare — and names it.
     #[test]
