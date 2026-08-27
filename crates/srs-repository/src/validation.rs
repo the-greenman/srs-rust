@@ -2389,7 +2389,7 @@ mod tests {
         json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
-            "dataModelRevision": 3,
+            "dataModelRevision": 4,
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Test Repo",
             "container": {
@@ -5489,7 +5489,7 @@ mod tests {
             &json!({
                 "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
                 "srsVersion": "2.0",
-                "dataModelRevision": 3,
+                "dataModelRevision": 4,
                 "repositoryId": "00000000-0000-4000-8000-000000000700",
                 "title": "Rev-3 Metamodel Test Repo",
                 "container": {
@@ -5631,8 +5631,8 @@ mod tests {
             rt.validation_rules
         );
 
-        // No revision diagnostic: dataModelRevision 3 is exactly what this
-        // build supports — the whole point of the srs-rust#877 bump.
+        // No revision diagnostic: dataModelRevision 4 is exactly what this
+        // build supports (bumped 3 -> 4 for srs-rust#882's Tier-1 retirement).
         let report = validate_repository(&store).unwrap();
         assert!(
             !report
@@ -5653,6 +5653,39 @@ mod tests {
             )),
             "the loaded ConditionalForbidden rule must actually evaluate against records: {:?}",
             report.diagnostics
+        );
+    }
+
+    /// srs-rust#882 (srs#448, srs PR #505): a repository stamped at
+    /// `dataModelRevision: 4` — the generation Tier 1 (TypedRecord) retirement
+    /// produces — must load and validate with no revision-gate diagnostic.
+    /// Before this fix (`CURRENT_DATA_MODEL_REVISION` capped at 3) this
+    /// manifest tripped the [R21]-style "newer than this build supports"
+    /// error; this is the fix's red-then-green proof.
+    #[test]
+    fn rev4_manifest_loads_with_no_revision_diagnostic() {
+        let store = manifest_store(json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "dataModelRevision": 4,
+            "repositoryId": "00000000-0000-4000-8000-000000000900",
+            "title": "Rev-4 Test Repo",
+            "container": {
+                "containerId": "00000000-0000-4000-8000-000000000900",
+                "title": "Rev-4 Test Repo"
+            },
+            "createdAt": "2026-01-01T00:00:00Z"
+        }));
+        let report = validate_repository(&store).unwrap();
+        let manifest_diags: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.relative_path == "manifest.json")
+            .collect();
+        assert!(
+            manifest_diags.is_empty(),
+            "a rev-4 manifest must load with no revision-gate diagnostic (before this fix, \
+             this asserted 'newer than this build supports (revision 3)'): {manifest_diags:?}"
         );
     }
 
