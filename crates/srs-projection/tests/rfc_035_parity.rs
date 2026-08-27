@@ -237,6 +237,9 @@ fn the_projection_reports_what_it_could_not_express() {
         description: None,
     };
     let probe_type = RecordType {
+        schema: None,
+        ai_guidance: None,
+        tags: None,
         id: "t-probe".to_string(),
         namespace: "com.probe".to_string(),
         name: "probe".to_string(),
