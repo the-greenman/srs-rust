@@ -23,18 +23,60 @@ use srs_repository::store::{FileStore, RepositoryStore};
 use std::path::{Path, PathBuf};
 
 /// The spec repo checkout, or `None` when it is not available.
+///
+/// Prefer `SRS_SPEC_DIR` (CI, and any local run — point it at a fresh
+/// `origin/master` checkout, never a long-lived sibling). The sibling
+/// fallback below is srs-rust#874's exact false-green trap: `srs-rust`'s
+/// standard dev layout keeps a sibling `srs` checkout that may sit on a
+/// stale, non-master branch (as this machine's did) — silently comparing
+/// against its goldens produced a false green while CI (checking out
+/// `origin/master` fresh) was red. So the fallback is loud, not quiet: it
+/// panics rather than comparing against a sibling whose goldens can't be
+/// trusted.
 fn spec_repo() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("SRS_SPEC_DIR") {
         let p = PathBuf::from(dir);
         if p.join("srs/package/metamodel").is_dir() {
             return Some(p);
         }
+        return None; // an explicit but unusable SRS_SPEC_DIR: skip, don't silently fall through
     }
     let sibling = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../srs");
-    sibling
-        .join("srs/package/metamodel")
-        .is_dir()
-        .then(|| sibling.clone())
+    if !sibling.join("srs/package/metamodel").is_dir() {
+        return None;
+    }
+    if !sibling.join("tests/rfc-035/goldens").is_dir() {
+        panic!(
+            "srs sibling checkout at {} has no tests/rfc-035/goldens/ — set SRS_SPEC_DIR to a \
+             fresh `origin/master` checkout instead of relying on this sibling (srs-rust#874)",
+            sibling.display()
+        );
+    }
+    if let Ok(out) = std::process::Command::new("git")
+        .args([
+            "-C",
+            sibling.to_str().unwrap_or("."),
+            "rev-parse",
+            "--abbrev-ref",
+            "HEAD",
+        ])
+        .output()
+    {
+        if out.status.success() {
+            let branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if branch != "master" {
+                panic!(
+                    "srs sibling checkout at {} is on branch '{branch}', not master — its goldens \
+                     may be stale (srs-rust#874's exact false-green trap: a stale sibling silently \
+                     passed locally while CI, on a fresh checkout, was red). Set SRS_SPEC_DIR to a \
+                     fresh `origin/master` checkout instead.",
+                    sibling.display()
+                );
+            }
+        }
+        // else: not a git checkout (e.g. an extracted archive) — nothing to verify, proceed.
+    }
+    Some(sibling)
 }
 
 /// A store over the spec repo's own `srs/` SRS repository, whose package
@@ -131,35 +173,113 @@ fn bundle_envelope_matches_the_reference_emitter_byte_for_byte() {
     .expect("bundle must emit");
 
     // RFC-033 [R6]: the bundle carries the revision it was generated for. The
-    // spec repo is stamped 2 (RFC-039 cutover, srs#242 Phase B); absent ⇒ 0,
-    // so this also proves the stamp is being read rather than defaulted.
-    assert_eq!(result.bundle.data_model_revision, 2);
+    // spec repo is stamped 3 (RFC-040's metamodel v1.1.0 engine sync,
+    // srs-rust#877); absent ⇒ 0, so this also proves the stamp is being read
+    // rather than defaulted.
+    assert_eq!(result.bundle.data_model_revision, 3);
 
     let got = to_canonical_json(&result.bundle).expect("serializes");
     let want = golden(&spec, "bundle.json");
     assert_eq!(got, want, "bundle envelope must be byte-identical");
 }
 
+/// A schema that quietly emits `{}` and says nothing looks complete while
+/// under-validating, so the projection must name every approximated feature
+/// it hits — per `docs/schema/2.0/metamodel-fidelity.md`'s "approximated"
+/// rows.
+///
+/// This is a self-contained fixture, not a live-corpus check: the frozen
+/// `field`/`type` entities used to carry exactly one approximated feature
+/// (`Field.defaultValue`, `dependent` on the field's own `fieldType`), which
+/// is how the original version of this test was written. RFC-040 retired
+/// `defaultValue` outright (no `dependent`-datatype field survives anywhere
+/// in the current metamodel — `field.json`/`type.json`'s `inexpressible` set
+/// is genuinely empty now), so pinning this test to the live corpus was
+/// fragile: it broke not because the *mechanism* regressed, but because the
+/// corpus stopped incidentally exercising it. Building the fixture directly
+/// tests the mechanism the dashboard actually documents (`dependent` and
+/// `vocabularyRef`, both still **approximated** per the dashboard), and
+/// survives future corpus changes that are unrelated to this test's concern.
 #[test]
 fn the_projection_reports_what_it_could_not_express() {
-    // `Field.defaultValue` is `dependent` on the field's own `fieldType`, which
-    // JSON Schema cannot express — it projects to `{}` in the golden. A schema
-    // that quietly emits `{}` and says nothing looks complete while
-    // under-validating, so the projection must name it.
-    let Some(spec) = spec_repo() else {
-        eprintln!("skipping: spec repo not found (set SRS_SPEC_DIR)");
-        return;
+    use srs_core::types::field::{Datatype, Field, FieldType};
+    use srs_core::types::record_type::{FieldAssignment, RecordType};
+    use srs_repository::manifest::Manifest;
+    use srs_repository::package::Package;
+    use srs_repository::store::memory::MemoryStore;
+
+    let dependent_ft = FieldType {
+        depends_on: Some("self".to_string()),
+        ..FieldType::new(Datatype::Dependent)
     };
-    if !spec_repo_is_migrated(&spec) {
-        eprintln!("skipping: sibling spec repo is pre-RFC-038 format (awaiting the #297 spec-cutover unit)");
-        return;
-    }
-    let store = metamodel_store(&spec);
-    let type_id = type_id_of(&store, "com.semanticops.srs", "field");
+    let dependent_field = Field {
+        description: String::new(),
+        ai_guidance: None,
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        ..Field::new("f-dependent", "com.probe", "default_value", dependent_ft)
+    };
+    let vocab_field = Field {
+        description: String::new(),
+        ai_guidance: None,
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        ..Field::new(
+            "f-vocab",
+            "com.probe",
+            "status",
+            FieldType::closed_by_ref("11111111-0000-4000-8000-000000000001"),
+        )
+    };
+    let assign = |field_id: &str, order: u32| FieldAssignment {
+        field_id: field_id.to_string(),
+        order,
+        required: false,
+        display_label: None,
+        description: None,
+    };
+    let probe_type = RecordType {
+        id: "t-probe".to_string(),
+        namespace: "com.probe".to_string(),
+        name: "probe".to_string(),
+        version: 1,
+        description: "probe type".to_string(),
+        fields: vec![assign("f-dependent", 0), assign("f-vocab", 1)],
+        extends_type_id: None,
+        extends_type_version: None,
+        field_order: None,
+        field_assignment_overrides: None,
+        identity_field_id: None,
+        lifecycle: None,
+        lifecycle_ref: None,
+        validation_rules: None,
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        extra: Default::default(),
+        lineage: None,
+        provenance: None,
+    };
+    let package = Package {
+        id: "pkg".to_string(),
+        namespace: "com.probe".to_string(),
+        name: "probe".to_string(),
+        version: "1.0.0".to_string(),
+        fields: vec![dependent_field, vocab_field],
+        record_types: vec![probe_type],
+        relation_type_definitions: vec![],
+        views: vec![],
+        document_views: vec![],
+        themes: vec![],
+        blueprints: vec![],
+        protocols: vec![],
+        root: std::path::PathBuf::new(),
+        dependency_refs: vec![],
+        vocabularies: vec![],
+        lifecycles: vec![],
+    };
+    let store = MemoryStore::new(Manifest::default(), package);
+
     let result = type_to_json_schema(
         &store,
         TypeToJsonSchemaInput {
-            type_id,
+            type_id: "t-probe".to_string(),
             type_version: None,
         },
     )
@@ -167,24 +287,27 @@ fn the_projection_reports_what_it_could_not_express() {
 
     assert_eq!(
         result.inexpressible.len(),
-        1,
-        "expected exactly the `dependent` defaultValue: {:?}",
+        2,
+        "expected the dependent field and the vocabularyRef field: {:?}",
         result.inexpressible
     );
-    let reported = &result.inexpressible[0];
-    assert!(reported.contains("default_value"), "{reported}");
-    assert!(reported.contains("dependent"), "{reported}");
+    assert!(result.inexpressible[0].contains("default_value"));
+    assert!(result.inexpressible[0].contains("dependent"));
+    assert!(result.inexpressible[1].contains("status"));
+    assert!(result.inexpressible[1].contains("vocabulary"));
 
     // ...and the node it could not constrain really is the unconstrained one.
-    let default_value = result
+    // `com.probe` is a domain package, so the property key is `Field.name`
+    // verbatim (RFC-039 [R2a]/[R2b]) — no metamodel case transform applies.
+    let dependent_node = result
         .schema
         .properties
         .iter()
-        .find(|(k, _)| *k == "defaultValue")
+        .find(|(k, _)| *k == "default_value")
         .map(|(_, v)| v)
-        .expect("field must project a defaultValue property");
+        .expect("probe must project a default_value property");
     assert_eq!(
-        *default_value,
+        *dependent_node,
         srs_projection::json_schema::SchemaNode::default(),
         "a `dependent` field projects to an unconstrained node"
     );

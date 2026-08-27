@@ -1,10 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "aiGuidance": {
-    "purpose": "Display/processing order within the Type."
+    "purpose": "The declared composition order of this field within the Type — structure, not presentation. Feeds canonical serialisation and provides the render default; a View may override for display (RFC-015)."
   },
   "createdAt": "2026-07-29T00:00:00Z",
-  "description": "Display/processing order within the Type.",
+  "description": "The declared composition order of this field within the Type — structure, not presentation. Feeds canonical serialisation and provides the render default; a View may override for display (RFC-015).",
   "id": "4b000034-0000-4000-a000-000000000034",
   "name": "order",
   "namespace": "com.semanticops.srs",

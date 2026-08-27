@@ -16,8 +16,13 @@
 //! from canonical types + the .srsj canonicalize-on-write step). So the
 //! schema is modelled as **typed structs whose field declaration order is the
 //! emitted key order**, and ordered maps are `OrderedMap`, a `Vec`-backed map
-//! that serializes in insertion order. Nothing here builds a
-//! `serde_json::Value` object, which would silently re-sort.
+//! that serializes in insertion order. The one exception is the RFC-040
+//! Change F `allOf` guard clauses (`field_type_envelope`,
+//! `project_validation_rules`): their internal `if`/`then`/`else` shape is
+//! genuinely heterogeneous/recursive JSON logic with no reuse elsewhere, so
+//! those (and only those) are built as `serde_json::Value` — safe for byte
+//! order now that the workspace enables `preserve_order`, unlike when this
+//! module was first written.
 //!
 //! Two artifacts are deliberately *not* produced here:
 //!
@@ -28,9 +33,12 @@
 //!   a separate artifact by design (srs-rust#770).
 
 use serde::{Serialize, Serializer};
+use serde_json::json;
 use srs_core::types::field::{Datatype, Field, FieldType, RefMode, StringFormat, ValueDomain};
-use srs_core::types::record_type::RecordType;
-use std::collections::HashMap;
+use srs_core::types::record_type::{
+    CrossFieldRule, CrossFieldRuleKind, FieldAssignment, RecordType,
+};
+use std::collections::{HashMap, HashSet};
 
 // ---------------------------------------------------------------------------
 // Ordered map — insertion order is the wire contract.
@@ -160,6 +168,13 @@ pub struct SchemaNode {
         skip_serializing_if = "Option::is_none"
     )]
     pub additional_properties: Option<AdditionalProperties>,
+    /// RFC-040 Change C: `FieldAssignment.description` — documentation-only,
+    /// annotation position only, never a constraint keyword. Set before
+    /// `title` (per-node key order), matching the reference emitter's
+    /// `frag.description = a.description` / `frag.title = a.displayLabel`
+    /// assignment sequence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// From `FieldAssignment.displayLabel` — appended last (projection rules,
     /// "Per-node key order").
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -167,7 +182,8 @@ pub struct SchemaNode {
 }
 
 /// A Type's object body — used both for a top-level entity's `properties`
-/// block and for each inline range's `$def`.
+/// block and for each inline range's `$def`. Key order: `type`, `required`,
+/// `additionalProperties`, `description`, `properties`, `allOf`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct ObjectBody {
     #[serde(rename = "type")]
@@ -176,18 +192,52 @@ pub struct ObjectBody {
     pub required: Option<Vec<String>>,
     #[serde(rename = "additionalProperties")]
     pub additional_properties: bool,
+    /// A Type's own `description`, suppressed for a handful of metamodel
+    /// value-object `$defs` whose meaning is fully contextual per use-site
+    /// (`DEF_DESCRIPTION_SUPPRESSED`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub properties: OrderedMap<SchemaNode>,
+    /// RFC-040 Change F: the `FieldType` entity's hand-mirrored co-occurrence
+    /// envelope, or a Type's own `validationRules` projected to `allOf`
+    /// guards (`project_validation_rules`).
+    #[serde(rename = "allOf", skip_serializing_if = "Option::is_none")]
+    pub all_of: Option<Vec<serde_json::Value>>,
 }
 
-/// A complete JSON Schema 2020-12 definition schema for one Type.
+/// `emit_entity_for`'s `facing` — RFC-040 Change G / rfc-decision-2e0cd70a.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Facing {
+    /// Fully closed, `additionalProperties: false`, no escape. Default —
+    /// the frozen `field`/`type` entities and any Type/value-object
+    /// definition schema.
+    #[default]
+    Definition,
+    /// Closed except a synthetic `meta: {type: "object"}` property — the
+    /// sanctioned extension carrier for validating a Record's `fieldValues`
+    /// interior.
+    Instance,
+}
+
+/// A complete JSON Schema 2020-12 definition schema for one Type. Key order:
+/// `$schema`, `$id`, `title`, `description`, `$comment`, `type`, `required`,
+/// `additionalProperties`, `properties`, `allOf`, `$defs`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct EntitySchema {
     #[serde(rename = "$schema")]
     pub schema: &'static str,
     #[serde(rename = "$id")]
     pub id: String,
+    /// The two frozen bootstrap entities only (`ENTITY_TITLES`); no modelled
+    /// source — a fixed envelope constant like `ENTITY_IDS`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// The two frozen bootstrap entities only (`ENTITY_COMMENTS`) — hand-authored
+    /// framing prose with no record-level source.
+    #[serde(rename = "$comment", skip_serializing_if = "Option::is_none")]
+    pub comment: Option<&'static str>,
     #[serde(rename = "type")]
     pub ty: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -195,6 +245,8 @@ pub struct EntitySchema {
     #[serde(rename = "additionalProperties")]
     pub additional_properties: bool,
     pub properties: OrderedMap<SchemaNode>,
+    #[serde(rename = "allOf", skip_serializing_if = "Option::is_none")]
+    pub all_of: Option<Vec<serde_json::Value>>,
     #[serde(rename = "$defs", skip_serializing_if = "Option::is_none")]
     pub defs: Option<OrderedMap<ObjectBody>>,
 }
@@ -220,6 +272,22 @@ pub enum ProjectionError {
     UnresolvedRange { field: String, type_id: String },
     /// A Type's FieldAssignment names a `fieldId` the package does not define.
     UnknownField { type_name: String, field_id: String },
+    /// I-41: a declared `fieldOrder` is not an exact permutation of the
+    /// effective fieldId set (duplicate, missing, or unresolved entry).
+    FieldOrderMismatch { type_name: String },
+    /// I-39: a cyclic `extendsTypeId` chain.
+    CyclicExtension { type_name: String },
+    /// A Type's own `extendsTypeId` does not resolve in the package.
+    UnresolvedBase { type_name: String },
+    /// A frozen bootstrap entity (`field`/`type`) declaring its own
+    /// `extendsTypeId` — an unsupported combination, ambiguous merge
+    /// direction (child-perspective vs the sibling-merge these two entities
+    /// otherwise need).
+    UnsupportedBootstrapExtension(String),
+    /// RFC-040 Change G / rfc-decision-2e0cd70a: instance-facing projection
+    /// of a Type declaring its own Field literally named `meta`, which
+    /// collides with the reserved extension-carrier property.
+    ReservedMetaCollision(String),
 }
 
 impl std::fmt::Display for ProjectionError {
@@ -239,6 +307,26 @@ impl std::fmt::Display for ProjectionError {
                 f,
                 "json-schema projection: type '{type_name}' references unknown fieldId '{field_id}'"
             ),
+            ProjectionError::FieldOrderMismatch { type_name } => write!(
+                f,
+                "json-schema projection: '{type_name}'.fieldOrder is not an exact permutation of its effective field set (I-41)"
+            ),
+            ProjectionError::CyclicExtension { type_name } => write!(
+                f,
+                "json-schema projection: cyclic extendsTypeId chain at '{type_name}' (I-39)"
+            ),
+            ProjectionError::UnresolvedBase { type_name } => write!(
+                f,
+                "json-schema projection: '{type_name}'.extendsTypeId does not resolve in the package"
+            ),
+            ProjectionError::UnsupportedBootstrapExtension(name) => write!(
+                f,
+                "json-schema projection: '{name}' is a frozen bootstrap entity AND declares its own extendsTypeId — unsupported combination, ambiguous merge direction"
+            ),
+            ProjectionError::ReservedMetaCollision(name) => write!(
+                f,
+                "json-schema projection: '{name}' declares its own Field named \"meta\", which collides with the reserved instance-facing extension carrier (rfc-decision-2e0cd70a)"
+            ),
         }
     }
 }
@@ -246,15 +334,23 @@ impl std::fmt::Display for ProjectionError {
 impl std::error::Error for ProjectionError {}
 
 // ---------------------------------------------------------------------------
-// Naming (RFC-035 Change D/E)
+// Naming (RFC-035 Change D/E; RFC-039 [R2a] erratum to RFC-035 [R4])
 // ---------------------------------------------------------------------------
 
 /// The committed override table: metamodel `Field.name` → JSON key, where the
 /// mechanical projection differs from the intended wire key.
-const NAME_OVERRIDES: &[(&str, &str)] = &[("assignment_default_value", "defaultValue")];
+///
+/// RFC-040 Unit 1 retires the pre-existing `assignment_default_value` entry
+/// (the property is removed); Change B adds the two entries below for the
+/// new value-object Types.
+const NAME_OVERRIDES: &[(&str, &str)] = &[("kind", "type"), ("transition_name", "name")];
 
 /// snake_case → lowerCamelCase, with the override table applied first.
 /// Deterministic and injective over the in-scope metamodel field names.
+///
+/// Scope: this transform binds schema emission for the **in-scope metamodel
+/// Types only** — see [`wire_key`], which gates it on [`is_metamodel_package`].
+/// A domain Type projects each property key as its `Field.name` **verbatim**.
 pub fn json_key(field_name: &str) -> String {
     if let Some((_, override_key)) = NAME_OVERRIDES.iter().find(|(k, _)| *k == field_name) {
         return (*override_key).to_string();
@@ -274,6 +370,185 @@ pub fn json_key(field_name: &str) -> String {
     out
 }
 
+/// The namespace whose `field`/`type` Types are the frozen meta-model entities.
+const METAMODEL_NAMESPACE: &str = "com.semanticops.srs";
+
+/// Is `ctx`'s own package the self-hosted metamodel package? The one shared
+/// trust boundary the metamodel-only mechanisms in this file gate on — never
+/// a bare name check, since a domain Type may plausibly share a name with any
+/// reserved metamodel identifier.
+pub fn is_metamodel_package(ctx: &ProjectionContext<'_>) -> bool {
+    ctx.namespace == METAMODEL_NAMESPACE
+}
+
+/// The wire key for a Field within `ctx`'s own package: the metamodel
+/// name-projection transform ([`json_key`]) if `ctx`'s package IS the
+/// metamodel package, `Field.name` verbatim for every other (domain) package
+/// (RFC-039 [R2a]/[R2b]).
+pub fn wire_key(ctx: &ProjectionContext<'_>, field_name: &str) -> String {
+    if is_metamodel_package(ctx) {
+        json_key(field_name)
+    } else {
+        field_name.to_string()
+    }
+}
+
+/// Is `type_name` one of the two frozen bootstrap entities (`field`/`type`)?
+/// Gated by BOTH the name AND [`is_metamodel_package`] — a domain package's
+/// own Type literally named "field" or "type" must not hijack the frozen
+/// entities' identity, `$id`, `title`, `$comment`, or sibling-merge.
+pub fn is_bootstrap_entity(ctx: &ProjectionContext<'_>, type_name: &str) -> bool {
+    is_metamodel_package(ctx) && (type_name == "field" || type_name == "type")
+}
+
+/// The two frozen meta-model entities' hand-authored `title` (Change C item 2
+/// counterpart) — a fixed envelope constant, never a projected value.
+fn entity_title(type_name: &str) -> Option<&'static str> {
+    match type_name {
+        "field" => Some("SRS Field Definition"),
+        "type" => Some("SRS Type Definition"),
+        _ => None,
+    }
+}
+
+/// The two frozen entity files' hand-authored `$comment` — framing prose
+/// describing the file's own bootstrap status, with no record-level source.
+/// Reproduced verbatim from `scripts/lib/schema-emitter.mjs`'s
+/// `ENTITY_COMMENTS` for byte-parity.
+fn entity_comment(type_name: &str) -> Option<&'static str> {
+    match type_name {
+        "field" => Some("RFC-033 frozen-seed fixed point: this hand-authored schema is the bootstrap base case, loaded as committed and never re-derived at runtime (a schema that defines Field cannot be parsed without the Field schema). Its record-level source is the com.semanticops.srs/metamodel package (the `field` Type + FieldType/ExactTypeRef/AiGuidance/AiGuidanceExample/Lineage/Provenance value-object Types); the #259 emitter regenerates this file from those records, and docs/schema/2.0/metamodel-fidelity.md declares which features round-trip authoritatively vs are approximated."),
+        "type" => Some("RFC-033 frozen-seed fixed point: this hand-authored schema is the bootstrap base case, loaded as committed and never re-derived at runtime. Its record-level source is the com.semanticops.srs/metamodel package (the `type` + `field-assignment` Types; v1.0.0 covers the core definition facets, deferring lifecycle/type-inheritance/cross-field-validation/field-groups/identityFieldId). The #259 emitter regenerates this file from those records; docs/schema/2.0/metamodel-fidelity.md declares per-emitter fidelity."),
+        _ => None,
+    }
+}
+
+/// A handful of value-object Types carry a modelled `Type.description` that
+/// is never meant to surface on the `$def` itself — their meaning is fully
+/// contextual, expressed per use-site via the referencing
+/// `FieldAssignment.description` instead. Checked only under
+/// [`is_metamodel_package`] — these names are plausible domain-Type names
+/// too, and a domain Type's own genuine description must never be silently
+/// dropped just for sharing one.
+const DEF_DESCRIPTION_SUPPRESSED: &[&str] = &[
+    "ai-guidance",
+    "ai-guidance-example",
+    "lineage",
+    "provenance",
+    "type-lifecycle",
+    "lifecycle-transition",
+    "field-assignment",
+];
+
+/// The `FieldType` entity-level co-occurrence envelope (R2/R3/R9/R10 in
+/// `rfc-032-fieldtype.mjs`'s `validateFieldType`). Entity-specific and
+/// hand-mirrored — these are fixed structural rules over `FieldType`'s own
+/// properties, not a generic `CrossFieldRule` projection. Matches the frozen
+/// seed's `field.json` `$defs.FieldType.allOf` byte-for-byte.
+fn field_type_envelope() -> Vec<serde_json::Value> {
+    vec![
+        json!({
+            "if": {"properties": {"datatype": {"const": "ref"}}, "required": ["datatype"]},
+            "then": {"required": ["rangeType"]},
+            "else": {"not": {"anyOf": [{"required": ["rangeType"]}, {"required": ["mode"]}]}}
+        }),
+        json!({
+            "if": {"properties": {"datatype": {"const": "dependent"}}, "required": ["datatype"]},
+            "then": {"required": ["dependsOn"]},
+            "else": {"not": {"required": ["dependsOn"]}}
+        }),
+        json!({
+            "if": {"properties": {"datatype": {"const": "map"}}, "required": ["datatype"]},
+            "then": {"required": ["valueRange"]},
+            "else": {"not": {"required": ["valueRange"]}}
+        }),
+        json!({
+            "if": {"properties": {"valueDomain": {"const": "closed"}}, "required": ["valueDomain"]},
+            "then": {"oneOf": [
+                {"required": ["allowedValues"], "not": {"required": ["vocabularyRef"]}},
+                {"required": ["vocabularyRef"], "not": {"required": ["allowedValues"]}}
+            ]}
+        }),
+    ]
+}
+
+/// RFC-040 Change F: project one Type's own `validationRules`
+/// (`CrossFieldRule[]`, I-97 — never inherited, always the Type's own
+/// complete set) to `allOf` guard clauses on that Type's own entity schema.
+/// `conditional-required`/`conditional-forbidden` share the predicate/target
+/// shape; `mutual-exclusion` projects as pairwise `not` guards over the
+/// `fieldIds` set. `field-ordering` has no JSON Schema construct and is
+/// intentionally left unprojected — approximated, per the fidelity
+/// dashboard.
+fn project_validation_rules(
+    ctx: &ProjectionContext<'_>,
+    rules: &[CrossFieldRule],
+) -> Vec<serde_json::Value> {
+    let key_of = |field_id: &str| -> String {
+        ctx.fields_by_id
+            .get(field_id)
+            .map(|f| wire_key(ctx, &f.name))
+            .unwrap_or_default()
+    };
+    let mut out = Vec::new();
+    for rule in rules {
+        match rule.rule_type {
+            CrossFieldRuleKind::ConditionalRequired => {
+                let (Some(p_id), Some(t_id)) = (
+                    rule.predicate_field_id.as_deref(),
+                    rule.target_field_id.as_deref(),
+                ) else {
+                    continue;
+                };
+                let p = key_of(p_id);
+                let t = key_of(t_id);
+                let pv = rule.predicate_value.clone().unwrap_or_default();
+                let mut props = serde_json::Map::new();
+                props.insert(p.clone(), json!({"const": pv}));
+                out.push(json!({
+                    "if": {"properties": props, "required": [p]},
+                    "then": {"required": [t]}
+                }));
+            }
+            CrossFieldRuleKind::ConditionalForbidden => {
+                let (Some(p_id), Some(t_id)) = (
+                    rule.predicate_field_id.as_deref(),
+                    rule.target_field_id.as_deref(),
+                ) else {
+                    continue;
+                };
+                let p = key_of(p_id);
+                let t = key_of(t_id);
+                let pv = rule.predicate_value.clone().unwrap_or_default();
+                let mut props = serde_json::Map::new();
+                props.insert(p.clone(), json!({"const": pv}));
+                out.push(json!({
+                    "if": {"properties": props, "required": [p]},
+                    "then": {"not": {"required": [t]}}
+                }));
+            }
+            CrossFieldRuleKind::MutualExclusion => {
+                let keys: Vec<String> = rule
+                    .field_ids
+                    .as_deref()
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|id| key_of(id))
+                    .collect();
+                for i in 0..keys.len() {
+                    for j in (i + 1)..keys.len() {
+                        out.push(json!({"not": {"required": [keys[i].clone(), keys[j].clone()]}}));
+                    }
+                }
+            }
+            CrossFieldRuleKind::FieldOrdering => {
+                // No JSON Schema equivalent — approximated by design.
+            }
+        }
+    }
+    out
+}
+
 /// The `$defs` key for an inline range — an injective function of
 /// `(namespace, name, version)`, spelled `<namespace>__<name>__v<version>`.
 ///
@@ -282,9 +557,6 @@ pub fn json_key(field_name: &str) -> String {
 pub fn range_def_key(namespace: &str, name: &str, version: u32) -> String {
     format!("{namespace}__{name}__v{version}")
 }
-
-/// The namespace whose `field`/`type` Types are the frozen meta-model entities.
-const METAMODEL_NAMESPACE: &str = "com.semanticops.srs";
 
 /// `$id` for a Type (RFC-035 Change C).
 ///
@@ -305,13 +577,20 @@ pub fn schema_id(namespace: &str, name: &str, version: u32) -> String {
 
 /// A resolved package view: the Types and Fields the projection walks.
 pub struct ProjectionContext<'a> {
+    namespace: &'a str,
+    /// The original package order — extender lookup (sibling-merge,
+    /// child-perspective) must iterate in this order, matching the reference
+    /// emitter's `Object.values(ctx.typesById)` (JS object insertion order).
+    types_in_order: &'a [RecordType],
     types_by_id: HashMap<&'a str, &'a RecordType>,
     types_by_name: HashMap<&'a str, &'a RecordType>,
     fields_by_id: HashMap<&'a str, &'a Field>,
 }
 
 impl<'a> ProjectionContext<'a> {
-    /// Index a package's Types and Fields for projection.
+    /// Index a package's Types and Fields for projection. `namespace` is the
+    /// owning package's own namespace — the trust boundary [`is_metamodel_package`]
+    /// gates the name-projection transform and the bootstrap/facing mechanisms on.
     ///
     /// `types_by_name` is a convenience for addressing entities by name (the
     /// bundle's `entities` list); it is **last-wins**, matching the reference
@@ -321,7 +600,7 @@ impl<'a> ProjectionContext<'a> {
     /// resolves that body by *name*, so in a package with two same-named Types
     /// in different namespaces it emits the wrong body; that is an upstream bug
     /// to fix in `schema-emitter.mjs`, not a behaviour to copy.)
-    pub fn new(types: &'a [RecordType], fields: &'a [Field]) -> Self {
+    pub fn new(namespace: &'a str, types: &'a [RecordType], fields: &'a [Field]) -> Self {
         let mut types_by_id = HashMap::new();
         let mut types_by_name = HashMap::new();
         for t in types {
@@ -330,6 +609,8 @@ impl<'a> ProjectionContext<'a> {
         }
         let fields_by_id = fields.iter().map(|f| (f.id.as_str(), f)).collect();
         ProjectionContext {
+            namespace,
+            types_in_order: types,
             types_by_id,
             types_by_name,
             fields_by_id,
@@ -358,14 +639,65 @@ pub fn emit_entity(
     emit_entity_for(ctx, ctx.require_type_by_name(type_name)?)
 }
 
-/// Project an already-resolved Type.
+/// Project an already-resolved Type, definition-facing (the default).
 pub fn emit_entity_for(
     ctx: &ProjectionContext<'_>,
     record_type: &RecordType,
 ) -> Result<EntitySchema, ProjectionError> {
+    emit_entity_with_facing(ctx, record_type, Facing::Definition)
+}
+
+/// Project an already-resolved Type with an explicit [`Facing`] (RFC-040
+/// Change G / rfc-decision-2e0cd70a).
+pub fn emit_entity_with_facing(
+    ctx: &ProjectionContext<'_>,
+    record_type: &RecordType,
+    facing: Facing,
+) -> Result<EntitySchema, ProjectionError> {
+    if is_bootstrap_entity(ctx, &record_type.name) && record_type.extends_type_id.is_some() {
+        return Err(ProjectionError::UnsupportedBootstrapExtension(
+            record_type.name.clone(),
+        ));
+    }
+
     let mut defs: OrderedMap<ObjectBody> = OrderedMap::new();
     // Walking the entity fills `defs` in pre-order DFS by first reference.
     let body = emit_body(ctx, record_type, &mut defs)?;
+
+    let is_bootstrap = is_bootstrap_entity(ctx, &record_type.name);
+    let mut properties = OrderedMap::new();
+    // The two frozen entities' own instance files carry a literal `$schema`
+    // self-reference data property with no modelled counterpart — placed
+    // first to match the frozen seed's property order.
+    if is_bootstrap {
+        properties.insert(
+            "$schema",
+            SchemaNode {
+                ty: Some("string"),
+                ..SchemaNode::default()
+            },
+        );
+    }
+    for (key, node) in body.properties.iter() {
+        properties.insert(key.to_string(), node.clone());
+    }
+    if facing == Facing::Instance {
+        // rfc-decision-2e0cd70a: `meta` is the sanctioned extension carrier
+        // and MUST stay the open escape — never silently narrowed by a
+        // Type's own Field of the same name.
+        if properties.contains_key("meta") {
+            return Err(ProjectionError::ReservedMetaCollision(
+                record_type.name.clone(),
+            ));
+        }
+        properties.insert(
+            "meta",
+            SchemaNode {
+                ty: Some("object"),
+                ..SchemaNode::default()
+            },
+        );
+    }
 
     Ok(EntitySchema {
         schema: "https://json-schema.org/draft/2020-12/schema",
@@ -374,37 +706,229 @@ pub fn emit_entity_for(
             &record_type.name,
             record_type.version,
         ),
+        title: if is_bootstrap {
+            entity_title(&record_type.name)
+        } else {
+            None
+        },
         description: Some(record_type.description.clone()).filter(|d| !d.is_empty()),
+        comment: if is_bootstrap {
+            entity_comment(&record_type.name)
+        } else {
+            None
+        },
         ty: "object",
         required: body.required,
         additional_properties: false,
-        properties: body.properties,
+        properties,
+        all_of: body.all_of,
         defs: if defs.is_empty() { None } else { Some(defs) },
     })
 }
 
+// ---------------------------------------------------------------------------
+// Effective-Type resolution (RFC-040 Change A; I-39..43 + I-97)
+// ---------------------------------------------------------------------------
+
+/// Applies a single extending Type's `fieldAssignmentOverrides` (I-42: only
+/// to inherited fields, `required` tighten-only false→true, `displayLabel`
+/// override) to a merged field list. `extenders` is every Type contributing
+/// to this merge (one, in the child-perspective case; several sibling
+/// facets in the bootstrap case).
+fn apply_overrides(
+    fields: Vec<FieldAssignment>,
+    extenders: &[&RecordType],
+) -> Vec<FieldAssignment> {
+    let all_own_ids: HashSet<&str> = extenders
+        .iter()
+        .flat_map(|e| e.fields.iter().map(|f| f.field_id.as_str()))
+        .collect();
+    let mut overrides: HashMap<&str, &srs_core::types::record_type::FieldAssignmentOverride> =
+        HashMap::new();
+    for ext in extenders {
+        for o in ext.field_assignment_overrides.iter().flatten() {
+            if all_own_ids.contains(o.field_id.as_str()) {
+                continue; // I-42: never targets a field the extender itself declares.
+            }
+            overrides.insert(o.field_id.as_str(), o); // last-extender-wins, unreachable today
+        }
+    }
+    fields
+        .into_iter()
+        .map(|mut f| {
+            if let Some(o) = overrides.get(f.field_id.as_str()) {
+                if o.required == Some(true) {
+                    f.required = true; // tighten-only
+                }
+                if let Some(dl) = &o.display_label {
+                    f.display_label = Some(dl.clone());
+                }
+            }
+            f
+        })
+        .collect()
+}
+
+/// Any extender's own declared `fieldOrder` — first non-empty one in
+/// iteration order.
+fn declared_field_order(extenders: &[&RecordType]) -> Option<Vec<String>> {
+    extenders
+        .iter()
+        .find_map(|e| e.field_order.clone().filter(|fo| !fo.is_empty()))
+}
+
+/// Every Type in the package declaring `extendsTypeId == base_id`, in
+/// package (insertion) order.
+fn find_extenders<'a>(ctx: &ProjectionContext<'a>, base_id: &str) -> Vec<&'a RecordType> {
+    ctx.types_in_order
+        .iter()
+        .filter(|t| t.extends_type_id.as_deref() == Some(base_id))
+        .collect()
+}
+
+/// Base-perspective sibling-merge (bootstrap-specific): unions a base Type's
+/// own fields with every Type that declares `extendsTypeId == base.id`.
+fn effective_fields_sibling_merge<'a>(
+    ctx: &ProjectionContext<'a>,
+    base: &'a RecordType,
+) -> (Vec<FieldAssignment>, Option<Vec<String>>) {
+    let extenders = find_extenders(ctx, &base.id);
+    if extenders.is_empty() {
+        return (base.fields.clone(), base.field_order.clone());
+    }
+    let mut merged = base.fields.clone();
+    for e in &extenders {
+        merged.extend(e.fields.clone());
+    }
+    let merged = apply_overrides(merged, &extenders);
+    let field_order = base
+        .field_order
+        .clone()
+        .or_else(|| declared_field_order(&extenders));
+    (merged, field_order)
+}
+
+/// Child-perspective effective-Type resolution (I-39..43): given a Type
+/// declaring its own `extendsTypeId`, walk up the (acyclic) ancestor chain,
+/// merging each ancestor's effective fields with this Type's own.
+fn effective_fields_child<'a>(
+    ctx: &ProjectionContext<'a>,
+    t: &'a RecordType,
+    seen: &mut Vec<String>,
+) -> Result<(Vec<FieldAssignment>, Option<Vec<String>>), ProjectionError> {
+    let Some(base_id) = &t.extends_type_id else {
+        return Ok((t.fields.clone(), t.field_order.clone()));
+    };
+    if seen.contains(&t.id) {
+        return Err(ProjectionError::CyclicExtension {
+            type_name: t.name.clone(),
+        });
+    }
+    seen.push(t.id.clone());
+    let base = ctx
+        .types_by_id
+        .get(base_id.as_str())
+        .copied()
+        .ok_or_else(|| ProjectionError::UnresolvedBase {
+            type_name: t.name.clone(),
+        })?;
+    let (effective_base_fields, _) = resolve_effective(ctx, base, seen)?;
+    let own_ids: HashSet<&str> = t.fields.iter().map(|f| f.field_id.as_str()).collect();
+    let inherited: Vec<FieldAssignment> = effective_base_fields
+        .into_iter()
+        .filter(|f| !own_ids.contains(f.field_id.as_str()))
+        .collect();
+    let mut merged = inherited;
+    merged.extend(t.fields.clone());
+    let merged = apply_overrides(merged, &[t]);
+    Ok((merged, declared_field_order(&[t])))
+}
+
+/// Resolve `record_type`'s effective (field-set, fieldOrder) by whichever
+/// direction applies — see `docs/schema/2.0/projection-rules.md`'s
+/// "Effective-Type resolution" for the full contract.
+fn resolve_effective<'a>(
+    ctx: &ProjectionContext<'a>,
+    record_type: &'a RecordType,
+    seen: &mut Vec<String>,
+) -> Result<(Vec<FieldAssignment>, Option<Vec<String>>), ProjectionError> {
+    if record_type.extends_type_id.is_some() {
+        effective_fields_child(ctx, record_type, seen)
+    } else if is_bootstrap_entity(ctx, &record_type.name) {
+        Ok(effective_fields_sibling_merge(ctx, record_type))
+    } else {
+        Ok((record_type.fields.clone(), record_type.field_order.clone()))
+    }
+}
+
+/// Default composition order is `FieldAssignment.order` (ties broken by
+/// original position — a stable sort, matching `Array.prototype.sort`'s
+/// ES2019 stability guarantee); an explicit `fieldOrder` (I-41: an exact
+/// permutation of the effective fieldId set) overrides it.
+fn ordered_field_assignments(
+    type_name: &str,
+    mut fields: Vec<FieldAssignment>,
+    field_order: Option<Vec<String>>,
+) -> Result<Vec<FieldAssignment>, ProjectionError> {
+    fields.sort_by_key(|a| a.order);
+    let Some(order) = field_order.filter(|fo| !fo.is_empty()) else {
+        return Ok(fields);
+    };
+    let mut by_id: HashMap<String, FieldAssignment> = fields
+        .into_iter()
+        .map(|f| (f.field_id.clone(), f))
+        .collect();
+    let mut out = Vec::with_capacity(order.len());
+    for id in &order {
+        match by_id.remove(id) {
+            Some(f) => out.push(f),
+            None => {
+                return Err(ProjectionError::FieldOrderMismatch {
+                    type_name: type_name.to_string(),
+                })
+            }
+        }
+    }
+    // I-41: fieldOrder MUST contain exactly the effective fieldId set — a
+    // leftover (unreferenced) field would otherwise silently vanish.
+    if !by_id.is_empty() {
+        return Err(ProjectionError::FieldOrderMismatch {
+            type_name: type_name.to_string(),
+        });
+    }
+    Ok(out)
+}
+
 /// Emit a Type's object body — used for both entities and their value-object
-/// `$defs`.
+/// `$defs`. Key order: `type`, `required`, `additionalProperties`,
+/// `description`, `properties`, `allOf`.
 fn emit_body(
     ctx: &ProjectionContext<'_>,
     record_type: &RecordType,
     defs: &mut OrderedMap<ObjectBody>,
 ) -> Result<ObjectBody, ProjectionError> {
-    let mut assignments: Vec<_> = record_type.fields.iter().collect();
-    assignments.sort_by_key(|a| a.order);
+    let (effective_fields, field_order) = resolve_effective(ctx, record_type, &mut Vec::new())?;
+    let assignments = ordered_field_assignments(&record_type.name, effective_fields, field_order)?;
 
     let mut properties = OrderedMap::new();
     let mut required = Vec::new();
 
-    for assignment in assignments {
+    for assignment in &assignments {
         let field = ctx.fields_by_id.get(assignment.field_id.as_str()).ok_or(
             ProjectionError::UnknownField {
                 type_name: record_type.name.clone(),
                 field_id: assignment.field_id.clone(),
             },
         )?;
-        let key = json_key(&field.name);
+        let key = wire_key(ctx, &field.name);
         let mut node = render_node(ctx, field, defs)?;
+        // RFC-040 Change C: FieldAssignment.description → the property's own
+        // description (documentation-only, never a constraint). Set before
+        // displayLabel → title, matching the reference emitter's assignment
+        // order.
+        if let Some(desc) = assignment.description.as_ref().filter(|d| !d.is_empty()) {
+            node.description = Some(desc.clone());
+        }
         // FieldAssignment.displayLabel → title (presentation annotation).
         if let Some(label) = assignment.display_label.as_ref().filter(|l| !l.is_empty()) {
             node.title = Some(label.clone());
@@ -415,6 +939,25 @@ fn emit_body(
         properties.insert(key, node);
     }
 
+    // RFC-040 Change F: `field-type`'s entity-level co-occurrence envelope is
+    // a fixed, hand-mirrored `allOf` — no Type carries both mechanisms.
+    // Every other Type's own `validationRules` (I-97: never inherited)
+    // project via `project_validation_rules`.
+    let is_field_type_envelope = record_type.name == "field-type" && is_metamodel_package(ctx);
+    let all_of = if is_field_type_envelope {
+        field_type_envelope()
+    } else {
+        project_validation_rules(ctx, record_type.validation_rules.as_deref().unwrap_or(&[]))
+    };
+
+    let description_suppressed = is_metamodel_package(ctx)
+        && DEF_DESCRIPTION_SUPPRESSED.contains(&record_type.name.as_str());
+    let description = if !record_type.description.is_empty() && !description_suppressed {
+        Some(record_type.description.clone())
+    } else {
+        None
+    };
+
     Ok(ObjectBody {
         ty: "object",
         required: if required.is_empty() {
@@ -423,7 +966,13 @@ fn emit_body(
             Some(required)
         },
         additional_properties: false,
+        description,
         properties,
+        all_of: if all_of.is_empty() {
+            None
+        } else {
+            Some(all_of)
+        },
     })
 }
 
@@ -709,34 +1258,30 @@ mod tests {
 
     #[test]
     fn two_fields_projecting_to_one_key_do_not_emit_a_duplicate() {
-        // `assignment_default_value` maps to `defaultValue` through the override
-        // table; `default_value` maps to it mechanically. JS object assignment
-        // collapses the collision — appending would emit the key twice and
-        // produce a document no two parsers agree on.
-        let fields = vec![
-            field("f-1", "assignment_default_value", FieldType::string()),
-            field("f-2", "default_value", FieldType::number()),
-        ];
-        let types = vec![record_type(
-            "t-1",
-            "thing",
-            1,
-            vec![assign("f-1", 0), assign("f-2", 1)],
-        )];
-        let ctx = ProjectionContext::new(&types, &fields);
+        // `kind` maps to `type` through the override table (RFC-040 Change B:
+        // the seed spells the kind discriminator `type`); a metamodel field
+        // literally named `type` maps to it mechanically. Both only apply
+        // under the metamodel namespace (`wire_key`'s scoping) — JS object
+        // assignment collapses the collision — appending would emit the key
+        // twice and produce a document no two parsers agree on.
+        let mut f1 = field("f-1", "kind", FieldType::string());
+        f1.namespace = "com.semanticops.srs".to_string();
+        let mut f2 = field("f-2", "type", FieldType::number());
+        f2.namespace = "com.semanticops.srs".to_string();
+        let fields = vec![f1, f2];
+        let mut thing = record_type("t-1", "thing", 1, vec![assign("f-1", 0), assign("f-2", 1)]);
+        thing.namespace = "com.semanticops.srs".to_string();
+        let types = vec![thing];
+        let ctx = ProjectionContext::new("com.semanticops.srs", &types, &fields);
         let schema = emit_entity(&ctx, "thing").expect("projects");
         assert_eq!(schema.properties.len(), 1, "one key, not two");
-        let json = to_canonical_json(&schema).unwrap();
+        let (key, node) = schema.properties.iter().next().unwrap();
         assert_eq!(
-            json.matches("\"defaultValue\"").count(),
-            1,
-            "the key must appear once: {json}"
+            key, "type",
+            "both fields must collide onto the same wire key"
         );
         // Last write wins, as it does in JS.
-        assert_eq!(
-            schema.properties.iter().next().unwrap().1.ty,
-            Some("number")
-        );
+        assert_eq!(node.ty, Some("number"));
     }
 
     #[test]
@@ -774,7 +1319,7 @@ mod tests {
             ),
         ];
         let types = vec![other, target, holder];
-        let ctx = ProjectionContext::new(&types, &fields);
+        let ctx = ProjectionContext::new("com.test", &types, &fields);
         let schema = emit_entity(&ctx, "holder").expect("projects");
         let defs = schema.defs.expect("an inline ref contributes a $def");
         let (_, body) = defs.iter().next().unwrap();

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Alternate keys this lifecycle state is also known by."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Alternate keys this lifecycle state is also known by.",
+  "id": "4b00003b-0000-4000-a000-00000000003b",
+  "name": "aliases",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string",
+    "cardinality": "list"
+  },
+  "version": 1
+}

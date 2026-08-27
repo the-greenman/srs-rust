@@ -78,7 +78,7 @@
   "sourceRefs": [
     {
       "note": "User-provided semantic pipeline use case: use SRS protocols to guide AI through layered meaning-making from transcripts in source-documents, with each protocol output becoming structured context for later extraction and formatted export.",
-      "relationType": "inspired-by",
+      "sourceRole": "inspired-by",
       "sourceId": "user-provided-semantic-pipeline-use-case-2026-05-28",
       "sourceType": "external-document"
     }

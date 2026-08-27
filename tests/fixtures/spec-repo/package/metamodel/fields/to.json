@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "The target lifecycle state key this transition arrives at."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "The target lifecycle state key this transition arrives at.",
+  "id": "4b000045-0000-4000-a000-000000000045",
+  "name": "to",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

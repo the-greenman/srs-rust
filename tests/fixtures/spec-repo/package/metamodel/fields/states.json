@@ -1,0 +1,22 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "The lifecycle's states; at least one, exactly one marked isInitial (Invariant 4)."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "The lifecycle's states; at least one, exactly one marked isInitial (Invariant 4).",
+  "id": "4b000041-0000-4000-a000-000000000041",
+  "name": "states",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "ref",
+    "mode": "inline",
+    "cardinality": "list",
+    "rangeType": {
+      "typeId": "4c00000c-0000-4000-a000-00000000000c",
+      "typeVersion": 1
+    },
+    "minItems": 1
+  },
+  "version": 1
+}

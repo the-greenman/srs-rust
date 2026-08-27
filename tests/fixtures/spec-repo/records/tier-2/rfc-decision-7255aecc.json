@@ -1,0 +1,37 @@
+{
+  "instanceId": "7255aecc-0e7b-44e1-84e0-32fe2c6bc9a1",
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeVersion": 2,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc-decision",
+  "fieldValues": {
+    "title": "Type-keyed `type-query`: KEYED namespace/name replaces semanticObjectType dispatch",
+    "rfc_status": "accepted",
+    "decision_date": "2026-08-25",
+    "decision_rationale": "srs-rust#826's triage surfaced a vendored-seed divergence traced to an unexecuted ruling: the owner already ruled (the one-way-per-goal proving case, E4/semanticObjectType vs the Type system, and #383's 2026-08-15 disposition) that semanticObjectType's parallel type-selection taxonomy collapses into the Type system, but no issue ever scheduled the mechanism. #383's placement decision (2026-08-24) routes the DESIGN of the replacement into this train (RFC-040 Change K) and its EXECUTION to #272. The dispatch form itself is determined, not chosen fresh: rfc-decision-c8704763 already rules that presentation and dispatch follow LINEAGE or KEYED, never PINNED (the axis 2-8 corollary — a composition must not absorb a version bump) and never the retired semanticObjectType string taxonomy (one-way-per-goal). Of the two remaining candidates, KEYED (namespace/name, resolved against the effective package set — the same form typeFilter/typeDispatch already use) is the correct fit: a DocumentSection's type-query selection is a live, version-independent dispatch over whatever Type versions are currently installed, exactly LINEAGE/KEYED's shared use case, and specifically KEYED (not LINEAGE's bare UUID) because the authoring surface for a DocumentSection is human-edited declarative JSON where a namespace/name key is legible and stable across a Type's own version bumps, matching typeFilter's and typeDispatch's existing precedent in the same schema.",
+    "decision_statement": "The `SectionSource` `type-query` variant's selection key becomes Type-keyed: a `typeKey` string in `namespace/name` form (version-independent, KEYED per rfc-decision-c8704763), resolved against the effective installed package set at query time — the same resolution `typeFilter`/`typeDispatch` already perform elsewhere in `document-view.json`. `semanticObjectType` (a bare, unscoped string with no installed-definition backing) is retired from `SectionSource` once #272 migrates every consumer; until then it stays modelled as sanctioned-until-collapsed (RFC-040 metamodel v1.1.0, #383). Every other `type-query` filter axis (lifecycleState, lifecycleStates, excludeLifecycleStates, containerIds, containerScope) is unchanged — only the selection key changes shape, from an unscoped free string to a scoped, installed-definition-backed key. A `typeKey` that does not resolve in the effective package set is a validation error at query time, not a silent empty result (matching typeFilter's existing contract) — the same fail-closed posture RFC-040 applies throughout: an unrecognised dispatch target is an error, never quietly ignored. This is a design record only: no schema file changes here. #272 owns the SectionSource schema edit, the four-site semanticObjectType retirement (type.json, view.json, relation-type.json, document-view.json), the governance package's 1.2.0 republish with migrated document-views, the srs-rust dispatch removal (SectionSource::TypeQuery, governance_scaffold_service.rs's DECISION_TYPE_KEY dispatch), the vendored-seed re-vendor, and the I-142/143/144 invariant amendments (srs#410's relocated RFC-011 invariants governing this exact SectionSource shape).",
+    "decision_scope": "Governs the eventual SectionSource type-query redesign and nothing else; does not itself change any schema, package, or Rust code. Placement per the 2026-08-15 owner ruling on srs#383 and the 2026-08-24 #273 planning session's routing comment. Supersedes no accepted RFC; narrows no standing contract. #272 is execution-ready to consume this design directly.",
+    "governing_values": [
+      "shared-coherence",
+      "semantic-integrity"
+    ],
+    "project_phase": "formation",
+    "alternatives_considered": "Keep semanticObjectType as the permanent dispatch key (rejected: the owner's one-way-per-goal ruling already found this a parallel taxonomy that must collapse into the Type system, srs-rust#826/#383). PINNED {typeId, typeVersion} dispatch (rejected: rfc-decision-c8704763's axis 2-8 corollary — presentation/dispatch must not absorb a version bump; a DocumentSection authored against one Type version would silently stop matching Records of a newer version). A fifth reference strength invented specifically for this case (rejected: c8704763 states no fifth strength without a charter amendment, and KEYED already covers this shape with existing precedent in the same schema).",
+    "accepted_costs": "Deferred execution risk: this design is not enforced by any schema or test until #272 lands it, so it could in principle drift from what #272 actually builds if the two are separated by a long interval — mitigated by this record being the cited, execution-ready contract #272's issue points to, not a free-floating suggestion. Authors of new DocumentSection type-query sections between now and #272's landing continue to use semanticObjectType (sanctioned-until-collapsed) since the KEYED form is not yet implemented.",
+    "evidence_refs": [
+      "srs-rust#826 (triage that surfaced the vendored-seed divergence)",
+      "srs#383 (execution tracker; 2026-08-15 owner ruling; 2026-08-24 placement comment)",
+      "rfc-decision-c8704763 (the reference taxonomy; PINNED/LINEAGE/KEYED/LOCATOR strengths and the axis 2-8 corollary)",
+      "RFC-040 Change K (train unit 4a-5, srs#481)",
+      "the closed #163 (portability class the container-subset repair risked, cited on srs#383)"
+    ],
+    "review_trigger": "#272 begins execution (SectionSource schema edit, semanticObjectType retirement, governance 1.2.0, Rust dispatch removal, re-vendor, I-142/143/144 amendments) — at which point this record's design_statement is either implemented as stated or amended with the reason it changed."
+  },
+  "tags": [
+    "topic:rfc",
+    "cell:reference"
+  ],
+  "createdAt": "2026-08-25T17:20:31.013161819+00:00",
+  "updatedAt": "2026-08-25T17:20:46.484850189+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
+}

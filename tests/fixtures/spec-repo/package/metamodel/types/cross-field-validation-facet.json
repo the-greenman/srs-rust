@@ -1,0 +1,22 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "Models the one property ext:cross-field-validation contributes to a Type: its own array of CrossFieldRules."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "ext:cross-field-validation (RFC-019) — the validationRules facet, contributed to Type by inheritance (RFC-040 Change A). Per I-97 the array is each Type's own complete and exclusive set; it is not inherited by value.",
+  "fields": [
+    {
+      "fieldId": "4b000059-0000-4000-a000-000000000059",
+      "order": 0,
+      "required": false,
+      "displayLabel": "Validation Rules"
+    }
+  ],
+  "id": "4c000013-0000-4000-a000-000000000013",
+  "name": "cross-field-validation-facet",
+  "namespace": "com.semanticops.srs",
+  "version": 1,
+  "extendsTypeId": "4c000002-0000-4000-a000-000000000002",
+  "extendsTypeVersion": 1
+}

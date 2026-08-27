@@ -1,0 +1,18 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "ext:type-inheritance — the version of the base Type being extended."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "ext:type-inheritance — the version of the base Type being extended.",
+  "id": "4b000053-0000-4000-a000-000000000053",
+  "name": "extends_type_version",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "integer",
+    "constraints": {
+      "minimum": 1
+    }
+  },
+  "version": 1
+}

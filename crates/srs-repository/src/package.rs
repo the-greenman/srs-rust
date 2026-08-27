@@ -686,9 +686,9 @@ mod tests {
             .load_package()
             .expect("should load live srs package");
         let view = package
-            .resolve_document_view("ec34f54b-8636-5c8b-af5b-c9eb3df24fe6")
+            .resolve_document_view("3a000004-0000-4000-a000-000000000004")
             .expect("should find srs spec document view");
-        assert_eq!(view.name, "srs-spec-document-view");
+        assert_eq!(view.name, "unified-document-view");
     }
 
     #[test]

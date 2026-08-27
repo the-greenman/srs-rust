@@ -1,16 +1,16 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-06-28T14:37:38.785442829+00:00",
+  "instanceId": "80d769eb-12e0-40fe-ba4f-be9699184ad2",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant",
   "fieldValues": {
     "invariant_number": "I-80",
     "title": "Root container membership ids resolve in the authoritative instance set",
-    "normative_statement": "Every id in the root container's rootInstanceIds and memberInstanceIds MUST resolve to a member of the repository's authoritative instance set. The manifest instanceIndex is the cache of that set (RFC-012 R6), not an independent authority. This is the root-container specialization of core Invariant 21, stated separately so the required-root-container guarantee is self-contained.",
-    "applies_to": "ext:repository (RepositoryManifest, Container); RFC-013"
+    "normative_statement": "Every id in the root container's rootInstanceIds and memberInstanceIds MUST resolve to a member of the repository's authoritative instance set. There is no manifest `instanceIndex` to consult — it is retired (RFC-038 [R2]); the repository's authoritative store, enumerated from the tree, is that set (RFC-038 [R1]). This is the root-container specialization of core Invariant 21, stated separately so the required-root-container guarantee is self-contained.",
+    "applies_to": "ext:repository (RepositoryManifest, Container); RFC-013; RFC-038"
   },
-  "instanceId": "80d769eb-12e0-40fe-ba4f-be9699184ad2",
-  "typeId": "2a000006-0000-4000-a000-000000000006",
-  "typeName": "invariant",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-06-28T14:37:38.785444828+00:00"
+  "createdAt": "2026-06-28T14:37:38.785442829+00:00",
+  "updatedAt": "2026-08-22T22:52:44.092057053+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

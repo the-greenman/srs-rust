@@ -1,0 +1,21 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "ext:cross-field-validation — cross-field validation rules applied to Records of this Type. Per I-97, this array is each Type's own complete and exclusive set; it is not inherited by value."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "ext:cross-field-validation — cross-field validation rules applied to Records of this Type. Per I-97, this array is each Type's own complete and exclusive set; it is not inherited by value.",
+  "id": "4b000059-0000-4000-a000-000000000059",
+  "name": "validation_rules",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "ref",
+    "mode": "inline",
+    "cardinality": "list",
+    "rangeType": {
+      "typeId": "4c000010-0000-4000-a000-000000000010",
+      "typeVersion": 1
+    }
+  },
+  "version": 1
+}

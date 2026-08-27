@@ -1,0 +1,17 @@
+{
+  "instanceId": "f287f47c-c64a-400a-b348-89374b26bbce",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant",
+  "fieldValues": {
+    "invariant_number": "I-142",
+    "title": "lifecycleStates in SectionSource.type-query is an inclusive multi-value lifecycle filter",
+    "normative_statement": "When SectionSource.type-query carries a non-empty lifecycleStates array, implementations MUST restrict the query result to Records whose lifecycleState matches any value in the array (OR semantics). A Record with no lifecycleState MUST be excluded when lifecycleStates is present and non-empty. When lifecycleStates is absent or empty, no filtering by this field is applied and all lifecycle states (including absent) are included. Implementations that do not declare ext:lifecycle MUST ignore lifecycleStates and MUST NOT produce a validation error on its presence.",
+    "applies_to": "ext:views-l2 + ext:lifecycle",
+    "rationale": "Multi-value OR semantics mirrors typeFilter and enables queries that span multiple lifecycle stages (e.g. draft and active). The ext:lifecycle guard ensures that implementations without a lifecycle model are not broken by the field. Originally numbered 011-1 under RFC-011's rule-set-qualified proposal-stage numbering; relocated from package/records/ into the projection root and renumbered I-142 upon RFC-011 acceptance (srs#410, rfc-decision-628cf6c4)."
+  },
+  "createdAt": "2026-06-25T08:07:36.481983136+00:00",
+  "updatedAt": "2026-08-22T20:30:34.776931217+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
+}

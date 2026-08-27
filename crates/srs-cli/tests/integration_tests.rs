@@ -3570,7 +3570,7 @@ fn create_temp_repo_with_protocol_package() -> TempDir {
         serde_json::to_string_pretty(&serde_json::json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
-            "dataModelRevision": 2,
+            "dataModelRevision": 3,
             "repositoryId": "00000000-0000-4000-8000-000000009900",
             "title": "Protocol Test Repo",
             "container": {
@@ -4876,7 +4876,7 @@ fn render_document_view_returns_rendered_payload() {
         "render",
         "document-view",
         "--view",
-        "ec34f54b-8636-5c8b-af5b-c9eb3df24fe6",
+        "3a000004-0000-4000-a000-000000000004",
     ]);
     assert_eq!(result["ok"], true);
     assert_eq!(result["command"], "render document-view");
@@ -4913,7 +4913,7 @@ fn render_document_view_writes_output_file() {
         "render",
         "document-view",
         "--view",
-        "ec34f54b-8636-5c8b-af5b-c9eb3df24fe6",
+        "3a000004-0000-4000-a000-000000000004",
         "--output",
         &out_str,
     ]);
@@ -4928,7 +4928,7 @@ fn render_document_view_view_format_text_overrides_markup() {
         "render",
         "document-view",
         "--view",
-        "ec34f54b-8636-5c8b-af5b-c9eb3df24fe6",
+        "3a000004-0000-4000-a000-000000000004",
         "--view-format",
         "text",
     ]);
@@ -7090,7 +7090,7 @@ fn repo_migrations_lists_the_registered_migrations() {
     let migrations = result["payload"]["migrations"]
         .as_array()
         .expect("migrations must be an array");
-    assert_eq!(migrations.len(), 5, "expected exactly five migrations");
+    assert_eq!(migrations.len(), 6, "expected exactly six migrations");
 
     let ids: Vec<&str> = migrations
         .iter()
@@ -7101,6 +7101,7 @@ fn repo_migrations_lists_the_registered_migrations() {
         vec![
             "field-type",
             "rfc039-carrier",
+            "metamodel-v1-1-0",
             "migrate-identity",
             "repo-upgrade",
             "rfc038-storage"
@@ -7124,11 +7125,12 @@ fn repo_migrations_lists_the_registered_migrations() {
         );
     }
 
-    // The fixture manifest is stamped at the current revision → field-type and
-    // rfc039-carrier are alreadyApplied; no container → migrate-identity is
-    // notApplicable; no instances → repo-upgrade is alreadyApplied; no retired
-    // manifest properties and no collection file → rfc038-storage is
-    // alreadyApplied.
+    // The fixture manifest is stamped at revision 2 (RFC-039 carrier, not yet
+    // RFC-040's metamodel v1.1.0) → field-type and rfc039-carrier are
+    // alreadyApplied, metamodel-v1-1-0 is needed; no container →
+    // migrate-identity is notApplicable; no instances → repo-upgrade is
+    // alreadyApplied; no retired manifest properties and no collection file →
+    // rfc038-storage is alreadyApplied.
     let status = |id: &str, key: &str| {
         migrations
             .iter()
@@ -7138,6 +7140,7 @@ fn repo_migrations_lists_the_registered_migrations() {
     };
     assert_eq!(status("field-type", "alreadyApplied"), true);
     assert_eq!(status("rfc039-carrier", "alreadyApplied"), true);
+    assert_eq!(status("metamodel-v1-1-0", "needed"), true);
     assert_eq!(status("rfc038-storage", "alreadyApplied"), true);
     assert_eq!(status("migrate-identity", "notApplicable"), true);
     assert_eq!(status("repo-upgrade", "alreadyApplied"), true);
@@ -7358,10 +7361,16 @@ fn repo_apply_migration_field_type_rewrites_a_legacy_field_end_to_end() {
     );
 
     // ...and after completing the ladder to the current revision
-    // (rfc039-carrier is migration #2, rfc038-storage is the placement
-    // transform), the repository validates clean.
+    // (rfc039-carrier is migration #2, metamodel-v1-1-0 is migration #3,
+    // rfc038-storage is the placement transform), the repository validates
+    // clean.
     let carrier = run_srs_in_dir(repo, &["repo", "apply-migration", "--id", "rfc039-carrier"]);
     assert_eq!(carrier["ok"], true, "expected ok: {carrier:?}");
+    let metamodel = run_srs_in_dir(
+        repo,
+        &["repo", "apply-migration", "--id", "metamodel-v1-1-0"],
+    );
+    assert_eq!(metamodel["ok"], true, "expected ok: {metamodel:?}");
     let storage = run_srs_in_dir(repo, &["repo", "apply-migration", "--id", "rfc038-storage"]);
     assert_eq!(storage["ok"], true, "expected ok: {storage:?}");
     let after = run_srs_in_dir(repo, &["repo", "validate"]);

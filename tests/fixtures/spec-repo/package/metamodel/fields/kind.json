@@ -1,0 +1,22 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "The kind of cross-field constraint."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "The kind of cross-field constraint.",
+  "id": "4b00004b-0000-4000-a000-00000000004b",
+  "name": "kind",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string",
+    "valueDomain": "closed",
+    "allowedValues": [
+      "conditional-required",
+      "field-ordering",
+      "mutual-exclusion",
+      "conditional-forbidden"
+    ]
+  },
+  "version": 1
+}

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "Describes a lifecycle transition: its name and its from/to state keys."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "One named edge in a TypeLifecycle, from one state key to another.",
+  "fields": [
+    {
+      "fieldId": "4b000001-0000-4000-a000-000000000001",
+      "order": 0,
+      "required": false
+    },
+    {
+      "fieldId": "4b000046-0000-4000-a000-000000000046",
+      "order": 1,
+      "required": true,
+      "displayLabel": "Name"
+    },
+    {
+      "fieldId": "4b000044-0000-4000-a000-000000000044",
+      "order": 2,
+      "required": true
+    },
+    {
+      "fieldId": "4b000045-0000-4000-a000-000000000045",
+      "order": 3,
+      "required": true
+    },
+    {
+      "fieldId": "4b000005-0000-4000-a000-000000000005",
+      "order": 4,
+      "required": false
+    },
+    {
+      "fieldId": "4b000040-0000-4000-a000-000000000040",
+      "order": 5,
+      "required": false
+    }
+  ],
+  "id": "4c00000e-0000-4000-a000-00000000000e",
+  "name": "lifecycle-transition",
+  "namespace": "com.semanticops.srs",
+  "version": 1
+}

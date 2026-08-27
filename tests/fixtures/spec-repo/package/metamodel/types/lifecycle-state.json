@@ -1,0 +1,77 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "Describes one state in a TypeLifecycle: its key, labels, and optional relational obligation."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "A lifecycle state (VocabularyEntry specialization). key is the unified substrate field (was name pre-RFC-006).",
+  "fields": [
+    {
+      "fieldId": "4b000001-0000-4000-a000-000000000001",
+      "order": 0,
+      "required": false
+    },
+    {
+      "fieldId": "4b000004-0000-4000-a000-000000000004",
+      "order": 1,
+      "required": false
+    },
+    {
+      "fieldId": "4b000002-0000-4000-a000-000000000002",
+      "order": 2,
+      "required": false
+    },
+    {
+      "fieldId": "4b000039-0000-4000-a000-000000000039",
+      "order": 3,
+      "required": true
+    },
+    {
+      "fieldId": "4b00003a-0000-4000-a000-00000000003a",
+      "order": 4,
+      "required": false
+    },
+    {
+      "fieldId": "4b000005-0000-4000-a000-000000000005",
+      "order": 5,
+      "required": false
+    },
+    {
+      "fieldId": "4b00003b-0000-4000-a000-00000000003b",
+      "order": 6,
+      "required": false
+    },
+    {
+      "fieldId": "4b00003c-0000-4000-a000-00000000003c",
+      "order": 7,
+      "required": false,
+      "displayLabel": "Is Initial"
+    },
+    {
+      "fieldId": "4b00003d-0000-4000-a000-00000000003d",
+      "order": 8,
+      "required": false,
+      "displayLabel": "Is Final"
+    },
+    {
+      "fieldId": "4b00003e-0000-4000-a000-00000000003e",
+      "order": 9,
+      "required": false
+    },
+    {
+      "fieldId": "4b00003f-0000-4000-a000-00000000003f",
+      "order": 10,
+      "required": false,
+      "displayLabel": "Requires Relation"
+    },
+    {
+      "fieldId": "4b000040-0000-4000-a000-000000000040",
+      "order": 11,
+      "required": false
+    }
+  ],
+  "id": "4c00000c-0000-4000-a000-00000000000c",
+  "name": "lifecycle-state",
+  "namespace": "com.semanticops.srs",
+  "version": 1
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "ext:lifecycle — inline state machine declaration. Mutually exclusive with lifecycleRef."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "ext:lifecycle — inline state machine declaration. Mutually exclusive with lifecycleRef.",
+  "id": "4b000056-0000-4000-a000-000000000056",
+  "name": "lifecycle",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "ref",
+    "mode": "inline",
+    "rangeType": {
+      "typeId": "4c00000b-0000-4000-a000-00000000000b",
+      "typeVersion": 1
+    }
+  },
+  "version": 1
+}

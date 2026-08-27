@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "The source lifecycle state key this transition departs from."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "The source lifecycle state key this transition departs from.",
+  "id": "4b000044-0000-4000-a000-000000000044",
+  "name": "from",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

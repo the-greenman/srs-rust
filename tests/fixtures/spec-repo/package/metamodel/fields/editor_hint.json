@@ -1,0 +1,25 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Presentation only (not part of the type model — RFC-032). Suggested UI control; implementations and Views may override. Consolidated by the rendering follow-up #262."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Presentation only (not part of the type model — RFC-032). Suggested UI control; implementations and Views may override. Consolidated by the rendering follow-up #262.",
+  "id": "4b000038-0000-4000-a000-000000000038",
+  "name": "editor_hint",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string",
+    "valueDomain": "closed",
+    "allowedValues": [
+      "singleline",
+      "textarea",
+      "rich-text",
+      "date-picker",
+      "dropdown",
+      "multi-select",
+      "voice"
+    ]
+  },
+  "version": 1
+}

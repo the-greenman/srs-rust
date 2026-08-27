@@ -1,6 +1,10 @@
 {
   "containerId": "c23443b8-8f26-425e-999f-61b7f918a931",
+  "title": "Key Invariants",
   "containerType": "section",
+  "rootInstanceIds": [
+    "df42f888-4d95-5a51-963e-60d10c36533c"
+  ],
   "memberInstanceIds": [
     "812a7f7f-cb3e-5927-bc10-a097ffe28178",
     "078b205b-a636-5f5c-b120-f84a7bcd5463",
@@ -21,11 +25,6 @@
     "31bc8a13-bcef-5c71-826d-2fd5528ce021",
     "cd8fdb47-61c6-51e5-8b9a-31f7745b1b42",
     "38d8c953-8133-51c7-aa5f-05ef5d7bf44f",
-    "8c665338-6466-5721-83d8-42caefcd6506",
-    "40eb2d7e-30c4-5b7b-8626-78c4e8ce98ed"
-  ],
-  "rootInstanceIds": [
-    "df42f888-4d95-5a51-963e-60d10c36533c"
-  ],
-  "title": "Key Invariants"
+    "8c665338-6466-5721-83d8-42caefcd6506"
+  ]
 }

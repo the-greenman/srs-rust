@@ -1,0 +1,54 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "Describes one cross-field rule: its kind, the field(s) it examines, and its effect."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "ext:cross-field-validation — a constraint that validates a relationship between fields in a Record.",
+  "fields": [
+    {
+      "fieldId": "4b00004b-0000-4000-a000-00000000004b",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Kind"
+    },
+    {
+      "fieldId": "4b00004c-0000-4000-a000-00000000004c",
+      "order": 1,
+      "required": false
+    },
+    {
+      "fieldId": "4b00004d-0000-4000-a000-00000000004d",
+      "order": 2,
+      "required": false,
+      "displayLabel": "Predicate Field"
+    },
+    {
+      "fieldId": "4b00004e-0000-4000-a000-00000000004e",
+      "order": 3,
+      "required": false,
+      "displayLabel": "Predicate Value"
+    },
+    {
+      "fieldId": "4b00004f-0000-4000-a000-00000000004f",
+      "order": 4,
+      "required": false,
+      "displayLabel": "Target Field"
+    },
+    {
+      "fieldId": "4b000050-0000-4000-a000-000000000050",
+      "order": 5,
+      "required": false
+    },
+    {
+      "fieldId": "4b000051-0000-4000-a000-000000000051",
+      "order": 6,
+      "required": false,
+      "displayLabel": "Field Ids"
+    }
+  ],
+  "id": "4c000010-0000-4000-a000-000000000010",
+  "name": "cross-field-rule",
+  "namespace": "com.semanticops.srs",
+  "version": 1
+}

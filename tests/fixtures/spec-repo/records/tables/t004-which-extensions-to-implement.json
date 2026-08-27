@@ -1,6 +1,9 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-05-27T00:00:00Z",
+  "instanceId": "b1000000-0000-4000-a000-000000000004",
+  "typeId": "2a000013-0000-4000-a000-000000000013",
+  "typeVersion": 3,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "table",
   "fieldValues": {
     "intro": "Start with the question: what does your implementation need to do?",
     "columns": [
@@ -59,7 +62,7 @@
       {
         "cells": [
           "Extraction from source material",
-          "`ext:blueprint`"
+          "Blueprint (`Package.blueprints[]`)"
         ]
       },
       {
@@ -94,13 +97,11 @@
       }
     ]
   },
-  "typeVersion": 3,
-  "instanceId": "b1000000-0000-4000-a000-000000000004",
   "tags": [
     "construct:reference",
     "topic:foundation"
   ],
-  "typeId": "2a000013-0000-4000-a000-000000000013",
-  "typeName": "table",
-  "typeNamespace": "com.semanticops.spec"
+  "createdAt": "2026-05-27T00:00:00Z",
+  "updatedAt": "2026-08-20T00:45:49.482505451+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }
