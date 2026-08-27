@@ -517,6 +517,7 @@ mod tests {
 
     fn make_blueprint(id: &str, name: &str, version: u32) -> srs_core::types::blueprint::Blueprint {
         srs_core::types::blueprint::Blueprint {
+            schema: None,
             id: id.to_string(),
             namespace: "com.example".to_string(),
             name: name.to_string(),

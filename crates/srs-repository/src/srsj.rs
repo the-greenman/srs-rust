@@ -570,11 +570,11 @@ mod tests {
             .find(|t| t.name == "thing")
             .expect("type loaded");
         assert_eq!(
-            record_type.extra.get("aiGuidance").and_then(|v| v.as_str()),
+            record_type.ai_guidance.as_ref().and_then(|v| v.as_str()),
             Some("guidance survives")
         );
         assert_eq!(
-            record_type.extra.get("$schema").and_then(|v| v.as_str()),
+            record_type.schema.as_deref(),
             Some("https://srs.semanticops.com/schema/2.0/type.json")
         );
     }

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// Reference to a specific Type, used within Blueprint.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TypeRef {
     pub type_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -12,7 +12,7 @@ pub struct TypeRef {
 
 /// Declares an expected Relation between two Record types within a Blueprint.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RelationSpec {
     pub relation_type: String,
     pub source_type: TypeRef,
@@ -25,8 +25,12 @@ pub struct RelationSpec {
 
 /// Blueprint definition — the definition of a complete document type for extraction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Blueprint {
+    /// The `$schema` pointer the file may carry — declared by the schema itself,
+    /// preserved so a loaded-then-written definition keeps it.
+    #[serde(rename = "$schema", default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
     #[serde(default)]
     pub id: String,
     pub namespace: String,

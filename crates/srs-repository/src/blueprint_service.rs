@@ -414,6 +414,7 @@ mod tests {
 
     fn minimal_blueprint(name: &str) -> Blueprint {
         Blueprint {
+            schema: None,
             id: String::new(),
             namespace: "test".to_string(),
             name: name.to_string(),

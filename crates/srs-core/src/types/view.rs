@@ -1,10 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 /// RFC-036 Change A (ext:views-l1) — a view-owned composite rendering dispatch
 /// record. Presentation only ([CR-036-20]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CompositeRendererBinding {
     /// Renderer identifier. Bare lower-kebab names are SRS-reserved (`table`,
     /// and the sentinel `baseline` meaning explicitly no renderer); vendor
@@ -19,7 +18,7 @@ pub struct CompositeRendererBinding {
 /// RFC-036 Change B (ext:views-l2) — a CompositeRendererBinding plus the
 /// composite-range Field it binds.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CompositeRendererDirective {
     pub field_id: String,
     pub renderer: String,
@@ -28,8 +27,13 @@ pub struct CompositeRendererDirective {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FieldView {
+    /// Declared by `view.json` — carried so a load/write round trip keeps it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub editor_hint_override: Option<serde_json::Value>,
     pub field_id: String,
     pub order: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -45,7 +49,7 @@ pub struct FieldView {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExportConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
@@ -66,8 +70,12 @@ pub enum ViewProtection {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct View {
+    /// The `$schema` pointer the file may carry — declared by the schema itself,
+    /// preserved so a loaded-then-written definition keeps it.
+    #[serde(rename = "$schema", default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
     #[serde(default)]
     pub id: String,
     pub namespace: String,
@@ -84,8 +92,18 @@ pub struct View {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
     pub created_at: String,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, serde_json::Value>,
+    /// Authoring guidance for the View (`view.json` `aiGuidance`) — carried,
+    /// not interpreted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai_guidance: Option<serde_json::Value>,
+    /// RFC-014 provenance/lineage — declared by the schema; carried so a
+    /// load/write round trip keeps it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lineage: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -143,12 +161,20 @@ pub enum RelationDirection {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SectionOrdering {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub direction: Option<SortDirection>,
+    /// RFC-015 [N+29] — the view-owned explicit presentation sequence for a
+    /// `container-subset` section: `instanceId`s in presentation order, with
+    /// unlisted members appended in [N+12] order. Declared by
+    /// `document-view.json`, so a strict `SectionOrdering` has to model it or a
+    /// schema-valid DocumentView would stop loading. Carried, not yet consumed
+    /// — honouring it is srs-rust#567.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub member_order: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -174,7 +200,7 @@ pub enum PresentationDirection {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RelationPresentationEntry {
     pub relation_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -186,7 +212,7 @@ pub struct RelationPresentationEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RelationsPresentation {
     pub include: Vec<RelationPresentationEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -195,7 +221,7 @@ pub struct RelationsPresentation {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DocumentSection {
     pub section_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -228,7 +254,7 @@ pub struct DocumentSection {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NavigationLink {
     pub from_section_id: String,
     pub to_section_id: String,
@@ -247,7 +273,7 @@ pub enum ThemeMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ThemeReference {
     pub mode: ThemeMode,
     /// Relative path to the theme directory, as declared in the view document (mode: "local" only).
@@ -262,7 +288,7 @@ pub struct ThemeReference {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ThemeVariant {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -277,15 +303,19 @@ pub struct ThemeVariant {
 /// package-validation-time anchor (RFC-009 I-63): each entry must resolve to a specific
 /// Type version in the package.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExactTypeRef {
     pub type_id: String,
     pub type_version: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DocumentView {
+    /// The `$schema` pointer the file may carry — declared by the schema itself,
+    /// preserved so a loaded-then-written definition keeps it.
+    #[serde(rename = "$schema", default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
     #[serde(default)]
     pub id: String,
     pub namespace: String,
@@ -319,19 +349,33 @@ pub struct DocumentView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
     pub created_at: String,
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, serde_json::Value>,
+    /// Authoring guidance for the DocumentView (`document-view.json`
+    /// `aiGuidance`) — carried, not interpreted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai_guidance: Option<serde_json::Value>,
+    /// RFC-014 provenance/lineage — declared by the schema; carried so a
+    /// load/write round trip keeps it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lineage: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     #[test]
     fn document_view_roundtrips_json() {
-        let mut extra = BTreeMap::new();
-        extra.insert("xCustom".to_string(), serde_json::json!("keep"));
         let dv = DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
             composite_renderers: None,
             id: "ec34f54b-8636-5c8b-af5b-c9eb3df24fe6".to_string(),
             namespace: "com.semanticops.srs".to_string(),
@@ -360,6 +404,7 @@ mod tests {
                 type_dispatch: None,
                 title_field_id: Some("field-title".to_string()),
                 ordering: Some(SectionOrdering {
+                    member_order: None,
                     field_id: Some("field-order".to_string()),
                     direction: Some(SortDirection::Asc),
                 }),
@@ -395,7 +440,6 @@ mod tests {
             }]),
             tags: Some(vec!["spec".to_string()]),
             created_at: "2026-05-29T00:00:00Z".to_string(),
-            extra,
         };
 
         let json = serde_json::to_string(&dv).unwrap();

@@ -30,29 +30,63 @@ impl PrecedesSortable for crate::record_store::LoadedInstance {
     }
 }
 
-/// Sort records by following the `precedes` relation chain among them.
+/// Order records by their `precedes` relations — Rule [N+12]'s topological sort.
 ///
-/// Builds a linked-list ordering from `precedes` relations whose both endpoints
-/// are in the candidate set. Records not connected by any precedes relation fall
-/// back to the canonical tiebreak order: `created_at` ascending, then
-/// `instance_id` ascending. The tiebreak is a total order, so output is
-/// byte-identical across runs even when timestamps collide or are absent
-/// (#532 — previously chain heads were emitted in `HashMap` iteration order).
-/// Handles cycles via a visited set.
+/// `precedes` is a DAG, not a linked list: a node may have several successors.
+/// RFC-013 step 4 requires a fork (or a cycle) to still yield **one
+/// deterministic order plus a diagnostic** — a fork is not invalidity, and
+/// resolving it by whichever edge the relations file happens to list last is
+/// exactly the order-dependence RFC-038 [R14] forbids.
+///
+/// The traversal is Kahn's algorithm, so a node is never emitted before a
+/// predecessor (which a chain-following walk gets wrong on a join). Among the
+/// nodes that are ready, the canonical RFC-013 tiebreak decides — `createdAt`
+/// ascending, then `instanceId` ascending, a total order, so the output is
+/// byte-identical however the relations arrive (#532).
+///
+/// Successors freed by the node just emitted are preferred over the rest of the
+/// ready set. That is not arbitrary: [N+12] reads "order the member instances by
+/// the `precedes` relation chain among them (topological sort); instances **not
+/// connected by any `precedes` relation** are ordered by `createdAt` ascending
+/// as a tiebreak". The tiebreak is for the *unconnected* members, not a global
+/// interleaving key — so a chain stays contiguous and an unchained record takes
+/// its place among the other unchained ones, rather than being spliced into the
+/// middle of a chain because its timestamp happens to fall there. Several
+/// topological orders satisfy [N+12]; this is the one that reads it that way,
+/// and it is also the order the pre-Kahn implementation produced, so no existing
+/// document reorders.
+///
+/// Records left over after the traversal are in a cycle; they are appended in
+/// the same tiebreak order rather than dropped.
 ///
 /// Extracted from `render_service` — shared by render and tree services.
 pub(crate) fn sort_by_precedes_chain<T: PrecedesSortable>(
     records: Vec<T>,
     relations: &[Relation],
 ) -> Vec<T> {
+    sort_by_precedes_chain_diagnosed(records, relations).0
+}
+
+/// [`sort_by_precedes_chain`] plus the RFC-013 step 4 diagnostics naming each
+/// forking and each cyclic node. Callers with a diagnostics channel (repository
+/// navigation) use this one; the rest take the order alone.
+pub(crate) fn sort_by_precedes_chain_diagnosed<T: PrecedesSortable>(
+    records: Vec<T>,
+    relations: &[Relation],
+) -> (Vec<T>, Vec<String>) {
     if records.len() <= 1 {
-        return records;
+        return (records, Vec::new());
     }
 
     let id_set: HashSet<&str> = records.iter().map(|r| r.precedes_instance_id()).collect();
+    let record_map: HashMap<&str, &T> = records
+        .iter()
+        .map(|r| (r.precedes_instance_id(), r))
+        .collect();
 
-    let mut next: HashMap<&str, &str> = HashMap::new();
+    let mut successors: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut in_degree: HashMap<&str, usize> = id_set.iter().map(|id| (*id, 0)).collect();
+    let mut seen_edges: HashSet<(&str, &str)> = HashSet::new();
 
     for rel in relations {
         if rel.relation_type != "precedes" {
@@ -60,77 +94,115 @@ pub(crate) fn sort_by_precedes_chain<T: PrecedesSortable>(
         }
         let src = rel.source_instance_id.as_str();
         let tgt = rel.target_instance_id.as_str();
-        if id_set.contains(src) && id_set.contains(tgt) {
-            // NOTE: `next` is a 1:1 map — if a record has multiple outgoing `precedes`
-            // edges the last one wins. The SRS spec defines precedes as a linked-list
-            // chain (each node precedes exactly one successor), so fan-out is not a
-            // valid configuration; this limitation matches the spec invariant.
-            next.insert(src, tgt);
-            *in_degree.entry(tgt).or_insert(0) += 1;
+        if !id_set.contains(src) || !id_set.contains(tgt) {
+            continue;
         }
+        // A duplicate edge is one claim asserted twice, not two constraints —
+        // counting it twice would leave the target permanently unready.
+        if !seen_edges.insert((src, tgt)) {
+            continue;
+        }
+        successors.entry(src).or_default().push(tgt);
+        *in_degree.entry(tgt).or_insert(0) += 1;
     }
 
-    let record_map: HashMap<&str, &T> = records
-        .iter()
-        .map(|r| (r.precedes_instance_id(), r))
-        .collect();
+    // The canonical RFC-013 tiebreak, over ids resolved through `record_map`.
+    let tiebreak = |a: &str, b: &str| {
+        let key = |id: &str| record_map.get(id).and_then(|r| r.precedes_created_at());
+        key(a)
+            .unwrap_or("")
+            .cmp(key(b).unwrap_or(""))
+            .then_with(|| a.cmp(b))
+    };
 
-    // Collect chain heads from the caller-supplied record order (NOT HashMap
-    // iteration, which is randomized per process), then sort by the canonical
-    // (created_at, instance_id) tiebreak. Without the instance_id component,
-    // heads with equal or missing timestamps would keep whatever transient
-    // order they arrived in — the #532 nondeterminism.
-    let mut heads: Vec<&str> = records
+    // RFC-013 step 4 defines a fork as "a member with two successors **or two
+    // predecessors**", so a pure join — `a precedes c`, `b precedes c`, nobody
+    // with out-degree > 1 — is reportable too. Diagnosing only fan-out would
+    // leave that shape silent.
+    let mut diagnostics = Vec::new();
+    let mut forks: Vec<(&str, usize, &str)> = successors
+        .iter()
+        .filter(|(_, tgts)| tgts.len() > 1)
+        .map(|(src, tgts)| (*src, tgts.len(), "successors"))
+        .chain(
+            in_degree
+                .iter()
+                .filter(|(_, d)| **d > 1)
+                .map(|(id, d)| (*id, *d, "predecessors")),
+        )
+        .collect();
+    forks.sort_by(|a, b| tiebreak(a.0, b.0).then_with(|| a.2.cmp(b.2)));
+    for (id, count, direction) in forks {
+        diagnostics.push(format!(
+            "`precedes` fork at {id}: {count} {direction}. Ordering resolved by the \
+             (createdAt, instanceId) tiebreak; the order is deterministic but the \
+             document intent is ambiguous (RFC-013 step 4)."
+        ));
+    }
+
+    // Ready set seeded from the caller-supplied record order, never HashMap
+    // iteration (which is randomized per process — the #532 nondeterminism).
+    let mut ready: Vec<&str> = records
         .iter()
         .map(|r| r.precedes_instance_id())
         .filter(|id| in_degree.get(id) == Some(&0))
         .collect();
-    heads.sort_by(|a, b| {
-        let ta = record_map
-            .get(a)
-            .and_then(|r| r.precedes_created_at())
-            .unwrap_or("");
-        let tb = record_map
-            .get(b)
-            .and_then(|r| r.precedes_created_at())
-            .unwrap_or("");
-        ta.cmp(tb).then_with(|| a.cmp(b))
-    });
+    let mut preferred: Vec<&str> = Vec::new();
 
     let mut result: Vec<T> = Vec::with_capacity(records.len());
-    let mut visited: HashSet<&str> = HashSet::new();
+    let mut emitted: HashSet<&str> = HashSet::new();
 
-    for head in heads {
-        let mut current = head;
-        loop {
-            if visited.contains(current) {
-                break;
-            }
-            visited.insert(current);
-            if let Some(&record) = record_map.get(current) {
-                result.push(record.clone());
-            }
-            match next.get(current) {
-                Some(&nxt) => current = nxt,
+    loop {
+        let pick = {
+            let pool = if preferred.is_empty() {
+                &ready
+            } else {
+                &preferred
+            };
+            match pool.iter().min_by(|a, b| tiebreak(a, b)) {
+                Some(id) => *id,
                 None => break,
             }
+        };
+        ready.retain(|id| *id != pick);
+        preferred.retain(|id| *id != pick);
+        emitted.insert(pick);
+        if let Some(&record) = record_map.get(pick) {
+            result.push(record.clone());
         }
+
+        let mut freed = Vec::new();
+        for tgt in successors.get(pick).into_iter().flatten() {
+            let degree = in_degree.entry(tgt).or_insert(0);
+            *degree = degree.saturating_sub(1);
+            if *degree == 0 {
+                ready.push(tgt);
+                freed.push(*tgt);
+            }
+        }
+        preferred = freed;
     }
 
+    // Whatever Kahn could not reach is inside a `precedes` cycle. RFC-013 step 4
+    // again: a deterministic order and a diagnostic, not a dropped record.
     let mut remaining: Vec<&T> = records
         .iter()
-        .filter(|r| !visited.contains(r.precedes_instance_id()))
+        .filter(|r| !emitted.contains(r.precedes_instance_id()))
         .collect();
-    // Same canonical (created_at, instance_id) tiebreak as chain heads.
-    remaining.sort_by(|a, b| {
-        a.precedes_created_at()
-            .unwrap_or("")
-            .cmp(b.precedes_created_at().unwrap_or(""))
-            .then_with(|| a.precedes_instance_id().cmp(b.precedes_instance_id()))
-    });
+    if !remaining.is_empty() {
+        let mut ids: Vec<&str> = remaining.iter().map(|r| r.precedes_instance_id()).collect();
+        ids.sort_by(|a, b| tiebreak(a, b));
+        diagnostics.push(format!(
+            "`precedes` cycle: {} could not be placed by topological order — a \
+             cycle among them, or downstream of one. Ordering falls back to the \
+             (createdAt, instanceId) tiebreak (RFC-013 step 4).",
+            ids.join(", ")
+        ));
+    }
+    remaining.sort_by(|a, b| tiebreak(a.precedes_instance_id(), b.precedes_instance_id()));
     result.extend(remaining.into_iter().cloned());
 
-    result
+    (result, diagnostics)
 }
 
 /// Return child records reached via `relation_type` edges from `source_id`,
@@ -248,6 +320,138 @@ mod tests {
         let sorted = sort_by_precedes_chain(records, &[]);
         let ids: Vec<&str> = sorted.iter().map(|r| r.instance_id.as_str()).collect();
         assert_eq!(ids, vec!["a", "b", "c"]);
+    }
+
+    // ---- srs-rust#863: `precedes` is a DAG, not a linked list ----
+
+    /// The B11 defect: with two outgoing `precedes` edges the old map kept only
+    /// whichever the relations file listed last, so the order flipped with the
+    /// file. Both branches must be ordered, identically, from any rotation.
+    #[test]
+    fn sort_by_precedes_chain_fork_is_relation_order_independent() {
+        let ts = "2026-01-01T00:00:00Z";
+        let records = vec![
+            make_record("root", ts),
+            make_record("b", ts),
+            make_record("a", ts),
+        ];
+        let base = vec![make_precedes("root", "b"), make_precedes("root", "a")];
+        let expected = vec!["root", "a", "b"];
+        for rotation in 0..base.len() {
+            let mut relations = base.clone();
+            relations.rotate_left(rotation);
+            let sorted = sort_by_precedes_chain(records.clone(), &relations);
+            let ids: Vec<&str> = sorted.iter().map(|r| r.instance_id.as_str()).collect();
+            assert_eq!(ids, expected, "rotation {rotation} must not change order");
+        }
+    }
+
+    /// RFC-013 step 4: a fork is not invalidity — it gets an order *and* a
+    /// diagnostic that names the forking node.
+    #[test]
+    fn sort_by_precedes_chain_fork_emits_diagnostic_naming_the_node() {
+        let ts = "2026-01-01T00:00:00Z";
+        let records = vec![
+            make_record("root", ts),
+            make_record("a", ts),
+            make_record("b", ts),
+        ];
+        let relations = vec![make_precedes("root", "a"), make_precedes("root", "b")];
+        let (sorted, diagnostics) = sort_by_precedes_chain_diagnosed(records, &relations);
+        assert_eq!(sorted.len(), 3);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert!(diagnostics[0].contains("root"), "{}", diagnostics[0]);
+        assert!(diagnostics[0].contains("fork"), "{}", diagnostics[0]);
+    }
+
+    /// RFC-013 step 4 counts "two predecessors" as a fork too. A pure join —
+    /// nobody with out-degree > 1 — must not pass silently.
+    #[test]
+    fn sort_by_precedes_chain_join_emits_diagnostic_naming_the_node() {
+        let ts = "2026-01-01T00:00:00Z";
+        let records = vec![
+            make_record("a", ts),
+            make_record("b", ts),
+            make_record("c", ts),
+        ];
+        let relations = vec![make_precedes("a", "c"), make_precedes("b", "c")];
+        let (sorted, diagnostics) = sort_by_precedes_chain_diagnosed(records, &relations);
+        let ids: Vec<&str> = sorted.iter().map(|r| r.instance_id.as_str()).collect();
+        assert_eq!(ids, vec!["a", "b", "c"]);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert!(diagnostics[0].contains("c"), "{}", diagnostics[0]);
+        assert!(
+            diagnostics[0].contains("predecessors"),
+            "{}",
+            diagnostics[0]
+        );
+    }
+
+    /// A cycle terminates with a deterministic order and its own diagnostic.
+    #[test]
+    fn sort_by_precedes_chain_cycle_emits_diagnostic_and_keeps_records() {
+        let ts = "2026-01-01T00:00:00Z";
+        let records = vec![make_record("b", ts), make_record("a", ts)];
+        let relations = vec![make_precedes("a", "b"), make_precedes("b", "a")];
+        let (sorted, diagnostics) = sort_by_precedes_chain_diagnosed(records, &relations);
+        let ids: Vec<&str> = sorted.iter().map(|r| r.instance_id.as_str()).collect();
+        assert_eq!(ids, vec!["a", "b"]);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert!(diagnostics[0].contains("cycle"), "{}", diagnostics[0]);
+        assert!(diagnostics[0].contains("a"), "{}", diagnostics[0]);
+    }
+
+    /// A clean chain is not a fork: no diagnostic, and the chain stays
+    /// contiguous even when an unchained record's timestamp falls inside it.
+    #[test]
+    fn sort_by_precedes_chain_keeps_chain_contiguous_without_diagnostics() {
+        let records = vec![
+            make_record("x", "2026-01-01T00:00:00Z"),
+            make_record("y", "2026-05-01T00:00:00Z"),
+            make_record("z", "2026-03-01T00:00:00Z"),
+        ];
+        let relations = vec![make_precedes("x", "y")];
+        let (sorted, diagnostics) = sort_by_precedes_chain_diagnosed(records, &relations);
+        let ids: Vec<&str> = sorted.iter().map(|r| r.instance_id.as_str()).collect();
+        assert_eq!(ids, vec!["x", "y", "z"]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    /// A join (diamond) must never emit a node before one of its predecessors —
+    /// the failure mode a chain-following walk with a visited set has.
+    #[test]
+    fn sort_by_precedes_chain_join_emits_after_all_predecessors() {
+        let ts = "2026-01-01T00:00:00Z";
+        let records = vec![
+            make_record("a", ts),
+            make_record("b", ts),
+            make_record("c", ts),
+            make_record("d", ts),
+        ];
+        let relations = vec![
+            make_precedes("a", "b"),
+            make_precedes("a", "c"),
+            make_precedes("b", "d"),
+            make_precedes("c", "d"),
+        ];
+        let sorted = sort_by_precedes_chain(records, &relations);
+        let ids: Vec<&str> = sorted.iter().map(|r| r.instance_id.as_str()).collect();
+        assert_eq!(ids, vec!["a", "b", "c", "d"]);
+    }
+
+    /// The same `precedes` claim written twice is one constraint, not two — a
+    /// double count would leave the target permanently unready.
+    #[test]
+    fn sort_by_precedes_chain_tolerates_duplicate_edges() {
+        let ts = "2026-01-01T00:00:00Z";
+        let records = vec![make_record("b", ts), make_record("a", ts)];
+        let mut dup = make_precedes("a", "b");
+        dup.relation_id = "rel-duplicate".to_string();
+        let relations = vec![make_precedes("a", "b"), dup];
+        let (sorted, diagnostics) = sort_by_precedes_chain_diagnosed(records, &relations);
+        let ids: Vec<&str> = sorted.iter().map(|r| r.instance_id.as_str()).collect();
+        assert_eq!(ids, vec!["a", "b"]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 
     /// #532: records with no `created_at` at all still get a deterministic

@@ -133,6 +133,8 @@ mod tests {
 
     fn make_vocab(mode: VocabularyMode, terms: Vec<Term>) -> Vocabulary {
         Vocabulary {
+            schema: None,
+            tags: None,
             id: "v1".to_string(),
             version: 1,
             namespace: "com.test".to_string(),
@@ -144,7 +146,6 @@ mod tests {
             promotion_window: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         }
     }
 

@@ -155,6 +155,10 @@ mod tests {
 
     fn create_test_record_type() -> RecordType {
         RecordType {
+            extra: Default::default(),
+            schema: None,
+            ai_guidance: None,
+            tags: None,
             id: "type-1".to_string(),
             namespace: "test".to_string(),
             name: "test-type".to_string(),
@@ -187,7 +191,6 @@ mod tests {
             lineage: None,
             provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: BTreeMap::new(),
         }
     }
 

@@ -237,6 +237,9 @@ fn the_projection_reports_what_it_could_not_express() {
         description: None,
     };
     let probe_type = RecordType {
+        schema: None,
+        ai_guidance: None,
+        tags: None,
         id: "t-probe".to_string(),
         namespace: "com.probe".to_string(),
         name: "probe".to_string(),
@@ -341,6 +344,10 @@ fn type_version_selects_the_version_the_caller_asked_for() {
         description: None,
     };
     let mk_type = |version: u32, field_id: &str| RecordType {
+        extra: Default::default(),
+        schema: None,
+        ai_guidance: None,
+        tags: None,
         id: TID.to_string(),
         namespace: "com.probe".to_string(),
         name: "thing".to_string(),
@@ -355,10 +362,9 @@ fn type_version_selects_the_version_the_caller_asked_for() {
         lifecycle: None,
         lifecycle_ref: None,
         validation_rules: None,
-        created_at: "2026-01-01T00:00:00Z".to_string(),
-        extra: Default::default(),
         lineage: None,
         provenance: None,
+        created_at: "2026-01-01T00:00:00Z".to_string(),
     };
 
     let package = Package {

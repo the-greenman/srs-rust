@@ -36,10 +36,10 @@
 //! duplicating those would break `load_package`); and
 //! `protocolNamespace/protocolName@protocolVersion` for protocols.
 
+use serde::de::Error as SerdeDeError;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use serde::de::Error as SerdeDeError;
 use serde::{Deserialize, Serialize};
 use srs_core::extensions::import_tracking::{
     ConflictState, DefinitionType, ImportMode, ImportRecord, ImportSummary,
@@ -220,13 +220,30 @@ fn validate_source_definition(
         }
         Ok(())
     };
+    // Fields and Types are read by `FieldJson`/`TypeJson`, not by their core
+    // structs, so those are what install has to agree with — and both reject
+    // unknown keys (`FieldJson` always did; `TypeJson` since srs-rust#863).
+    // Checking only the load-bearing keys would let install accept a file the
+    // next `load_package()` refuses, which is the worst outcome available: the
+    // repository becomes unloadable by the command that would have explained
+    // why.
+    //
+    // The typed parse is added to the key checks, not substituted for them.
+    // Both readers take `id`/`namespace`/`name` as plain `String`, so an empty
+    // one deserializes happily — `require_str` is the only thing that has ever
+    // rejected a blank namespace here, and dropping it would trade one silent
+    // acceptance for another.
     match kind {
-        // Fields and types mirror the loader's lenient FieldJson/TypeJson shapes:
-        // check the load-bearing keys instead of a strict typed parse.
         DefinitionKind::Field => {
             require_str("id")?;
             require_str("namespace")?;
             require_str("name")?;
+            serde_json::from_value::<crate::field_json::FieldJson>(value.clone()).map_err(
+                |source| RepositoryError::PackageLoad {
+                    path: path.to_path_buf(),
+                    source,
+                },
+            )?;
             // RFC-032/RFC-039: a Field carries an inline `fieldType`; the
             // load-bearing key is its `datatype`.
             let datatype = value["fieldType"]["datatype"].as_str().unwrap_or("");
@@ -252,9 +269,12 @@ fn validate_source_definition(
             require_str("id")?;
             require_str("namespace")?;
             require_str("name")?;
-            if !value["fields"].is_array() {
-                return Err(parse_err("missing required array 'fields'".to_string()));
-            }
+            serde_json::from_value::<crate::type_json::TypeJson>(value.clone()).map_err(
+                |source| RepositoryError::PackageLoad {
+                    path: path.to_path_buf(),
+                    source,
+                },
+            )?;
         }
         DefinitionKind::RelationType => {
             let def: srs_core::types::relation_type_definition::RelationTypeDefinition =
@@ -882,6 +902,51 @@ pub fn install_package_bundle(
 mod tests {
     use super::*;
     use crate::store::memory::MemoryStore;
+
+    /// srs-rust#863: install validates with exactly the loader's strictness —
+    /// no looser (it would wave through a file `load_package()` then refuses,
+    /// leaving the repo unloadable by the command that explains it) and no
+    /// stricter.
+    #[test]
+    fn install_validation_rejects_a_key_the_loader_would_reject() {
+        let mut doc = field_json("11111111-1111-4111-8111-111111111111", "f");
+        doc["fieldType"] = serde_json::json!({"datatype": "string", "cardinality": "single"});
+        doc.as_object_mut().unwrap().remove("valueType");
+        validate_source_definition(DefinitionKind::Field, Path::new("f.json"), &doc)
+            .expect("a clean field installs");
+
+        doc["descriptionn"] = serde_json::json!("typo");
+        let err = validate_source_definition(DefinitionKind::Field, Path::new("f.json"), &doc)
+            .expect_err("a typo'd key must not install");
+        assert!(format!("{err}").contains("descriptionn"), "{err}");
+    }
+
+    /// The typed parse is *added* to the key checks, not substituted for them:
+    /// `FieldJson`/`TypeJson` read `namespace` as a plain `String`, so a blank
+    /// one parses fine and only `require_str` has ever caught it.
+    #[test]
+    fn install_validation_still_rejects_a_blank_namespace() {
+        let mut doc = field_json("11111111-1111-4111-8111-111111111111", "f");
+        doc["fieldType"] = serde_json::json!({"datatype": "string", "cardinality": "single"});
+        doc.as_object_mut().unwrap().remove("valueType");
+        doc["namespace"] = serde_json::json!("   ");
+        let err = validate_source_definition(DefinitionKind::Field, Path::new("f.json"), &doc)
+            .expect_err("a blank namespace must not install");
+        assert!(format!("{err}").contains("namespace"), "{err}");
+
+        let mut t = serde_json::json!({
+            "id": "22222222-2222-4222-8222-222222222222",
+            "namespace": "", "name": "t", "version": 1,
+            "description": "d", "fields": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        let err = validate_source_definition(DefinitionKind::Type, Path::new("t.json"), &t)
+            .expect_err("a blank namespace must not install");
+        assert!(format!("{err}").contains("namespace"), "{err}");
+        t["namespace"] = serde_json::json!("com.test");
+        validate_source_definition(DefinitionKind::Type, Path::new("t.json"), &t)
+            .expect("a clean type installs");
+    }
 
     fn field_json(id: &str, name: &str) -> serde_json::Value {
         serde_json::json!({

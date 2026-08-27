@@ -1232,6 +1232,10 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let simple_type = RecordType {
+            extra: Default::default(),
+            schema: None,
+            ai_guidance: None,
+            tags: None,
             id: "type-simple-00001".to_string(),
             namespace: "com.test".to_string(),
             name: "simple-type".to_string(),
@@ -1254,7 +1258,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
             lineage: None,
             provenance: None,
         };

@@ -212,10 +212,12 @@ pub fn repository_navigation(
     }
 
     let relations = relation_service::load_relations(store)?;
-    let sections = relation_graph::sort_by_precedes_chain(section_members, &relations)
-        .into_iter()
-        .map(|m| m.node)
-        .collect();
+    // RFC-013 step 4: a `precedes` fork or cycle among the sections still yields
+    // one deterministic order — and says so out loud.
+    let (ordered, ordering_diagnostics) =
+        relation_graph::sort_by_precedes_chain_diagnosed(section_members, &relations);
+    diagnostics.extend(ordering_diagnostics);
+    let sections = ordered.into_iter().map(|m| m.node).collect();
 
     Ok(RepositoryNavigation {
         root_container_id: container_ref.container_id.clone(),

@@ -543,12 +543,7 @@ mod tests {
         assert_eq!(
             child.extends_type_id.as_deref(),
             Some("00000000-0000-4000-8000-000000000030"),
-            "extends_type_id must survive load_package; extra = {:?}",
-            child.extra
-        );
-        assert!(
-            child.extra.is_empty(),
-            "extends_type_id must not fall into extra after load_package"
+            "extends_type_id must survive load_package"
         );
     }
 
@@ -1177,6 +1172,10 @@ mod tests {
 
     fn make_type(id: &str, fields: Vec<FieldAssignment>) -> RecordType {
         RecordType {
+            extra: Default::default(),
+            schema: None,
+            ai_guidance: None,
+            tags: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),
             name: id.to_string(),
@@ -1192,7 +1191,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
             lineage: None,
             provenance: None,
         }
@@ -1206,6 +1204,10 @@ mod tests {
         overrides: Option<Vec<FieldAssignmentOverride>>,
     ) -> RecordType {
         RecordType {
+            extra: Default::default(),
+            schema: None,
+            ai_guidance: None,
+            tags: None,
             id: id.to_string(),
             namespace: "com.test".to_string(),
             name: id.to_string(),
@@ -1221,7 +1223,6 @@ mod tests {
             lifecycle_ref: None,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
             lineage: None,
             provenance: None,
         }
@@ -1674,6 +1675,10 @@ mod tests {
         lifecycle_ref: Option<String>,
     ) -> srs_core::types::record_type::RecordType {
         srs_core::types::record_type::RecordType {
+            extra: Default::default(),
+            schema: None,
+            ai_guidance: None,
+            tags: None,
             id: "rt-test".to_string(),
             namespace: "com.test".to_string(),
             name: "test-type".to_string(),
@@ -1690,7 +1695,6 @@ mod tests {
             lifecycle_ref,
             validation_rules: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
             lineage: None,
             provenance: None,
         }
@@ -1735,6 +1739,8 @@ mod tests {
     #[test]
     fn effective_lifecycle_ref_resolves() {
         let standalone = srs_core::types::lifecycle::Lifecycle {
+            schema: None,
+            tags: None,
             id: "lc-ref-standalone-001".to_string(),
             version: 1,
             namespace: "com.test".to_string(),
@@ -1746,7 +1752,6 @@ mod tests {
             extends_lifecycle_version: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
         let rt = make_minimal_record_type(None, Some("lc-ref-standalone-001".to_string()));
         let pkg = make_minimal_package(vec![standalone]);
@@ -1771,6 +1776,8 @@ mod tests {
             initial_state: "inline-initial".to_string(),
         };
         let standalone = srs_core::types::lifecycle::Lifecycle {
+            schema: None,
+            tags: None,
             id: "lc-ref-standalone-001".to_string(),
             version: 1,
             namespace: "com.test".to_string(),
@@ -1782,7 +1789,6 @@ mod tests {
             extends_lifecycle_version: None,
             description: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: std::collections::BTreeMap::new(),
         };
         let rt =
             make_minimal_record_type(Some(inline_lc), Some("lc-ref-standalone-001".to_string()));

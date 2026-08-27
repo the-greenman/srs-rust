@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 /// `{ fieldId: UUID, typeId?: UUID }` — `typeId` scopes the field to a specific Type
 /// when the same fieldId appears in multiple Types.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FieldRef {
     pub field_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -14,7 +14,7 @@ pub struct FieldRef {
 
 /// Protocol stage definition for validation
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProtocolStage {
     pub stage_id: String,
     pub name: String,
@@ -44,8 +44,12 @@ pub struct ProtocolStage {
 /// Per the spec (subsection 05-1-5-1, Invariant 037) Protocols are definitions, not
 /// instance Records.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Protocol {
+    /// The `$schema` pointer the file may carry — declared by the schema itself,
+    /// preserved so a loaded-then-written definition keeps it.
+    #[serde(rename = "$schema", default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
     pub protocol_id: String,
     pub protocol_namespace: String,
     pub protocol_name: String,

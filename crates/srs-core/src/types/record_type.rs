@@ -1,7 +1,28 @@
 use crate::types::field::{Lineage, Provenance};
 pub use crate::types::lifecycle::{LifecycleState, LifecycleTransition};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
+
+/// Deserializes `RecordType.extra`, then rejects any key other than the one
+/// legacy construct still transitioning through it. `#[serde(flatten)]`
+/// cannot be paired with a struct-level `deny_unknown_fields` (the flatten
+/// field would just absorb everything, defeating the check), so the
+/// definition-layer's reject-unknown guarantee (srs-rust#863,
+/// `rfc-decision-2e0cd70a`) is reproduced here by hand, scoped to allow
+/// exactly `semanticObjectType` through and nothing else.
+fn deserialize_type_extra<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<String, serde_json::Value>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error as _;
+    let map = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+    if let Some(key) = map.keys().find(|k| k.as_str() != "semanticObjectType") {
+        return Err(D::Error::custom(format!("unknown field `{key}`")));
+    }
+    Ok(map)
+}
 
 /// ext:cross-field-validation — rule kinds for CrossFieldRule.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -25,7 +46,7 @@ pub enum CrossFieldRuleEffect {
 
 /// ext:cross-field-validation — a single cross-field constraint on a Type.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CrossFieldRule {
     #[serde(rename = "type")]
     pub rule_type: CrossFieldRuleKind,
@@ -46,6 +67,10 @@ pub struct CrossFieldRule {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordType {
+    /// The `$schema` pointer the file may carry — declared by the schema itself,
+    /// preserved so a loaded-then-written definition keeps it.
+    #[serde(rename = "$schema", default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
     #[serde(default)]
     pub id: String,
     pub namespace: String,
@@ -73,6 +98,12 @@ pub struct RecordType {
     /// ext:cross-field-validation — cross-field constraints declared on this type.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validation_rules: Option<Vec<CrossFieldRule>>,
+    /// Authoring guidance for the Type as a whole (`type.json` `aiGuidance`).
+    /// Carried, not interpreted, beyond `blueprint brief` surfacing it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai_guidance: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
     /// RFC-040 Change E (srs#477/#486): fork/derivation metadata, same shape as
     /// `Field::lineage`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -82,13 +113,25 @@ pub struct RecordType {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provenance: Option<Provenance>,
     pub created_at: String,
-    #[serde(flatten)]
+    /// TRANSITIONAL single-key bag (srs#372/#383/#422; collapse execution
+    /// pending at srs#272): `semanticObjectType` was ruled a duplicate of the
+    /// Type system itself, not real Type surface — so it is deliberately NOT
+    /// re-typed as a named `RecordType` field (that would re-entrench the
+    /// construct being removed). It rides here untouched, so a load→save
+    /// round trip doesn't lose it before #383 executes the collapse. Delete
+    /// this field entirely when that lands; do not add other keys to it.
+    #[serde(
+        flatten,
+        default,
+        deserialize_with = "deserialize_type_extra",
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
     pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 /// ext:type-inheritance — per-field overrides for inherited FieldAssignments.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FieldAssignmentOverride {
     pub field_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -101,7 +144,7 @@ pub struct FieldAssignmentOverride {
 
 /// ext:lifecycle — state machine declaration on a Type.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TypeLifecycle {
     pub states: Vec<LifecycleState>,
     pub transitions: Vec<LifecycleTransition>,
@@ -111,7 +154,7 @@ pub struct TypeLifecycle {
 // LifecycleState and LifecycleTransition are now defined in lifecycle.rs and re-exported above.
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FieldAssignment {
     pub field_id: String,
     pub order: u32,
@@ -145,6 +188,10 @@ mod tests {
     #[test]
     fn record_type_roundtrips_json() {
         let record_type = RecordType {
+            extra: Default::default(),
+            schema: None,
+            ai_guidance: None,
+            tags: None,
             id: "00000000-0000-4000-8000-000000000020".to_string(),
             namespace: "test.ns".to_string(),
             name: "test-type".to_string(),
@@ -177,7 +224,6 @@ mod tests {
             lineage: None,
             provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: BTreeMap::new(),
         };
 
         let json_str = serde_json::to_string(&record_type).unwrap();
@@ -216,6 +262,10 @@ mod tests {
     #[test]
     fn find_field_assignment_works() {
         let rt = RecordType {
+            extra: Default::default(),
+            schema: None,
+            ai_guidance: None,
+            tags: None,
             id: "00000000-0000-4000-8000-000000000020".to_string(),
             namespace: "ns".to_string(),
             name: "name".to_string(),
@@ -239,7 +289,6 @@ mod tests {
             lineage: None,
             provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: BTreeMap::new(),
         };
 
         assert!(rt
@@ -340,10 +389,6 @@ mod tests {
             rt.validation_rules.is_some(),
             "validationRules must not fall into extra"
         );
-        assert!(
-            !rt.extra.contains_key("validationRules"),
-            "validationRules must not appear in extra"
-        );
         let rules = rt.validation_rules.as_ref().unwrap();
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].rule_type, CrossFieldRuleKind::ConditionalRequired);
@@ -355,6 +400,10 @@ mod tests {
     #[test]
     fn record_type_no_validation_rules_no_key_in_json() {
         let rt = RecordType {
+            extra: Default::default(),
+            schema: None,
+            ai_guidance: None,
+            tags: None,
             id: "rt-1".to_string(),
             namespace: "com.test".to_string(),
             name: "my-type".to_string(),
@@ -372,7 +421,6 @@ mod tests {
             lineage: None,
             provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: BTreeMap::new(),
         };
         let value = serde_json::to_value(&rt).unwrap();
         assert!(
@@ -385,6 +433,10 @@ mod tests {
     fn minimal_record_type_passes_schema_contract() {
         let reg = srs_schema::SchemaRegistry::global();
         let rt = RecordType {
+            extra: Default::default(),
+            schema: None,
+            ai_guidance: None,
+            tags: None,
             id: "00000000-0000-4000-8000-000000000020".to_string(),
             namespace: "test".to_string(),
             name: "decision".to_string(),
@@ -408,7 +460,6 @@ mod tests {
             lineage: None,
             provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: BTreeMap::new(),
         };
         let mut value = serde_json::to_value(&rt).unwrap();
         value["$schema"] = serde_json::json!("https://srs.semanticops.com/schema/2.0/type.json");
@@ -444,11 +495,6 @@ mod tests {
             Some("00000000-0000-4000-8000-000000000010")
         );
         assert!(rt.field_assignment_overrides.is_some());
-        assert!(
-            rt.extra.is_empty(),
-            "inheritance fields must not fall into extra; extra = {:?}",
-            rt.extra
-        );
     }
 
     #[test]
@@ -482,6 +528,10 @@ mod tests {
     fn type_with_identity_field_id_passes_schema() {
         let reg = srs_schema::SchemaRegistry::global();
         let rt = RecordType {
+            extra: Default::default(),
+            schema: None,
+            ai_guidance: None,
+            tags: None,
             id: "00000000-0000-4000-8000-000000000020".to_string(),
             namespace: "test".to_string(),
             name: "decision".to_string(),
@@ -505,7 +555,6 @@ mod tests {
             lineage: None,
             provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
-            extra: BTreeMap::new(),
         };
         let mut value = serde_json::to_value(&rt).unwrap();
         value["$schema"] = serde_json::json!("https://srs.semanticops.com/schema/2.0/type.json");

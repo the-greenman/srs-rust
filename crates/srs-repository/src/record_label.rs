@@ -288,6 +288,10 @@ mod tests {
 
         fn rt(id: &str, identity_field_id: Option<&str>, extends: Option<&str>) -> RecordType {
             RecordType {
+                extra: Default::default(),
+                schema: None,
+                ai_guidance: None,
+                tags: None,
                 id: id.to_string(),
                 namespace: "com.test".to_string(),
                 name: id.to_string(),
@@ -303,7 +307,6 @@ mod tests {
                 lifecycle_ref: None,
                 validation_rules: None,
                 created_at: "2026-01-01T00:00:00Z".to_string(),
-                extra: std::collections::BTreeMap::new(),
                 lineage: None,
                 provenance: None,
             }
