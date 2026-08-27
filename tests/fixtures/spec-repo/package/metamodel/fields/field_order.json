@@ -1,0 +1,21 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "ext:type-inheritance — explicit declared composition order for the merged (base + own) effective field list, overriding per-field FieldAssignment.order at the Type level."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "ext:type-inheritance — explicit declared composition order for the merged (base + own) effective field list, overriding per-field FieldAssignment.order at the Type level.",
+  "id": "4b000054-0000-4000-a000-000000000054",
+  "name": "field_order",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "ref",
+    "mode": "reference",
+    "cardinality": "list",
+    "rangeType": {
+      "typeId": "4c000001-0000-4000-a000-000000000001",
+      "typeVersion": 1
+    }
+  },
+  "version": 1
+}

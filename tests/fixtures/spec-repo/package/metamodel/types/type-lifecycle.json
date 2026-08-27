@@ -1,0 +1,30 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "Describes an inline Type.lifecycle value: its states, transitions, and initial state."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "The inline lifecycle declaration: a state machine of LifecycleStates and LifecycleTransitions (ext:lifecycle).",
+  "fields": [
+    {
+      "fieldId": "4b000041-0000-4000-a000-000000000041",
+      "order": 0,
+      "required": true
+    },
+    {
+      "fieldId": "4b000042-0000-4000-a000-000000000042",
+      "order": 1,
+      "required": true
+    },
+    {
+      "fieldId": "4b000043-0000-4000-a000-000000000043",
+      "order": 2,
+      "required": true,
+      "displayLabel": "Initial State"
+    }
+  ],
+  "id": "4c00000b-0000-4000-a000-00000000000b",
+  "name": "type-lifecycle",
+  "namespace": "com.semanticops.srs",
+  "version": 1
+}

@@ -1,11 +1,9 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
   "id": "3a000001-0000-4000-a000-000000000001",
   "namespace": "com.semanticops.spec",
   "name": "spec-document-view",
   "version": 1,
   "description": "Renders a specification as a structured document ordered by section-sequence relations.",
-  "format": "markdown",
   "sections": [
     {
       "sectionId": "spec-sections",
@@ -15,9 +13,14 @@
         "type": "type-query",
         "semanticObjectType": "com.semanticops.spec/section"
       },
+      "typeDispatch": {
+        "com.semanticops.spec/table": "77f51737-191c-4229-ac24-3ae28dfc946c"
+      },
       "titleFieldId": "1a000001-0000-4000-a000-000000000001",
       "emptyBehavior": "hide"
     }
   ],
-  "createdAt": "2026-05-27T00:00:00Z"
+  "format": "markdown",
+  "createdAt": "2026-05-27T00:00:00Z",
+  "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json"
 }

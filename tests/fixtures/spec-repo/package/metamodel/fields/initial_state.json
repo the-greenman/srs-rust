@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Must reference a state key with isInitial: true (Invariant 4)."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Must reference a state key with isInitial: true (Invariant 4).",
+  "id": "4b000043-0000-4000-a000-000000000043",
+  "name": "initial_state",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

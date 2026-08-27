@@ -105,13 +105,13 @@
     {
       "sourceType": "repository-document",
       "sourceId": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
-      "relationType": "evidence",
+      "sourceRole": "evidence",
       "note": "ChatGPT origin session - transcript to semantic extraction, evidence links, and AI-assisted refinement"
     },
     {
       "sourceType": "repository-document",
       "sourceId": "d4e5f6a7-b8c9-4d0e-8f2a-3b4c5d6e7f8a",
-      "relationType": "evidence",
+      "sourceRole": "evidence",
       "note": "Claude collaborative session - ext:addressability, AttentionState, SourceReference, and federation design"
     }
   ],

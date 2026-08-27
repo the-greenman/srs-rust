@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "04ff8b51-c105-434d-8032-fe0269571efc",
+  "sections": [
+    {
+      "content": "Owner principle (2026-07-31): the core relation set should be as small as possible — but not smaller. Explicitly capability-based, NOT usage-based: the current census (relation graphs in both live repos are 100% document structure; five of seven core types have zero instances) is corroborating colour, not the decision basis — a young corpus not using `evidences` says nothing about whether a mature federation needs it.\n\nPROPOSED CRITERION: a relation type belongs in core iff a core mechanism depends on it — removing it would leave a dangling dependency inside the substrate. Interop does not require core membership (definitions are UUID-anchored and travel with packages); core buys guaranteed presence, and only mechanisms need a guarantee.\n\nApplied: CORE = precedes (R6 ordering engine), contains (container traversal I-66, navigation, discovery I-118), supersedes (record successor, RFC-022 definitional state, R11 lineage), derived-from (R11 graduation lineage, RFC-023 mapping — mechanism currently unfired, srs-rust#779). NOT CORE = refines, evidences, depends-on (no mechanism consumes them) — proposed home: a `recommended` relation package installed by default at repo create, removable; same UUIDs, same interop, presence becomes a choice rather than a false guarantee.\n\n'Not smaller' check: drop any of the four and a core mechanism loses its edge type; going below four requires deleting mechanisms. Four is the fixed point.\n\nDeliberately NOT grown into core: the deliberation family (contradicts/objects-to, amends, ratifies, delegates, responds-to) — the most important missing vocabulary (dissent is currently unrepresentable) but domain semantics; home is a governance package owned by the muDemocracy layer. muSrs inventing `delegates` locally (muDemocracy#134) is this need surfacing without a home.\n\nCompetitive note: the differentiator vs untyped-link formats is not vocabulary size but the AI-assert-then-human-ratify loop (assertedBy: ai + confidence + status: proposed -> human accept/reject), which needs zero new schema and would be the first consumer of the entire provenance surface.\n\nDecision asks pending owner on srs#171: (a) ratify the criterion; (b) approve the 4+3 split and the recommended package; (c) charter the governance relation package; (d) sequence the ratify loop. Graduate this note to a design-note record when ratified.",
+      "label": "Body",
+      "name": "body"
+    }
+  ],
+  "tags": [
+    "design-note",
+    "relations",
+    "epic-171"
+  ],
+  "title": "Design brief: core relation set — mechanism-backed criterion (srs#171, pending ratification)"
+}

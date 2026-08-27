@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Whether this is a terminal state of the lifecycle."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Whether this is a terminal state of the lifecycle.",
+  "id": "4b00003d-0000-4000-a000-00000000003d",
+  "name": "is_final",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "boolean"
+  },
+  "version": 1
+}

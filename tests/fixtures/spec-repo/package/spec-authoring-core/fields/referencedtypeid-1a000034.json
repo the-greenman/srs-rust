@@ -1,0 +1,16 @@
+{
+  "id": "1a000034-0000-4000-a000-000000000034",
+  "namespace": "com.semanticops.spec",
+  "name": "referenced_type_id",
+  "version": 1,
+  "description": "Stable UUID of the metamodel Type this generated-view slot renders a reference for (PINNED, alongside referenced_type_version).",
+  "aiGuidance": {
+    "purpose": "Identifies which Type definition this generated reference is a projection of. Never hand-edit the record this appears on except to change which Type it targets — the record's content is regenerated from this reference, not authored."
+  },
+  "fieldType": {
+    "datatype": "string",
+    "format": "uuid"
+  },
+  "editorHint": "singleline",
+  "createdAt": "2026-08-25T00:00:00Z"
+}

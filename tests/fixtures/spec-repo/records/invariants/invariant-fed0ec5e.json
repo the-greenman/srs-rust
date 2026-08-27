@@ -1,16 +1,16 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-23T16:42:10.798534148+00:00",
+  "instanceId": "fed0ec5e-d150-4282-9af2-d1c4fc4d2364",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant",
   "fieldValues": {
     "invariant_number": "I-118",
     "title": "containerId filter uses the RFC-009 I-66 membership definition",
-    "normative_statement": "A `containerId` filter predicate MUST use the three-condition membership definition of RFC-009 I-66: (1) `instanceId` in `Container.rootInstanceIds[]`, OR (2) `instanceId` in `Container.memberInstanceIds[]`, OR (3) reachable via transitive `contains` Relation traversal from any `rootInstanceIds[]` entry. The authoritative source for membership is the instance file and the relations file. An implementation MAY use `instanceIndex` as a performance cache but MUST treat the instance file and relations file as authoritative when they differ from the cache. (RFC-012 R6.)",
-    "applies_to": "ext:discovery; containerId aligned to RFC-009 I-66 (RFC-012)"
+    "normative_statement": "A `containerId` filter predicate MUST use the three-condition membership definition of RFC-009 I-66: (1) `instanceId` in `Container.rootInstanceIds[]`, OR (2) `instanceId` in `Container.memberInstanceIds[]`, OR (3) reachable via transitive `contains` Relation traversal from any `rootInstanceIds[]` entry. The authoritative source for membership is the instance file and the relations file — the repository's authoritative store (RFC-038 [R1]). An implementation MAY maintain a derived catalog for performance but MUST treat the store as authoritative when they differ; there is no manifest `instanceIndex` to use as a cache, as it is retired (RFC-038 [R2]). (RFC-012 R6.)",
+    "applies_to": "ext:discovery; containerId aligned to RFC-009 I-66 (RFC-012); RFC-038"
   },
-  "instanceId": "fed0ec5e-d150-4282-9af2-d1c4fc4d2364",
-  "typeId": "2a000006-0000-4000-a000-000000000006",
-  "typeName": "invariant",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-23T16:42:10.798540010+00:00"
+  "createdAt": "2026-07-23T16:42:10.798534148+00:00",
+  "updatedAt": "2026-08-22T22:52:57.405128688+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

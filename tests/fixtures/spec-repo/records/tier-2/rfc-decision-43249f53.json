@@ -1,0 +1,36 @@
+{
+  "instanceId": "43249f53-b2cf-482b-83e4-9b199f3c6930",
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeVersion": 2,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc-decision",
+  "fieldValues": {
+    "title": "One state mechanism: workflow status is a Lifecycle",
+    "rfc_status": "accepted",
+    "decision_date": "2026-08-21",
+    "decision_rationale": "The pattern audit found six parallel status mechanisms with four vocabularies and no two enums equal (findings C12, C13, B14): the fully-specified state machine had zero users in the spec repository while a bare enum carried the spec's primary workflow, and nothing enforced draft-to-proposed-to-accepted or prevented withdrawn-to-implemented. The attestation then showed production muSrs DOES use ext:lifecycle load-bearingly (a five-state governance lifecycle with an excludeLifecycleStates query), turning the question from removal to unification. Conformance's preference (one way over many) picks unification; the owner ruled: make status right - it should be defined as a real lifecycle. Dogfooding also closes the credibility gap of a standard that avoids its own machinery.",
+    "decision_statement": "Cell: Conformance (one way over many), with Versioning owning the state value. Anything in the standard's own corpus or its packages that models workflow state - named stages a record moves through - is a Lifecycle (ext:lifecycle): a defined state set with transitions, bound to the Type via lifecycleRef, with the record's position carried in lifecycleState. Bare status enum Fields for workflow state are retired as a parallel mechanism. First migration: the spec's own rfc_status field (49 records, seven values, no transitions) becomes a real spec-rfc-process Lifecycle - the standard dogfoods its own state machinery, and RFC supersession gains RFC-022 requiresRelation coupling (rfc_status superseded requires the supersedes assertion it today carries only in prose).\n\nThe line this draws: Lifecycle = workflow state on records (Fire, individual: where the record is in its process). Substrate entry status (active/deprecated/tombstone/retired) is NOT workflow state - it is the retirement mechanism of the substrate layer under axis 5-11 (Reliability over Renewal) and stays as-is. Enum value domains remain legal for genuinely stateless labels; the test is transitions: if some value changes are meaningful and others are wrong, it is a Lifecycle.",
+    "decision_scope": "Governs the spec repository's rfc-status field and all future package authoring guidance: workflow state is modelled as Lifecycle, not enum. Does not change the substrate retirement status vocabulary (axis 5-11 territory), does not resurrect Relation.status (removed with relation provenance machinery), and does not forbid stateless enum value domains. Execution is a post-train unit: define the spec-rfc-process Lifecycle, bind it on the rfc type, migrate the 49 records, retire the rfc_status Field via deletion (the definition-layer retirement rule).",
+    "governing_values": [
+      "shared-coherence",
+      "semantic-integrity"
+    ],
+    "project_phase": "formation",
+    "alternatives_considered": "Sanctioning two tiers (bare enum for light cases, Lifecycle when transitions matter, boundary stated once) was the honest alternative - cheaper, matching current practice. Rejected by the owner in favor of one mechanism: the two-tier boundary would itself become a drift seam, and the spec's own workflow is exactly the case where transition enforcement has value (the audit found nothing prevents impossible status jumps today).",
+    "accepted_costs": "Migrating 49 rfc records and the rfc type; a Lifecycle definition to maintain; authoring friction for trivial cases that would have been a three-value enum (they now either justify statelessness or take the machine). The spec-rfc-process package grows a lifecycles entry from today's empty array.",
+    "evidence_refs": [
+      "srs#435 findings C12, C13, B14 and the census status-lifecycle axis",
+      "2026-08-21 attestation: muSrs governance_lifecycle in production use; spec repo zero lifecycleState, 49 rfc_status records",
+      "rfc-decision-cce3c00e (the Pattern Grid preference layer - Conformance: one way over many)",
+      "RFC-022 (relational lifecycle states / requiresRelation)"
+    ],
+    "review_trigger": "Review if the migration surfaces workflow cases the Lifecycle machine genuinely cannot express, or when package-authoring practice shows the stateless-enum test being routinely argued - the boundary clause may need sharpening."
+  },
+  "tags": [
+    "topic:rfc",
+    "cell:conformance"
+  ],
+  "createdAt": "2026-08-21T21:13:13.119422385+00:00",
+  "updatedAt": "2026-08-23T18:55:08.477610914+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
+}

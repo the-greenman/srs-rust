@@ -1,0 +1,15 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Rendering-only hint text override for a single inherited FieldAssignment (presentation; stays per 6523cf5e)."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Rendering-only hint text override for a single inherited FieldAssignment (presentation; stays per 6523cf5e).",
+  "id": "4b00004a-0000-4000-a000-00000000004a",
+  "name": "display_hint",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "addba041-752f-4365-a70d-7ff65feee761",
+  "sections": [
+    {
+      "content": "Owner question (2026-07-31, on RFC-034): rather than imposing tree-ness on all Tier 0, can a TYPE of root record make a container a directory equivalent — exclusive, filesystem-like — applied selectively?\n\nANSWER: yes, via the container's typed identity record. Containers are deliberately not semantic objects (no Fields — design-note 013); the RFC-013 identityInstanceId record IS the container's semantic carrier. Define a Type (e.g. com.semanticops.core/directory); a container whose identity record instantiates it is directory-kind. Behaviour keys off the identity record's Type — structure, not string-matching (R5).\n\nEXCLUSIVITY RULES (R10 enforcement as structural-coherence diagnostics): a directory-kind container appears in at most one directory-kind parent's childContainerIds; an instance appears in direct() of at most one directory-kind container. Non-directory containers (scopes, collections, overlays) remain overlapping and free — the tree is OPT-IN PER SCOPE, not global.\n\nTIER-0 / OKF PAYOFF: folder -> directory-kind container; a folder with no distinguished note gets a MINTED directory identity record carrying the folder's name (solves RFC-034 Rev 4's rootless-child navigation-anchor question in the same move); every note lives in exactly one directory; loose collections overlay freely. This is the enabler for the greenmans_creation vault migration (recorded owner goal, gated on a solid spec).\n\nTHE WIDER FAMILY: three independent needs converged on one expressiveness class in a single day — DECLARED STRUCTURAL CONSTRAINTS: (1) acyclicity (sequence-category relations; precedes cycles currently degrade silently — srs-rust#557/#558), (2) exclusivity/cardinality (directory-kind containers here; exclusive relation types = the RFC-005-deferred cardinality facet), (3) uniqueness-within-scope (cross-record field uniqueness — the SemOps2 test-case gap). All three are definition-keyed (R5) and validation-enforced (R10). Recommendation: one structural-constraints RFC covering the family; directory-kind lands as a thin instance of it, not a bespoke bolt-on.\n\nRELATION-SIDE READING of the owner's question (an exclusive ROOT-RECORD RELATION type) is real but distinct: post-RFC-034 relations do not define membership, so an exclusive contains-like relation yields a semantic part-of tree, not a scope tree. Both are valid wants; they are different trees.\n\nCross-check of RFC-034 Rev 4's assumptions (all verified, one misattribution, one impl finding — reference impl already implements direct() semantics and is non-conformant to I-66) is recorded on srs#267. Graduate this note alongside RFC-034's acceptance.",
+      "label": "Body",
+      "name": "body"
+    }
+  ],
+  "tags": [
+    "design-note",
+    "containers",
+    "rfc-034",
+    "structural-constraints"
+  ],
+  "title": "Design capture: directory-kind scopes via typed identity records + the structural-constraints family (srs#267)"
+}

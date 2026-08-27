@@ -1,30 +1,30 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-05-27T00:00:00Z",
+  "instanceId": "87e912b6-b3f3-5207-a71b-73ce5cd6b8b7",
+  "typeId": "2a000008-0000-4000-a000-000000000008",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "extension",
   "fieldValues": {
     "extension_id": "ext:views-l2",
     "title": "Views L2",
     "extension_depends": "- ext:views-l1",
-    "content": "Document projection — assembling multiple Records from a Container into a coherent, ordered document. Depends on `ext:views-l1`.\n\nSee section `ext:views-l2` for type definitions (`SectionSource`, `DocumentSection`, `DocumentView`, `ThemeReference`, `ThemeVariant`), the default rendering baseline, the L1/L2 ExportConfig boundary rule, heading hierarchy, and conformance rules [N]–[N+8].\n\n**Composite renderer dispatch (RFC-036).** `DocumentSection` gains `compositeRenderers?: CompositeRendererDirective[]` and `DocumentView` gains the same array at document scope. A `CompositeRendererDirective` is an `ext:views-l1` `CompositeRendererBinding` plus a required `fieldId` naming the composite-range Field it binds. `DocumentSection` is the primary site — it follows RFC-027's placement of `relationsPresentation`, matches the granularity at which the L1 View is itself selected, and is the only site that reaches records rendered through the default baseline; `DocumentView` is a document-wide default beneath it. Resolution order and the `\"baseline\"` unbind sentinel are [CR-036-6] (see `ext:views-l1`)."
+    "content": "**Retired as an independent content copy (srs#285 / srs#407).** The current, normative text for `ext:views-l2` is published in §7 as subsection `07-7-ext-views-l2` (`com.semanticops.spec/subsection`). This record is kept only so `ext:views-l2` continues to resolve as an RFC-integration token (`scripts/check-rfc-integration.mjs`); it is not rendered by any document view and carries no independent content of its own. Do not edit this field to add prose — edit the published subsection instead."
   },
-  "instanceId": "87e912b6-b3f3-5207-a71b-73ce5cd6b8b7",
-  "sourceRefs": [
-    {
-      "note": "Extension ext:views-l2 from srs-spec.md - coarse source anchoring during migration",
-      "relationType": "evidence",
-      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-      "sourceType": "repository-document"
-    }
-  ],
   "tags": [
     "concern:extensibility",
     "concern:rendering",
     "construct:view",
     "topic:extensions"
   ],
-  "typeId": "2a000008-0000-4000-a000-000000000008",
-  "typeName": "extension",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-05-29T00:00:00Z"
+  "createdAt": "2026-05-27T00:00:00Z",
+  "updatedAt": "2026-08-19T05:00:53.175981096+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "sourceRefs": [
+    {
+      "note": "Extension ext:views-l2 from srs-spec.md - coarse source anchoring during migration",
+      "sourceRole": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ]
 }

@@ -1,9 +1,12 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-14T11:51:06.076913283+00:00",
+  "instanceId": "8b8377fc-7666-4f52-973c-d751d2d56264",
+  "typeId": "2a000013-0000-4000-a000-000000000013",
+  "typeVersion": 3,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "table",
   "fieldValues": {
     "intro": "**SourceReference → Relation graduation mapping (RFC-023):** when source material referenced by a `sourceRole` provenance pointer is promoted to an instance, the pointer converts to the listed Relation edge. The *referencing instance* carried the sourceRef; the *promoted instance* is created from the source material.",
-    "outro": "Conversion semantics (RFC-023 R6): the originating role is recorded in `meta[\"com.semanticops.srs/sourceRole\"]` (required for `quoted-from`); `confidence` carries over; `note` maps to Relation `notes`; the converted SourceReference is removed in the same operation. Relation-borne sourceRefs never convert (a Relation cannot be an edge endpoint) and are retained. `inspired-by` is retained, or a custom `namespace/name` relation type may be used — removal applies if an edge is created.",
+    "outro": "Conversion semantics (RFC-023 R6): the originating role is recorded in `meta[\"com.semanticops.srs/sourceRole\"]` (required for `quoted-from` — it is the only carrier of the quotation distinction); `confidence` carries over; `note` maps to Relation `notes`; the converted SourceReference is removed in the same operation. Relation-borne sourceRefs never convert (a Relation cannot be an edge endpoint) and are retained. `inspired-by` is retained, or a custom `namespace/name` relation type may be used — removal applies if an edge is created. See RFC-023.",
     "columns": [
       "sourceRole",
       "Relation edge",
@@ -45,10 +48,7 @@
       }
     ]
   },
-  "updatedAt": "2026-07-14T11:51:06.076918992+00:00",
-  "instanceId": "8b8377fc-7666-4f52-973c-d751d2d56264",
-  "typeId": "2a000013-0000-4000-a000-000000000013",
-  "typeName": "table",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 3
+  "createdAt": "2026-07-14T11:51:06.076913283+00:00",
+  "updatedAt": "2026-08-19T06:57:22.798890711+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

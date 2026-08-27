@@ -1,19 +1,19 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-17T01:41:43.780206302+00:00",
+  "instanceId": "d85abd4c-ca6b-4c36-939c-fde7ad373a00",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant",
   "fieldValues": {
     "invariant_number": "I-102",
-    "title": "attaches sourceId must resolve to sourceDocumentIndex entry",
-    "normative_statement": "The `sourceId` of an `attaches` `SourceReference` MUST resolve to a `documentId` present in `sourceDocumentIndex` (or discoverable via a `.meta.json` sidecar scan of `sourceDocumentsPath`) in the same repository. Resolution is against the index/sidecar entry, not the content file. A `sourceId` that resolves to no such entry is non-conformant and MUST be reported with a diagnostic at validation time.",
+    "title": "attaches sourceId must resolve to a source-document sidecar entry",
+    "normative_statement": "The `sourceId` of an `attaches` `SourceReference` MUST resolve to a `documentId` in the repository's source-document set, discovered via a `.meta.json` sidecar scan of `sourceDocumentsPath` in the same repository (RFC-038 [R25], amending RFC-017 [R2]/[R12]; `sourceDocumentIndex` is retired per RFC-038 [R2]). Resolution is against the sidecar entry, not the content file. A `sourceId` that resolves to no such entry is non-conformant and MUST be reported with a diagnostic at validation time.",
     "applies_to": "Validators; repositories using sourceRole: attaches"
   },
-  "instanceId": "d85abd4c-ca6b-4c36-939c-fde7ad373a00",
   "tags": [
     "construct:attachment"
   ],
-  "typeId": "2a000006-0000-4000-a000-000000000006",
-  "typeName": "invariant",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-17T01:41:43.780213740+00:00"
+  "createdAt": "2026-07-17T01:41:43.780206302+00:00",
+  "updatedAt": "2026-08-22T22:52:51.105944377+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

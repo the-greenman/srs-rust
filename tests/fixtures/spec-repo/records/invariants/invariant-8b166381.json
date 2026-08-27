@@ -1,19 +1,19 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-17T01:42:24.345495147+00:00",
+  "instanceId": "8b166381-c6e3-4db7-b193-bf635bd61249",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant",
   "fieldValues": {
     "invariant_number": "I-112",
     "title": "tombstone reference-only state: absent content file is valid",
-    "normative_statement": "A `sourceDocumentIndex` entry whose content file (at `contentPath`) is absent is a valid tombstone (reference-only) state. A conformant implementation MUST NOT reject, refuse to load, or refuse to export a repository solely because an indexed source document's content is missing. An `attaches` `SourceReference` targeting a tombstoned `documentId` remains conformant (I-102). An implementation MAY surface an informational non-blocking diagnostic that the content is unavailable.",
+    "normative_statement": "A source-document sidecar entry (RFC-038 [R25], amending RFC-017 [R12]; the entry no longer lives in a manifest `sourceDocumentIndex`, which is retired per RFC-038 [R2]) whose content file (at `contentPath`) is absent is a valid tombstone (reference-only) state. A conformant implementation MUST NOT reject, refuse to load, or refuse to export a repository solely because a discovered source document's content is missing. An `attaches` `SourceReference` targeting a tombstoned `documentId` remains conformant (I-102). An implementation MAY surface an informational non-blocking diagnostic that the content is unavailable.",
     "applies_to": "ext:repository validators, exporters; repositories with pruned source documents"
   },
-  "instanceId": "8b166381-c6e3-4db7-b193-bf635bd61249",
   "tags": [
     "construct:attachment"
   ],
-  "typeId": "2a000006-0000-4000-a000-000000000006",
-  "typeName": "invariant",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-17T01:42:24.345503125+00:00"
+  "createdAt": "2026-07-17T01:42:24.345495147+00:00",
+  "updatedAt": "2026-08-22T22:52:53.883639705+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

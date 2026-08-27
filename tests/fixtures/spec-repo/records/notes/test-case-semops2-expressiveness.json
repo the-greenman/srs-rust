@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "324b33c2-d40c-478d-989b-6c9601ff30d0",
+  "sections": [
+    {
+      "content": "SemOps2 (an SRS ancestor; config-driven entity platform, genuinely designed against the in-use products vault) mapped construct-by-construct onto SRS as an expressiveness test (2026-07-31).\n\nMAPS CLEANLY, USUALLY UPGRADED: entity types via YAML config -> Type + Fields (gains UUID identity, versioning, immutable field semantics); required_fields -> FieldAssignment.required; name_field/slug_field -> identityFieldId (RFC-020); parent/child hierarchy + nesting -> containers, contains relations, blueprints (RelationSpec with cardinality) — with E4 allowedSourceTypes/allowedTargetTypes able to constrain edges by semanticObjectType; directory-position context detection -> superseded by real identity (semops2's path-derived context is exactly the path-based-identity weakness the landscape research critiques in OKF); Jinja templates split cleanly: as authoring scaffold -> blueprints, as presentation -> views/themes; template_id/version provenance -> typeId@typeVersion binding; frontmatter validation -> schema validation; per-entity CLI verbs and icons -> client/presentation layer per capability-layering.\n\nEXPERT TYPES (AI personas with expertise, methodology, evidence requirements, applicable_entities): need NO core construct — definable as an ordinary domain Type whose records describe experts; applicable_entities is a field of typeIds or a relation. This is the self-hosting pitch passing its own test: the ancestor's bespoke config surfaces become plain SRS data. Their evidence_requirements/confidence_reporting map to the relation provenance surface (assertedBy/confidence) — a natural first consumer.\n\nRAG CONFIGS (chunking/pipelines/storage): out of scope by design — companion standard (see the RAG seam note).\n\nTHE ONE GENUINE GAP — SCOPED UNIQUENESS: semops2's unique_fields ('no two problems share problem_name within a domain') is inexpressible in SRS. identityFieldId names a display/identity field but asserts no uniqueness; RFC-019 CrossFieldRules are within-record; nothing validates cross-record. A community modelling registries, catalogues, or any name-keyed collection will hit this. Candidate shape: a uniqueness declaration on the Type (fieldId + scope: repository | container | type), validated at write and at rest as a diagnostic — advisory-vs-hard per RFC-022's enforcement precedent. Needs an RFC; interacts with #242's name-keying question (item 4 there narrows for the same reason: uniqueness within a Type's effective field set).\n\nMINOR, NOT GAPS: human-readable sequential IDs (DOM-001) are presentation/convention — a display-key field + the uniqueness constraint covers the need; auto-increment is deliberately absent (distributed identity). Mandatory parent-scoping at create is advisory-by-design (blueprints declare expectations; the tier ladder refuses to block capture).\n\nVERDICT: SemOps2 is fully representable in SRS except scoped uniqueness, which should become an RFC candidate. Graduate this note when that RFC is filed.",
+      "label": "Body",
+      "name": "body"
+    }
+  ],
+  "tags": [
+    "design-note",
+    "test-case",
+    "expressiveness"
+  ],
+  "title": "Test case: SemOps2 structure mapped onto SRS — one genuine gap (scoped uniqueness)"
+}

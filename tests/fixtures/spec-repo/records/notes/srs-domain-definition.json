@@ -102,19 +102,19 @@
     {
       "sourceType": "repository-document",
       "sourceId": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
-      "relationType": "evidence",
+      "sourceRole": "evidence",
       "note": "ChatGPT origin session - founding inversion from document to semantic state"
     },
     {
       "sourceType": "repository-document",
       "sourceId": "d4e5f6a7-b8c9-4d0e-8f2a-3b4c5d6e7f8a",
-      "relationType": "evidence",
+      "sourceRole": "evidence",
       "note": "Claude collaborative session - constraints, invariants, and rationale development"
     },
     {
       "sourceType": "external-document",
       "sourceId": "user-provided-domain-template-2026-05-28",
-      "relationType": "inspired-by",
+      "sourceRole": "inspired-by",
       "note": "Outside-system Domain Definition template supplied by the user"
     }
   ],

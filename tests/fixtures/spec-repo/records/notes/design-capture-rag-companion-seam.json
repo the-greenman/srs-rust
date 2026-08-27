@@ -1,0 +1,17 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "instanceId": "0a537413-558a-4c4f-9c26-a8cf9a20447e",
+  "sections": [
+    {
+      "content": "Owner intent (2026-07-31): SRS does not grow internal RAG. A companion standard for full addressable RAG will be established alongside SRS; the small-scale version inside SRS is embedded sources (source-documents/ + .meta.json sidecars, RFC-023 sourceRefs, RFC-017 attachments) plus lexical discovery (ext:discovery find, agent-index, MCP resources) — genuinely sufficient at hundreds-of-instances scale with zero infrastructure.\n\nWHY (lineage evidence): SemOps v2 (semops2, an SRS ancestor) baked ChunkingConfig / ProcessingPipeline / StorageConfig — chunk overlap, embedding models, storage backends — into its core schema (schema/semops/v1/knowledge.proto), welding ML-infrastructure churn to a semantics standard. The charter's out-of-scope list ('a storage engine, database, or sync service — SRS is a portable format, not infrastructure') is the corrective; the companion split is the charter applied. SemOps v1 (the products vault) got the split right in practice: curated sources lived in the vault, retrieval machinery (the brain MCP chat service) lived entirely outside it.\n\nTHE SEAM — what the companion CONSUMES from SRS: (1) stable addresses into content — ext:addressability (instance, field, revision); (2) the canonical text to index — ext:discovery's deterministic Text Projection, normative for all three tiers, solving 'what exactly did we embed'; (3) provenance edges back — sourceRefs, derived-from; (4) change detection — checksums, revisions.\n\nWhat the companion OWNS and SRS never absorbs: chunking, embeddings, vector storage, retrieval APIs, ranking.\n\nKEYSTONE PROPERTY: retrieval citations resolve to SRS addresses — v1's 'verifiable sources is a human job' discipline made machine-checkable.\n\nWhen RAG/embedding/vector features are proposed for core, cite this note and the charter out-of-scope list; route to the companion standard. Graduate to a design-note record when the companion standard is chartered.",
+      "label": "Body",
+      "name": "body"
+    }
+  ],
+  "tags": [
+    "design-note",
+    "rag",
+    "scope"
+  ],
+  "title": "Design capture: RAG stays out of core — the companion-standard seam"
+}

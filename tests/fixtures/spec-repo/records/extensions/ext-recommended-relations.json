@@ -1,28 +1,29 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-05-27T00:00:00Z",
+  "instanceId": "ed9f0446-800c-5428-8780-09bb499f76aa",
+  "typeId": "2a000008-0000-4000-a000-000000000008",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "extension",
   "fieldValues": {
     "extension_id": "ext:recommended-relations",
     "title": "Recommended Relations (compatibility label only)",
     "extension_depends": "",
-    "content": "**Status: compatibility label only.** This extension has no normative semantics as of RFC-005. Declaring it has no effect.\n\nThe canonical SRS relation type vocabulary (`contains`, `depends-on`, `supersedes`, `refines`, `derived-from`, `evidences`, `precedes`) is now defined as installed `RelationTypeDefinition` records in the `com.semanticops.srs` core package (`package/relation-types/`). Definition lookup is mandatory for all implementations — see RFC-005 and the core `Relation` validation rules.\n\nRepositories that previously declared `ext:recommended-relations` may remove it. The canonical definitions are unconditionally available to any repo using the SRS package.\n\n---"
+    "content": "**Retired as an independent content copy (srs#285 / srs#407).** The current, normative text for `ext:recommended-relations` is published in §7 as subsection `07-11-ext-recommended-relations` (`com.semanticops.spec/subsection`). This record is kept only so `ext:recommended-relations` continues to resolve as an RFC-integration token (`scripts/check-rfc-integration.mjs`); it is not rendered by any document view and carries no independent content of its own. Do not edit this field to add prose — edit the published subsection instead."
   },
-  "instanceId": "ed9f0446-800c-5428-8780-09bb499f76aa",
-  "sourceRefs": [
-    {
-      "note": "Extension ext:recommended-relations from srs-spec.md - coarse source anchoring during migration",
-      "relationType": "evidence",
-      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-      "sourceType": "repository-document"
-    }
-  ],
   "tags": [
     "concern:extensibility",
     "construct:relation",
     "topic:extensions"
   ],
-  "typeId": "2a000008-0000-4000-a000-000000000008",
-  "typeName": "extension",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1
+  "createdAt": "2026-05-27T00:00:00Z",
+  "updatedAt": "2026-08-19T05:00:53.580923385+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "sourceRefs": [
+    {
+      "note": "Extension ext:recommended-relations from srs-spec.md - coarse source anchoring during migration",
+      "sourceRole": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ]
 }

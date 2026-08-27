@@ -1,0 +1,16 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Open extension bag for state- or transition-specific metadata not otherwise modelled."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Open extension bag for state- or transition-specific metadata not otherwise modelled.",
+  "id": "4b000040-0000-4000-a000-000000000040",
+  "name": "properties",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "map",
+    "valueRange": "open"
+  },
+  "version": 1
+}

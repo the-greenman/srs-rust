@@ -1,21 +1,15 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-05-27T00:00:00Z",
+  "instanceId": "e1000037-0000-4000-a000-000000000037",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant",
   "fieldValues": {
     "invariant_number": "37",
-    "title": "Every TypeRef.typeId referenced in Protocol.targetType or in any…",
-    "normative_statement": "Every `TypeRef.typeId` referenced in `Protocol.targetType` or in any `ProtocolStage.outputType`, for each Protocol in `Package.protocols[]`, must appear in `Package.dependencyRefs` with `definitionType: \"type\"`. Every `FieldRef.fieldId` in any `ProtocolStage.contributesTo[]` must appear in `Package.dependencyRefs` with `definitionType: \"field\"`. If `mode === \"bundled\"`, those Types must be in `Package.types[]` and those Fields in `Package.fields[]`.",
+    "title": "Every Protocol.protocolTargetType and ProtocolStage.outputType referenced…",
+    "normative_statement": "Every `Protocol.protocolTargetType` (when a non-empty UUID) and every `ProtocolStage.outputType`, for each Protocol in `Package.protocols[]`, must appear in `Package.dependencyRefs` with `definitionType: \"type\"`. Every `FieldRef.fieldId` in any `ProtocolStage.contributesTo[]` must appear in `Package.dependencyRefs` with `definitionType: \"field\"`. If `mode === \"bundled\"`, those Types must be in `Package.types[]` and those Fields in `Package.fields[]`.",
     "applies_to": "ext:protocol — Distribution"
   },
-  "instanceId": "e1000037-0000-4000-a000-000000000037",
-  "sourceRefs": [
-    {
-      "note": "Invariant 37 from srs-spec.md section 08",
-      "relationType": "evidence",
-      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-      "sourceType": "repository-document"
-    }
-  ],
   "tags": [
     "concern:validation",
     "construct:protocol",
@@ -23,8 +17,15 @@
     "construct:type",
     "topic:conformance"
   ],
-  "typeId": "2a000006-0000-4000-a000-000000000006",
-  "typeName": "invariant",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1
+  "createdAt": "2026-05-27T00:00:00Z",
+  "updatedAt": "2026-08-25T13:49:46.074789697+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+  "sourceRefs": [
+    {
+      "note": "Invariant 37 from srs-spec.md section 08",
+      "sourceRole": "evidence",
+      "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "sourceType": "repository-document"
+    }
+  ]
 }

@@ -19,11 +19,21 @@ use crate::store::RepositoryStore;
 use serde::Serialize;
 
 /// The data-model generation this build writes.
-/// The revision this build reads and writes — RFC-039's carrier model
-/// (migration #2). RFC-032's fieldType model is revision 1.
-pub const CURRENT_DATA_MODEL_REVISION: u64 = 2;
+/// The revision this build reads and writes — RFC-040's metamodel v1.1.0
+/// engine sync (migration #3: reject-unknown definition layer, srs#477/#867).
+/// RFC-039's carrier model is revision 2; RFC-032's fieldType model is revision 1.
+pub const CURRENT_DATA_MODEL_REVISION: u64 = 3;
 /// The revision the RFC-032 `field-type` migration produces.
 pub const FIELD_TYPE_REVISION: u64 = 1;
+/// The revision RFC-040's metamodel v1.1.0 engine sync produces. This is
+/// migration #3 (revision 2 -> 3). Unlike #1/#2 it stamps only — the RFC-040
+/// train's construct retirals (`Field.defaultValue`/`deprecatedAt`,
+/// `SourceReference.relationType`, `SectionSource.fixed-instances`/
+/// `relation-query`, ...) are enforced unconditionally by the loader/schema
+/// regardless of the stamped revision (srs decision 4f1e12e5 family), so a
+/// repository that still loads successfully already carries none of them —
+/// there is no content left to rewrite, only the generation number to record.
+pub const METAMODEL_V1_1_0_REVISION: u64 = 3;
 
 /// The manifest property carrying the generation stamp (RFC-033 [R6] / #265).
 pub const DATA_MODEL_REVISION_KEY: &str = "dataModelRevision";
@@ -107,4 +117,46 @@ pub fn stamp_data_model_revision(
         serde_json::json!(revision),
     );
     store.save_manifest(&manifest)
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetamodelV1_1_0MigrationResult {
+    /// The revision the repository carried before this run.
+    pub from_revision: u64,
+    /// The revision stamped on the manifest (`METAMODEL_V1_1_0_REVISION`).
+    pub to_revision: u64,
+}
+
+/// Whether this repository still needs migration #3.
+pub fn metamodel_v1_1_0_migration_needed(
+    store: &dyn RepositoryStore,
+) -> Result<bool, RepositoryError> {
+    Ok(data_model_revision(store)? < METAMODEL_V1_1_0_REVISION)
+}
+
+/// Apply migration #3: stamp `dataModelRevision: 3`.
+///
+/// A pure re-stamp — see `METAMODEL_V1_1_0_REVISION`'s doc comment for why no
+/// content rewrite is needed. Requires the RFC-039 carrier migration (#2) to
+/// have run first, so the ladder is climbed in order like #1/#2.
+pub fn migrate_metamodel_v1_1_0(
+    store: &dyn RepositoryStore,
+) -> Result<MetamodelV1_1_0MigrationResult, RepositoryError> {
+    let from_revision = data_model_revision(store)?;
+    let required = crate::rfc039_carrier_migration_service::CARRIER_REVISION;
+    if from_revision < required {
+        return Err(RepositoryError::InvalidSnapshotData {
+            message: format!(
+                "metamodel-v1-1-0 migration requires data-model revision >= {required} \
+                 (found {from_revision}): run `srs repo apply-migration --id rfc039-carrier` first \
+                 (RFC-039, migration #2)"
+            ),
+        });
+    }
+    stamp_data_model_revision(store, METAMODEL_V1_1_0_REVISION)?;
+    Ok(MetamodelV1_1_0MigrationResult {
+        from_revision,
+        to_revision: METAMODEL_V1_1_0_REVISION,
+    })
 }
