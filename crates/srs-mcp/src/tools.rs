@@ -118,10 +118,11 @@ pinned typeVersion). relationType must be 'supersedes' or 'refines'. Validation 
 before any write. Returns both the new Record and the linking Relation.";
 
 pub const DESC_NOTE_GRADUATE: &str = "Promote a Tier-0 Note to a typed Tier-2 Record in \
-one atomic step. The Note's graduatedAt is stamped; a new Record is created from the \
-supplied type and fieldValues. Optional containerId adds the Record to a container. The Note \
-is preserved with its graduatedAt timestamp — it is not deleted. Returns both the updated \
-Note and the new Record.";
+one atomic step. A new Record is created from the supplied type and fieldValues, and a \
+derived-from Relation (Record -> Note) is asserted atomically as the graduation's sole \
+provenance record. Optional containerId adds the Record to a container. The Note is \
+preserved unchanged — it is not deleted, and its graduatedAt field is never stamped. Returns \
+both the Note and the new Record.";
 
 pub const DESC_CONTAINER_MEMBER_ADD: &str = "Add an instance to a container's \
 memberInstanceIds. Idempotent — adding an already-present member is not an error. Returns \
