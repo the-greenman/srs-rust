@@ -1,0 +1,19 @@
+{
+  "instanceId": "a0538dda-7a43-4e18-976a-f4e7671fe5e6",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
+  "fieldValues": {
+    "title": "RFC-040: Metamodel v1.1.0 — the definition-layer train",
+    "rfc_number": "040",
+    "rfc_status": "implemented",
+    "author": "#273 planning session (scheduled, complicated-mode), assembling owner rulings of 2026-07-31 … 2026-08-23",
+    "affected_components": "com.semanticops.srs/metamodel (v1.0.0 → v1.1.0), docs/schema/2.0/{field,type,note,record,package-manifest}.json reference forms, scripts/gen-metamodel-package.mjs, scripts/lib/schema-emitter.mjs, projection-rules.md, metamodel-fidelity.md, RFC-033/RFC-035 closure tests, the RFC-031 residual allowlist, design-note 045.\n\n<!-- srs-integration:v1\ncell:reference\ncell:conformance\ncell:identity\nschema:blueprint.json\nschema:document-view.json\nschema:field.json\nschema:manifest.json\nschema:note.json\nschema:package-bundle.json\nschema:package-manifest.json\nschema:protocol.json\nschema:record.json\nschema:relation.json\nschema:relations-collection.json\nschema:typed-record.json\nschema:type.json\next:type-inheritance\next:lifecycle\next:cross-field-validation\nI-39\nI-40\nI-41\nI-42\nI-43\nI-88\nI-97\ntype:com.semanticops.srs/type\ntype:com.semanticops.srs/cross-field-validation-facet\ntype:com.semanticops.srs/inheritance-facet\ntype:com.semanticops.srs/lifecycle-facet\n-->",
+    "proposal_artifact_path": "rfcs/rfc-040-metamodel-v1-1-0.md",
+    "content": "The metamodel v1.1.0 train plan for srs#273 (epic #256 spine task 4a-0): model the live post-#242 definition layer as SRS records (extension facets as separate Types via ext:type-inheritance; the seven nested value objects; the documentation-only FieldAssignment.description slot), remove both defaultValue sites and deprecatedAt per rfc-decision-0225099b and the #234 ruling, add Type.lineage/provenance, add conditional-forbidden with both-emitter conditional projection, teach the emitter the instance-facing (closed-except-meta) vs definition-facing (closed) distinction per rfc-decision-2e0cd70a, execute the reference-taxonomy definition-layer edits (rfc-decision-c8704763) and the RFC-023 sourceRole migration, implement the #274 reader projection (property table primary), and tighten the closure tests to byte-for-byte regeneration including annotations and $defs — the seed remaining authoritative (the #260 authorship flip is excluded on owner hold). Six sequenced execution units; every decision lands with its enforcing mechanism. Zero open decisions; zero parks."
+  },
+  "createdAt": "2026-08-24T22:16:02.964372011+00:00",
+  "updatedAt": "2026-08-26T11:10:04.393479239+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
+}

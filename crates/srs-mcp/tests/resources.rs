@@ -54,6 +54,16 @@ fn make_fixture() -> Fixture {
     )
     .unwrap();
 
+    // SectionSource::FixedInstances is retired (srs decision 4f1e12e5's P6
+    // small-surface removals, srs#444) — container-subset over the scaffolded
+    // root container (which already carries the identity instance as a
+    // member, RFC-013) is the equivalent, still-valid source.
+    let root_container_id = srs_repository::store::RepositoryStore::load_manifest(&store)
+        .unwrap()
+        .container
+        .unwrap()
+        .container_id;
+
     let view_id = uuid::Uuid::new_v4().to_string();
     create_document_view_normalized(
         &store,
@@ -67,8 +77,8 @@ fn make_fixture() -> Fixture {
                 "title": "Identity",
                 "order": 1,
                 "source": {
-                    "type": "fixed-instances",
-                    "instanceIds": [result.identity_instance_id.clone().unwrap()]
+                    "type": "container-subset",
+                    "containerId": root_container_id
                 }
             }]
         }),

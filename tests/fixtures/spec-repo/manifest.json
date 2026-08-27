@@ -23,7 +23,7 @@
   "srsVersion": "2.0-draft",
   "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
   "createdAt": "2026-05-28T00:00:00Z",
-  "dataModelRevision": 2,
+  "dataModelRevision": 3,
   "declaredExtensions": [
     "ext:addressability",
     "ext:lifecycle",
@@ -36,13 +36,6 @@
   ],
   "description": "The SRS specification, authored as an SRS repository. The rendered specification is a DocumentView export of the records in this repository.",
   "meta": {
-    "renderedExports": [
-      {
-        "format": "markdown",
-        "outputPath": "../docs/spec/srs-spec.md",
-        "view": "srs-spec-document-view"
-      }
-    ],
     "sourceOfTruth": "records"
   },
   "namespace": "com.semanticops.srs",
@@ -72,8 +65,29 @@
   "renderedPresentations": [
     {
       "format": "markdown",
+      "outputPath": "../docs/spec/srs-spec.md",
+      "viewId": "3a000001-0000-4000-a000-000000000001"
+    },
+    {
+      "format": "markdown",
+      "outputPath": "../docs/spec/srs-rationale.md",
+      "viewId": "3a000003-0000-4000-a000-000000000003"
+    },
+    {
+      "format": "markdown",
       "isDefault": true,
+      "outputPath": "../docs/spec/srs-unified.md",
       "viewId": "3a000004-0000-4000-a000-000000000004"
+    },
+    {
+      "format": "markdown",
+      "outputPath": "../docs/spec/rfcs/rfc-catalog.md",
+      "viewId": "7a000001-0000-4000-a000-000000000001"
+    },
+    {
+      "format": "markdown",
+      "outputPath": "../docs/spec/rfcs/rfc-decision-log.md",
+      "viewId": "7a000002-0000-4000-a000-000000000002"
     }
   ]
 }

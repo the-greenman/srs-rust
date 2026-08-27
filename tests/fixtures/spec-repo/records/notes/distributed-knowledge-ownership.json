@@ -47,7 +47,7 @@
     {
       "sourceType": "repository-document",
       "sourceId": "d4e5f6a7-b8c9-4d0e-8f2a-3b4c5d6e7f8a",
-      "relationType": "evidence",
+      "sourceRole": "evidence",
       "note": "Claude collaborative session - repository, federation, archive, and import/export design"
     }
   ],

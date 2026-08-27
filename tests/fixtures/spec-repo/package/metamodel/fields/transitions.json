@@ -1,0 +1,21 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "The lifecycle's named state-to-state edges."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "The lifecycle's named state-to-state edges.",
+  "id": "4b000042-0000-4000-a000-000000000042",
+  "name": "transitions",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "ref",
+    "mode": "inline",
+    "cardinality": "list",
+    "rangeType": {
+      "typeId": "4c00000e-0000-4000-a000-00000000000e",
+      "typeVersion": 1
+    }
+  },
+  "version": 1
+}

@@ -17,7 +17,7 @@
   ],
   "version": "1.0.0",
   "views": [],
-  "dataModelRevision": 2,
+  "dataModelRevision": 3,
   "title": "SRS Base Package",
   "description": "Base package for repository-level settings. Provides com.semanticops.base/repo_settings and the attachment-limit Fields it composes (RFC-017).",
   "status": "active",

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "Describes the relation-type obligation, direction, and enforcement strength that gates a lifecycle state."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "RFC-022 relational state: a record may only be in this state if a relation satisfying this obligation exists.",
+  "fields": [
+    {
+      "fieldId": "4b000047-0000-4000-a000-000000000047",
+      "order": 0,
+      "required": true,
+      "displayLabel": "Relation Type"
+    },
+    {
+      "fieldId": "4b000048-0000-4000-a000-000000000048",
+      "order": 1,
+      "required": false
+    },
+    {
+      "fieldId": "4b000049-0000-4000-a000-000000000049",
+      "order": 2,
+      "required": false
+    }
+  ],
+  "id": "4c00000d-0000-4000-a000-00000000000d",
+  "name": "requires-relation",
+  "namespace": "com.semanticops.srs",
+  "version": 1
+}

@@ -1,0 +1,34 @@
+{
+  "instanceId": "92d2da05-4030-4afb-b8be-48ff8e9029d8",
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeVersion": 2,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc-decision",
+  "fieldValues": {
+    "title": "Rename DocumentView to Composition",
+    "rfc_status": "accepted",
+    "decision_date": "2026-08-19",
+    "decision_rationale": "The corpus itself could not use the old name unambiguously: RFC-015's renderedPresentations.viewId points at a DocumentView, and two entities shared the word \"view\" across ext:views-l1/ext:views-l2. Composition names exactly what the entity does. The owner had arrived at this name previously and the decision was lost unrecorded — this record exists so it cannot be lost again.",
+    "decision_statement": "The document-composition entity is named Composition; the name DocumentView retires. The rendering-chain vocabulary is Composition → Presentation → Projection: a Composition defines how records compose into a document; a Presentation is a repository's declared commitment to render a Composition in a format (manifest.renderedPresentations); a Projection is the produced artifact. \"Export\" retires as vocabulary with the VIEW_EXPORTS mechanism.",
+    "decision_scope": "Rendering-chain vocabulary and the document-composition entity name",
+    "governing_values": [
+      "shared-coherence",
+      "evolution"
+    ],
+    "project_phase": "formation",
+    "alternatives_considered": "- Keep DocumentView: rejected — the View/DocumentView collision is unresolvable in prose and already confused RFC-015's own key naming.\n- Arrangement, Edition, Outline, Assembly: rejected — weaker semantic fit; none name the composing act.\n- Rename in vocabulary only, keep the entity name in schemas: rejected — a permanent prose/model split is the drift class this project retires.",
+    "accepted_costs": "A breaking rename across the ecosystem (~83 srs-rust files, the schema file, the package-manifest documentViews[] key, CLI commands, payload goldens, MCP resource paths), executed only at srs#272's regeneration where the schemas are rewritten anyway (Evolution phase). RFC-034 (srs#267, unaccepted) must rephrase \"structural container composition\" to container structure/nesting so the noun stays unambiguous. srs#411 lands first with the old key; the viewId→compositionId key rename travels with the entity rename at #272.",
+    "evidence_refs": [
+      "https://github.com/the-greenman/srs/pull/389#issuecomment-5339733683",
+      "https://github.com/the-greenman/srs/issues/272#issuecomment-5339733831"
+    ],
+    "review_trigger": "Review if srs#272's regeneration cannot execute the rename atomically with the schema rewrite, or if RFC-034's rephrasing is refused."
+  },
+  "tags": [
+    "topic:rfc",
+    "cell:description"
+  ],
+  "createdAt": "2026-08-19T08:52:49.447849458+00:00",
+  "updatedAt": "2026-08-23T18:55:14.144874065+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
+}

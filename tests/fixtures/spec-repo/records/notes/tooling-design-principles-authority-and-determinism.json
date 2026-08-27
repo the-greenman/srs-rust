@@ -67,7 +67,7 @@
   "sourceRefs": [
     {
       "note": "User review identifying duplicated resolve_repo logic, embedded foundation tag policy, repeated manifest loads, and the need for clear authority domains and DRY code.",
-      "relationType": "inspired-by",
+      "sourceRole": "inspired-by",
       "sourceId": "user-provided-tooling-design-principles-2026-05-28",
       "sourceType": "external-document"
     }

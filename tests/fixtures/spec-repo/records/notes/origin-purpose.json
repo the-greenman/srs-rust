@@ -64,7 +64,7 @@
     {
       "sourceType": "repository-document",
       "sourceId": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
-      "relationType": "evidence",
+      "sourceRole": "evidence",
       "note": "ChatGPT origin session - initial conception and design of SRS, May 2026"
     }
   ],

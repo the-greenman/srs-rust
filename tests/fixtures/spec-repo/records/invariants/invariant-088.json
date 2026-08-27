@@ -1,17 +1,17 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-14T11:51:06.079884481+00:00",
+  "instanceId": "991f4c9c-71bc-4190-97c0-4ad17544bb44",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant",
   "fieldValues": {
     "invariant_number": "I-88",
     "title": "sourceRole vocabulary MUST be disjoint from installed RelationTypeDefinition keys",
-    "normative_statement": "The `sourceRole` value set — the closed enum of the implemented schema revision, including values added by later accepted RFCs — MUST be disjoint under literal whole-key equality from the set of installed `RelationTypeDefinition` keys in the repository's effective package set. Relation-type creation MUST reject a definition whose key equals a `sourceRole` value; `repo validate` MUST report a pre-existing collision as `SOURCEROLE_RELATIONTYPE_COLLISION` (warning at rest). The legacy `relationType` enum on SourceReference is exempt. A namespaced key (e.g. `com.acme/evidence`) does not collide with a bare `sourceRole` value.",
+    "normative_statement": "The `sourceRole` value set — the closed enum of the implemented schema revision, including values added by later accepted RFCs — MUST be disjoint under literal whole-key equality from the set of installed `RelationTypeDefinition` keys in the repository's effective package set. Relation-type creation MUST reject a definition whose key equals a `sourceRole` value; `repo validate` MUST report a pre-existing collision as `SOURCEROLE_RELATIONTYPE_COLLISION` (warning at rest). A namespaced key (e.g. `com.acme/evidence`) does not collide with a bare `sourceRole` value.",
     "applies_to": "SourceReference.sourceRole; RelationTypeDefinition.key; RFC-023 R5, Change D; RFC-005 (bare keys are canonical).",
     "rationale": "The Relation edge vocabulary and the SourceReference provenance vocabulary are unrelated type systems that historically collided (`derived-from` appeared identically in both). Disjointness makes every vocabulary string unambiguous about which mechanism it belongs to, and guards future additions on either side (e.g. RFC-017's `attaches`)."
   },
-  "instanceId": "991f4c9c-71bc-4190-97c0-4ad17544bb44",
-  "typeId": "2a000006-0000-4000-a000-000000000006",
-  "typeName": "invariant",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-14T11:51:06.079888281+00:00"
+  "createdAt": "2026-07-14T11:51:06.079884481+00:00",
+  "updatedAt": "2026-08-25T15:02:31.945949998+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

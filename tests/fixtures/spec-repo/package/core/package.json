@@ -23,7 +23,7 @@
   ],
   "version": "1.0.0",
   "views": [],
-  "dataModelRevision": 2,
+  "dataModelRevision": 3,
   "title": "SRS Core Package",
   "description": "The core base package for the SRS specification. Provides com.semanticops.core/purpose — a Tier-2 type for repository identity, always available in every conforming SRS repository without a packageRef declaration (RFC-018) — and the seven canonical RelationType definitions (RFC-005).",
   "status": "active",

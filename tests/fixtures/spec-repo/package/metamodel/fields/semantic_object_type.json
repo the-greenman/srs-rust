@@ -1,10 +1,10 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
   "aiGuidance": {
-    "purpose": "Optional canonical semantic classification (e.g. \"decision\", \"policy\")."
+    "purpose": "Optional canonical semantic classification (e.g. \"decision\", \"policy\"). Sanctioned-until-collapsed (#383, 2026-08-15): the collapse to a Type-keyed type-query executes at #272; do not add new consumers meanwhile."
   },
   "createdAt": "2026-07-29T00:00:00Z",
-  "description": "Optional canonical semantic classification (e.g. \"decision\", \"policy\").",
+  "description": "Optional canonical semantic classification (e.g. \"decision\", \"policy\"). Sanctioned-until-collapsed (#383, 2026-08-15): the collapse to a Type-keyed type-query executes at #272; do not add new consumers meanwhile.",
   "id": "4b000031-0000-4000-a000-000000000031",
   "name": "semantic_object_type",
   "namespace": "com.semanticops.srs",

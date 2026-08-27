@@ -2389,7 +2389,7 @@ mod tests {
         json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
-            "dataModelRevision": 2,
+            "dataModelRevision": 3,
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Test Repo",
             "container": {
@@ -4189,7 +4189,7 @@ mod tests {
                 "sections": [{
                     "sectionId": "s1",
                     "order": 0,
-                    "source": {"type": "fixed-instances", "instanceIds": []}
+                    "source": {"type": "type-query", "semanticObjectType": "com.test/nonexistent"}
                 }],
                 "createdAt": "2026-01-01T00:00:00Z"
             }),
@@ -4411,13 +4411,16 @@ mod tests {
         // Type. Post-#242 (Change-I condition 4) cardinality is the sole
         // mechanism: the field is ineligible via `cardinality: "list"` — the
         // fixture still discriminates the resolve-the-instance's-Type branch.
+        //
+        // SectionSource::FixedInstances is retired (srs decision 4f1e12e5's P6
+        // small-surface removals, srs#444) — a ContainerSubset section with an
+        // explicit typeFilter is the surviving equivalent for a statically-known
+        // candidate Type, so this fixture now uses that instead.
         let temp = TempDir::new().unwrap();
         let record_id = "00000000-0000-4000-8000-000000000501";
-        write_json(
-            temp.path(),
-            "manifest.json",
-            &minimal_manifest(json!([rfc013_instance_entry(record_id)])),
-        );
+        let mut manifest = minimal_manifest(json!([rfc013_instance_entry(record_id)]));
+        manifest["container"]["memberInstanceIds"] = json!([record_id]);
+        write_json(temp.path(), "manifest.json", &manifest);
         write_json(temp.path(), "package/.srs", &json!({}));
         write_json(
             temp.path(),
@@ -4482,8 +4485,9 @@ mod tests {
                     "sectionId": "s1",
                     "order": 0,
                     "source": {
-                        "type": "fixed-instances",
-                        "instanceIds": [record_id]
+                        "type": "container-subset",
+                        "containerId": "00000000-0000-4000-8000-000000000099",
+                        "typeFilter": ["com.test/test-type"]
                     },
                     "titleFieldId": "00000000-0000-4000-8000-0000000000f1"
                 }],
@@ -4553,17 +4557,21 @@ mod tests {
         // srs-rust#795: same coverage gap as the FixedInstances fixture above, for
         // RelationQuery — its candidate instances are only known by resolving the
         // relations graph, which the validator did not do before this fix.
+        //
+        // SectionSource::RelationQuery is retired (srs decision 4f1e12e5's P6
+        // small-surface removals, srs#444) — this fixture now resolves the same
+        // "related" instance (`target_id`) via a ContainerSubset section, the
+        // surviving equivalent, with the depends-on relation kept in place as
+        // otherwise-unrelated fixture data.
         let temp = TempDir::new().unwrap();
         let from_id = "00000000-0000-4000-8000-000000000601";
         let target_id = "00000000-0000-4000-8000-000000000602";
-        write_json(
-            temp.path(),
-            "manifest.json",
-            &minimal_manifest(json!([
-                rfc013_instance_entry(from_id),
-                rfc013_instance_entry(target_id)
-            ])),
-        );
+        let mut manifest = minimal_manifest(json!([
+            rfc013_instance_entry(from_id),
+            rfc013_instance_entry(target_id)
+        ]));
+        manifest["container"]["memberInstanceIds"] = json!([target_id]);
+        write_json(temp.path(), "manifest.json", &manifest);
         write_json(temp.path(), "package/.srs", &json!({}));
         write_json(
             temp.path(),
@@ -4626,10 +4634,9 @@ mod tests {
                     "sectionId": "s1",
                     "order": 0,
                     "source": {
-                        "type": "relation-query",
-                        "fromInstanceId": from_id,
-                        "relationType": "depends-on",
-                        "direction": "forward"
+                        "type": "container-subset",
+                        "containerId": "00000000-0000-4000-8000-000000000099",
+                        "typeFilter": ["com.test/test-type"]
                     },
                     "titleFieldId": "00000000-0000-4000-8000-0000000000f1"
                 }],
@@ -5462,6 +5469,190 @@ mod tests {
             manifest_diags.is_empty(),
             "expected zero manifest.json diagnostics for valid manifest, got: {:?}",
             manifest_diags
+        );
+    }
+
+    /// srs-rust#877 (defect 1 completion, srs#477/#867): a repository stamped at
+    /// `dataModelRevision: 3` must load cleanly through the full repository
+    /// pipeline — not just the isolated `TypeJson` unit round-trip
+    /// (`type_json::tests::v1_1_0_metamodel_additions_round_trip`) — and the
+    /// RFC-040 metamodel v1.1.0 surface (`FieldAssignment.description`,
+    /// `RecordType.lineage`/`provenance`, and the `ConditionalForbidden`
+    /// cross-field rule kind) must round-trip and actually function once loaded
+    /// through `FileStore`.
+    #[test]
+    fn rev3_repository_loads_and_v1_1_0_metamodel_surface_round_trips() {
+        let temp = TempDir::new().unwrap();
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+                "srsVersion": "2.0",
+                "dataModelRevision": 3,
+                "repositoryId": "00000000-0000-4000-8000-000000000700",
+                "title": "Rev-3 Metamodel Test Repo",
+                "container": {
+                    "containerId": "00000000-0000-4000-8000-000000000700",
+                    "title": "Rev-3 Metamodel Test Repo"
+                },
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "00000000-0000-4000-8000-000000000710",
+                "namespace": "com.test",
+                "name": "test-package",
+                "title": "Test Package",
+                "description": "test package",
+                "status": "active",
+                "version": "1.0.0",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": ["fields/status.json", "fields/close_reason.json"],
+                "types": ["types/ticket.json"],
+                "views": []
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/status.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-000000000711",
+                "namespace": "com.test",
+                "name": "status",
+                "version": 1,
+                "fieldType": {"datatype": "string"},
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/close_reason.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-000000000712",
+                "namespace": "com.test",
+                "name": "close_reason",
+                "version": 1,
+                "fieldType": {"datatype": "string"},
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/types/ticket.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-000000000713",
+                "namespace": "com.test",
+                "name": "ticket",
+                "version": 1,
+                "description": "A test ticket type",
+                "fields": [
+                    {
+                        "fieldId": "00000000-0000-4000-8000-000000000711",
+                        "order": 0,
+                        "required": false,
+                        "description": "the ticket's current status"
+                    },
+                    {
+                        "fieldId": "00000000-0000-4000-8000-000000000712",
+                        "order": 1,
+                        "required": false
+                    }
+                ],
+                "lineage": {"sourceDefinitionId": "com.test/ticket-draft", "sourceVersion": 1},
+                "provenance": {"publisher": "com.test"},
+                "validationRules": [{
+                    "type": "conditional-forbidden",
+                    "predicateFieldId": "00000000-0000-4000-8000-000000000711",
+                    "predicateValue": "open",
+                    "targetFieldId": "00000000-0000-4000-8000-000000000712",
+                    "message": "close_reason is forbidden while status is open"
+                }],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            "records/ticket-1.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": "00000000-0000-4000-8000-000000000714",
+                "typeId": "00000000-0000-4000-8000-000000000713",
+                "typeVersion": 1,
+                "typeNamespace": "com.test",
+                "typeName": "ticket",
+                "fieldValues": {
+                    "status": "open",
+                    "close_reason": "should not be set while open"
+                }
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+
+        // Load + round-trip: the package loads through the full repository
+        // pipeline (not a bare TypeJson unit test) and the v1.1.0 additions
+        // survive intact.
+        let package = store.load_package().expect("rev-3 package must load");
+        let rt = package
+            .record_types()
+            .iter()
+            .find(|t| t.name == "ticket")
+            .expect("ticket type must load");
+        assert_eq!(
+            rt.fields[0].description.as_deref(),
+            Some("the ticket's current status")
+        );
+        assert_eq!(
+            rt.lineage
+                .as_ref()
+                .and_then(|l| l.source_definition_id.as_deref()),
+            Some("com.test/ticket-draft")
+        );
+        assert_eq!(
+            rt.provenance.as_ref().and_then(|p| p.publisher.as_deref()),
+            Some("com.test")
+        );
+        assert!(
+            matches!(
+                rt.validation_rules.as_deref(),
+                Some([srs_core::types::record_type::CrossFieldRule {
+                    rule_type:
+                        srs_core::types::record_type::CrossFieldRuleKind::ConditionalForbidden,
+                    ..
+                }])
+            ),
+            "the ConditionalForbidden rule kind must round-trip: {:?}",
+            rt.validation_rules
+        );
+
+        // No revision diagnostic: dataModelRevision 3 is exactly what this
+        // build supports — the whole point of the srs-rust#877 bump.
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            !report
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("data-model revision")),
+            "a repository already at the current revision must carry no revision diagnostic: {:?}",
+            report.diagnostics
+        );
+
+        // Function, not just parse: the loaded ConditionalForbidden rule fires
+        // against the record that violates it.
+        assert!(
+            report.diagnostics.iter().any(|d| d.message.contains(
+                "cross-field rule (conditional-forbidden): field \
+                 '00000000-0000-4000-8000-000000000712' is forbidden when field \
+                 '00000000-0000-4000-8000-000000000711' equals 'open'"
+            )),
+            "the loaded ConditionalForbidden rule must actually evaluate against records: {:?}",
+            report.diagnostics
         );
     }
 
@@ -9029,7 +9220,7 @@ mod tests {
             "sections": [{
                 "sectionId": "s1",
                 "order": 0,
-                "source": {"type": "fixed-instances", "instanceIds": []},
+                "source": {"type": "type-query", "semanticObjectType": "com.test/nonexistent"},
                 "relationsPresentation": { "include": include_entries }
             }],
             "createdAt": "2026-01-01T00:00:00Z"

@@ -19,6 +19,34 @@ fi
 
 DRIFT=0
 
+# Declared transitional allowlist (srs-rust#877 caboose repair): these schemas
+# were retired from the canonical spec per rfc-decision-4f1e12e5's "attested
+# removals" pass (srs#443, srs#444) but still back live, in-progress srs-rust
+# functionality that a mirror-sync alone cannot resolve — code removal is a
+# separate, deliberate call, not something to do silently as drift cleanup.
+# Each entry names the tracking issue that owns the reconciliation. Remove an
+# entry here only when its issue closes with the schema (and its consuming
+# code) actually deleted.
+#   - federation-events.json, federation-registry.json: ext:federation has an
+#     OPEN implementation epic (#235) in this repo; srs-rust#878 tracks the
+#     spec-vs-epic reconciliation.
+#   - revisions.json: ext:addressability's Revision sidecar; srs-rust#866
+#     tracks it — explicitly "the timing and shape of any actual code removal
+#     is an srs-rust maintainer call" (rfc-decision-2a1e1590's return trigger),
+#     not yet made.
+DECLARED_EXTRA_ALLOWLIST=(
+    "federation-events.json"
+    "federation-registry.json"
+    "revisions.json"
+)
+is_allowlisted() {
+    local needle="$1"
+    for entry in "${DECLARED_EXTRA_ALLOWLIST[@]}"; do
+        [[ "${entry}" == "${needle}" ]] && return 0
+    done
+    return 1
+}
+
 for src_file in "${SRC}"/*.json; do
     filename="$(basename "${src_file}")"
     dst_file="${DST}/${filename}"
@@ -34,8 +62,12 @@ done
 for dst_file in "${DST}"/*.json; do
     filename="$(basename "${dst_file}")"
     if [[ ! -f "${SRC}/${filename}" ]]; then
-        echo "EXTRA in artifact (not in spec): ${filename}"
-        DRIFT=1
+        if is_allowlisted "${filename}"; then
+            echo "EXTRA in artifact (declared transitional, see script comment): ${filename}"
+        else
+            echo "EXTRA in artifact (not in spec): ${filename}"
+            DRIFT=1
+        fi
     fi
 done
 

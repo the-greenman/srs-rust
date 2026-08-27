@@ -63,7 +63,7 @@ pub fn type_to_json_schema(
 ) -> Result<TypeJsonSchemaResult, RepositoryError> {
     let package = store.load_package()?;
     let target = resolve_type(&package, &input.type_id, input.type_version)?;
-    let ctx = ProjectionContext::new(&package.record_types, &package.fields);
+    let ctx = ProjectionContext::new(&package.namespace, &package.record_types, &package.fields);
     // Project the *resolved* Type, not a re-lookup by name: a name can address
     // several versions (and several namespaces), so re-resolving would quietly
     // return a different Type than the caller asked for.
@@ -82,7 +82,7 @@ pub fn schema_bundle(
     input: SchemaBundleInput,
 ) -> Result<SchemaBundleResult, RepositoryError> {
     let package = store.load_package()?;
-    let ctx = ProjectionContext::new(&package.record_types, &package.fields);
+    let ctx = ProjectionContext::new(&package.namespace, &package.record_types, &package.fields);
     let mut schemas = OrderedMap::new();
     let mut inexpressible = Vec::new();
     for name in &input.entities {

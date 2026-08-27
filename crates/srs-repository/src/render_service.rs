@@ -3236,7 +3236,7 @@ mod tests {
         let store = FileStore::new(repo_root);
         let result = render_document_view(RenderDocumentViewOptions {
             store: &store,
-            view_id: "ec34f54b-8636-5c8b-af5b-c9eb3df24fe6",
+            view_id: "3a000004-0000-4000-a000-000000000004",
             format: None,
             theme_variant: None,
             container_id: None,

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "ext:type-inheritance — the UUID of the base Type this Type specializes."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "ext:type-inheritance — the UUID of the base Type this Type specializes.",
+  "id": "4b000052-0000-4000-a000-000000000052",
+  "name": "extends_type_id",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "ref",
+    "mode": "reference",
+    "rangeType": {
+      "typeId": "4c000002-0000-4000-a000-000000000002",
+      "typeVersion": 1
+    }
+  },
+  "version": 1
+}

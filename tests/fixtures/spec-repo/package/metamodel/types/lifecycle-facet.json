@@ -1,0 +1,27 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "aiGuidance": {
+    "purpose": "Models the two mutually exclusive properties ext:lifecycle contributes to a Type: the inline lifecycle or the referenced lifecycleRef."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "ext:lifecycle — the lifecycle/lifecycleRef facet, contributed to Type by inheritance (RFC-040 Change A).",
+  "fields": [
+    {
+      "fieldId": "4b000056-0000-4000-a000-000000000056",
+      "order": 0,
+      "required": false
+    },
+    {
+      "fieldId": "4b000057-0000-4000-a000-000000000057",
+      "order": 1,
+      "required": false,
+      "displayLabel": "Lifecycle Ref"
+    }
+  ],
+  "id": "4c000011-0000-4000-a000-000000000011",
+  "name": "lifecycle-facet",
+  "namespace": "com.semanticops.srs",
+  "version": 1,
+  "extendsTypeId": "4c000002-0000-4000-a000-000000000002",
+  "extendsTypeVersion": 1
+}

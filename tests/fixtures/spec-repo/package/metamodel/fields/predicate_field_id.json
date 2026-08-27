@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "Field whose value is tested (conditional-required); RFC-032 Rev-7 I-94."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "Field whose value is tested (conditional-required); RFC-032 Rev-7 I-94.",
+  "id": "4b00004d-0000-4000-a000-00000000004d",
+  "name": "predicate_field_id",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "ref",
+    "mode": "reference",
+    "rangeType": {
+      "typeId": "4c000001-0000-4000-a000-000000000001",
+      "typeVersion": 1
+    }
+  },
+  "version": 1
+}

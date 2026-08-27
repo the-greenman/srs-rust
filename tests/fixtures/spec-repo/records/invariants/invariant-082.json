@@ -1,16 +1,16 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-06-28T14:37:38.884298250+00:00",
-  "fieldValues": {
-    "invariant_number": "I-82",
-    "title": "Section roots SHOULD root a container in containerIndex",
-    "normative_statement": "When containerIndex is non-empty, each non-identity section root of the root container (its navigation sections) SHOULD be the root of some Container listed in containerIndex. An absent or empty containerIndex suppresses this diagnostic. A section root with no corresponding section container is a diagnostic, not an error, and a consumer MUST still render it as a navigation leaf rather than dropping it.",
-    "applies_to": "ext:repository (Container, containerIndex); ext:views-l2; RFC-013"
-  },
   "instanceId": "f64d7c25-9774-4edd-bd92-a31a8fce0d7d",
   "typeId": "2a000006-0000-4000-a000-000000000006",
-  "typeName": "invariant",
-  "typeNamespace": "com.semanticops.spec",
   "typeVersion": 1,
-  "updatedAt": "2026-06-28T14:37:38.884310606+00:00"
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant",
+  "fieldValues": {
+    "invariant_number": "I-82",
+    "title": "Section roots SHOULD root a container in the container set",
+    "normative_statement": "When the repository's container set (RFC-038 [R1]) is non-empty, each non-identity section root of the root container (its navigation sections) SHOULD be the root of some Container in that set. An empty container set suppresses this diagnostic. A section root with no corresponding section container is a diagnostic, not an error, and a consumer MUST still render it as a navigation leaf rather than dropping it. `containerIndex` is retired (RFC-038 [R2]) and is no longer the membership authority for this check.",
+    "applies_to": "ext:repository (Container, container set); ext:views-l2; RFC-013; RFC-038"
+  },
+  "createdAt": "2026-06-28T14:37:38.884298250+00:00",
+  "updatedAt": "2026-08-22T22:52:47.629308208+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

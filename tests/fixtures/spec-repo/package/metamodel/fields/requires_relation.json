@@ -1,0 +1,20 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "aiGuidance": {
+    "purpose": "RFC-022 relational-state obligation gating entry to this lifecycle state."
+  },
+  "createdAt": "2026-07-29T00:00:00Z",
+  "description": "RFC-022 relational-state obligation gating entry to this lifecycle state.",
+  "id": "4b00003f-0000-4000-a000-00000000003f",
+  "name": "requires_relation",
+  "namespace": "com.semanticops.srs",
+  "fieldType": {
+    "datatype": "ref",
+    "mode": "inline",
+    "rangeType": {
+      "typeId": "4c00000d-0000-4000-a000-00000000000d",
+      "typeVersion": 1
+    }
+  },
+  "version": 1
+}
