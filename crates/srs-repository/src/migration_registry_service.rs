@@ -125,6 +125,31 @@ static MIGRATIONS: &[MigrationDefinition] = &[
         },
     },
     MigrationDefinition {
+        id: "tier1-removal",
+        title: "Retire Tier 1 (TypedRecord)",
+        description: "Verifies the repository carries zero Tier-1 (TypedRecord) instances \
+                       and stamps dataModelRevision: 4. This is data-model migration #4 \
+                       (revision 3 -> 4), per srs#448 (rfc-decision-53635966) / srs PR #505: \
+                       Tier 1 was specified but never instantiated outside test fixtures, so \
+                       there is no mechanical content rewrite — only the generation number to \
+                       record. Aborts, rather than silently stamping a false claim, if any \
+                       Tier-1 instances remain (they must be graduated to Tier-2 Records \
+                       first). Requires the metamodel-v1-1-0 migration (#3) first.",
+        status_fn: |store| {
+            if crate::field_type_migration_service::tier1_removal_migration_needed(store)? {
+                Ok(MigrationStatus::Needed)
+            } else {
+                Ok(MigrationStatus::AlreadyApplied)
+            }
+        },
+        apply_fn: |store| {
+            let result = crate::field_type_migration_service::migrate_tier1_removal(store)?;
+            serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!("failed to serialize tier1-removal migration result: {e}"),
+            })
+        },
+    },
+    MigrationDefinition {
         id: "migrate-identity",
         title: "Graduate identity to purpose record",
         description: "Converts a Tier-0 note identity (or a container with no identity \
@@ -356,25 +381,28 @@ mod tests {
     fn list_migrations_returns_every_entry_for_store_with_no_identity_note() {
         let store = make_store_with_container_no_identity();
         let migrations = list_migrations(&store).unwrap();
-        assert_eq!(migrations.len(), 6);
+        assert_eq!(migrations.len(), 7);
         assert_eq!(migrations[0].id, "field-type");
         assert_eq!(migrations[1].id, "rfc039-carrier");
         assert_eq!(migrations[2].id, "metamodel-v1-1-0");
-        assert_eq!(migrations[3].id, "migrate-identity");
-        assert_eq!(migrations[4].id, "repo-upgrade");
-        assert_eq!(migrations[5].id, "rfc038-storage");
+        assert_eq!(migrations[3].id, "tier1-removal");
+        assert_eq!(migrations[4].id, "migrate-identity");
+        assert_eq!(migrations[5].id, "repo-upgrade");
+        assert_eq!(migrations[6].id, "rfc038-storage");
         // Unstamped manifest → field-type Needed
         assert_eq!(migrations[0].status, MigrationStatus::Needed);
         // Revision < 2 → rfc039-carrier Needed
         assert_eq!(migrations[1].status, MigrationStatus::Needed);
         // Revision < 3 → metamodel-v1-1-0 Needed
         assert_eq!(migrations[2].status, MigrationStatus::Needed);
-        // Container exists but identity_instance_id is None → migrate-identity Needed
+        // Revision < 4 → tier1-removal Needed
         assert_eq!(migrations[3].status, MigrationStatus::Needed);
+        // Container exists but identity_instance_id is None → migrate-identity Needed
+        assert_eq!(migrations[4].status, MigrationStatus::Needed);
         // Zero instances → all paths canonical → AlreadyApplied
-        assert_eq!(migrations[4].status, MigrationStatus::AlreadyApplied);
+        assert_eq!(migrations[5].status, MigrationStatus::AlreadyApplied);
         // MemoryStore is not a file tree — there is no storage layout to place.
-        assert_eq!(migrations[5].status, MigrationStatus::NotApplicable);
+        assert_eq!(migrations[6].status, MigrationStatus::NotApplicable);
     }
 
     fn indexed_srsj_store() -> crate::store::FileStore {
@@ -682,6 +710,67 @@ mod tests {
             id_after.status,
             MigrationStatus::AlreadyApplied,
             "must be AlreadyApplied after apply"
+        );
+    }
+
+    /// Climb the ladder to just before tier1-removal (#4): field-type (#1),
+    /// rfc039-carrier (#2), metamodel-v1-1-0 (#3) — the same three every
+    /// other ladder-completion test (CLI `repo_apply_migration_field_type_...`)
+    /// runs before it.
+    fn climb_to_metamodel_v1_1_0(store: &MemoryStore) {
+        apply_migration(store, "field-type").unwrap();
+        apply_migration(store, "rfc039-carrier").unwrap();
+        apply_migration(store, "metamodel-v1-1-0").unwrap();
+    }
+
+    #[test]
+    fn tier1_removal_aborts_when_tier1_instances_remain() {
+        let store = make_store_with_container_no_identity();
+        climb_to_metamodel_v1_1_0(&store);
+        assert_eq!(
+            crate::field_type_migration_service::data_model_revision(&store).unwrap(),
+            3
+        );
+
+        // A real Tier-1 (typed-record.json) instance, same fixture shape as
+        // discovery_service's store_with_all_tiers (no typed `TypedRecord`
+        // struct exists — CLAUDE.md storage boundary rules).
+        let typed = serde_json::json!({
+            "instanceId": "22222222-2222-4222-8222-222222222222",
+            "title": "A typed record",
+            "fields": []
+        });
+        store
+            .save_instance_json("records/typed-records/typed-1.json", &typed)
+            .unwrap();
+
+        let err = apply_migration(&store, "tier1-removal").unwrap_err();
+        assert!(
+            err.to_string().contains("1 Tier-1"),
+            "error must name the remaining Tier-1 count, got: {err}"
+        );
+        assert_eq!(
+            crate::field_type_migration_service::data_model_revision(&store).unwrap(),
+            3,
+            "a refused apply must not stamp the manifest"
+        );
+    }
+
+    #[test]
+    fn tier1_removal_succeeds_and_stamps_revision_4_when_no_tier1_instances_remain() {
+        let store = make_store_with_container_no_identity();
+        climb_to_metamodel_v1_1_0(&store);
+
+        let result = apply_migration(&store, "tier1-removal").unwrap();
+        assert_eq!(result.payload["fromRevision"], 3);
+        assert_eq!(result.payload["toRevision"], 4);
+        assert_eq!(
+            crate::field_type_migration_service::data_model_revision(&store).unwrap(),
+            4
+        );
+        assert_eq!(
+            status_of(&store, "tier1-removal"),
+            MigrationStatus::AlreadyApplied
         );
     }
 }
