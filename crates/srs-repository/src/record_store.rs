@@ -1138,17 +1138,43 @@ pub fn transition_record_lifecycle(
         });
     }
 
-    // Validate a transition path from current → target exists
+    // Validate a transition path from current → target exists.
+    //
+    // srs-rust#880: a record with no lifecycleState yet — created before its Type
+    // carried a lifecycle, which is later bound retroactively (lifecycleRef added
+    // after the fact) — has no edge to walk: no transition is ever declared with
+    // `from: ""`. This is not a new kind of write; it is the same "first entry"
+    // act `create_record` already performs for a brand-new record (assigning a
+    // state the record does not yet occupy), just arriving later. So it is
+    // validated the same way `create_record_successor`'s explicit lifecycle_state
+    // override already validates: `state_reachable_from_initial` — the record may
+    // enter any state reachable from the Lifecycle's own `initialState`, not just
+    // the initial state itself, since a retrofit's target is whatever state the
+    // record's pre-Lifecycle data already represents (e.g. migrating a `superseded`
+    // rfc_status straight to the `superseded` LifecycleState — srs#447).
     let current_state = record.lifecycle_state.clone().unwrap_or_default();
-    let transition_allowed = lifecycle
-        .transitions
-        .iter()
-        .any(|t| t.from == current_state && t.to == target_state);
-    if !transition_allowed {
-        return Err(RepositoryError::LifecycleTransitionNotAllowed {
-            from: current_state,
-            to: target_state.clone(),
-        });
+    if record.lifecycle_state.is_none() {
+        if !state_reachable_from_initial(
+            lifecycle.initial_state,
+            lifecycle.transitions,
+            &target_state,
+        ) {
+            return Err(RepositoryError::LifecycleStateUnreachable {
+                state: target_state.clone(),
+                initial: lifecycle.initial_state.to_string(),
+            });
+        }
+    } else {
+        let transition_allowed = lifecycle
+            .transitions
+            .iter()
+            .any(|t| t.from == current_state && t.to == target_state);
+        if !transition_allowed {
+            return Err(RepositoryError::LifecycleTransitionNotAllowed {
+                from: current_state,
+                to: target_state.clone(),
+            });
+        }
     }
 
     // Check if target state is final → emit warning
@@ -4774,6 +4800,159 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.record.lifecycle_state.as_deref(), Some("ratified"));
+    }
+
+    // ── srs-rust#880: retrofit entry for a pre-existing record ─────────────────
+    //
+    // Reproduces the exact repro from #880: a record created before its Type
+    // carried any lifecycle (simulated here by clearing `lifecycle_state` back to
+    // `None` after creation — a `lifecycleRef` added retroactively leaves exactly
+    // this state on every pre-existing record). `record transition` must now give
+    // such a record a path to its first `lifecycleState`.
+
+    /// Simulate a record that predates its Type's lifecycle: create it normally
+    /// (which auto-assigns the initial state), then strip the state back to
+    /// `None`, matching what a retroactive `lifecycleRef` bind leaves behind.
+    fn retrofit_record_without_lifecycle_state(store: &dyn RepositoryStore, title: &str) -> Record {
+        let mut record = create_rfc022_record(store, title);
+        assert!(
+            record.lifecycle_state.is_some(),
+            "precondition: create_record must auto-assign an initial state"
+        );
+        record.lifecycle_state = None;
+        store.save_record(&record).unwrap();
+        record
+    }
+
+    #[test]
+    fn retrofit_880_bare_to_initial_state_from_absent_state_ok() {
+        let store = make_store_with_relational_state();
+        let record = retrofit_record_without_lifecycle_state(&store, "RFC pre-existing");
+
+        // Exact #880 repro: `to: "draft"` (the Lifecycle's own initialState) was
+        // refused because no transition is declared `from: ""`.
+        let result = transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: Some("draft".to_string()),
+                by_transition: None,
+                fulfillment: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(result.record.lifecycle_state.as_deref(), Some("draft"));
+    }
+
+    #[test]
+    fn retrofit_880_direct_entry_to_reachable_non_initial_state_ok() {
+        let store = make_store_with_relational_state();
+        let record = retrofit_record_without_lifecycle_state(&store, "RFC pre-existing");
+
+        // "ratified" is two hops from "draft" (draft -> ratified via `propose`) and
+        // carries no relation obligation — a retrofit migration lands a record
+        // directly on its already-known state, it does not replay the graph walk.
+        let result = transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: Some("ratified".to_string()),
+                by_transition: None,
+                fulfillment: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(result.record.lifecycle_state.as_deref(), Some("ratified"));
+    }
+
+    #[test]
+    fn retrofit_880_direct_entry_to_unreachable_state_rejected() {
+        let store = make_store_with_relational_state();
+        let record = retrofit_record_without_lifecycle_state(&store, "RFC pre-existing");
+
+        let err = transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: Some("unreachable-state".to_string()),
+                by_transition: None,
+                fulfillment: None,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::LifecycleStateUnreachable { ref state, .. } if state == "unreachable-state"),
+            "got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn retrofit_880_direct_entry_to_relational_state_without_fulfillment_rejected() {
+        let store = make_store_with_relational_state();
+        let record = retrofit_record_without_lifecycle_state(&store, "RFC pre-existing");
+
+        // RFC-022's requiresRelation gate must still apply on retrofit entry: no
+        // supersedes relation exists, so a bare jump straight to "superseded" fails.
+        let err = transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: Some("superseded".to_string()),
+                by_transition: None,
+                fulfillment: None,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::LifecycleRelationRequired { ref state, .. } if state == "superseded"),
+            "got: {err:?}"
+        );
+        // Rejected — the record must still have no lifecycleState.
+        let reloaded = get_record_by_id(&store, &record.instance_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(reloaded.lifecycle_state, None);
+    }
+
+    #[test]
+    fn retrofit_880_direct_entry_to_relational_state_with_fulfillment_ok() {
+        // srs#447's exact residual case: RFC-004's rfc_status is already
+        // "superseded" (by RFC-033) in prose, with no `supersedes` relation ever
+        // asserted. The retrofit migration must be able to land the predecessor
+        // record directly in "superseded" while fulfilling the RFC-022 obligation
+        // in the same call — `fulfillment.existingInstanceId` pointing at the
+        // successor, exactly as for an ordinary supersede transition.
+        let store = make_store_with_relational_state();
+        let predecessor = retrofit_record_without_lifecycle_state(&store, "RFC-004");
+        let successor = create_rfc022_record(&store, "RFC-033");
+
+        let result = transition_record_lifecycle(
+            &store,
+            &predecessor.instance_id,
+            TransitionLifecycleInput {
+                to: Some("superseded".to_string()),
+                by_transition: None,
+                fulfillment: Some(TransitionFulfillmentInput {
+                    new_record: None,
+                    existing_instance_id: Some(successor.instance_id.clone()),
+                    relation_type: None,
+                }),
+            },
+        )
+        .unwrap();
+        assert_eq!(result.record.lifecycle_state.as_deref(), Some("superseded"));
+
+        let rels = relation_service::list_relations(
+            &store,
+            relation_service::ListRelationsFilter {
+                source: Some(successor.instance_id.clone()),
+                target: Some(predecessor.instance_id.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(rels.len(), 1);
+        assert_eq!(rels[0].relation_type, "supersedes");
     }
 
     #[test]
