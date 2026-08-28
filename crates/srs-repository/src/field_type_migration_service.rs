@@ -19,10 +19,11 @@ use crate::store::RepositoryStore;
 use serde::Serialize;
 
 /// The data-model generation this build writes.
-/// The revision this build reads and writes — RFC-040's metamodel v1.1.0
-/// engine sync (migration #3: reject-unknown definition layer, srs#477/#867).
-/// RFC-039's carrier model is revision 2; RFC-032's fieldType model is revision 1.
-pub const CURRENT_DATA_MODEL_REVISION: u64 = 3;
+/// The revision this build reads and writes — Tier 1 (TypedRecord) retirement
+/// (migration #4: srs#448/srs-rust#882, srs PR #505). RFC-040's metamodel
+/// v1.1.0 engine sync is revision 3; RFC-039's carrier model is revision 2;
+/// RFC-032's fieldType model is revision 1.
+pub const CURRENT_DATA_MODEL_REVISION: u64 = 4;
 /// The revision the RFC-032 `field-type` migration produces.
 pub const FIELD_TYPE_REVISION: u64 = 1;
 /// The revision RFC-040's metamodel v1.1.0 engine sync produces. This is
@@ -34,6 +35,14 @@ pub const FIELD_TYPE_REVISION: u64 = 1;
 /// repository that still loads successfully already carries none of them —
 /// there is no content left to rewrite, only the generation number to record.
 pub const METAMODEL_V1_1_0_REVISION: u64 = 3;
+/// The revision Tier 1 (TypedRecord) retirement produces. This is migration
+/// #4 (revision 3 -> 4), per srs#448 (rfc-decision-53635966) / srs PR #505.
+/// Unlike #3, Tier-1 content is not rejected unconditionally by the loader —
+/// a `typed-record.json` instance still loads fine today — so this migration
+/// cannot be a pure re-stamp: it verifies the repository carries zero Tier-1
+/// instances (the same corpus attestation #505 made for the spec repo) and
+/// aborts, rather than silently stamping a false claim, if any remain.
+pub const TIER1_REMOVAL_REVISION: u64 = 4;
 
 /// The manifest property carrying the generation stamp (RFC-033 [R6] / #265).
 pub const DATA_MODEL_REVISION_KEY: &str = "dataModelRevision";
@@ -158,5 +167,72 @@ pub fn migrate_metamodel_v1_1_0(
     Ok(MetamodelV1_1_0MigrationResult {
         from_revision,
         to_revision: METAMODEL_V1_1_0_REVISION,
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tier1RemovalMigrationResult {
+    /// The revision the repository carried before this run.
+    pub from_revision: u64,
+    /// The revision stamped on the manifest (`TIER1_REMOVAL_REVISION`).
+    pub to_revision: u64,
+}
+
+/// Whether this repository still needs migration #4.
+pub fn tier1_removal_migration_needed(
+    store: &dyn RepositoryStore,
+) -> Result<bool, RepositoryError> {
+    Ok(data_model_revision(store)? < TIER1_REMOVAL_REVISION)
+}
+
+/// Apply migration #4: retire Tier 1 (TypedRecord) and stamp
+/// `dataModelRevision: 4`.
+///
+/// Requires migration #3 to have run first (ladder order, as #1/#2/#3).
+/// Then verifies the repository carries zero Tier-1 instances — every
+/// real corpus checked for srs PR #505 had none (Tier 1 was specified but
+/// never instantiated outside test fixtures) — and aborts rather than
+/// stamp a false claim if any are found. A repository with real Tier-1
+/// content must graduate each one to a Tier-2 Record (`note graduate`'s
+/// Tier-2 counterpart, or an equivalent authored Record) before this
+/// migration can apply; this migration does not do that conversion for
+/// you, since it would be a content decision (a Type + field mapping),
+/// not a mechanical re-stamp.
+pub fn migrate_tier1_removal(
+    store: &dyn RepositoryStore,
+) -> Result<Tier1RemovalMigrationResult, RepositoryError> {
+    let from_revision = data_model_revision(store)?;
+    let required = METAMODEL_V1_1_0_REVISION;
+    if from_revision < required {
+        return Err(RepositoryError::InvalidSnapshotData {
+            message: format!(
+                "tier1-removal migration requires data-model revision >= {required} \
+                 (found {from_revision}): run `srs repo apply-migration --id metamodel-v1-1-0` \
+                 first (migration #3)"
+            ),
+        });
+    }
+
+    let catalog = store.catalog()?;
+    let tier1_count = catalog
+        .instances
+        .iter()
+        .filter(|entry| entry.tier == Some(1))
+        .count();
+    if tier1_count > 0 {
+        return Err(RepositoryError::InvalidSnapshotData {
+            message: format!(
+                "tier1-removal migration cannot apply: {tier1_count} Tier-1 (TypedRecord) \
+                 instance(s) remain. Tier 1 is retired (srs#448, rfc-decision-53635966) — \
+                 graduate each one to a Tier-2 Record before running this migration."
+            ),
+        });
+    }
+
+    stamp_data_model_revision(store, TIER1_REMOVAL_REVISION)?;
+    Ok(Tier1RemovalMigrationResult {
+        from_revision,
+        to_revision: TIER1_REMOVAL_REVISION,
     })
 }
