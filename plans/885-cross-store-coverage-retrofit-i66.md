@@ -61,14 +61,14 @@ No entity schemas touched. No action required.
 
 #### Tasks
 
-- [ ] In `crates/srs-repository/src/record_store.rs`, add `retrofit_880_direct_entry_to_reachable_non_initial_state_roundtrips_via_filestore`: build the same relational-state fixture as `retrofit_880_direct_entry_to_reachable_non_initial_state_ok` on a `MemoryStore`, copy it to a `FileStore` via `crate::repository_portability::copy_repository`, then call `transition_record_lifecycle` against the `FileStore` and assert the same success as the memory-store test.
-- [ ] In `crates/srs-repository/src/container_service.rs`, add `list_members_includes_transitive_contains_from_roots_roundtrips_via_filestore`: build a `MemoryStore` fixture based on `list_members_includes_contains_only_member`'s pattern (seed instances/relations, create a container via `list_members`-compatible store calls), extended to two `contains` hops (root→child→grandchild) to match `member_ids_includes_transitive_contains_from_roots`'s scenario. Copy it to a `FileStore` via `crate::repository_portability::copy_repository`, then call `list_members(&file_store, ...)` and assert the grandchild is included in the transitive membership result. Use `crate::FileStore` (matching this file's existing `embed_only_filestore_get_container_returns_embed` import style, not `crate::store::FileStore`).
+- [x] In `crates/srs-repository/src/record_store.rs`, add `retrofit_880_direct_entry_to_reachable_non_initial_state_roundtrips_via_filestore`: build the same relational-state fixture as `retrofit_880_direct_entry_to_reachable_non_initial_state_ok` on a `MemoryStore`, copy it to a `FileStore` via `crate::repository_portability::copy_repository`, then call `transition_record_lifecycle` against the `FileStore` and assert the same success as the memory-store test.
+- [x] In `crates/srs-repository/src/container_service.rs`, add `list_members_includes_transitive_contains_from_roots_roundtrips_via_filestore`: build a `MemoryStore` fixture based on `list_members_includes_contains_only_member`'s pattern (seed instances/relations, create a container via `list_members`-compatible store calls), extended to two `contains` hops (root→child→grandchild) to match `member_ids_includes_transitive_contains_from_roots`'s scenario. Copy it to a `FileStore` via `crate::repository_portability::copy_repository`, then call `list_members(&file_store, ...)` and assert the grandchild is included in the transitive membership result. Use `crate::FileStore` (matching this file's existing `embed_only_filestore_get_container_returns_embed` import style, not `crate::store::FileStore`).
 
 #### Acceptance Criteria
 
-- [ ] Both new tests exist and pass.
-- [ ] No existing test's behavior or assertions changed.
-- [ ] `cargo clippy -p srs-repository -- -D warnings` passes.
+- [x] Both new tests exist and pass.
+- [x] No existing test's behavior or assertions changed.
+- [x] `cargo clippy -p srs-repository -- -D warnings` passes.
 
 #### Testing
 
@@ -99,13 +99,13 @@ Specific tests to write:
 
 ## Final Acceptance
 
-- [ ] `cargo test` passes with no failures
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] CLI output format unchanged (integration tests pass) — no CLI surface touched
-- [ ] `cargo test --test payload_contracts` passes — no payload structs changed, N/A
-- [ ] `bash scripts/check-schema-sync.sh` exits 0 — no entity schemas changed, N/A
-- [ ] Both new `FileStore`-backed tests exist, are named per the plan, and pass
-- [ ] No behavior change to `transition_record_lifecycle`, `member_ids`, or `list_members`
+- [x] `cargo test` passes with no failures
+- [x] `cargo clippy -- -D warnings` passes
+- [x] CLI output format unchanged (integration tests pass) — no CLI surface touched
+- [x] `cargo test --test payload_contracts` passes — no payload structs changed, N/A
+- [x] `bash scripts/check-schema-sync.sh` exits 0 — no entity schemas changed, N/A
+- [x] Both new `FileStore`-backed tests exist, are named per the plan, and pass
+- [x] No behavior change to `transition_record_lifecycle`, `member_ids`, or `list_members`
 
 ## Coordination Rules
 

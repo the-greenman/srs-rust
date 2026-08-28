@@ -1549,6 +1549,63 @@ mod tests {
         assert_eq!(hits[0].container_id, created.container_id);
     }
 
+    /// Cross-store roundtrip (memory -> file) per CLAUDE.md Storage Boundary
+    /// Rules. Same scenario as member_ids_includes_transitive_contains_from_roots
+    /// (two `contains` hops, root -> child -> grandchild) exercised at the
+    /// store-backed `list_members` entry point — `member_ids` itself is a
+    /// private pure function with no store parameter, so it isn't reachable
+    /// store-side.
+    #[test]
+    fn list_members_includes_transitive_contains_from_roots_roundtrips_via_filestore() {
+        let store = MemoryStore::default();
+        for id in ["root-note", "child-note", "grandchild-note"] {
+            store
+                .save_instance_json(
+                    &format!("records/notes/{id}.json"),
+                    &serde_json::json!({"instanceId": id, "sections": []}),
+                )
+                .unwrap();
+        }
+        crate::store::write_relations_standalone_for_test(
+            &store,
+            &serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+                "relations": [
+                    {
+                        "relationId": "aaaaaaaa-0000-4000-8000-000000000001",
+                        "relationType": "contains",
+                        "sourceInstanceId": "root-note",
+                        "targetInstanceId": "child-note",
+                        "createdAt": "2026-01-01T00:00:00Z"
+                    },
+                    {
+                        "relationId": "aaaaaaaa-0000-4000-8000-000000000002",
+                        "relationType": "contains",
+                        "sourceInstanceId": "child-note",
+                        "targetInstanceId": "grandchild-note",
+                        "createdAt": "2026-01-01T00:00:00Z"
+                    }
+                ]
+            }),
+        );
+        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440002", "Doc");
+        c.root_instance_ids = Some(vec!["root-note".to_string()]);
+        let created = create_container(&store, c).unwrap();
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store).unwrap();
+
+        assert_eq!(
+            list_members(&file_store, &created.container_id).unwrap(),
+            vec![
+                "root-note".to_string(),
+                "child-note".to_string(),
+                "grandchild-note".to_string()
+            ]
+        );
+    }
+
     #[test]
     fn containers_for_instance_returns_matching_containers() {
         let store = make_store();
