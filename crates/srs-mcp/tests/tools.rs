@@ -889,11 +889,31 @@ async fn tool_note_graduate_promotes_to_record() {
     );
     let result = graduate.structured_content.as_ref().unwrap();
     assert!(
-        result["note"]["graduatedAt"].as_str().is_some(),
-        "note must carry graduatedAt timestamp: {result}"
+        result["note"]["graduatedAt"].is_null(),
+        "note.graduatedAt must NOT be stamped — the derived-from relation is the \
+         sole graduation-provenance record (srs-rust#779): {result}"
     );
     let record_id = result["record"]["instanceId"].as_str().unwrap();
     assert!(!record_id.is_empty(), "record instanceId must be non-empty");
+
+    // The derived-from lineage edge (record -> note) must be asserted atomically
+    // with the record creation — R11's flagship transition (srs-rust#779).
+    let store = FileStore::new(fx.dir.path());
+    let relations = srs_repository::relation_service::list_relations(
+        &store,
+        srs_repository::relation_service::ListRelationsFilter {
+            source: Some(record_id.to_string()),
+            target: Some(note_id.clone()),
+            relation_type: Some("derived-from".to_string()),
+            container_id: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        relations.len(),
+        1,
+        "note_graduate must assert exactly one derived-from edge (record -> note)"
+    );
 
     // Repository still consistent: no error diagnostics. Non-error
     // diagnostics (e.g. [R9]'s PACKAGE_JSON_UNPARSEABLE warning) are

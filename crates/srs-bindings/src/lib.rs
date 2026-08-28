@@ -237,9 +237,11 @@ impl SrsRepository {
     /// Graduate a Note to a typed Record in one atomic step.
     ///
     /// `input_json` is a `CreateRecordInput` JSON object
-    /// (`fieldValues`, `groupValues?`, `tags?`). Returns `{ note, record }` where
-    /// `note` has `graduatedAt` stamped. `container_id` is optional; when supplied,
-    /// the new Record is added to that container atomically.
+    /// (`fieldValues`, `groupValues?`, `tags?`). Returns `{ note, record }`; a
+    /// `derived-from` Relation (record -> note) is asserted atomically as the
+    /// sole graduation-provenance record — `note.graduatedAt` is never stamped.
+    /// `container_id` is optional; when supplied, the new Record is added to
+    /// that container atomically.
     #[wasm_bindgen]
     pub fn graduate_note(
         &self,
@@ -1525,8 +1527,9 @@ mod tests {
 
         let json = serde_json::to_value(&result).expect("result must serialize");
         assert!(
-            json["note"]["graduatedAt"].is_string(),
-            "note.graduatedAt must be present as a string"
+            json["note"]["graduatedAt"].is_null(),
+            "note.graduatedAt must NOT be stamped — the derived-from relation is the \
+             sole graduation-provenance record (srs-rust#779)"
         );
         assert!(
             json["record"].is_object(),
@@ -1535,6 +1538,22 @@ mod tests {
         assert!(
             json["record"]["instanceId"].is_string(),
             "record.instanceId must be present"
+        );
+
+        let relations = srs_repository::relation_service::list_relations(
+            &store,
+            srs_repository::relation_service::ListRelationsFilter {
+                source: Some(result.record.instance_id.clone()),
+                target: Some("dddddddd-dddd-4ddd-8ddd-dddddddddddd".to_string()),
+                relation_type: Some("derived-from".to_string()),
+                container_id: None,
+            },
+        )
+        .expect("list_relations should succeed");
+        assert_eq!(
+            relations.len(),
+            1,
+            "graduate_note must assert exactly one derived-from edge (record -> note)"
         );
     }
 

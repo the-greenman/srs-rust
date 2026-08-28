@@ -791,7 +791,7 @@ Must return `ok: false` with a message referencing the absent `meta` or `upstrea
 
 **Intention.** *"I captured a rough idea as a Note. Now I've thought it through and want to promote it into a proper decision record — without losing the original thinking, and in one step rather than three."*
 
-**Capabilities exercised.** `graduate_note` service: atomic Record creation + `graduatedAt` stamp; re-graduation guard; Note identity preserved after promotion; `repo validate` confirms both entities are well-formed.
+**Capabilities exercised.** `graduate_note` service: atomic Record creation + `derived-from` Relation assertion (record -> note) as the sole graduation-provenance record (srs-rust#779; `graduatedAt` is never stamped — dropped from `note.json`'s schema at dataModelRevision 4, srs PR #505); re-graduation guard (fires from either the relation or a legacy `graduatedAt` field); Note identity preserved after promotion; `repo validate` confirms both entities are well-formed.
 
 **CLI surface.** `note graduate`, `note get`, `record get`, `repo validate`.
 
@@ -826,10 +826,11 @@ Must return `ok: false` with a message referencing the absent `meta` or `upstrea
    echo "$GRAD" | jq '{ok, graduatedAt: .payload.note.graduatedAt, recordId: .payload.record.instanceId}'
    RECORD_ID=$(echo "$GRAD" | jq -r '.payload.record.instanceId')
    ```
-4. Confirm the note carries `graduatedAt` and the record exists:
+4. Confirm the note is unchanged (`graduatedAt` is never stamped) and the derived-from edge exists:
    ```bash
-   srs note get --repo "$REPO" "$NOTE_ID" | jq '.payload.note.graduatedAt'
+   srs note get --repo "$REPO" "$NOTE_ID" | jq '.payload.note.graduatedAt'   # null
    srs record get --repo "$REPO" "$RECORD_ID" | jq '{ok, instanceId: .payload.instanceId, displayLabel: .payload.displayLabel}'
+   srs relation list --repo "$REPO" --source "$RECORD_ID" --target "$NOTE_ID" --type derived-from | jq '.payload'
    ```
 5. Validate the repository:
    ```bash
@@ -839,9 +840,9 @@ Must return `ok: false` with a message referencing the absent `meta` or `upstrea
 **Negative cases.**
 - **Note not found:** `echo '{"fieldValues":[]}' | srs note graduate --repo "$REPO" "00000000-0000-0000-0000-000000000000" --type com.example.s18/decision` — expect `ok: false` with "note not found".
 - **Unknown type:** `echo '{"fieldValues":[]}' | srs note graduate --repo "$REPO" "$NOTE_ID" --type com.example.s18/nonexistent` — expect `ok: false` with "type not found" (and note is still not graduated, because the error fires before the write).
-- **Re-graduation:** after step 3, graduate the same note again — expect `ok: false` with "already graduated".
+- **Re-graduation:** after step 3, graduate the same note again — expect `ok: false` with "already graduated" (the guard fires from the derived-from edge asserted in step 3).
 
-**Done when.** `ok: true`; `payload.note.graduatedAt` is a non-null ISO-8601 string; `payload.record.instanceId` is a non-empty UUID; the original Note is still present in `note list`; `repo validate` returns 0 diagnostics. All three negative cases return `ok: false` with clear diagnostics; no partial writes occur on error.
+**Done when.** `ok: true`; `payload.note.graduatedAt` is `null` (never stamped — srs-rust#779); `payload.record.instanceId` is a non-empty UUID; exactly one `derived-from` relation exists with source = the new record and target = the note; the original Note is still present in `note list`; `repo validate` returns 0 diagnostics. All three negative cases return `ok: false` with clear diagnostics; no partial writes occur on error.
 
 ---
 

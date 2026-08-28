@@ -23,12 +23,15 @@ use crate::container_service;
 use crate::error::RepositoryError;
 use crate::index::InstanceQuery;
 use crate::record_store::{create_record_in_context, CreateRecordInput};
+use crate::relation_service::{self, ListRelationsFilter};
 use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::new_instance_id;
 use serde::{Deserialize, Serialize};
 use srs_core::types::note::Note;
 use srs_core::types::record::Record;
+use srs_core::types::relation::Relation;
 use srs_core::validation::note::validate_note;
+use srs_core::validation::relation::validate_relation_type_for_write;
 use srs_schema::{SchemaRegistry, NOTE_SCHEMA_ID};
 
 /// Summary of a note for list operations
@@ -329,20 +332,52 @@ pub struct GraduateNoteInput {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GraduateNoteResult {
-    /// The Note with `graduated_at` stamped (ISO-8601 UTC timestamp).
+    /// The graduated Note, unchanged by this call. `graduated_at` is never stamped
+    /// (srs-rust#779 / srs PR #505: dataModelRevision 4 dropped the field from
+    /// `note.json`'s schema — stamping it would write schema-invalid data). The
+    /// `derived-from` relation below is the sole graduation-provenance record.
     pub note: Note,
     /// The newly created typed Record.
     pub record: Record,
 }
 
-/// Promote a Tier-0 Note to a typed Tier-2 Record in one atomic step:
-/// creates the Record, stamps `graduated_at` on the Note, and returns both.
+/// The canonical relation type asserted from a graduated Record back to its
+/// source Note (R11 — design-note 044; srs-rust#779). This is the sole
+/// graduation-provenance mechanism: no `graduatedAt` field is written on any
+/// dataModelRevision (rev-3 or rev-4).
+const GRADUATION_RELATION_TYPE: &str = "derived-from";
+
+/// Does `note_id` already carry a `derived-from` edge asserted by a prior
+/// graduation (some Record --derived-from--> this Note)? Used, alongside the
+/// legacy `graduated_at` field, so the already-graduated guard recognizes both
+/// a relation-only graduation (current writer) and a field-only one (legacy
+/// rev-3 data that predates this fix).
+fn note_has_graduation_relation(
+    store: &dyn RepositoryStore,
+    note_id: &str,
+) -> Result<bool, RepositoryError> {
+    let relations = relation_service::list_relations(
+        store,
+        ListRelationsFilter {
+            target: Some(note_id.to_string()),
+            relation_type: Some(GRADUATION_RELATION_TYPE.to_string()),
+            ..Default::default()
+        },
+    )?;
+    Ok(!relations.is_empty())
+}
+
+/// Promote a Tier-0 Note to a typed Tier-2 Record in one atomic step: creates
+/// the Record and asserts a `derived-from` Relation (record -> note) recording
+/// the lineage — the flagship R11 transition (srs-rust#779). The Note itself is
+/// never mutated: `graduated_at` is not stamped, on any dataModelRevision, since
+/// the relation is now the sole graduation-provenance record.
 pub fn graduate_note(
     store: &dyn RepositoryStore,
     input: GraduateNoteInput,
 ) -> Result<GraduateNoteResult, RepositoryError> {
     // Step 1: load and validate the note exists and is a Note (tier 0)
-    let mut note = match get_note_by_id(store, &input.note_id)? {
+    let note = match get_note_by_id(store, &input.note_id)? {
         GetNoteResult::Found(n) => *n,
         GetNoteResult::NotFound => {
             return Err(RepositoryError::NoteNotFound {
@@ -360,8 +395,11 @@ pub fn graduate_note(
         }
     };
 
-    // Step 2: guard against re-graduation (graduation is a one-way promotion)
-    if note.graduated_at.is_some() {
+    // Step 2: guard against re-graduation (graduation is a one-way promotion).
+    // Recognizes both signals: the legacy `graduated_at` field (data written
+    // before this fix, still legal to read at any revision) OR an existing
+    // `derived-from` edge from a prior graduation (the sole mechanism now).
+    if note.graduated_at.is_some() || note_has_graduation_relation(store, &input.note_id)? {
         return Err(RepositoryError::InvalidInput {
             message: format!(
                 "Note '{}' is already graduated; cannot graduate again",
@@ -370,7 +408,19 @@ pub fn graduate_note(
         });
     }
 
-    // Step 3: create the typed Record
+    // Step 3: pre-validate the relation type before writing the record, so an E1
+    // failure (derived-from not installed / retired) surfaces as a clear
+    // diagnostic and never leaves a Record with no lineage edge (issue #779
+    // acceptance criterion) — same discipline create_record_successor uses.
+    let definitions = store.load_package()?.relation_type_definitions;
+    validate_relation_type_for_write(&definitions, GRADUATION_RELATION_TYPE).map_err(|e| {
+        RepositoryError::RelationValidation {
+            relation_id: String::new(),
+            message: e.message,
+        }
+    })?;
+
+    // Step 4: create the typed Record
     let create_result = create_record_in_context(
         store,
         &input.type_ref,
@@ -380,12 +430,37 @@ pub fn graduate_note(
         None,
     )?;
 
-    // Step 4: stamp graduated_at and write the note back
-    note.graduated_at = Some(chrono::Utc::now().to_rfc3339());
-    let update_result = update_note(store, note)?;
+    // Step 5: assert the derived-from lineage edge (record -> note), atomically
+    // with the record creation. Best-effort rollback of the record on failure —
+    // same pattern create_record_successor uses for its supersedes/refines edge.
+    if let Err(e) = relation_service::create_relation(
+        store,
+        Relation {
+            relation_id: String::new(),
+            relation_type: GRADUATION_RELATION_TYPE.to_string(),
+            source_instance_id: create_result.record.instance_id.clone(),
+            target_instance_id: input.note_id.clone(),
+            asserted_by: None,
+            confidence: None,
+            created_at: Some(chrono::Utc::now().to_rfc3339()),
+            created_by: None,
+            status: None,
+            valid_from: None,
+            valid_until: None,
+            notes: None,
+            source_refs: None,
+            meta: None,
+            source_repository_id: None,
+            target_repository_id: None,
+        },
+        &definitions,
+    ) {
+        let _ = crate::record_store::delete_record(store, &create_result.record.instance_id);
+        return Err(e);
+    }
 
     Ok(GraduateNoteResult {
-        note: update_result.note,
+        note,
         record: create_result.record,
     })
 }
@@ -1208,6 +1283,48 @@ mod tests {
     /// `com.test/simple-type` (version 1). Lets graduate_note tests call
     /// create_record_in_context with empty field_values (no required fields).
     fn store_with_note_and_type(note: &Note, note_path: &str) -> MemoryStore {
+        store_with_note_and_type_and_relations(note, note_path, vec![derived_from_def()])
+    }
+
+    /// The canonical `derived-from` RelationTypeDefinition, matching the core
+    /// bundle's (`crates/srs-repository/assets/core-bundle.srsj`) real definition.
+    fn derived_from_def() -> srs_core::types::relation_type_definition::RelationTypeDefinition {
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+        RelationTypeDefinition {
+            schema: None,
+            id: "b1c2d3e4-f5a6-4b7c-8d9e-0f1a2b3c4d5e".to_string(),
+            version: 1,
+            key: "derived-from".to_string(),
+            namespace: "com.semanticops.srs".to_string(),
+            label: "Derived from".to_string(),
+            description:
+                "Source instance was produced from or substantially informed by target instance."
+                    .to_string(),
+            category: RelationTypeCategory::Derivation,
+            created_at: "2026-05-29T00:00:00Z".to_string(),
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: Some(true),
+            allowed_source_types: None,
+            allowed_target_types: None,
+            require_same_semantic_object_type: None,
+            status: None,
+            updated_at: None,
+            properties: None,
+        }
+    }
+
+    /// Like `store_with_note_and_type`, but with an explicit relation-type-definition
+    /// set — lets tests exercise the "derived-from not installed" diagnostic path.
+    fn store_with_note_and_type_and_relations(
+        note: &Note,
+        note_path: &str,
+        relation_type_definitions: Vec<
+            srs_core::types::relation_type_definition::RelationTypeDefinition,
+        >,
+    ) -> MemoryStore {
         use crate::package::Package;
         use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
@@ -1285,7 +1402,7 @@ mod tests {
             version: "1.0.0".to_string(),
             fields: vec![body_field],
             record_types: vec![simple_type],
-            relation_type_definitions: vec![],
+            relation_type_definitions,
             views: vec![],
             document_views: vec![],
             themes: vec![],
@@ -1300,7 +1417,11 @@ mod tests {
     }
 
     #[test]
-    fn graduate_note_creates_record_and_stamps_graduated_at() {
+    fn graduate_note_asserts_derived_from_relation_and_never_stamps_graduated_at() {
+        // srs-rust#779: graduation's sole provenance record is the derived-from
+        // edge (record -> note); graduated_at is never written (rev-4 dropped the
+        // field from note.json's schema — srs PR #505 — and this fix stops
+        // writing it on any revision).
         let note = make_note("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "Graduate Me");
         let store = store_with_note_and_type(&note, "records/notes/graduate-me.json");
 
@@ -1321,8 +1442,8 @@ mod tests {
         .unwrap();
 
         assert!(
-            result.note.graduated_at.is_some(),
-            "graduated_at must be stamped"
+            result.note.graduated_at.is_none(),
+            "graduated_at must NOT be stamped — the relation is the sole provenance record"
         );
         assert!(
             !result.record.instance_id.is_empty(),
@@ -1335,6 +1456,79 @@ mod tests {
         assert_eq!(
             result.note.instance_id,
             "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        );
+
+        // The derived-from edge must exist: record --derived-from--> note.
+        let relations = relation_service::list_relations(
+            &store,
+            ListRelationsFilter {
+                source: Some(result.record.instance_id.clone()),
+                target: Some(result.note.instance_id.clone()),
+                relation_type: Some("derived-from".to_string()),
+                container_id: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            relations.len(),
+            1,
+            "graduate_note must assert exactly one derived-from edge (record -> note)"
+        );
+    }
+
+    #[test]
+    fn graduate_note_retired_derived_from_definition_returns_clear_diagnostic() {
+        // Acceptance criterion (#779): graduating in a repo where `derived-from`
+        // does not resolve for new writes must produce a clear diagnostic, not a
+        // silent skip and not a crash — and must not leave a Record with no
+        // lineage edge. The core relation-type bundle merges a `derived-from`
+        // definition into every package unconditionally (a repo's own
+        // declaration always wins by key — see `merge_core_into_package`), so an
+        // outright "missing" definition can't occur; a repo-declared Retired
+        // status is the reachable equivalent, and is rejected the same way
+        // `create_record_successor` rejects a retired `supersedes` (E1).
+        let note = make_note("dddddddd-dddd-4ddd-8ddd-dddddddddddd", "No Relation Type");
+        let mut retired_derived_from = derived_from_def();
+        retired_derived_from.status =
+            Some(srs_core::types::relation_type_definition::RelationTypeStatus::Retired);
+        let store = store_with_note_and_type_and_relations(
+            &note,
+            "records/notes/no-relation-type.json",
+            vec![retired_derived_from],
+        );
+
+        let err = graduate_note(
+            &store,
+            GraduateNoteInput {
+                note_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd".to_string(),
+                type_ref: "com.test/simple-type".to_string(),
+                type_version: None,
+                record_input: CreateRecordInput {
+                    field_meta: None,
+                    field_values: FieldValues::new(),
+                    tags: None,
+                },
+                container_id: None,
+            },
+        )
+        .unwrap_err();
+
+        match &err {
+            RepositoryError::RelationValidation { message, .. } => {
+                assert!(
+                    message.contains("derived-from"),
+                    "diagnostic must name the missing relation type, got: {message}"
+                );
+            }
+            other => panic!("expected RelationValidation diagnostic, got {other:?}"),
+        }
+
+        // No Record must have been left behind — the pre-write validation must
+        // fire before create_record_in_context runs.
+        let cat = store.catalog().unwrap();
+        assert!(
+            cat.instances.iter().all(|i| i.tier != Some(2)),
+            "no orphan Record may be created when derived-from is not installed"
         );
     }
 
@@ -1454,9 +1648,13 @@ mod tests {
         )
         .unwrap();
 
-        assert!(result.note.graduated_at.is_some());
+        assert!(
+            result.note.graduated_at.is_none(),
+            "graduated_at must NOT be stamped"
+        );
 
-        // Copy to FileStore and re-read the note — graduated_at must survive
+        // Copy to FileStore and re-read — the note is untouched, and the
+        // derived-from edge must survive the memory → file roundtrip.
         let temp = tempfile::TempDir::new().unwrap();
         let file_store = crate::store::FileStore::new(temp.path());
         crate::repository_portability::copy_repository(&mem_store, &file_store).unwrap();
@@ -1465,13 +1663,28 @@ mod tests {
         match reloaded {
             GetNoteResult::Found(n) => {
                 assert!(
-                    n.graduated_at.is_some(),
-                    "graduated_at must survive memory → file roundtrip"
+                    n.graduated_at.is_none(),
+                    "graduated_at must remain unset across the memory → file roundtrip"
                 );
-                assert_eq!(n.graduated_at, result.note.graduated_at);
             }
             _ => panic!("Expected note to be found in file store after copy"),
         }
+
+        let relations = relation_service::list_relations(
+            &file_store,
+            ListRelationsFilter {
+                source: Some(result.record.instance_id.clone()),
+                target: Some("cccccccc-cccc-4ccc-8ccc-cccccccccccc".to_string()),
+                relation_type: Some("derived-from".to_string()),
+                container_id: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            relations.len(),
+            1,
+            "derived-from edge must survive the memory → file roundtrip"
+        );
     }
 
     // ── rollback mechanism ─────────────────────────────────────────────────────
@@ -1599,7 +1812,9 @@ mod tests {
     }
 
     #[test]
-    fn graduate_note_already_graduated_returns_error() {
+    fn graduate_note_already_graduated_guard_fires_from_legacy_field_only() {
+        // Legacy rev-3 data: a Note graduated before this fix carries only the
+        // `graduated_at` field (no derived-from edge). The guard must still fire.
         let mut note = make_note("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", "Already Graduated");
         note.graduated_at = Some("2026-01-01T00:00:00Z".to_string());
         let store = store_with_note_and_type(&note, "records/notes/already-graduated.json");
@@ -1621,6 +1836,70 @@ mod tests {
         assert!(
             matches!(err, RepositoryError::InvalidInput { .. }),
             "expected InvalidInput for already-graduated note, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn graduate_note_already_graduated_guard_fires_from_relation_only() {
+        // Current-writer data: no `graduated_at` field at all (rev-4 shape / this
+        // fix's own output), but a prior derived-from edge already points at the
+        // note. The guard must recognize this signal too (#779 scope extension).
+        let note = make_note(
+            "ffffffff-ffff-4fff-8fff-ffffffffffff",
+            "Relation-Only Graduated",
+        );
+        let store = store_with_note_and_type(&note, "records/notes/relation-only.json");
+
+        // A second, unrelated instance to stand in as the derived-from edge's
+        // source (E2 requires both endpoints to resolve to known instances).
+        let other = make_note("22222222-2222-4222-8222-222222222222", "Some Other Record");
+        create_note(&store, other).unwrap();
+
+        // Simulate a prior graduation: assert derived-from from that other
+        // instance to this note, with graduated_at left unset.
+        relation_service::create_relation(
+            &store,
+            Relation {
+                relation_id: String::new(),
+                relation_type: "derived-from".to_string(),
+                source_instance_id: "22222222-2222-4222-8222-222222222222".to_string(),
+                target_instance_id: "ffffffff-ffff-4fff-8fff-ffffffffffff".to_string(),
+                asserted_by: None,
+                confidence: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                created_by: None,
+                status: None,
+                valid_from: None,
+                valid_until: None,
+                notes: None,
+                source_refs: None,
+                meta: None,
+                source_repository_id: None,
+                target_repository_id: None,
+            },
+            &[derived_from_def()],
+        )
+        .unwrap();
+
+        let err = graduate_note(
+            &store,
+            GraduateNoteInput {
+                note_id: "ffffffff-ffff-4fff-8fff-ffffffffffff".to_string(),
+                type_ref: "com.test/simple-type".to_string(),
+                type_version: None,
+                record_input: CreateRecordInput {
+                    field_meta: None,
+                    field_values: FieldValues::new(),
+                    tags: None,
+                },
+                container_id: None,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidInput { .. }),
+            "expected InvalidInput for a note already graduated via relation only, got {:?}",
             err
         );
     }
