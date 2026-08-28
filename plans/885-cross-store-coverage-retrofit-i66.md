@@ -41,7 +41,7 @@ No entity schemas touched. No action required.
 ## Scope
 
 - Add a `FileStore`-backed roundtrip test for `transition_record_lifecycle`'s retrofit-entry branch in `crates/srs-repository/src/record_store.rs`, covering the same repro as `retrofit_880_direct_entry_to_reachable_non_initial_state_ok`: a record created before its Type carried a `lifecycleRef` (no prior `lifecycleState`), entering a state reachable-but-not-initial from the Lifecycle's `initialState`, verified after a memory→file `copy_repository` roundtrip.
-- Add a `FileStore`-backed roundtrip test for the I-66 condition-3 transitive `contains` traversal in `crates/srs-repository/src/container_service.rs`, covering the same scenario as `member_ids_includes_transitive_contains_from_roots` (a `contains`-only member reachable purely by traversal from a root, absent from both `rootInstanceIds` and `memberInstanceIds`), verified after a memory→file `copy_repository` roundtrip.
+- Add a `FileStore`-backed roundtrip test for the I-66 condition-3 transitive `contains` traversal in `crates/srs-repository/src/container_service.rs`. `member_ids_includes_transitive_contains_from_roots` itself is not store-reachable — `member_ids(&Container, &[Relation])` is a private pure function with no store parameter. The store-backed analogue is `list_members_includes_contains_only_member`, which is only one `contains` hop (root→child); extend its fixture to two hops (root→child→grandchild, matching `member_ids_includes_transitive_contains_from_roots`'s scenario) and assert via `list_members(&store, ...)`, verified after a memory→file `copy_repository` roundtrip.
 - Both new tests use the existing `crate::repository_portability::copy_repository(&store, &file_store)` helper already used by `rfc022_fulfillment_roundtrip_stores` — no new test infrastructure.
 
 **Out of scope:**
@@ -62,7 +62,7 @@ No entity schemas touched. No action required.
 #### Tasks
 
 - [ ] In `crates/srs-repository/src/record_store.rs`, add `retrofit_880_direct_entry_to_reachable_non_initial_state_roundtrips_via_filestore`: build the same relational-state fixture as `retrofit_880_direct_entry_to_reachable_non_initial_state_ok` on a `MemoryStore`, copy it to a `FileStore` via `crate::repository_portability::copy_repository`, then call `transition_record_lifecycle` against the `FileStore` and assert the same success as the memory-store test.
-- [ ] In `crates/srs-repository/src/container_service.rs`, add `member_ids_includes_transitive_contains_from_roots_roundtrips_via_filestore`: build the same fixture as `member_ids_includes_transitive_contains_from_roots` on a `MemoryStore`, copy it to a `FileStore` via `crate::repository_portability::copy_repository`, then call `member_ids`/`list_members` against the `FileStore` and assert the same transitive-membership result.
+- [ ] In `crates/srs-repository/src/container_service.rs`, add `list_members_includes_transitive_contains_from_roots_roundtrips_via_filestore`: build a `MemoryStore` fixture based on `list_members_includes_contains_only_member`'s pattern (seed instances/relations, create a container via `list_members`-compatible store calls), extended to two `contains` hops (root→child→grandchild) to match `member_ids_includes_transitive_contains_from_roots`'s scenario. Copy it to a `FileStore` via `crate::repository_portability::copy_repository`, then call `list_members(&file_store, ...)` and assert the grandchild is included in the transitive membership result. Use `crate::FileStore` (matching this file's existing `embed_only_filestore_get_container_returns_embed` import style, not `crate::store::FileStore`).
 
 #### Acceptance Criteria
 
@@ -74,14 +74,14 @@ No entity schemas touched. No action required.
 
 ```bash
 cargo test -p srs-repository retrofit_880_direct_entry_to_reachable_non_initial_state_roundtrips_via_filestore
-cargo test -p srs-repository member_ids_includes_transitive_contains_from_roots_roundtrips_via_filestore
+cargo test -p srs-repository list_members_includes_transitive_contains_from_roots_roundtrips_via_filestore
 cargo test -p srs-repository
 ```
 
 Specific tests to write:
 
 - `retrofit_880_direct_entry_to_reachable_non_initial_state_roundtrips_via_filestore` — proves the retrofit-entry lifecycle transition works identically when the record is persisted to and loaded from disk, not just in memory.
-- `member_ids_includes_transitive_contains_from_roots_roundtrips_via_filestore` — proves the I-66 condition-3 transitive `contains` traversal works identically against a `FileStore`.
+- `list_members_includes_transitive_contains_from_roots_roundtrips_via_filestore` — proves the I-66 condition-3 transitive `contains` traversal (two hops) works identically against a `FileStore`, via the store-backed `list_members` entry point (`member_ids` itself is a private pure function with no store parameter, so it cannot be exercised store-side).
 
 #### Milestone gate
 
