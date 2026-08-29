@@ -4866,6 +4866,32 @@ mod tests {
     }
 
     #[test]
+    fn retrofit_880_direct_entry_to_reachable_non_initial_state_roundtrips_via_filestore() {
+        // Cross-store roundtrip (memory -> file) per CLAUDE.md Storage Boundary Rules.
+        let store = make_store_with_relational_state();
+        let record = retrofit_record_without_lifecycle_state(&store, "RFC pre-existing");
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::store::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store).unwrap();
+
+        // Same repro as retrofit_880_direct_entry_to_reachable_non_initial_state_ok,
+        // against the file store: "ratified" is reachable-but-not-initial from
+        // "draft" and carries no relation obligation.
+        let result = transition_record_lifecycle(
+            &file_store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: Some("ratified".to_string()),
+                by_transition: None,
+                fulfillment: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(result.record.lifecycle_state.as_deref(), Some("ratified"));
+    }
+
+    #[test]
     fn retrofit_880_direct_entry_to_unreachable_state_rejected() {
         let store = make_store_with_relational_state();
         let record = retrofit_record_without_lifecycle_state(&store, "RFC pre-existing");
