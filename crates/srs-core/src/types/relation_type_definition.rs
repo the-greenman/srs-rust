@@ -51,9 +51,13 @@ pub struct RelationTypeDefinition {
     pub status: Option<RelationTypeStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
-    /// Arbitrary metadata per substrate Change H policy. Unknown top-level fields are rejected; use this.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub properties: Option<BTreeMap<String, serde_json::Value>>,
+    /// Substrate escape-bag (rfc-decision-6fc7e142 / srs#433 / srs PR #510).
+    /// Arbitrary metadata per substrate Change H policy. Unknown top-level
+    /// fields are rejected; use this. Serializes as `meta`; still accepts
+    /// the pre-rev-5 `properties` key on read (monotonic support, RFC-033) —
+    /// the `substrate-properties-to-meta` migration (#5) persists the rename.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "properties")]
+    pub meta: Option<BTreeMap<String, serde_json::Value>>,
 }
 
 /// Structural category of a relation type.
@@ -154,7 +158,7 @@ mod tests {
             require_same_semantic_object_type: None,
             status: None,
             updated_at: None,
-            properties: None,
+            meta: None,
         }
     }
 
@@ -280,5 +284,36 @@ mod tests {
         assert_eq!(rtd.status, Some(RelationTypeStatus::Deprecated));
         assert!(!rtd.accepts_writes());
         assert!(rtd.resolves());
+    }
+
+    /// srs-rust#894 (srs#433, srs PR #510): a rev-4 repo still carrying the
+    /// pre-rename `properties` key must load (monotonic support, RFC-033) —
+    /// tolerated via serde alias, not rejected. Writes always use `meta`;
+    /// the `substrate-properties-to-meta` migration (#5) persists the rename.
+    #[test]
+    fn tolerates_legacy_properties_key_on_read() {
+        let json_str = r#"{
+            "id": "f7a8b9c0-d1e2-4f3a-8b4c-5d6e7f8a9b0c",
+            "version": 1,
+            "relationType": "precedes",
+            "namespace": "com.semanticops.srs",
+            "label": "Precedes",
+            "description": "Source comes before target.",
+            "category": "sequence",
+            "createdAt": "2026-05-29T00:00:00Z",
+            "properties": {"color": "blue"}
+        }"#;
+        let rtd: RelationTypeDefinition =
+            serde_json::from_str(json_str).expect("legacy `properties` key must tolerate");
+        assert_eq!(
+            rtd.meta.as_ref().and_then(|m| m.get("color")),
+            Some(&serde_json::json!("blue"))
+        );
+        let serialized = serde_json::to_string(&rtd).unwrap();
+        assert!(serialized.contains("\"meta\""), "writes must use `meta`");
+        assert!(
+            !serialized.contains("\"properties\""),
+            "writes must not reintroduce the retired `properties` key"
+        );
     }
 }

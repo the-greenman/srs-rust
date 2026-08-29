@@ -107,7 +107,7 @@ mod tests {
             aliases: aliases.map(|a| a.iter().map(|s| s.to_string()).collect()),
             roles: None,
             status: None,
-            properties: None,
+            meta: None,
             created_at: None,
             updated_at: None,
         }

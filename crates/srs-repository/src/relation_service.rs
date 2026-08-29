@@ -925,7 +925,7 @@ mod tests {
             require_same_semantic_object_type: None,
             status: None,
             updated_at: None,
-            properties: None,
+            meta: None,
         }];
         let result = create_relation(&store, new_relation, &definitions).unwrap();
         assert_eq!(
@@ -987,7 +987,7 @@ mod tests {
             require_same_semantic_object_type: require_same,
             status: None,
             updated_at: None,
-            properties: None,
+            meta: None,
         }
     }
 
@@ -1934,7 +1934,7 @@ mod tests {
                     require_same_semantic_object_type: None,
                     status: None,
                     updated_at: None,
-                    properties: None,
+                    meta: None,
                 },
             )
             .unwrap();

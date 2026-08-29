@@ -329,7 +329,7 @@ mod tests {
                 require_same_semantic_object_type: None,
                 status: None,
                 updated_at: None,
-                properties: None,
+                meta: None,
             }],
             views: vec![],
             document_views: vec![],

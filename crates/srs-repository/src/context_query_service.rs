@@ -593,7 +593,7 @@ mod tests {
             require_same_semantic_object_type: None,
             status: None,
             updated_at: None,
-            properties: None,
+            meta: None,
         };
         let defs = vec![depends_on_def];
         let fv1 = make_field_values("test-name", json!("Source"));

@@ -125,7 +125,7 @@ mod tests {
             } else {
                 None
             },
-            properties: None,
+            meta: None,
             created_at: None,
             updated_at: None,
         }

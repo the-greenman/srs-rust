@@ -716,7 +716,7 @@ pub fn delete_type(
 }
 
 /// Find the repo-root-relative path and owner for a type by its ID.
-fn find_type_path(
+pub(crate) fn find_type_path(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<Option<(String, PackageSelector)>, RepositoryError> {
@@ -885,7 +885,7 @@ pub fn delete_relation_type(
 }
 
 /// Find the repo-root-relative path and owner for a relation type definition by its ID.
-fn find_relation_type_path(
+pub(crate) fn find_relation_type_path(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<Option<(String, PackageSelector)>, RepositoryError> {
@@ -2156,7 +2156,7 @@ mod tests {
             allowed_target_types: None,
             require_same_semantic_object_type: None,
             updated_at: None,
-            properties: None,
+            meta: None,
         };
         create_relation_type(&store, def, None).unwrap();
 
@@ -2216,7 +2216,7 @@ mod tests {
             allowed_target_types: None,
             require_same_semantic_object_type: None,
             updated_at: None,
-            properties: None,
+            meta: None,
         };
         create_relation_type(&store, def, None).unwrap();
 
@@ -2251,7 +2251,7 @@ mod tests {
             allowed_target_types: None,
             require_same_semantic_object_type: None,
             updated_at: None,
-            properties: None,
+            meta: None,
         };
         create_relation_type(&store, def, selector).unwrap();
 
@@ -2332,7 +2332,7 @@ mod tests {
             allowed_target_types: None,
             require_same_semantic_object_type: None,
             updated_at: None,
-            properties: None,
+            meta: None,
         };
         create_relation_type(&store, def, Some("packages/governance".to_string())).unwrap();
 

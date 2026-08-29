@@ -166,7 +166,7 @@ pub fn create_term(
 }
 
 /// Find the repo-root-relative path for a vocabulary file by scanning the package.json index.
-fn find_vocabulary_file_path(
+pub(crate) fn find_vocabulary_file_path(
     store: &dyn RepositoryStore,
     vocabulary_id: &str,
 ) -> Result<String, RepositoryError> {
@@ -422,7 +422,7 @@ mod tests {
             aliases: None,
             roles: None,
             status: None,
-            properties: None,
+            meta: None,
             created_at: None,
             updated_at: None,
         }

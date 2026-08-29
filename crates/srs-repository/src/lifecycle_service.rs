@@ -82,6 +82,31 @@ pub fn create_lifecycle(
     Ok(CreateLifecycleResult { lifecycle })
 }
 
+/// Find the repo-root-relative path and owner for a standalone Lifecycle by
+/// its ID (mirrors `package_service::find_type_path`). `None` when the
+/// Lifecycle is not owned by this repository (e.g. embedded core package).
+pub(crate) fn find_lifecycle_path(
+    store: &dyn RepositoryStore,
+    id: &str,
+) -> Result<Option<(String, PackageSelector)>, RepositoryError> {
+    let owner = match store.resolve_definition_owner(id, DefinitionKind::Lifecycle) {
+        Ok(sel) => sel,
+        Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let boundary = store.load_package_boundary(&owner)?;
+    let prefix = owner.as_deref().unwrap_or("package");
+    for rel_path in &boundary.lifecycle_paths {
+        let full = format!("{prefix}/{rel_path}");
+        if let Ok(val) = store.load_instance_json(&full) {
+            if val["id"].as_str() == Some(id) {
+                return Ok(Some((full, owner)));
+            }
+        }
+    }
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,7 +134,7 @@ mod tests {
                     is_final: None,
                     status: None,
                     requires_relation: None,
-                    properties: None,
+                    meta: None,
                 },
                 LifecycleState {
                     id: Some("s2".to_string()),
@@ -123,7 +148,7 @@ mod tests {
                     is_final: Some(true),
                     status: None,
                     requires_relation: None,
-                    properties: None,
+                    meta: None,
                 },
             ],
             transitions: vec![LifecycleTransition {
@@ -132,7 +157,7 @@ mod tests {
                 from: "draft".to_string(),
                 to: "active".to_string(),
                 description: None,
-                properties: None,
+                meta: None,
             }],
             initial_state: "draft".to_string(),
             extends_lifecycle_id: None,
