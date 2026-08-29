@@ -70,7 +70,7 @@
         "aliases": { "type": "array", "items": { "type": "string" } },
         "roles": { "type": "array", "items": { "type": "string" } },
         "status": { "type": "string", "enum": ["active", "deprecated", "tombstone", "retired"] },
-        "properties": { "type": "object", "additionalProperties": true },
+        "meta": { "type": "object", "additionalProperties": true },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       }

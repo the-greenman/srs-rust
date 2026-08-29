@@ -112,10 +112,10 @@
       "format": "date-time",
       "description": "ISO 8601 timestamp when this definition was last updated."
     },
-    "properties": {
+    "meta": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Arbitrary metadata per substrate Change H policy. Unknown top-level fields are rejected; use this instead."
+      "description": "Arbitrary metadata per substrate Change H policy (rfc-decision-6fc7e142: the one escape-bag name, matching the instance layer's meta). Unknown top-level fields are rejected; use this instead."
     }
   },
   "additionalProperties": false
