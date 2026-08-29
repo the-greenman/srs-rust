@@ -143,6 +143,15 @@ CI enforces correctness via the `schema-drift` job (`scripts/check-schema-drift.
 
 The hook runs `cargo test --test payload_contracts`. If it fails, regenerate schemas with `cargo run --bin generate-schemas` and stage the updated files before committing.
 
+## Gates and choreography (agent discipline)
+
+- **Cargo gates by exit code:** `cargo build --workspace`, `cargo test --workspace` (ZERO failures is the standard — master is green at that standard), `cargo clippy --workspace --all-targets -- -D warnings`. Never judge by a piped output tail.
+- **`SRS_SPEC_DIR` must point at a fresh clone of `srs` `origin/master`** for parity tests. The sibling fallback panics loudly by design — do not "fix" that; point the env var at a fresh clone instead (srs-rust#874).
+- **Schema mirrors sync from the release asset** via `scripts/sync-schemas-from-spec.sh` — verify the source commit it used (srs-rust#874); never sync from a local sibling checkout.
+- **Revision-bump choreography — this repo's step is step 1:** support (supported-revision constant + migration-registry entry + fixture test; binary loads old AND new revisions) lands here before the release cuts. Same-shape precedents: PRs #879, #883, #895.
+- **Implementation charter:** see `docs/adr/048-implementation-decision-rules.md` (landing via PR #897 — cite the path even while unmerged).
+- **Owner-merge, revival, baseline-honesty:** same rules as `srs/CLAUDE.md`'s "Gates and choreography" section — consume, don't clone. In short: every PR carries `epic-256:owner-merge` and agents never merge; a branch predating the newest `rfc-decision-*` record is re-derived against the decision log before shipping; a "pre-existing failure" claim is proven against the last GREEN master CI run, never current master.
+
 ## Project & priority management
 
 Issues across the ecosystem are tracked on **Project #5 "SRS"** and prioritised **top-down from
