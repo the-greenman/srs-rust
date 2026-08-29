@@ -1,22 +1,22 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-21T17:31:55.341512902+00:00",
+  "instanceId": "0c185e05-99c7-4c04-aaf6-73af30eac451",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-013: Required Root Container & Structural Navigation",
     "rfc_number": "013",
-    "rfc_status": "accepted",
     "author": "Peter Brownell",
     "affected_components": "`manifest.container` required; `Container.identityInstanceId`; structural navigation from membership + `precedes`.\n\n<!-- srs-integration:v1\nschema:manifest.json\nschema:container.json\nI-79\nI-80\nI-81\nI-82\n-->",
     "proposal_artifact_path": "rfcs/rfc-013-required-root-container.md",
-    "content": "Makes `manifest.container` required, adds a reassignable identity pointer `Container.identityInstanceId` to both Container schemas, and defines a structural navigation model derived from existing primitives (container membership + `precedes` order). Full text: rfcs/rfc-013-required-root-container.md."
+    "content": "Makes `manifest.container` required, adds a reassignable identity pointer `Container.identityInstanceId` to both Container schemas, and defines a structural navigation model derived from existing primitives (container membership + `precedes` order). Full text: rfcs/rfc-013-required-root-container.md. Rev 7 (srs#446): [R9] tightened — a duplicate manifest.container/container-set containerId is fatal under RFC-038 [R12], no precedence; [R5] confirmed as holding without exception now that RFC-009 no longer relies on rootInstanceIds[0] position."
   },
-  "instanceId": "0c185e05-99c7-4c04-aaf6-73af30eac451",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-21T17:31:55.341516084+00:00"
+  "createdAt": "2026-07-21T17:31:55.341512902+00:00",
+  "updatedAt": "2026-08-28T14:09:37.454834636+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

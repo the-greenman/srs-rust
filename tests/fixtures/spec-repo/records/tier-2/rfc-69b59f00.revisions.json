@@ -1,0 +1,89 @@
+{
+  "recordId": "69b59f00-d472-4249-904c-bb26eba77bf7",
+  "revisions": [
+    {
+      "revisionId": "572bf04a-6c61-4797-9d29-a20ae39719f0",
+      "recordId": "69b59f00-d472-4249-904c-bb26eba77bf7",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-039: Name-keyed fieldValues — the recursive Record value carrier",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:16.908067582+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:16.908067582+00:00"
+    },
+    {
+      "revisionId": "ab5f75da-4dda-4a86-85f5-2865628439ae",
+      "recordId": "69b59f00-d472-4249-904c-bb26eba77bf7",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "039",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:16.908067582+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:16.908067582+00:00"
+    },
+    {
+      "revisionId": "0bc7114a-5c4b-4bc0-b76b-a344e55a7b04",
+      "recordId": "69b59f00-d472-4249-904c-bb26eba77bf7",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "the-greenman",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:16.908067582+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:16.908067582+00:00"
+    },
+    {
+      "revisionId": "0a7a4777-1ef5-40fe-9bc6-1dee5b6b65d6",
+      "recordId": "69b59f00-d472-4249-904c-bb26eba77bf7",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "The Tier-2 `Record` instance carrier: `fieldValues` changes from an array of `{fieldId, value}` pairs to an object keyed by `Field.name` verbatim, whose value space is one recursive rule identical to RFC-032 `projectField`'s instance space — making a Record valid against its Type's projected JSON Schema by construction. Retires `FieldGroup`, `Type.fieldGroups`, `groupValues`, `ext:repeatable-fields` `entries`, and the deprecated `FieldAssignment.{repeatable,minItems,maxItems}` trio; relocates per-value provenance to a parallel `fieldMeta` sibling; reconciles Tier-1 `TypedField.valueType`/`selectOptions` to an inline `fieldType`. Narrows RFC-035 [R4]'s name projection to the in-scope meta-model Types and fixes verbatim `Field.name` keys for domain Types. Establishes `Field.name` uniqueness within a Type's effective field set. Discharges obligations RFC-032 (Change E, OQ4), RFC-033, RFC-035, RFC-036 (`document-view-output.json`, `theme.json` [CR-036-18], [CR-036-19], Open Question 3) and RFC-037 ([FR-037-14]) deferred to #242 by name; records conflicts with RFC-012 and RFC-031 for Phase B. Phase A is design and migration plan only — no schema file is edited and no data is migrated; the cutover is Phase B, composed with RFC-038 in one first-party release train.\n\nPhase A folds **no** canonical record or schema artifact — its normative changes land at the Phase-B cutover — so it declared its `srs-integration:v1` manifest at the Phase-B cutover (below); the interim grandfather entry in `rfcs/integration-allowlist.json` is removed with it.\n\n<!-- srs-integration:v1\nschema:record.json\nschema:type.json\nschema:document-view-output.json\nschema:theme.json\ntype:com.semanticops.spec/table\nI-129\nI-130\nI-131\nI-132\nI-133\nI-134\nI-135\nI-136\nI-137\nI-138\nI-139\nI-140\nI-141\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:16.908067582+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:16.908067582+00:00"
+    },
+    {
+      "revisionId": "18db533a-ce1e-4437-abbe-33a2a72e5d0a",
+      "recordId": "69b59f00-d472-4249-904c-bb26eba77bf7",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-039-record-field-value-carrier.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:16.908067582+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:16.908067582+00:00"
+    },
+    {
+      "revisionId": "ae4b6f76-5dc2-49f9-a360-925c5852bf69",
+      "recordId": "69b59f00-d472-4249-904c-bb26eba77bf7",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Phase A of issue #242. A Tier-2 Record stores its field values as an array of `{fieldId, value}` pairs, and JSON Schema validates object properties by name — so a Type cannot project into a standard JSON Schema that validates its own Records' field values without a `contains` clause plus an `if`/`then` branch per field, with field-id uniqueness not expressible at all. This blocks epic #256's requirement that a Type project by direct implementation.\n\nRFC-039 replaces `fieldValues` with an object keyed by `Field.name` verbatim. Its value space is a single recursive rule that is exactly RFC-032 `projectField`'s instance space read from the value side, so instance shape and projected schema are one rule in two directions rather than two sources of truth. Scalars, lists, inline composites and lists of inline composites all become expressible — the last being the case tables need and the reason `FieldGroup`, `groupValues` and `entries` retire together.\n\nGrounding: RFC-035 [R4]'s unqualified `snake_case` → `lowerCamelCase` rule is deliberately narrowed to the frozen-seed meta-model; domain projection and instance keys use `Field.name` verbatim. RFC-035's Node reference emitter does not currently encode that scope distinction, while the separate Rust draft-07 domain service already emits names verbatim. The mutable-attribute objection to name-keying does not survive the spec: a `Field.name` change requires a new UUID, so the name is as stable as the `fieldId` it replaces. No `Field.name` uniqueness rule exists at any scope today; this RFC establishes one at the weakest sufficient scope, the effective field set, with I-19 as the Tier-1 precedent and RFC-032 `dependsOn` as an existing Tier-2 consumer of unambiguous sibling names.\n\nPer-value provenance moves to a parallel `fieldMeta` sibling rather than a wrapper (which would defeat the projection) or deletion (which would strand a designed-for capability). Record-level `sourceRefs` is used by 231 of 355 Tier-2 Records; per-value `source` once.\n\nThe migration is specified in both layers and is written to abort rather than skip on every schema-legal input the new shape cannot express. The first-party corpus is five instance-bearing trees — 386 Tier-2, 2 Tier-1, 22 Tier-0, 1490 field values — of which two are still pre-RFC-032, as is muSrs. The compatibility window is zero-length by owner decision, recorded rather than drifted into; rollback is reverting the composed release train.\n\nTwenty conformance rules. The do-nothing alternative is evaluated and rejected on measured grounds.\n\nFull proposal and design history: `rfcs/rfc-039-record-field-value-carrier.md`.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:16.908067582+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:16.908067582+00:00"
+    }
+  ]
+}

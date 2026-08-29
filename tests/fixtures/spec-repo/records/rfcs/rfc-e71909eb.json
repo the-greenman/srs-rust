@@ -1,22 +1,22 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-21T17:31:55.366423608+00:00",
+  "instanceId": "e71909eb-37f2-4e2b-8d62-fc18e840bace",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-020: Type-Level Identity Field (identityFieldId)",
     "rfc_number": "020",
-    "rfc_status": "accepted",
     "author": "the-greenman",
     "affected_components": "`identityFieldId` on `Type` (`type.json`); inheritance + views-l2 fallback prose (`ext:type-inheritance`, `ext:views-l2`).\n\n<!-- srs-integration:v1\nschema:type.json\next:type-inheritance\next:views-l2\n-->",
     "proposal_artifact_path": "rfcs/rfc-020-type-level-identity-field.md",
     "content": "Adds an optional, inheritable, overridable `identityFieldId` to `Type`, naming one field of the effective field set as the record's identity/display field, giving clients a schema-driven display-label source. Full text: rfcs/rfc-020-type-level-identity-field.md."
   },
-  "instanceId": "e71909eb-37f2-4e2b-8d62-fc18e840bace",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-21T17:31:55.366427471+00:00"
+  "createdAt": "2026-07-21T17:31:55.366423608+00:00",
+  "updatedAt": "2026-08-28T13:58:14.062343452+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

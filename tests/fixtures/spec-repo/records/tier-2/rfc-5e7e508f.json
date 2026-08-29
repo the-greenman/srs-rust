@@ -1,24 +1,24 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-23T22:48:32.579151827+00:00",
+  "instanceId": "5e7e508f-1728-4364-8dd3-e1e96f46e606",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-029: Core Base Package and Required com.semanticops.core/purpose Identity Type",
     "rfc_number": "029",
-    "rfc_status": "accepted",
     "author": "the-greenman (from issue the-greenman/srs#134)",
     "affected_components": "com.semanticops.core namespace (new); com.semanticops.core/purpose Type (new Tier-2 type); manifest.json/container.json identityInstanceId descriptions; ext:repository (repo create behaviour); invariants I-85, I-86, I-87; RFC-013 I-81 (retained, layered)\n\n<!-- srs-integration:v1\ntype:com.semanticops.core/purpose\nschema:manifest.json\nschema:container.json\nI-85\nI-86\nI-87\n-->",
     "proposal_artifact_path": "rfcs/rfc-029-core-base-package-identity-type.md",
     "content": "RFC-013 introduced identityInstanceId as a pointer from the root container to the repository's identity record, defaulting to an un-navigable, non-semantic Tier-0 root note. This RFC introduces a minimal com.semanticops.core/purpose Tier-2 type -- carrying a required statement field and an optional title field -- defined in an always-available core base package that every conforming SRS implementation implicitly merges into every repository's resolved package (RFC-014 R6 union), without requiring any packageRef declaration. identityInstanceId on the root container is tightened to MUST reference a Tier-2 purpose Record, superseding RFC-013's Tier-0-note default, subject to a migration grace period (R7) for existing repositories. This record was authored under issue the-greenman/srs#209 (renumbered from RFC-018 to resolve a number collision with RFC-018: Repository Changelog Extension); the RFC was originally accepted and implemented under the 018 number in July 2026 (see revision history in rfcs/rfc-029-core-base-package-identity-type.md)."
   },
-  "instanceId": "5e7e508f-1728-4364-8dd3-e1e96f46e606",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc",
     "construct:package",
     "concern:identity"
   ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-23T22:48:32.579168253+00:00"
+  "createdAt": "2026-07-23T22:48:32.579151827+00:00",
+  "updatedAt": "2026-08-28T13:58:16.737733745+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

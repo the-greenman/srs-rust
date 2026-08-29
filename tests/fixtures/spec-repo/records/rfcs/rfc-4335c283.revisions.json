@@ -1,0 +1,89 @@
+{
+  "recordId": "4335c283-9953-4fa7-95d7-ff5e7a4980a8",
+  "revisions": [
+    {
+      "revisionId": "0e1db7a9-90d5-454d-91e5-721200e61626",
+      "recordId": "4335c283-9953-4fa7-95d7-ff5e7a4980a8",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-007: Composite Group Rendering",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:11.552912599+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:11.552912599+00:00"
+    },
+    {
+      "revisionId": "306790e4-ebaa-4e77-8221-d8f5b744bfeb",
+      "recordId": "4335c283-9953-4fa7-95d7-ff5e7a4980a8",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "007",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:11.552912599+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:11.552912599+00:00"
+    },
+    {
+      "revisionId": "edd52214-bd64-40b4-a4cd-5cdfa33a4341",
+      "recordId": "4335c283-9953-4fa7-95d7-ff5e7a4980a8",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "Peter Brownell",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:11.552912599+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:11.552912599+00:00"
+    },
+    {
+      "revisionId": "58dd8476-b0fa-4fd2-a386-d30d115351c0",
+      "recordId": "4335c283-9953-4fa7-95d7-ff5e7a4980a8",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "`FieldGroup.compositeRenderer` dispatch; `groupFieldRowTemplates`; `compositeRendererConfig` on `ElementTemplates`.\n\n<!-- srs-integration:v1\next:themes-l1\nschema:type.json\nschema:theme.json\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:11.552912599+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:11.552912599+00:00"
+    },
+    {
+      "revisionId": "d397180e-4c7a-4e1d-8f79-459761e07f27",
+      "recordId": "4335c283-9953-4fa7-95d7-ff5e7a4980a8",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-007-composite-group-rendering.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:11.552912599+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:11.552912599+00:00"
+    },
+    {
+      "revisionId": "e9c6a867-8fea-409e-bc95-f2659de0ab0d",
+      "recordId": "4335c283-9953-4fa7-95d7-ff5e7a4980a8",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Adds a composite-renderer dispatch (`FieldGroup.compositeRenderer`, first value `table`) so structured groups render as composed output rather than raw rows, retroactively specifies `groupFieldRowTemplates`, and adds a generalised `compositeRendererConfig` surface on `ElementTemplates`. Full text: rfcs/rfc-007-composite-group-rendering.md.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:11.552912599+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:11.552912599+00:00"
+    }
+  ]
+}

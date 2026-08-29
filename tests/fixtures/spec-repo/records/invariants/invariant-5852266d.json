@@ -1,0 +1,16 @@
+{
+  "instanceId": "5852266d-d0f0-4685-8d9c-83fafe5533e8",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant",
+  "fieldValues": {
+    "invariant_number": "I-145",
+    "title": "Container.anchorInstanceId resolves to a member of its container, and is the declared typing anchor",
+    "normative_statement": "When present on a Container, anchorInstanceId MUST equal an id contained in that Container's rootInstanceIds or memberInstanceIds. It names the record whose Type (typeId + typeVersion) is the Container's typing anchor for RFC-009 DocumentView.rootTypeRefs matching (I-63) and RFC-010 three-way-merge container-root conflict detection. If it resolves to no such member, the repository is invalid. When anchorInstanceId is absent (a repository authored before srs#446), an implementation MUST fall back to treating rootInstanceIds[0] (the first entry) as the typing anchor; this positional fallback is transitional and is withdrawn at the Continuity flip (rfc-decision-cce3c00e axis 2-8, the first full public release), after which anchorInstanceId is required wherever a typing anchor is needed. rootInstanceIds and memberInstanceIds otherwise carry no positional significance (RFC-013 [R5]).",
+    "applies_to": "Container (core), RFC-009 (ext:views-l2 rootTypeRefs matching), RFC-010 (ext:federation merge)"
+  },
+  "createdAt": "2026-08-28T14:10:04.325679298+00:00",
+  "updatedAt": "2026-08-28T14:10:04.325686248+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
+}

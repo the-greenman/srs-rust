@@ -225,7 +225,7 @@ mod tests {
             is_final: None,
             status: None,
             requires_relation: None,
-            properties: None,
+            meta: None,
         }
     }
 
@@ -242,7 +242,7 @@ mod tests {
             is_final: if is_final { Some(true) } else { None },
             status: None,
             requires_relation: None,
-            properties: None,
+            meta: None,
         }
     }
 
@@ -253,7 +253,7 @@ mod tests {
             from: "draft".to_string(),
             to: "active".to_string(),
             description: None,
-            properties: None,
+            meta: None,
         }
     }
 
@@ -324,7 +324,7 @@ mod tests {
             from: "active".to_string(),
             to: "draft".to_string(),
             description: None,
-            properties: None,
+            meta: None,
         };
         let lc = make_lc(
             vec![draft_state(true), active_state(true)],
@@ -344,7 +344,7 @@ mod tests {
             from: "draft".to_string(),
             to: "nonexistent".to_string(),
             description: None,
-            properties: None,
+            meta: None,
         };
         let lc = make_lc(vec![draft_state(true), active_state(false)], vec![bad_t]);
         let diags = validate_lifecycle(&lc);

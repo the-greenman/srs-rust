@@ -2389,7 +2389,7 @@ mod tests {
         json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
-            "dataModelRevision": 4,
+            "dataModelRevision": 5,
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Test Repo",
             "container": {
@@ -5489,7 +5489,7 @@ mod tests {
             &json!({
                 "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
                 "srsVersion": "2.0",
-                "dataModelRevision": 4,
+                "dataModelRevision": 5,
                 "repositoryId": "00000000-0000-4000-8000-000000000700",
                 "title": "Rev-3 Metamodel Test Repo",
                 "container": {
@@ -5631,8 +5631,9 @@ mod tests {
             rt.validation_rules
         );
 
-        // No revision diagnostic: dataModelRevision 4 is exactly what this
-        // build supports (bumped 3 -> 4 for srs-rust#882's Tier-1 retirement).
+        // No revision diagnostic: dataModelRevision 5 is exactly what this
+        // build supports (bumped 4 -> 5 for srs-rust#894's substrate
+        // properties -> meta rename).
         let report = validate_repository(&store).unwrap();
         assert!(
             !report
@@ -5657,13 +5658,14 @@ mod tests {
     }
 
     /// srs-rust#882 (srs#448, srs PR #505): a repository stamped at
-    /// `dataModelRevision: 4` — the generation Tier 1 (TypedRecord) retirement
-    /// produces — must load and validate with no revision-gate diagnostic.
-    /// Before this fix (`CURRENT_DATA_MODEL_REVISION` capped at 3) this
-    /// manifest tripped the [R21]-style "newer than this build supports"
-    /// error; this is the fix's red-then-green proof.
+    /// `dataModelRevision: 4` must still load (monotonic support, RFC-033) —
+    /// but since srs-rust#894 bumped `CURRENT_DATA_MODEL_REVISION` to 5, a
+    /// rev-4 repository is now one generation behind and gets the
+    /// compatibility-path **warning**, not zero diagnostics (that truth
+    /// belongs to whichever revision is current — see
+    /// `rev5_manifest_loads_with_no_revision_diagnostic` below).
     #[test]
-    fn rev4_manifest_loads_with_no_revision_diagnostic() {
+    fn rev4_manifest_loads_with_compatibility_path_warning() {
         let store = manifest_store(json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
@@ -5682,10 +5684,47 @@ mod tests {
             .iter()
             .filter(|d| d.relative_path == "manifest.json")
             .collect();
+        assert_eq!(
+            manifest_diags.len(),
+            1,
+            "a rev-4 repository must load, with exactly the compatibility-path warning: \
+             {manifest_diags:?}"
+        );
+        assert_eq!(manifest_diags[0].severity, DiagnosticSeverity::Warning);
+        assert!(manifest_diags[0].message.contains("compatibility path"));
+    }
+
+    /// srs-rust#894 (srs#433, srs PR #510): a repository stamped at
+    /// `dataModelRevision: 5` — the generation the substrate
+    /// `properties` -> `meta` rename produces — must load and validate with
+    /// no revision-gate diagnostic. Before this fix
+    /// (`CURRENT_DATA_MODEL_REVISION` capped at 4) this manifest tripped the
+    /// [R21]-style "newer than this build supports" error; this is the fix's
+    /// red-then-green proof.
+    #[test]
+    fn rev5_manifest_loads_with_no_revision_diagnostic() {
+        let store = manifest_store(json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "dataModelRevision": 5,
+            "repositoryId": "00000000-0000-4000-8000-000000000901",
+            "title": "Rev-5 Test Repo",
+            "container": {
+                "containerId": "00000000-0000-4000-8000-000000000901",
+                "title": "Rev-5 Test Repo"
+            },
+            "createdAt": "2026-01-01T00:00:00Z"
+        }));
+        let report = validate_repository(&store).unwrap();
+        let manifest_diags: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.relative_path == "manifest.json")
+            .collect();
         assert!(
             manifest_diags.is_empty(),
-            "a rev-4 manifest must load with no revision-gate diagnostic (before this fix, \
-             this asserted 'newer than this build supports (revision 3)'): {manifest_diags:?}"
+            "a rev-5 manifest must load with no revision-gate diagnostic (before this fix, \
+             this asserted 'newer than this build supports (revision 4)'): {manifest_diags:?}"
         );
     }
 

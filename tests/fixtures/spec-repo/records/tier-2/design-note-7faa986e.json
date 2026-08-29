@@ -1,0 +1,14 @@
+{
+  "instanceId": "7faa986e-0495-420e-a4ef-95d3166db3f6",
+  "typeId": "2a000012-0000-4000-a000-000000000012",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "design-note",
+  "fieldValues": {
+    "title": "Why Record tiers exist (Note → Record)",
+    "content": "Not all content arrives with full semantic formalisation. A meeting note, a brainstorm document, a rough plan — these are valid starting points that should be preserved and referenceable, even before anyone has decided what Types to extract from them.\n\nThe two tiers let a system capture content at whatever maturity level it has, and formalise later without losing provenance. Graduation links a Note to its successor Record via a derived-from Relation. It mirrors how understanding actually develops — rough first, then formally defined.\n\nThe tier model also makes SRS progressively adoptable. A team can start at Tier 0 and arrive at Tier 2 as their understanding of the semantic structure matures, without ever having to restart from scratch.\n\nA middle Tier 1 (Typed Record — named fields, no Type binding) was tried and removed: the 2026-08-21 usage attestation found zero instances of it in any corpus, ever (rfc-decision-53635966). The predecessor design note captures the original three-tier rationale; this note supersedes it with the two-tier reality. Tier numbering (0, 2) keeps the gap deliberately, for reference stability."
+  },
+  "createdAt": "2026-08-27T18:16:44.810749255+00:00",
+  "updatedAt": "2026-08-27T18:16:44.810753338+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
+}

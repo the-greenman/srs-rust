@@ -1,0 +1,89 @@
+{
+  "recordId": "a0538dda-7a43-4e18-976a-f4e7671fe5e6",
+  "revisions": [
+    {
+      "revisionId": "62c19066-4d05-4a8d-a222-a79495c3b2e7",
+      "recordId": "a0538dda-7a43-4e18-976a-f4e7671fe5e6",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-040: Metamodel v1.1.0 — the definition-layer train",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "implemented",
+        "transitionedAt": "2026-08-28T13:58:29.345595187+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:29.345595187+00:00"
+    },
+    {
+      "revisionId": "8897ea7a-67a8-4b1e-9a15-f1db66fdde47",
+      "recordId": "a0538dda-7a43-4e18-976a-f4e7671fe5e6",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "040",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "implemented",
+        "transitionedAt": "2026-08-28T13:58:29.345595187+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:29.345595187+00:00"
+    },
+    {
+      "revisionId": "abdfd494-5268-4fe8-b4da-9f0afebe6f6f",
+      "recordId": "a0538dda-7a43-4e18-976a-f4e7671fe5e6",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "#273 planning session (scheduled, complicated-mode), assembling owner rulings of 2026-07-31 … 2026-08-23",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "implemented",
+        "transitionedAt": "2026-08-28T13:58:29.345595187+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:29.345595187+00:00"
+    },
+    {
+      "revisionId": "3a5321d5-049e-4bb0-9a02-bd2f6daed171",
+      "recordId": "a0538dda-7a43-4e18-976a-f4e7671fe5e6",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "com.semanticops.srs/metamodel (v1.0.0 → v1.1.0), docs/schema/2.0/{field,type,note,record,package-manifest}.json reference forms, scripts/gen-metamodel-package.mjs, scripts/lib/schema-emitter.mjs, projection-rules.md, metamodel-fidelity.md, RFC-033/RFC-035 closure tests, the RFC-031 residual allowlist, design-note 045.\n\n<!-- srs-integration:v1\ncell:reference\ncell:conformance\ncell:identity\nschema:blueprint.json\nschema:document-view.json\nschema:field.json\nschema:manifest.json\nschema:note.json\nschema:package-bundle.json\nschema:package-manifest.json\nschema:protocol.json\nschema:record.json\nschema:relation.json\nschema:relations-collection.json\nschema:type.json\next:type-inheritance\next:lifecycle\next:cross-field-validation\nI-39\nI-40\nI-41\nI-42\nI-43\nI-88\nI-97\ntype:com.semanticops.srs/type\ntype:com.semanticops.srs/cross-field-validation-facet\ntype:com.semanticops.srs/inheritance-facet\ntype:com.semanticops.srs/lifecycle-facet\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "implemented",
+        "transitionedAt": "2026-08-28T13:58:29.345595187+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:29.345595187+00:00"
+    },
+    {
+      "revisionId": "73722957-5903-4b06-8f42-8a329e066223",
+      "recordId": "a0538dda-7a43-4e18-976a-f4e7671fe5e6",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-040-metamodel-v1-1-0.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "implemented",
+        "transitionedAt": "2026-08-28T13:58:29.345595187+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:29.345595187+00:00"
+    },
+    {
+      "revisionId": "79d5ebd0-76d5-4371-a6bd-37b4356804a8",
+      "recordId": "a0538dda-7a43-4e18-976a-f4e7671fe5e6",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "The metamodel v1.1.0 train plan for srs#273 (epic #256 spine task 4a-0): model the live post-#242 definition layer as SRS records (extension facets as separate Types via ext:type-inheritance; the seven nested value objects; the documentation-only FieldAssignment.description slot), remove both defaultValue sites and deprecatedAt per rfc-decision-0225099b and the #234 ruling, add Type.lineage/provenance, add conditional-forbidden with both-emitter conditional projection, teach the emitter the instance-facing (closed-except-meta) vs definition-facing (closed) distinction per rfc-decision-2e0cd70a, execute the reference-taxonomy definition-layer edits (rfc-decision-c8704763) and the RFC-023 sourceRole migration, implement the #274 reader projection (property table primary), and tighten the closure tests to byte-for-byte regeneration including annotations and $defs — the seed remaining authoritative (the #260 authorship flip is excluded on owner hold). Six sequenced execution units; every decision lands with its enforcing mechanism. Zero open decisions; zero parks.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "implemented",
+        "transitionedAt": "2026-08-28T13:58:29.345595187+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:29.345595187+00:00"
+    }
+  ]
+}

@@ -1640,7 +1640,7 @@ mod tests {
                 is_final: None,
                 status: None,
                 requires_relation: None,
-                properties: None,
+                meta: None,
             },
             srs_core::types::lifecycle::LifecycleState {
                 id: None,
@@ -1654,7 +1654,7 @@ mod tests {
                 is_final: Some(true),
                 status: None,
                 requires_relation: None,
-                properties: None,
+                meta: None,
             },
         ]
     }
@@ -1666,7 +1666,7 @@ mod tests {
             from: "draft".to_string(),
             to: "active".to_string(),
             description: None,
-            properties: None,
+            meta: None,
         }]
     }
 

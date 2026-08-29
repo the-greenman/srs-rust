@@ -1,22 +1,22 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-29T00:00:00Z",
+  "instanceId": "eec335c8-f6d6-5d6f-bf43-a3bb3871b542",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-035: JSON Schema emitter — projecting the self-hosted meta-model (records → 2020-12)",
     "rfc_number": "035",
-    "rfc_status": "accepted",
     "author": "the-greenman",
     "affected_components": "Defines the emitter that projects the self-hosted meta-model Type records to JSON Schema 2020-12 via a neutral IR, generalizing RFC-032's per-fieldType `projectField` to whole entities. Ships a Node reference emitter (`scripts/lib/schema-emitter.mjs`) verified two ways: Tier-1 byte-for-byte determinism goldens (`tests/rfc-035/`) and a Tier-2 `emitter ⊆ frozen seed` structural closure (`scripts/rfc-035-closure-test.mjs`, discharging RFC-033 [R4](b)). Relocates the normative `projection-rules.md` to `docs/schema/2.0/`. The `srs-projection` core service / `srs schema generate` CLI / WASM binding are specified but implemented at the #260 cutover (ADR-004). Tooling + docs only — no entity-schema or record artifact is folded into the canonical spec.\n\n<!-- srs-integration:v1\ntooling-only\n-->",
     "proposal_artifact_path": "rfcs/rfc-035-schema-emitter.md",
     "content": "The JSON Schema emitter for the self-hosted meta-model: meta-model Type records → a target-neutral IR → JSON Schema 2020-12 definition schemas, generalizing RFC-032 `projectField` to whole entities. Verification is two-tier — byte-for-byte determinism against the emitter's own goldens, plus an `emitter ⊆ seed` structural closure over the covered authoritative features (with a documented-divergence register and exclusion set). Relocates `projection-rules.md` to a live normative home and stamps `dataModelRevision` on the generated bundle. Node reference emitter now; srs-projection/CLI/WASM at the #260 cutover. Full text: rfcs/rfc-035-schema-emitter.md."
   },
-  "instanceId": "eec335c8-f6d6-5d6f-bf43-a3bb3871b542",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-29T00:00:00Z"
+  "createdAt": "2026-07-29T00:00:00Z",
+  "updatedAt": "2026-08-28T13:58:09.680507975+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

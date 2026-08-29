@@ -1,15 +1,26 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-05-27T00:00:00Z",
+  "instanceId": "854eedf0-ddcf-5f17-bfef-28d27d1e9e6a",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-002: ext:themes-l1 — Visual Theming for Document Views",
     "rfc_number": "002",
-    "rfc_status": "accepted",
     "affected_components": "<!-- srs-integration:v1\next:themes-l1\nschema:theme.json\nschema:package-manifest.json\nschema:package-bundle.json\n-->",
     "proposal_artifact_path": "rfcs/rfc-002.md",
     "content": "Defines the `ext:themes-l1` extension, attaching a non-destructive `Theme` (assets, element/page templates, stylesheet, CSS-class injection) to a `DocumentView`, with graceful degradation for implementations that do not support it. Full text: rfcs/rfc-002.md."
   },
-  "instanceId": "854eedf0-ddcf-5f17-bfef-28d27d1e9e6a",
+  "lifecycleState": "accepted",
+  "tags": [
+    "concern:extensibility",
+    "concern:rendering",
+    "construct:view",
+    "topic:rfc"
+  ],
+  "createdAt": "2026-05-27T00:00:00Z",
+  "updatedAt": "2026-08-28T13:58:07.450392612+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "sourceRefs": [
     {
       "note": "RFC-002 from srs-spec.md - coarse source anchoring during migration",
@@ -17,16 +28,5 @@
       "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
       "sourceType": "repository-document"
     }
-  ],
-  "tags": [
-    "concern:extensibility",
-    "concern:rendering",
-    "construct:view",
-    "topic:rfc"
-  ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-23T20:48:53.073689203+00:00"
+  ]
 }

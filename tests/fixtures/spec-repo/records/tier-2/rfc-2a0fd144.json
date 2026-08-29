@@ -1,24 +1,24 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-27T21:53:26.175238497+00:00",
+  "instanceId": "2a0fd144-337f-4f14-ada3-5c190c2c2e9e",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-030: Rename Field's normative `selectOptions` property to `allowedValues`",
     "rfc_number": "030",
-    "rfc_status": "accepted",
     "author": "the-greenman (from issue the-greenman/srs#232)",
     "affected_components": "§04-2-4-2 Field subsection (the former com.semanticops.spec/field type-definition record was a duplicate of it and is retired — #275); §03-1 Version semantics subsection; §04-7 Vocabulary and Term subsection (invariant V3); docs/schema/2.0/package-bundle.json (embedded Field shape)\n\n<!-- srs-integration:v1\nsubsection:field\nsubsection:version-semantics\nsubsection:vocabulary-and-term\nschema:package-bundle.json\n-->",
     "proposal_artifact_path": "rfcs/rfc-030-field-allowed-values-rename.md",
     "content": "The normative spec named a Field (Tier 2) property `selectOptions`, while the JSON Schema (docs/schema/2.0/field.json), the reference Rust engine (srs-core::Field::allowed_values), and every published Field instance already used `allowedValues`. This RFC corrects the spec prose -- and a second, previously-unnoticed schema drift in docs/schema/2.0/package-bundle.json's embedded Field shape -- to the already-shipped name `allowedValues`, with no breaking change to any schema, engine, or instance data. TypedField (Tier 1) is unrelated and untouched -- its `selectOptions` property is correctly named in both spec and schema. This RFC renames text originally authored by RFC-006 (vocabulary/Term substrate) without altering its exclusivity or resolution semantics."
   },
-  "instanceId": "2a0fd144-337f-4f14-ada3-5c190c2c2e9e",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc",
     "construct:field",
     "concern:naming"
   ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-27T21:53:26.175248095+00:00"
+  "createdAt": "2026-07-27T21:53:26.175238497+00:00",
+  "updatedAt": "2026-08-28T13:58:15.391020941+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

@@ -1,0 +1,166 @@
+{
+  "recordId": "5f8204bc-dc8a-4280-a746-2b9fd17d02e1",
+  "revisions": [
+    {
+      "revisionId": "3255b095-fed3-40c4-9e65-7083041955ee",
+      "recordId": "5f8204bc-dc8a-4280-a746-2b9fd17d02e1",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Retirement has one way per layer",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.399340293+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.399340293+00:00"
+    },
+    {
+      "revisionId": "35c3082f-2fbb-4ba0-9053-4ff9f8330faf",
+      "recordId": "5f8204bc-dc8a-4280-a746-2b9fd17d02e1",
+      "fieldId": "5a000004-0000-4000-a000-000000000004",
+      "value": "2026-08-22",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.399340293+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.399340293+00:00"
+    },
+    {
+      "revisionId": "92874dec-7389-472a-8301-b0245b252932",
+      "recordId": "5f8204bc-dc8a-4280-a746-2b9fd17d02e1",
+      "fieldId": "5a000012-0000-4000-a000-000000000012",
+      "value": "The audit found nine-plus replacement mechanisms across five layers (supersession inventory) with the same words meaning different things in different enums. The preference layer determined the shape: Reliability over Renewal demands standing contracts hold and renewal be explicit; the three-layer split follows from how each layer is referenced (pinned / keyed / linked). The owner's dispositions had already ruled the parts (deprecation-by-deletion for Fields, substrate status vocabulary, RFC-022 supersession); this record states them once as one system.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.399340293+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.399340293+00:00"
+    },
+    {
+      "revisionId": "811961ef-4b21-46da-aae6-2281ad7c32e4",
+      "recordId": "5f8204bc-dc8a-4280-a746-2b9fd17d02e1",
+      "fieldId": "5a000019-0000-4000-a000-000000000019",
+      "value": "Axis 5-11 (Reliability over Renewal) applied: each layer has exactly one retirement mechanism, and renewal never silently breaks a standing contract.\n\nDEFINITIONS (Field, Type, View, Composition, Theme, Blueprint, Protocol, Package definitions) retire by DELETION, with version history as the trail - there is no deprecation state at the definition layer (the audit's carve-out C10, now stated). A definition that must signal replacement does so by a successor version; consumers pin, so deletion cannot break a pinned reference retroactively.\n\nSUBSTRATE ENTRIES (Terms, LifecycleStates, RelationTypeDefinitions) retire by STATUS - the existing four-stage vocabulary (active, deprecated, tombstone, retired) - because instance data addresses them by string key and cannot be version-pinned; the key must keep resolving while carrying its retirement.\n\nINSTANCES (Records) retire by SUPERSESSION - successor-and-link (supersedes/refines), per the Fire column principle; history stays addressable.\n\nCross-layer rules: every retirement exception (allowlist entry, grandfather clause, compatibility label) carries its expiry condition and dies when the condition is met - a justification whose cited ground has changed is expired even if nobody noticed (the self-expiring-exception rule, now charter-level after finding C5's silent expiry). JSON Schema's deprecated:true annotation accompanies every documented deprecation (machine-readable, finding C16). The word 'deprecated' is reserved for the substrate status; definitions are never 'deprecated', they are removed.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.399340293+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.399340293+00:00"
+    },
+    {
+      "revisionId": "e009a931-6ef9-44bc-8c21-902ecef903d1",
+      "recordId": "5f8204bc-dc8a-4280-a746-2b9fd17d02e1",
+      "fieldId": "5a000020-0000-4000-a000-000000000020",
+      "value": "Governs all future retirements and the removal executions now queued. Dispositioned findings: C10 (stated as rule), C15 direction (extension retirement becomes a status-bearing declaration when extensions gain structure - until then prose retirement is a known gap, not a sanctioned mechanism), C16, C20 (the word 'tombstone' stays substrate-only; the source-document index concept is renamed in its own cleanup), the C17 vocabulary split (evidence/evidences) rides the #273 train.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.399340293+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.399340293+00:00"
+    },
+    {
+      "revisionId": "653cbaa4-ac3f-45aa-b8be-bd385057796b",
+      "recordId": "5f8204bc-dc8a-4280-a746-2b9fd17d02e1",
+      "fieldId": "5a000021-0000-4000-a000-000000000021",
+      "value": [
+        "shared-coherence",
+        "semantic-integrity"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.399340293+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.399340293+00:00"
+    },
+    {
+      "revisionId": "ad371c2c-81b5-4e11-a98f-a76a535342b9",
+      "recordId": "5f8204bc-dc8a-4280-a746-2b9fd17d02e1",
+      "fieldId": "5a000022-0000-4000-a000-000000000022",
+      "value": "formation",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.399340293+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.399340293+00:00"
+    },
+    {
+      "revisionId": "b0dd0eef-313b-484b-894c-ef2ef7216f54",
+      "recordId": "5f8204bc-dc8a-4280-a746-2b9fd17d02e1",
+      "fieldId": "5a000023-0000-4000-a000-000000000023",
+      "value": "A single cross-layer deprecation status (rejected: definitions are pinned, so status on them is dead weight - deletion with version history is strictly cleaner); no expiry rule for exceptions (rejected: finding C5 showed an allowlist justification silently expiring when its cited schema condition changed).",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.399340293+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.399340293+00:00"
+    },
+    {
+      "revisionId": "43a215e4-c367-43e2-9701-c0dfab42b87f",
+      "recordId": "5f8204bc-dc8a-4280-a746-2b9fd17d02e1",
+      "fieldId": "5a000024-0000-4000-a000-000000000024",
+      "value": "Definition deletion is abrupt for consumers who ignored pinning discipline - accepted, since unpinned consumption of definitions is already outside the contract. The expiry rule adds review overhead to every exception.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.399340293+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.399340293+00:00"
+    },
+    {
+      "revisionId": "403e039f-ba24-410b-9df7-778f9594b70c",
+      "recordId": "5f8204bc-dc8a-4280-a746-2b9fd17d02e1",
+      "fieldId": "5a000025-0000-4000-a000-000000000025",
+      "value": [
+        "srs#435 supersession inventory and findings C5, C10, C15, C16, C17, C20",
+        "rfc-decision-cce3c00e (axis 5-11: Reliability over Renewal)",
+        "RFC-022 (supersession coupling), the substrate status vocabulary (RFC-006 V5/V6)"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.399340293+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.399340293+00:00"
+    },
+    {
+      "revisionId": "ceb643d4-3083-40e7-bdfb-f040668dc085",
+      "recordId": "5f8204bc-dc8a-4280-a746-2b9fd17d02e1",
+      "fieldId": "5a000026-0000-4000-a000-000000000026",
+      "value": "A retirement case that genuinely fits none of the three layer mechanisms, or extension structure landing (which converts C15's prose gap into a status field).",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.399340293+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.399340293+00:00"
+    }
+  ]
+}

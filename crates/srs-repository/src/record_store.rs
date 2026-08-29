@@ -2988,7 +2988,7 @@ mod tests {
                         is_final: None,
                         status: None,
                         requires_relation: None,
-                        properties: None,
+                        meta: None,
                     },
                     LifecycleState {
                         id: None,
@@ -3002,7 +3002,7 @@ mod tests {
                         is_final: None,
                         status: None,
                         requires_relation: None,
-                        properties: None,
+                        meta: None,
                     },
                     LifecycleState {
                         id: None,
@@ -3016,7 +3016,7 @@ mod tests {
                         is_final: Some(true),
                         status: None,
                         requires_relation: None,
-                        properties: None,
+                        meta: None,
                     },
                 ],
                 transitions: vec![
@@ -3026,7 +3026,7 @@ mod tests {
                         from: "draft".to_string(),
                         to: "active".to_string(),
                         description: None,
-                        properties: None,
+                        meta: None,
                     },
                     LifecycleTransition {
                         id: None,
@@ -3034,7 +3034,7 @@ mod tests {
                         from: "active".to_string(),
                         to: "archived".to_string(),
                         description: None,
-                        properties: None,
+                        meta: None,
                     },
                 ],
                 initial_state: "draft".to_string(),
@@ -3064,7 +3064,7 @@ mod tests {
             require_same_semantic_object_type: None,
             status: None,
             updated_at: None,
-            properties: None,
+            meta: None,
         };
 
         let refines_def = RelationTypeDefinition {
@@ -3085,7 +3085,7 @@ mod tests {
             require_same_semantic_object_type: None,
             status: None,
             updated_at: None,
-            properties: None,
+            meta: None,
         };
 
         let manifest = Manifest {
@@ -3351,7 +3351,7 @@ mod tests {
                         is_final: None,
                         status: None,
                         requires_relation: None,
-                        properties: None,
+                        meta: None,
                     },
                     LifecycleState {
                         id: None,
@@ -3365,7 +3365,7 @@ mod tests {
                         is_final: None,
                         status: None,
                         requires_relation: None,
-                        properties: None,
+                        meta: None,
                     },
                 ],
                 transitions: vec![LifecycleTransition {
@@ -3374,7 +3374,7 @@ mod tests {
                     from: "draft".to_string(),
                     to: "active".to_string(),
                     description: None,
-                    properties: None,
+                    meta: None,
                 }],
                 initial_state: "draft".to_string(),
             }),
@@ -3403,7 +3403,7 @@ mod tests {
             require_same_semantic_object_type: None,
             status,
             updated_at: None,
-            properties: None,
+            meta: None,
         };
 
         let manifest = crate::manifest::Manifest {
@@ -3551,7 +3551,7 @@ mod tests {
             require_same_semantic_object_type: None,
             status: None,
             updated_at: None,
-            properties: None,
+            meta: None,
         };
         let def_b = RelationTypeDefinition {
             id: "rtd-supersedes-bbb".to_string(),
@@ -4127,7 +4127,7 @@ mod tests {
                     is_final: None,
                     status: None,
                     requires_relation: None,
-                    properties: None,
+                    meta: None,
                 },
                 LifecycleState {
                     id: None,
@@ -4141,7 +4141,7 @@ mod tests {
                     is_final: None,
                     status: None,
                     requires_relation: None,
-                    properties: None,
+                    meta: None,
                 },
                 LifecycleState {
                     id: None,
@@ -4155,7 +4155,7 @@ mod tests {
                     is_final: Some(true),
                     status: None,
                     requires_relation: None,
-                    properties: None,
+                    meta: None,
                 },
             ],
             transitions: vec![
@@ -4165,7 +4165,7 @@ mod tests {
                     from: "draft".to_string(),
                     to: "active".to_string(),
                     description: None,
-                    properties: None,
+                    meta: None,
                 },
                 LifecycleTransition {
                     id: None,
@@ -4173,7 +4173,7 @@ mod tests {
                     from: "active".to_string(),
                     to: "archived".to_string(),
                     description: None,
-                    properties: None,
+                    meta: None,
                 },
             ],
             initial_state: "draft".to_string(),
@@ -4233,7 +4233,7 @@ mod tests {
             require_same_semantic_object_type: None,
             status: None,
             updated_at: None,
-            properties: None,
+            meta: None,
         };
 
         let manifest = Manifest {
@@ -4332,7 +4332,7 @@ mod tests {
                 is_final: None,
                 status: None,
                 requires_relation: None,
-                properties: None,
+                meta: None,
             }
         }
         fn transition(name: &str, from: &str, to: &str) -> LifecycleTransition {
@@ -4342,7 +4342,7 @@ mod tests {
                 from: from.to_string(),
                 to: to.to_string(),
                 description: None,
-                properties: None,
+                meta: None,
             }
         }
 
@@ -4448,7 +4448,7 @@ mod tests {
             require_same_semantic_object_type: None,
             status: None,
             updated_at: None,
-            properties: None,
+            meta: None,
         };
 
         let manifest = Manifest {

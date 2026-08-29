@@ -93,8 +93,12 @@ pub struct LifecycleState {
     /// RFC-022: a record may only be in this state if a satisfying relation exists.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requires_relation: Option<RequiresRelation>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub properties: Option<BTreeMap<String, serde_json::Value>>,
+    /// Substrate escape-bag (rfc-decision-6fc7e142 / srs#433 / srs PR #510).
+    /// Serializes as `meta`; still accepts the pre-rev-5 `properties` key on
+    /// read (monotonic support, RFC-033) — the `substrate-properties-to-meta`
+    /// migration (#5) persists the rename.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "properties")]
+    pub meta: Option<BTreeMap<String, serde_json::Value>>,
 }
 
 impl LifecycleState {
@@ -121,8 +125,12 @@ pub struct LifecycleTransition {
     pub to: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub properties: Option<BTreeMap<String, serde_json::Value>>,
+    /// Substrate escape-bag (rfc-decision-6fc7e142 / srs#433 / srs PR #510).
+    /// Serializes as `meta`; still accepts the pre-rev-5 `properties` key on
+    /// read (monotonic support, RFC-033) — the `substrate-properties-to-meta`
+    /// migration (#5) persists the rename.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "properties")]
+    pub meta: Option<BTreeMap<String, serde_json::Value>>,
 }
 
 /// A standalone, installable, referenceable lifecycle container.
@@ -195,7 +203,7 @@ mod tests {
             is_final: None,
             status: None,
             requires_relation: None,
-            properties: None,
+            meta: None,
         };
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains("\"key\""));
@@ -210,7 +218,7 @@ mod tests {
             from: "draft".to_string(),
             to: "active".to_string(),
             description: None,
-            properties: None,
+            meta: None,
         };
         let json = serde_json::to_string(&t).unwrap();
         assert!(json.contains("\"name\""));
@@ -242,7 +250,7 @@ mod tests {
                     is_final: None,
                     status: None,
                     requires_relation: None,
-                    properties: None,
+                    meta: None,
                 },
                 LifecycleState {
                     id: Some("s2".to_string()),
@@ -256,7 +264,7 @@ mod tests {
                     is_final: Some(true),
                     status: None,
                     requires_relation: None,
-                    properties: None,
+                    meta: None,
                 },
             ],
             transitions: vec![LifecycleTransition {
@@ -265,7 +273,7 @@ mod tests {
                 from: "draft".to_string(),
                 to: "active".to_string(),
                 description: None,
-                properties: None,
+                meta: None,
             }],
             initial_state: "draft".to_string(),
             extends_lifecycle_id: None,
@@ -311,13 +319,37 @@ mod tests {
             "namespace": "com.test",
             "aliases": ["new"],
             "status": "active",
-            "properties": {"color": "blue"}
+            "meta": {"color": "blue"}
         }"#;
         let s: LifecycleState = serde_json::from_str(json).unwrap();
         assert_eq!(s.key, "draft");
         assert_eq!(s.id.as_deref(), Some("s-uuid"));
         assert_eq!(s.aliases, Some(vec!["new".to_string()]));
         assert_eq!(s.status, Some(VocabularyEntryStatus::Active));
-        assert!(s.properties.is_some());
+        assert!(s.meta.is_some());
+    }
+
+    /// srs-rust#894 (srs#433, srs PR #510): a rev-4 repo still carrying the
+    /// pre-rename `properties` key must load (monotonic support, RFC-033) —
+    /// tolerated via serde alias, not rejected. Writes always use `meta`;
+    /// the `substrate-properties-to-meta` migration (#5) persists the rename.
+    #[test]
+    fn lifecycle_state_and_transition_tolerate_legacy_properties_key_on_read() {
+        let state_json = r#"{"key":"draft","properties":{"color":"blue"}}"#;
+        let s: LifecycleState =
+            serde_json::from_str(state_json).expect("legacy `properties` key must tolerate");
+        assert!(s.meta.is_some());
+        let serialized = serde_json::to_string(&s).unwrap();
+        assert!(serialized.contains("\"meta\""), "writes must use `meta`");
+        assert!(!serialized.contains("\"properties\""));
+
+        let transition_json =
+            r#"{"name":"promote","from":"draft","to":"active","properties":{"color":"blue"}}"#;
+        let t: LifecycleTransition =
+            serde_json::from_str(transition_json).expect("legacy `properties` key must tolerate");
+        assert!(t.meta.is_some());
+        let serialized = serde_json::to_string(&t).unwrap();
+        assert!(serialized.contains("\"meta\""), "writes must use `meta`");
+        assert!(!serialized.contains("\"properties\""));
     }
 }

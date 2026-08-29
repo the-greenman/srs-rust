@@ -1,0 +1,166 @@
+{
+  "recordId": "0225099b-c0f6-40c2-910e-0c6374c1f359",
+  "revisions": [
+    {
+      "revisionId": "4154d5e9-85a1-41bc-b7d7-528257ed990b",
+      "recordId": "0225099b-c0f6-40c2-910e-0c6374c1f359",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Defaults arrive later, as one mechanism",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:17.934147468+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:17.934147468+00:00"
+    },
+    {
+      "revisionId": "fd138db2-e5e8-4fa0-a47b-cd3506577845",
+      "recordId": "0225099b-c0f6-40c2-910e-0c6374c1f359",
+      "fieldId": "5a000004-0000-4000-a000-000000000004",
+      "value": "2026-08-21",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:17.934147468+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:17.934147468+00:00"
+    },
+    {
+      "revisionId": "de70558f-1f16-46de-ad2a-954c5cd398b9",
+      "recordId": "0225099b-c0f6-40c2-910e-0c6374c1f359",
+      "fieldId": "5a000012-0000-4000-a000-000000000012",
+      "value": "The owner's rule was conditional: keep and define now only if a consistent rule is simple now. It is not. The layered chain spans three levels including Protocol, which has no defaults surface and whose schema is weeks old; the design requires application-timing semantics (writer-materialized versus reader-resolved — which decides whether a record's meaning depends on its definition context), the required-interaction (JSON Schema's precedent: a default does not satisfy required), inheritance interaction for assignment-level overrides, and an effective-default resolution mirroring effective-Type resolution. With zero live corpus uses to falsify against, designing this today is speculative elegance — the exact posture evidence-led Evolution forbids. Removal is cheap now; a half-specified fragment kept alive at one level is how two-ways-of-doing-the-job gets seeded.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:17.934147468+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:17.934147468+00:00"
+    },
+    {
+      "revisionId": "156caa60-bdf2-498d-9a41-4d839f9db622",
+      "recordId": "0225099b-c0f6-40c2-910e-0c6374c1f359",
+      "fieldId": "5a000019-0000-4000-a000-000000000019",
+      "value": "Defaults are an essential FUTURE capability, and both current defaultValue sites are removed now. `Field.defaultValue` (already ruled removed, #234 2026-08-08) and `FieldAssignment.defaultValue` are removed together in the #273 train — the latter EXPLICITLY SUPERSEDING #274's ledger row \"Generate defaultValue\". When defaults arrive they arrive once, as a single layered-override capability — a higher level overrides a lower: a Protocol may override a Type, which may override a Field — designed whole in its own RFC as a versioned metamodel capability. There must never be two ways of doing the job; no fragment of the old mechanism survives to seed a second way.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:17.934147468+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:17.934147468+00:00"
+    },
+    {
+      "revisionId": "ed2ab10c-aaa0-4736-9f7b-d06b69e371d3",
+      "recordId": "0225099b-c0f6-40c2-910e-0c6374c1f359",
+      "fieldId": "5a000020-0000-4000-a000-000000000020",
+      "value": "Definition-layer defaults: removal now, the shape of their future return, and the supersession of #274's FieldAssignment.defaultValue ledger row",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:17.934147468+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:17.934147468+00:00"
+    },
+    {
+      "revisionId": "c2fb6923-7389-4306-8649-7fb9816d20f7",
+      "recordId": "0225099b-c0f6-40c2-910e-0c6374c1f359",
+      "fieldId": "5a000021-0000-4000-a000-000000000021",
+      "value": [
+        "evolution",
+        "shared-coherence"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:17.934147468+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:17.934147468+00:00"
+    },
+    {
+      "revisionId": "c0f4e8c5-9b1c-479a-ace1-a19bf3ce7eb3",
+      "recordId": "0225099b-c0f6-40c2-910e-0c6374c1f359",
+      "fieldId": "5a000022-0000-4000-a000-000000000022",
+      "value": "formation",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:17.934147468+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:17.934147468+00:00"
+    },
+    {
+      "revisionId": "c73b7900-6545-425d-88cb-0fd6fb1fce10",
+      "recordId": "0225099b-c0f6-40c2-910e-0c6374c1f359",
+      "fieldId": "5a000023-0000-4000-a000-000000000023",
+      "value": "- Define the consistent rule now: rejected by the owner's own conditional — the rule is not simple (three-layer resolution including a defaults-less Protocol layer; timing, required, inheritance, and sovereignty semantics; no corpus evidence to design against).\n- Keep `FieldAssignment.defaultValue` per #274's ledger while removing the Field-level site: rejected — a half-specified single-site fragment contradicts the one-mechanism rule and pre-empts the future design's own choice of carrier.\n- Remove without recording intent: rejected — the intent (defaults essential, layered override, one mechanism) is the part that must not be lost; this record and the roadmap entry carry it.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:17.934147468+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:17.934147468+00:00"
+    },
+    {
+      "revisionId": "caafd2b6-537a-476c-84a7-1f43ba4bf34d",
+      "recordId": "0225099b-c0f6-40c2-910e-0c6374c1f359",
+      "fieldId": "5a000024-0000-4000-a000-000000000024",
+      "value": "The one live (decorative) authored value in `srs/package/fields/status.json` is deleted. #274's ratified ledger row is superseded and the ledger no longer matches — this record is the supersession trail. The future RFC inherits named obligations: effective-default resolution across Protocol → Type → Field, application timing, the default-does-not-satisfy-required precedent, inheritance interaction, and the writer-materialized-versus-reader-resolved sovereignty question. The roadmap carries the capability so removal cannot read as abandonment.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:17.934147468+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:17.934147468+00:00"
+    },
+    {
+      "revisionId": "d80d0479-277f-4048-8a2d-297c3ff5e2bf",
+      "recordId": "0225099b-c0f6-40c2-910e-0c6374c1f359",
+      "fieldId": "5a000025-0000-4000-a000-000000000025",
+      "value": [
+        "https://github.com/the-greenman/srs/issues/234#issuecomment-5225578699",
+        "https://github.com/the-greenman/srs/issues/274#issuecomment-5145639920",
+        "https://github.com/the-greenman/srs/issues/273#issuecomment-5367009305"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:17.934147468+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:17.934147468+00:00"
+    },
+    {
+      "revisionId": "98a51483-beaa-451b-a022-01621006267f",
+      "recordId": "0225099b-c0f6-40c2-910e-0c6374c1f359",
+      "fieldId": "5a000026-0000-4000-a000-000000000026",
+      "value": "The RFC starts when any real consumer needs pre-filled values — a Protocol stage, a Blueprint authoring form, or a Type wanting authoring sugar — not before.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:17.934147468+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:17.934147468+00:00"
+    }
+  ]
+}

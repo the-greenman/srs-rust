@@ -1,0 +1,165 @@
+{
+  "recordId": "5c1e3068-6e22-42ae-ab24-882158e8035d",
+  "revisions": [
+    {
+      "revisionId": "e38a1a09-b963-49e5-9d50-e4aef68491c1",
+      "recordId": "5c1e3068-6e22-42ae-ab24-882158e8035d",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Put a deterministic target-neutral IR between records and emitters",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.042097278+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.042097278+00:00"
+    },
+    {
+      "revisionId": "a700c5d1-7b16-43ca-a59e-527648e72efe",
+      "recordId": "5c1e3068-6e22-42ae-ab24-882158e8035d",
+      "fieldId": "5a000004-0000-4000-a000-000000000004",
+      "value": "2026-07-29",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.042097278+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.042097278+00:00"
+    },
+    {
+      "revisionId": "c537183b-d06f-4949-8642-bffd48f25e62",
+      "recordId": "5c1e3068-6e22-42ae-ab24-882158e8035d",
+      "fieldId": "5a000012-0000-4000-a000-000000000012",
+      "value": "Semantic interpretation must be shared before targets render it. A deterministic neutral intermediate representation prevents each backend from inventing incompatible meanings while preserving target-specific output mechanics.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.042097278+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.042097278+00:00"
+    },
+    {
+      "revisionId": "2499717e-7250-4344-8831-d73794aef52a",
+      "recordId": "5c1e3068-6e22-42ae-ab24-882158e8035d",
+      "fieldId": "5a000019-0000-4000-a000-000000000019",
+      "value": "Projection resolves semantic meaning into a target-neutral intermediate representation before any target back end renders it.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.042097278+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.042097278+00:00"
+    },
+    {
+      "revisionId": "bd02bf41-50e6-432d-9645-2416f778ce44",
+      "recordId": "5c1e3068-6e22-42ae-ab24-882158e8035d",
+      "fieldId": "5a000020-0000-4000-a000-000000000020",
+      "value": "Schema projection architecture",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.042097278+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.042097278+00:00"
+    },
+    {
+      "revisionId": "a7985a06-b4fa-4274-9527-da82801574a6",
+      "recordId": "5c1e3068-6e22-42ae-ab24-882158e8035d",
+      "fieldId": "5a000021-0000-4000-a000-000000000021",
+      "value": [
+        "semantic-integrity",
+        "shared-coherence"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.042097278+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.042097278+00:00"
+    },
+    {
+      "revisionId": "6f35abd3-c7fa-4cc3-af37-256c72a225a3",
+      "recordId": "5c1e3068-6e22-42ae-ab24-882158e8035d",
+      "fieldId": "5a000022-0000-4000-a000-000000000022",
+      "value": "formation",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.042097278+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.042097278+00:00"
+    },
+    {
+      "revisionId": "dff941e7-0417-426f-99f1-e208579fe38b",
+      "recordId": "5c1e3068-6e22-42ae-ab24-882158e8035d",
+      "fieldId": "5a000023-0000-4000-a000-000000000023",
+      "value": "- Let each target define an independent semantic interpretation.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.042097278+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.042097278+00:00"
+    },
+    {
+      "revisionId": "035ffbe6-e89c-45ef-8568-8132d1abbb18",
+      "recordId": "5c1e3068-6e22-42ae-ab24-882158e8035d",
+      "fieldId": "5a000024-0000-4000-a000-000000000024",
+      "value": "All emitters depend on a shared interpretation layer whose changes affect every target.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.042097278+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.042097278+00:00"
+    },
+    {
+      "revisionId": "4cc1d774-707c-427f-bc77-6ee9f653fda5",
+      "recordId": "5c1e3068-6e22-42ae-ab24-882158e8035d",
+      "fieldId": "5a000025-0000-4000-a000-000000000025",
+      "value": [
+        "https://github.com/the-greenman/srs/blob/9d4f5e9063c3c09af960f3c7318ffaae90e9c0de/rfcs/rfc-035-schema-emitter.md#change-a--the-neutral-ir-fieldtype-records--ir--target",
+        "https://github.com/the-greenman/srs/blob/9d4f5e9063c3c09af960f3c7318ffaae90e9c0de/scripts/lib/schema-emitter.mjs"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.042097278+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.042097278+00:00"
+    },
+    {
+      "revisionId": "b076441a-abd5-497e-850c-9ebcaed4602b",
+      "recordId": "5c1e3068-6e22-42ae-ab24-882158e8035d",
+      "fieldId": "5a000026-0000-4000-a000-000000000026",
+      "value": "Review when a target requires semantic interpretation unavailable in the neutral IR, or when a proposed backend bypasses it.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:22.042097278+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:22.042097278+00:00"
+    }
+  ]
+}

@@ -1312,7 +1312,7 @@ mod tests {
             require_same_semantic_object_type: None,
             status: None,
             updated_at: None,
-            properties: None,
+            meta: None,
         }
     }
 
@@ -1812,9 +1812,17 @@ mod tests {
     }
 
     #[test]
-    fn graduate_note_already_graduated_guard_fires_from_legacy_field_only() {
+    fn graduate_note_legacy_graduated_at_field_fails_catalog_load_not_the_guard() {
         // Legacy rev-3 data: a Note graduated before this fix carries only the
-        // `graduated_at` field (no derived-from edge). The guard must still fire.
+        // `graduated_at` field (no derived-from edge). This guard's `graduated_at`
+        // branch exists to recognize that shape — but `note.json`'s schema (srs
+        // PR #505, dataModelRevision 4) sets `additionalProperties: false` and no
+        // longer declares `graduatedAt` at all, and schema validation is enforced
+        // unconditionally at catalog load, not gated by the repository's stamped
+        // revision. So a store carrying this legacy shape now fails to load
+        // before `graduate_note` ever runs — the guard's legacy-field branch is
+        // unreachable via the normal validated path. Tracked, not fixed here
+        // (needs a real strip-and-preserve-provenance migration): srs-rust#896.
         let mut note = make_note("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", "Already Graduated");
         note.graduated_at = Some("2026-01-01T00:00:00Z".to_string());
         let store = store_with_note_and_type(&note, "records/notes/already-graduated.json");
@@ -1834,8 +1842,8 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            matches!(err, RepositoryError::InvalidInput { .. }),
-            "expected InvalidInput for already-graduated note, got {:?}",
+            matches!(err, RepositoryError::CatalogLoad { .. }),
+            "expected CatalogLoad (schema now rejects graduatedAt outright, srs-rust#896), got {:?}",
             err
         );
     }

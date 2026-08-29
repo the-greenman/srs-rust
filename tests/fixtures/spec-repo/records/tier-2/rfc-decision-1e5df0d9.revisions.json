@@ -1,0 +1,155 @@
+{
+  "recordId": "1e5df0d9-430f-4a5a-ae7a-b4cd21a7c72f",
+  "revisions": [
+    {
+      "revisionId": "92e7fb3e-8da1-45cb-8347-8daabd723337",
+      "recordId": "1e5df0d9-430f-4a5a-ae7a-b4cd21a7c72f",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Define the SRS decision-log inclusion boundary",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.948441508+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.948441508+00:00"
+    },
+    {
+      "revisionId": "e73d4166-1a8d-4b1b-ad4b-831d2c7aefb9",
+      "recordId": "1e5df0d9-430f-4a5a-ae7a-b4cd21a7c72f",
+      "fieldId": "5a000004-0000-4000-a000-000000000004",
+      "value": "2026-08-02",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.948441508+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.948441508+00:00"
+    },
+    {
+      "revisionId": "fa375e6c-3934-40b5-8daf-f0132c66786e",
+      "recordId": "1e5df0d9-430f-4a5a-ae7a-b4cd21a7c72f",
+      "fieldId": "5a000012-0000-4000-a000-000000000012",
+      "value": "The decision log must preserve the reasoning that future contributors need without becoming an archaeological archive or a task list. The muDemocracy guide correctly tests durability, policy effect, trade-offs, and future review value, but its strategy/tactical/operational distinction is too coarse for technical governance. A tactical choice can be mechanically determined; an operational-looking choice can establish a reusable exception or conformance boundary.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.948441508+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.948441508+00:00"
+    },
+    {
+      "revisionId": "ac4036fb-7dcb-4a1f-9ec3-387a5a6a9603",
+      "recordId": "1e5df0d9-430f-4a5a-ae7a-b4cd21a7c72f",
+      "fieldId": "5a000019-0000-4000-a000-000000000019",
+      "value": "Maintain the SRS RFC decision log as a curated record of active consequential judgment. Record a decision when legitimate alternatives remained and the choice establishes, changes, applies with discretion, excepts, or supersedes guidance that future work may need to understand. Do not record a mechanical derivation: when competent contributors accepting the same governing decisions and evidence have only one valid outcome, record the task, implementation consequence, test, or pull request instead.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.948441508+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.948441508+00:00"
+    },
+    {
+      "revisionId": "377241cb-705a-48f4-8283-e55724abc3fe",
+      "recordId": "1e5df0d9-430f-4a5a-ae7a-b4cd21a7c72f",
+      "fieldId": "5a000020-0000-4000-a000-000000000020",
+      "value": "SRS RFC decision log and consequential SRS technical decisions",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.948441508+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.948441508+00:00"
+    },
+    {
+      "revisionId": "696a2788-9388-41c6-9664-69221b77d4bf",
+      "recordId": "1e5df0d9-430f-4a5a-ae7a-b4cd21a7c72f",
+      "fieldId": "5a000021-0000-4000-a000-000000000021",
+      "value": [
+        "semantic-integrity",
+        "shared-coherence"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.948441508+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.948441508+00:00"
+    },
+    {
+      "revisionId": "9204460a-ddcd-4bfa-8b98-15fc8c348bec",
+      "recordId": "1e5df0d9-430f-4a5a-ae7a-b4cd21a7c72f",
+      "fieldId": "5a000023-0000-4000-a000-000000000023",
+      "value": "- Backfill every atomic research card, including mechanical derivations.\n- Treat tactical or operational work as sufficient reason to record a decision.\n- Record only RFC lifecycle outcomes, without reusable rationale or exceptions.\n- Leave the decision-log boundary implicit.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.948441508+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.948441508+00:00"
+    },
+    {
+      "revisionId": "24d3fe59-ea80-4e9d-a2b6-44110858ad7b",
+      "recordId": "1e5df0d9-430f-4a5a-ae7a-b4cd21a7c72f",
+      "fieldId": "5a000024-0000-4000-a000-000000000024",
+      "value": "The project accepts a small amount of classification and review work before recording a decision. The log will not be a complete chronology of tasks, PRs, or research cards; a contributor must follow evidence links when exhaustive history is needed.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.948441508+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.948441508+00:00"
+    },
+    {
+      "revisionId": "b9678ebd-09af-4693-ad75-1fe8772311f6",
+      "recordId": "1e5df0d9-430f-4a5a-ae7a-b4cd21a7c72f",
+      "fieldId": "5a000025-0000-4000-a000-000000000025",
+      "value": [
+        "https://github.com/the-greenman/srs/issues/256",
+        "https://github.com/the-greenman/srs/pull/341",
+        "docs/research/epic-256-decision-map/methodology.md",
+        "docs/research/epic-256-decision-map/values-statement.md",
+        "https://github.com/the-greenman/muDemocracy.org/blob/master/muSrs/records/tier-2/section-table-a638cca2.json",
+        "https://github.com/the-greenman/muDemocracy.org/blob/master/muSrs/records/tier-2/section-table-b5a4b93a.json"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.948441508+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.948441508+00:00"
+    },
+    {
+      "revisionId": "5ed55462-05bd-4726-88e5-5a318f0aece5",
+      "recordId": "1e5df0d9-430f-4a5a-ae7a-b4cd21a7c72f",
+      "fieldId": "5a000026-0000-4000-a000-000000000026",
+      "value": "Review this boundary when formal governance for SRS is adopted, or when the log shows either failure signal: it has become a task list, or recurring consequential choices lack a recorded rationale and cannot be classified consistently.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.948441508+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.948441508+00:00"
+    }
+  ]
+}

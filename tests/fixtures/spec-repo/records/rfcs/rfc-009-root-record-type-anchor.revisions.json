@@ -1,0 +1,89 @@
+{
+  "recordId": "875488ee-499e-460b-bb8e-979785877828",
+  "revisions": [
+    {
+      "revisionId": "517b0754-e6b9-4aae-930a-2fa5862f907e",
+      "recordId": "875488ee-499e-460b-bb8e-979785877828",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-009: Root-record Type as the typing anchor for Containers, Document Views, and distributable units",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:08.241446819+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:08.241446819+00:00"
+    },
+    {
+      "revisionId": "e6a29486-d63b-47bc-810b-7175b91ecbe9",
+      "recordId": "875488ee-499e-460b-bb8e-979785877828",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "009",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:08.241446819+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:08.241446819+00:00"
+    },
+    {
+      "revisionId": "2491fe16-a162-4b67-a3aa-d04b38e63cb0",
+      "recordId": "875488ee-499e-460b-bb8e-979785877828",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "Peter Brownell",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:08.241446819+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:08.241446819+00:00"
+    },
+    {
+      "revisionId": "4c9b4b44-fc49-4235-9480-8b6780f139ac",
+      "recordId": "875488ee-499e-460b-bb8e-979785877828",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "ext:views-l2 (DocumentView), Container (core), ext:blueprint (Blueprint), document-view.json, container.json, manifest.json, blueprint.json\n\n<!-- srs-integration:v1\next:views-l2\nschema:document-view.json\nschema:container.json\nschema:manifest.json\nschema:blueprint.json\nI-63\nI-64\nI-65\nI-66\nI-78\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:08.241446819+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:08.241446819+00:00"
+    },
+    {
+      "revisionId": "b5e57842-f31e-448f-b7e6-73be0ccb47c4",
+      "recordId": "875488ee-499e-460b-bb8e-979785877828",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-009-root-record-type-anchor.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:08.241446819+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:08.241446819+00:00"
+    },
+    {
+      "revisionId": "92a68b14-3e59-4928-9efe-e359fd55fb53",
+      "recordId": "875488ee-499e-460b-bb8e-979785877828",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Adds UUID-based typed anchors to the Blueprint→View→Container linkage: DocumentView.rootTypeRefs (ExactTypeRef[]) for Container matching; Blueprint.rootTypes formally defined as ExactTypeRef[]; containers_for_instance as a normative core operation; Container metadata spec alignment (description, vocabulary-backed tags). Invariants I-63 through I-66 and I-78. Tracked in srs#39 (original), srs#67 (blueprint extension).",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:08.241446819+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:08.241446819+00:00"
+    }
+  ]
+}

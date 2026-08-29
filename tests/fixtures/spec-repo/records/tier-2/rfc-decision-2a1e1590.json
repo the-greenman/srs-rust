@@ -6,7 +6,6 @@
   "typeName": "rfc-decision",
   "fieldValues": {
     "title": "State is mutable, semantics are not: the Fire carve-out, and Revisions and Changelog are removed",
-    "rfc_status": "accepted",
     "decision_date": "2026-08-21",
     "decision_rationale": "The column coherence check (srs#435, finding F1) surfaced the coupling: lifecycle state transitions are the one Fire mechanism that mutates in place, and the only specified preservation mechanism (Revisions) was simultaneously on the removal shortlist. Ruling the removal first would have silently decided the carve-out; the owner ruled both explicitly: the carve out makes sense - state is mutable, and if revisions and changelog are incompletely specified, remove them and add them back at a later stage. The incompleteness is documented: zero corpus files anywhere (attestation), the RevisionAgent PascalCase wire-format leak (audit C8), provenance.lifecycleTransition documented against a field name RFC-006 renamed (C19), and no implementation exercising the chain. Production evidence agrees with the carve-out: muSrs mutates lifecycle state tracelessly and nothing has been harmed.",
     "decision_statement": "Cell: Versioning (Fire, individual), carving the boundary of the column principle change preserves what it replaces. The Fire principle governs SEMANTIC content: a record's meaning changes by version increment or successor-and-link, never in place. STATE is the sanctioned exception: designated state fields - lifecycleState is the canonical case - mutate in place, because a state value is the record's current position in a process, not part of its meaning. The carve-out is exact: a field is state only if it is bound to a defined machine (a Lifecycle) whose transitions make some changes legal and others not; nothing else earns in-place mutation by calling itself state.\n\nWith the carve-out ruled, the transition-history machinery loses its structural necessity and its removal follows under axis 2-8's evidence clause: per-field Revision sidecars (revisions.json) and ChangelogCollection (changelog.json) are removed from the standard, with the ext:addressability coupling that depends on revision provenance ([LC-AX2]'s provenance.lifecycleTransition matching) simplified accordingly. Dormancy rule applies: return trigger is a real consumer needing transition history or field-level audit - the muDemocracy Decision Log's governance audit surface is the anticipated first claimant, and when it arrives the history mechanism is designed against its actual requirements.",
@@ -26,11 +25,12 @@
     ],
     "review_trigger": "The roadmap return trigger: a consumer needs transition history or field-level audit - anticipated first claimant is the muDemocracy Decision Log governance audit surface. Also review if a second field class beyond lifecycleState claims the state carve-out; the machine-bound test must hold or the boundary is wrong."
   },
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc",
     "cell:versioning"
   ],
   "createdAt": "2026-08-21T21:14:04.878036326+00:00",
-  "updatedAt": "2026-08-23T18:55:10.001445978+00:00",
+  "updatedAt": "2026-08-28T13:58:19.458180881+00:00",
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

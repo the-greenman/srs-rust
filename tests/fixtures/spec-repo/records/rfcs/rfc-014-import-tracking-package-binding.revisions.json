@@ -1,0 +1,89 @@
+{
+  "recordId": "3108c113-361c-4f67-a2ef-b8d92b220a1f",
+  "revisions": [
+    {
+      "revisionId": "bca873dc-0124-407a-a8d0-7d6abaa9e039",
+      "recordId": "3108c113-361c-4f67-a2ef-b8d92b220a1f",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-014: Import Tracking & Package Binding",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:08.572612666+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:08.572612666+00:00"
+    },
+    {
+      "revisionId": "1dc52ea3-e283-4717-95ac-7f804dc37f57",
+      "recordId": "3108c113-361c-4f67-a2ef-b8d92b220a1f",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "014",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:08.572612666+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:08.572612666+00:00"
+    },
+    {
+      "revisionId": "5104f40f-58d7-41a4-8a7e-1ef604da8e9a",
+      "recordId": "3108c113-361c-4f67-a2ef-b8d92b220a1f",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "Peter Brownell",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:08.572612666+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:08.572612666+00:00"
+    },
+    {
+      "revisionId": "053e70ae-a6d0-46ae-bfbe-5c78cf277955",
+      "recordId": "3108c113-361c-4f67-a2ef-b8d92b220a1f",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "`Package`, `PackageRef`, `UpstreamPackage` (Distribution Group); `ext:import-tracking`; `manifest.json` schema\n\n<!-- srs-integration:v1\next:import-tracking\nschema:manifest.json\nI-83\nI-84\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:08.572612666+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:08.572612666+00:00"
+    },
+    {
+      "revisionId": "9be44e5d-4c23-4672-87b6-afc90c2e9c0f",
+      "recordId": "3108c113-361c-4f67-a2ef-b8d92b220a1f",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-014-import-tracking-package-binding.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:08.572612666+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:08.572612666+00:00"
+    },
+    {
+      "revisionId": "cd7c9fd4-e044-4aa6-b438-253d14f872f2",
+      "recordId": "3108c113-361c-4f67-a2ef-b8d92b220a1f",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Formalises the minimum viable provenance and upgrade contract for SRS repositories created from upstream packages.\n\n**Problems addressed:** (1) `meta.upstreamPackage` is informal — stored in the non-normative `meta` object, tools may ignore it. (2) Upgrade semantics are unspecified — no spec guidance on whether old package versions must be retained when a new version is installed. (3) Divergence detection has no formal definition — `ImportRecord.conflictState: \"diverged\"` exists but its trigger and meaning at the repository level are undefined.\n\n**Changes:** (A) Promotes `upstreamPackage` from `manifest.meta` to a first-class top-level manifest property. (B) Removes the `external`-mode restriction from `PackageRef.packageVersion` and `PackageRef.packageId`, making both applicable to local-mode entries. (C) Specifies multi-version install semantics: prior `PackageRef` entries MUST be retained when a new version is installed (install-alongside, not replace). (D) Makes record-definition version pinning normative: tools MUST NOT rewrite `typeId`/`fieldId`/`fieldValues` as a result of a package upgrade. (E) Defines repository-level divergence detection: when `upstreamPackage` is set, a tool MAY compare locally installed definition files against a reference copy and populate `ImportRecord.conflictState: \"diverged\"` for differing definitions.\n\n**Scope exclusions:** registry distribution (`ext:registry`), federation (`ext:federation`), package authoring workflows, and upstream-ahead detection (requires registry access). These remain in RFC-003.\n\n**Conformance rules:** R1–R10. Key structural rules: R6 extends Invariant 50 to multi-version repos (union resolution); R10 requires `upstreamPackage.packageId` to match a `PackageRef` entry.\n\n**GitHub issue:** srs#109. Gates srs-rust#234 (Gate 0) and muDemocracy.org#37.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:08.572612666+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:08.572612666+00:00"
+    }
+  ]
+}

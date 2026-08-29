@@ -1,0 +1,89 @@
+{
+  "recordId": "5c5422b9-ce31-466b-9f1f-30c60df6a1bd",
+  "revisions": [
+    {
+      "revisionId": "433e3f65-255d-448c-8cd1-d72d3518e198",
+      "recordId": "5c5422b9-ce31-466b-9f1f-30c60df6a1bd",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-028: Lifecycle Update Command",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:16.239746338+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:16.239746338+00:00"
+    },
+    {
+      "revisionId": "070a5980-7831-42f8-ad19-0d04856e6c06",
+      "recordId": "5c5422b9-ce31-466b-9f1f-30c60df6a1bd",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "028",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:16.239746338+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:16.239746338+00:00"
+    },
+    {
+      "revisionId": "633362a0-f811-4b44-86f0-319d18053108",
+      "recordId": "5c5422b9-ce31-466b-9f1f-30c60df6a1bd",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "the-greenman (from issue the-greenman/srs#81)",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:16.239746338+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:16.239746338+00:00"
+    },
+    {
+      "revisionId": "97755b7d-2823-40e0-ab9b-9fa1b871d794",
+      "recordId": "5c5422b9-ce31-466b-9f1f-30c60df6a1bd",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "ext:lifecycle (CLI contract), srs-usage.md (agentic write-workflow reference)\n\n<!-- srs-integration:v1\ntooling-only\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:16.239746338+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:16.239746338+00:00"
+    },
+    {
+      "revisionId": "6ae67b3d-9300-42be-b38a-edbca60e6801",
+      "recordId": "5c5422b9-ce31-466b-9f1f-30c60df6a1bd",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-028-lifecycle-update-command.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:16.239746338+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:16.239746338+00:00"
+    },
+    {
+      "revisionId": "84f714d6-6b6f-429f-98f5-be6377bbb490",
+      "recordId": "5c5422b9-ce31-466b-9f1f-30c60df6a1bd",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "srs lifecycle supports list, get, and create but has no update subcommand. This forces direct JSON file editing to modify an existing lifecycle definition, violating the CLI-first rule in srs-usage.md. This RFC adds srs lifecycle update <lifecycleId> to the spec, modelling it on srs type update. No schema changes are required. Full-replace semantics: caller fetches, edits, and sends the complete lifecycle JSON back. Seven conformance rules covering schema validation, id-match, RFC-006 V9 integrity (isFinal, transition id uniqueness, initial-state active-status), and full-replace write semantics.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:16.239746338+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:16.239746338+00:00"
+    }
+  ]
+}

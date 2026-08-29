@@ -1,22 +1,22 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-21T17:31:55.375883403+00:00",
+  "instanceId": "85115518-e056-4c27-bbe7-f6ffa6c1f24f",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-023: SourceReference vocabulary disjointness — sourceRole replaces relationType",
     "rfc_number": "023",
-    "rfc_status": "accepted",
     "author": "Peter Brownell",
-    "affected_components": "`SourceReference.sourceRole` replaces `relationType` across record/note/typed-record/relations-collection schemas; invariant I-88.\n\n<!-- srs-integration:v1\nschema:record.json\nschema:note.json\nschema:typed-record.json\nschema:relations-collection.json\nI-88\n-->",
+    "affected_components": "`SourceReference.sourceRole` replaces `relationType` across record/note/typed-record/relations-collection schemas; invariant I-88.\n\n<!-- srs-integration:v1\nschema:record.json\nschema:note.json\nschema:relations-collection.json\nI-88\n-->",
     "proposal_artifact_path": "rfcs/rfc-023-sourceref-vocabulary-disjointness.md",
     "content": "Renames `SourceReference.relationType` to `sourceRole`, de-collides its enum against the Relation vocabulary, defines the graduation mapping between the two, and adds a permanent disjointness conformance rule. Full text: rfcs/rfc-023-sourceref-vocabulary-disjointness.md."
   },
-  "instanceId": "85115518-e056-4c27-bbe7-f6ffa6c1f24f",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-21T17:31:55.375888833+00:00"
+  "createdAt": "2026-07-21T17:31:55.375883403+00:00",
+  "updatedAt": "2026-08-28T13:58:13.396221754+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }
