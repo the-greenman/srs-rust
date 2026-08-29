@@ -1,0 +1,165 @@
+{
+  "recordId": "6fc7e142-f9bb-4cb6-a5f5-30c2e65cfd5a",
+  "revisions": [
+    {
+      "revisionId": "f4b0ac14-a8d4-4ba5-8db5-efe8adfa95d8",
+      "recordId": "6fc7e142-f9bb-4cb6-a5f5-30c2e65cfd5a",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "One escape bag, one name: meta",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:23.814426725+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:23.814426725+00:00"
+    },
+    {
+      "revisionId": "027ea891-9c28-442b-8d94-c02bb4209c69",
+      "recordId": "6fc7e142-f9bb-4cb6-a5f5-30c2e65cfd5a",
+      "fieldId": "5a000004-0000-4000-a000-000000000004",
+      "value": "2026-08-21",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:23.814426725+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:23.814426725+00:00"
+    },
+    {
+      "revisionId": "69bced9f-2a7b-4724-a6cf-9f2013d6539c",
+      "recordId": "6fc7e142-f9bb-4cb6-a5f5-30c2e65cfd5a",
+      "fieldId": "5a000012-0000-4000-a000-000000000012",
+      "value": "Owner ruling, verbatim: \"meta. Don't have two things!\" One concept must not carry two names — the same one-way-per-goal principle that collapsed E4/semanticObjectType and rejected parallel default mechanisms, applied to naming. The original option pricing (\"breaking is free exactly once\" inside the #242/#297 train) expired when that train landed; the owner accepts the standalone breaking cost under the Evolution phase rather than carrying a permanent two-name split whose distinction every future reader must relearn.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:23.814426725+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:23.814426725+00:00"
+    },
+    {
+      "revisionId": "87ccb0e0-2394-4455-991e-2591991adccf",
+      "recordId": "6fc7e142-f9bb-4cb6-a5f5-30c2e65cfd5a",
+      "fieldId": "5a000019-0000-4000-a000-000000000019",
+      "value": "The per-layer escape bag has one name everywhere: `meta`. The substrate layer's `properties` bag (VocabularyEntry, Term, RelationTypeDefinition) renames to `meta`, matching the instance layer's existing convention. The per-layer POLICIES remain distinct as ruled (#237's three-layer table: definitions have no bag; substrate reject-unknown with a `meta` escape; instances tolerate with `meta`) — the name is unified, the semantics stay layered. Executed as its own small breaking unit, not a #273 rider: substrate schemas + engine structs + substrate data migration + mirror choreography together.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:23.814426725+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:23.814426725+00:00"
+    },
+    {
+      "revisionId": "efca39cc-87e8-4b65-b85a-3ed8420e3ed3",
+      "recordId": "6fc7e142-f9bb-4cb6-a5f5-30c2e65cfd5a",
+      "fieldId": "5a000020-0000-4000-a000-000000000020",
+      "value": "Escape-bag naming across the substrate and instance layers",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:23.814426725+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:23.814426725+00:00"
+    },
+    {
+      "revisionId": "82b89ab0-772f-42f1-9076-385e9358432f",
+      "recordId": "6fc7e142-f9bb-4cb6-a5f5-30c2e65cfd5a",
+      "fieldId": "5a000021-0000-4000-a000-000000000021",
+      "value": [
+        "shared-coherence",
+        "evolution"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:23.814426725+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:23.814426725+00:00"
+    },
+    {
+      "revisionId": "b3cc10ab-1263-4683-979a-48497d6c9b17",
+      "recordId": "6fc7e142-f9bb-4cb6-a5f5-30c2e65cfd5a",
+      "fieldId": "5a000022-0000-4000-a000-000000000022",
+      "value": "formation",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:23.814426725+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:23.814426725+00:00"
+    },
+    {
+      "revisionId": "f41c3f97-d3d4-4d50-8386-da033a483f49",
+      "recordId": "6fc7e142-f9bb-4cb6-a5f5-30c2e65cfd5a",
+      "fieldId": "5a000023-0000-4000-a000-000000000023",
+      "value": "- Keep both names with a stated normative distinction (substrate `properties` = definitional extension surface; instance `meta` = tolerated annotation): rejected by the ruling — the layered policies already carry the distinction; a second NAME adds nothing the policy table does not, and costs a permanent explanation.\n- Fold the rename into the #273 train: rejected — #273 is definition-layer; the substrate rename is its own bounded breaking change with its own migration.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:23.814426725+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:23.814426725+00:00"
+    },
+    {
+      "revisionId": "57248702-9f77-4a6e-9894-37acd291636d",
+      "recordId": "6fc7e142-f9bb-4cb6-a5f5-30c2e65cfd5a",
+      "fieldId": "5a000024-0000-4000-a000-000000000024",
+      "value": "A standalone breaking substrate change post-train: `vocabulary.json`-family schemas, the Rust engine's substrate structs, any substrate data carrying `properties` keys (a deterministic key-rename migration), and the full schema-mirror one-landing choreography. Emitted-schema and validator surfaces that special-case the bag name touch once. The decision record \"Carry meaning you do not recognise\" (2e0cd70a) reads naturally after this: `meta` is THE sanctioned carrier at every layer that has one.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:23.814426725+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:23.814426725+00:00"
+    },
+    {
+      "revisionId": "094d0ecf-e02e-4aa3-bf83-f0e13a628ad8",
+      "recordId": "6fc7e142-f9bb-4cb6-a5f5-30c2e65cfd5a",
+      "fieldId": "5a000025-0000-4000-a000-000000000025",
+      "value": [
+        "https://github.com/the-greenman/srs/issues/237#issuecomment-5225580634",
+        "https://github.com/the-greenman/srs/issues/273#issuecomment-5367009305"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:23.814426725+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:23.814426725+00:00"
+    },
+    {
+      "revisionId": "cac122d2-bf08-48f5-b424-a3227fd25a53",
+      "recordId": "6fc7e142-f9bb-4cb6-a5f5-30c2e65cfd5a",
+      "fieldId": "5a000026-0000-4000-a000-000000000026",
+      "value": "Review only if the substrate data migration surfaces a live consumer reading the `properties` key by name outside the first-party corpus.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:23.814426725+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:23.814426725+00:00"
+    }
+  ]
+}

@@ -1,22 +1,22 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-21T17:31:55.322569155+00:00",
+  "instanceId": "4335c283-9953-4fa7-95d7-ff5e7a4980a8",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-007: Composite Group Rendering",
     "rfc_number": "007",
-    "rfc_status": "accepted",
     "author": "Peter Brownell",
     "affected_components": "`FieldGroup.compositeRenderer` dispatch; `groupFieldRowTemplates`; `compositeRendererConfig` on `ElementTemplates`.\n\n<!-- srs-integration:v1\next:themes-l1\nschema:type.json\nschema:theme.json\n-->",
     "proposal_artifact_path": "rfcs/rfc-007-composite-group-rendering.md",
     "content": "Adds a composite-renderer dispatch (`FieldGroup.compositeRenderer`, first value `table`) so structured groups render as composed output rather than raw rows, retroactively specifies `groupFieldRowTemplates`, and adds a generalised `compositeRendererConfig` surface on `ElementTemplates`. Full text: rfcs/rfc-007-composite-group-rendering.md."
   },
-  "instanceId": "4335c283-9953-4fa7-95d7-ff5e7a4980a8",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-21T17:31:55.322572189+00:00"
+  "createdAt": "2026-07-21T17:31:55.322569155+00:00",
+  "updatedAt": "2026-08-28T13:58:11.715025457+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

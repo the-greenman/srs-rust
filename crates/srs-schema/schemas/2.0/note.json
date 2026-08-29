@@ -23,11 +23,6 @@
       "items": { "$ref": "#/$defs/NoteSection" },
       "description": "Ordered list of named text sections."
     },
-    "graduatedAt": {
-      "type": "string",
-      "format": "date-time",
-      "description": "When set, signals full formalisation. Authoritative record of successors is in derived-from Relations from the successor Records."
-    },
     "sourceRefs": {
       "type": "array",
       "items": { "$ref": "#/$defs/SourceReference" },

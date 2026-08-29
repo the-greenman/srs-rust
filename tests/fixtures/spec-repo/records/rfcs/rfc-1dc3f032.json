@@ -1,22 +1,22 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-21T17:31:55.346814294+00:00",
+  "instanceId": "1dc3f032-a93b-45fa-831e-5486bcb57460",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-015: View-Owned Ordering & Declared Root Presentations",
     "rfc_number": "015",
-    "rfc_status": "accepted",
     "author": "the-greenman",
     "affected_components": "`ordering.memberOrder` on `container-subset` sections + `renderedPresentations` on the manifest. Invariants I-125–I-128 (RFC-015 Rules [N+28]-[N+31]).\n\n<!-- srs-integration:v1\nschema:document-view.json\nschema:manifest.json\nI-125\nI-126\nI-127\nI-128\n-->",
     "proposal_artifact_path": "rfcs/rfc-015-view-owned-ordering-declared-presentations.md",
     "content": "Separates semantic order (`precedes`) from presentational order via a view-owned `ordering.memberOrder` list on `container-subset` DocumentView sections and a normative `renderedPresentations` array on the manifest declaring the default presentation. Full text: rfcs/rfc-015-view-owned-ordering-declared-presentations.md."
   },
-  "instanceId": "1dc3f032-a93b-45fa-831e-5486bcb57460",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-23T20:48:57.014945806+00:00"
+  "createdAt": "2026-07-21T17:31:55.346814294+00:00",
+  "updatedAt": "2026-08-28T13:58:11.042194957+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

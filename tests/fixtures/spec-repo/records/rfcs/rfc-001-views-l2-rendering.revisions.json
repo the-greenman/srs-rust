@@ -1,0 +1,75 @@
+{
+  "recordId": "22aeac29-b51f-510e-bc99-aeb0020d2656",
+  "revisions": [
+    {
+      "revisionId": "d04da65c-092d-4e3a-bd53-7704a03ddda1",
+      "recordId": "22aeac29-b51f-510e-bc99-aeb0020d2656",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-001: Views L2 — Rendering Hierarchy and Default Rendering Baseline",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:06.936112135+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:06.936112135+00:00"
+    },
+    {
+      "revisionId": "90d813fe-524f-41b1-871c-00c1e4bdf6a5",
+      "recordId": "22aeac29-b51f-510e-bc99-aeb0020d2656",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "001",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:06.936112135+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:06.936112135+00:00"
+    },
+    {
+      "revisionId": "6addd6ff-4dc3-44fc-96ac-12af840719ae",
+      "recordId": "22aeac29-b51f-510e-bc99-aeb0020d2656",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "<!-- srs-integration:v1\next:views-l2\next:views-l1\nschema:document-view.json\nschema:view.json\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:06.936112135+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:06.936112135+00:00"
+    },
+    {
+      "revisionId": "613fe147-a3c8-44d2-b47a-35c656c48cde",
+      "recordId": "22aeac29-b51f-510e-bc99-aeb0020d2656",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-001.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:06.936112135+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:06.936112135+00:00"
+    },
+    {
+      "revisionId": "915f5d9f-19e5-4187-b5f4-3def1f9eeaab",
+      "recordId": "22aeac29-b51f-510e-bc99-aeb0020d2656",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Defines the default (View-agnostic) rendering baseline, a normative heading hierarchy (`depthOffset`/`titleFieldId`), a portable `format` vocabulary with an L1/L2 precedence rule, and reserves `themeRef`/`themeVariants` plus the `ThemeReference`/`ThemeVariant` types on `DocumentView` for RFC-002. Full text: rfcs/rfc-001.md.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:06.936112135+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:06.936112135+00:00"
+    }
+  ]
+}

@@ -1,0 +1,167 @@
+{
+  "recordId": "4f1e12e5-47fc-4675-b1c2-48cc9e560e66",
+  "revisions": [
+    {
+      "revisionId": "58627b8a-7388-4177-96cc-2fb26d2042d3",
+      "recordId": "4f1e12e5-47fc-4675-b1c2-48cc9e560e66",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "The attested removals: pruning the dormant machinery",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:21.353027178+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:21.353027178+00:00"
+    },
+    {
+      "revisionId": "9678f739-d174-47f1-97b8-6f547ad755f4",
+      "recordId": "4f1e12e5-47fc-4675-b1c2-48cc9e560e66",
+      "fieldId": "5a000004-0000-4000-a000-000000000004",
+      "value": "2026-08-22",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:21.353027178+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:21.353027178+00:00"
+    },
+    {
+      "revisionId": "d15c1e17-6489-486b-8938-489e339988d9",
+      "recordId": "4f1e12e5-47fc-4675-b1c2-48cc9e560e66",
+      "fieldId": "5a000012-0000-4000-a000-000000000012",
+      "value": "Ruling 3 of the track's governing rulings: unused systems are removed after muSrs attestation, with roadmap return triggers - a spec that does what it says beats one that half-does things. The attestation (production muSrs as decisive witness, the spec repository, two derivative trees) supplied the evidence per candidate; the preference layer supplied the tests (dormancy, cell preferences, the Succession limit case that KEEPS machinery a preference requires). The 34-prose-records federation finding also confirms the audit's meta-observation: spec weight was anti-correlated with usage - pruning restores the correlation.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:21.353027178+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:21.353027178+00:00"
+    },
+    {
+      "revisionId": "64e5f5d7-0fde-4e64-8f38-ac68c4463aff",
+      "recordId": "4f1e12e5-47fc-4675-b1c2-48cc9e560e66",
+      "fieldId": "5a000019-0000-4000-a000-000000000019",
+      "value": "Under the dormancy rule (rfc-decision-cce3c00e) and axis 2-8's evidence clause, the constructs the 2026-08-21 usage attestation found exercised nowhere are removed from the standard. Each entry keeps its cell's name and carries its return trigger to the roadmap; a return re-enters through the charter as an evidence-shaped design.\n\nREMOVED:\n1. Relation provenance fields (assertedBy, confidence, status, createdBy, validFrom, validUntil) - 0 of 250 relations anywhere. Cell: Attribution; the cell's principle is ruled separately and survives the machinery. Trigger: the attribution mechanism's return claimant.\n2. Federation entities (registry, events, cross-repository relation fields) - zero data; 34 prose records and 7 invariants specify it. Cell: Portability. Return: COMMITTED, not evidence-gated - federation is core to SRS (owner, 2026-08-22); this removal is a deliberate reset of a design that predates real practice, not a judgment on the capability. The redesign returns as a planned roadmap phase, grounded in the sharing forms that actually emerged (bundles, slices, git-hosted repositories) and the axis 4-10 verification path; the owner schedules it. The travel mandate covers artifact-form portability meanwhile.\n3. Revisions sidecars + ChangelogCollection - ruled in rfc-decision-2a1e1590 (cross-referenced, not re-ruled here).\n4. SectionSource variants fixed-instances and relation-query - 0 of 13 real sections. Cell: Conformance (one way over many; container-subset and type-query are the two live ways). Trigger: a composition need neither live variant expresses.\n5. View.protection (the view-root enum, none/read-only/fill-in - corrected attribution: it sits on the View, not on FieldView) - zero use, and a hint without a contract: no enforcement semantics are defined anywhere. Cell: Description. Trigger: a real authoring surface needing edit protection, which must design the missing enforcement half. Note: FieldView.required is NOT in this entry - it is attested in production use (muSrs decision-log view) and is dispositioned separately as a form-vs-validity distinction ruling.\n6. ext:repeatable-fields - nothing beyond repeatable:false outside a stale ancestor tree. Cell: Identity. Trigger: a consumer with genuine array-valued assignments (note: RFC-032 cardinality already carries list semantics - the return may be a merge, not a revival).\n7. vocabularyRef's string form - absorbed by the reference taxonomy (becomes LINEAGE); listed for completeness.\n\nDISPOSED WITHOUT REMOVAL:\n8. sourceRole vs the deprecated relationType alias at 100% usage: MIGRATE the 231 sourceRefs to sourceRole in the #273 train; if the train slips past the next release window, un-deprecate relationType instead - one name either way (rename-is-a-migration applies).\n9. The 13 custom RelationTypeDefinitions with zero assertions: user-space corpus cleanup, not spec surface - noted to corpus owners.\n\nEXPLICITLY KEPT, with reasons of record:\n- supersedes / refines / derived-from / evidences relation types: Succession's preference (successor over overwrite) REQUIRES its mechanism - a cell preference's machinery is not removable while the preference stands. The evidences/evidence spelling reconciliation rides the #273 train.\n- ext:lifecycle and type-inheritance: attested in production use in muSrs.\n- Protocols: the definition model is kept (well-designed, near-term consumers in the Workflow Editor and the protocol-runs-first Decision Log direction); the genuinely thin RUN semantics are the dormant half, designed at consumer time. \n- Instance meta and substrate properties (renaming to meta): policy affordances, not usage-gated features.\n- ext:discovery: conformance contract, not corpus machinery.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:21.353027178+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:21.353027178+00:00"
+    },
+    {
+      "revisionId": "0611289b-6041-42b7-a7c3-0180d68ef327",
+      "recordId": "4f1e12e5-47fc-4675-b1c2-48cc9e560e66",
+      "fieldId": "5a000020-0000-4000-a000-000000000020",
+      "value": "Authorizes the removal execution units (relation provenance, federation, small surfaces) and the sourceRole in-train migration. Each removal PR cites this record; each roadmap entry carries cell + trigger and lands when the roadmap (PR #389) merges. Implementation follow-ups in srs-rust are filed as each spec unit lands.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:21.353027178+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:21.353027178+00:00"
+    },
+    {
+      "revisionId": "e8873f4b-3c0d-4464-99d4-7182d2e2c3d2",
+      "recordId": "4f1e12e5-47fc-4675-b1c2-48cc9e560e66",
+      "fieldId": "5a000021-0000-4000-a000-000000000021",
+      "value": [
+        "evolution",
+        "semantic-integrity",
+        "shared-coherence"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:21.353027178+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:21.353027178+00:00"
+    },
+    {
+      "revisionId": "de4bebe5-9a20-4456-8345-6a2f6c7886d8",
+      "recordId": "4f1e12e5-47fc-4675-b1c2-48cc9e560e66",
+      "fieldId": "5a000022-0000-4000-a000-000000000022",
+      "value": "formation",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:21.353027178+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:21.353027178+00:00"
+    },
+    {
+      "revisionId": "c4cb93ca-bd71-4609-80b6-e9588f86505c",
+      "recordId": "4f1e12e5-47fc-4675-b1c2-48cc9e560e66",
+      "fieldId": "5a000023-0000-4000-a000-000000000023",
+      "value": "Keeping the machinery marked experimental (rejected: a third conformance class for zero-user constructs); removing the supersedes family for symmetry with its zero usage (rejected: the dormancy rule's limit case - preference-required machinery stays); deleting protocols wholesale (rejected on the owner's cost condition: fixing the well-designed definition model is clearly cheaper than re-planning it).",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:21.353027178+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:21.353027178+00:00"
+    },
+    {
+      "revisionId": "87688195-1066-4d57-9386-7b5d784539cd",
+      "recordId": "4f1e12e5-47fc-4675-b1c2-48cc9e560e66",
+      "fieldId": "5a000024-0000-4000-a000-000000000024",
+      "value": "The spec loses stated ambitions (federation, field-level provenance) until practice earns them back; the prose removals are large diffs through normative records; returns will not match the removed designs - deliberately, since the removed designs were speculation.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:21.353027178+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:21.353027178+00:00"
+    },
+    {
+      "revisionId": "7c133afa-def6-452c-b4d7-04ebe3fad0b6",
+      "recordId": "4f1e12e5-47fc-4675-b1c2-48cc9e560e66",
+      "fieldId": "5a000025-0000-4000-a000-000000000025",
+      "value": [
+        "2026-08-21 usage attestation (per-candidate zero-use evidence; muSrs decisive witness)",
+        "srs#435 removal shortlist, decisions-vs-layer review, and the protocols cost assessment",
+        "rfc-decision-cce3c00e (dormancy rule, cell preferences), rfc-decision-2a1e1590 (revisions/changelog), the attribution and travel decisions of the same batch"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:21.353027178+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:21.353027178+00:00"
+    },
+    {
+      "revisionId": "4d6f95e5-6a63-4c8f-a7d1-16fc3efbd375",
+      "recordId": "4f1e12e5-47fc-4675-b1c2-48cc9e560e66",
+      "fieldId": "5a000026-0000-4000-a000-000000000026",
+      "value": "Each entry's own return trigger, recorded on the roadmap. Collectively: if two returns arrive within one phase, re-examine whether the attestation's corpus base was too narrow.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:21.353027178+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:21.353027178+00:00"
+    }
+  ]
+}

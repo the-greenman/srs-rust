@@ -6,7 +6,6 @@
   "typeName": "rfc-decision",
   "fieldValues": {
     "title": "What a container can hold, a bundle can carry",
-    "rfc_status": "accepted",
     "decision_date": "2026-08-22",
     "decision_rationale": "The mission is semantic sovereignty THROUGH portable data, and the practice-sharing articulation (rfc-decision-2e0cd70a) ranks the sharing of fields, types, blueprints and protocols above the content itself. The attestation showed the Water column dormant while srs#390 sat as a known gap: both governance-shaped packages would be unexportable the day they used what containers can hold. Portability over Possession makes the travelling form the test, not an afterthought.",
     "decision_statement": "Axis 6-12 (Portability over Possession) applied as the travel mandate: every construct the standard lets a repository hold MUST be expressible in the standard's travelling forms - the package bundle for definitions, the archive/slice forms for content. A capability that exists only in place is captivity, the purpose statement's named failure mode. Concretely and immediately: the package-bundle format's inability to carry Themes, Blueprints, and Protocols (srs#390) is promoted from bug to mandate violation - the bundle grows to carry every one of the package-manifest's ten definition kinds, and the two lists are derived from one source so they cannot diverge again (finding A6's enum derivation). Standing rule for every future construct: the travelling form ships in the same RFC that introduces the held form, or the RFC states the explicit axis 3-9 local-boundary exception that keeps it in place.",
@@ -27,11 +26,12 @@
     ],
     "review_trigger": "A construct whose travelling form is genuinely impossible rather than unbuilt - that would mean the construct itself violates the axis and needs redesign, not exemption."
   },
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc",
     "cell:portability"
   ],
   "createdAt": "2026-08-22T11:32:26.178678211+00:00",
-  "updatedAt": "2026-08-23T18:55:12.221557115+00:00",
+  "updatedAt": "2026-08-28T13:58:26.047328461+00:00",
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

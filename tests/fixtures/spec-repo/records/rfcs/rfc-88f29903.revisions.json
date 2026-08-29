@@ -1,0 +1,89 @@
+{
+  "recordId": "88f29903-f2f8-4314-bae1-5abfd96d2808",
+  "revisions": [
+    {
+      "revisionId": "089059f3-5adf-4e6d-879c-d44f0975d04e",
+      "recordId": "88f29903-f2f8-4314-bae1-5abfd96d2808",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-017: Decision-log Attachments, Base-package Settings, Archive Determinism, and srsj-gzip Retirement",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:13.563181717+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:13.563181717+00:00"
+    },
+    {
+      "revisionId": "34d0c854-dca2-4b2b-980f-7e1104caa5f3",
+      "recordId": "88f29903-f2f8-4314-bae1-5abfd96d2808",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "017",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:13.563181717+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:13.563181717+00:00"
+    },
+    {
+      "revisionId": "cf9d0a53-8ed9-43c7-9fac-340c7c552f6a",
+      "recordId": "88f29903-f2f8-4314-bae1-5abfd96d2808",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "the-greenman",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:13.563181717+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:13.563181717+00:00"
+    },
+    {
+      "revisionId": "fccf7061-483b-4b06-b88c-a7e118944b72",
+      "recordId": "88f29903-f2f8-4314-bae1-5abfd96d2808",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "`attaches` sourceRole value + contentPath across SourceReference schemas landed. Invariants I-101–I-112 relocated to records/invariants/ and the `com.semanticops.base` `repo_settings` type (attachment_policy settings) authored in package/base (#207).\n\n<!-- srs-integration:v1\nschema:record.json\nschema:note.json\nschema:relations-collection.json\nschema:source-document-meta.json\nschema:manifest.json\ntype:com.semanticops.base/repo_settings\nI-101\nI-102\nI-103\nI-104\nI-105\nI-106\nI-107\nI-108\nI-109\nI-110\nI-111\nI-112\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:13.563181717+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:13.563181717+00:00"
+    },
+    {
+      "revisionId": "567e6003-b9eb-4edc-a8af-e2777fe1367a",
+      "recordId": "88f29903-f2f8-4314-bae1-5abfd96d2808",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-017-attachments-base-package-archive-determinism.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:13.563181717+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:13.563181717+00:00"
+    },
+    {
+      "revisionId": "4cae35b9-1278-410b-8013-37ee91c05c75",
+      "recordId": "88f29903-f2f8-4314-bae1-5abfd96d2808",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Defines the attachment model for decision-log repositories — an `attaches` value on the `SourceReference.sourceRole` enum, an optional `com.semanticops.base` package with `repo_settings` (attachment_policy) settings, deterministic-ZIP archive requirements, srsj-gzip retirement, and a tombstone reference-only state. Schema changes, invariants I-101–I-112, and the `com.semanticops.base/repo_settings` type are all folded into the canonical spec. Full text: rfcs/rfc-017-attachments-base-package-archive-determinism.md.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:13.563181717+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:13.563181717+00:00"
+    }
+  ]
+}

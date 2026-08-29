@@ -1,9 +1,11 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-08-02T13:59:15.743643894+00:00",
+  "instanceId": "6523cf5e-959b-40e1-91d0-ca2f4c0834be",
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeVersion": 2,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc-decision",
   "fieldValues": {
     "title": "Keep presentation hints outside the semantic type model",
-    "rfc_status": "accepted",
     "decision_date": "2026-07-29",
     "decision_rationale": "Input and display choices describe how a consumer presents meaning, not what the Field means. Keeping them outside fieldType preserves concurrent legitimate views while requiring rendering to own its own portable contract.",
     "decision_statement": "Editor and composite-renderer hints remain presentation-layer concerns and are not encoded as fieldType facets.",
@@ -21,13 +23,11 @@
     ],
     "review_trigger": "Review when a proposed view capability appears to change interoperability or validation rather than presentation alone."
   },
-  "instanceId": "6523cf5e-959b-40e1-91d0-ca2f4c0834be",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000004-0000-4000-a000-000000000004",
-  "typeName": "rfc-decision",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 2,
-  "updatedAt": "2026-08-02T13:59:15.743647779+00:00"
+  "createdAt": "2026-08-02T13:59:15.743643894+00:00",
+  "updatedAt": "2026-08-28T13:58:23.293109731+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

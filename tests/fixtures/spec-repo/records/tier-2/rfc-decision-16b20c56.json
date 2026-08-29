@@ -6,7 +6,6 @@
   "typeName": "rfc-decision",
   "fieldValues": {
     "title": "Attribution is optional, single-shaped, and never authority",
-    "rfc_status": "accepted",
     "decision_date": "2026-08-22",
     "decision_rationale": "The census found Attribution the one cell with no governing principle at all, and the polarity with Repository empty - while the column coherence check showed systemic trust (Portability, the mission cell) inherits upward from it. The attestation found the machinery at absolute zero use (0 of 250 relations) in five divergent shapes. Ruling the principle before removing the machinery is the F1 lesson applied: never let a removal silently decide a principle. Office over Testimony is also the anti-mimicry defense in axis form - the tool-enforced record over the plausible-looking assertion.",
     "decision_statement": "Axis 4-10 (Office over Testimony - Athena over Aphrodite) and the Attribution cell (stated over assumed), ruled as the cell's foundation principle:\n\nOPTIONAL - attribution is never required for validity. An unattributed statement is unattributed, not invalid and not implicitly attributed to anyone.\n\nSINGLE-SHAPED - when attribution is expressed, there is ONE shape for who/when/why across the standard: one asserter vocabulary (one casing, one set of kinds - replacing the five spellings the audit found), one timestamp convention, one reference-to-source convention (sourceRefs). The concrete shape is designed when the machinery returns (see below); this ruling fixes its constraints in advance.\n\nNEVER AUTHORITY - attribution informs trust and diagnosis; it never overrides the record. The catalog, the manifest, the validated content are office; who-said-so is testimony, which fills gaps and can be PROMOTED into office only by a verification mechanism (a signature, a ratified decision, a verified publisher) - promotion is the sanctioned path by which testimony hardens, and it produces office artifacts, not privileged testimony.\n\nWith the principle ruled, the current machinery's removal (the five divergent shapes: Relation provenance fields, FieldMeta.source's divergence, RevisionAgent's casing) is safe: the cell keeps its principle and its dormancy trigger - attribution machinery returns, in the single shape, when a consumer needs it, with travelling packages needing trustable publishers as the anticipated claimant.",
@@ -25,11 +24,12 @@
     ],
     "review_trigger": "The return claimant arrives: travelling packages need trustable publishers, or agent-written content needs marking. The mechanism then designed must satisfy all three clauses."
   },
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc",
     "cell:attribution"
   ],
   "createdAt": "2026-08-22T11:32:54.535456298+00:00",
-  "updatedAt": "2026-08-23T18:55:12.540593724+00:00",
+  "updatedAt": "2026-08-28T13:58:18.436082297+00:00",
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

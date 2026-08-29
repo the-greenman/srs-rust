@@ -1,14 +1,22 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-05-27T00:00:00Z",
+  "instanceId": "f7f41817-fe5e-53e9-9bb4-eb313ae6c539",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-003: Definition Distribution and Repository Slices",
     "rfc_number": "003",
-    "rfc_status": "draft",
     "proposal_artifact_path": "rfcs/rfc-003.md",
     "content": "Draft: distribution model and container slices for SRS repositories. Import-tracking / package-binding sub-scope was carved out into RFC-014. Full text: rfcs/rfc-003.md."
   },
-  "instanceId": "f7f41817-fe5e-53e9-9bb4-eb313ae6c539",
+  "lifecycleState": "draft",
+  "tags": [
+    "topic:rfc"
+  ],
+  "createdAt": "2026-05-27T00:00:00Z",
+  "updatedAt": "2026-08-28T13:58:07.708329595+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "sourceRefs": [
     {
       "note": "RFC-003 from srs-spec.md - coarse source anchoring during migration",
@@ -16,12 +24,5 @@
       "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
       "sourceType": "repository-document"
     }
-  ],
-  "tags": [
-    "topic:rfc"
-  ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1
+  ]
 }

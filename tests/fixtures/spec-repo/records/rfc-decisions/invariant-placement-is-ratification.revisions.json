@@ -1,0 +1,175 @@
+{
+  "recordId": "d52ef7c8-0c0a-434f-bd8f-15c92f807cd5",
+  "revisions": [
+    {
+      "revisionId": "ae0964e6-0bce-4f9b-bf44-6b4a698113e1",
+      "recordId": "d52ef7c8-0c0a-434f-bd8f-15c92f807cd5",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Invariant normativity is RFC acceptance plus projection-root placement",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:30.048313745+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:30.048313745+00:00"
+    },
+    {
+      "revisionId": "e73132c6-931f-44ea-81e6-86587de01cfb",
+      "recordId": "d52ef7c8-0c0a-434f-bd8f-15c92f807cd5",
+      "fieldId": "5a000004-0000-4000-a000-000000000004",
+      "value": "2026-08-22",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:30.048313745+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:30.048313745+00:00"
+    },
+    {
+      "revisionId": "46e41587-bb2e-4676-8e9b-92d9f2b6fa55",
+      "recordId": "d52ef7c8-0c0a-434f-bd8f-15c92f807cd5",
+      "fieldId": "5a000012-0000-4000-a000-000000000012",
+      "value": "srs#410 (D4 of the #285 disposition batch) originally directed narrowing RFC-016 [R1] on the premise that the three RFC-011 invariant records under package/records/ were unratified. That premise was factually wrong: RFC-011 is Accepted (Revision 1) and the three records (invariant_number 011-1/2/3) are ordinary com.semanticops.spec/invariant records with no proposed/lifecycle marker. With the premise gone, Semantic Integrity points the other way: an accepted normative statement that reaches no reader is the census's own defect class, and RFC-016's founding purpose was precisely that invariants added via the RFC pipeline reach the rendered spec. Rule-text-matches-reality also cuts for the literal [R1] here: the rule was correct, the placement (and therefore the projection) is what failed it. Narrowing [R1] would have fixed the spec to match a buggy outcome. A residual gap remained even after relocation: the three records carried rule-set-qualified invariant_number values (011-1/2/3) that render-invariants.mjs's parseSortKey does not derive a sort key for, and no RFC-016/RFC-011/RFC-039/RFC-020 text nor prior rfc-decision defines one. The owner's 2026-08-22 disposition resolved this under the Evolution-phase default (nothing in the spec is fixed pre-ratification) plus rfc-decision-628cf6c4 (a rename is a migration): renumber to the next sequential canonical I-<n> rather than inventing a second sort-key derivation, since a projected invariant has exactly one numbering form.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:30.048313745+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:30.048313745+00:00"
+    },
+    {
+      "revisionId": "e60f16ad-57f8-482c-8d09-353c842adab7",
+      "recordId": "d52ef7c8-0c0a-434f-bd8f-15c92f807cd5",
+      "fieldId": "5a000019-0000-4000-a000-000000000019",
+      "value": "An invariant is normative when its governing RFC is Accepted AND its record is placed in the projection root (records/invariants/); placement in the root is itself the ratification act, not a consequence of it. A com.semanticops.spec/invariant record anywhere else in the repository is a fail-closed diagnostic (checked by scripts/check-invariant-placement.mjs), not a legitimate exclusion — closing the trap that let the next stray invariant either silently violate literal RFC-016 [R1] again, or force widening the projection to match it. A projected invariant has exactly one numbering form: canonical I-<n>, assigned sequentially at the moment of relocation into the projection root. A rule-set-qualified numbering form (e.g. \"011-1\") remains legitimate for pre-ratification RFC-authoring records, but does not carry into the projection; it is preserved only as historical text in the relocated record's rationale.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:30.048313745+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:30.048313745+00:00"
+    },
+    {
+      "revisionId": "df1914ea-368f-45e1-8516-8b339adaef25",
+      "recordId": "d52ef7c8-0c0a-434f-bd8f-15c92f807cd5",
+      "fieldId": "5a000020-0000-4000-a000-000000000020",
+      "value": "Every com.semanticops.spec/invariant record, present and future, across this repository: where it may live, when it becomes normative, and what numbering form a projected invariant carries. Executed immediately for the three RFC-011 invariants (relocated from srs/package/records/ to srs/records/invariants/, renumbered 011-1/2/3 to I-142/I-143/I-144).",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:30.048313745+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:30.048313745+00:00"
+    },
+    {
+      "revisionId": "0e73ec09-8fa8-437f-b20a-fd52566ac0c0",
+      "recordId": "d52ef7c8-0c0a-434f-bd8f-15c92f807cd5",
+      "fieldId": "5a000021-0000-4000-a000-000000000021",
+      "value": [
+        "semantic-integrity",
+        "shared-coherence"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:30.048313745+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:30.048313745+00:00"
+    },
+    {
+      "revisionId": "dd7cca68-3a2f-423f-9aae-11c6a07d9dce",
+      "recordId": "d52ef7c8-0c0a-434f-bd8f-15c92f807cd5",
+      "fieldId": "5a000022-0000-4000-a000-000000000022",
+      "value": "formation",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:30.048313745+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:30.048313745+00:00"
+    },
+    {
+      "revisionId": "33315bf2-6ea6-4bcb-adea-efc7da25aac6",
+      "recordId": "d52ef7c8-0c0a-434f-bd8f-15c92f807cd5",
+      "fieldId": "5a000023-0000-4000-a000-000000000023",
+      "value": "(1) Narrow RFC-016 [R1]'s rule text to match render-invariants.mjs's existing projection-root scope, leaving the three RFC-011 invariants unpublished under package/records/ (the original D4 direction) — rejected: built on the false premise that RFC-011 is unaccepted, and would have fixed the spec to match a buggy outcome, the project's most-punished defect class. (2) Widen the RFC-016 projection to scan the whole repository for com.semanticops.spec/invariant records rather than only records/invariants/ — rejected: makes a raw file-drop anywhere in the tree a normative act with no RFC behind it, intolerable under the governed-spec ruling (rfc-decision foundational-values-and-phase). (3) Extend render-invariants.mjs's parseSortKey / RFC-016 [R2] with a second derivation rule for rule-set-qualified invariant_number values (e.g. \"011-3\" -> 11.003) instead of renumbering — rejected: sanctions a parallel numbering form surviving inside the projection itself, the one-name-over-many violation rfc-decision-628cf6c4 already rules against.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:30.048313745+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:30.048313745+00:00"
+    },
+    {
+      "revisionId": "9a604121-924b-4125-b6b5-1f60d08cc0ec",
+      "recordId": "d52ef7c8-0c0a-434f-bd8f-15c92f807cd5",
+      "fieldId": "5a000024-0000-4000-a000-000000000024",
+      "value": "The relocation is a content-affecting migration, not a pure rule-text fix: the three records' invariant_number values change from 011-1/2/3 to I-142/143/144, and every cross-reference between them (I-142 is referenced inside I-143's normative_statement) had to be updated at the same time. Renumbering is deliberately NOT retroactively applied to any other rule-set-qualified numbering that may exist in unaccepted RFC proposals elsewhere in the tree; each is decided at its own relocation, not by this record.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:30.048313745+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:30.048313745+00:00"
+    },
+    {
+      "revisionId": "7690ad4c-42c4-4f5f-9c04-dd49e33a7de3",
+      "recordId": "d52ef7c8-0c0a-434f-bd8f-15c92f807cd5",
+      "fieldId": "5a000025-0000-4000-a000-000000000025",
+      "value": [
+        "https://github.com/the-greenman/srs/issues/410",
+        "https://github.com/the-greenman/srs/issues/410#issuecomment-5359064563",
+        "https://github.com/the-greenman/srs/issues/410#issuecomment-5359115825",
+        "https://github.com/the-greenman/srs/issues/410#issuecomment-5359349640",
+        "https://github.com/the-greenman/srs/issues/410#issuecomment-5359455272",
+        "https://github.com/the-greenman/srs/issues/410#issuecomment-5361506852",
+        "https://github.com/the-greenman/srs/issues/410#issuecomment-5380236658",
+        "https://github.com/the-greenman/srs/issues/285#issuecomment-5332260013",
+        "rfcs/rfc-011-documentview-query-extensions.md",
+        "rfcs/rfc-016-invariant-record-projection.md",
+        "rfc-decision-628cf6c4 (a rename is a migration)",
+        "scripts/check-invariant-placement.mjs"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:30.048313745+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:30.048313745+00:00"
+    },
+    {
+      "revisionId": "c901988d-64b8-41ef-bd5c-55b347401430",
+      "recordId": "d52ef7c8-0c0a-434f-bd8f-15c92f807cd5",
+      "fieldId": "5a000026-0000-4000-a000-000000000026",
+      "value": "A future com.semanticops.spec/invariant record discovered outside records/invariants/ that scripts/check-invariant-placement.mjs flags: resolve by relocating and renumbering per this decision, not by adding a new publication-reachability exclusion for it.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:30.048313745+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:30.048313745+00:00"
+    }
+  ]
+}

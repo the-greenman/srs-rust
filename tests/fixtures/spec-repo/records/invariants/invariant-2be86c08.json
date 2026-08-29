@@ -1,20 +1,20 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-17T01:41:30.429631157+00:00",
+  "instanceId": "2be86c08-b427-4510-a1e8-25524f90ddaf",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant",
   "fieldValues": {
     "invariant_number": "I-101",
     "title": "attaches SourceReference acceptance",
     "normative_statement": "A conformant implementation MUST accept `\"attaches\"` as a value of `SourceReference.sourceRole`. An attachment is a `SourceReference` with `sourceType: \"repository-document\"`, `sourceRole: \"attaches\"`, and `sourceId` equal to a source document's `documentId`. Attachment MUST NOT be modelled as a `Relation` edge; there is no `attaches` canonical `Relation` type.",
-    "applies_to": "Validators, importers; SourceReference-bearing schemas (record.json, note.json, typed-record.json, relations-collection.json)"
+    "applies_to": "Validators, importers; SourceReference-bearing schemas (record.json, note.json, relations-collection.json)"
   },
-  "instanceId": "2be86c08-b427-4510-a1e8-25524f90ddaf",
   "tags": [
     "construct:attachment",
     "topic:schema"
   ],
-  "typeId": "2a000006-0000-4000-a000-000000000006",
-  "typeName": "invariant",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-17T01:41:30.429641143+00:00"
+  "createdAt": "2026-07-17T01:41:30.429631157+00:00",
+  "updatedAt": "2026-08-27T18:13:41.001073360+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

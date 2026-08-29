@@ -1,0 +1,165 @@
+{
+  "recordId": "92d2da05-4030-4afb-b8be-48ff8e9029d8",
+  "revisions": [
+    {
+      "revisionId": "8b2f9228-a7c5-44a6-8a13-286bb2e98cba",
+      "recordId": "92d2da05-4030-4afb-b8be-48ff8e9029d8",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Rename DocumentView to Composition",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:26.572630094+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:26.572630094+00:00"
+    },
+    {
+      "revisionId": "c63ec6cc-33a6-4179-b5ab-5d96ae5053b2",
+      "recordId": "92d2da05-4030-4afb-b8be-48ff8e9029d8",
+      "fieldId": "5a000004-0000-4000-a000-000000000004",
+      "value": "2026-08-19",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:26.572630094+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:26.572630094+00:00"
+    },
+    {
+      "revisionId": "6f272b30-c4d0-4c2c-90d8-51efc3be8650",
+      "recordId": "92d2da05-4030-4afb-b8be-48ff8e9029d8",
+      "fieldId": "5a000012-0000-4000-a000-000000000012",
+      "value": "The corpus itself could not use the old name unambiguously: RFC-015's renderedPresentations.viewId points at a DocumentView, and two entities shared the word \"view\" across ext:views-l1/ext:views-l2. Composition names exactly what the entity does. The owner had arrived at this name previously and the decision was lost unrecorded — this record exists so it cannot be lost again.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:26.572630094+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:26.572630094+00:00"
+    },
+    {
+      "revisionId": "162d45c8-6e55-4bb4-b753-389afc98396b",
+      "recordId": "92d2da05-4030-4afb-b8be-48ff8e9029d8",
+      "fieldId": "5a000019-0000-4000-a000-000000000019",
+      "value": "The document-composition entity is named Composition; the name DocumentView retires. The rendering-chain vocabulary is Composition → Presentation → Projection: a Composition defines how records compose into a document; a Presentation is a repository's declared commitment to render a Composition in a format (manifest.renderedPresentations); a Projection is the produced artifact. \"Export\" retires as vocabulary with the VIEW_EXPORTS mechanism.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:26.572630094+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:26.572630094+00:00"
+    },
+    {
+      "revisionId": "151d878f-bf37-4f2e-a32d-87f8e83f014b",
+      "recordId": "92d2da05-4030-4afb-b8be-48ff8e9029d8",
+      "fieldId": "5a000020-0000-4000-a000-000000000020",
+      "value": "Rendering-chain vocabulary and the document-composition entity name",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:26.572630094+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:26.572630094+00:00"
+    },
+    {
+      "revisionId": "811a76c5-3183-47e0-b5f9-418c934dcfd8",
+      "recordId": "92d2da05-4030-4afb-b8be-48ff8e9029d8",
+      "fieldId": "5a000021-0000-4000-a000-000000000021",
+      "value": [
+        "shared-coherence",
+        "evolution"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:26.572630094+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:26.572630094+00:00"
+    },
+    {
+      "revisionId": "9da3dbf9-9abd-45b0-a577-db02558f89e6",
+      "recordId": "92d2da05-4030-4afb-b8be-48ff8e9029d8",
+      "fieldId": "5a000022-0000-4000-a000-000000000022",
+      "value": "formation",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:26.572630094+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:26.572630094+00:00"
+    },
+    {
+      "revisionId": "23a21da7-6b19-4b2c-93db-e85c153e3856",
+      "recordId": "92d2da05-4030-4afb-b8be-48ff8e9029d8",
+      "fieldId": "5a000023-0000-4000-a000-000000000023",
+      "value": "- Keep DocumentView: rejected — the View/DocumentView collision is unresolvable in prose and already confused RFC-015's own key naming.\n- Arrangement, Edition, Outline, Assembly: rejected — weaker semantic fit; none name the composing act.\n- Rename in vocabulary only, keep the entity name in schemas: rejected — a permanent prose/model split is the drift class this project retires.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:26.572630094+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:26.572630094+00:00"
+    },
+    {
+      "revisionId": "f885b7ae-57ed-44f6-b7fe-3db3c3080b7a",
+      "recordId": "92d2da05-4030-4afb-b8be-48ff8e9029d8",
+      "fieldId": "5a000024-0000-4000-a000-000000000024",
+      "value": "A breaking rename across the ecosystem (~83 srs-rust files, the schema file, the package-manifest documentViews[] key, CLI commands, payload goldens, MCP resource paths), executed only at srs#272's regeneration where the schemas are rewritten anyway (Evolution phase). RFC-034 (srs#267, unaccepted) must rephrase \"structural container composition\" to container structure/nesting so the noun stays unambiguous. srs#411 lands first with the old key; the viewId→compositionId key rename travels with the entity rename at #272.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:26.572630094+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:26.572630094+00:00"
+    },
+    {
+      "revisionId": "98d01f9c-9a17-46bd-b7e4-ff7e129c8cc7",
+      "recordId": "92d2da05-4030-4afb-b8be-48ff8e9029d8",
+      "fieldId": "5a000025-0000-4000-a000-000000000025",
+      "value": [
+        "https://github.com/the-greenman/srs/pull/389#issuecomment-5339733683",
+        "https://github.com/the-greenman/srs/issues/272#issuecomment-5339733831"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:26.572630094+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:26.572630094+00:00"
+    },
+    {
+      "revisionId": "330d6a99-5a23-4d5f-b209-674ee7bd7f0c",
+      "recordId": "92d2da05-4030-4afb-b8be-48ff8e9029d8",
+      "fieldId": "5a000026-0000-4000-a000-000000000026",
+      "value": "Review if srs#272's regeneration cannot execute the rename atomically with the schema rewrite, or if RFC-034's rephrasing is refused.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:26.572630094+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:26.572630094+00:00"
+    }
+  ]
+}

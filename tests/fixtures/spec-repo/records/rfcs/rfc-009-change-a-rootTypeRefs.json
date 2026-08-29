@@ -1,16 +1,16 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-06-24T16:05:55.585910390+00:00",
+  "instanceId": "956c99fd-2a59-4b88-bf87-5f6aa56292ff",
+  "typeId": "6a000002-0000-4000-a000-000000000002",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc-change",
   "fieldValues": {
     "title": "RFC-009 Change A: Add rootTypeRefs to DocumentView",
     "affected_components": "ext:views-l2, document-view.json",
-    "proposed_change": "Add optional rootTypeRefs?: ExactTypeRef[] to DocumentView. When set, the DocumentView applies to Containers whose root Record (rootInstanceIds[0]) has a typeId/typeVersion matching any ExactTypeRef entry. ExactTypeRef requires both typeId (UUID) and typeVersion (integer >= 1). Multi-entry OR semantics. Soft-deprecates containerType to a back-compat hint. Conformance rule I-63.",
+    "proposed_change": "Add optional rootTypeRefs?: ExactTypeRef[] to DocumentView. When set, the DocumentView applies to Containers whose typing anchor (Container.anchorInstanceId; RFC-009 Rev 6/srs#446) has a typeId/typeVersion matching any ExactTypeRef entry. Pre-#446 repositories resolve the anchor via the transitional rootInstanceIds[0] fallback. ExactTypeRef requires both typeId (UUID) and typeVersion (integer >= 1). Multi-entry OR semantics. Soft-deprecates containerType to a back-compat hint. Conformance rules I-63, I-145.",
     "rationale": "UUID-based anchoring replaces fragile containerType string join. ExactTypeRef is version-exact because the DocumentView-to-Container match is a package-validation-time claim requiring both typeId and typeVersion to resolve."
   },
-  "instanceId": "956c99fd-2a59-4b88-bf87-5f6aa56292ff",
-  "typeId": "6a000002-0000-4000-a000-000000000002",
-  "typeName": "rfc-change",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-06-24T16:05:55.585912485+00:00"
+  "createdAt": "2026-06-24T16:05:55.585910390+00:00",
+  "updatedAt": "2026-08-28T14:09:18.120113337+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

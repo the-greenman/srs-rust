@@ -7,13 +7,13 @@
   "fieldValues": {
     "title": "RFC-018: Repository Changelog Extension (`ext:changelog`)",
     "rfc_number": "018",
-    "rfc_status": "accepted",
     "author": "the-greenman",
     "affected_components": "`manifest.json` (new `changelogPath` property); new schema file `changelog.json` (ChangelogCollection + ChangelogEntry); `ext:changelog` extension declaration.\n\n**2026-08-21 update** (`rfc-decision-2a1e1590`): the mechanism this RFC introduced is removed under the dormancy rule (zero corpus use). `changelog.json` is deleted; `manifest.changelogPath` is deprecated, not deleted; the `ext:changelog` extension record becomes a dormancy stub carrying the return trigger. This RFC's own acceptance record is historical and unchanged — see the extension record and `rfc-decision-2a1e1590` for current status.\n\n<!-- srs-integration:v1\next:changelog\nschema:manifest.json\n-->",
     "proposal_artifact_path": "rfcs/rfc-018-changelog-extension.md",
     "content": "Introduces `ext:changelog`, an opt-in extension that maintains a lightweight, append-only log of entity-level changes in an SRS repository.\n\n**Problems addressed:** (1) No way to determine what changed since a sync point — the `repo copy` round-trip workflow cannot distinguish actually modified records from path-changed files. (2) Sync and replication tooling must rely on git history, binding SRS to a specific VCS backend and breaking for `.srsj`/in-memory stores. (3) No normative record of operation provenance — no standard way to record who or what asserted a change.\n\n**Changes:** (A) New extension key `ext:changelog`; repositories opt in via `manifest.declaredExtensions`; implementation creates an empty changelog file on first declaration. (B) New `changelogPath` optional field on `manifest.json` (default: `changelog/changelog.json`). (C) New schema `changelog.json` defining `ChangelogCollection` and `ChangelogEntry` (`entryId` UUID4, `instanceId`, `changeKind` enum: `created`/`updated`/`deleted`/`note-created`/`note-updated`/`note-deleted`, `timestamp`, optional `assertedBy`; `noteId` required for note variants). (D) Normative `srs changelog list --repo <path> [--since <iso8601>] [--instance <uuid>]` CLI command.\n\n**Conformance rules:** R1–R10. Key rules: R1–R2 (maintain and append-on-write), R3 (UUID4 uniqueness), R4 (append-only immutability), R5 (no changelogPath without extension), R7 (noteId MUST when note variant), R9 (normative CLI query), R10 (SHOULD lock on write).\n\n**GitHub issue:** srs#141. Addresses srs#52 (spec gap: no changelog concept)."
   },
+  "lifecycleState": "accepted",
   "createdAt": "2026-07-09T08:27:21.039643496+00:00",
-  "updatedAt": "2026-08-23T06:54:26.867695773+00:00",
+  "updatedAt": "2026-08-28T13:58:11.384861220+00:00",
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

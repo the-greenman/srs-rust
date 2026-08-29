@@ -1,22 +1,22 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-31T00:00:00Z",
+  "instanceId": "7d70dc5f-27a4-46a4-ade6-445a7e32be67",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-036: Composite rendering — view-owned renderer dispatch for composite-range fields",
     "rfc_number": "036",
-    "rfc_status": "accepted",
     "author": "the-greenman",
     "affected_components": "View-owned composite renderer dispatch (`FieldView.compositeRenderer`, `DocumentSection.compositeRenderers`, `DocumentView.compositeRenderers`); normative composite baseline rendering; the `table` renderer over a structured value shape; `ElementTemplates.compositeFieldRowTemplates` superseding `groupFieldRowTemplates`; the RFC-007 `[FG-Cx*]`/`[T-Gx*]`/`[T-Cx*]` retirement schedule; Invariant 1 and Invariant 13 extended to the new bindings and to Discovery Text Projection.\n\n<!-- srs-integration:v1\next:views-l1\next:views-l2\next:themes-l1\nschema:view.json\nschema:document-view.json\nschema:theme.json\nI-1\nI-13\n-->",
     "proposal_artifact_path": "rfcs/rfc-036-composite-rendering.md",
     "content": "Restores the rendering-dispatch capability that RFC-032 strands when it subsumes `FieldGroup` into composite range, and relocates it from the Type to the View — where RFC-015 places presentation and where `FieldView` already carries `displayHint`/`editorHintOverride`. Specifies the `table` renderer against a structured value shape (`columns: string[]`, `rows: ref(Row)[] inline`, `Row.cells: string[]`, `widths: number[]`) rather than JSON-in-text; specifies composite baseline rendering, which every fallback path depends on and which no document had defined; maps every RFC-007 rendering rule onto the new mechanism, including the one and a half that cease to be renderer concerns; and specifies the deterministic corpus migration. Design only — the inline-composite value carrier, the fixture and the migrations are #242. Full text: rfcs/rfc-036-composite-rendering.md."
   },
-  "instanceId": "7d70dc5f-27a4-46a4-ade6-445a7e32be67",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-31T00:00:00Z"
+  "createdAt": "2026-07-31T00:00:00Z",
+  "updatedAt": "2026-08-28T13:58:10.014757726+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

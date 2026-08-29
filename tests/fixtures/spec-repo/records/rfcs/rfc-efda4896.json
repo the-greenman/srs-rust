@@ -1,22 +1,22 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-21T21:14:41.730012184+00:00",
+  "instanceId": "efda4896-665b-4155-a7e3-d4c636e6b5ae",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-026: ext:slices — Container Slices (Subset Repository Export)",
     "rfc_number": "026",
-    "rfc_status": "accepted",
     "author": "the-greenman (from issue the-greenman/srs#194)",
     "affected_components": "`ext:slices` extension; optional `slice` block in `manifest.json` (`Slice`, `SliceSpec`, `SliceExternalRef` $defs); container-membership closure rules R1–R14; validation relaxations for slice archives.\n\n<!-- srs-integration:v1\next:slices\nschema:manifest.json\n-->",
     "proposal_artifact_path": "rfcs/rfc-026-ext-slices-subset-export.md",
     "content": "Defines `ext:slices` — a normative extension for container-membership slice export as a valid `.srs` archive. A container slice carries the records reachable from a container's membership, their type/field definitions, intra-slice relations, and referenced source documents. Dangling cross-boundary relations are preserved in `slice.externalRelationRefs[]` (not silently dropped), following the `ext:federation` graceful-degradation precedent. Schema change: `docs/schema/2.0/manifest.json` gains an optional `slice` property with `$defs.Slice`, `$defs.SliceSpec` (type enum: `[\"container\"]`), and `$defs.SliceExternalRef`. Package export — distributing a package's definitions as a `package-bundle.json` — is explicitly excluded from this RFC's scope (RFC-003). Full text: rfcs/rfc-026-ext-slices-subset-export.md."
   },
-  "instanceId": "efda4896-665b-4155-a7e3-d4c636e6b5ae",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-21T21:14:41.730018201+00:00"
+  "createdAt": "2026-07-21T21:14:41.730012184+00:00",
+  "updatedAt": "2026-08-28T13:58:14.718576100+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

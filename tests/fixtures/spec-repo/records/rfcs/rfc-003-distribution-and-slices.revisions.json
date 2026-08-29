@@ -1,0 +1,61 @@
+{
+  "recordId": "f7f41817-fe5e-53e9-9bb4-eb313ae6c539",
+  "revisions": [
+    {
+      "revisionId": "42c7eac2-a960-4a14-888a-55b0e8a969e6",
+      "recordId": "f7f41817-fe5e-53e9-9bb4-eb313ae6c539",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-003: Definition Distribution and Repository Slices",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "draft",
+        "transitionedAt": "2026-08-28T13:56:20.208986214+00:00"
+      },
+      "createdAt": "2026-08-28T13:56:20.208986214+00:00"
+    },
+    {
+      "revisionId": "9e5553eb-6c53-447f-a4e3-fe1b5b404d09",
+      "recordId": "f7f41817-fe5e-53e9-9bb4-eb313ae6c539",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "003",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "draft",
+        "transitionedAt": "2026-08-28T13:56:20.208986214+00:00"
+      },
+      "createdAt": "2026-08-28T13:56:20.208986214+00:00"
+    },
+    {
+      "revisionId": "b0a0a202-8c3c-4029-a11e-12877ebf5cd3",
+      "recordId": "f7f41817-fe5e-53e9-9bb4-eb313ae6c539",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-003.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "draft",
+        "transitionedAt": "2026-08-28T13:56:20.208986214+00:00"
+      },
+      "createdAt": "2026-08-28T13:56:20.208986214+00:00"
+    },
+    {
+      "revisionId": "5d492124-be71-4309-8f38-a7d2f19bd7f5",
+      "recordId": "f7f41817-fe5e-53e9-9bb4-eb313ae6c539",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Draft: distribution model and container slices for SRS repositories. Import-tracking / package-binding sub-scope was carved out into RFC-014. Full text: rfcs/rfc-003.md.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "draft",
+        "transitionedAt": "2026-08-28T13:56:20.208986214+00:00"
+      },
+      "createdAt": "2026-08-28T13:56:20.208986214+00:00"
+    }
+  ]
+}

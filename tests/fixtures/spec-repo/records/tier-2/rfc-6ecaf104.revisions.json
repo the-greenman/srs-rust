@@ -1,0 +1,89 @@
+{
+  "recordId": "6ecaf104-5188-4a6c-8d8a-084919ad2aad",
+  "revisions": [
+    {
+      "revisionId": "b686c832-d66a-4f0e-81a6-085f9c663088",
+      "recordId": "6ecaf104-5188-4a6c-8d8a-084919ad2aad",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-032: The Field type model — decomposed value type, composite range, maps, and FieldGroup subsumption",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:17.256660901+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:17.256660901+00:00"
+    },
+    {
+      "revisionId": "f8710220-1cd9-41e9-9ad2-9e2a9777c786",
+      "recordId": "6ecaf104-5188-4a6c-8d8a-084919ad2aad",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "032",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:17.256660901+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:17.256660901+00:00"
+    },
+    {
+      "revisionId": "b9e1aa6f-85ef-4a27-933b-27bb7d97e93e",
+      "recordId": "6ecaf104-5188-4a6c-8d8a-084919ad2aad",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "Claude Code (agent), on behalf of the repository owner (from issue the-greenman/srs#261; delivers Task #257, folds in #239)",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:17.256660901+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:17.256660901+00:00"
+    },
+    {
+      "revisionId": "5c820a0e-0aff-4377-9aa3-bac80b63e1d6",
+      "recordId": "6ecaf104-5188-4a6c-8d8a-084919ad2aad",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "docs/schema/2.0/field.json (valueType → fieldType model, Changes A–D/F); docs/schema/2.0/type.json (RequiresRelation.relationType → list, Change F; FieldAssignment cardinality props deprecated pending #242; Rev-7 conditional-required predicate description); docs/schema/2.0/package-bundle.json (embedded Field parity); docs/schema/2.0/theme.json and document-view.json (Rev-7 extension-rule predicates). RFC-032 Rev 7 also amends RFC-012 [R8]/I-120 Text Projection, RFC-019 [R6]/I-94 conditional-required, ext:themes-l1 [T-9], and ext:views-l2 [N+1], including the transition-only FieldAssignment.repeatable conjunct and its atomic Phase-B removal gate. Tier-1 TypedField.valueType stays unchanged until its explicit #242 Phase-B disposition.\n\n<!-- srs-integration:v1\nschema:field.json\nschema:type.json\nschema:package-bundle.json\nschema:theme.json\nschema:document-view.json\nI-94\nI-120\next:discovery\next:themes-l1\next:views-l2\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:17.256660901+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:17.256660901+00:00"
+    },
+    {
+      "revisionId": "2a510509-151a-4877-8d7d-b5c948eb7cf7",
+      "recordId": "6ecaf104-5188-4a6c-8d8a-084919ad2aad",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-032-composite-field-range.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:17.256660901+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:17.256660901+00:00"
+    },
+    {
+      "revisionId": "af3f1e79-3032-4867-ab4f-fc69d07629de",
+      "recordId": "6ecaf104-5188-4a6c-8d8a-084919ad2aad",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "To self-host its meta-model (epic #256), SRS must describe Field/Type in its own type system — but Field.valueType is a closed scalar enum that cannot express nested objects, lists, typed references, constraints, or open extension bags, and it conflates four axes (#239). This RFC replaces valueType with an orthogonal fieldType model (datatype × cardinality × value-domain × format × constraints) where datatype may be a reference to another Type (ref, inline or reference), a value-of-a-sibling-type (dependent), or an open string-keyed collection (map). It subsumes FieldGroup into the ref mechanism (actual removal + instance migration gated with #242) and resolves every apparent union as dependent-typing, cardinality, a discriminated family, or a map — no sum-type construct is added. Delivered here as a SCRIPTED, TESTED migration: docs/schema/2.0/{field,type}.json edited to the new model; a deterministic transform (scripts/migrate-rfc-032-field-type.mjs over scripts/lib/rfc-032-fieldtype.mjs) rewrote all 95 legacy field definitions per Change H (idempotent, R1–R11-validated, minimal-diff); a runnable paper proof (11/11), a per-row migration test (Change H), and a conformance fixture exercising every mode with committed Change-G projection goldens (tests/rfc-032/) all pass under scripts/validate-all.mjs. Breaking at the definition layer (owner: no external consumers; a stable public spec must not freeze a flawed model). Full text: rfcs/rfc-032-composite-field-range.md. Revision 7 records the owner-ratified post-acceptance erratum for four legacy valueType-subset rules: exact fieldType predicates, complete new-datatype/string-format dispositions, the unchanged transitional Tier-1 rule, and fail-closed criteria for removing the legacy repeatable conjunct only in #242 Phase B.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:17.256660901+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:17.256660901+00:00"
+    }
+  ]
+}
