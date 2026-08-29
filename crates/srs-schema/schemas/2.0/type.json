@@ -285,7 +285,7 @@
           "$ref": "#/$defs/com.semanticops.srs__requires-relation__v1",
           "title": "Requires Relation"
         },
-        "properties": {
+        "meta": {
           "type": "object",
           "additionalProperties": true
         }
@@ -350,7 +350,7 @@
         "description": {
           "type": "string"
         },
-        "properties": {
+        "meta": {
           "type": "object",
           "additionalProperties": true
         }

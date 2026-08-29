@@ -25,7 +25,7 @@
     "dataModelRevision": {
       "type": "integer",
       "minimum": 0,
-      "description": "RFC-033 / #265 — monotonic integer generation stamp for operational (2.0.x -> 2.0.y) data-model migrations within the srsVersion line. Absent means revision 0 (pre-stamp, for gating). RFC-032 (valueType -> fieldType) is migration #1, toRevision 1. srs#448 (Tier 1/TypedRecord removed; graduatedAt dropped from note.json — rfc-decision-53635966) is the migration toRevision 4; a reader encountering a typed-record.json-schema instance MUST reject it naming that decision, never silently skip or coerce it. Not dotted semver; carries no backward-compat promise."
+      "description": "RFC-033 / #265 — monotonic integer generation stamp for operational (2.0.x -> 2.0.y) data-model migrations within the srsVersion line. Absent means revision 0 (pre-stamp, for gating). RFC-032 (valueType -> fieldType) is migration #1, toRevision 1. srs#448 (Tier 1/TypedRecord removed; graduatedAt dropped from note.json — rfc-decision-53635966) is the migration toRevision 4; a reader encountering a typed-record.json-schema instance MUST reject it naming that decision, never silently skip or coerce it. srs#433 (the substrate escape bag properties -> meta on Term/RelationTypeDefinition/LifecycleState/LifecycleTransition — rfc-decision-6fc7e142, rfc-decision-628cf6c4) is the migration toRevision 5; a reader encountering a stored properties key on one of those substrate entries MUST reject it naming that decision, never silently skip or coerce it. Not dotted semver; carries no backward-compat promise."
     },
     "repositoryId": {
       "type": "string",
