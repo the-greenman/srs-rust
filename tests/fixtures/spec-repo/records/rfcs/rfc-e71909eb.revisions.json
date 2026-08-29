@@ -1,0 +1,89 @@
+{
+  "recordId": "e71909eb-37f2-4e2b-8d62-fc18e840bace",
+  "revisions": [
+    {
+      "revisionId": "765be21b-6e16-4d18-99f6-e1a994e1031c",
+      "recordId": "e71909eb-37f2-4e2b-8d62-fc18e840bace",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-020: Type-Level Identity Field (identityFieldId)",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:13.891862351+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:13.891862351+00:00"
+    },
+    {
+      "revisionId": "1f2a8839-6b50-416a-8237-fe5ab6640420",
+      "recordId": "e71909eb-37f2-4e2b-8d62-fc18e840bace",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "020",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:13.891862351+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:13.891862351+00:00"
+    },
+    {
+      "revisionId": "003101d9-5107-462b-8771-fd97e2d760b8",
+      "recordId": "e71909eb-37f2-4e2b-8d62-fc18e840bace",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "the-greenman",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:13.891862351+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:13.891862351+00:00"
+    },
+    {
+      "revisionId": "e01a53d5-c0a5-40dc-951e-6d1dce1a9631",
+      "recordId": "e71909eb-37f2-4e2b-8d62-fc18e840bace",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "`identityFieldId` on `Type` (`type.json`); inheritance + views-l2 fallback prose (`ext:type-inheritance`, `ext:views-l2`).\n\n<!-- srs-integration:v1\nschema:type.json\next:type-inheritance\next:views-l2\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:13.891862351+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:13.891862351+00:00"
+    },
+    {
+      "revisionId": "ae178c7d-e787-4088-9b3d-75d7ae25f706",
+      "recordId": "e71909eb-37f2-4e2b-8d62-fc18e840bace",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-020-type-level-identity-field.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:13.891862351+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:13.891862351+00:00"
+    },
+    {
+      "revisionId": "6ec52f0a-51b8-436a-86d7-8c0c6a557fdc",
+      "recordId": "e71909eb-37f2-4e2b-8d62-fc18e840bace",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Adds an optional, inheritable, overridable `identityFieldId` to `Type`, naming one field of the effective field set as the record's identity/display field, giving clients a schema-driven display-label source. Full text: rfcs/rfc-020-type-level-identity-field.md.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:13.891862351+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:13.891862351+00:00"
+    }
+  ]
+}

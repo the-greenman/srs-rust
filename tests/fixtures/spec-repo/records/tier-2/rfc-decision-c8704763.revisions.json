@@ -1,0 +1,166 @@
+{
+  "recordId": "c8704763-71cb-46ad-83f7-765846702652",
+  "revisions": [
+    {
+      "revisionId": "565bde6d-1a48-437c-b531-463074ed63a5",
+      "recordId": "c8704763-71cb-46ad-83f7-765846702652",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Every reference names its strength: the Reference taxonomy",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.959932760+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.959932760+00:00"
+    },
+    {
+      "revisionId": "73e3d48a-e34d-4857-b7ac-5960ac919904",
+      "recordId": "c8704763-71cb-46ad-83f7-765846702652",
+      "fieldId": "5a000004-0000-4000-a000-000000000004",
+      "value": "2026-08-21",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.959932760+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.959932760+00:00"
+    },
+    {
+      "revisionId": "3337a97f-7adb-43d0-a330-49a032fcd522",
+      "recordId": "c8704763-71cb-46ad-83f7-765846702652",
+      "fieldId": "5a000012-0000-4000-a000-000000000012",
+      "value": "The audit found reference the least uniform axis (~8 shapes; findings A2, A5-A9, A11, C5). All three open choices were determined by the ratified preference layer: object-everywhere rejected by axis 2-8's evidence clause (breaking with no evidence-led need); the string form demoted by axis 1-7 (stored form serves integrity, the string is expression); aliases dropped by Description's one-name-over-many. The folded-in items (packageDependencies rename for the manifest-side dependencyRefs, lifecycleRef and Protocol TypeRef as LINEAGE, definitionType enum derived from the package-manifest's ten kinds, locator mode unification) follow from one-form-per-strength.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.959932760+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.959932760+00:00"
+    },
+    {
+      "revisionId": "a1eefd0d-0354-47dc-a8aa-42fedfcb77d7",
+      "recordId": "c8704763-71cb-46ad-83f7-765846702652",
+      "fieldId": "5a000019-0000-4000-a000-000000000019",
+      "value": "Cell: Reference (Air, relational) - declared strength over convenient reach; the axis 1-7 preference (Semantic Integrity over Practical Expression) made mechanism. Four reference strengths, one form each:\n\nPINNED - this thing, this version; semantics frozen. Form: the domain-named {id, version} pair, both required. Appears as an object when the reference is a value (arrays, slots - the ExactTypeRef shape, collapsed to one shared definition) and as flat sibling properties when spread at an entity root (Record.typeId + typeVersion, the extends* pairs). One rule, two positions; the pair, not the wrapper, is the canonical thing. Used by: record-to-type binding, Blueprint.rootTypes, rootTypeRefs, inheritance extends, bundle dependencyRefs.\n\nLINEAGE - this thing, whatever version the context installs. Form: bare UUID (format: uuid); the effective package set resolves. Used by: fieldId in assignments/views/themes, renderViewId, typeDispatch values, lifecycleRef, discovery and theme typeId, vocabularyRef (migrated), Protocol TypeRef (typeVersion dropped - version-optional hybrids are forbidden).\n\nKEYED - whatever matches this name in an explicitly-scoped set. Form: string key with the scope stated by the construct: namespace/name resolves against the effective package set (typeFilter, typeDispatch keys); bare keys resolve against an installed substrate container (relationType, lifecycle state keys, term keys). Alias resolution is dropped: KEYED is key-only (one name over many); renaming a substrate entry is a supersession act through the status vocabulary. Package dependencies are the one sanctioned constraint form: KEYED with a semver range, existing only at the package layer.\n\nLOCATOR - where to fetch bytes, never what they mean. Form: one mode-discriminated shape {mode: local|remote|bundled, path|url|id}, shared by packageRef and ThemeReference (packageRef's 'external' becomes 'remote'). After fetch, identity is verified from the fetched content's own ids; a locator never overrides semantics.\n\nCross-rules: hints never resolve (Invariant 28 generalized - a denormalized companion loses to its ref, visibly); substrate entries are KEYED references and their UUIDs serve lineage and package management, not reference; the canonical string form namespace/name@version is demoted to the DISPLAY serialization of a pinned reference (CLI output, docs, diagnostics) and never a stored form; strength is declared where the reference is defined - in the metamodel, the strengths become the modes of the ref-datatype Field; no fifth strength without a charter amendment.\n\nThe axis 2-8 corollary, stated once: instances PIN; presentation and dispatch follow LINEAGE or KEYED; nothing else absorbs a version bump.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.959932760+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.959932760+00:00"
+    },
+    {
+      "revisionId": "79644e3e-21a2-428b-af9d-2ed20197c71b",
+      "recordId": "c8704763-71cb-46ad-83f7-765846702652",
+      "fieldId": "5a000020-0000-4000-a000-000000000020",
+      "value": "Governs every reference in the standard. Execution: schema and IDL edits ride the #273 train (they touch the same files); the ExactTypeRef $ref collapse and small annotations ride the schema-mechanical unit; vocabularyRef and packageRef.external migrations are in-train data moves. Dispositioned findings: A2, A5, A6, A7, A8, A9, A11, C5.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.959932760+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.959932760+00:00"
+    },
+    {
+      "revisionId": "2e59cba9-9072-4496-a311-1c62a20dfbe1",
+      "recordId": "c8704763-71cb-46ad-83f7-765846702652",
+      "fieldId": "5a000021-0000-4000-a000-000000000021",
+      "value": [
+        "shared-coherence",
+        "semantic-integrity"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.959932760+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.959932760+00:00"
+    },
+    {
+      "revisionId": "25f30cc0-efef-4b25-9f61-2d2c77166c16",
+      "recordId": "c8704763-71cb-46ad-83f7-765846702652",
+      "fieldId": "5a000022-0000-4000-a000-000000000022",
+      "value": "formation",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.959932760+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.959932760+00:00"
+    },
+    {
+      "revisionId": "fba227be-4521-402c-b70f-5ba78aeaa447",
+      "recordId": "c8704763-71cb-46ad-83f7-765846702652",
+      "fieldId": "5a000023-0000-4000-a000-000000000023",
+      "value": "Object-form-everywhere (rejected: breaking without evidence); keeping ns/name@version as a stored form (rejected: the fifth shape the taxonomy exists to eliminate); implementing aliases (rejected: a second resolution path needing its own justification; returns via the roadmap only with practice-sharing evidence).",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.959932760+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.959932760+00:00"
+    },
+    {
+      "revisionId": "a3d1f34e-b775-443d-85ee-3201497f3a23",
+      "recordId": "c8704763-71cb-46ad-83f7-765846702652",
+      "fieldId": "5a000024-0000-4000-a000-000000000024",
+      "value": "The one-rule-two-positions PINNED form is a stated asymmetry reviewers must know; version-independent dispatch remains a deliberate Practical Expression concession bounded by axis 1-7's clause; dropping aliases prices substrate renames as supersession acts.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.959932760+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.959932760+00:00"
+    },
+    {
+      "revisionId": "ad8143d8-d5ad-4806-93e2-815c0978d8a7",
+      "recordId": "c8704763-71cb-46ad-83f7-765846702652",
+      "fieldId": "5a000025-0000-4000-a000-000000000025",
+      "value": [
+        "srs#435 audit findings A2, A5, A6, A7, A8, A9, A11, C5 and the reference-taxonomy draft + decisions-vs-layer review on the thread",
+        "rfc-decision-cce3c00e (the preference layer that determined the choices)",
+        "RFC-008 (version-independent dispatch rationale), RFC-009 (UUID-anchored chain), Invariant 28"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.959932760+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.959932760+00:00"
+    },
+    {
+      "revisionId": "f01fc162-fff8-4416-a5dc-66034e4dc4de",
+      "recordId": "c8704763-71cb-46ad-83f7-765846702652",
+      "fieldId": "5a000026-0000-4000-a000-000000000026",
+      "value": "A construct that genuinely needs a fifth strength, or the display-form demotion proving insufficient for a real interchange case.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.959932760+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.959932760+00:00"
+    }
+  ]
+}

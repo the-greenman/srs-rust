@@ -12,7 +12,7 @@
         "typeId": {
           "type": "string",
           "format": "uuid",
-          "description": "Exact match on Record.typeId. Only Tier 2 Records carry typeId; Tier 0/1 instances do not match this predicate."
+          "description": "Exact match on Record.typeId. Only Tier 2 Records carry typeId; Tier 0 instances do not match this predicate."
         },
         "typeNamespace": {
           "type": "string",
@@ -42,8 +42,8 @@
           "description": "Exclusion filter (parity with the RFC-011 type-query axis of the same name): an instance whose Record.lifecycleState matches ANY listed value is excluded. Applied after lifecycleState. Lets an authored view declare default-hidden states (e.g. superseded, closed) while a client offers a runtime show-all override by passing an empty list. Requires ext:lifecycle; instances with no lifecycleState are never excluded by this axis."
         },
         "tier": {
-          "enum": [0, 1, 2],
-          "description": "Instance tier filter. 0 = Note, 1 = TypedRecord, 2 = Record."
+          "enum": [0, 2],
+          "description": "Instance tier filter. 0 = Note, 2 = Record. Tier 1 (TypedRecord) was removed (rfc-decision-53635966); the gap in numbering is retained deliberately for reference stability."
         },
         "contentMatch": {
           "type": "string",
@@ -59,11 +59,11 @@
       "properties": {
         "fieldId": {
           "type": "string",
-          "description": "UUID of the field definition for package-resolved fields; sentinel string for special segments: 'note-title', 'note-section', 'typed-record-title', 'typed-record-field', 'tag', 'label'."
+          "description": "UUID of the field definition for package-resolved fields; sentinel string for special segments: 'note-title', 'note-section', 'tag', 'label'."
         },
         "fieldName": {
           "type": "string",
-          "description": "Field name (snake_case) for package-resolved fields; sentinel string for special segments matching fieldId sentinels; or TypedField.name / NoteSection.name for named special segments."
+          "description": "Field name (snake_case) for package-resolved fields; sentinel string for special segments matching fieldId sentinels; or NoteSection.name for named special segments."
         },
         "text": {
           "type": "string",

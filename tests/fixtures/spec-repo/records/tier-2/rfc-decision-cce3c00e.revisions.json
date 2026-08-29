@@ -1,0 +1,173 @@
+{
+  "recordId": "cce3c00e-ad98-48bb-8ef7-543a16862c0f",
+  "revisions": [
+    {
+      "revisionId": "28f9ef0f-e65c-48e5-8e93-ab28d0fa29b0",
+      "recordId": "cce3c00e-ad98-48bb-8ef7-543a16862c0f",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "The Pattern Grid: the preference layer for spec decisions",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:28.305515351+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:28.305515351+00:00"
+    },
+    {
+      "revisionId": "eb282a23-cb73-4b1c-8447-3b1916ec605e",
+      "recordId": "cce3c00e-ad98-48bb-8ef7-543a16862c0f",
+      "fieldId": "5a000004-0000-4000-a000-000000000004",
+      "value": "2026-08-21",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:28.305515351+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:28.305515351+00:00"
+    },
+    {
+      "revisionId": "dff81c06-8f5c-4aeb-8663-f97ad6fe1a78",
+      "recordId": "cce3c00e-ad98-48bb-8ef7-543a16862c0f",
+      "fieldId": "5a000012-0000-4000-a000-000000000012",
+      "value": "The 2026-08-21 pattern-consistency audit (srs#435, ~50 findings) showed one-way-per-goal stated consistently but executed ~70% deep, with drift following one repeated shape: a rule stated once, remaining sites silent or contradictory. Case-at-a-time ruling produces exactly this; the owner's rulings require principles first, built as a structured framework of axes and agreed tradeoffs, applied consistently. The grid is that framework, built by the Synthetic Logic method (orthogonal lenses, jointly exhaustive and mutually exclusive, completeness by gap-hunting). Its fitness is evidenced, not asserted: the three foundational tensions already ratified in subsection 01-5 map onto axes 1-7, 2-8, 3-9 in listed order; the three axes without a prior tension are exactly where the principle-coverage census found the holes; the audit's three messiest concern clusters (ordering, membership, status) are exactly the concerns that straddle two cells; the column coherence check passed for all four elements; and the usage attestation's heat pattern (corpus lives in Earth and Air; Water and relational Fire dormant) locates the mission's remaining work. Two independent instruments - the prior foundational values and the grid census - agree on where the gaps are, which is the strongest available evidence that the lens set fits the domain.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:28.305515351+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:28.305515351+00:00"
+    },
+    {
+      "revisionId": "3ea98b6f-a736-4bb2-b8ff-49e23f7f4200",
+      "recordId": "cce3c00e-ad98-48bb-8ef7-543a16862c0f",
+      "fieldId": "5a000019-0000-4000-a000-000000000019",
+      "value": "The SRS standard adopts the Pattern Grid as its decision framework: a 3x4 matrix of four elements (Fire: action/change; Earth: structure/data; Air: information/process/standards; Water: relation/connection/attribution/trust) crossed with three levels (Individual, Relational, Systemic), yielding twelve zodiac-anchored cells whose row-by-row reading reproduces the zodiac in order, with modality constant on the diagonals (Cardinal = where authority is anchored, Fixed = the stability core, Mutable = where change is legal) and opposites forming six axes.\n\nRatified with the grid, as one system:\n\nSIX AXIS PREFERENCES (default pole + boundary clause): 1-7 Semantic Integrity over Practical Expression; 2-8 Evolution over Continuity, phase-bound, precommitted to flip to Continuity at the first full public release; 3-9 Shared Coherence over Local Autonomy (all three restating subsection 01-5); 4-10 Office over Testimony (in the mythic register, Athena over Aphrodite) - the procedural record over the personal vouch; testimony fills gaps, never contradicts authority, and can be promoted into office by verification; 5-11 Reliability over Renewal - standing contracts hold; renewal only as explicit supersession at a declared boundary; 6-12 Portability over Possession - the travelling form is the test; a capability that exists only in place is captivity; the exception delegates to axis 3-9's explicit-local boundary.\n\nFOUR COLUMN PRINCIPLES, each maturing Individual to Relational to Systemic: Fire, change preserves what it replaces; Earth, structure is declared, never inferred (identity conflicts are fatal and never resolved by precedence); Air, meaning is stated once and validated against its statement (informational conflicts resolve by declared authority - the hint loses, visibly); Water, connection is explicit and carried, never implied or dropped.\n\nTWELVE CELL PREFERENCES (this over that): Versioning, increment over edit; Identity, identifier over label; Description, one name over many; Attribution, stated over assumed; Succession, successor over overwrite; Containment, declaration over location; Reference, declared strength over convenient reach; Assertion, statement over side-effect; Governance, migration over drift; Repository, catalog over circumstance; Conformance, one way over many; Portability, preserve over recognize.\n\nSTANDING RULE: every new RFC and decision names its cell. A proposal that contradicts its cell's preference is flagged at review; a proposal that lands in no cell is a finding against the grid itself, to be resolved by refining the grid, not by ignoring the proposal.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:28.305515351+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:28.305515351+00:00"
+    },
+    {
+      "revisionId": "ce304619-56f6-4097-9f7a-f07405171d2d",
+      "recordId": "cce3c00e-ad98-48bb-8ef7-543a16862c0f",
+      "fieldId": "5a000020-0000-4000-a000-000000000020",
+      "value": "Governs how decisions about the SRS standard are made and reviewed: the charter rulings, the pattern-audit dispositions, the removal shortlist, and all future RFCs and decision records, which name their cell from this ruling forward. The grid is an instrument of the standard's governance, not a normative data-model construct; nothing in this decision changes any schema or record format. Cell names and wording are refinable by future ruling (the zodiac anchors and the axis structure are the stable identity); refinements are recorded as successor decisions, not silent edits.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:28.305515351+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:28.305515351+00:00"
+    },
+    {
+      "revisionId": "58db7173-094d-4f5e-a2ff-d14c14537e95",
+      "recordId": "cce3c00e-ad98-48bb-8ef7-543a16862c0f",
+      "fieldId": "5a000021-0000-4000-a000-000000000021",
+      "value": [
+        "shared-coherence",
+        "semantic-integrity",
+        "evolution",
+        "local-autonomy"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:28.305515351+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:28.305515351+00:00"
+    },
+    {
+      "revisionId": "fefd0b3e-746e-4fc0-9ce6-dc4c5276d170",
+      "recordId": "cce3c00e-ad98-48bb-8ef7-543a16862c0f",
+      "fieldId": "5a000022-0000-4000-a000-000000000022",
+      "value": "formation",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:28.305515351+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:28.305515351+00:00"
+    },
+    {
+      "revisionId": "b7e6cff0-1d72-48b5-8fb7-2c7ec1293f92",
+      "recordId": "cce3c00e-ad98-48bb-8ef7-543a16862c0f",
+      "fieldId": "5a000023-0000-4000-a000-000000000023",
+      "value": "(1) Continue ruling case-at-a-time with the four foundational values as a checklist - rejected: this is the regime under which the audited drift accumulated; values without located tensions and preferences do not compose into consistent rulings. (2) A flat principle list per audit concern (identity, reference, ordering, ...) - rejected: the ten concern families are not orthogonal (three straddle two cells), so a flat list re-creates the unowned-seam problem the audit exposed; the grid locates each concern and names which cell owns a straddle. (3) A different lens set (the T3 cube, a 2x2, per-entity axes) - not pursued: the 3x4 element-by-level matrix is the owner's selected practice instrument, and its in-order zodiac reproduction plus the independent convergence with 01-5 and the census gave positive evidence of fit that alternatives were not tested against.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:28.305515351+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:28.305515351+00:00"
+    },
+    {
+      "revisionId": "dd3e06de-3b68-4155-963d-50a444b7efc3",
+      "recordId": "cce3c00e-ad98-48bb-8ef7-543a16862c0f",
+      "fieldId": "5a000024-0000-4000-a000-000000000024",
+      "value": "The grid adds a naming layer (cells, axes, mythic register) that new contributors must learn before charter-level work; the zodiac anchoring reads as esoteric to some audiences and is deliberately retained as internal governance vocabulary rather than normative spec text. Preferences stated at this altitude will occasionally under-determine a concrete choice (the lifecycle state-mutation coupling is a known instance) - such cases are resolved by explicit ruling, and the ruling is recorded against its cell. Committing to Portability over Possession and Office over Testimony prices future convenience features (place-bound capabilities, credibility-based shortcuts) as exceptions needing justification.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:28.305515351+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:28.305515351+00:00"
+    },
+    {
+      "revisionId": "49d38351-4cae-4441-8a0e-c883525edcd4",
+      "recordId": "cce3c00e-ad98-48bb-8ef7-543a16862c0f",
+      "fieldId": "5a000025-0000-4000-a000-000000000025",
+      "value": [
+        "srs#435 (audit, census, column check, preference layer - the tracking issue and comment thread)",
+        "subsection 01-5 Foundational values and development phase (the prior tensions, mapped in order)",
+        "2026-08-21 usage attestation over muSrs, the spec repository, and derivative trees",
+        "Synthetic Logic Practice Guide (method source)",
+        "rfc-decision-2e0cd70a (carry meaning you do not recognise)",
+        "rfc-decision-0225099b (defaults arrive later, as one mechanism)",
+        "rfc-decision-6fc7e142 (one escape bag, one name: meta)",
+        "RFC-038 [R12] and Invariant 28 (the Earth/Air conflict-rule distinction)"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:28.305515351+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:28.305515351+00:00"
+    },
+    {
+      "revisionId": "04bf74eb-7c60-4fe2-b566-cc6eb4ebb8ac",
+      "recordId": "cce3c00e-ad98-48bb-8ef7-543a16862c0f",
+      "fieldId": "5a000026-0000-4000-a000-000000000026",
+      "value": "Refine when a proposal lands in no cell, when a cell's preference is overridden twice for the same reason (the boundary clause is wrong), or at the Continuity flip (first full public release), when axis 2-8's default pole reverses and the layer should be re-read whole against the new phase.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:28.305515351+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:28.305515351+00:00"
+    }
+  ]
+}

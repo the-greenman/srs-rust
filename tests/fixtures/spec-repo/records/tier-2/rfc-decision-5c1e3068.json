@@ -1,9 +1,11 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-08-02T13:59:15.765288813+00:00",
+  "instanceId": "5c1e3068-6e22-42ae-ab24-882158e8035d",
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeVersion": 2,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc-decision",
   "fieldValues": {
     "title": "Put a deterministic target-neutral IR between records and emitters",
-    "rfc_status": "accepted",
     "decision_date": "2026-07-29",
     "decision_rationale": "Semantic interpretation must be shared before targets render it. A deterministic neutral intermediate representation prevents each backend from inventing incompatible meanings while preserving target-specific output mechanics.",
     "decision_statement": "Projection resolves semantic meaning into a target-neutral intermediate representation before any target back end renders it.",
@@ -21,13 +23,11 @@
     ],
     "review_trigger": "Review when a target requires semantic interpretation unavailable in the neutral IR, or when a proposed backend bypasses it."
   },
-  "instanceId": "5c1e3068-6e22-42ae-ab24-882158e8035d",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000004-0000-4000-a000-000000000004",
-  "typeName": "rfc-decision",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 2,
-  "updatedAt": "2026-08-02T13:59:15.765291951+00:00"
+  "createdAt": "2026-08-02T13:59:15.765288813+00:00",
+  "updatedAt": "2026-08-28T13:58:22.222891394+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

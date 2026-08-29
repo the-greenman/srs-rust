@@ -1,21 +1,22 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-04T00:00:00Z",
+  "instanceId": "388f28d9-21d2-46e7-8622-addd97b983f8",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-016: Invariant Record Projection",
     "rfc_number": "016",
-    "rfc_status": "accepted",
     "affected_components": "`com.semanticops.spec/invariant` (rendering); `scripts/publish-spec.mjs`\n\n<!-- srs-integration:v1\ntooling-only\n-->",
     "proposal_artifact_path": "rfcs/rfc-016-invariant-record-projection.md",
     "content": "Fixes the rendering pipeline so the Key Invariants section of rendered spec views is projected from `com.semanticops.spec/invariant` records rather than hand-written subsection prose.\n\n**Problems addressed:** (1) Invariant records I-63–I-66 and I-78–I-84 (added by RFC-009, RFC-013, and RFC-014) are invisible in all rendered spec views because the Rust CLI renders the Key Invariants section from subsection Content field prose, not from invariant records. (2) Invariants 1–62 are duplicated — encoded as records and again as inline prose — creating a silent divergence risk with no validation.\n\n**Changes:** (A) Adds `scripts/render-invariants.mjs`, an ESM module that reads all `com.semanticops.spec/invariant` records from `srs/records/invariants/`, sorts by `invariant-number` (type-aware: JSON number used directly; `\"I-NN\"` string parsed to integer), groups by normalised `group` field, and returns the Key Invariants region body as a markdown string. (B) Updates `scripts/publish-spec.mjs` to import and call `renderInvariants` after `renderDocumentViews()`, performing wholesale region replacement of the Key Invariants section in each rendered view. (C, Phase 2) Removal of inline `**N.**` prose from subsection Content fields — deferred; tracked in srs#117.\n\n**Scope exclusions:** Rust CLI changes to `srs render document-view`, Phase 2 subsection body cleanup (srs#117), new invariant type fields.\n\n**Conformance rules:** R1–R7. Key rules: R1 (all invariant records appear in rendered output), R2 (ascending sort by derived integer key), R3 (no duplicates), R5 (pipeline fails on malformed records), R6 (absent group → \"Other\" heading), R7 (trailing `---` artifacts stripped).\n\n**GitHub issue:** srs#116. Closes srs#99."
   },
-  "instanceId": "388f28d9-21d2-46e7-8622-addd97b983f8",
+  "lifecycleState": "accepted",
   "tags": [
     "concern:rendering",
     "topic:rfc"
   ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1
+  "createdAt": "2026-07-04T00:00:00Z",
+  "updatedAt": "2026-08-28T13:58:09.106917116+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

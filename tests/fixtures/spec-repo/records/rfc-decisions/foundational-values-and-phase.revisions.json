@@ -1,0 +1,170 @@
+{
+  "recordId": "92ac4529-261f-4e60-9434-7245ad2716be",
+  "revisions": [
+    {
+      "revisionId": "651957f9-b8df-4373-b17e-3e74593ddd9c",
+      "recordId": "92ac4529-261f-4e60-9434-7245ad2716be",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Adopt SRS foundational values and a phase-specific temporal stance",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:29.693196427+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:29.693196427+00:00"
+    },
+    {
+      "revisionId": "5aa65983-e03b-46dc-a21a-de25c8a59113",
+      "recordId": "92ac4529-261f-4e60-9434-7245ad2716be",
+      "fieldId": "5a000004-0000-4000-a000-000000000004",
+      "value": "2026-08-02",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:29.693196427+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:29.693196427+00:00"
+    },
+    {
+      "revisionId": "e46d2e39-b676-4cf5-94b3-deda42214049",
+      "recordId": "92ac4529-261f-4e60-9434-7245ad2716be",
+      "fieldId": "5a000012-0000-4000-a000-000000000012",
+      "value": "Epic 256's audited decision history shows strong preferences for Semantic Integrity and Shared Coherence. Its weaker Evolution tendency reflects the standard's formation phase. The owner ratified data sovereignty through portability as the governing core, accepted evidence-led Evolution for formation, and precommitted the public standard to reverse to Continuity at its first full public release.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:29.693196427+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:29.693196427+00:00"
+    },
+    {
+      "revisionId": "e76a105a-260d-49e6-a37b-b28fe97d4649",
+      "recordId": "92ac4529-261f-4e60-9434-7245ad2716be",
+      "fieldId": "5a000019-0000-4000-a000-000000000019",
+      "value": "The SRS standard adopts Semantic Integrity and Shared Coherence as defaults. During formation it adopts evidence-led Evolution so demonstrated structural defects can be corrected before users depend on them. At the first full public release, the temporal default reverses to Continuity. Rust, web, and other implementation layers may adopt their own profiles without weakening the standard's semantic or conformance boundaries.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:29.693196427+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:29.693196427+00:00"
+    },
+    {
+      "revisionId": "218caaae-f88d-49c2-95d8-c9bcac0f075a",
+      "recordId": "92ac4529-261f-4e60-9434-7245ad2716be",
+      "fieldId": "5a000020-0000-4000-a000-000000000020",
+      "value": "SRS standard layer",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:29.693196427+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:29.693196427+00:00"
+    },
+    {
+      "revisionId": "0c24331e-9c87-4f4f-9c57-2b52f53bde6d",
+      "recordId": "92ac4529-261f-4e60-9434-7245ad2716be",
+      "fieldId": "5a000021-0000-4000-a000-000000000021",
+      "value": [
+        "data-sovereignty",
+        "semantic-integrity",
+        "evidence-led-evolution",
+        "shared-coherence"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:29.693196427+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:29.693196427+00:00"
+    },
+    {
+      "revisionId": "fa76549b-6f5e-423e-85f1-bc3c8b4e0c30",
+      "recordId": "92ac4529-261f-4e60-9434-7245ad2716be",
+      "fieldId": "5a000022-0000-4000-a000-000000000022",
+      "value": "formation",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:29.693196427+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:29.693196427+00:00"
+    },
+    {
+      "revisionId": "0e7cd59a-83d9-468e-af90-ffc63ef662ab",
+      "recordId": "92ac4529-261f-4e60-9434-7245ad2716be",
+      "fieldId": "5a000023-0000-4000-a000-000000000023",
+      "value": "- Continue making technical decisions without a constitutional frame.\n- Preserve the current model immediately, including pre-release contradictions and gaps.\n- Make Evolution the permanent default after public release.\n- Apply one undifferentiated preference profile to the standard and every implementation layer.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:29.693196427+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:29.693196427+00:00"
+    },
+    {
+      "revisionId": "44b84c99-24d7-4989-8f7c-096dee041a32",
+      "recordId": "92ac4529-261f-4e60-9434-7245ad2716be",
+      "fieldId": "5a000024-0000-4000-a000-000000000024",
+      "value": "Formation may require breaking migrations, concentrated change, and rejection of familiar structures. The project accepts those costs only where practical implementation, corpus, migration, authoring, or user evidence demonstrates that change is necessary for semantic integrity or shared coherence. The hard release transition deliberately forecloses continued pre-release freedom to break the public standard casually.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:29.693196427+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:29.693196427+00:00"
+    },
+    {
+      "revisionId": "d2ee0409-bbe9-459f-8945-56ba205bde2c",
+      "recordId": "92ac4529-261f-4e60-9434-7245ad2716be",
+      "fieldId": "5a000025-0000-4000-a000-000000000025",
+      "value": [
+        "https://github.com/the-greenman/srs/issues/256",
+        "docs/research/epic-256-decision-map/decision-ledger.json",
+        "docs/research/epic-256-decision-map/cube-analysis.md",
+        "docs/research/epic-256-decision-map/values-statement.md",
+        "https://github.com/the-greenman/muDemocracy.org/issues/136"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:29.693196427+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:29.693196427+00:00"
+    },
+    {
+      "revisionId": "ab2bf67e-d915-454e-b550-1b83f765d3ec",
+      "recordId": "92ac4529-261f-4e60-9434-7245ad2716be",
+      "fieldId": "5a000026-0000-4000-a000-000000000026",
+      "value": "The first full public release triggers the precommitted temporal reversal: `public-standard` replaces `formation`, and Continuity becomes the default. After that trigger, a breaking standard change requires an explicit version boundary, migration and compatibility analysis, recovery evidence, and owner ratification.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:29.693196427+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:29.693196427+00:00"
+    }
+  ]
+}

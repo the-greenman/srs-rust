@@ -1,0 +1,89 @@
+{
+  "recordId": "ed721ef6-a0cc-4cdf-9840-45e75db0048e",
+  "revisions": [
+    {
+      "revisionId": "a6aa6d6c-65bd-4014-ab8c-2ec87896014e",
+      "recordId": "ed721ef6-a0cc-4cdf-9840-45e75db0048e",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-025: Governance Package — Primary-Export DocumentView and Seed Root Container",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:14.228702695+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:14.228702695+00:00"
+    },
+    {
+      "revisionId": "0a60cc17-1f97-43fc-be41-9866d5f60258",
+      "recordId": "ed721ef6-a0cc-4cdf-9840-45e75db0048e",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "025",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:14.228702695+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:14.228702695+00:00"
+    },
+    {
+      "revisionId": "562f923b-1009-4c7c-8569-76892266dcda",
+      "recordId": "ed721ef6-a0cc-4cdf-9840-45e75db0048e",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "the-greenman",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:14.228702695+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:14.228702695+00:00"
+    },
+    {
+      "revisionId": "1e1af712-67de-400b-8970-11212059c7a1",
+      "recordId": "ed721ef6-a0cc-4cdf-9840-45e75db0048e",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "Governance-package DocumentView + seed root container. No canonical spec record/schema artifact (downstream package only).\n\n<!-- srs-integration:v1\ntooling-only\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:14.228702695+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:14.228702695+00:00"
+    },
+    {
+      "revisionId": "c70f3534-b7ff-49a4-90ba-c529a69be094",
+      "recordId": "ed721ef6-a0cc-4cdf-9840-45e75db0048e",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-025-governance-primary-export-documentview.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:14.228702695+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:14.228702695+00:00"
+    },
+    {
+      "revisionId": "3f3efb4f-7c77-4b53-869c-27ff2dd3ce2e",
+      "recordId": "ed721ef6-a0cc-4cdf-9840-45e75db0048e",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Adds a `governance-document` DocumentView to the `com.mudemocracy.governance` package and fixes the empty-governance seed to ship a conforming root container plus a `renderedPresentations` default. Introduces no new spec types or schema fields. Full text: rfcs/rfc-025-governance-primary-export-documentview.md.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:14.228702695+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:14.228702695+00:00"
+    }
+  ]
+}

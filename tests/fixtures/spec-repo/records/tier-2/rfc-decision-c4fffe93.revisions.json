@@ -1,0 +1,166 @@
+{
+  "recordId": "c4fffe93-a726-45df-8bc3-d0079cbc5a16",
+  "revisions": [
+    {
+      "revisionId": "1d35cdb3-04f9-456a-9608-ab77d56d618d",
+      "recordId": "c4fffe93-a726-45df-8bc3-d0079cbc5a16",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Replace valueType with orthogonal fieldType facets",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.611246266+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.611246266+00:00"
+    },
+    {
+      "revisionId": "0e44c1ee-f0fd-40cb-8494-e7b0b0aa7a21",
+      "recordId": "c4fffe93-a726-45df-8bc3-d0079cbc5a16",
+      "fieldId": "5a000004-0000-4000-a000-000000000004",
+      "value": "2026-07-29",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.611246266+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.611246266+00:00"
+    },
+    {
+      "revisionId": "636aaca0-c154-40d6-aee0-98d6d42c7797",
+      "recordId": "c4fffe93-a726-45df-8bc3-d0079cbc5a16",
+      "fieldId": "5a000012-0000-4000-a000-000000000012",
+      "value": "A Field needs independently composable semantic facets. Extending a single valueType enum while retaining parallel patch properties would leave datatype, cardinality, domain, format, and constraints ambiguous and unable to describe the metamodel coherently.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.611246266+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.611246266+00:00"
+    },
+    {
+      "revisionId": "29a416f2-a462-49fa-bddd-bd7a259105e8",
+      "recordId": "c4fffe93-a726-45df-8bc3-d0079cbc5a16",
+      "fieldId": "5a000019-0000-4000-a000-000000000019",
+      "value": "A Field expresses datatype, cardinality, value domain, format, and constraints as independent fieldType facets instead of extending the conflated valueType enum with more parallel patch properties.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.611246266+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.611246266+00:00"
+    },
+    {
+      "revisionId": "93a153fe-d3e2-4ff3-8c0f-683a55c4f8da",
+      "recordId": "c4fffe93-a726-45df-8bc3-d0079cbc5a16",
+      "fieldId": "5a000020-0000-4000-a000-000000000020",
+      "value": "Field semantic model",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.611246266+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.611246266+00:00"
+    },
+    {
+      "revisionId": "34b53cb6-0808-4b47-9846-ef5f26e35230",
+      "recordId": "c4fffe93-a726-45df-8bc3-d0079cbc5a16",
+      "fieldId": "5a000021-0000-4000-a000-000000000021",
+      "value": [
+        "semantic-integrity",
+        "evidence-led-evolution",
+        "shared-coherence"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.611246266+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.611246266+00:00"
+    },
+    {
+      "revisionId": "64f4b8dd-f2f4-4051-a557-047ffcde5462",
+      "recordId": "c4fffe93-a726-45df-8bc3-d0079cbc5a16",
+      "fieldId": "5a000022-0000-4000-a000-000000000022",
+      "value": "formation",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.611246266+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.611246266+00:00"
+    },
+    {
+      "revisionId": "8289a3d4-fd10-4b8f-b277-eb1d099bfbd6",
+      "recordId": "c4fffe93-a726-45df-8bc3-d0079cbc5a16",
+      "fieldId": "5a000023-0000-4000-a000-000000000023",
+      "value": "- Keep valueType and add composite as a ninth enum value.\n- Keep separate contentFormat, allowed-values, validation-rule, and repeatable mechanisms.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.611246266+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.611246266+00:00"
+    },
+    {
+      "revisionId": "83b96a00-e4c9-428e-b423-eafaf2f26ba2",
+      "recordId": "c4fffe93-a726-45df-8bc3-d0079cbc5a16",
+      "fieldId": "5a000024-0000-4000-a000-000000000024",
+      "value": "All Field definitions required a breaking, scripted definition-layer migration and existing readers temporarily could not load them.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.611246266+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.611246266+00:00"
+    },
+    {
+      "revisionId": "05ec6ebd-6ae3-4dc2-ad0b-63805675ebe3",
+      "recordId": "c4fffe93-a726-45df-8bc3-d0079cbc5a16",
+      "fieldId": "5a000025-0000-4000-a000-000000000025",
+      "value": [
+        "https://github.com/the-greenman/srs/blob/de2310bc5d90ed47597c0a1a99beffa26ac396b1/rfcs/rfc-032-composite-field-range.md#change-a--the-fieldtype-model-replaces-valuetype",
+        "https://github.com/the-greenman/srs/blob/ae52927de4e45490cb427fee2b332d5351f536cd/docs/schema/2.0/field.json"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.611246266+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.611246266+00:00"
+    },
+    {
+      "revisionId": "2ee1a777-93b0-40df-8f2c-018a2107f1f0",
+      "recordId": "c4fffe93-a726-45df-8bc3-d0079cbc5a16",
+      "fieldId": "5a000026-0000-4000-a000-000000000026",
+      "value": "Review before adding a fieldType facet or compatibility mechanism that re-couples independent semantic concerns.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:27.611246266+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:27.611246266+00:00"
+    }
+  ]
+}

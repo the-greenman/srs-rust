@@ -1,18 +1,19 @@
 {
-  "createdAt": "2026-06-25T08:06:55.155752609+00:00",
+  "instanceId": "ffe44c91-e262-4134-9031-5a9adff927c0",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-011: DocumentView query extensions — lifecycle-state exclusion and repository-wide type queries",
     "rfc_number": "011",
-    "rfc_status": "accepted",
     "author": "Peter Brownell",
     "affected_components": "ext:views-l2 (SectionSource.type-query), document-view.json\n\n<!-- srs-integration:v1\next:views-l2\nschema:document-view.json\n-->",
     "proposal_artifact_path": "rfcs/rfc-011-documentview-query-extensions.md",
     "content": "Adds three optional fields to SectionSource.type-query: lifecycleStates (multi-value inclusion filter), excludeLifecycleStates (exclusion filter), and containerScope (explicit | repository | subtree). Enables the decision-log pattern: rendering all non-superseded/non-abandoned decisions across a repository without listing every container ID. Tracked in the-greenman/srs#41."
   },
-  "instanceId": "ffe44c91-e262-4134-9031-5a9adff927c0",
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-06-25T08:06:55.155757694+00:00"
+  "lifecycleState": "accepted",
+  "createdAt": "2026-06-25T08:06:55.155752609+00:00",
+  "updatedAt": "2026-08-28T13:59:05.190236107+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

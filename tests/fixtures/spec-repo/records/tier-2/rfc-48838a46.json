@@ -1,22 +1,22 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-22T08:35:03.187390386+00:00",
+  "instanceId": "48838a46-5bc6-4b14-a2c2-0b471c6d4d9e",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-027: Per-record relation display in document views (relationsPresentation)",
     "rfc_number": "027",
-    "rfc_status": "accepted",
     "author": "the-greenman (from issue the-greenman/srs#212)",
     "affected_components": "`ext:views-l2` `DocumentSection.relationsPresentation` (RelationsPresentation, RelationPresentationEntry $defs in document-view.json); JSON projection ProjectedRecord.relations (ProjectedRelationRow, ProjectedRelationTarget $defs in document-view-output.json); rendering rules [I-027-1]-[I-027-8]; ext:views-l2 subsection amended.\n\n<!-- srs-integration:v1\next:views-l2\nschema:document-view.json\nschema:document-view-output.json\nsubsection:ext-views-l2\n-->",
     "proposal_artifact_path": "rfcs/rfc-027-document-view-relations-presentation.md",
     "content": "Adds one optional property to DocumentSection in ext:views-l2: `relationsPresentation`. When present, each member the section renders is followed by a deterministic links block listing the member's Relations of the declared types — forward edges under a forward label, incoming edges (opt-in via `directions`) under an inverse label. Forward labels default to the installed RelationTypeDefinition label; inverse labels default to a mechanical humanization of the definition's declared inverseType query label (RFC-005); either can be overridden per view. Only stored forward edges are read (Invariant 16); edges display only when their own status is absent or active. Schema changes: `document-view.json` gains RelationsPresentation / RelationPresentationEntry $defs on DocumentSection; `document-view-output.json` gains ProjectedRecord.relations with ProjectedRelationRow / ProjectedRelationTarget $defs. Serves the decision-log links-in-export residual (muDemocracy.org#48 → srs#212) and the rendered supersession audit trail (muDemocracy.org#58). Full text: rfcs/rfc-027-document-view-relations-presentation.md."
   },
-  "instanceId": "48838a46-5bc6-4b14-a2c2-0b471c6d4d9e",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-22T08:35:03.187396275+00:00"
+  "createdAt": "2026-07-22T08:35:03.187390386+00:00",
+  "updatedAt": "2026-08-28T13:58:16.064571796+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

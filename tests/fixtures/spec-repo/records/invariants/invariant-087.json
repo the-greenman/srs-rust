@@ -1,17 +1,17 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-08T22:25:59.864116563+00:00",
+  "instanceId": "818d636c-8347-46a1-a9a2-c99e2ee90d21",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant",
   "fieldValues": {
     "invariant_number": "I-87",
     "title": "manifest.container.identityInstanceId MUST reference a Tier-2 com.semanticops.core/purpose Record",
-    "normative_statement": "`manifest.container.identityInstanceId`, when present, MUST reference a Tier-2 Record of type `com.semanticops.core/purpose`. This invariant layers on RFC-013 I-81 (membership requirement retained; I-81 is not superseded); RFC-029 adds the type constraint on top. During the RFC-029 migration grace period (R7), an implementation MUST emit a migration warning rather than a validation error for existing repositories whose `identityInstanceId` resolves to a record that is not a Tier-2 `com.semanticops.core/purpose` Record (including Tier-0 notes and Tier-1 TypedRecords of any type). All newly-created repositories (post-RFC-029) must satisfy this invariant immediately.",
+    "normative_statement": "`manifest.container.identityInstanceId`, when present, MUST reference a Tier-2 Record of type `com.semanticops.core/purpose`. This invariant layers on RFC-013 I-81 (membership requirement retained; I-81 is not superseded); RFC-029 adds the type constraint on top. During the RFC-029 migration grace period (R7), an implementation MUST emit a migration warning rather than a validation error for existing repositories whose `identityInstanceId` resolves to a record that is not a Tier-2 `com.semanticops.core/purpose` Record (including Tier-0 notes). All newly-created repositories (post-RFC-029) must satisfy this invariant immediately.",
     "applies_to": "manifest.container.identityInstanceId; com.semanticops.core/purpose; RFC-029 R5, R7; RFC-013 I-81 (retained, layered); container identity model.",
     "rationale": "RFC-013 I-81 left the type of the identity record unconstrained, requiring only membership in the root container. This made the identity record un-navigable by the SRS type system — a consumer could not use `resolve_type`/`record_get` without a special code path for the missing-type case. By requiring a `com.semanticops.core/purpose` Record, identity resolution becomes an ordinary typed record lookup, and the RFC-013 Tier-0-note default is formally superseded."
   },
-  "instanceId": "818d636c-8347-46a1-a9a2-c99e2ee90d21",
-  "typeId": "2a000006-0000-4000-a000-000000000006",
-  "typeName": "invariant",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-23T22:47:50.430439622+00:00"
+  "createdAt": "2026-07-08T22:25:59.864116563+00:00",
+  "updatedAt": "2026-08-27T18:16:01.725069347+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

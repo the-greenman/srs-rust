@@ -49,7 +49,9 @@
     "fields/lifecycle-ref.json"
   ],
   "id": "f6e5d4c3-b2a1-4f8e-9d7c-6b5a4a3b2c1d",
-  "lifecycles": [],
+  "lifecycles": [
+    "lifecycles/spec-rfc-process-0b50b6b5.json"
+  ],
   "name": "srs-specification-package",
   "namespace": "com.semanticops.srs",
   "relationTypes": [

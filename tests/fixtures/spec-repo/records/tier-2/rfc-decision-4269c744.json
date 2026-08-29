@@ -1,9 +1,11 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-08-02T13:59:15.771038602+00:00",
+  "instanceId": "4269c744-8b73-4c8d-b6b9-e5b05e8bd1ef",
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeVersion": 2,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc-decision",
   "fieldValues": {
     "title": "Place composite-renderer dispatch in the view layer",
-    "rfc_status": "accepted",
     "decision_date": "2026-07-31",
     "decision_rationale": "Composite renderer choice is a presentation arrangement, not a property of a Field or Type. View ownership permits multiple legitimate presentations of the same records while retaining a portable precedence contract.",
     "decision_statement": "Composite renderer selection is owned by the view layer rather than Field or Type, so different views may present the same semantic records differently.",
@@ -22,13 +24,11 @@
     ],
     "review_trigger": "Review when renderer selection is proposed on a semantic definition or instance, or when view-level declarations cannot express a needed presentation."
   },
-  "instanceId": "4269c744-8b73-4c8d-b6b9-e5b05e8bd1ef",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000004-0000-4000-a000-000000000004",
-  "typeName": "rfc-decision",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 2,
-  "updatedAt": "2026-08-02T13:59:15.771041735+00:00"
+  "createdAt": "2026-08-02T13:59:15.771038602+00:00",
+  "updatedAt": "2026-08-28T13:58:20.829249245+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

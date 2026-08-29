@@ -1,0 +1,166 @@
+{
+  "recordId": "2fb87c1e-dc5f-442d-ade0-67ee71979627",
+  "revisions": [
+    {
+      "revisionId": "694a0969-e9a8-44f2-8e38-bcd594ea9eb8",
+      "recordId": "2fb87c1e-dc5f-442d-ade0-67ee71979627",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Make the authoritative store, not the manifest, define repository content",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:20.316982657+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:20.316982657+00:00"
+    },
+    {
+      "revisionId": "7e68f974-9ccb-4624-9c69-3bf212d2ad9a",
+      "recordId": "2fb87c1e-dc5f-442d-ade0-67ee71979627",
+      "fieldId": "5a000004-0000-4000-a000-000000000004",
+      "value": "2026-08-01",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:20.316982657+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:20.316982657+00:00"
+    },
+    {
+      "revisionId": "eda480e3-2410-4e6f-acf3-ebc61a18756b",
+      "recordId": "2fb87c1e-dc5f-442d-ade0-67ee71979627",
+      "fieldId": "5a000012-0000-4000-a000-000000000012",
+      "value": "An index can become stale or disagree with the stored objects it claims to enumerate. A common logical store-authority contract makes repository content coherent across backends while leaving each backend free to implement discovery.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:20.316982657+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:20.316982657+00:00"
+    },
+    {
+      "revisionId": "5767afb4-43ba-44fa-b695-d70548d13749",
+      "recordId": "2fb87c1e-dc5f-442d-ade0-67ee71979627",
+      "fieldId": "5a000019-0000-4000-a000-000000000019",
+      "value": "A repository's authoritative content is what its authoritative store reports across the instance, relation, container, source-document, definition, and extension sets; manifest.json is not content authority except for its inline root container.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:20.316982657+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:20.316982657+00:00"
+    },
+    {
+      "revisionId": "3c3756ae-c7ea-4dd7-a06f-6c107d77dccf",
+      "recordId": "2fb87c1e-dc5f-442d-ade0-67ee71979627",
+      "fieldId": "5a000020-0000-4000-a000-000000000020",
+      "value": "Repository content authority and enumeration",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:20.316982657+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:20.316982657+00:00"
+    },
+    {
+      "revisionId": "739f5542-7245-4953-8077-d1c08810e1da",
+      "recordId": "2fb87c1e-dc5f-442d-ade0-67ee71979627",
+      "fieldId": "5a000021-0000-4000-a000-000000000021",
+      "value": [
+        "semantic-integrity",
+        "evidence-led-evolution",
+        "shared-coherence"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:20.316982657+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:20.316982657+00:00"
+    },
+    {
+      "revisionId": "da9c0a27-0467-43fe-87e3-24cac7656eb1",
+      "recordId": "2fb87c1e-dc5f-442d-ade0-67ee71979627",
+      "fieldId": "5a000022-0000-4000-a000-000000000022",
+      "value": "formation",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:20.316982657+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:20.316982657+00:00"
+    },
+    {
+      "revisionId": "80d8a1f2-6c40-45b8-8f0b-799e74c3d4c4",
+      "recordId": "2fb87c1e-dc5f-442d-ade0-67ee71979627",
+      "fieldId": "5a000023-0000-4000-a000-000000000023",
+      "value": "- Keep manifest indexes authoritative.\n- Let each implementation choose between index and tree authority.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:20.316982657+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:20.316982657+00:00"
+    },
+    {
+      "revisionId": "ab88e25f-4aca-437d-87c6-d2ef00c83c15",
+      "recordId": "2fb87c1e-dc5f-442d-ade0-67ee71979627",
+      "fieldId": "5a000024-0000-4000-a000-000000000024",
+      "value": "Implementations must replace index-driven enumeration and accept a coordinated breaking storage migration.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:20.316982657+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:20.316982657+00:00"
+    },
+    {
+      "revisionId": "9c6a2f8e-66a0-4d0b-9f40-474d6af88627",
+      "recordId": "2fb87c1e-dc5f-442d-ade0-67ee71979627",
+      "fieldId": "5a000025-0000-4000-a000-000000000025",
+      "value": [
+        "https://github.com/the-greenman/srs/blob/1a1746d3ebf8346914fd88920dcaf2b80b07d877/rfcs/rfc-038-tree-authoritative-storage.md#L162-L179",
+        "https://github.com/the-greenman/srs/blob/1a1746d3ebf8346914fd88920dcaf2b80b07d877/rfcs/rfc-038-tree-authoritative-storage.md#L749-L754"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:20.316982657+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:20.316982657+00:00"
+    },
+    {
+      "revisionId": "d3c6bf2d-ad53-4d23-a987-1321f8c6a86c",
+      "recordId": "2fb87c1e-dc5f-442d-ade0-67ee71979627",
+      "fieldId": "5a000026-0000-4000-a000-000000000026",
+      "value": "Review when a new backend cannot answer the authoritative-set contract, or when a manifest field is proposed as a second content authority.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:20.316982657+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:20.316982657+00:00"
+    }
+  ]
+}

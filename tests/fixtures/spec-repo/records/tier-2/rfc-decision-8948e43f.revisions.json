@@ -1,0 +1,168 @@
+{
+  "recordId": "8948e43f-ec4f-4e86-ba14-c61f0acadc42",
+  "revisions": [
+    {
+      "revisionId": "0ac08d1a-c6b8-479c-b946-b08ebec67be4",
+      "recordId": "8948e43f-ec4f-4e86-ba14-c61f0acadc42",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "What a container can hold, a bundle can carry",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:25.875507814+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:25.875507814+00:00"
+    },
+    {
+      "revisionId": "c3981b97-6302-416a-805e-642d35458ccd",
+      "recordId": "8948e43f-ec4f-4e86-ba14-c61f0acadc42",
+      "fieldId": "5a000004-0000-4000-a000-000000000004",
+      "value": "2026-08-22",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:25.875507814+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:25.875507814+00:00"
+    },
+    {
+      "revisionId": "60e4ffe1-b517-4e90-b5ce-1621ffc55ec0",
+      "recordId": "8948e43f-ec4f-4e86-ba14-c61f0acadc42",
+      "fieldId": "5a000012-0000-4000-a000-000000000012",
+      "value": "The mission is semantic sovereignty THROUGH portable data, and the practice-sharing articulation (rfc-decision-2e0cd70a) ranks the sharing of fields, types, blueprints and protocols above the content itself. The attestation showed the Water column dormant while srs#390 sat as a known gap: both governance-shaped packages would be unexportable the day they used what containers can hold. Portability over Possession makes the travelling form the test, not an afterthought.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:25.875507814+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:25.875507814+00:00"
+    },
+    {
+      "revisionId": "1c18df8f-0e57-45a8-967f-d47d0c232306",
+      "recordId": "8948e43f-ec4f-4e86-ba14-c61f0acadc42",
+      "fieldId": "5a000019-0000-4000-a000-000000000019",
+      "value": "Axis 6-12 (Portability over Possession) applied as the travel mandate: every construct the standard lets a repository hold MUST be expressible in the standard's travelling forms - the package bundle for definitions, the archive/slice forms for content. A capability that exists only in place is captivity, the purpose statement's named failure mode. Concretely and immediately: the package-bundle format's inability to carry Themes, Blueprints, and Protocols (srs#390) is promoted from bug to mandate violation - the bundle grows to carry every one of the package-manifest's ten definition kinds, and the two lists are derived from one source so they cannot diverge again (finding A6's enum derivation). Standing rule for every future construct: the travelling form ships in the same RFC that introduces the held form, or the RFC states the explicit axis 3-9 local-boundary exception that keeps it in place.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:25.875507814+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:25.875507814+00:00"
+    },
+    {
+      "revisionId": "80657904-4309-43fd-aa3c-481dbbdddc60",
+      "recordId": "8948e43f-ec4f-4e86-ba14-c61f0acadc42",
+      "fieldId": "5a000020-0000-4000-a000-000000000020",
+      "value": "Promotes srs#390 to mandated work (bundle carries all ten kinds; execution scheduled with the #272/#273 window where bundle schemas are already open). Binds all future RFCs introducing holdable constructs. Does not mandate federation machinery (removed separately) - travel here is the artifact forms, not the transport.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:25.875507814+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:25.875507814+00:00"
+    },
+    {
+      "revisionId": "2656de76-2888-432a-92ac-1413109bbdb5",
+      "recordId": "8948e43f-ec4f-4e86-ba14-c61f0acadc42",
+      "fieldId": "5a000021-0000-4000-a000-000000000021",
+      "value": [
+        "semantic-integrity",
+        "shared-coherence",
+        "local-autonomy"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:25.875507814+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:25.875507814+00:00"
+    },
+    {
+      "revisionId": "0f84ff39-ba70-447b-b1a9-ff0e04312c94",
+      "recordId": "8948e43f-ec4f-4e86-ba14-c61f0acadc42",
+      "fieldId": "5a000022-0000-4000-a000-000000000022",
+      "value": "formation",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:25.875507814+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:25.875507814+00:00"
+    },
+    {
+      "revisionId": "a23ca800-bf47-43f0-86fd-0e42bd1544bc",
+      "recordId": "8948e43f-ec4f-4e86-ba14-c61f0acadc42",
+      "fieldId": "5a000023-0000-4000-a000-000000000023",
+      "value": "Treating #390 as an ordinary capability gap to schedule on demand (rejected: the mission's own failure mode deserves a standing rule, not a ticket); mandating full parity including runtime state (rejected: state and runtime surfaces are not held constructs; the mandate covers what the standard defines as holdable).",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:25.875507814+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:25.875507814+00:00"
+    },
+    {
+      "revisionId": "0270cad8-eda3-41c9-a642-f87cdfdfc657",
+      "recordId": "8948e43f-ec4f-4e86-ba14-c61f0acadc42",
+      "fieldId": "5a000024-0000-4000-a000-000000000024",
+      "value": "Every future construct pays a travel tax at design time (its bundle/archive expression, or an explicit exception). The bundle format grows and its schema churns with the ten-kinds derivation.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:25.875507814+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:25.875507814+00:00"
+    },
+    {
+      "revisionId": "5c3e9069-a6d1-4a2b-8d04-b5b200feb28e",
+      "recordId": "8948e43f-ec4f-4e86-ba14-c61f0acadc42",
+      "fieldId": "5a000025-0000-4000-a000-000000000025",
+      "value": [
+        "srs#390 (the proving gap)",
+        "srs#435 findings B7, C11, A6",
+        "rfc-decision-cce3c00e (axis 6-12) and rfc-decision-2e0cd70a (practice-sharing mission)",
+        "RFC-026 (slices, the content-side travelling form)"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:25.875507814+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:25.875507814+00:00"
+    },
+    {
+      "revisionId": "00e7fdd9-69e3-4fca-bd7c-1157c461b52f",
+      "recordId": "8948e43f-ec4f-4e86-ba14-c61f0acadc42",
+      "fieldId": "5a000026-0000-4000-a000-000000000026",
+      "value": "A construct whose travelling form is genuinely impossible rather than unbuilt - that would mean the construct itself violates the axis and needs redesign, not exemption.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:25.875507814+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:25.875507814+00:00"
+    }
+  ]
+}

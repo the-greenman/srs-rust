@@ -6,7 +6,6 @@
   "typeName": "rfc-decision",
   "fieldValues": {
     "title": "Decision modes: rules for the clear, geometry for the complex, a boundary against chaos",
-    "rfc_status": "accepted",
     "decision_date": "2026-08-23",
     "decision_rationale": "The decision-layering precedents research (2026-08-23) recommended Cynefin-style mode classification as a missing mechanism, warning that a charter applying the same rule-based compression in clear, complicated and complex situations is dangerous, and naming premature classification as the first automated-ritualization pathology. The owner ruled the adoption with the design that completes it: simple and complicated decisions can generally be addressed through rules; complex decisions need a stronger judgment mechanism that allows looking ahead and mapping consequences and emergence; the geometry of the matrix is a key mechanism for complexity; chaotic decisions are outside the spec boundary. The ruling is also evidence-led (axis 2-8): the track's own history attests both halves - the ~20 layer-determined signatures were clear/complicated cases correctly resolved by rules, while the #273 decision map, the preference-layer construction, and the fix-vs-redo review were complex cases correctly resolved by geometry. This record formalizes attested practice rather than introducing speculative process.",
     "decision_statement": "Cell: Governance. Every charter-checked decision names its mode - clear, complicated, complex, chaotic, or unresolved - and the mode determines which decision machinery applies:\n\nCLEAR and COMPLICATED decisions are addressed through rules: the charter check as specified (cell citation, governing preference, boundary-clause justification for a non-default pole, past-decision search) is sufficient. Complicated decisions may additionally need expert analysis, but the charter's existing adjudication machinery governs them.\n\nCOMPLEX decisions require a stronger judgment mechanism, and charter citation alone is INSUFFICIENT - forcing a complex case into a single cell to produce a citation is the premature-classification pathology, forbidden by name. The mechanism for complexity is THE GEOMETRY OF THE MATRIX: the decision is mapped, not cited - located across the cells it genuinely touches (complex concerns straddle), its options plotted for consequences along the axes and polarities, checked for column coherence, and examined for emergence through look-ahead rather than rule application. This is the decision-map method as practiced (the #273 decision-consequence map and the construction of this charter itself are its precedents): options side-by-side, consequences plotted, tensions held visibly, probes and a review date where outcomes are genuinely unknowable in advance, and the owner in the loop. A complex decision resolves into rulings; it is never resolved by guard compliance.\n\nCHAOTIC situations are OUTSIDE THE SPEC BOUNDARY. The standard and its charter do not adjudicate chaos: no charter process applies, stabilizing action is not a spec act, and the spec's writ resumes only when the situation admits mapping again - re-entering as complex or complicated. The boundary is itself a protection: a governance system that claims jurisdiction over chaos will either paralyze the response or corrupt its own record.\n\nUNRESOLVED (mode not yet determinable) and CONTESTED mode assignments default to the more cautious handling: complex over complicated, boundary over adjudication.",
@@ -27,11 +26,12 @@
     ],
     "review_trigger": "Review if mode-gaming toward 'clear' is observed twice (the cautious-default clause may need teeth), or if a chaotic situation's re-entry proves to need more definition than 'admits mapping again'."
   },
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc",
     "cell:governance"
   ],
   "createdAt": "2026-08-23T12:03:37.220497678+00:00",
-  "updatedAt": "2026-08-23T18:55:13.167899549+00:00",
+  "updatedAt": "2026-08-28T13:58:25.012422046+00:00",
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

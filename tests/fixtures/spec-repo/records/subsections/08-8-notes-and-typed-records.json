@@ -1,11 +1,21 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-05-27T00:00:00Z",
+  "instanceId": "250ab2e5-095f-5448-99ab-4e419f27d844",
+  "typeId": "2a000003-0000-4000-a000-000000000003",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "subsection",
   "fieldValues": {
-    "title": "Notes and Typed Records",
+    "title": "Notes",
     "content": ""
   },
-  "instanceId": "250ab2e5-095f-5448-99ab-4e419f27d844",
+  "tags": [
+    "construct:record",
+    "construct:type",
+    "topic:conformance"
+  ],
+  "createdAt": "2026-05-27T00:00:00Z",
+  "updatedAt": "2026-08-27T18:15:36.579263778+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "sourceRefs": [
     {
       "note": "Subsection 08-8 from srs-spec.md - coarse source anchoring during migration",
@@ -13,14 +23,5 @@
       "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
       "sourceType": "repository-document"
     }
-  ],
-  "tags": [
-    "construct:record",
-    "construct:type",
-    "topic:conformance"
-  ],
-  "typeId": "2a000003-0000-4000-a000-000000000003",
-  "typeName": "subsection",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1
+  ]
 }

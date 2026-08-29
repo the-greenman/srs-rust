@@ -1,19 +1,19 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-06-24T16:05:18.002057939+00:00",
+  "instanceId": "875488ee-499e-460b-bb8e-979785877828",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-009: Root-record Type as the typing anchor for Containers, Document Views, and distributable units",
     "rfc_number": "009",
-    "rfc_status": "accepted",
     "author": "Peter Brownell",
-    "affected_components": "ext:views-l2 (DocumentView), Container (core), ext:blueprint (Blueprint), document-view.json, container.json, manifest.json, blueprint.json\n\n<!-- srs-integration:v1\next:views-l2\nschema:document-view.json\nschema:container.json\nschema:manifest.json\nschema:blueprint.json\nI-63\nI-64\nI-65\nI-66\nI-78\n-->",
+    "affected_components": "ext:views-l2 (DocumentView), Container (core), ext:blueprint (Blueprint), document-view.json, container.json, manifest.json, blueprint.json\n\n<!-- srs-integration:v1\next:views-l2\nschema:document-view.json\nschema:container.json\nschema:manifest.json\nschema:blueprint.json\nI-63\nI-64\nI-65\nI-66\nI-78\nI-145\n-->",
     "proposal_artifact_path": "rfcs/rfc-009-root-record-type-anchor.md",
-    "content": "Adds UUID-based typed anchors to the Blueprint→View→Container linkage: DocumentView.rootTypeRefs (ExactTypeRef[]) for Container matching; Blueprint.rootTypes formally defined as ExactTypeRef[]; containers_for_instance as a normative core operation; Container metadata spec alignment (description, vocabulary-backed tags). Invariants I-63 through I-66 and I-78. Tracked in srs#39 (original), srs#67 (blueprint extension)."
+    "content": "Adds UUID-based typed anchors to the Blueprint→View→Container linkage: DocumentView.rootTypeRefs (ExactTypeRef[]) for Container matching; Blueprint.rootTypes formally defined as ExactTypeRef[]; containers_for_instance as a normative core operation; Container metadata spec alignment (description, vocabulary-backed tags). Invariants I-63 through I-66 and I-78. Tracked in srs#39 (original), srs#67 (blueprint extension). Amended by srs#446 (Rev 6): the typing anchor is Container.anchorInstanceId (I-145), not rootInstanceIds[0]; see rfc-decision-cce3c00e."
   },
-  "instanceId": "875488ee-499e-460b-bb8e-979785877828",
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-06-24T16:05:18.002061515+00:00"
+  "lifecycleState": "accepted",
+  "createdAt": "2026-06-24T16:05:18.002057939+00:00",
+  "updatedAt": "2026-08-28T14:09:29.270130323+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

@@ -6,7 +6,6 @@
   "typeName": "rfc-decision",
   "fieldValues": {
     "title": "Invariant normativity is RFC acceptance plus projection-root placement",
-    "rfc_status": "accepted",
     "decision_date": "2026-08-22",
     "decision_rationale": "srs#410 (D4 of the #285 disposition batch) originally directed narrowing RFC-016 [R1] on the premise that the three RFC-011 invariant records under package/records/ were unratified. That premise was factually wrong: RFC-011 is Accepted (Revision 1) and the three records (invariant_number 011-1/2/3) are ordinary com.semanticops.spec/invariant records with no proposed/lifecycle marker. With the premise gone, Semantic Integrity points the other way: an accepted normative statement that reaches no reader is the census's own defect class, and RFC-016's founding purpose was precisely that invariants added via the RFC pipeline reach the rendered spec. Rule-text-matches-reality also cuts for the literal [R1] here: the rule was correct, the placement (and therefore the projection) is what failed it. Narrowing [R1] would have fixed the spec to match a buggy outcome. A residual gap remained even after relocation: the three records carried rule-set-qualified invariant_number values (011-1/2/3) that render-invariants.mjs's parseSortKey does not derive a sort key for, and no RFC-016/RFC-011/RFC-039/RFC-020 text nor prior rfc-decision defines one. The owner's 2026-08-22 disposition resolved this under the Evolution-phase default (nothing in the spec is fixed pre-ratification) plus rfc-decision-628cf6c4 (a rename is a migration): renumber to the next sequential canonical I-<n> rather than inventing a second sort-key derivation, since a projected invariant has exactly one numbering form.",
     "decision_statement": "An invariant is normative when its governing RFC is Accepted AND its record is placed in the projection root (records/invariants/); placement in the root is itself the ratification act, not a consequence of it. A com.semanticops.spec/invariant record anywhere else in the repository is a fail-closed diagnostic (checked by scripts/check-invariant-placement.mjs), not a legitimate exclusion — closing the trap that let the next stray invariant either silently violate literal RFC-016 [R1] again, or force widening the projection to match it. A projected invariant has exactly one numbering form: canonical I-<n>, assigned sequentially at the moment of relocation into the projection root. A rule-set-qualified numbering form (e.g. \"011-1\") remains legitimate for pre-ratification RFC-authoring records, but does not carry into the projection; it is preserved only as historical text in the relocated record's rationale.",
@@ -34,10 +33,11 @@
     ],
     "review_trigger": "A future com.semanticops.spec/invariant record discovered outside records/invariants/ that scripts/check-invariant-placement.mjs flags: resolve by relocating and renumbering per this decision, not by adding a new publication-reachability exclusion for it."
   },
+  "lifecycleState": "accepted",
   "tags": [
     "cell:containment"
   ],
   "createdAt": "2026-08-22T20:32:54.666492644+00:00",
-  "updatedAt": "2026-08-23T18:55:15.850311985+00:00",
+  "updatedAt": "2026-08-28T13:58:30.216711299+00:00",
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

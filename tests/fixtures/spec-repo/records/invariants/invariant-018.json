@@ -1,13 +1,23 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-05-27T00:00:00Z",
+  "instanceId": "e1000018-0000-4000-a000-000000000018",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant",
   "fieldValues": {
     "invariant_number": "18",
     "title": "NoteSection.name values must be unique within a Note.",
     "normative_statement": "`NoteSection.name` values must be unique within a `Note`.",
-    "applies_to": "core — Note/TypedRecord"
+    "applies_to": "core — Note"
   },
-  "instanceId": "e1000018-0000-4000-a000-000000000018",
+  "tags": [
+    "concern:validation",
+    "construct:record",
+    "topic:conformance"
+  ],
+  "createdAt": "2026-05-27T00:00:00Z",
+  "updatedAt": "2026-08-27T18:16:01.636652415+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "sourceRefs": [
     {
       "note": "Invariant 18 from srs-spec.md section 08",
@@ -15,14 +25,5 @@
       "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
       "sourceType": "repository-document"
     }
-  ],
-  "tags": [
-    "concern:validation",
-    "construct:record",
-    "topic:conformance"
-  ],
-  "typeId": "2a000006-0000-4000-a000-000000000006",
-  "typeName": "invariant",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1
+  ]
 }
