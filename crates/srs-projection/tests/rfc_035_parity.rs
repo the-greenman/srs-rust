@@ -172,11 +172,25 @@ fn bundle_envelope_matches_the_reference_emitter_byte_for_byte() {
     )
     .expect("bundle must emit");
 
-    // RFC-033 [R6]: the bundle carries the revision it was generated for. The
-    // spec repo is stamped 4 (srs#448/srs#505's Tier-1 retirement, srs-rust#883);
-    // absent ⇒ 0, so this also proves the stamp is being read rather than
-    // defaulted.
-    assert_eq!(result.bundle.data_model_revision, 4);
+    // RFC-033 [R6]: the bundle carries the revision it was generated for. Read
+    // the expectation from the spec's own manifest.json rather than cloning
+    // its current revision into a literal here — a literal breaks every time
+    // the spec bumps dataModelRevision (2->3 in 38386cfa, 3->4 above, and
+    // 4->5 is already queued behind srs PR #510). The manifest's stamp is
+    // asserted non-zero first, so this still proves the bundle's stamp is
+    // being read rather than defaulted to 0.
+    let manifest_raw = std::fs::read_to_string(spec.join("srs/manifest.json"))
+        .expect("spec repo's srs/manifest.json must be readable");
+    let manifest: serde_json::Value =
+        serde_json::from_str(&manifest_raw).expect("srs/manifest.json must be valid JSON");
+    let expected_revision = manifest["dataModelRevision"]
+        .as_u64()
+        .expect("srs/manifest.json must stamp dataModelRevision");
+    assert!(
+        expected_revision > 0,
+        "dataModelRevision must not be the absent-default 0"
+    );
+    assert_eq!(result.bundle.data_model_revision, expected_revision);
 
     let got = to_canonical_json(&result.bundle).expect("serializes");
     let want = golden(&spec, "bundle.json");
