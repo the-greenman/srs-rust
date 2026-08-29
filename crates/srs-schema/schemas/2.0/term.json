@@ -38,10 +38,10 @@
       "enum": ["active", "deprecated", "tombstone", "retired"],
       "description": "Absent means active."
     },
-    "properties": {
+    "meta": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Arbitrary metadata per substrate Change H policy."
+      "description": "Arbitrary metadata per substrate Change H policy (rfc-decision-6fc7e142: the one escape-bag name, matching the instance layer's meta)."
     },
     "createdAt": { "type": "string", "format": "date-time" },
     "updatedAt": { "type": "string", "format": "date-time" }

@@ -73,7 +73,7 @@
         "requiresRelation": {
           "$ref": "#/$defs/RequiresRelation"
         },
-        "properties": {
+        "meta": {
           "type": "object",
           "additionalProperties": true
         }
@@ -128,7 +128,7 @@
         "from": { "type": "string", "description": "Source state key." },
         "to": { "type": "string", "description": "Target state key." },
         "description": { "type": "string" },
-        "properties": {
+        "meta": {
           "type": "object",
           "additionalProperties": true
         }
