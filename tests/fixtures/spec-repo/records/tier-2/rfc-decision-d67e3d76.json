@@ -1,9 +1,11 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-08-02T13:59:15.750859981+00:00",
+  "instanceId": "d67e3d76-cf55-47b8-a611-fe71cad41d2d",
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeVersion": 2,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc-decision",
   "fieldValues": {
     "title": "Express the definition-layer metamodel in its own Field and Type language",
-    "rfc_status": "accepted",
     "decision_date": "2026-07-29",
     "decision_rationale": "A second schema-source vocabulary would create two authorities for the same definitions. The canonical definition layer must use the Field and Type language it defines, with generated schemas retained as runtime projections.",
     "decision_statement": "Field, Type, FieldAssignment, and the in-scope value objects are authored as SRS definitions in the canonical com.semanticops.srs/metamodel package, replacing RFC-004's parallel schema-source vocabulary.",
@@ -22,13 +24,11 @@
     ],
     "review_trigger": "Review when a new definition-layer concern appears to require a parallel source language rather than a sanctioned metamodel extension."
   },
-  "instanceId": "d67e3d76-cf55-47b8-a611-fe71cad41d2d",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000004-0000-4000-a000-000000000004",
-  "typeName": "rfc-decision",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 2,
-  "updatedAt": "2026-08-02T13:59:15.750863991+00:00"
+  "createdAt": "2026-08-02T13:59:15.750859981+00:00",
+  "updatedAt": "2026-08-28T13:58:28.816005593+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

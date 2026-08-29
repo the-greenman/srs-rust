@@ -6,7 +6,6 @@
   "typeName": "rfc-decision",
   "fieldValues": {
     "title": "Rename DocumentView to Composition",
-    "rfc_status": "accepted",
     "decision_date": "2026-08-19",
     "decision_rationale": "The corpus itself could not use the old name unambiguously: RFC-015's renderedPresentations.viewId points at a DocumentView, and two entities shared the word \"view\" across ext:views-l1/ext:views-l2. Composition names exactly what the entity does. The owner had arrived at this name previously and the decision was lost unrecorded — this record exists so it cannot be lost again.",
     "decision_statement": "The document-composition entity is named Composition; the name DocumentView retires. The rendering-chain vocabulary is Composition → Presentation → Projection: a Composition defines how records compose into a document; a Presentation is a repository's declared commitment to render a Composition in a format (manifest.renderedPresentations); a Projection is the produced artifact. \"Export\" retires as vocabulary with the VIEW_EXPORTS mechanism.",
@@ -24,11 +23,12 @@
     ],
     "review_trigger": "Review if srs#272's regeneration cannot execute the rename atomically with the schema rewrite, or if RFC-034's rephrasing is refused."
   },
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc",
     "cell:description"
   ],
   "createdAt": "2026-08-19T08:52:49.447849458+00:00",
-  "updatedAt": "2026-08-23T18:55:14.144874065+00:00",
+  "updatedAt": "2026-08-28T13:58:26.743495687+00:00",
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

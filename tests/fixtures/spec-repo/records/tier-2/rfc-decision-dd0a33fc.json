@@ -1,9 +1,11 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-08-02T13:59:15.758398341+00:00",
+  "instanceId": "dd0a33fc-c948-4bce-a599-8c54674f244a",
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeVersion": 2,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc-decision",
   "fieldValues": {
     "title": "Make projection loss explicit in a per-emitter fidelity contract",
-    "rfc_status": "accepted",
     "decision_date": "2026-07-29",
     "decision_rationale": "Target projections can be useful without being fully lossless, but no emitter may silently erase authoritative meaning. Per-emitter fidelity makes every approximation inspectable, testable, and comparable.",
     "decision_statement": "Every metamodel feature is classified as authoritative or approximated for each emitter; authoritative meaning cannot be silently dropped and approximated meaning must emit its documented lossy shape.",
@@ -21,13 +23,11 @@
     ],
     "review_trigger": "Review when an emitter adds a feature, changes an approximation, or cannot represent a newly authoritative metamodel construct."
   },
-  "instanceId": "dd0a33fc-c948-4bce-a599-8c54674f244a",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000004-0000-4000-a000-000000000004",
-  "typeName": "rfc-decision",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 2,
-  "updatedAt": "2026-08-02T13:59:15.758404675+00:00"
+  "createdAt": "2026-08-02T13:59:15.758398341+00:00",
+  "updatedAt": "2026-08-28T13:58:29.173603532+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

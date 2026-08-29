@@ -1,0 +1,89 @@
+{
+  "recordId": "68f19e31-7616-5675-ae53-1ff8880680db",
+  "revisions": [
+    {
+      "revisionId": "e8284b09-36ce-4c60-81bd-4a74bcf5dd1b",
+      "recordId": "68f19e31-7616-5675-ae53-1ff8880680db",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-033: Self-hosting the meta-model — the frozen-seed bootstrap package",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:56:28.311259042+00:00"
+      },
+      "createdAt": "2026-08-28T13:56:28.311259042+00:00"
+    },
+    {
+      "revisionId": "238b2e25-dbec-4e11-a711-c07d702d771e",
+      "recordId": "68f19e31-7616-5675-ae53-1ff8880680db",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "033",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:56:28.311259042+00:00"
+      },
+      "createdAt": "2026-08-28T13:56:28.311259042+00:00"
+    },
+    {
+      "revisionId": "bfe5510b-7ef8-4559-a7d4-1418982bed0c",
+      "recordId": "68f19e31-7616-5675-ae53-1ff8880680db",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "the-greenman",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:56:28.311259042+00:00"
+      },
+      "createdAt": "2026-08-28T13:56:28.311259042+00:00"
+    },
+    {
+      "revisionId": "2f0e12da-9b39-41ea-b87a-36871fb1f5cd",
+      "recordId": "68f19e31-7616-5675-ae53-1ff8880680db",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "Self-hosts the SRS meta-model as SRS Type records in the frozen `com.semanticops.srs/metamodel` package (10 Types + 55 Fields); adds optional `dataModelRevision` (folds #265) to manifest/package-manifest/package-bundle schemas; adds the per-emitter fidelity dashboard; supersedes RFC-004's schema-notation vocabulary (reuses its projection-rules).\n\n<!-- srs-integration:v1\nschema:manifest.json\nschema:package-manifest.json\nschema:package-bundle.json\ntype:com.semanticops.srs/field\ntype:com.semanticops.srs/type\ntype:com.semanticops.srs/field-type\ntype:com.semanticops.srs/field-assignment\ntype:com.semanticops.srs/exact-type-ref\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:56:28.311259042+00:00"
+      },
+      "createdAt": "2026-08-28T13:56:28.311259042+00:00"
+    },
+    {
+      "revisionId": "1fcee532-24d3-4bd3-b97a-f6553b7a0b03",
+      "recordId": "68f19e31-7616-5675-ae53-1ff8880680db",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-033-self-host-metamodel-frozen-seed.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:56:28.311259042+00:00"
+      },
+      "createdAt": "2026-08-28T13:56:28.311259042+00:00"
+    },
+    {
+      "revisionId": "8cf1257e-b0d4-4478-976e-7c0f5e50f247",
+      "recordId": "68f19e31-7616-5675-ae53-1ff8880680db",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Expresses Field, Type, FieldAssignment and their value-objects as SRS Type records in a frozen com.semanticops.srs/metamodel package; keeps docs/schema/2.0/{field,type}.json as the never-re-derived bootstrap fixed point; adds a monotonic dataModelRevision stamp (#265) and a per-emitter fidelity dashboard; supersedes RFC-004's schema-notation vocabulary while reusing its projection-rules. Full text: rfcs/rfc-033-self-host-metamodel-frozen-seed.md.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:56:28.311259042+00:00"
+      },
+      "createdAt": "2026-08-28T13:56:28.311259042+00:00"
+    }
+  ]
+}

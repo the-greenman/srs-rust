@@ -1,0 +1,89 @@
+{
+  "recordId": "302d7a03-bb9b-40e7-b7c8-c11eac9b21a2",
+  "revisions": [
+    {
+      "revisionId": "2dedbe3f-852b-466c-ae37-f0856a33dacb",
+      "recordId": "302d7a03-bb9b-40e7-b7c8-c11eac9b21a2",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-037: Normative field-row rendering baseline",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:10.188124498+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:10.188124498+00:00"
+    },
+    {
+      "revisionId": "0623aa02-4d09-4d34-b51a-c361a337cd82",
+      "recordId": "302d7a03-bb9b-40e7-b7c8-c11eac9b21a2",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "037",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:10.188124498+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:10.188124498+00:00"
+    },
+    {
+      "revisionId": "743610b1-f5bb-448b-bcbc-ad037141bdd3",
+      "recordId": "302d7a03-bb9b-40e7-b7c8-c11eac9b21a2",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "the-greenman",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:10.188124498+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:10.188124498+00:00"
+    },
+    {
+      "revisionId": "a5584085-8766-4223-8379-49f2fb045802",
+      "recordId": "302d7a03-bb9b-40e7-b7c8-c11eac9b21a2",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "The normative emitted form of a field row on the Default Rendering Baseline for `markdown`, `adoc`, `text` and `html`, scalar and multi-entry, together with the row-separation and block-list-termination rules without which a following row is swallowed as a CommonMark lazy continuation; cardinality-neutral entry ordering across `fieldType.cardinality: \"list\"` and the legacy `entries` path; composite-range fields (`datatype: \"ref\"` with `mode: \"inline\"`) carved out to RFC-036 Change C while reference-mode `ref` fields keep the ordinary row form per [CR-036-3]; Tier 1 and Tier 0 covered; empty-string and empty-sequence absence enforced as Step 2 already declares; the portable `(empty)` placeholder, promoting RFC-001 Step 4's MAY to a MUST; `[T-8]`'s rule text and injection table amended so `srs-fieldname-*` derives from `Field.name`, label/value classes join the contract with aliases sunset at the #242 cutover, and class emission no longer depends on `ext:themes-l1` being declared; relation rows given `srs-relationtype-*` in place of the field-identity class, making RFC-027's rule satisfiable and bounding its unbounded \"other formats\" clause; the terminal rung of RFC-036's row-template ladder, closing its Open Question 2.\n\n<!-- srs-integration:v1\next:views-l2\next:themes-l1\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:10.188124498+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:10.188124498+00:00"
+    },
+    {
+      "revisionId": "ec752670-4c60-4dbd-8e8f-35cad6e5cd01",
+      "recordId": "302d7a03-bb9b-40e7-b7c8-c11eac9b21a2",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-037-normative-field-row-rendering-baseline.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:10.188124498+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:10.188124498+00:00"
+    },
+    {
+      "revisionId": "1d800c8d-9772-4088-9e95-c9fbafcef646",
+      "recordId": "302d7a03-bb9b-40e7-b7c8-c11eac9b21a2",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "RFC-001 Change A fixes which fields render, in what order, and with what label, then stops: \"Step 4 — Render\" never says what a rendered field row is. RFC-002 specifies `ElementTemplates.fieldRow` purely as a wrapper receiving finished content, so the unwrapped element remains undefined. RFC-037 supplies that missing referent as normative per-format forms, and supplies the separation rules that make a sequence of rows well-formed.\n\nThis repairs live defects rather than only filling a gap. RFC-027's Rows bullet requires other formats to use \"the same label/value markup that implementation emits for a field row\" — a referent that did not exist, over a format set left unbounded. RFC-036's row-template ladder bottoms out on the same undefined rung (its Open Question 2).\n\nScalar rows are `**<label>**: <value>` in `markdown`, `*<label>*: <value>` in `adoc`, `<label>: <value>` in `text`, and a `div`/`strong`/`span` structure carrying `srs-field`, `srs-field-label` and `srs-field-value` in `html`. Multi-entry values render as block lists, never comma-joined, selected by cardinality rather than element count; continuation is two-space in `markdown`/`text` and a `+` list continuation in `adoc`, where indentation alone does not attach a block to a list item. Consecutive rows are blank-line separated and a block list is terminated before whatever follows. Scalar values are emitted verbatim and unindented.\n\nLabel and value content is verbatim in the text formats — field values in this model routinely are markup — and escaped in `html`, where the baseline performs no markup conversion. Label resolution is unchanged and not humanised. The class identity `srs-fieldname-{fieldName}` is pinned to `Field.name`, never `FieldAssignment.displayLabel`, and is emitted whether or not `ext:themes-l1` is declared; a relation row carries `srs-relationtype-{relationTypeKey}` in its place. Unprefixed `field-label`/`field-value` survive as compatibility aliases and retire at the #242 cutover alongside the `[T-Gx*]`/`[T-Cx*]` retirement [CR-036-19] already schedules.\n\nInter-element whitespace in the `html` form is not normative, following the precedent [CR-036-15] sets for pinned HTML output; a single-line serialisation is RECOMMENDED so conformance fixtures have a canonical form.\n\nNo schema file changes. Implementation is srs-rust#782; correcting empty-string absence there is expected to remove 86 committed empty-value rows from `docs/spec/` on the next publication — a correction to the figure of 92 originally recorded on #294, which no measurement reproduces.\n\nFull proposal and design history: `rfcs/rfc-037-normative-field-row-rendering-baseline.md`.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:10.188124498+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:10.188124498+00:00"
+    }
+  ]
+}

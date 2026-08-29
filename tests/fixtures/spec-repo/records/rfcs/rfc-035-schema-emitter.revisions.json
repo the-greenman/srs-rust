@@ -1,0 +1,89 @@
+{
+  "recordId": "eec335c8-f6d6-5d6f-bf43-a3bb3871b542",
+  "revisions": [
+    {
+      "revisionId": "b52a4181-0988-4762-9f81-4d4d5ac2601e",
+      "recordId": "eec335c8-f6d6-5d6f-bf43-a3bb3871b542",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-035: JSON Schema emitter — projecting the self-hosted meta-model (records → 2020-12)",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:09.522172174+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:09.522172174+00:00"
+    },
+    {
+      "revisionId": "48fce4e2-6f46-4f91-98d0-b6116e5770ab",
+      "recordId": "eec335c8-f6d6-5d6f-bf43-a3bb3871b542",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "035",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:09.522172174+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:09.522172174+00:00"
+    },
+    {
+      "revisionId": "e8bc9e9b-b2f1-43b7-85f6-7a29ca337375",
+      "recordId": "eec335c8-f6d6-5d6f-bf43-a3bb3871b542",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "the-greenman",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:09.522172174+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:09.522172174+00:00"
+    },
+    {
+      "revisionId": "9b0284f2-b658-452b-af08-534d8629bbd5",
+      "recordId": "eec335c8-f6d6-5d6f-bf43-a3bb3871b542",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "Defines the emitter that projects the self-hosted meta-model Type records to JSON Schema 2020-12 via a neutral IR, generalizing RFC-032's per-fieldType `projectField` to whole entities. Ships a Node reference emitter (`scripts/lib/schema-emitter.mjs`) verified two ways: Tier-1 byte-for-byte determinism goldens (`tests/rfc-035/`) and a Tier-2 `emitter ⊆ frozen seed` structural closure (`scripts/rfc-035-closure-test.mjs`, discharging RFC-033 [R4](b)). Relocates the normative `projection-rules.md` to `docs/schema/2.0/`. The `srs-projection` core service / `srs schema generate` CLI / WASM binding are specified but implemented at the #260 cutover (ADR-004). Tooling + docs only — no entity-schema or record artifact is folded into the canonical spec.\n\n<!-- srs-integration:v1\ntooling-only\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:09.522172174+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:09.522172174+00:00"
+    },
+    {
+      "revisionId": "49a60e57-5c83-47d7-b0e4-acbc9623562e",
+      "recordId": "eec335c8-f6d6-5d6f-bf43-a3bb3871b542",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-035-schema-emitter.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:09.522172174+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:09.522172174+00:00"
+    },
+    {
+      "revisionId": "1b6d2cb1-1665-4e4e-b80e-2a2af73e711c",
+      "recordId": "eec335c8-f6d6-5d6f-bf43-a3bb3871b542",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "The JSON Schema emitter for the self-hosted meta-model: meta-model Type records → a target-neutral IR → JSON Schema 2020-12 definition schemas, generalizing RFC-032 `projectField` to whole entities. Verification is two-tier — byte-for-byte determinism against the emitter's own goldens, plus an `emitter ⊆ seed` structural closure over the covered authoritative features (with a documented-divergence register and exclusion set). Relocates `projection-rules.md` to a live normative home and stamps `dataModelRevision` on the generated bundle. Node reference emitter now; srs-projection/CLI/WASM at the #260 cutover. Full text: rfcs/rfc-035-schema-emitter.md.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:09.522172174+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:09.522172174+00:00"
+    }
+  ]
+}

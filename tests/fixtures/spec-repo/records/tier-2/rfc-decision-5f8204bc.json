@@ -6,7 +6,6 @@
   "typeName": "rfc-decision",
   "fieldValues": {
     "title": "Retirement has one way per layer",
-    "rfc_status": "accepted",
     "decision_date": "2026-08-22",
     "decision_rationale": "The audit found nine-plus replacement mechanisms across five layers (supersession inventory) with the same words meaning different things in different enums. The preference layer determined the shape: Reliability over Renewal demands standing contracts hold and renewal be explicit; the three-layer split follows from how each layer is referenced (pinned / keyed / linked). The owner's dispositions had already ruled the parts (deprecation-by-deletion for Fields, substrate status vocabulary, RFC-022 supersession); this record states them once as one system.",
     "decision_statement": "Axis 5-11 (Reliability over Renewal) applied: each layer has exactly one retirement mechanism, and renewal never silently breaks a standing contract.\n\nDEFINITIONS (Field, Type, View, Composition, Theme, Blueprint, Protocol, Package definitions) retire by DELETION, with version history as the trail - there is no deprecation state at the definition layer (the audit's carve-out C10, now stated). A definition that must signal replacement does so by a successor version; consumers pin, so deletion cannot break a pinned reference retroactively.\n\nSUBSTRATE ENTRIES (Terms, LifecycleStates, RelationTypeDefinitions) retire by STATUS - the existing four-stage vocabulary (active, deprecated, tombstone, retired) - because instance data addresses them by string key and cannot be version-pinned; the key must keep resolving while carrying its retirement.\n\nINSTANCES (Records) retire by SUPERSESSION - successor-and-link (supersedes/refines), per the Fire column principle; history stays addressable.\n\nCross-layer rules: every retirement exception (allowlist entry, grandfather clause, compatibility label) carries its expiry condition and dies when the condition is met - a justification whose cited ground has changed is expired even if nobody noticed (the self-expiring-exception rule, now charter-level after finding C5's silent expiry). JSON Schema's deprecated:true annotation accompanies every documented deprecation (machine-readable, finding C16). The word 'deprecated' is reserved for the substrate status; definitions are never 'deprecated', they are removed.",
@@ -25,11 +24,12 @@
     ],
     "review_trigger": "A retirement case that genuinely fits none of the three layer mechanisms, or extension structure landing (which converts C15's prose gap into a status field)."
   },
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc",
     "cell:succession"
   ],
   "createdAt": "2026-08-22T11:31:44.391383922+00:00",
-  "updatedAt": "2026-08-23T18:55:11.456435027+00:00",
+  "updatedAt": "2026-08-28T13:58:22.574435046+00:00",
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

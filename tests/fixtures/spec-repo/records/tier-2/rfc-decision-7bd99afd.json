@@ -1,9 +1,11 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-08-02T13:59:15.823578709+00:00",
+  "instanceId": "7bd99afd-c15b-4bba-a189-2a3d34f2e4ee",
+  "typeId": "6a000004-0000-4000-a000-000000000004",
+  "typeVersion": 2,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc-decision",
   "fieldValues": {
     "title": "Close definition-layer gaps in the model rather than a remainder overlay",
-    "rfc_status": "accepted",
     "decision_date": "2026-07-31",
     "decision_rationale": "A hand-maintained overlay would make part of SRS meaning repository-specific and non-portable. The model and emitters must instead become expressive enough to carry the live definition layer as one self-contained artifact.",
     "decision_statement": "Metamodel v1.1.0 must express the live definition-layer surface in SRS records and emit the complete artifact; it must not depend on a hand-maintained remainder overlay for meaning the records cannot carry.",
@@ -22,13 +24,11 @@
     ],
     "review_trigger": "Review when a live definition-layer concern cannot be represented in the metamodel, distinguishing a genuine new semantic facet from incidental target syntax."
   },
-  "instanceId": "7bd99afd-c15b-4bba-a189-2a3d34f2e4ee",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000004-0000-4000-a000-000000000004",
-  "typeName": "rfc-decision",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 2,
-  "updatedAt": "2026-08-02T13:59:15.823585059+00:00"
+  "createdAt": "2026-08-02T13:59:15.823578709+00:00",
+  "updatedAt": "2026-08-28T13:58:24.665557902+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

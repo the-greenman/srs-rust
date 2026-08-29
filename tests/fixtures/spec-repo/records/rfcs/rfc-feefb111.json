@@ -1,22 +1,22 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-21T17:31:55.317828414+00:00",
+  "instanceId": "feefb111-4b60-47e5-badc-2a55e091bd19",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-006: Vocabulary Substrate — Terms, Vocabularies, Lifecycles, and Controlled Value Sets",
     "rfc_number": "006",
-    "rfc_status": "accepted",
     "author": "design dialogue draft",
     "affected_components": "`Vocabulary`/`Term` substrate; `vocabularyRef` on select/multiselect; installable `Lifecycle` (`Type.lifecycleRef`).\n\n<!-- srs-integration:v1\next:lifecycle\nschema:vocabulary.json\nschema:term.json\nschema:lifecycle.json\nschema:field.json\nschema:type.json\nschema:relation-type.json\nschema:package-manifest.json\nschema:package-bundle.json\nI-65\ntype:com.semanticops.srs/vocabulary\ntype:com.semanticops.srs/term\ntype:com.semanticops.srs/lifecycle\n-->",
     "proposal_artifact_path": "rfcs/rfc-006-vocabulary-substrate.md",
     "content": "Unifies four controlled-vocabulary patterns (tags, select values, relation types, lifecycle states) into one keyed vocabulary-entry substrate; introduces `Vocabulary`/`Term`, binds `select`/`multiselect` via `vocabularyRef`, and makes `Lifecycle` an installable, referenceable container (`Type.lifecycleRef`). Full text: rfcs/rfc-006-vocabulary-substrate.md."
   },
-  "instanceId": "feefb111-4b60-47e5-badc-2a55e091bd19",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-21T17:31:55.317833919+00:00"
+  "createdAt": "2026-07-21T17:31:55.317828414+00:00",
+  "updatedAt": "2026-08-28T13:58:15.056347178+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

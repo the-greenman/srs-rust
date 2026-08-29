@@ -6,7 +6,6 @@
   "typeName": "rfc-decision",
   "fieldValues": {
     "title": "One state mechanism: workflow status is a Lifecycle",
-    "rfc_status": "accepted",
     "decision_date": "2026-08-21",
     "decision_rationale": "The pattern audit found six parallel status mechanisms with four vocabularies and no two enums equal (findings C12, C13, B14): the fully-specified state machine had zero users in the spec repository while a bare enum carried the spec's primary workflow, and nothing enforced draft-to-proposed-to-accepted or prevented withdrawn-to-implemented. The attestation then showed production muSrs DOES use ext:lifecycle load-bearingly (a five-state governance lifecycle with an excludeLifecycleStates query), turning the question from removal to unification. Conformance's preference (one way over many) picks unification; the owner ruled: make status right - it should be defined as a real lifecycle. Dogfooding also closes the credibility gap of a standard that avoids its own machinery.",
     "decision_statement": "Cell: Conformance (one way over many), with Versioning owning the state value. Anything in the standard's own corpus or its packages that models workflow state - named stages a record moves through - is a Lifecycle (ext:lifecycle): a defined state set with transitions, bound to the Type via lifecycleRef, with the record's position carried in lifecycleState. Bare status enum Fields for workflow state are retired as a parallel mechanism. First migration: the spec's own rfc_status field (49 records, seven values, no transitions) becomes a real spec-rfc-process Lifecycle - the standard dogfoods its own state machinery, and RFC supersession gains RFC-022 requiresRelation coupling (rfc_status superseded requires the supersedes assertion it today carries only in prose).\n\nThe line this draws: Lifecycle = workflow state on records (Fire, individual: where the record is in its process). Substrate entry status (active/deprecated/tombstone/retired) is NOT workflow state - it is the retirement mechanism of the substrate layer under axis 5-11 (Reliability over Renewal) and stays as-is. Enum value domains remain legal for genuinely stateless labels; the test is transitions: if some value changes are meaningful and others are wrong, it is a Lifecycle.",
@@ -26,11 +25,12 @@
     ],
     "review_trigger": "Review if the migration surfaces workflow cases the Lifecycle machine genuinely cannot express, or when package-authoring practice shows the stateless-enum test being routinely argued - the boundary clause may need sharpening."
   },
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc",
     "cell:conformance"
   ],
   "createdAt": "2026-08-21T21:13:13.119422385+00:00",
-  "updatedAt": "2026-08-23T18:55:08.477610914+00:00",
+  "updatedAt": "2026-08-28T13:58:21.174781250+00:00",
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

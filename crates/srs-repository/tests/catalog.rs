@@ -73,12 +73,12 @@ fn fixture_catalog_reproduces_identity_sets_ignoring_manifest() {
     let cat = catalog::build(&store).unwrap();
 
     // The known instance identity set. Re-vendored from `srs` master at
-    // origin/master tip (post-RFC-040, srs-rust#877/#878): the previous 392
-    // was the figure for the pre-RFC-040 (dataModelRevision 2) corpus that
-    // had since drifted well behind upstream.
+    // origin/master tip (post srs#505 Tier-1 retirement + container-anchor,
+    // srs-rust#887/#893): the previous 402 was the figure for the corpus
+    // before that Tier-1 removal / container-anchor content shift.
     let catalog_ids: BTreeSet<String> = cat.instances.iter().map(|e| e.id.clone()).collect();
-    assert_eq!(catalog_ids.len(), 402);
-    assert_eq!(cat.instances.len(), 402);
+    assert_eq!(catalog_ids.len(), 403);
+    assert_eq!(cat.instances.len(), 403);
     let notes = cat
         .instances
         .iter()
@@ -89,14 +89,14 @@ fn fixture_catalog_reproduces_identity_sets_ignoring_manifest() {
         .iter()
         .filter(|e| e.kind == CatalogKind::Record)
         .count();
-    assert_eq!((notes, records), (27, 375));
+    assert_eq!((notes, records), (27, 376));
     assert!(cat
         .instances
         .iter()
         .all(|e| e.tier == Some(if e.kind == CatalogKind::Note { 0 } else { 2 })));
 
     // Relations: one standalone object per relation ([R11]), no collection file.
-    assert_eq!(cat.relations.len(), 227);
+    assert_eq!(cat.relations.len(), 229);
     assert!(cat
         .relations
         .iter()

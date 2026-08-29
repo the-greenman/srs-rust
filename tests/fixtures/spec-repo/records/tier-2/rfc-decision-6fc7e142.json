@@ -6,7 +6,6 @@
   "typeName": "rfc-decision",
   "fieldValues": {
     "title": "One escape bag, one name: meta",
-    "rfc_status": "accepted",
     "decision_date": "2026-08-21",
     "decision_rationale": "Owner ruling, verbatim: \"meta. Don't have two things!\" One concept must not carry two names — the same one-way-per-goal principle that collapsed E4/semanticObjectType and rejected parallel default mechanisms, applied to naming. The original option pricing (\"breaking is free exactly once\" inside the #242/#297 train) expired when that train landed; the owner accepts the standalone breaking cost under the Evolution phase rather than carrying a permanent two-name split whose distinction every future reader must relearn.",
     "decision_statement": "The per-layer escape bag has one name everywhere: `meta`. The substrate layer's `properties` bag (VocabularyEntry, Term, RelationTypeDefinition) renames to `meta`, matching the instance layer's existing convention. The per-layer POLICIES remain distinct as ruled (#237's three-layer table: definitions have no bag; substrate reject-unknown with a `meta` escape; instances tolerate with `meta`) — the name is unified, the semantics stay layered. Executed as its own small breaking unit, not a #273 rider: substrate schemas + engine structs + substrate data migration + mirror choreography together.",
@@ -24,11 +23,12 @@
     ],
     "review_trigger": "Review only if the substrate data migration surfaces a live consumer reading the `properties` key by name outside the first-party corpus."
   },
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc",
     "cell:description"
   ],
   "createdAt": "2026-08-21T08:23:22.009351568+00:00",
-  "updatedAt": "2026-08-23T18:55:15.217709231+00:00",
+  "updatedAt": "2026-08-28T13:58:23.983904503+00:00",
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

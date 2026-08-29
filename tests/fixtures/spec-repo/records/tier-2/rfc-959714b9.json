@@ -1,19 +1,19 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-28T19:56:33.090972155+00:00",
+  "instanceId": "959714b9-ae20-43a0-9646-aad8b5be703c",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-031: IDL/Schema conformance check — prose ↔ JSON Schema drift gate",
     "rfc_number": "031",
-    "rfc_status": "accepted",
     "author": "Claude Code (agent), on behalf of the repository owner (from issue the-greenman/srs#238)",
     "affected_components": "tooling-only — adds scripts/check-idl-schema-conformance.mjs and scripts/idl-schema-conformance-allowlist.json, wired into scripts/check-release-drift.mjs; no docs/schema/2.0/*.json or record-shape changes.\n\n<!-- srs-integration:v1\ntooling-only\n-->",
     "proposal_artifact_path": "rfcs/rfc-031-idl-schema-conformance-check.md",
     "content": "Closes the-greenman/srs#238: nothing checked that the prose pseudo-IDL embedded in spec records and the docs/schema/2.0/*.json JSON Schema files agree. Adds a CI-gated conformance check (scripts/check-idl-schema-conformance.mjs) comparing property set, optionality, and (for primitives/arrays/enums) declared type across all 18 mapped entities, with an issue-linked allowlist for currently-known gaps. Schema-generation-from-records is evaluated and explicitly deferred (blocked by real architecture facts, not effort — see the RFC's Alt A). Reproduction against origin/master confirms it fires on the-greenman/srs#234 and #235, stays silent on the already-fixed #232. Eight follow-up issues (the-greenman/srs#247-254) and one (the-greenman/srs-rust#777) were filed for discrepancies the audit found. Full text: rfcs/rfc-031-idl-schema-conformance-check.md."
   },
-  "instanceId": "959714b9-ae20-43a0-9646-aad8b5be703c",
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-28T19:56:33.090978787+00:00"
+  "lifecycleState": "accepted",
+  "createdAt": "2026-07-28T19:56:33.090972155+00:00",
+  "updatedAt": "2026-08-28T13:58:17.759279129+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

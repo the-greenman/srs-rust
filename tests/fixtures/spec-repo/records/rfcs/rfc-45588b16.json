@@ -1,22 +1,22 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-21T17:31:55.357776690+00:00",
+  "instanceId": "45588b16-862b-486e-a13f-1607943a7a1f",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-019: Cross-Field Validation Rules — validationRules on Type and CrossFieldRule Schema",
     "rfc_number": "019",
-    "rfc_status": "accepted",
     "author": "the-greenman",
     "affected_components": "`CrossFieldRule`/`CrossFieldRuleEffect` $defs + `validationRules` on `type.json` (`ext:cross-field-validation`); invariants I-89–I-97.\n\n<!-- srs-integration:v1\next:cross-field-validation\nschema:type.json\nI-89\nI-90\nI-91\nI-92\nI-93\nI-94\nI-95\nI-96\nI-97\n-->",
     "proposal_artifact_path": "rfcs/rfc-019-cross-field-validation-rules-schema.md",
     "content": "Formalizes the JSON Schema `$defs` for `CrossFieldRule`/`CrossFieldRuleEffect` and the `validationRules` property on `type.json` for `ext:cross-field-validation`, and adds spec invariant records pinning the rule types and evaluation semantics. Full text: rfcs/rfc-019-cross-field-validation-rules-schema.md."
   },
-  "instanceId": "45588b16-862b-486e-a13f-1607943a7a1f",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-21T17:31:55.357779081+00:00"
+  "createdAt": "2026-07-21T17:31:55.357776690+00:00",
+  "updatedAt": "2026-08-28T13:58:12.049544676+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

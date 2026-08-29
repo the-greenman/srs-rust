@@ -1,22 +1,22 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-21T17:31:55.337443311+00:00",
+  "instanceId": "7eb1d105-14cb-472b-86b6-cebd314af4fd",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-012: Discovery Contract & Text Projection",
     "rfc_number": "012",
-    "rfc_status": "accepted",
     "author": "Peter Brownell",
     "affected_components": "`discovery.json` schema + conformance fixture landed. `ext:discovery` extension record and I-113–I-124 invariants (R1–R12) authored (#206).\n\n<!-- srs-integration:v1\nschema:discovery.json\next:discovery\nI-113\nI-114\nI-115\nI-116\nI-117\nI-118\nI-119\nI-120\nI-121\nI-122\nI-123\nI-124\n-->",
     "proposal_artifact_path": "rfcs/rfc-012-discovery-contract-text-projection.md",
     "content": "Defines a portable Discovery Contract (structured filter axes), a deterministic Text Projection, normalization rules, and an opt-in `ext:discovery` extension, plus a conformance fixture. The `discovery.json` schema, `conformance/discovery/` fixture, `ext:discovery` extension record, and I-113–I-124 invariants are all folded into the canonical spec. Full text: rfcs/rfc-012-discovery-contract-text-projection.md."
   },
-  "instanceId": "7eb1d105-14cb-472b-86b6-cebd314af4fd",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-23T16:43:00.803415903+00:00"
+  "createdAt": "2026-07-21T17:31:55.337443311+00:00",
+  "updatedAt": "2026-08-28T13:58:12.721840877+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

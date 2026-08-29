@@ -1,25 +1,25 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-29T00:00:00Z",
+  "instanceId": "6ecaf104-5188-4a6c-8d8a-084919ad2aad",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-032: The Field type model — decomposed value type, composite range, maps, and FieldGroup subsumption",
     "rfc_number": "032",
-    "rfc_status": "accepted",
     "author": "Claude Code (agent), on behalf of the repository owner (from issue the-greenman/srs#261; delivers Task #257, folds in #239)",
     "affected_components": "docs/schema/2.0/field.json (valueType → fieldType model, Changes A–D/F); docs/schema/2.0/type.json (RequiresRelation.relationType → list, Change F; FieldAssignment cardinality props deprecated pending #242; Rev-7 conditional-required predicate description); docs/schema/2.0/package-bundle.json (embedded Field parity); docs/schema/2.0/theme.json and document-view.json (Rev-7 extension-rule predicates). RFC-032 Rev 7 also amends RFC-012 [R8]/I-120 Text Projection, RFC-019 [R6]/I-94 conditional-required, ext:themes-l1 [T-9], and ext:views-l2 [N+1], including the transition-only FieldAssignment.repeatable conjunct and its atomic Phase-B removal gate. Tier-1 TypedField.valueType stays unchanged until its explicit #242 Phase-B disposition.\n\n<!-- srs-integration:v1\nschema:field.json\nschema:type.json\nschema:package-bundle.json\nschema:theme.json\nschema:document-view.json\nI-94\nI-120\next:discovery\next:themes-l1\next:views-l2\n-->",
     "proposal_artifact_path": "rfcs/rfc-032-composite-field-range.md",
     "content": "To self-host its meta-model (epic #256), SRS must describe Field/Type in its own type system — but Field.valueType is a closed scalar enum that cannot express nested objects, lists, typed references, constraints, or open extension bags, and it conflates four axes (#239). This RFC replaces valueType with an orthogonal fieldType model (datatype × cardinality × value-domain × format × constraints) where datatype may be a reference to another Type (ref, inline or reference), a value-of-a-sibling-type (dependent), or an open string-keyed collection (map). It subsumes FieldGroup into the ref mechanism (actual removal + instance migration gated with #242) and resolves every apparent union as dependent-typing, cardinality, a discriminated family, or a map — no sum-type construct is added. Delivered here as a SCRIPTED, TESTED migration: docs/schema/2.0/{field,type}.json edited to the new model; a deterministic transform (scripts/migrate-rfc-032-field-type.mjs over scripts/lib/rfc-032-fieldtype.mjs) rewrote all 95 legacy field definitions per Change H (idempotent, R1–R11-validated, minimal-diff); a runnable paper proof (11/11), a per-row migration test (Change H), and a conformance fixture exercising every mode with committed Change-G projection goldens (tests/rfc-032/) all pass under scripts/validate-all.mjs. Breaking at the definition layer (owner: no external consumers; a stable public spec must not freeze a flawed model). Full text: rfcs/rfc-032-composite-field-range.md. Revision 7 records the owner-ratified post-acceptance erratum for four legacy valueType-subset rules: exact fieldType predicates, complete new-datatype/string-format dispositions, the unchanged transitional Tier-1 rule, and fail-closed criteria for removing the legacy repeatable conjunct only in #242 Phase B."
   },
-  "instanceId": "6ecaf104-5188-4a6c-8d8a-084919ad2aad",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc",
     "construct:field",
     "construct:type",
     "concern:self-hosting"
   ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-29T00:00:00Z"
+  "createdAt": "2026-07-29T00:00:00Z",
+  "updatedAt": "2026-08-28T13:58:17.432683921+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

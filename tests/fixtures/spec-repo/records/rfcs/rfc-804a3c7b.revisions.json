@@ -1,0 +1,89 @@
+{
+  "recordId": "804a3c7b-0bf1-4c5b-99e8-80a605727d30",
+  "revisions": [
+    {
+      "revisionId": "87ce41cb-5c30-4281-9463-fc9a0f967be0",
+      "recordId": "804a3c7b-0bf1-4c5b-99e8-80a605727d30",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-008: Heterogeneous ContainerSubset Sections — typeFilter and typeDispatch",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:12.888276675+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:12.888276675+00:00"
+    },
+    {
+      "revisionId": "be388311-96b5-4322-9327-4b531be9a7a0",
+      "recordId": "804a3c7b-0bf1-4c5b-99e8-80a605727d30",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "008",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:12.888276675+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:12.888276675+00:00"
+    },
+    {
+      "revisionId": "7e7ddd42-39fa-4033-b173-e3687eb80e6a",
+      "recordId": "804a3c7b-0bf1-4c5b-99e8-80a605727d30",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "Peter Brownell",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:12.888276675+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:12.888276675+00:00"
+    },
+    {
+      "revisionId": "4da89554-9666-4292-936f-fd1af1009d05",
+      "recordId": "804a3c7b-0bf1-4c5b-99e8-80a605727d30",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "`typeDispatch` on `DocumentSection` + `typeFilter` on `container-subset` source (both `ext:views-l2`).\n\n<!-- srs-integration:v1\next:views-l2\nschema:document-view.json\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:12.888276675+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:12.888276675+00:00"
+    },
+    {
+      "revisionId": "cfa4d492-edd6-45e6-8fe0-b333c0024611",
+      "recordId": "804a3c7b-0bf1-4c5b-99e8-80a605727d30",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-008-heterogeneous-container-subset-sections.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:12.888276675+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:12.888276675+00:00"
+    },
+    {
+      "revisionId": "ab601748-6be9-49f1-bfc0-7a2e49d1139d",
+      "recordId": "804a3c7b-0bf1-4c5b-99e8-80a605727d30",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Adds two backward-compatible optional fields under `ext:views-l2` — `typeDispatch` on `DocumentSection` (per-type L1 view selection) and `typeFilter` on the `container-subset` source — to allow heterogeneous cross-type sections that preserve `precedes` reading order. Full text: rfcs/rfc-008-heterogeneous-container-subset-sections.md.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:12.888276675+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:12.888276675+00:00"
+    }
+  ]
+}

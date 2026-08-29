@@ -1,0 +1,89 @@
+{
+  "recordId": "4ac085fc-e143-4524-bbb4-a310e51a6c4d",
+  "revisions": [
+    {
+      "revisionId": "21f5cea6-d571-4b33-a177-42e900420f7f",
+      "recordId": "4ac085fc-e143-4524-bbb4-a310e51a6c4d",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-022: Relational lifecycle states — requiresRelation + transition fulfillment",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:12.225673613+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:12.225673613+00:00"
+    },
+    {
+      "revisionId": "5f0b9776-ed90-44a8-a01c-09b749265c69",
+      "recordId": "4ac085fc-e143-4524-bbb4-a310e51a6c4d",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "022",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:12.225673613+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:12.225673613+00:00"
+    },
+    {
+      "revisionId": "fac99d70-6fba-44f1-8d4e-4eb2129c9934",
+      "recordId": "4ac085fc-e143-4524-bbb4-a310e51a6c4d",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "the-greenman",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:12.225673613+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:12.225673613+00:00"
+    },
+    {
+      "revisionId": "3ef22b45-6935-4814-a543-089e0b3ecbf7",
+      "recordId": "4ac085fc-e143-4524-bbb4-a310e51a6c4d",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "`LifecycleState.requiresRelation` (relationType/direction/enforcement) in `lifecycle.json` + inline `type.json`; invariants I-98–I-100.\n\n<!-- srs-integration:v1\next:lifecycle\nschema:lifecycle.json\nschema:type.json\nI-98\nI-99\nI-100\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:12.225673613+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:12.225673613+00:00"
+    },
+    {
+      "revisionId": "4353ef4d-9b29-420b-a89e-ad3e6ab90cc4",
+      "recordId": "4ac085fc-e143-4524-bbb4-a310e51a6c4d",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-022-relational-lifecycle-states.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:12.225673613+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:12.225673613+00:00"
+    },
+    {
+      "revisionId": "6d81402c-9039-4365-9678-dd03f179e82b",
+      "recordId": "4ac085fc-e143-4524-bbb4-a310e51a6c4d",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Adds `LifecycleState.requiresRelation` (with `relationType`/`direction`/`enforcement` hard|advisory) so a record may only rest in a state if a satisfying relation exists, plus atomic `fulfillment` on the transition write path and an at-rest validation warning. Full text: rfcs/rfc-022-relational-lifecycle-states.md.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:12.225673613+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:12.225673613+00:00"
+    }
+  ]
+}

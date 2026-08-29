@@ -6,7 +6,6 @@
   "typeName": "rfc-decision",
   "fieldValues": {
     "title": "Every reference names its strength: the Reference taxonomy",
-    "rfc_status": "accepted",
     "decision_date": "2026-08-21",
     "decision_rationale": "The audit found reference the least uniform axis (~8 shapes; findings A2, A5-A9, A11, C5). All three open choices were determined by the ratified preference layer: object-everywhere rejected by axis 2-8's evidence clause (breaking with no evidence-led need); the string form demoted by axis 1-7 (stored form serves integrity, the string is expression); aliases dropped by Description's one-name-over-many. The folded-in items (packageDependencies rename for the manifest-side dependencyRefs, lifecycleRef and Protocol TypeRef as LINEAGE, definitionType enum derived from the package-manifest's ten kinds, locator mode unification) follow from one-form-per-strength.",
     "decision_statement": "Cell: Reference (Air, relational) - declared strength over convenient reach; the axis 1-7 preference (Semantic Integrity over Practical Expression) made mechanism. Four reference strengths, one form each:\n\nPINNED - this thing, this version; semantics frozen. Form: the domain-named {id, version} pair, both required. Appears as an object when the reference is a value (arrays, slots - the ExactTypeRef shape, collapsed to one shared definition) and as flat sibling properties when spread at an entity root (Record.typeId + typeVersion, the extends* pairs). One rule, two positions; the pair, not the wrapper, is the canonical thing. Used by: record-to-type binding, Blueprint.rootTypes, rootTypeRefs, inheritance extends, bundle dependencyRefs.\n\nLINEAGE - this thing, whatever version the context installs. Form: bare UUID (format: uuid); the effective package set resolves. Used by: fieldId in assignments/views/themes, renderViewId, typeDispatch values, lifecycleRef, discovery and theme typeId, vocabularyRef (migrated), Protocol TypeRef (typeVersion dropped - version-optional hybrids are forbidden).\n\nKEYED - whatever matches this name in an explicitly-scoped set. Form: string key with the scope stated by the construct: namespace/name resolves against the effective package set (typeFilter, typeDispatch keys); bare keys resolve against an installed substrate container (relationType, lifecycle state keys, term keys). Alias resolution is dropped: KEYED is key-only (one name over many); renaming a substrate entry is a supersession act through the status vocabulary. Package dependencies are the one sanctioned constraint form: KEYED with a semver range, existing only at the package layer.\n\nLOCATOR - where to fetch bytes, never what they mean. Form: one mode-discriminated shape {mode: local|remote|bundled, path|url|id}, shared by packageRef and ThemeReference (packageRef's 'external' becomes 'remote'). After fetch, identity is verified from the fetched content's own ids; a locator never overrides semantics.\n\nCross-rules: hints never resolve (Invariant 28 generalized - a denormalized companion loses to its ref, visibly); substrate entries are KEYED references and their UUIDs serve lineage and package management, not reference; the canonical string form namespace/name@version is demoted to the DISPLAY serialization of a pinned reference (CLI output, docs, diagnostics) and never a stored form; strength is declared where the reference is defined - in the metamodel, the strengths become the modes of the ref-datatype Field; no fifth strength without a charter amendment.\n\nThe axis 2-8 corollary, stated once: instances PIN; presentation and dispatch follow LINEAGE or KEYED; nothing else absorbs a version bump.",
@@ -25,11 +24,12 @@
     ],
     "review_trigger": "A construct that genuinely needs a fifth strength, or the display-form demotion proving insufficient for a real interchange case."
   },
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc",
     "cell:reference"
   ],
   "createdAt": "2026-08-22T11:31:13.273605656+00:00",
-  "updatedAt": "2026-08-23T18:55:10.331596609+00:00",
+  "updatedAt": "2026-08-28T13:58:28.125731261+00:00",
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

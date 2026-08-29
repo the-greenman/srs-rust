@@ -1,0 +1,89 @@
+{
+  "recordId": "0c185e05-99c7-4c04-aaf6-73af30eac451",
+  "revisions": [
+    {
+      "revisionId": "1d8a2598-9d48-4cf4-bee7-f4d54182e8e4",
+      "recordId": "0c185e05-99c7-4c04-aaf6-73af30eac451",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-013: Required Root Container & Structural Navigation",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:10.530810225+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:10.530810225+00:00"
+    },
+    {
+      "revisionId": "b4370c2c-2d84-49ac-a7c1-ab1aa3523f9a",
+      "recordId": "0c185e05-99c7-4c04-aaf6-73af30eac451",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "013",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:10.530810225+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:10.530810225+00:00"
+    },
+    {
+      "revisionId": "cd7d3ffd-34d0-4ad6-afa2-a135dfd6f3ac",
+      "recordId": "0c185e05-99c7-4c04-aaf6-73af30eac451",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "Peter Brownell",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:10.530810225+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:10.530810225+00:00"
+    },
+    {
+      "revisionId": "9b28e69e-5b92-4a66-8ad3-0ac63b9ccf2f",
+      "recordId": "0c185e05-99c7-4c04-aaf6-73af30eac451",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "`manifest.container` required; `Container.identityInstanceId`; structural navigation from membership + `precedes`.\n\n<!-- srs-integration:v1\nschema:manifest.json\nschema:container.json\nI-79\nI-80\nI-81\nI-82\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:10.530810225+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:10.530810225+00:00"
+    },
+    {
+      "revisionId": "b3814871-3cbd-43f6-a6a5-b26ceb9dbee3",
+      "recordId": "0c185e05-99c7-4c04-aaf6-73af30eac451",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-013-required-root-container.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:10.530810225+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:10.530810225+00:00"
+    },
+    {
+      "revisionId": "feaa8802-135b-4038-b9ca-ca05114d2a30",
+      "recordId": "0c185e05-99c7-4c04-aaf6-73af30eac451",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Makes `manifest.container` required, adds a reassignable identity pointer `Container.identityInstanceId` to both Container schemas, and defines a structural navigation model derived from existing primitives (container membership + `precedes` order). Full text: rfcs/rfc-013-required-root-container.md.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:10.530810225+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:10.530810225+00:00"
+    }
+  ]
+}

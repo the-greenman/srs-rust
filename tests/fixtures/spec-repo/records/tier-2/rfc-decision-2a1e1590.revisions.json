@@ -1,0 +1,167 @@
+{
+  "recordId": "2a1e1590-55f4-4c08-a8b1-c54e994098c0",
+  "revisions": [
+    {
+      "revisionId": "4ef2773f-0f66-4914-9abb-52010c9b5d41",
+      "recordId": "2a1e1590-55f4-4c08-a8b1-c54e994098c0",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "State is mutable, semantics are not: the Fire carve-out, and Revisions and Changelog are removed",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.286772360+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.286772360+00:00"
+    },
+    {
+      "revisionId": "42f64fb1-ba73-4582-9b6a-3ae3554735f4",
+      "recordId": "2a1e1590-55f4-4c08-a8b1-c54e994098c0",
+      "fieldId": "5a000004-0000-4000-a000-000000000004",
+      "value": "2026-08-21",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.286772360+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.286772360+00:00"
+    },
+    {
+      "revisionId": "a0205a10-c20c-47de-be4a-9a8331e18cdf",
+      "recordId": "2a1e1590-55f4-4c08-a8b1-c54e994098c0",
+      "fieldId": "5a000012-0000-4000-a000-000000000012",
+      "value": "The column coherence check (srs#435, finding F1) surfaced the coupling: lifecycle state transitions are the one Fire mechanism that mutates in place, and the only specified preservation mechanism (Revisions) was simultaneously on the removal shortlist. Ruling the removal first would have silently decided the carve-out; the owner ruled both explicitly: the carve out makes sense - state is mutable, and if revisions and changelog are incompletely specified, remove them and add them back at a later stage. The incompleteness is documented: zero corpus files anywhere (attestation), the RevisionAgent PascalCase wire-format leak (audit C8), provenance.lifecycleTransition documented against a field name RFC-006 renamed (C19), and no implementation exercising the chain. Production evidence agrees with the carve-out: muSrs mutates lifecycle state tracelessly and nothing has been harmed.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.286772360+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.286772360+00:00"
+    },
+    {
+      "revisionId": "a3ed06c1-b6d0-4d6f-b83b-ed82d6195114",
+      "recordId": "2a1e1590-55f4-4c08-a8b1-c54e994098c0",
+      "fieldId": "5a000019-0000-4000-a000-000000000019",
+      "value": "Cell: Versioning (Fire, individual), carving the boundary of the column principle change preserves what it replaces. The Fire principle governs SEMANTIC content: a record's meaning changes by version increment or successor-and-link, never in place. STATE is the sanctioned exception: designated state fields - lifecycleState is the canonical case - mutate in place, because a state value is the record's current position in a process, not part of its meaning. The carve-out is exact: a field is state only if it is bound to a defined machine (a Lifecycle) whose transitions make some changes legal and others not; nothing else earns in-place mutation by calling itself state.\n\nWith the carve-out ruled, the transition-history machinery loses its structural necessity and its removal follows under axis 2-8's evidence clause: per-field Revision sidecars (revisions.json) and ChangelogCollection (changelog.json) are removed from the standard, with the ext:addressability coupling that depends on revision provenance ([LC-AX2]'s provenance.lifecycleTransition matching) simplified accordingly. Dormancy rule applies: return trigger is a real consumer needing transition history or field-level audit - the muDemocracy Decision Log's governance audit surface is the anticipated first claimant, and when it arrives the history mechanism is designed against its actual requirements.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.286772360+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.286772360+00:00"
+    },
+    {
+      "revisionId": "5fb0f45c-094e-43b3-bc88-81e7c9d1bd3c",
+      "recordId": "2a1e1590-55f4-4c08-a8b1-c54e994098c0",
+      "fieldId": "5a000020-0000-4000-a000-000000000020",
+      "value": "Amends the Fire column principle's boundary in the Pattern Grid (rfc-decision-cce3c00e): increment over edit governs semantics; machine-bound state mutates in place. Removes revisions.json, changelog.json, ext:changelog prose records, and the revision-dependent clauses of ext:addressability's lifecycle coupling. Does not touch: the Lifecycle machinery itself (strengthened by the status-unification decision of the same date), record createdAt/updatedAt envelope timestamps, or RFC revision-history records in the spec process (those are authored content, not the removed mechanism). Execution rides the removal batch after the #273 train; roadmap entries carry the cell and trigger.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.286772360+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.286772360+00:00"
+    },
+    {
+      "revisionId": "281fd5db-2197-4fe7-9fbc-400d5c6b8bb3",
+      "recordId": "2a1e1590-55f4-4c08-a8b1-c54e994098c0",
+      "fieldId": "5a000021-0000-4000-a000-000000000021",
+      "value": [
+        "evolution",
+        "semantic-integrity"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.286772360+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.286772360+00:00"
+    },
+    {
+      "revisionId": "6ea58cb2-5554-46b2-8eb3-93e3ca34c6f8",
+      "recordId": "2a1e1590-55f4-4c08-a8b1-c54e994098c0",
+      "fieldId": "5a000022-0000-4000-a000-000000000022",
+      "value": "formation",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.286772360+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.286772360+00:00"
+    },
+    {
+      "revisionId": "3515d544-2e80-4815-82e3-a29ecbc4dacc",
+      "recordId": "2a1e1590-55f4-4c08-a8b1-c54e994098c0",
+      "fieldId": "5a000023-0000-4000-a000-000000000023",
+      "value": "(1) Require transition traces (keep a minimal changelog): honest under a strict reading of the Fire principle, and re-legitimizes the machinery - rejected because no present consumer needs history, the specified mechanism has documented defects, and axis 2-8 prices maintaining defective unused machinery as speculative. When the Decision Log's audit surface arrives, a mechanism designed against real requirements will be better than this one preserved. (2) Remove the machinery without ruling the carve-out - rejected: it silently decides the principle by default, the exact failure mode the coupling flag existed to prevent. (3) Make lifecycleState itself versioned/successor-based - rejected: it would make every state transition a record-identity event, conflating process position with meaning.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.286772360+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.286772360+00:00"
+    },
+    {
+      "revisionId": "9916305c-48f2-4df9-b8c4-d56585bbd7dd",
+      "recordId": "2a1e1590-55f4-4c08-a8b1-c54e994098c0",
+      "fieldId": "5a000024-0000-4000-a000-000000000024",
+      "value": "Until the history mechanism returns, state transitions are unwitnessed: a record shows where it is, not how it got there. Auditability of lifecycle progression is deferred to the claimant that needs it. The [LC-AX2] addressability coupling loses its revision-provenance leg. The carve-out adds one boundary definition (machine-bound state) that reviewers must apply.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.286772360+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.286772360+00:00"
+    },
+    {
+      "revisionId": "b0b6f7b7-add8-46e5-bcda-092d19179e5b",
+      "recordId": "2a1e1590-55f4-4c08-a8b1-c54e994098c0",
+      "fieldId": "5a000025-0000-4000-a000-000000000025",
+      "value": [
+        "srs#435 finding F1 (the coupling) and the column coherence check",
+        "2026-08-21 attestation: zero revisions.json / ChangelogCollection files in all corpora; muSrs mutates lifecycleState tracelessly in production",
+        "srs#435 findings C8 (RevisionAgent PascalCase leak) and C19 (provenance.lifecycleTransition names a pre-RFC-006 field) - the incomplete-specification evidence",
+        "rfc-decision-cce3c00e (the Fire column principle this carves)"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.286772360+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.286772360+00:00"
+    },
+    {
+      "revisionId": "927709af-07da-4b6f-af10-325efe4ae333",
+      "recordId": "2a1e1590-55f4-4c08-a8b1-c54e994098c0",
+      "fieldId": "5a000026-0000-4000-a000-000000000026",
+      "value": "The roadmap return trigger: a consumer needs transition history or field-level audit - anticipated first claimant is the muDemocracy Decision Log governance audit surface. Also review if a second field class beyond lifecycleState claims the state carve-out; the machine-bound test must hold or the boundary is wrong.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.286772360+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.286772360+00:00"
+    }
+  ]
+}

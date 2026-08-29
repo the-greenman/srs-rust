@@ -1,23 +1,23 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-04T11:22:51.608820625+00:00",
+  "instanceId": "5c5422b9-ce31-466b-9f1f-30c60df6a1bd",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-028: Lifecycle Update Command",
     "rfc_number": "028",
-    "rfc_status": "accepted",
     "author": "the-greenman (from issue the-greenman/srs#81)",
     "affected_components": "ext:lifecycle (CLI contract), srs-usage.md (agentic write-workflow reference)\n\n<!-- srs-integration:v1\ntooling-only\n-->",
     "proposal_artifact_path": "rfcs/rfc-028-lifecycle-update-command.md",
     "content": "srs lifecycle supports list, get, and create but has no update subcommand. This forces direct JSON file editing to modify an existing lifecycle definition, violating the CLI-first rule in srs-usage.md. This RFC adds srs lifecycle update <lifecycleId> to the spec, modelling it on srs type update. No schema changes are required. Full-replace semantics: caller fetches, edits, and sends the complete lifecycle JSON back. Seven conformance rules covering schema validation, id-match, RFC-006 V9 integrity (isFinal, transition id uniqueness, initial-state active-status), and full-replace write semantics."
   },
-  "instanceId": "5c5422b9-ce31-466b-9f1f-30c60df6a1bd",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:cli",
     "construct:lifecycle"
   ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-23T22:47:00.670421156+00:00"
+  "createdAt": "2026-07-04T11:22:51.608820625+00:00",
+  "updatedAt": "2026-08-28T13:58:16.400818076+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

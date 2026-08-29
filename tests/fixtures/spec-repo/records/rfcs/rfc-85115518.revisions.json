@@ -1,0 +1,89 @@
+{
+  "recordId": "85115518-e056-4c27-bbe7-f6ffa6c1f24f",
+  "revisions": [
+    {
+      "revisionId": "8af11a78-ee92-44b4-b4b9-c0b181a283d2",
+      "recordId": "85115518-e056-4c27-bbe7-f6ffa6c1f24f",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-023: SourceReference vocabulary disjointness — sourceRole replaces relationType",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:13.233698523+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:13.233698523+00:00"
+    },
+    {
+      "revisionId": "3dfe26dd-4a1f-443d-8ec9-4b99f6d72b95",
+      "recordId": "85115518-e056-4c27-bbe7-f6ffa6c1f24f",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "023",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:13.233698523+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:13.233698523+00:00"
+    },
+    {
+      "revisionId": "2e43c685-7fa9-439f-a47f-dda8ab9f663a",
+      "recordId": "85115518-e056-4c27-bbe7-f6ffa6c1f24f",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "Peter Brownell",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:13.233698523+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:13.233698523+00:00"
+    },
+    {
+      "revisionId": "946cf354-b963-48a6-b0d7-1cf8328a7e54",
+      "recordId": "85115518-e056-4c27-bbe7-f6ffa6c1f24f",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "`SourceReference.sourceRole` replaces `relationType` across record/note/typed-record/relations-collection schemas; invariant I-88.\n\n<!-- srs-integration:v1\nschema:record.json\nschema:note.json\nschema:relations-collection.json\nI-88\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:13.233698523+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:13.233698523+00:00"
+    },
+    {
+      "revisionId": "d46ebf06-707b-452d-98da-2bf24ff0bc1d",
+      "recordId": "85115518-e056-4c27-bbe7-f6ffa6c1f24f",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-023-sourceref-vocabulary-disjointness.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:13.233698523+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:13.233698523+00:00"
+    },
+    {
+      "revisionId": "6b3c3aa2-9dfb-4da9-931b-b4c7c9c031c4",
+      "recordId": "85115518-e056-4c27-bbe7-f6ffa6c1f24f",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Renames `SourceReference.relationType` to `sourceRole`, de-collides its enum against the Relation vocabulary, defines the graduation mapping between the two, and adds a permanent disjointness conformance rule. Full text: rfcs/rfc-023-sourceref-vocabulary-disjointness.md.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:13.233698523+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:13.233698523+00:00"
+    }
+  ]
+}

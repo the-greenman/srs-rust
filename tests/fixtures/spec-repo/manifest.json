@@ -23,7 +23,7 @@
   "srsVersion": "2.0-draft",
   "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
   "createdAt": "2026-05-28T00:00:00Z",
-  "dataModelRevision": 3,
+  "dataModelRevision": 4,
   "declaredExtensions": [
     "ext:addressability",
     "ext:lifecycle",

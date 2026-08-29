@@ -1,0 +1,89 @@
+{
+  "recordId": "2a0fd144-337f-4f14-ada3-5c190c2c2e9e",
+  "revisions": [
+    {
+      "revisionId": "11b7d00e-7e3b-41a7-ace2-193484d531f3",
+      "recordId": "2a0fd144-337f-4f14-ada3-5c190c2c2e9e",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-030: Rename Field's normative `selectOptions` property to `allowedValues`",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:15.225612889+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:15.225612889+00:00"
+    },
+    {
+      "revisionId": "eb1d99ee-0c5e-4226-860c-c22b6e3d1ba9",
+      "recordId": "2a0fd144-337f-4f14-ada3-5c190c2c2e9e",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "030",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:15.225612889+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:15.225612889+00:00"
+    },
+    {
+      "revisionId": "969724e4-62b1-41b0-8039-8aac4324097e",
+      "recordId": "2a0fd144-337f-4f14-ada3-5c190c2c2e9e",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "the-greenman (from issue the-greenman/srs#232)",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:15.225612889+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:15.225612889+00:00"
+    },
+    {
+      "revisionId": "99675761-41a7-4ccb-9270-2a4495b396c8",
+      "recordId": "2a0fd144-337f-4f14-ada3-5c190c2c2e9e",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "§04-2-4-2 Field subsection (the former com.semanticops.spec/field type-definition record was a duplicate of it and is retired — #275); §03-1 Version semantics subsection; §04-7 Vocabulary and Term subsection (invariant V3); docs/schema/2.0/package-bundle.json (embedded Field shape)\n\n<!-- srs-integration:v1\nsubsection:field\nsubsection:version-semantics\nsubsection:vocabulary-and-term\nschema:package-bundle.json\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:15.225612889+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:15.225612889+00:00"
+    },
+    {
+      "revisionId": "a029fa95-a1a3-4596-92cd-c5ecfc795be9",
+      "recordId": "2a0fd144-337f-4f14-ada3-5c190c2c2e9e",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-030-field-allowed-values-rename.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:15.225612889+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:15.225612889+00:00"
+    },
+    {
+      "revisionId": "66645a33-07dd-4541-ad82-e25552d01741",
+      "recordId": "2a0fd144-337f-4f14-ada3-5c190c2c2e9e",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "The normative spec named a Field (Tier 2) property `selectOptions`, while the JSON Schema (docs/schema/2.0/field.json), the reference Rust engine (srs-core::Field::allowed_values), and every published Field instance already used `allowedValues`. This RFC corrects the spec prose -- and a second, previously-unnoticed schema drift in docs/schema/2.0/package-bundle.json's embedded Field shape -- to the already-shipped name `allowedValues`, with no breaking change to any schema, engine, or instance data. TypedField (Tier 1) is unrelated and untouched -- its `selectOptions` property is correctly named in both spec and schema. This RFC renames text originally authored by RFC-006 (vocabulary/Term substrate) without altering its exclusivity or resolution semantics.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:15.225612889+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:15.225612889+00:00"
+    }
+  ]
+}

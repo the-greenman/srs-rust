@@ -1,15 +1,25 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-05-27T00:00:00Z",
+  "instanceId": "22aeac29-b51f-510e-bc99-aeb0020d2656",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-001: Views L2 — Rendering Hierarchy and Default Rendering Baseline",
     "rfc_number": "001",
-    "rfc_status": "accepted",
     "affected_components": "<!-- srs-integration:v1\next:views-l2\next:views-l1\nschema:document-view.json\nschema:view.json\n-->",
     "proposal_artifact_path": "rfcs/rfc-001.md",
     "content": "Defines the default (View-agnostic) rendering baseline, a normative heading hierarchy (`depthOffset`/`titleFieldId`), a portable `format` vocabulary with an L1/L2 precedence rule, and reserves `themeRef`/`themeVariants` plus the `ThemeReference`/`ThemeVariant` types on `DocumentView` for RFC-002. Full text: rfcs/rfc-001.md."
   },
-  "instanceId": "22aeac29-b51f-510e-bc99-aeb0020d2656",
+  "lifecycleState": "accepted",
+  "tags": [
+    "concern:rendering",
+    "construct:view",
+    "topic:rfc"
+  ],
+  "createdAt": "2026-05-27T00:00:00Z",
+  "updatedAt": "2026-08-28T13:58:07.108518176+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
   "sourceRefs": [
     {
       "note": "RFC-001 from srs-spec.md - coarse source anchoring during migration",
@@ -17,15 +27,5 @@
       "sourceId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
       "sourceType": "repository-document"
     }
-  ],
-  "tags": [
-    "concern:rendering",
-    "construct:view",
-    "topic:rfc"
-  ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-06-05T09:58:21.198270872+00:00"
+  ]
 }

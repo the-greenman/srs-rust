@@ -1,22 +1,22 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-29T00:00:00Z",
+  "instanceId": "68f19e31-7616-5675-ae53-1ff8880680db",
+  "typeId": "6a000001-0000-4000-a000-000000000001",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "rfc",
   "fieldValues": {
     "title": "RFC-033: Self-hosting the meta-model — the frozen-seed bootstrap package",
     "rfc_number": "033",
-    "rfc_status": "accepted",
     "author": "the-greenman",
     "affected_components": "Self-hosts the SRS meta-model as SRS Type records in the frozen `com.semanticops.srs/metamodel` package (10 Types + 55 Fields); adds optional `dataModelRevision` (folds #265) to manifest/package-manifest/package-bundle schemas; adds the per-emitter fidelity dashboard; supersedes RFC-004's schema-notation vocabulary (reuses its projection-rules).\n\n<!-- srs-integration:v1\nschema:manifest.json\nschema:package-manifest.json\nschema:package-bundle.json\ntype:com.semanticops.srs/field\ntype:com.semanticops.srs/type\ntype:com.semanticops.srs/field-type\ntype:com.semanticops.srs/field-assignment\ntype:com.semanticops.srs/exact-type-ref\n-->",
     "proposal_artifact_path": "rfcs/rfc-033-self-host-metamodel-frozen-seed.md",
     "content": "Expresses Field, Type, FieldAssignment and their value-objects as SRS Type records in a frozen com.semanticops.srs/metamodel package; keeps docs/schema/2.0/{field,type}.json as the never-re-derived bootstrap fixed point; adds a monotonic dataModelRevision stamp (#265) and a per-emitter fidelity dashboard; supersedes RFC-004's schema-notation vocabulary while reusing its projection-rules. Full text: rfcs/rfc-033-self-host-metamodel-frozen-seed.md."
   },
-  "instanceId": "68f19e31-7616-5675-ae53-1ff8880680db",
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc"
   ],
-  "typeId": "6a000001-0000-4000-a000-000000000001",
-  "typeName": "rfc",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-29T00:00:00Z"
+  "createdAt": "2026-07-29T00:00:00Z",
+  "updatedAt": "2026-08-28T13:58:09.349375256+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

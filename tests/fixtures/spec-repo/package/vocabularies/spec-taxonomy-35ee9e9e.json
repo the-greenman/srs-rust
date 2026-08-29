@@ -106,7 +106,7 @@
       "version": 1
     },
     {
-      "description": "Content about record tiers (Note, TypedRecord, Record) and field values.",
+      "description": "Content about record tiers (Note, Record) and field values.",
       "id": "52b73caa-3ac5-4e27-ba93-6d717a6a57a0",
       "key": "construct:record",
       "label": "Record",

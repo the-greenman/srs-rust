@@ -1,16 +1,16 @@
 {
-  "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-  "createdAt": "2026-07-23T16:42:10.816284817+00:00",
+  "instanceId": "99dc528c-1440-4012-a4f5-51d97b91cf9e",
+  "typeId": "2a000006-0000-4000-a000-000000000006",
+  "typeVersion": 1,
+  "typeNamespace": "com.semanticops.spec",
+  "typeName": "invariant",
   "fieldValues": {
     "invariant_number": "I-120",
     "title": "Text Projection includes only Fields matching the RFC-032 searchability predicate",
-    "normative_statement": "For Tier 2, the Text Projection MUST include a Field only when `fieldType.datatype == \"string\"` and `fieldType.format` is absent or one of `\"plain\"`, `\"markdown\"`, or `\"uri\"`. `valueDomain` does not affect searchability. A single-cardinality Field emits one segment; a list-cardinality Field emits one segment per array element in order. Fields with `format: \"uuid\"` or `format: \"email\"`, or datatype `number`, `integer`, `boolean`, `date`, `date-time`, `ref`, `dependent`, or `map`, MUST NOT contribute `TextSegment`s. Tier-1 `TypedField.valueType` continues to use the legacy classification until the #242 Phase-B carrier cutover. (RFC-012 R8; RFC-032 Rev-7 erratum.)",
+    "normative_statement": "For Tier 2, the Text Projection MUST include a Field only when `fieldType.datatype == \"string\"` and `fieldType.format` is absent or one of `\"plain\"`, `\"markdown\"`, or `\"uri\"`. `valueDomain` does not affect searchability. A single-cardinality Field emits one segment; a list-cardinality Field emits one segment per array element in order. Fields with `format: \"uuid\"` or `format: \"email\"`, or datatype `number`, `integer`, `boolean`, `date`, `date-time`, `ref`, `dependent`, or `map`, MUST NOT contribute `TextSegment`s. (RFC-012 R8; RFC-032 Rev-7 erratum.)",
     "applies_to": "ext:discovery; searchability classification (RFC-012)"
   },
-  "instanceId": "99dc528c-1440-4012-a4f5-51d97b91cf9e",
-  "typeId": "2a000006-0000-4000-a000-000000000006",
-  "typeName": "invariant",
-  "typeNamespace": "com.semanticops.spec",
-  "typeVersion": 1,
-  "updatedAt": "2026-07-23T16:42:10.816294362+00:00"
+  "createdAt": "2026-07-23T16:42:10.816284817+00:00",
+  "updatedAt": "2026-08-27T18:13:40.907818708+00:00",
+  "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

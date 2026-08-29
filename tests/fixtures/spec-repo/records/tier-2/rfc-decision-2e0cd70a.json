@@ -6,7 +6,6 @@
   "typeName": "rfc-decision",
   "fieldValues": {
     "title": "Carry meaning you do not recognise",
-    "rfc_status": "accepted",
     "decision_date": "2026-08-20",
     "decision_rationale": "The governed spec exists so that meaning can be carried: a repository built in one system — and even more importantly, the packages created somewhere — must be shareable. The key motivator is the sharing of practice: fields, types, blueprints and protocols must be portable so that the process of creating meaning is shared, even more than the content itself. Interoperability cannot be sacrificed; extensibility is bounded by it. Silent tolerance (the engine's prior behaviour: a flattened catch-all with no diagnostics) and silent loss are both defects of the same kind — the fix to Postel's law is not less tolerance but mandatory naming of what was tolerated.",
     "decision_statement": "Unknown content in instance-layer data is governed by a three-verb contract with graded diagnostics. DETECT: unknown elements are always identified — content in `meta` gets at most a quiet mention (it is the sanctioned extension carrier; not recognising its contents is expected, not a defect); unknown fields elsewhere draw a louder warning. LOAD: unknown instance-layer content never fails a load — it must not break the reader, and the reader should not break it. WRITE: a conformant writer preserves what it does not understand (the ideal), or refuses loudly when preservation is genuinely impossible; silently discarding unknown content is the one forbidden behaviour. Emitted JSON Schemas express the PRODUCTION contract — closed except `meta` — while round-tripped out-of-contract keys are carried despite being schema-invalid: the validation complaint IS the louder diagnostic. The definition layer is unchanged by this decision: definitions remain reject-unknown (they are the trust boundary), and extension remains inheritance-only.",
@@ -24,11 +23,12 @@
     ],
     "review_trigger": "Review if practice-package portability testing shows the preserve-ideal is unimplementable for a real class of writers, or if graded diagnostics prove too quiet to prevent silent semantic drift in shared packages."
   },
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc",
     "cell:portability"
   ],
   "createdAt": "2026-08-21T08:12:34.065870797+00:00",
-  "updatedAt": "2026-08-23T18:55:14.459260730+00:00",
+  "updatedAt": "2026-08-28T13:58:19.800689542+00:00",
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

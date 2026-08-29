@@ -1,0 +1,169 @@
+{
+  "recordId": "19997e24-37ad-42b2-aa88-9663a6eb814e",
+  "revisions": [
+    {
+      "revisionId": "25a6ab18-a9da-4e12-bcc6-b30f5654a1cb",
+      "recordId": "19997e24-37ad-42b2-aa88-9663a6eb814e",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Conformance checks are declared in one registry",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.608136491+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.608136491+00:00"
+    },
+    {
+      "revisionId": "ba047291-2f2e-404d-8994-e7a47cc49aec",
+      "recordId": "19997e24-37ad-42b2-aa88-9663a6eb814e",
+      "fieldId": "5a000004-0000-4000-a000-000000000004",
+      "value": "2026-08-26",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.608136491+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.608136491+00:00"
+    },
+    {
+      "revisionId": "e2269314-f3da-4508-ab65-e04e34e3b526",
+      "recordId": "19997e24-37ad-42b2-aa88-9663a6eb814e",
+      "fieldId": "5a000012-0000-4000-a000-000000000012",
+      "value": "The check surface accreted piece-by-piece into four shapes for one goal (check-*.mjs assertions, gen-*.mjs --check byte-closure gates, migrate-*.mjs --check applied-gates, tests/*/run.mjs suites) plus an invisible fifth tier of checks deliberately outside validate-all (check-release-drift, which needs the pinned binary). The cost stopped being theoretical on 2026-08-26: train unit #483's agent ran validate-all, got exit 0, and shipped PR #493 red because the drift gate lives outside the surface it checked - nothing declared that the surface had a second half. In grid terms the checks are sound Conformance machinery, but the registry of checks was undeclared structure, inferred by reading a 260-line script - an Earth violation (structure is declared, never inferred) and a meta-level one-way-per-goal failure.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.608136491+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.608136491+00:00"
+    },
+    {
+      "revisionId": "4597a458-40e6-442a-882c-f7b5692b1150",
+      "recordId": "19997e24-37ad-42b2-aa88-9663a6eb814e",
+      "fieldId": "5a000019-0000-4000-a000-000000000019",
+      "value": "Cell: Conformance. Every spec-repo conformance check is declared in a single registry (scripts/checks.json) rather than hand-wired: each entry names the check's id, script, arguments, tier (always | pinned-cli | ci-only), the grid cell it guards, the governing decision or RFC that introduced it, and an optional expiry for checks born of grandfathering. validate-all.mjs becomes a loop over the registry filtered by tier, and it ends every run by naming the checks deferred to other tiers, so its exit 0 can never again be mistaken for the full gate surface. A membership guard enforces the registry: a check script present on disk but absent from the registry fails the build, which makes piecemeal addition structurally impossible. New checks follow one naming convention; existing script names migrate only when next touched (rename is a migration). The registry is a stepping stone, not the destination: the end state is the checks described as records - the spec repository declaring its own conformance gates the way it declares everything else, with the JSON registry generated as a projection. Owner, 2026-08-26: as long as we keep working towards the goal where all meaning is in SRS we are going in the right direction.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.608136491+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.608136491+00:00"
+    },
+    {
+      "revisionId": "681d98d4-acc1-48ad-a0c7-fc6e05b32b47",
+      "recordId": "19997e24-37ad-42b2-aa88-9663a6eb814e",
+      "fieldId": "5a000020-0000-4000-a000-000000000020",
+      "value": "Binds how conformance checks are added to the srs spec repository from ratification: declaration in the registry precedes wiring, the membership guard enforces it, and the tier vocabulary is the one named here. Does not force-rename existing scripts, does not bind sibling repositories (their gates follow their own contracts), and does not build the checks-as-records fold now - that lands with the SRS-for-Specs work and the #490 meaning-placement pass, which this record hands the fold to.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.608136491+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.608136491+00:00"
+    },
+    {
+      "revisionId": "7f859498-0e5b-4f0e-addb-ea6d71578aa5",
+      "recordId": "19997e24-37ad-42b2-aa88-9663a6eb814e",
+      "fieldId": "5a000021-0000-4000-a000-000000000021",
+      "value": [
+        "shared-coherence",
+        "semantic-integrity",
+        "evolution"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.608136491+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.608136491+00:00"
+    },
+    {
+      "revisionId": "51443a4f-bd62-4764-ad95-29eb3f5a2c06",
+      "recordId": "19997e24-37ad-42b2-aa88-9663a6eb814e",
+      "fieldId": "5a000022-0000-4000-a000-000000000022",
+      "value": "formation",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.608136491+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.608136491+00:00"
+    },
+    {
+      "revisionId": "27ad6cf5-48e0-493d-936a-3fd407066e86",
+      "recordId": "19997e24-37ad-42b2-aa88-9663a6eb814e",
+      "fieldId": "5a000023-0000-4000-a000-000000000023",
+      "value": "(1) Status quo hand-wiring - rejected by evidence: it produced four conventions and today's red PR. (2) Jumping straight to checks-as-records - deferred, not rejected: it is the declared end state, but building it now widens the current phase; the registry file is the smallest declaration that makes the later fold trivial. (3) Adopting a test-framework dependency to organise the checks - rejected: the problem is undeclared structure, not missing machinery; the fix is data, not a framework.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.608136491+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.608136491+00:00"
+    },
+    {
+      "revisionId": "3e40da79-2a49-4352-9e13-a44e54118cf0",
+      "recordId": "19997e24-37ad-42b2-aa88-9663a6eb814e",
+      "fieldId": "5a000024-0000-4000-a000-000000000024",
+      "value": "One added indirection between validate-all and the scripts. The ci-only tier can declare a check but cannot enforce that the CI workflow actually runs it - the registry makes the gap visible in review rather than closing it. Registry entries carry provenance fields that must be filled honestly at addition time.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.608136491+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.608136491+00:00"
+    },
+    {
+      "revisionId": "a10807fd-8952-489e-b81c-47fb1d8ed1ba",
+      "recordId": "19997e24-37ad-42b2-aa88-9663a6eb814e",
+      "fieldId": "5a000025-0000-4000-a000-000000000025",
+      "value": [
+        "PR #493 (train unit #483) shipped red on check-release-drift, 2026-08-26: validate-all exit 0 while the required CI gate failed - the motivating incident",
+        "Master inventory 2026-08-26: ~25 checks in four shapes wired as individual runScript lines in validate-all.mjs, plus check-release-drift outside it",
+        "rfc-decision-cce3c00e (the grid; Conformance cell preference: declared strength over convenient reach)",
+        "rfc-decision-9ee14517 (layer rules: behavior needs a contract; structure is declared, never inferred)",
+        "srs#490 (post-256 meaning-placement review - carries the checks-as-records fold and the generator-inversion candidate this trajectory joins)"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.608136491+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.608136491+00:00"
+    },
+    {
+      "revisionId": "2f90168b-0f87-4b22-a6d6-295414e2d716",
+      "recordId": "19997e24-37ad-42b2-aa88-9663a6eb814e",
+      "fieldId": "5a000026-0000-4000-a000-000000000026",
+      "value": "Fold the registry into records and generate the JSON as a projection when SRS-for-Specs authoring (srs#214 / the #490 pass) makes records the natural home. Review earlier if a second gate is ever discovered outside the declared surface - that would mean the tier vocabulary or the membership guard is incomplete.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:18.608136491+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:18.608136491+00:00"
+    }
+  ]
+}

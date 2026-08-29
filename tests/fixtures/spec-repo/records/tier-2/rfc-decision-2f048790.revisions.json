@@ -1,0 +1,166 @@
+{
+  "recordId": "2f048790-519d-441b-8f9d-1ba0652d8c4f",
+  "revisions": [
+    {
+      "revisionId": "16ab22a1-0cda-43b7-ae8f-3014ef39f856",
+      "recordId": "2f048790-519d-441b-8f9d-1ba0652d8c4f",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "Generate structural reference projections from semantic records",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.973513855+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.973513855+00:00"
+    },
+    {
+      "revisionId": "bdaff598-ba7b-4f19-a38e-86dff42d9d15",
+      "recordId": "2f048790-519d-441b-8f9d-1ba0652d8c4f",
+      "fieldId": "5a000004-0000-4000-a000-000000000004",
+      "value": "2026-07-31",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.973513855+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.973513855+00:00"
+    },
+    {
+      "revisionId": "721a8417-8295-4c32-b333-fec628c7fe87",
+      "recordId": "2f048790-519d-441b-8f9d-1ba0652d8c4f",
+      "fieldId": "5a000012-0000-4000-a000-000000000012",
+      "value": "Resolved semantic records are the structural authority. Narrative stays in authored prose around stable typed slots, while tooling generates the structural reference so hand-authored pseudo-IDL and schemas cannot silently diverge.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.973513855+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.973513855+00:00"
+    },
+    {
+      "revisionId": "0e021669-eecc-412d-8ea9-91d464639574",
+      "recordId": "2f048790-519d-441b-8f9d-1ba0652d8c4f",
+      "fieldId": "5a000019-0000-4000-a000-000000000019",
+      "value": "Resolved Field, Type, and value-object records are the semantic source; contributors keep narrative in published subsection records around a stable typed view slot, while tooling generates a property-table reference, optional pseudo-IDL, and schema from the resolved model.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.973513855+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.973513855+00:00"
+    },
+    {
+      "revisionId": "2ee02b2e-6475-49bc-96ef-def1af01ce5e",
+      "recordId": "2f048790-519d-441b-8f9d-1ba0652d8c4f",
+      "fieldId": "5a000020-0000-4000-a000-000000000020",
+      "value": "Canonical prose and structural reference publication",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.973513855+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.973513855+00:00"
+    },
+    {
+      "revisionId": "76acadca-b07a-478b-8441-6fc7e5892ea7",
+      "recordId": "2f048790-519d-441b-8f9d-1ba0652d8c4f",
+      "fieldId": "5a000021-0000-4000-a000-000000000021",
+      "value": [
+        "semantic-integrity",
+        "evidence-led-evolution",
+        "shared-coherence"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.973513855+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.973513855+00:00"
+    },
+    {
+      "revisionId": "51fcc9c3-8395-402b-b0f1-f0b2c687370e",
+      "recordId": "2f048790-519d-441b-8f9d-1ba0652d8c4f",
+      "fieldId": "5a000022-0000-4000-a000-000000000022",
+      "value": "formation",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.973513855+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.973513855+00:00"
+    },
+    {
+      "revisionId": "f9f43553-0685-4e42-b66a-8dd8f139b98f",
+      "recordId": "2f048790-519d-441b-8f9d-1ba0652d8c4f",
+      "fieldId": "5a000023-0000-4000-a000-000000000023",
+      "value": "- Continue comparing hand-authored pseudo-IDL to generated schemas.\n- Generate human prose from JSON Schema and make the schema canonical.\n- Embed raw JSON Schema as the main contributor-facing reference.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.973513855+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.973513855+00:00"
+    },
+    {
+      "revisionId": "55b6e5ca-2d36-4d18-8cdf-63db218564d2",
+      "recordId": "2f048790-519d-441b-8f9d-1ba0652d8c4f",
+      "fieldId": "5a000024-0000-4000-a000-000000000024",
+      "value": "The architecture needs effective-Type resolution, typed generated-view support, a complete emitter inventory, and staged residual checks before authorship can flip.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.973513855+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.973513855+00:00"
+    },
+    {
+      "revisionId": "5e443d68-7a0b-4f14-9892-28a8e7633ee3",
+      "recordId": "2f048790-519d-441b-8f9d-1ba0652d8c4f",
+      "fieldId": "5a000025-0000-4000-a000-000000000025",
+      "value": [
+        "https://github.com/the-greenman/srs/issues/274",
+        "https://github.com/the-greenman/srs/issues/274#issuecomment-5145639920"
+      ],
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.973513855+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.973513855+00:00"
+    },
+    {
+      "revisionId": "d284da29-215a-4a1b-a779-f5666f8d57fa",
+      "recordId": "2f048790-519d-441b-8f9d-1ba0652d8c4f",
+      "fieldId": "5a000026-0000-4000-a000-000000000026",
+      "value": "Review when a generated projection cannot convey a required structural rule, or when a narrative change proposes to become a second structural authority.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:19.973513855+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:19.973513855+00:00"
+    }
+  ]
+}

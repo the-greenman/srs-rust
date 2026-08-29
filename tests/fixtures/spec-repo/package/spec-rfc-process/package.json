@@ -16,7 +16,6 @@
   ],
   "fields": [
     "fields/rfc-number.json",
-    "fields/rfc-status.json",
     "fields/author.json",
     "fields/decision-date.json",
     "fields/revision-history.json",

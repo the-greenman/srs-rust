@@ -1,0 +1,89 @@
+{
+  "recordId": "7d70dc5f-27a4-46a4-ade6-445a7e32be67",
+  "revisions": [
+    {
+      "revisionId": "6acfb3e8-80d1-4149-b49a-72bb470a8a8d",
+      "recordId": "7d70dc5f-27a4-46a4-ade6-445a7e32be67",
+      "fieldId": "1a000001-0000-4000-a000-000000000001",
+      "value": "RFC-036: Composite rendering — view-owned renderer dispatch for composite-range fields",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:09.851807322+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:09.851807322+00:00"
+    },
+    {
+      "revisionId": "4abb807d-6423-495a-8033-5b32e2126df4",
+      "recordId": "7d70dc5f-27a4-46a4-ade6-445a7e32be67",
+      "fieldId": "5a000001-0000-4000-a000-000000000001",
+      "value": "036",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:09.851807322+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:09.851807322+00:00"
+    },
+    {
+      "revisionId": "df5a8aad-ee91-4945-b891-674ea2fd52be",
+      "recordId": "7d70dc5f-27a4-46a4-ade6-445a7e32be67",
+      "fieldId": "5a000003-0000-4000-a000-000000000003",
+      "value": "the-greenman",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:09.851807322+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:09.851807322+00:00"
+    },
+    {
+      "revisionId": "2121e08b-65c4-4e74-ba56-89dc46648715",
+      "recordId": "7d70dc5f-27a4-46a4-ade6-445a7e32be67",
+      "fieldId": "5a000009-0000-4000-a000-000000000009",
+      "value": "View-owned composite renderer dispatch (`FieldView.compositeRenderer`, `DocumentSection.compositeRenderers`, `DocumentView.compositeRenderers`); normative composite baseline rendering; the `table` renderer over a structured value shape; `ElementTemplates.compositeFieldRowTemplates` superseding `groupFieldRowTemplates`; the RFC-007 `[FG-Cx*]`/`[T-Gx*]`/`[T-Cx*]` retirement schedule; Invariant 1 and Invariant 13 extended to the new bindings and to Discovery Text Projection.\n\n<!-- srs-integration:v1\next:views-l1\next:views-l2\next:themes-l1\nschema:view.json\nschema:document-view.json\nschema:theme.json\nI-1\nI-13\n-->",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:09.851807322+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:09.851807322+00:00"
+    },
+    {
+      "revisionId": "19c7dbd4-433a-4faa-9337-90ba62dcd828",
+      "recordId": "7d70dc5f-27a4-46a4-ade6-445a7e32be67",
+      "fieldId": "5a000016-0000-4000-a000-000000000016",
+      "value": "rfcs/rfc-036-composite-rendering.md",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:09.851807322+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:09.851807322+00:00"
+    },
+    {
+      "revisionId": "da5530bf-c955-4955-a010-7f478b6a1095",
+      "recordId": "7d70dc5f-27a4-46a4-ade6-445a7e32be67",
+      "fieldId": "1a000002-0000-4000-a000-000000000002",
+      "value": "Restores the rendering-dispatch capability that RFC-032 strands when it subsumes `FieldGroup` into composite range, and relocates it from the Type to the View — where RFC-015 places presentation and where `FieldView` already carries `displayHint`/`editorHintOverride`. Specifies the `table` renderer against a structured value shape (`columns: string[]`, `rows: ref(Row)[] inline`, `Row.cells: string[]`, `widths: number[]`) rather than JSON-in-text; specifies composite baseline rendering, which every fallback path depends on and which no document had defined; maps every RFC-007 rendering rule onto the new mechanism, including the one and a half that cease to be renderer concerns; and specifies the deterministic corpus migration. Design only — the inline-composite value carrier, the fixture and the migrations are #242. Full text: rfcs/rfc-036-composite-rendering.md.",
+      "agent": {
+        "type": "Ai"
+      },
+      "provenance": {
+        "lifecycleTransition": "accepted",
+        "transitionedAt": "2026-08-28T13:58:09.851807322+00:00"
+      },
+      "createdAt": "2026-08-28T13:58:09.851807322+00:00"
+    }
+  ]
+}

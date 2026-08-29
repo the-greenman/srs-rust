@@ -6,7 +6,6 @@
   "typeName": "rfc-decision",
   "fieldValues": {
     "title": "Tier 1 was a theory: TypedRecord is removed",
-    "rfc_status": "accepted",
     "decision_date": "2026-08-21",
     "decision_rationale": "The 2026-08-21 attestation found zero TypedRecords in every corpus - production muSrs, the spec's own 384-record repository, and both derivative trees - and zero graduatedAt anywhere. The graduation path has had no middle rung in practice across the system's entire life. Axis 2-8's boundary clause requires evolution decisions to be evidence-led and names speculative elegance as insufficient; a tier that exists only in theory is exactly that. The owner ruled: Tier 1 is a theory... at this point there is no evidence. Lets remove it. The dormancy rule applies: the cell keeps the concept's name and its return trigger.",
     "decision_statement": "Cell: Identity (Earth, individual), under axis 2-8's evidence clause. The record model goes from three tiers to two: Tier 0 (Note - free text sections, no type binding) and Tier 2 (Record - instantiated Type). Tier 1 (TypedRecord - named fields without a Type binding) and the graduatedAt timestamps are removed from the standard. The gradual-refinement theory the middle tier expressed - meaning matures from free text toward typed structure - survives without it: graduation is Note to Record, linked by derived-from, and partial structure inside a Note remains what it always was, sections. Tier numbering (0 and 2) is retained as-is to keep every existing reference, invariant, and discussion stable; renumbering would be churn without meaning.",
@@ -25,11 +24,12 @@
     ],
     "review_trigger": "The roadmap return trigger: a real consumer produces semi-structured records (named fields, no Type) that fit neither Note sections nor a lightweight Type. Until then, the two-tier model stands."
   },
+  "lifecycleState": "accepted",
   "tags": [
     "topic:rfc",
     "cell:identity"
   ],
   "createdAt": "2026-08-21T21:13:37.572215749+00:00",
-  "updatedAt": "2026-08-23T18:55:09.529417501+00:00",
+  "updatedAt": "2026-08-28T13:58:21.874087784+00:00",
   "$schema": "https://srs.semanticops.com/schema/2.0/record.json"
 }

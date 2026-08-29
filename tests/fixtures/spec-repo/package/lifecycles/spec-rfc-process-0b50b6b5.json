@@ -1,0 +1,132 @@
+{
+  "id": "0b50b6b5-481c-433b-912e-926f026592a3",
+  "version": 1,
+  "namespace": "com.semanticops.spec",
+  "name": "spec_rfc_process",
+  "states": [
+    {
+      "id": "7e093fc7-550b-499b-b08d-f0d0ff80baec",
+      "key": "draft",
+      "label": "Draft",
+      "description": "Under discussion; not yet ready for review.",
+      "isInitial": true
+    },
+    {
+      "id": "27d8fe5a-857d-48ac-97fb-51c910c3da67",
+      "key": "proposed",
+      "label": "Proposed",
+      "description": "Ready for community review."
+    },
+    {
+      "id": "8bc7cc04-2b89-4d8b-bf8e-76e915631ced",
+      "key": "accepted",
+      "label": "Accepted",
+      "description": "Approved, but not necessarily applied yet."
+    },
+    {
+      "id": "ea05563c-99cc-4e4c-9f97-4c63f5ee6de2",
+      "key": "implemented",
+      "label": "Implemented",
+      "description": "Accepted and applied to active spec artifacts."
+    },
+    {
+      "id": "16a1d5c4-63e7-43d6-b8ff-d05ea4026161",
+      "key": "rejected",
+      "label": "Rejected",
+      "description": "Not accepted.",
+      "isFinal": true
+    },
+    {
+      "id": "394221bb-5544-45b1-be75-c72a535d2c4e",
+      "key": "superseded",
+      "label": "Superseded",
+      "description": "Replaced by a later RFC or decision.",
+      "isFinal": true,
+      "requiresRelation": {
+        "relationType": "supersedes"
+      }
+    },
+    {
+      "id": "494cf4b9-e129-4bce-a791-e4699879d6df",
+      "key": "withdrawn",
+      "label": "Withdrawn",
+      "description": "Intentionally stopped by the author.",
+      "isFinal": true
+    }
+  ],
+  "transitions": [
+    {
+      "id": "d66eeb56-9029-4ee2-b051-0470d5e17beb",
+      "name": "propose",
+      "from": "draft",
+      "to": "proposed",
+      "description": "Put a draft up for community review."
+    },
+    {
+      "id": "421ddbab-179f-45ac-ae33-a7447852b7d5",
+      "name": "revise",
+      "from": "proposed",
+      "to": "draft",
+      "description": "Send a proposal back for further drafting."
+    },
+    {
+      "id": "a6574cc8-9243-4a4d-84f8-02a338cc7777",
+      "name": "accept",
+      "from": "proposed",
+      "to": "accepted",
+      "description": "Approve the proposal."
+    },
+    {
+      "id": "fe056ce4-0641-4b14-b8a4-c9f4705fdaa4",
+      "name": "reject",
+      "from": "proposed",
+      "to": "rejected",
+      "description": "Decline the proposal."
+    },
+    {
+      "id": "9e955d4b-5e48-4a55-9542-c2d84dce8dd2",
+      "name": "implement",
+      "from": "accepted",
+      "to": "implemented",
+      "description": "Apply the accepted change to active spec artifacts."
+    },
+    {
+      "id": "adf180e4-b840-47e6-9d41-c05bc7af7b86",
+      "name": "supersede",
+      "from": "accepted",
+      "to": "superseded",
+      "description": "Replace an accepted-but-not-yet-implemented RFC with a successor."
+    },
+    {
+      "id": "7bb7632b-e3af-4a1d-a7e1-ebd9fa752ebb",
+      "name": "supersede",
+      "from": "implemented",
+      "to": "superseded",
+      "description": "Replace an implemented RFC with a successor."
+    },
+    {
+      "id": "a57ecdb0-fb8a-487e-a762-edbc10d577be",
+      "name": "withdraw",
+      "from": "draft",
+      "to": "withdrawn",
+      "description": "Withdraw a draft without putting it up for review."
+    },
+    {
+      "id": "af94aeb6-9d20-4c4d-b722-5c21989732de",
+      "name": "withdraw",
+      "from": "proposed",
+      "to": "withdrawn",
+      "description": "Withdraw a proposal without accepting it."
+    },
+    {
+      "id": "70fb49ce-f482-4d63-b810-fd63aea70c48",
+      "name": "withdraw",
+      "from": "accepted",
+      "to": "withdrawn",
+      "description": "Withdraw an accepted RFC before implementation."
+    }
+  ],
+  "initialState": "draft",
+  "description": "The RFC process lifecycle: draft under discussion, proposed for community review, accepted for implementation, implemented and applied to active spec artifacts. rejected, superseded, and withdrawn are off-ramps. Governed by rfc-decision-43249f53 (one state mechanism — workflow status is a Lifecycle, not a bare select field). Shared by the rfc and rfc-decision Types.",
+  "createdAt": "2026-08-27T00:00:00Z"
+}
