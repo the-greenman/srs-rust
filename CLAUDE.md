@@ -6,6 +6,8 @@ The top-level `semanticops/CLAUDE.md` contains the full SRS data model, CLI refe
 
 **Before implementing any new capability** (anything that queries, filters, traverses, validates, or projects), read **`docs/architecture/capability-layering.md`** — the default path for where functionality belongs. The short version: build it once as a `srs-repository` service returning a typed struct, expose it through both the CLI payload and a WASM binding, and keep clients free of semantics. Building semantics in a leaf client (as a prior srs-web search filter did) is the mistake that guide exists to prevent.
 
+**Before authoring an ADR or a substantive PR**, see **[ADR-048](docs/adr/048-implementation-decision-rules.md)** — the five-rule implementation decision profile (spec-first, layer test, one way per goal, parity/mirror obligations, decision mode), checklisted in the ADR template and the PR template.
+
 ## Commands
 
 Run from `srs-rust/`:
