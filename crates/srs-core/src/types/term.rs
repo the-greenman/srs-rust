@@ -43,8 +43,12 @@ pub struct Term {
     pub roles: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<VocabularyEntryStatus>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub properties: Option<BTreeMap<String, serde_json::Value>>,
+    /// Substrate escape-bag (rfc-decision-6fc7e142 / srs#433 / srs PR #510).
+    /// Serializes as `meta`; still accepts the pre-rev-5 `properties` key on
+    /// read (monotonic support, RFC-033) — the `substrate-properties-to-meta`
+    /// migration (#5) persists the rename on disk.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "properties")]
+    pub meta: Option<BTreeMap<String, serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -96,7 +100,7 @@ mod tests {
             aliases: None,
             roles: None,
             status: None,
-            properties: None,
+            meta: None,
             created_at: None,
             updated_at: None,
         }
@@ -114,7 +118,7 @@ mod tests {
             aliases: Some(vec!["core".to_string()]),
             roles: Some(vec!["foundation".to_string()]),
             status: Some(VocabularyEntryStatus::Active),
-            properties: None,
+            meta: None,
             created_at: Some("2026-01-01T00:00:00Z".to_string()),
             updated_at: None,
         };
@@ -190,5 +194,26 @@ mod tests {
     fn term_deny_unknown_fields() {
         let json = r#"{"id":"x","version":1,"namespace":"ns","key":"k","unknownField":"oops"}"#;
         assert!(serde_json::from_str::<Term>(json).is_err());
+    }
+
+    /// srs-rust#894 (srs#433, srs PR #510): a rev-4 repo still carrying the
+    /// pre-rename `properties` key must load (monotonic support, RFC-033) —
+    /// tolerated via serde alias, not rejected. Writes always use `meta`;
+    /// the `substrate-properties-to-meta` migration (#5) persists the rename.
+    #[test]
+    fn term_tolerates_legacy_properties_key_on_read() {
+        let json =
+            r#"{"id":"x","version":1,"namespace":"ns","key":"k","properties":{"color":"blue"}}"#;
+        let t: Term = serde_json::from_str(json).expect("legacy `properties` key must tolerate");
+        assert_eq!(
+            t.meta.as_ref().and_then(|m| m.get("color")),
+            Some(&serde_json::json!("blue"))
+        );
+        let serialized = serde_json::to_string(&t).unwrap();
+        assert!(serialized.contains("\"meta\""), "writes must use `meta`");
+        assert!(
+            !serialized.contains("\"properties\""),
+            "writes must not reintroduce the retired `properties` key"
+        );
     }
 }

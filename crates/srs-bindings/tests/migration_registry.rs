@@ -51,27 +51,30 @@ fn available_migrations_lists_the_registered_migrations_with_status() {
     let migrations =
         migration_registry_service::list_migrations(&store).expect("list_migrations must succeed");
 
-    assert_eq!(migrations.len(), 7, "expected exactly seven migrations");
+    assert_eq!(migrations.len(), 8, "expected exactly eight migrations");
     assert_eq!(migrations[0].id, "field-type");
     assert_eq!(migrations[1].id, "rfc039-carrier");
     assert_eq!(migrations[2].id, "metamodel-v1-1-0");
     assert_eq!(migrations[3].id, "tier1-removal");
-    assert_eq!(migrations[4].id, "migrate-identity");
-    assert_eq!(migrations[5].id, "repo-upgrade");
-    assert_eq!(migrations[6].id, "rfc038-storage");
+    assert_eq!(migrations[4].id, "substrate-properties-to-meta");
+    assert_eq!(migrations[5].id, "migrate-identity");
+    assert_eq!(migrations[6].id, "repo-upgrade");
+    assert_eq!(migrations[7].id, "rfc038-storage");
 
-    // Unstamped manifest → field-type, rfc039-carrier, metamodel-v1-1-0, and
-    // tier1-removal are all Needed; no container → migrate-identity is
-    // NotApplicable; no instances → repo-upgrade is AlreadyApplied; the
-    // manifest still carries `instanceIndex` → rfc038-storage is Needed
-    // (truthful status; its apply refuses until srs-rust#828).
+    // Unstamped manifest → field-type, rfc039-carrier, metamodel-v1-1-0,
+    // tier1-removal, and substrate-properties-to-meta are all Needed; no
+    // container → migrate-identity is NotApplicable; no instances →
+    // repo-upgrade is AlreadyApplied; the manifest still carries
+    // `instanceIndex` → rfc038-storage is Needed (truthful status; its apply
+    // refuses until srs-rust#828).
     assert_eq!(migrations[0].status, MigrationStatus::Needed);
     assert_eq!(migrations[1].status, MigrationStatus::Needed);
     assert_eq!(migrations[2].status, MigrationStatus::Needed);
     assert_eq!(migrations[3].status, MigrationStatus::Needed);
-    assert_eq!(migrations[4].status, MigrationStatus::NotApplicable);
-    assert_eq!(migrations[5].status, MigrationStatus::AlreadyApplied);
-    assert_eq!(migrations[6].status, MigrationStatus::Needed);
+    assert_eq!(migrations[4].status, MigrationStatus::Needed);
+    assert_eq!(migrations[5].status, MigrationStatus::NotApplicable);
+    assert_eq!(migrations[6].status, MigrationStatus::AlreadyApplied);
+    assert_eq!(migrations[7].status, MigrationStatus::Needed);
 
     // Result serialises in camelCase for to_js.
     let json = serde_json::to_value(&migrations[0]).expect("must serialise");

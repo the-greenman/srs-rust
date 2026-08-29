@@ -240,7 +240,7 @@ fn make_relation_type(id: &str, key: &str) -> RelationTypeDefinition {
         allowed_target_types: None,
         require_same_semantic_object_type: None,
         updated_at: None,
-        properties: None,
+        meta: None,
     }
 }
 
@@ -265,7 +265,7 @@ fn make_lifecycle(name: &str) -> Lifecycle {
                 is_final: None,
                 status: None,
                 requires_relation: None,
-                properties: None,
+                meta: None,
             },
             LifecycleState {
                 id: Some("s2".to_string()),
@@ -279,7 +279,7 @@ fn make_lifecycle(name: &str) -> Lifecycle {
                 is_final: Some(true),
                 status: None,
                 requires_relation: None,
-                properties: None,
+                meta: None,
             },
         ],
         transitions: vec![LifecycleTransition {
@@ -288,7 +288,7 @@ fn make_lifecycle(name: &str) -> Lifecycle {
             from: "draft".to_string(),
             to: "active".to_string(),
             description: None,
-            properties: None,
+            meta: None,
         }],
         initial_state: "draft".to_string(),
         extends_lifecycle_id: None,
