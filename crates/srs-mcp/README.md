@@ -24,8 +24,11 @@ service call, and no business logic lives here.
 The `srs://` scheme is implementation tooling, not spec — every component is an
 existing SRS identifier (see ADR-037 §6).
 
-**Tools**: `repo_validate`, `find`, `record_create`, `relation_create`,
-`note_create`, `type_schema` — the validated write workflows plus discovery.
+**Tools**: `repo_validate`, `find`, `record_create`, `record_update`,
+`record_transition`, `record_allowed_transitions`, `record_successor`,
+`relation_create`, `note_create`, `note_graduate`, `container_member_add`,
+`container_member_remove`, `type_schema` — the validated write workflows plus
+discovery.
 Read a type's schema (`type_schema` or the `type/{typeId}` resource) before
 authoring: each property's `x-srs-field-id` is the UUID `record_create`
 needs. Rejected writes return
@@ -36,6 +39,13 @@ Warnings are non-blocking but should be reviewed. An empty `diagnostics` array
 means the repository is completely clean, with neither errors nor warnings.
 Tool descriptions live as `pub const` items in [`src/tools.rs`](src/tools.rs)
 (single source; the `srs-usage.md` MCP section mirrors them).
+
+The container membership tools change membership only. Their returned
+`memberInstanceIds` array has no semantic or presentation-order authority. Use
+a `precedes` relation when order is itself a semantic claim. For display or
+curation order, author a `container-subset` DocumentView's
+`ordering.memberOrder` through the definition-authoring or CLI surface; MCP
+currently has no definition/view update tool.
 
 ## Client configuration
 
