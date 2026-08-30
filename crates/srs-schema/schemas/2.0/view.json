@@ -39,8 +39,13 @@
     },
     "fieldViews": {
       "type": "array",
-      "items": { "$ref": "#/$defs/FieldView" },
-      "description": "Presentation configuration for each field. Fields omitted here are treated as visible: false."
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/FieldView" },
+          { "$ref": "#/$defs/RecordPropertyView" }
+        ]
+      },
+      "description": "Presentation configuration for fields and record-level properties. Field rows omitted here are treated as visible: false."
     },
     "exportConfig": {
       "$ref": "#/$defs/ExportConfig"
@@ -102,6 +107,36 @@
         "compositeRenderer": {
           "$ref": "#/$defs/CompositeRendererBinding",
           "description": "RFC-036 — render this field's composite-range value through a named composite renderer. Highest-precedence declaration site (RFC-036 [CR-036-6]). Valid only on a Field whose fieldType.datatype is 'ref' and mode is 'inline' ([CR-036-3])."
+        }
+      }
+    },
+    "RecordPropertyView": {
+      "type": "object",
+      "required": ["property", "order"],
+      "additionalProperties": false,
+      "properties": {
+        "property": {
+          "type": "string",
+          "enum": [
+            "lifecycleState",
+            "tags",
+            "createdAt",
+            "updatedAt"
+          ],
+          "description": "Record-level property presented by this row. The closed enum is generated from record.json by scripts/gen-record-property-view-enum.mjs."
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Display order within this View, on the same axis as FieldView.order."
+        },
+        "displayLabel": {
+          "type": "string",
+          "description": "Overrides the default label for this record-level property."
+        },
+        "visible": {
+          "type": "boolean",
+          "description": "Default: true. When false, this record-level property row is hidden."
         }
       }
     },
