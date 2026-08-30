@@ -30,6 +30,10 @@ Read a type's schema (`type_schema` or the `type/{typeId}` resource) before
 authoring: each property's `x-srs-field-id` is the UUID `record_create`
 needs. Rejected writes return
 `isError: true` with the service diagnostics; nothing is written on rejection.
+`repo_validate` reports validation findings as data: `summary.errors == 0`
+(equivalently, no `error` diagnostics) means the repository is consistent.
+Warnings are non-blocking but should be reviewed. An empty `diagnostics` array
+means the repository is completely clean, with neither errors nor warnings.
 Tool descriptions live as `pub const` items in [`src/tools.rs`](src/tools.rs)
 (single source; the `srs-usage.md` MCP section mirrors them).
 
