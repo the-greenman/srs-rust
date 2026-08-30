@@ -52,9 +52,10 @@ pub const TOOL_CONTAINER_MEMBER_REMOVE: &str = "container_member_remove";
 // ── Tool descriptions — single source (srs-usage.md MCP section mirrors these) ─
 
 pub const DESC_REPO_VALIDATE: &str = "Validate the whole repository and return the diagnostics \
-array plus a summary. Run this after every write batch — an empty diagnostics array means the \
-repository is consistent. Diagnostics are data, not an error: the tool succeeds even when \
-problems are found.";
+array plus a summary. Run this after every write batch. summary.errors == 0 (equivalently, no \
+error diagnostics) means the repository is consistent. Warnings are non-blocking, but review \
+them. An empty diagnostics array means the repository is completely clean. Diagnostics are \
+data, not a tool error: the tool succeeds even when problems are found.";
 
 pub const DESC_FIND: &str = "Deterministic discovery query (ext:discovery). All axes are \
 optional and AND-combined: typeId, typeNamespace, typeName, containerId, tag (repeatable; \

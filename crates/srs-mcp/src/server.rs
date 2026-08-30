@@ -65,7 +65,8 @@ same keys record_create fieldValues uses, RFC-039) and carry aiGuidance. Use the
 (type, tag, lifecycle, tier, container, content match). Writes are validated: record_create, \
 relation_create, and note_create enforce the repository's type and relation contracts and \
 return diagnostics on rejection. Run repo_validate after a write batch and check its \
-diagnostics array — an empty array means the repository is consistent. \
+summary: summary.errors == 0 means the repository is consistent. Warnings are non-blocking, \
+but review them. An empty diagnostics array means the repository is completely clean. \
 Prompts: this server exposes one MCP prompt per installed blueprint. Call prompts/list \
 to discover available blueprints; call prompts/get with a blueprint UUID to retrieve its \
 full brief as rendered markdown — AI guidance, required types, structure, and protocol.";

@@ -257,6 +257,38 @@ async fn tool_repo_validate_clean_fixture_zero_diagnostics() {
 }
 
 #[tokio::test]
+async fn tool_repo_validate_warning_only_fixture_is_consistent_but_not_clean() {
+    let fx = make_fixture();
+    let npm_package_dir = fx.dir.path().join("vendor/example");
+    std::fs::create_dir_all(&npm_package_dir).unwrap();
+    std::fs::write(npm_package_dir.join("package.json"), "{not valid json").unwrap();
+    let client = connect(&fx).await;
+
+    let result = call(&client, "repo_validate", serde_json::json!({})).await;
+    assert_eq!(result.is_error, Some(false));
+    let structured = result.structured_content.as_ref().unwrap();
+    assert_eq!(
+        structured["summary"]["errors"], 0,
+        "warnings must not make the repository inconsistent: {structured}"
+    );
+    assert!(
+        structured["summary"]["warnings"].as_u64().unwrap() > 0,
+        "fixture should produce at least one warning: {structured}"
+    );
+    let diagnostics = structured["diagnostics"].as_array().unwrap();
+    assert!(
+        !diagnostics.is_empty(),
+        "warning-only validation is not completely clean: {structured}"
+    );
+    assert!(
+        diagnostics.iter().all(|d| d["severity"] == "warning"),
+        "warning-only fixture must have no error diagnostics: {structured}"
+    );
+
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn tool_record_create_happy_then_validate() {
     let fx = make_fixture();
     let client = connect(&fx).await;
