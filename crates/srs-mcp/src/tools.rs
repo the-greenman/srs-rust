@@ -125,12 +125,19 @@ preserved unchanged — it is not deleted, and its graduatedAt field is never st
 both the Note and the new Record.";
 
 pub const DESC_CONTAINER_MEMBER_ADD: &str = "Add an instance to a container's \
-memberInstanceIds. Idempotent — adding an already-present member is not an error. Returns \
-the updated memberInstanceIds list.";
+memberInstanceIds. This changes membership only; the returned memberInstanceIds array has no \
+semantic or presentation-order authority. Use a precedes relation when order is a semantic claim. \
+For display or curation order, author a container-subset DocumentView's ordering.memberOrder via \
+the definition-authoring or CLI surface; MCP currently has no definition/view update tool. \
+Idempotent — adding an already-present member is not an error. Returns the updated \
+memberInstanceIds list.";
 
 pub const DESC_CONTAINER_MEMBER_REMOVE: &str = "Remove an instance from a container's \
-memberInstanceIds. Returns the updated memberInstanceIds list. No-op if the instance is not \
-a member.";
+memberInstanceIds. This changes membership only; the returned memberInstanceIds array has no \
+semantic or presentation-order authority. Use a precedes relation when order is a semantic claim. \
+For display or curation order, author a container-subset DocumentView's ordering.memberOrder via \
+the definition-authoring or CLI surface; MCP currently has no definition/view update tool. Returns \
+the updated memberInstanceIds list. No-op if the instance is not a member.";
 
 // ── Shadow input structs (see module docs) ────────────────────────────────────
 
@@ -971,6 +978,25 @@ mod tests {
                 "tool {} has an empty input schema",
                 tool.name
             );
+        }
+    }
+
+    #[test]
+    fn membership_tool_descriptions_distinguish_membership_semantics_and_presentation_order() {
+        let tools = list_tools().tools;
+
+        for name in [TOOL_CONTAINER_MEMBER_ADD, TOOL_CONTAINER_MEMBER_REMOVE] {
+            let description = tools
+                .iter()
+                .find(|tool| tool.name.as_ref() == name)
+                .and_then(|tool| tool.description.as_deref())
+                .expect("membership tool must advertise a description");
+
+            assert!(description.contains("changes membership only"));
+            assert!(description.contains("no semantic or presentation-order authority"));
+            assert!(description.contains("precedes relation when order is a semantic claim"));
+            assert!(description.contains("container-subset DocumentView's ordering.memberOrder"));
+            assert!(description.contains("MCP currently has no definition/view update tool"));
         }
     }
 
