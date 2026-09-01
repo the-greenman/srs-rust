@@ -3137,13 +3137,59 @@ $SRS repo validate --repo "$R"                         # ok: true — repository
 > **Known unrelated failure in this scenario.** After the repair, `repo navigation` reports `failed to load record at "records/notes/charter-….json": missing field 'typeId'` — a Tier-0 note that is an ordinary member of the root container is read by the record-only loader. This is **srs-rust#842**, independent of #841: it reproduces on a clean repo with no bricking involved (`repo create` → `note create` → `container members add` → `repo navigation`). Use `repo validate` as this scenario's load check until #842 lands.
 
 
+### S47 — Declare a Container's typing anchor explicitly (`anchorInstanceId`, srs#446/I-145)
+
+**Intention.** *"My container has multiple root candidates and I want to say, declaratively, which record's Type governs which DocumentView applies — not have that governed by array position, which can silently move when a member list is edited."*
+
+**Capabilities exercised.** `Container.anchorInstanceId` (RFC-009 Change A, amended by srs#446): `container_service::typing_anchor_instance_id` prefers the declared anchor over the transitional `rootInstanceIds[0]` fallback; `document_views_for_container` resolves DocumentView matching against it; `repo validate`'s I-145 checks (Error when the anchor is not a member of the container, Warning naming the Continuity-flip expiry when the transitional fallback is in effect); `container resolve-view`'s inline ADR-044-consistent transitional-fallback diagnostic.
+
+**CLI surface.** `repo create`, `note create`, `container update`, `repo validate`.
+
+**Steps.**
+
+```bash
+SRS_BIN=target/debug/srs
+SCRATCH=/tmp/dogfood-anchor-s47
+rm -rf "$SCRATCH"
+
+$SRS_BIN repo create --repo "$SCRATCH" --namespace com.example.s47 --pretty
+ROOT_ID=$(python3 -c "import json; print(json.load(open('$SCRATCH/manifest.json'))['container']['containerId'])")
+
+ROOT_NOTE=$($SRS_BIN note create --repo "$SCRATCH" <<'EOF' | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['note']['instanceId'])"
+{"title": "Root Section", "sections": []}
+EOF
+)
+
+# 1. No anchorInstanceId yet (transitional fallback in effect once a root exists).
+echo "{\"rootInstanceIds\":[\"$ROOT_NOTE\"]}" | $SRS_BIN container update --repo "$SCRATCH" "$ROOT_ID" --pretty
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty
+
+# 2. Negative case: point anchorInstanceId at a record that is NOT a member.
+STRAY=$($SRS_BIN note create --repo "$SCRATCH" <<'EOF' | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['note']['instanceId'])"
+{"title": "Stray", "sections": []}
+EOF
+)
+echo "{\"anchorInstanceId\":\"$STRAY\"}" | $SRS_BIN container update --repo "$SCRATCH" "$ROOT_ID" --pretty
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty
+
+# 3. Fix: declare the anchor as the actual root member.
+echo "{\"anchorInstanceId\":\"$ROOT_NOTE\"}" | $SRS_BIN container update --repo "$SCRATCH" "$ROOT_ID" --pretty
+$SRS_BIN repo validate --repo "$SCRATCH" --pretty
+```
+
+**Done when.** Step 1's `repo validate` returns `ok: true` with a `"warning"` diagnostic whose message contains `"I-145"` and `"Continuity flip"`. Step 2's `repo validate` returns `ok: false` with a diagnostic containing `"I-145"` and `"is not in rootInstanceIds or memberInstanceIds"`. Step 3's `repo validate` returns `ok: true` with **no** `I-145` diagnostic at all.
+
+**Verified 2026-09-01** on branch `feat/891-container-anchor-instance-id`, repo `/tmp/dogfood-anchor`: all three steps produced exactly the diagnostics described above via the real CLI binary (not just unit tests).
+
+---
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
 
 | Command group | Exercised by |
 |---|---|
-| `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario); `repo validate` now includes manifest.json schema validation — see S1 negative case; RFC-013 I-79/I-80/I-81/I-82 root-container invariants — see S1 negative case (I-79) and S15 step 10 (full happy path); **I-82 union fix (#699)**: I-82 now fires for non-identity members declared via `rootInstanceIds` only (not just `memberInstanceIds`); deduplication ensures exactly one diagnostic when an ID is in both arrays; verified by `i82_fires_for_root_instance_ids_member`, `i82_fires_for_both_arrays_no_duplicates`, and `i82_no_warning_for_root_instance_ids_member_that_roots_a_section_container` unit tests; blueprint semantic validation + protocol stage-dependency validation — see S13 (`repo validate` on a repo with a protocol); **RFC-018 I-81** identity type check (Warning when `identityInstanceId` resolves to a Tier-0 Note or wrong Tier-2 type) — see S20; **`repo create` always scaffolds a `com.semanticops.core/purpose` Tier-2 record and sets `identityInstanceId` unconditionally (#424)** — happy path covered by S17 step 3 (navigation reads back the purpose record); **`repo create` now also registers the root container in `containerIndex` so `FileStore::load_container` succeeds on the root container (#518)** — `scaffold_purpose_record` was missing the `save_container` call; fixed with ADR-024 rollback; verified by `create_repository_with_intent_container_loadable_from_file_store` and `create_repository_with_intent_container_in_container_index` unit tests; dogfooded on branch: `repo create` → `repo validate` → `migrate-identity` returns `ok: false` with `"already a purpose record; no migration needed"` (no crash, no ContainerNotFound); **ext:lifecycle V7/V8/V9 invariants now enforced at validate time (#239)**: V7 (type declares both `lifecycle` and `lifecycleRef`), V8 (lifecycleRef UUID does not resolve), V9 (inline TypeLifecycle structural errors + `initialState`/`isInitial` key mismatch) — see S6 negative case; **RFC-020 Rule [N+33]** identityFieldId effective-field-set check (a Type's `identityFieldId`, own or inherited, must resolve to a `fieldId` in that Type's effective field set; runs independent of whether any record of that Type exists, and one Type's resolution error does not block others) — see S1 negative case (#376); **`repo map` now includes `payload.corePackage` summary** (id, name, version, types, fields) from the embedded `com.semanticops.core` package (#423) — see S24; **`com.semanticops.spec/invariant` number uniqueness (#555)**: duplicate `invariant-number` field values across spec-invariant records produce `"duplicate invariant number"` errors at validate time (one error per offending record, symmetric) — see S1 negative case |
+| `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario); `repo validate` now includes manifest.json schema validation — see S1 negative case; RFC-013 I-79/I-80/I-81/I-82 root-container invariants — see S1 negative case (I-79) and S15 step 10 (full happy path); **I-82 union fix (#699)**: I-82 now fires for non-identity members declared via `rootInstanceIds` only (not just `memberInstanceIds`); deduplication ensures exactly one diagnostic when an ID is in both arrays; verified by `i82_fires_for_root_instance_ids_member`, `i82_fires_for_both_arrays_no_duplicates`, and `i82_no_warning_for_root_instance_ids_member_that_roots_a_section_container` unit tests; blueprint semantic validation + protocol stage-dependency validation — see S13 (`repo validate` on a repo with a protocol); **RFC-018 I-81** identity type check (Warning when `identityInstanceId` resolves to a Tier-0 Note or wrong Tier-2 type) — see S20; **RFC-009 I-145** `anchorInstanceId` (srs#446): Error when declared but not a member of the container, Warning naming the Continuity-flip expiry when absent and `rootInstanceIds` is non-empty (transitional fallback) — see S47; **`repo create` always scaffolds a `com.semanticops.core/purpose` Tier-2 record and sets `identityInstanceId` unconditionally (#424)** — happy path covered by S17 step 3 (navigation reads back the purpose record); **`repo create` now also registers the root container in `containerIndex` so `FileStore::load_container` succeeds on the root container (#518)** — `scaffold_purpose_record` was missing the `save_container` call; fixed with ADR-024 rollback; verified by `create_repository_with_intent_container_loadable_from_file_store` and `create_repository_with_intent_container_in_container_index` unit tests; dogfooded on branch: `repo create` → `repo validate` → `migrate-identity` returns `ok: false` with `"already a purpose record; no migration needed"` (no crash, no ContainerNotFound); **ext:lifecycle V7/V8/V9 invariants now enforced at validate time (#239)**: V7 (type declares both `lifecycle` and `lifecycleRef`), V8 (lifecycleRef UUID does not resolve), V9 (inline TypeLifecycle structural errors + `initialState`/`isInitial` key mismatch) — see S6 negative case; **RFC-020 Rule [N+33]** identityFieldId effective-field-set check (a Type's `identityFieldId`, own or inherited, must resolve to a `fieldId` in that Type's effective field set; runs independent of whether any record of that Type exists, and one Type's resolution error does not block others) — see S1 negative case (#376); **`repo map` now includes `payload.corePackage` summary** (id, name, version, types, fields) from the embedded `com.semanticops.core` package (#423) — see S24; **`com.semanticops.spec/invariant` number uniqueness (#555)**: duplicate `invariant-number` field values across spec-invariant records produce `"duplicate invariant number"` errors at validate time (one error per offending record, symmetric) — see S1 negative case |
 | `implicit core type availability` (`srs type list` shows `com.semanticops.core/*`; `srs repo map` shows `corePackage`; zero-config `com.semanticops.core/purpose` resolution, #423) | S24 |
 | `repo init-new` (re-stamp seed identity) | S16 |
 | `repo set-root-container` (write manifest.container pointer) | S17; identity re-pointing after loss — S17b step 6 |
@@ -3170,7 +3216,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `container` (create/members/roots/validate/…) | S4; container CRUD on `.srsj` (create/list/delete) verified end-to-end on branch (#466); slug-named container path resolution (`.srsj` packed from FileStore with `manifest.containerIndex.path` entries) covered by `srs-repository` unit tests (`json_store_container_slug_path_resolution`, `json_store_save_container_writes_manifest_index`, etc.); **pre-#466 shadow containerIndex migration** (open-time derivation of missing `path` in `from_srsj`, #490) — dogfooded on branch: `container list` on a hand-crafted pre-#466 `.srsj` returns the container; `repo validate` produces no `[/containerIndex/N] "path" is a required property` error (the regressed behaviour); covered by unit tests `from_srsj_shadow_migration_derives_path_for_pathless_entry` and `from_srsj_shadow_migration_skips_entry_with_no_matching_data_key`; **embed-only root container visibility (#698)**: fixed `container list`, `container get`, `container members add/remove`, and `container update` for repos where `manifest.container` exists without a matching `containerIndex` entry (the RFC-013 native init shape, `FileStore::initialize_repository` without `create_container`); `add_member`/`remove_member`/`add_root`/`remove_root` write through to `manifest.container` only (no `save_container` call, no nested batch conflict); `update_container` syncs both `save_container` and `manifest.container` atomically when root is file-backed; embed-only roots excluded from `export_repository_snapshot_with_options` snapshot.containers (already present in `snapshot.root_container`) preventing double-import during `repo copy`/archive roundtrips; verified 2026-07-23 (#698): stripped `containerIndex` + container file from a fresh repo → `container list` (root returned ✅), `container get <root-id>` (full container returned ✅), note create + `container members add` (manifest.container.memberInstanceIds updated ✅), `container update` (title written to manifest.container ✅), `container members remove` (member removed from manifest.container ✅), `container get <unknown-id>` (ok: false, ContainerNotFound ✅), `repo validate` (ok: true, 0 errors ✅) |
 | `container members add` / `container roots add` — write-boundary guard (#841): the instance id must resolve to a real instance; blank, whitespace-only and well-formed-but-non-existent UUIDs all return `ok: false` with no write. One guard in `container_service`, so the CLI, MCP and WASM adapters inherit it (ADR-010) | S25 |
 | `container members remove` / `container roots remove` — repair path (ADR-045, #841): reads and writes through the unchecked catalog, so an already-bricked repository is recoverable through the CLI. Paired with `repo validate`'s [R24] reporting exemption as the discovery half | S25 |
-| `container update` (`rootInstanceIds`/`memberInstanceIds`/`identityInstanceId` patch fields, `deny_unknown_fields`) | S4 (extended — patch membership fields, unknown-field error); verified end-to-end in worktree dogfood (#422) |
+| `container update` (`rootInstanceIds`/`memberInstanceIds`/`identityInstanceId` patch fields, `deny_unknown_fields`) | S4 (extended — patch membership fields, unknown-field error); verified end-to-end in worktree dogfood (#422); `anchorInstanceId` patch field (srs#446, RFC-009 Change A) — S47 |
 | `container resolve-view` (structured container view, `--view-id`; `ColumnSpec.isIdentityColumn`, ADR-023, #376; Tier-0/1 members projected, #256) | S14 |
 | `container resolve-view` authored `excludeLifecycleStates` (ADR-020) | S15 |
 | `find` (ext:discovery query — type/tag/lifecycle/exclude/text) | S15 |

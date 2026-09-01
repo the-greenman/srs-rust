@@ -347,31 +347,34 @@ pub fn list_document_views_summary(
         .collect())
 }
 
-/// Given a container ID, resolves its first root instance's `typeId`/`typeVersion`,
-/// then returns all DocumentViews whose `rootTypeRefs` contains an `ExactTypeRef`
+/// Given a container ID, resolves its typing anchor's `typeId`/`typeVersion` — the
+/// declared `anchorInstanceId` when present, falling back to `rootInstanceIds[0]` only
+/// transitionally for a pre-srs#446 container with no anchor (RFC-009 Change A, amended;
+/// I-145) — then returns all DocumentViews whose `rootTypeRefs` contains an `ExactTypeRef`
 /// matching that exact type binding (both `typeId` and `typeVersion` must match).
 ///
 /// Returns an empty vec — not an error — when:
-/// - the container has no `rootInstanceIds`
-/// - the root instance has no `typeId` (Tier 0 Note or Tier 1 TypedRecord)
+/// - the container has no `anchorInstanceId` and no `rootInstanceIds`
+/// - the anchor/root instance has no `typeId` (Tier 0 Note or Tier 1 TypedRecord)
 /// - no DocumentViews match the type binding
 ///
 /// Returns `RepositoryError` when:
 /// - the container is not found
-/// - the root instance is not found in the catalog's instance set
+/// - the anchor/root instance is not found in the catalog's instance set
+///
+/// This function does not itself emit a diagnostic for the transitional-fallback case —
+/// see `container_service::typing_anchor_instance_id`'s doc comment and
+/// `container_view_service::resolve_container_view`'s inline I-145 diagnostic (ADR-044).
 pub fn document_views_for_container(
     store: &dyn RepositoryStore,
     container_id: &str,
 ) -> Result<Vec<DocumentView>, RepositoryError> {
     let container = container_service::get_container(store, container_id)?;
 
-    // Get the first root instance ID; if none, no DocumentView can match.
-    let root_id = match container
-        .root_instance_ids
-        .as_ref()
-        .and_then(|ids| ids.first())
-    {
-        Some(id) => id.clone(),
+    // Resolve the typing anchor (declared anchorInstanceId, else the transitional
+    // rootInstanceIds[0] fallback); if neither exists, no DocumentView can match.
+    let root_id = match container_service::typing_anchor_instance_id(&container) {
+        Some(id) => id,
         None => return Ok(vec![]),
     };
 
@@ -1435,6 +1438,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
+            anchor_instance_id: None,
             root_instance_ids: Some(vec![instance_id.to_string()]),
             member_instance_ids: None,
             tags: None,
@@ -1459,6 +1463,69 @@ mod tests {
     }
 
     #[test]
+    fn document_views_for_container_prefers_declared_anchor_over_first_root() {
+        use crate::container_service;
+        use srs_core::types::container::Container;
+
+        let type_id = "00000000-0000-4000-8000-00000000aaaa";
+        let type_version = 1u32;
+        let anchor_instance_id = "11111111-1111-4111-8111-111111111111";
+        let other_root_instance_id = "22222222-2222-4222-8222-222222222222";
+        let container_id = "550e8400-e29b-41d4-a716-446655440000";
+
+        let store = make_store_with_dv_and_instance(
+            type_id,
+            type_version,
+            anchor_instance_id,
+            "records/anchor-inst.json",
+        );
+        // A second instance of a DIFFERENT (non-matching) type, declared FIRST in
+        // rootInstanceIds — srs#446/I-145: anchorInstanceId is declared, never
+        // positional. If resolution still read `rootInstanceIds[0]` directly, this
+        // instance's mismatched type would make the DocumentView match fail.
+        let other_instance_json = serde_json::json!({
+            "instanceId": other_root_instance_id,
+            "typeId": "00000000-0000-4000-8000-00000000bbbb",
+            "typeVersion": 1,
+            "typeNamespace": "com.test",
+            "typeName": "other-type",
+            "fieldValues": {}
+        });
+        let store = store.with_data("records/other-inst.json", other_instance_json);
+
+        let container = Container {
+            container_id: container_id.to_string(),
+            title: "Test Container".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: None,
+            anchor_instance_id: Some(anchor_instance_id.to_string()),
+            root_instance_ids: Some(vec![
+                other_root_instance_id.to_string(),
+                anchor_instance_id.to_string(),
+            ]),
+            member_instance_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::BTreeMap::new(),
+        };
+        container_service::create_container(&store, container).unwrap();
+
+        let result = document_views_for_container(&store, container_id).unwrap();
+        assert_eq!(
+            result.len(),
+            1,
+            "expected the declared anchor's type to drive the match, not the \
+             positionally-first root's mismatched type"
+        );
+        assert_eq!(result[0].id, "dv-test-id");
+    }
+
+    #[test]
     fn document_views_for_container_no_root_returns_empty() {
         use crate::container_service;
         use srs_core::types::container::Container;
@@ -1478,6 +1545,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
+            anchor_instance_id: None,
             root_instance_ids: None,
             member_instance_ids: None,
             tags: None,
@@ -1599,6 +1667,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
+            anchor_instance_id: None,
             root_instance_ids: Some(vec![instance_id.to_string()]),
             member_instance_ids: None,
             tags: None,
@@ -1665,6 +1734,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
+            anchor_instance_id: None,
             root_instance_ids: Some(vec![instance_id.to_string()]),
             member_instance_ids: None,
             tags: None,
