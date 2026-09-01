@@ -56,8 +56,6 @@ pub enum CatalogKind {
     Blueprint,
     Protocol,
     Changelog,
-    FederationRegistry,
-    FederationEvent,
 }
 
 impl CatalogKind {
@@ -79,8 +77,6 @@ impl CatalogKind {
             CatalogKind::Blueprint => "blueprint",
             CatalogKind::Protocol => "protocol",
             CatalogKind::Changelog => "changelog",
-            CatalogKind::FederationRegistry => "federation-registry",
-            CatalogKind::FederationEvent => "federation-event",
         }
     }
 }
@@ -437,8 +433,6 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
         .get("changelogPath")
         .and_then(|v| v.as_str())
         .map(str::to_string);
-    let federation_path = manifest.federation_path.clone();
-    let federation_events_path = manifest.federation_events_path.clone();
     let repository_id = manifest_value
         .get("repositoryId")
         .and_then(|v| v.as_str())
@@ -455,14 +449,8 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
     let file_set: BTreeSet<String> = files.iter().cloned().collect();
 
     // Extension-set locations are handled out of the main dispatch.
-    let extension_paths: BTreeSet<String> = [
-        changelog_path.clone(),
-        federation_path.clone(),
-        federation_events_path.clone(),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
+    let extension_paths: BTreeSet<String> =
+        [changelog_path.clone()].into_iter().flatten().collect();
 
     // --- Anchor discovery (Changes B/D; [R3]/[R4]) ---
 
@@ -679,26 +667,6 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
             );
         }
     }
-    if declared_extensions.contains("ext:federation") {
-        if let Some(path) = &federation_path {
-            let registry_id = b.read_json_field(path, "registryId");
-            b.extension_entry(
-                path,
-                CatalogKind::FederationRegistry,
-                registry_id.as_deref(),
-                "registryId",
-            );
-        }
-        if let Some(path) = &federation_events_path {
-            b.extension_entry(
-                path,
-                CatalogKind::FederationEvent,
-                repository_id.as_deref(),
-                "manifest.repositoryId",
-            );
-        }
-    }
-
     // --- Set-level checks ([R12], [R13]) and ordering ([R14]) ---
 
     b.detect_duplicates();
@@ -1191,21 +1159,6 @@ impl Builder<'_> {
             tier: None,
             locator: Some(path.to_string()),
         });
-    }
-
-    fn read_json_field(&mut self, path: &str, field: &str) -> Option<String> {
-        match self.store.load_instance_json(path) {
-            Ok(v) => v.get(field).and_then(|x| x.as_str()).map(str::to_string),
-            Err(e) if e.is_not_found() => None,
-            Err(_) => {
-                self.error(
-                    codes::CANDIDATE_MALFORMED,
-                    vec![path.to_string()],
-                    "extension aggregate is not valid JSON".to_string(),
-                );
-                None
-            }
-        }
     }
 
     /// Add an extension-set entry with `{kind, id}` identity (Change L).

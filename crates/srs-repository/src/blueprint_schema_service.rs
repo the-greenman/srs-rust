@@ -413,9 +413,7 @@ mod tests {
     ) -> MemoryStore {
         let manifest = Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: PathBuf::from("/memory"),

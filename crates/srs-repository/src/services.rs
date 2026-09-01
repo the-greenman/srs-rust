@@ -697,9 +697,7 @@ mod tests {
         };
         let manifest = Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: PathBuf::from("/memory"),
@@ -744,9 +742,7 @@ mod tests {
         };
         let manifest = Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: PathBuf::from("/memory"),
@@ -959,9 +955,7 @@ mod tests {
         // raw-JSON shape no longer classifies at catalog build.)
         let manifest = Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: PathBuf::from("/memory"),
@@ -1408,9 +1402,7 @@ mod tests {
         };
         let manifest = Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: PathBuf::from("/memory"),
@@ -1583,9 +1575,7 @@ mod tests {
         // (RFC-038: tier comes from body shape, not the index).
         let manifest = Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: PathBuf::from("/memory"),

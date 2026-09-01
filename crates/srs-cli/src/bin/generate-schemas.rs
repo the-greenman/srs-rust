@@ -254,11 +254,6 @@ fn main() {
     write_schema!("registry-list", RegistryListPayload);
     write_schema!("registry-get", RegistryGetPayload);
 
-    // Federation payloads (ext:federation)
-    write_schema!("federation-resolve", FederationResolvePayload);
-    write_schema!("federation-events-list", FederationEventsListPayload);
-    write_schema!("federation-events-append", FederationAppendEventPayload);
-
     // Context query payloads (ext:addressability)
     write_schema!("context-field", ContextFieldPayload);
     write_schema!("context-record", ContextRecordPayload);

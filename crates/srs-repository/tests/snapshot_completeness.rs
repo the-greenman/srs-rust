@@ -2,9 +2,9 @@
 //! authoritative sets, the manifest, and the marker; consuming one discovers by
 //! the same rules as a live repository (srs-rust#783 Phase 4).
 //!
-//! This is RFC acceptance test 15 — a snapshot carrying declared changelog and
-//! federation data round-trips the extension set without loss, alongside the
-//! other five sets — proved for both snapshot carriers, `.srs` and `.srsj`.
+//! This is RFC acceptance test 15 — a snapshot carrying declared changelog
+//! data round-trips the extension set without loss, alongside the other five
+//! sets — proved for both snapshot carriers, `.srs` and `.srsj`.
 
 use srs_repository::catalog::{self, RepositoryCatalog};
 use srs_repository::srsj::{open_srsj, to_srsj_string};
@@ -25,7 +25,6 @@ const NOTE_ID: &str = "5e5e5e5e-0000-4000-8000-000000note1";
 const RELATION_ID: &str = "5e5e5e5e-0000-4000-8000-0000000rel01";
 const CONTAINER_ID: &str = "5e5e5e5e-0000-4000-8000-00000000ctr1";
 const DOCUMENT_ID: &str = "5e5e5e5e-0000-4000-8000-00000000doc1";
-const REGISTRY_ID: &str = "5e5e5e5e-0000-4000-8000-00000000reg1";
 
 /// A repository populated across all six authoritative sets, including the
 /// extension aggregates that only exist when their extension is declared.
@@ -39,10 +38,8 @@ fn six_set_repository(root: &Path) {
               "repositoryId": "{REPO_ID}",
               "namespace": "com.example.snapshot",
               "dataModelRevision": 2,
-              "declaredExtensions": ["ext:changelog", "ext:federation"],
-              "changelogPath": "changelog.json",
-              "federationPath": "federation/registry.json",
-              "federationEventsPath": "federation/events.json"
+              "declaredExtensions": ["ext:changelog"],
+              "changelogPath": "changelog.json"
             }}"#
         ),
     );
@@ -177,12 +174,6 @@ fn six_set_repository(root: &Path) {
     // Extension set: only enumerable because the manifest declares the owning
     // extensions ([R5] sixth location class).
     write(root, "changelog.json", r#"{"entries": []}"#);
-    write(
-        root,
-        "federation/registry.json",
-        &format!(r#"{{"registryId": "{REGISTRY_ID}", "repositories": []}}"#),
-    );
-    write(root, "federation/events.json", r#"{"events": []}"#);
 }
 
 /// `set/kind/id` triples across all six sets — identity, never locators.
@@ -216,7 +207,7 @@ fn assert_all_six_sets_present(cat: &RepositoryCatalog, label: &str) {
     assert!(
         !cat.extensions.is_empty(),
         "{label}: extension set empty — a snapshot carrying declared changelog \
-         and federation data must round-trip it ([R17], RFC acceptance test 15)"
+         data must round-trip it ([R17], RFC acceptance test 15)"
     );
 }
 
@@ -245,8 +236,6 @@ fn srs_archive_round_trips_all_six_sets_and_the_marker() {
         ".srs/.gitkeep",
         "package/package.json",
         "changelog.json",
-        "federation/registry.json",
-        "federation/events.json",
         "source-documents/brief.md",
         "source-documents/brief.md.meta.json",
     ] {
@@ -455,9 +444,8 @@ fn a_colon_in_a_filename_is_not_a_traversal() {
 fn pack_carries_objects_the_catalog_cannot_classify() {
     let src_tmp = tempfile::tempdir().unwrap();
     six_set_repository(src_tmp.path());
-    // A record with no instanceId, a container that is not valid JSON, a
-    // relations file that will not parse, and a declared federation registry
-    // with no identity to project — each diagnosable, none classifiable.
+    // A record with no instanceId, a container that is not valid JSON, and a
+    // relations file that will not parse — each diagnosable, none classifiable.
     write(
         src_tmp.path(),
         "records/tier-2/nameless.json",
@@ -465,11 +453,6 @@ fn pack_carries_objects_the_catalog_cannot_classify() {
     );
     write(src_tmp.path(), "containers/broken.json", "{ not json");
     write(src_tmp.path(), "relations/garbage.json", "{ not json");
-    write(
-        src_tmp.path(),
-        "federation/registry.json",
-        r#"{"repositories": []}"#,
-    );
 
     let source = FileStore::new(src_tmp.path());
     let bytes = srs_repository::archive_to_vec(&source).expect("pack must not refuse");
@@ -481,7 +464,6 @@ fn pack_carries_objects_the_catalog_cannot_classify() {
         "records/tier-2/nameless.json",
         "containers/broken.json",
         "relations/garbage.json",
-        "federation/registry.json",
     ] {
         assert!(
             names.contains(&required.to_string()),
@@ -567,11 +549,7 @@ fn pack_sweeps_instance_roots_under_a_sub_package() {
 fn a_declared_path_resolving_to_the_root_does_not_pack_the_whole_tree() {
     // relationsPath is retired ([R2]) — a manifest declaring it no longer
     // loads at all, so only the live declared-location properties remain.
-    for (property, value) in [
-        ("sourceDocumentsPath", ""),
-        ("changelogPath", "./"),
-        ("federationPath", "a/.."),
-    ] {
+    for (property, value) in [("sourceDocumentsPath", ""), ("changelogPath", "./")] {
         let src_tmp = tempfile::tempdir().unwrap();
         six_set_repository(src_tmp.path());
         write(

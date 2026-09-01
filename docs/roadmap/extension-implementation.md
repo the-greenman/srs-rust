@@ -27,12 +27,13 @@ When an extension's status changes, update the table here and the linked issues 
 | 11 | `ext:cross-field-validation` | — | ✅ Implemented | `CrossFieldRule` (conditional-required / field-ordering / mutual-exclusion), `Type.validationRules`; schema mirror synced (#242) |
 | 12 | `ext:import-tracking` | — | ❌ Not implemented | `package import` registers a boundary only; no `ImportMode`/`ImportRecord`/`ImportSummary` |
 | 13 | `ext:registry` | — | 🟡 Core types only | `Registry`+`RegistryEntry` in `srs-core/extensions/registry.rs` (#243); service/CLI/binding pending (#244) |
-| 14 | `ext:federation` | — | ❌ Not implemented | No cross-repo relation qualifiers, `RepositoryRegistry`, `FederationEvent` |
+| 14 | `ext:federation` | — | ⛔ Removed | srs decision 4f1e12e5 + owner disposition srs-rust#878 (2026-09-01) — no half-planned features; return is committed, see the spec roadmap's federation entry |
 | 15 | `ext:addressability` | — | ❌ Not implemented | No `Address`/`AttentionState`/`Revision`; no context-query patterns |
 
-**Remaining work = 5 extensions:** one verify-and-finish (`lifecycle`), one partial
-(`protocol` runs), and four greenfield (`import-tracking`, `registry`, `federation`,
+**Remaining work = 4 extensions:** one verify-and-finish (`lifecycle`), one partial
+(`protocol` runs), and three greenfield (`import-tracking`, `registry`,
 `addressability`). `ext:cross-field-validation` is now implemented (#242).
+`ext:federation` is removed, not remaining work — see row 14.
 
 ## Conformance / drift review
 
@@ -94,7 +95,7 @@ all validation) → `srs-cli` payload + golden schema → `srs-bindings` method 
 | **1 — Finish `ext:lifecycle`** | Audit V7–V9 coverage, close gaps, cross-store roundtrip tests, CLI transition surface, docs | small–medium | — |
 | **2 — `ext:cross-field-validation`** | ✅ Done — `CrossFieldRule` (conditional-required / field-ordering / mutual-exclusion), `Type.validationRules`; validation + schema sync (#242) | medium | — |
 | **3 — `ext:registry` + `ext:import-tracking`** | `Registry`/`RegistryEntry`; `ImportMode`/`ImportRecord`/`ImportSummary`; extend `package import` provenance + divergence detection | medium + large | — |
-| **4 — `ext:federation`** | Cross-repo relation qualifiers; `RepositoryRegistry` resolution (depth-first, cycle detection); `FederationEvent` log; manifest paths; graceful degradation | large | — |
+| **4 — `ext:federation`** | ⛔ Removed (srs-rust#878, 2026-09-01) — no half-planned features; return is committed, restarts fresh from the spec roadmap's federation entry when triggered | large | — |
 | **5 — `ext:addressability` (+ `ext:protocol` runs)** | `Address`/`AttentionState`/`Revision`; four context-query patterns; then protocol execution consuming `AttentionState` | xl | Epic 5 core unblocks protocol-runs (D5) |
 
 ## Conventions for the tracked issues

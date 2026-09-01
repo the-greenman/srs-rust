@@ -10,10 +10,6 @@ pub const DOCUMENT_VIEW_SCHEMA_ID: &str =
 pub const DOCUMENT_VIEW_OUTPUT_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/document-view-output.json";
 pub const FIELD_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/field.json";
-pub const FEDERATION_EVENTS_SCHEMA_ID: &str =
-    "https://srs.semanticops.com/schema/2.0/federation-events.json";
-pub const FEDERATION_REGISTRY_SCHEMA_ID: &str =
-    "https://srs.semanticops.com/schema/2.0/federation-registry.json";
 pub const MANIFEST_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/manifest.json";
 pub const NOTE_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/note.json";
 pub const PACKAGE_BUNDLE_SCHEMA_ID: &str =
@@ -43,8 +39,6 @@ pub const ALL_SCHEMA_IDS: &[&str] = &[
     DOCUMENT_VIEW_SCHEMA_ID,
     DOCUMENT_VIEW_OUTPUT_SCHEMA_ID,
     FIELD_SCHEMA_ID,
-    FEDERATION_EVENTS_SCHEMA_ID,
-    FEDERATION_REGISTRY_SCHEMA_ID,
     MANIFEST_SCHEMA_ID,
     NOTE_SCHEMA_ID,
     PACKAGE_BUNDLE_SCHEMA_ID,
@@ -82,14 +76,6 @@ static SCHEMA_SOURCES: &[(&str, &str)] = &[
         include_schema!("document-view-output.json"),
     ),
     (FIELD_SCHEMA_ID, include_schema!("field.json")),
-    (
-        FEDERATION_EVENTS_SCHEMA_ID,
-        include_schema!("federation-events.json"),
-    ),
-    (
-        FEDERATION_REGISTRY_SCHEMA_ID,
-        include_schema!("federation-registry.json"),
-    ),
     (MANIFEST_SCHEMA_ID, include_schema!("manifest.json")),
     (NOTE_SCHEMA_ID, include_schema!("note.json")),
     (
@@ -238,9 +224,9 @@ mod tests {
     #[test]
     fn registry_builds_and_has_all_schema_ids() {
         let reg = SchemaRegistry::global();
-        // 24, not 25: typed-record.json was removed (Tier 1 / TypedRecord
-        // retirement, srs#448/rfc-decision-53635966, srs-rust#888).
-        assert_eq!(reg.schema_ids().len(), 24);
+        // 22: typed-record.json removed (Tier-1 retirement, srs#448/srs-rust#888)
+        // and federation-{events,registry}.json removed (srs-rust#878/#912).
+        assert_eq!(reg.schema_ids().len(), 22);
         for id in ALL_SCHEMA_IDS {
             assert!(reg.schema_ids().contains(id), "missing: {id}");
         }
