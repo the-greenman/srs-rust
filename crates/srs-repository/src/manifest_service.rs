@@ -7,7 +7,6 @@ use serde_json::json;
 
 const EXT_ADDRESSABILITY: &str = "ext:addressability";
 const EXT_DISCOVERY: &str = "ext:discovery";
-const EXT_FEDERATION: &str = "ext:federation";
 const EXT_LIFECYCLE: &str = "ext:lifecycle";
 const EXT_RELATIONS: &str = "ext:relations";
 const EXT_REPOSITORY: &str = "ext:repository";
@@ -15,10 +14,13 @@ const EXT_TYPE_INHERITANCE: &str = "ext:type-inheritance";
 
 /// Extension IDs actively implemented by this version of the SRS engine.
 /// This is the single authoritative list — do not add `ext:` literals elsewhere.
+///
+/// `ext:federation` removed per srs decision 4f1e12e5 + owner disposition
+/// srs-rust#878 (2026-09-01); return is committed — see the spec roadmap's
+/// federation entry.
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     EXT_ADDRESSABILITY,
     EXT_DISCOVERY,
-    EXT_FEDERATION,
     EXT_LIFECYCLE,
     EXT_RELATIONS,
     EXT_REPOSITORY,
@@ -1041,9 +1043,7 @@ mod tests {
         });
         let manifest = Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: PathBuf::from("/memory"),
@@ -1101,9 +1101,7 @@ mod tests {
         extra.insert("declaredExtensions".to_string(), json!(["ext:lifecycle"]));
         let manifest = Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra,
             source_documents_path: None,
             root: PathBuf::from("/memory"),

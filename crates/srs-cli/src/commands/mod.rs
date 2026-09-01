@@ -5,7 +5,6 @@ pub mod container;
 pub mod context;
 pub mod document_view;
 pub mod extension;
-pub mod federation;
 pub mod field;
 pub mod find;
 pub mod lifecycle;
@@ -374,9 +373,6 @@ pub enum Commands {
     /// Registry catalog commands (ext:registry)
     #[command(subcommand)]
     Registry(RegistryCommand),
-    /// Federation registry and event log commands (ext:federation)
-    #[command(subcommand)]
-    Federation(FederationCommand),
     /// Addressability context-query commands (ext:addressability)
     #[command(subcommand)]
     Context(context::ContextCommand),
@@ -1721,32 +1717,6 @@ pub enum RegistryCommand {
     },
 }
 
-#[derive(Subcommand)]
-pub enum FederationCommand {
-    /// Resolve a repository ID against the federation registry (DFS with cycle detection)
-    Resolve {
-        /// Repository ID to look up
-        #[arg(long = "repository-id")]
-        repository_id: String,
-    },
-    /// List federation events, optionally filtered
-    #[command(name = "events-list")]
-    EventsList {
-        /// Filter by source repository ID
-        #[arg(long)]
-        source: Option<String>,
-        /// Filter by target repository ID
-        #[arg(long)]
-        target: Option<String>,
-        /// Filter by event kind (merge|split|import)
-        #[arg(long)]
-        kind: Option<String>,
-    },
-    /// Append a federation event (reads JSON from stdin)
-    #[command(name = "events-append")]
-    EventsAppend,
-}
-
 pub fn dispatch(cli: Cli) -> Result<String> {
     // repo create targets explicit --repo or current dir; it must not require existing .srs.
     let location = match &cli.command {
@@ -1815,7 +1785,6 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Tree(args) => tree::dispatch(ctx, args),
         Commands::Find(args) => find::dispatch(ctx, args),
         Commands::Registry(registry_cmd) => registry::dispatch(ctx, registry_cmd),
-        Commands::Federation(federation_cmd) => federation::dispatch(ctx, federation_cmd),
         Commands::Context(ctx_cmd) => context::dispatch(ctx, ctx_cmd),
         Commands::Attachment(cmd) => attachment::dispatch(ctx, cmd),
         Commands::Archive(archive_cmd) => archive::dispatch(ctx, archive_cmd),

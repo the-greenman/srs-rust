@@ -27,9 +27,6 @@ DRIFT=0
 # Each entry names the tracking issue that owns the reconciliation. Remove an
 # entry here only when its issue closes with the schema (and its consuming
 # code) actually deleted.
-#   - federation-events.json, federation-registry.json: ext:federation has an
-#     OPEN implementation epic (#235) in this repo; srs-rust#878 tracks the
-#     spec-vs-epic reconciliation.
 #   - revisions.json: ext:addressability's Revision sidecar; srs-rust#866
 #     tracks it — explicitly "the timing and shape of any actual code removal
 #     is an srs-rust maintainer call" (rfc-decision-2a1e1590's return trigger),
@@ -41,8 +38,6 @@ DRIFT=0
 #     carry real Tier-1 content — srs-rust#888 tracks the actual code removal;
 #     remove this entry together with that removal, not separately.
 DECLARED_EXTRA_ALLOWLIST=(
-    "federation-events.json"
-    "federation-registry.json"
     "revisions.json"
     "typed-record.json"
 )

@@ -4415,9 +4415,7 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: std::path::PathBuf::from("/memory"),
@@ -4772,9 +4770,7 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: std::path::PathBuf::from("/memory"),
@@ -5418,9 +5414,7 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: std::path::PathBuf::from("/memory"),
@@ -5772,9 +5766,7 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: std::path::PathBuf::from("/memory"),
@@ -6152,9 +6144,7 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: std::path::PathBuf::from("/memory"),
@@ -6592,9 +6582,7 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: std::path::PathBuf::from("/memory"),
@@ -7100,9 +7088,7 @@ mod tests {
 
         let manifest = Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: std::path::PathBuf::from("/memory"),
@@ -8191,9 +8177,7 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: std::path::PathBuf::from("/memory"),
@@ -8449,9 +8433,7 @@ mod tests {
     fn minimal_manifest_no_index() -> crate::manifest::Manifest {
         crate::manifest::Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: std::path::PathBuf::from("/memory"),
@@ -8613,9 +8595,7 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: repo_root.to_path_buf(),
@@ -8766,9 +8746,7 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: std::path::PathBuf::from("/memory"),
@@ -8964,9 +8942,7 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: std::path::PathBuf::from("/memory"),
@@ -9193,9 +9169,7 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: std::path::PathBuf::from("/memory"),
@@ -9338,9 +9312,7 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: std::path::PathBuf::from("/memory"),
@@ -9516,9 +9488,7 @@ mod tests {
     ) -> crate::store::memory::MemoryStore {
         let manifest = crate::manifest::Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: std::path::PathBuf::from("/memory"),
@@ -10062,9 +10032,7 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: std::path::PathBuf::from("/memory"),
@@ -10357,9 +10325,7 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: std::path::PathBuf::from("/memory"),
@@ -10545,9 +10511,7 @@ mod tests {
         // ── MemoryStore path ───────────────────────────────────────────────
         let manifest = crate::manifest::Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: std::path::PathBuf::from("/memory"),
@@ -11279,9 +11243,7 @@ mod tests {
 
         let manifest = crate::manifest::Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: std::path::PathBuf::from("/memory"),

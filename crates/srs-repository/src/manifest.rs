@@ -15,10 +15,6 @@ pub struct Manifest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub container: Option<Container>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub federation_path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub federation_events_path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub upstream_package: Option<UpstreamPackage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_documents_path: Option<String>,
@@ -34,8 +30,6 @@ impl Default for Manifest {
     fn default() -> Self {
         Self {
             container: None,
-            federation_path: None,
-            federation_events_path: None,
             upstream_package: None,
             source_documents_path: None,
             extra: std::collections::BTreeMap::new(),
@@ -268,43 +262,6 @@ mod tests {
         let json = r#"{}"#;
         let manifest: Manifest = serde_json::from_str(json).unwrap();
         assert!(manifest.container.is_none());
-    }
-
-    #[test]
-    fn manifest_federation_fields_roundtrip() {
-        let json = r#"{
-            "federationPath": "custom/registry.json",
-            "federationEventsPath": "custom/events.json"
-        }"#;
-        let manifest: Manifest = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            manifest.federation_path.as_deref(),
-            Some("custom/registry.json")
-        );
-        assert_eq!(
-            manifest.federation_events_path.as_deref(),
-            Some("custom/events.json")
-        );
-        // must not appear in extra
-        assert!(!manifest.extra.contains_key("federationPath"));
-        assert!(!manifest.extra.contains_key("federationEventsPath"));
-
-        // serialise and re-parse
-        let serialised = serde_json::to_string(&manifest).unwrap();
-        let reparsed: Manifest = serde_json::from_str(&serialised).unwrap();
-        assert_eq!(reparsed.federation_path, manifest.federation_path);
-        assert_eq!(
-            reparsed.federation_events_path,
-            manifest.federation_events_path
-        );
-    }
-
-    #[test]
-    fn manifest_absent_federation_fields_are_none() {
-        let json = r#"{}"#;
-        let manifest: Manifest = serde_json::from_str(json).unwrap();
-        assert!(manifest.federation_path.is_none());
-        assert!(manifest.federation_events_path.is_none());
     }
 
     #[test]
