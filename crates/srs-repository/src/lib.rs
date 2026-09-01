@@ -25,6 +25,7 @@ pub(crate) mod field_json;
 mod field_json_parity_tests;
 pub mod field_type_migration_service;
 pub mod governance_scaffold_service;
+pub mod graduated_at_migration_service;
 pub mod index;
 pub mod input_normalization;
 pub mod lifecycle_service;

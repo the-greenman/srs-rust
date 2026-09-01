@@ -51,6 +51,51 @@ struct MigrationDefinition {
 }
 
 static MIGRATIONS: &[MigrationDefinition] = &[
+    // First by necessity, not preference (srs-rust#896): every other entry in
+    // this ladder — and almost every ordinary repository-store operation —
+    // depends on `store.catalog()`, which [R24] makes fatal the moment any
+    // single instance fails schema validation. A Note still carrying the
+    // legacy `graduatedAt` field (retired from note.json at dataModelRevision
+    // 4, srs PR #505) fails that validation unconditionally, regardless of
+    // the repository's own stamped revision — which poisons the checked
+    // catalog for the *entire* repository, not just that Note. Running this
+    // repair first is what makes the rest of this ladder (in particular
+    // `tier1-removal`'s catalog-backed Tier-1 count) usable at all on a
+    // genuinely affected repository.
+    MigrationDefinition {
+        id: "graduated-at-cleanup",
+        title: "Strip the retired legacy graduatedAt Note field",
+        description: "Repairs Notes still carrying the graduatedAt field retired from \
+                       note.json at dataModelRevision 4 (srs PR #505, additionalProperties: \
+                       false) — schema validation rejects it unconditionally, which makes the \
+                       whole repository's catalog unloadable ([R24]), not just that Note \
+                       (srs-rust#896). For each such Note: if a derived-from relation already \
+                       records the graduation, the field is dropped (nothing lost). If no such \
+                       relation exists, the graduated-to Record id cannot be derived from any \
+                       other repository data (the pre-srs-rust#884 write path recorded only the \
+                       timestamp, never a target) — the field is left in place, and the \
+                       migration reports that Note by name rather than guess or drop it \
+                       silently. Structural, not revision-keyed (like rfc038-storage): the \
+                       defect this repairs is not gated by dataModelRevision in the first \
+                       place, so this migration stamps nothing. Not all-or-nothing like its \
+                       siblings: every resolvable Note is repaired even when another Note in \
+                       the same repository is not (honest partial failure over silent data \
+                       loss) — reads and writes raw JSON directly rather than through \
+                       `store.catalog()`, which this exact defect makes unusable.",
+        status_fn: |store| {
+            if crate::graduated_at_migration_service::migration_needed(store) {
+                Ok(MigrationStatus::Needed)
+            } else {
+                Ok(MigrationStatus::AlreadyApplied)
+            }
+        },
+        apply_fn: |store| {
+            let result = crate::graduated_at_migration_service::migrate_graduated_at(store)?;
+            serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!("failed to serialize graduated-at-cleanup migration result: {e}"),
+            })
+        },
+    },
     MigrationDefinition {
         id: "field-type",
         title: "Adopt the RFC-032 fieldType model",
@@ -291,7 +336,28 @@ pub fn list_migrations(
     MIGRATIONS
         .iter()
         .map(|m| {
-            let status = (m.status_fn)(store)?;
+            let status = match (m.status_fn)(store) {
+                Ok(s) => s,
+                // A migration's own status probe can read the checked
+                // catalog (`store.catalog()`), which [R24] makes fatal the
+                // moment ANY instance anywhere fails schema validation — not
+                // just an instance this specific probe cares about. Demonstrated
+                // by srs-rust#896: `migrate-identity`'s probe (fixed to use
+                // `catalog_unchecked` directly) and `repo-upgrade`'s (which
+                // still uses the checked catalog for its own, unrelated
+                // reasons) were both taken down by an unrelated legacy
+                // `graduatedAt` Note — exactly the repository state
+                // `graduated-at-cleanup` exists to repair. One probe blocked
+                // by a fault it has nothing to do with must not take the
+                // entire listing down with it: report the conservative
+                // `Needed` default (never a false `AlreadyApplied`/
+                // `NotApplicable` claim when the check could not actually
+                // run) instead of propagating. A non-catalog error (a
+                // missing manifest, real I/O failure, ...) still propagates
+                // unchanged.
+                Err(RepositoryError::CatalogLoad { .. }) => MigrationStatus::Needed,
+                Err(e) => return Err(e),
+            };
             Ok(MigrationSummary {
                 id: m.id.to_string(),
                 title: m.title.to_string(),
@@ -414,31 +480,34 @@ mod tests {
     fn list_migrations_returns_every_entry_for_store_with_no_identity_note() {
         let store = make_store_with_container_no_identity();
         let migrations = list_migrations(&store).unwrap();
-        assert_eq!(migrations.len(), 8);
-        assert_eq!(migrations[0].id, "field-type");
-        assert_eq!(migrations[1].id, "rfc039-carrier");
-        assert_eq!(migrations[2].id, "metamodel-v1-1-0");
-        assert_eq!(migrations[3].id, "tier1-removal");
-        assert_eq!(migrations[4].id, "substrate-properties-to-meta");
-        assert_eq!(migrations[5].id, "migrate-identity");
-        assert_eq!(migrations[6].id, "repo-upgrade");
-        assert_eq!(migrations[7].id, "rfc038-storage");
+        assert_eq!(migrations.len(), 9);
+        assert_eq!(migrations[0].id, "graduated-at-cleanup");
+        assert_eq!(migrations[1].id, "field-type");
+        assert_eq!(migrations[2].id, "rfc039-carrier");
+        assert_eq!(migrations[3].id, "metamodel-v1-1-0");
+        assert_eq!(migrations[4].id, "tier1-removal");
+        assert_eq!(migrations[5].id, "substrate-properties-to-meta");
+        assert_eq!(migrations[6].id, "migrate-identity");
+        assert_eq!(migrations[7].id, "repo-upgrade");
+        assert_eq!(migrations[8].id, "rfc038-storage");
+        // No legacy graduatedAt Notes → AlreadyApplied
+        assert_eq!(migrations[0].status, MigrationStatus::AlreadyApplied);
         // Unstamped manifest → field-type Needed
-        assert_eq!(migrations[0].status, MigrationStatus::Needed);
-        // Revision < 2 → rfc039-carrier Needed
         assert_eq!(migrations[1].status, MigrationStatus::Needed);
-        // Revision < 3 → metamodel-v1-1-0 Needed
+        // Revision < 2 → rfc039-carrier Needed
         assert_eq!(migrations[2].status, MigrationStatus::Needed);
-        // Revision < 4 → tier1-removal Needed
+        // Revision < 3 → metamodel-v1-1-0 Needed
         assert_eq!(migrations[3].status, MigrationStatus::Needed);
-        // Revision < 5 → substrate-properties-to-meta Needed
+        // Revision < 4 → tier1-removal Needed
         assert_eq!(migrations[4].status, MigrationStatus::Needed);
-        // Container exists but identity_instance_id is None → migrate-identity Needed
+        // Revision < 5 → substrate-properties-to-meta Needed
         assert_eq!(migrations[5].status, MigrationStatus::Needed);
+        // Container exists but identity_instance_id is None → migrate-identity Needed
+        assert_eq!(migrations[6].status, MigrationStatus::Needed);
         // Zero instances → all paths canonical → AlreadyApplied
-        assert_eq!(migrations[6].status, MigrationStatus::AlreadyApplied);
+        assert_eq!(migrations[7].status, MigrationStatus::AlreadyApplied);
         // MemoryStore is not a file tree — there is no storage layout to place.
-        assert_eq!(migrations[7].status, MigrationStatus::NotApplicable);
+        assert_eq!(migrations[8].status, MigrationStatus::NotApplicable);
     }
 
     fn indexed_srsj_store() -> crate::store::FileStore {
@@ -622,6 +691,56 @@ mod tests {
             result.payload.get("newIdentityId").is_some(),
             "payload must contain newIdentityId"
         );
+    }
+
+    /// `list_migrations` (the `repo migrations` listing) must keep working on
+    /// a repository that has both a root-container identity pointer set
+    /// (`migrate-identity`'s status probe reads `store.catalog()`, checked)
+    /// AND an unrelated legacy-graduated Note elsewhere — the realistic shape
+    /// of an affected repository, since an RFC-013-conformant repository
+    /// almost always has `identityInstanceId` set (srs-rust#896). Before this
+    /// migration existed, discovering it via `repo migrations` on exactly
+    /// such a repository would itself fail with `CatalogLoad`, leaving no
+    /// visible path to `repo apply-migration --id graduated-at-cleanup` at
+    /// all — `apply_migration` for one named id never calls another
+    /// migration's status probe, so it is unaffected, but the listing is.
+    #[test]
+    fn list_migrations_survives_an_unrelated_legacy_graduated_note_alongside_an_identity_pointer() {
+        let (store, _) = make_store_with_identity(
+            "11111111-1111-4111-8111-111111111115",
+            Some("My Repo"),
+            one_section("I build SRS."),
+        );
+        // A second, unrelated Note carries the legacy field — [R24] would
+        // otherwise poison `store.catalog()` for the whole repository,
+        // including `migrate-identity`'s status probe.
+        let legacy_note = Note {
+            instance_id: "22222222-2222-4222-8222-222222222225".to_string(),
+            title: Some("Legacy graduated note".to_string()),
+            sections: one_section("hello"),
+            tags: None,
+            graduated_at: None,
+            source_refs: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+        };
+        let legacy_path = "records/notes/legacy-unrelated.json";
+        write_note(&store, &legacy_note, legacy_path).unwrap();
+        let mut raw = store.load_instance_json(legacy_path).unwrap();
+        raw.as_object_mut().unwrap().insert(
+            "graduatedAt".to_string(),
+            serde_json::json!("2026-01-01T00:00:00Z"),
+        );
+        store.save_instance_json(legacy_path, &raw).unwrap();
+
+        let migrations = list_migrations(&store)
+            .expect("list_migrations must not fail on an unrelated catalog-fatal Note");
+        let graduated_at_cleanup = migrations
+            .iter()
+            .find(|m| m.id == "graduated-at-cleanup")
+            .unwrap();
+        assert_eq!(graduated_at_cleanup.status, MigrationStatus::Needed);
     }
 
     #[test]
