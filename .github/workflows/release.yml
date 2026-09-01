@@ -82,7 +82,20 @@ jobs:
           sha256sum "$archive" > "$archive.sha256"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
-      - name: Create GitHub Release
+      # Published as a DRAFT (srs-rust#877): the corpus-gate job below needs the
+      # published asset to exist before it can validate it (the ordering note on
+      # that job explains why gate-before-any-publish deadlocks), but a draft is
+      # never resolved by the public, unauthenticated `/releases/latest/download/`
+      # URL or by an anonymous fetch of its tag's asset URL — only an
+      # authenticated repo collaborator can reach it (e.g. via `gh release
+      # download` with their own credentials, which is exactly the escape hatch
+      # a maintainer driving a deliberate corpus-breaking migration already
+      # uses). The `promote-release` job below flips it to published + latest
+      # ONLY once the gate passes, so a build that fails corpus conformance can
+      # never become "the latest release" a consumer fetches anonymously — it
+      # stays a draft, reachable only by someone who already knows what they're
+      # doing.
+      - name: Create GitHub Release (draft)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -94,6 +107,7 @@ jobs:
             scripts/gh-project.mjs \
             skills/SKILL.md \
             --target "${{ github.sha }}" \
+            --draft \
             --title "srs v${{ steps.package.outputs.version }} (build ${{ github.run_number }}, ${{ steps.package.outputs.sha_short }})" \
             --notes "Automated release of the \`srs\` CLI built from \`${{ github.sha }}\`.
 
@@ -119,8 +133,12 @@ jobs:
           The agent skill file \`SKILL.md\` is attached (stable URL
           \`/releases/latest/download/SKILL.md\`) — install it in any skills-capable agent
           (Claude Code, Codex, Cursor, Copilot, Goose) to add \"work with SRS repositories\"
-          as a capability." \
-            --latest
+          as a capability.
+
+          **This release is published as a draft** until the corpus conformance gate\
+           (below) confirms this exact binary can still read the srs spec, gallery, and\
+           muSrs corpora. It becomes the published \`latest\` release automatically on a\
+           passing gate (see the \`promote-release\` job) — never before."
 
   # ---------------------------------------------------------------------------------------------
   # Corpus conformance gate (the-greenman/srs#392 row 2)
@@ -136,24 +154,37 @@ jobs:
   # is kept on its merits — a zero-instance read is indistinguishable from a clean one by every
   # other signal — not on that attribution.)
   #
-  # ORDERING: publish first, gate after. This is not a preference — gate-before-publish deadlocks.
-  # The binary that performs a corpus migration is the binary the corpus needs in order to migrate:
-  # withholding the release until the corpora already validate means a cutover can never start, so
-  # the first deliberate breaking change would stop releases indefinitely with no way out except
-  # disabling the gate. Publishing first keeps the escape hatch open (a consumer can still pin the
-  # build deliberately) while the failure is loud and attributable beside it.
+  # ORDERING (srs-rust#877): the asset is published (as a DRAFT — see the release job's
+  # "Create GitHub Release" step) before this gate runs, and this is not a preference —
+  # gate-before-any-publish deadlocks. The binary that performs a corpus migration is the
+  # binary the corpus needs in order to migrate: withholding a downloadable asset until the
+  # corpora already validate means a cutover can never start, so the first deliberate
+  # breaking change would stop releases indefinitely with no way out except disabling the
+  # gate. Publishing a draft first keeps that escape hatch open — an authenticated
+  # maintainer can still fetch the draft's asset deliberately — while the failure is loud
+  # and attributable beside it.
+  #
+  # What changed from the original design (found live: build.295 published — and stayed
+  # the anonymously-fetchable `latest` release — despite this gate failing): a red gate
+  # here no longer promotes the draft. See `promote-release` below. It is the ONLY thing
+  # that flips a release from draft to published + `latest`, and it runs only `needs:
+  # corpus-gate` succeeding. A build that fails corpus conformance therefore never becomes
+  # the release that `/releases/latest/download/` or an anonymous tag-asset fetch resolves
+  # to — it stays a draft, visible only to someone with repo read access who goes looking
+  # for it by tag, which is exactly the deliberate-migration escape hatch above.
   #
   # FAILURE SEMANTICS: this job is required for the workflow to be green, but it is a SEPARATE job,
-  # so a red gate never retracts or blocks the release itself. Its corpus checkouts always track
-  # each repository's DEFAULT BRANCH, on the reasoning that a default branch is conformant by its
-  # own repository's CI — `srs` has `release-drift.yml` today. For muDemocracy.org that backstop is
-  # the conformance job added by srs#392 row 1, which lands in a SEPARATE PR of this unit: until
-  # that merges, muSrs's default branch has no CI of its own, so this gate would be the first thing
-  # to notice a break there rather than the second. Land row 1 first, or accept that ordering.
+  # so a red gate never retracts the already-created draft asset (nothing to retract — it isn't
+  # published). Its corpus checkouts always track each repository's DEFAULT BRANCH, on the
+  # reasoning that a default branch is conformant by its own repository's CI — `srs` has
+  # `release-drift.yml` today. For muDemocracy.org that backstop is the conformance job added by
+  # srs#392 row 1, which lands in a SEPARATE PR of this unit: until that merges, muSrs's default
+  # branch has no CI of its own, so this gate would be the first thing to notice a break there
+  # rather than the second. Land row 1 first, or accept that ordering.
   #
-  # So a corpus repo mid-migration reddens srs-rust only for as long as its own default branch is
-  # non-conformant. It cannot redden srs-rust permanently, and the gate is deliberately not made
-  # non-blocking: a gate that cannot fail is the thing this replaces.
+  # So a corpus repo mid-migration reddens srs-rust, and withholds promotion, only for as long as
+  # its own default branch is non-conformant. It cannot redden srs-rust permanently, and the gate
+  # is deliberately not made non-blocking: a gate that cannot fail is the thing this replaces.
   corpus-gate:
     name: Corpus conformance gate
     needs: release
@@ -285,3 +316,30 @@ jobs:
             corpora+=("muSrs=$GITHUB_WORKSPACE/corpora/muDemocracy.org/muSrs")
           fi
           srs-rust/scripts/check-corpus-conformance.sh "${corpora[@]}"
+
+  # ---------------------------------------------------------------------------------------------
+  # Promote draft -> published + latest (srs-rust#877)
+  # ---------------------------------------------------------------------------------------------
+  # The one and only place a release stops being a draft. `needs: [release, corpus-gate]` means
+  # this job runs only when BOTH prior jobs succeeded (GitHub Actions' default: a job is skipped,
+  # not failed, when a `needs` dependency didn't succeed) — a failing corpus-gate therefore leaves
+  # the draft exactly as it was: created, but never promoted, never `latest`, never reachable via
+  # the anonymous `/releases/latest/download/` URL or an anonymous tag-asset fetch.
+  promote-release:
+    name: Promote release (gate passed)
+    needs: [release, corpus-gate]
+    if: success()
+    runs-on: ubuntu-latest
+    # Only this job needs write access to flip the release's draft/latest flags.
+    permissions:
+      contents: write
+    steps:
+      - name: Publish and mark latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ needs.release.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --draft=false \
+            --latest
+          echo "Promoted ${{ needs.release.outputs.tag }} to published + latest."

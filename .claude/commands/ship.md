@@ -170,8 +170,10 @@ bash scripts/check-schema-sync.sh          # if entity schemas changed
 If `check-schema-sync.sh` reports that **this repo's** schema mirror has drifted from the canonical spec in `srs/docs/schema/2.0/`, refresh it from the released canonical schema — **this repo only**:
 ```bash
 # From srs-rust/
-scripts/sync-schemas-from-spec.sh          # pulls the canonical schema (local ../srs if present,
-                                           # else the srs `schemas-2.0.tar.gz` release artifact)
+scripts/sync-schemas-from-spec.sh          # pulls the canonical schema from the srs
+                                           # `schemas-2.0.tar.gz` release artifact (default) —
+                                           # use --local <path> only for a checkout whose HEAD
+                                           # is an ancestor of its origin/master (srs-rust#874)
                                            # and regenerates SHA256SUMS
 ```
 Commit the refreshed mirror in `srs-rust` only. **Do not reach into `../srs-vscode` or any other sibling working tree** — in a cloud session it won't exist, and each mirror repo syncs itself from the `srs` release artifact through its own pipeline. Cross-repo mirror consistency is enforced by the release-drift CI, not by editing siblings in this session.
