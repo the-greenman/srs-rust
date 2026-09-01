@@ -61,16 +61,47 @@ pub struct ProjectedRelationTarget {
     pub display_label: String,
 }
 
+/// RFC-027 — whether a `ProjectedRelationRow` presents the record as the
+/// source (`forward`) or target (`inverse`) of its listed edges. A `Both`
+/// `PresentationDirection` entry produces one combined row under the forward
+/// label (RFC-027 §B) — that row serialises as `forward`, matching the label
+/// computation's own `Inverse` vs. everything-else split.
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectedRelationDirection {
+    Forward,
+    Inverse,
+}
+
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectedRelationRow {
+    /// The relation type key backing this row — also used for the
+    /// `srs-relationtype-*` identity class of `[FR-037-12]` in markup.
+    pub relation_type: String,
+    pub direction: ProjectedRelationDirection,
     pub label: String,
     pub targets: Vec<ProjectedRelationTarget>,
-    /// The relation type key backing this row, used for the `srs-relationtype-*`
-    /// identity class of `[FR-037-12]`. Not serialised — the `json` projection is
-    /// governed by `document-view-output.json` and RFC-037 changes no schema.
-    #[serde(skip)]
-    pub relation_type_key: String,
+}
+
+/// RFC-041 `[R8]` — one resolved `RecordPropertyView` row in the JSON
+/// projection, `{ property, label, value }`, same terms it already renders
+/// into markup (`render_record_property_row`/`resolve_record_property_value`).
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectedPropertyRow {
+    pub property: srs_core::types::view::RecordProperty,
+    pub label: String,
+    pub value: ProjectedPropertyValue,
+}
+
+/// A `RecordPropertyView` row's resolved value: `lifecycleState`/`createdAt`/
+/// `updatedAt` are a single string, `tags` is a string array (RFC-041 Change C).
+#[derive(Debug, serde::Serialize)]
+#[serde(untagged)]
+pub enum ProjectedPropertyValue {
+    Scalar(String),
+    List(Vec<String>),
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -78,6 +109,9 @@ pub struct ProjectedRelationRow {
 pub struct ProjectedRecord {
     pub instance_id: String,
     pub type_id: String,
+    /// `Record.typeVersion` (RFC-032/RFC-039) — the authoritative half of the
+    /// record-to-type PINNED binding alongside `typeId`.
+    pub type_version: u32,
     pub type_namespace: String,
     pub type_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -91,6 +125,8 @@ pub struct ProjectedRecord {
     pub ordered_field_keys: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub relations: Option<Vec<ProjectedRelationRow>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub properties: Option<Vec<ProjectedPropertyRow>>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -486,6 +522,7 @@ fn project_record_json(
         .and_then(|f| record.value_str(&f.name).map(|v| v.to_string()));
 
     let mut fields_to_render: Vec<ResolvedFieldRender> = Vec::new();
+    let mut property_rows_to_resolve: Vec<srs_core::types::view::RecordPropertyView> = Vec::new();
     let mut omit_empty = false;
     let mut record_preamble: Option<String> = None;
 
@@ -519,30 +556,31 @@ fn project_record_json(
             }
             omit_empty = export_config.omit_empty_fields == Some(true);
         }
-        // RFC-041 [R7]: View.fieldViews[].order is the sole presentation/export
-        // ordering (ExportConfig.fieldOrder retired). RecordPropertyView rows
-        // have no JSON-projection field form (record.json properties, not
-        // Field.name keys) and are excluded here, same as container-view
-        // columns (`container_view_service::resolve_columns`).
-        let mut field_views: Vec<_> = view
-            .field_views
-            .iter()
-            .filter_map(|row| row.as_field())
-            .cloned()
-            .collect();
-        field_views.sort_by_key(|fv| fv.order);
-        for fv in field_views {
-            // `visible` is a rendering hint for text/markdown output — do not apply it
-            // here. The JSON projection exports data; all fields must be included
-            // regardless of their display visibility.
-            fields_to_render.push(ResolvedFieldRender {
-                name: package
-                    .resolve_field(&fv.field_id)
-                    .map(|f| f.name.clone())
-                    .unwrap_or_default(),
-                field_id: fv.field_id,
-                required: fv.required == Some(true),
-            });
+        // RFC-041 [R1]/[R7]/[R8]: View.fieldViews[] is one mixed row list
+        // (FieldView | RecordPropertyView) sharing one `order` axis
+        // (ExportConfig.fieldOrder retired) — sorting and iterating the mixed
+        // list directly, rather than each row kind separately, is what
+        // preserves ascending order within `properties[]` to match the
+        // markup presentation sequence.
+        let mut sorted_rows = view.field_views.clone();
+        sorted_rows.sort_by_key(|row| row.order());
+        for row in sorted_rows {
+            match row {
+                ViewRow::Field(fv) => {
+                    // `visible` is a rendering hint for text/markdown output — do not
+                    // apply it here. The JSON projection exports data; all fields must
+                    // be included regardless of their display visibility.
+                    fields_to_render.push(ResolvedFieldRender {
+                        name: package
+                            .resolve_field(&fv.field_id)
+                            .map(|f| f.name.clone())
+                            .unwrap_or_default(),
+                        field_id: fv.field_id,
+                        required: fv.required == Some(true),
+                    });
+                }
+                ViewRow::RecordProperty(rp) => property_rows_to_resolve.push(rp),
+            }
         }
     } else if let Some(rt) = &rt {
         // Use effective_fields (resolves type-inheritance) to match the markdown path.
@@ -621,9 +659,31 @@ fn project_record_json(
     let projected_relations =
         project_relations_json(store, section, record, relations, package, diagnostics)?;
 
+    // RFC-041 [R8]: resolve each surviving RecordPropertyView row into a
+    // ProjectedPropertyRow using the same Change C label/value resolution as
+    // the markup path (`resolve_record_property_value`) — a row omitted per
+    // [R4] there is likewise omitted from `properties[]` here.
+    let property_rows: Vec<ProjectedPropertyRow> = property_rows_to_resolve
+        .into_iter()
+        .filter_map(|prop| {
+            let value =
+                resolve_record_property_value(prop.property, record, rt.as_ref(), package, "json")?;
+            let label = prop
+                .display_label
+                .unwrap_or_else(|| prop.property.default_label().to_string());
+            Some(ProjectedPropertyRow {
+                property: prop.property,
+                label,
+                value: row_value_to_property_value(value),
+            })
+        })
+        .collect();
+    let properties = (!property_rows.is_empty()).then_some(property_rows);
+
     Ok(ProjectedRecord {
         instance_id: record.instance_id.clone(),
         type_id: record.type_id.clone(),
+        type_version: record.type_version,
         type_namespace: record.type_namespace.clone(),
         type_name: record.type_name.clone(),
         record_heading,
@@ -631,7 +691,20 @@ fn project_record_json(
         fields: serde_json::Value::Object(fields_map),
         ordered_field_keys,
         relations: projected_relations,
+        properties,
     })
+}
+
+/// Convert a resolved `RecordPropertyView` row value to its JSON-projection
+/// form (RFC-041 `[R8]`). `RowValue::Placeholder` never reaches here —
+/// `resolve_record_property_value` only ever returns `Scalar`/`Entries`/`None`
+/// — but is handled defensively rather than left an incomplete match.
+fn row_value_to_property_value(value: RowValue) -> ProjectedPropertyValue {
+    match value {
+        RowValue::Scalar(s) => ProjectedPropertyValue::Scalar(s),
+        RowValue::Entries(entries) => ProjectedPropertyValue::List(entries),
+        RowValue::Placeholder => ProjectedPropertyValue::Scalar(EMPTY_PLACEHOLDER.to_string()),
+    }
 }
 
 fn substitute_vars_record_json(template: &str, record: &Record) -> String {
@@ -2334,9 +2407,16 @@ fn collect_relation_rows(
         targets.sort_by(|a, b| a.display_label.cmp(&b.display_label));
 
         rows.push(ProjectedRelationRow {
+            relation_type: entry.relation_type.clone(),
+            // RFC-027 §B: a `Both` entry combines into one row under the
+            // forward label — this mirrors `compute_relation_row_label`'s own
+            // `Inverse` vs. everything-else split so the two never disagree.
+            direction: match direction {
+                PresentationDirection::Inverse => ProjectedRelationDirection::Inverse,
+                _ => ProjectedRelationDirection::Forward,
+            },
             label: row_label,
             targets,
-            relation_type_key: entry.relation_type.clone(),
         });
     }
 
@@ -2435,7 +2515,7 @@ fn render_relations_block(
 
         out.push_str(&format_field_row(
             format,
-            RowIdentity::RelationTypeKey(&row.relation_type_key),
+            RowIdentity::RelationTypeKey(&row.relation_type),
             &row.label,
             &value,
         ));
@@ -4923,6 +5003,156 @@ mod tests {
             title_pos < status_pos,
             "Status row (order 1) should render after the title row (order 0); got:\n{rendered}"
         );
+    }
+
+    /// srs-rust#817 / RFC-041 `[R8]`: a `RecordPropertyView` row must appear in
+    /// the JSON projection as a `ProjectedPropertyRow`, resolved exactly as it
+    /// renders to markup (same fixture and Lifecycle binding as the markdown
+    /// "GREEN" test above, `format: json` instead). Before this lands,
+    /// `render_service.rs` excluded property rows from the JSON path entirely
+    /// (the inline comment this issue required deleting) — `properties` would
+    /// have been absent here.
+    #[test]
+    fn rfc_catalog_status_line_present_as_json_property_row() {
+        use srs_core::types::view::{FieldView, RecordProperty, RecordPropertyView, ViewRow};
+
+        let (store, _record_id, view_id) = make_lifecycle_status_store(vec![
+            ViewRow::Field(FieldView {
+                display_hint: None,
+                editor_hint_override: None,
+                composite_renderer: None,
+                field_id: "f-title".to_string(),
+                order: 0,
+                required: None,
+                visible: None,
+                display_label: None,
+            }),
+            ViewRow::RecordProperty(RecordPropertyView {
+                property: RecordProperty::LifecycleState,
+                order: 1,
+                display_label: None,
+                visible: None,
+            }),
+        ]);
+
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: &view_id,
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+
+        let proj = result
+            .projection
+            .expect("json format must produce a projection");
+        let rec = &proj.sections[0].records[0];
+        let properties = rec
+            .properties
+            .as_ref()
+            .expect("properties[] must be populated when a RecordPropertyView row survives");
+        assert_eq!(properties.len(), 1, "expected exactly 1 property row");
+        assert!(
+            matches!(properties[0].property, RecordProperty::LifecycleState),
+            "row must identify as the lifecycleState property"
+        );
+        assert_eq!(
+            properties[0].label, "Status",
+            "label falls back to the per-property default (Change C)"
+        );
+        match &properties[0].value {
+            ProjectedPropertyValue::Scalar(v) => assert_eq!(
+                v, "Accepted",
+                "[R6]: value resolves via the bound Lifecycle's state label, not the raw key"
+            ),
+            other => panic!("lifecycleState value must be a scalar string; got {other:?}"),
+        }
+    }
+
+    /// srs-rust#817: `properties` must stay absent (never an empty array) when
+    /// no `RecordPropertyView` row is declared — same field-presence contract
+    /// as `relations`.
+    #[test]
+    fn json_projection_no_properties_when_view_has_no_record_property_rows() {
+        use srs_core::types::view::{FieldView, ViewRow};
+
+        let (store, _record_id, view_id) =
+            make_lifecycle_status_store(vec![ViewRow::Field(FieldView {
+                display_hint: None,
+                editor_hint_override: None,
+                composite_renderer: None,
+                field_id: "f-title".to_string(),
+                order: 0,
+                required: None,
+                visible: None,
+                display_label: None,
+            })]);
+
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: &view_id,
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+
+        let proj = result.projection.unwrap();
+        let rec = &proj.sections[0].records[0];
+        assert!(
+            rec.properties.is_none(),
+            "properties must be None, not an empty array, when no RecordPropertyView row is declared"
+        );
+    }
+
+    /// srs-rust#817: a rendered JSON projection carrying a relation row
+    /// (relationType/direction), a typeVersion, and a property row must
+    /// validate cleanly against the canonical `document-view-output.json`
+    /// (`additionalProperties: false`) — the conformance fixture the issue
+    /// asked for, pinning all three so this cannot silently re-drift.
+    #[test]
+    fn json_projection_validates_against_canonical_schema() {
+        use srs_core::types::view::{FieldView, RecordProperty, RecordPropertyView, ViewRow};
+
+        let (store, _record_id, view_id) = make_lifecycle_status_store(vec![
+            ViewRow::Field(FieldView {
+                display_hint: None,
+                editor_hint_override: None,
+                composite_renderer: None,
+                field_id: "f-title".to_string(),
+                order: 0,
+                required: None,
+                visible: None,
+                display_label: None,
+            }),
+            ViewRow::RecordProperty(RecordPropertyView {
+                property: RecordProperty::LifecycleState,
+                order: 1,
+                display_label: None,
+                visible: None,
+            }),
+        ]);
+
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: &view_id,
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+
+        let proj = result
+            .projection
+            .expect("json format must produce a projection");
+        let value = serde_json::to_value(&proj).expect("projection must serialise to JSON");
+        srs_schema::SchemaRegistry::global()
+            .validate_by_id(srs_schema::DOCUMENT_VIEW_OUTPUT_SCHEMA_ID, &value)
+            .expect("rendered JSON projection must validate against the canonical schema");
     }
 
     #[test]
@@ -10405,6 +10635,82 @@ mod tests {
         assert_eq!(relations[0].label, "Links To");
         assert_eq!(relations[0].targets.len(), 1);
         assert_eq!(relations[0].targets[0].instance_id, "rec-tgt");
+        // srs-rust#817: relationType and direction must serialise onto the
+        // row — the canonical document-view-output.json requires both.
+        assert_eq!(
+            relations[0].relation_type, "links-to",
+            "relationType must carry the RTD key"
+        );
+        assert!(
+            matches!(relations[0].direction, ProjectedRelationDirection::Forward),
+            "a forward-direction entry (default) must serialise as forward"
+        );
+    }
+
+    /// srs-rust#817: an `Inverse` `relationsPresentation` entry must serialise
+    /// `direction: "inverse"`, distinct from the forward-default case above.
+    #[test]
+    fn project_record_json_relation_row_inverse_direction() {
+        let store = make_rp_doc_store(
+            vec![test_rtd("links-to", "Links To", Some("linked-from"), false)],
+            "rec-tgt",
+            vec![RelationPresentationEntry {
+                relation_type: "links-to".to_string(),
+                directions: Some(PresentationDirection::Inverse),
+                forward_label: None,
+                inverse_label: None,
+            }],
+            &[test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000a1",
+                "links-to",
+                "rec-src",
+                "rec-tgt",
+            )],
+        );
+        add_rp_record(&store, "rec-src", None);
+
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-rp-test",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        let proj = result.projection.unwrap();
+        let rec = &proj.sections[0].records[0];
+        let relations = rec.relations.as_ref().expect("relations must populate");
+        assert_eq!(relations.len(), 1);
+        assert_eq!(relations[0].relation_type, "links-to");
+        assert!(
+            matches!(relations[0].direction, ProjectedRelationDirection::Inverse),
+            "an Inverse-direction entry must serialise as inverse"
+        );
+    }
+
+    /// srs-rust#817: `ProjectedRecord.typeVersion` must carry `Record.typeVersion`
+    /// verbatim — the canonical schema requires it and the conformance bug
+    /// omitted it entirely.
+    #[test]
+    fn project_record_json_carries_type_version() {
+        let store = make_rp_doc_store(vec![], "rec-src", vec![], &[]);
+
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: "dv-rp-test",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        let proj = result.projection.unwrap();
+        let rec = &proj.sections[0].records[0];
+        assert_eq!(
+            rec.type_version, 1,
+            "typeVersion must be Record.typeVersion verbatim (add_rp_record sets 1)"
+        );
     }
 
     #[test]

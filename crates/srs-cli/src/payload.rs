@@ -1160,12 +1160,53 @@ pub struct ProjectedRelationTarget {
     pub display_label: String,
 }
 
+/// Whether a `ProjectedRelationRow` presents the record as the source
+/// (`forward`) or target (`inverse`) of its listed edges (RFC-027).
+#[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectedRelationDirection {
+    Forward,
+    Inverse,
+}
+
 /// A single labelled row of relation targets in a projected record's links block.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectedRelationRow {
+    pub relation_type: String,
+    pub direction: ProjectedRelationDirection,
     pub label: String,
     pub targets: Vec<ProjectedRelationTarget>,
+}
+
+/// RFC-041 Change B — the closed vocabulary of top-level Record properties a
+/// `RecordPropertyView` row may present.
+#[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectedRecordProperty {
+    LifecycleState,
+    Tags,
+    CreatedAt,
+    UpdatedAt,
+}
+
+/// A `RecordPropertyView` row's resolved value: `lifecycleState`/`createdAt`/
+/// `updatedAt` are a single string, `tags` is a string array (RFC-041 Change C).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(untagged)]
+pub enum ProjectedPropertyValue {
+    Scalar(String),
+    List(Vec<String>),
+}
+
+/// RFC-041 [R8] — one resolved `RecordPropertyView` row in the JSON
+/// projection, `{ property, label, value }`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectedPropertyRow {
+    pub property: ProjectedRecordProperty,
+    pub label: String,
+    pub value: ProjectedPropertyValue,
 }
 
 /// A single record in a JSON projection section.
@@ -1174,6 +1215,9 @@ pub struct ProjectedRelationRow {
 pub struct ProjectedRecord {
     pub instance_id: String,
     pub type_id: String,
+    /// `Record.typeVersion` (RFC-032/RFC-039) — the authoritative half of the
+    /// record-to-type PINNED binding alongside `typeId`.
+    pub type_version: u32,
     pub type_namespace: String,
     pub type_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1186,6 +1230,8 @@ pub struct ProjectedRecord {
     pub ordered_field_keys: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub relations: Option<Vec<ProjectedRelationRow>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub properties: Option<Vec<ProjectedPropertyRow>>,
 }
 
 /// A single section in a JSON projection document.
