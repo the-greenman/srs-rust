@@ -13,7 +13,7 @@ use srs_core::types::relation::RelationStatus;
 use srs_core::types::theme::{AssetMode, Theme};
 use srs_core::types::view::{
     ContainerScope, DocumentSection, DocumentView, PresentationDirection, RelationDirection,
-    SectionSource, SortDirection, ThemeMode,
+    SectionSource, SortDirection, ThemeMode, ViewRow,
 };
 use std::collections::HashSet;
 
@@ -125,6 +125,13 @@ struct ResolvedFieldRender {
     /// `Field.name` — the RFC-039 carrier key.
     name: String,
     required: bool,
+}
+
+/// RFC-041 [R7]: a row to render, one presentation sequence across the two
+/// `View.fieldViews[]` row kinds, in ascending `order`.
+enum RenderRow {
+    Field(ResolvedFieldRender),
+    Property(srs_core::types::view::RecordPropertyView),
 }
 
 struct RenderContext<'a> {
@@ -511,37 +518,31 @@ fn project_record_json(
                 record_preamble = Some(substitute_vars_record_json(preamble_tmpl, record));
             }
             omit_empty = export_config.omit_empty_fields == Some(true);
-            if let Some(order) = &export_config.field_order {
-                fields_to_render = order
-                    .iter()
-                    .cloned()
-                    .map(|field_id| ResolvedFieldRender {
-                        name: package
-                            .resolve_field(&field_id)
-                            .map(|f| f.name.clone())
-                            .unwrap_or_default(),
-                        field_id,
-                        required: false,
-                    })
-                    .collect();
-            }
         }
-        if fields_to_render.is_empty() {
-            let mut field_views = view.field_views.clone();
-            field_views.sort_by_key(|fv| fv.order);
-            for fv in field_views {
-                // `visible` is a rendering hint for text/markdown output — do not apply it
-                // here. The JSON projection exports data; all fields must be included
-                // regardless of their display visibility.
-                fields_to_render.push(ResolvedFieldRender {
-                    name: package
-                        .resolve_field(&fv.field_id)
-                        .map(|f| f.name.clone())
-                        .unwrap_or_default(),
-                    field_id: fv.field_id,
-                    required: fv.required == Some(true),
-                });
-            }
+        // RFC-041 [R7]: View.fieldViews[].order is the sole presentation/export
+        // ordering (ExportConfig.fieldOrder retired). RecordPropertyView rows
+        // have no JSON-projection field form (record.json properties, not
+        // Field.name keys) and are excluded here, same as container-view
+        // columns (`container_view_service::resolve_columns`).
+        let mut field_views: Vec<_> = view
+            .field_views
+            .iter()
+            .filter_map(|row| row.as_field())
+            .cloned()
+            .collect();
+        field_views.sort_by_key(|fv| fv.order);
+        for fv in field_views {
+            // `visible` is a rendering hint for text/markdown output — do not apply it
+            // here. The JSON projection exports data; all fields must be included
+            // regardless of their display visibility.
+            fields_to_render.push(ResolvedFieldRender {
+                name: package
+                    .resolve_field(&fv.field_id)
+                    .map(|f| f.name.clone())
+                    .unwrap_or_default(),
+                field_id: fv.field_id,
+                required: fv.required == Some(true),
+            });
         }
     } else if let Some(rt) = &rt {
         // Use effective_fields (resolves type-inheritance) to match the markdown path.
@@ -898,6 +899,9 @@ impl RowValue {
 enum RowIdentity<'a> {
     FieldName(&'a str),
     RelationTypeKey(&'a str),
+    /// RFC-041 — a `RecordPropertyView` row has no `Field.name`; identity is
+    /// the row's `RecordProperty` machine name instead.
+    RecordProperty(&'a str),
 }
 
 impl RowIdentity<'_> {
@@ -908,6 +912,9 @@ impl RowIdentity<'_> {
             }
             RowIdentity::RelationTypeKey(key) => {
                 format!("srs-relationtype-{}", normalise_css_class(key))
+            }
+            RowIdentity::RecordProperty(name) => {
+                format!("srs-recordproperty-{}", normalise_css_class(name))
             }
         }
     }
@@ -971,6 +978,139 @@ fn adoc_entry_continuation(value: &str) -> String {
         blank_run = false;
     }
     out
+}
+
+/// Emit one field/property row, honoring a Theme's `ElementTemplates.fieldRow`
+/// wrapper when present, else the bare row content followed by the row
+/// separator. Shared by FieldView and RecordPropertyView (RFC-041) rows so
+/// both route through identical wrapper handling.
+fn push_themed_row(
+    out: &mut String,
+    ctx: &RenderContext<'_>,
+    row_content: &str,
+    label: &str,
+    value_text: &str,
+    row_name: &str,
+) {
+    if let Some(theme) = ctx.active_theme.as_ref() {
+        if let Some(element_templates) = &theme.element_templates {
+            if let Some(field_row) = &element_templates.field_row {
+                out.push_str(&apply_wrapper(
+                    field_row,
+                    row_content,
+                    &[
+                        ("field-label", label),
+                        ("field-value", value_text),
+                        ("field-name", row_name),
+                    ],
+                    Some(theme),
+                ));
+                out.push_str(row_separator(ctx.format));
+                return;
+            }
+        }
+    }
+    out.push_str(row_content);
+    out.push_str(row_separator(ctx.format));
+}
+
+/// RFC-041 Change C / `[R4]`/`[R6]` — render one `RecordPropertyView` row, or
+/// the empty string when `[R4]` omits it (the named property is absent or
+/// empty on this Record). Routes through the same row primitive and theme
+/// wrapper as a `FieldView` row — `[R3]` forbids any per-property rendering
+/// path beyond the label/value resolution in Change C.
+fn render_record_property_row(
+    prop: srs_core::types::view::RecordPropertyView,
+    record: &Record,
+    rt: Option<&srs_core::types::record_type::RecordType>,
+    ctx: &RenderContext<'_>,
+) -> String {
+    let Some(row_value) =
+        resolve_record_property_value(prop.property, record, rt, ctx.package, ctx.format)
+    else {
+        return String::new();
+    };
+    let label = prop
+        .display_label
+        .unwrap_or_else(|| prop.property.default_label().to_string());
+    let identity_name = prop.property.as_str();
+    let row_content = format_field_row(
+        ctx.format,
+        RowIdentity::RecordProperty(identity_name),
+        &label,
+        &row_value,
+    );
+    let value_text = row_value.template_value();
+    let mut out = String::new();
+    push_themed_row(
+        &mut out,
+        ctx,
+        &row_content,
+        &label,
+        &value_text,
+        identity_name,
+    );
+    out
+}
+
+/// RFC-041 Change C — resolve a `RecordPropertyView` row's value. `None` means
+/// `[R4]`: the property is absent or empty and the row is omitted, not a
+/// validation failure.
+fn resolve_record_property_value(
+    property: srs_core::types::view::RecordProperty,
+    record: &Record,
+    rt: Option<&srs_core::types::record_type::RecordType>,
+    package: &Package,
+    format: &str,
+) -> Option<RowValue> {
+    use srs_core::types::view::RecordProperty;
+    match property {
+        RecordProperty::LifecycleState => {
+            let state = record.lifecycle_state.as_deref()?;
+            if state.is_empty() {
+                return None;
+            }
+            // `[R6]`: the bound Lifecycle's state label wins when the Type
+            // carries a resolvable lifecycle and the state key matches;
+            // otherwise the raw state key renders verbatim. No other
+            // humanization.
+            let resolved = rt
+                .and_then(|t| package.effective_lifecycle(t))
+                .and_then(|lc| lc.states.iter().find(|s| s.key == state))
+                .and_then(|s| s.label.clone())
+                .unwrap_or_else(|| state.to_string());
+            Some(RowValue::Scalar(maybe_html_escape(&resolved, format)))
+        }
+        RecordProperty::Tags => {
+            // RFC-037 Change B's existing multi-entry field-row form.
+            let entries: Vec<String> = record
+                .tags
+                .iter()
+                .flatten()
+                .filter(|tag| !tag.is_empty())
+                .map(|tag| maybe_html_escape(tag, format))
+                .collect();
+            (!entries.is_empty()).then_some(RowValue::Entries(entries))
+        }
+        RecordProperty::CreatedAt => record
+            .created_at
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|s| RowValue::Scalar(maybe_html_escape(s, format))),
+        RecordProperty::UpdatedAt => record
+            .updated_at
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|s| RowValue::Scalar(maybe_html_escape(s, format))),
+    }
+}
+
+fn maybe_html_escape(value: &str, format: &str) -> String {
+    if format == "html" {
+        html_escape(value)
+    } else {
+        value.to_string()
+    }
 }
 
 /// RFC-037 Changes A, A1, B and B1 — the normative emitted form of a field row.
@@ -1223,9 +1363,11 @@ fn record_satisfies_view(
         return (satisfied, None);
     }
     // Field-presence fallback: every visible required field-view field must exist.
+    // RecordPropertyView rows carry no `required` and never participate here.
     let required_field_ids: Vec<&str> = view
         .field_views
         .iter()
+        .filter_map(|row| row.as_field())
         .filter(|fv| fv.visible != Some(false) && fv.required == Some(true))
         .map(|fv| fv.field_id.as_str())
         .collect();
@@ -1728,7 +1870,7 @@ fn render_record_at_level(
         heading_field_id = Some(title_field_id);
     }
 
-    let mut fields_to_render: Vec<ResolvedFieldRender> = Vec::new();
+    let mut rows_to_render: Vec<RenderRow> = Vec::new();
     let mut display_labels = std::collections::HashMap::new();
     let mut omit_empty = false;
 
@@ -1766,44 +1908,38 @@ fn render_record_at_level(
                 out.push('\n');
             }
             omit_empty = export_config.omit_empty_fields == Some(true);
-            if let Some(order) = &export_config.field_order {
-                fields_to_render = order
-                    .iter()
-                    .cloned()
-                    .map(|field_id| ResolvedFieldRender {
+        }
+        // RFC-041 [R1]/[R7]: `View.fieldViews[]` is one mixed row list (FieldView |
+        // RecordPropertyView) sharing one `order` axis (ExportConfig.fieldOrder
+        // retired) — sorting and iterating the mixed list directly, rather than
+        // each row kind separately, is what interleaves the two kinds into a
+        // single deterministic presentation sequence instead of two blocks.
+        let mut sorted_rows = view.field_views.clone();
+        sorted_rows.sort_by_key(|row| row.order());
+        for row in &sorted_rows {
+            if let Some(label) = row.display_label() {
+                if let Some(fv) = row.as_field() {
+                    display_labels.insert(fv.field_id.clone(), label.to_string());
+                }
+            }
+        }
+        for row in sorted_rows {
+            if !row.visible() {
+                continue;
+            }
+            match row {
+                ViewRow::Field(fv) => {
+                    rows_to_render.push(RenderRow::Field(ResolvedFieldRender {
                         name: ctx
                             .package
-                            .resolve_field(&field_id)
+                            .resolve_field(&fv.field_id)
                             .map(|f| f.name.clone())
                             .unwrap_or_default(),
-                        field_id,
-                        required: false,
-                    })
-                    .collect();
-            }
-        }
-        // Always collect display labels from field_views, regardless of field_order.
-        let mut field_views = view.field_views.clone();
-        field_views.sort_by_key(|fv| fv.order);
-        for fv in &field_views {
-            if let Some(label) = &fv.display_label {
-                display_labels.insert(fv.field_id.clone(), label.clone());
-            }
-        }
-        if fields_to_render.is_empty() {
-            for fv in field_views {
-                if fv.visible == Some(false) {
-                    continue;
+                        field_id: fv.field_id,
+                        required: fv.required == Some(true),
+                    }));
                 }
-                fields_to_render.push(ResolvedFieldRender {
-                    name: ctx
-                        .package
-                        .resolve_field(&fv.field_id)
-                        .map(|f| f.name.clone())
-                        .unwrap_or_default(),
-                    field_id: fv.field_id,
-                    required: fv.required == Some(true),
-                });
+                ViewRow::RecordProperty(rp) => rows_to_render.push(RenderRow::Property(rp)),
             }
         }
     } else if let Some(rt) = &rt {
@@ -1813,7 +1949,7 @@ fn render_record_at_level(
                     if let Some(label) = fa.display_label {
                         display_labels.insert(fa.field_id.clone(), label);
                     }
-                    fields_to_render.push(ResolvedFieldRender {
+                    rows_to_render.push(RenderRow::Field(ResolvedFieldRender {
                         name: ctx
                             .package
                             .resolve_field(&fa.field_id)
@@ -1821,7 +1957,7 @@ fn render_record_at_level(
                             .unwrap_or_default(),
                         field_id: fa.field_id,
                         required: fa.required,
-                    });
+                    }));
                 }
             }
             Err(e) => {
@@ -1830,15 +1966,22 @@ fn render_record_at_level(
         }
     } else {
         for (name, _value) in record.field_values.iter() {
-            fields_to_render.push(ResolvedFieldRender {
+            rows_to_render.push(RenderRow::Field(ResolvedFieldRender {
                 field_id: String::new(),
                 name: name.clone(),
                 required: false,
-            });
+            }));
         }
     }
 
-    for field in fields_to_render {
+    for row in rows_to_render {
+        let field = match row {
+            RenderRow::Field(field) => field,
+            RenderRow::Property(prop) => {
+                out.push_str(&render_record_property_row(prop, record, rt.as_ref(), ctx));
+                continue;
+            }
+        };
         let field_id = field.field_id.clone();
         // In structured mode (titleFieldId set), skip the heading field — already
         // emitted above. An ineligible titleFieldId is not the heading field, so it
@@ -1943,26 +2086,14 @@ fn render_record_at_level(
             &row_value,
         );
         let value_text = row_value.template_value();
-        if let Some(theme) = ctx.active_theme.as_ref() {
-            if let Some(element_templates) = &theme.element_templates {
-                if let Some(field_row) = &element_templates.field_row {
-                    out.push_str(&apply_wrapper(
-                        field_row,
-                        &row_content,
-                        &[
-                            ("field-label", &label),
-                            ("field-value", &value_text),
-                            ("field-name", &field_name),
-                        ],
-                        Some(theme),
-                    ));
-                    out.push_str(row_separator(ctx.format));
-                    continue;
-                }
-            }
-        }
-        out.push_str(&row_content);
-        out.push_str(row_separator(ctx.format));
+        push_themed_row(
+            &mut out,
+            ctx,
+            &row_content,
+            &label,
+            &value_text,
+            &field_name,
+        );
     }
     out.push_str(&render_relations_block(
         store,
@@ -2325,7 +2456,12 @@ fn composite_binding_for(
     ctx: &RenderContext<'_>,
 ) -> Option<srs_core::types::view::CompositeRendererBinding> {
     if let Some(view) = use_view {
-        if let Some(fv) = view.field_views.iter().find(|fv| fv.field_id == field_id) {
+        if let Some(fv) = view
+            .field_views
+            .iter()
+            .filter_map(|row| row.as_field())
+            .find(|fv| fv.field_id == field_id)
+        {
             if let Some(binding) = &fv.composite_renderer {
                 return Some(binding.clone());
             }
@@ -4224,7 +4360,8 @@ mod tests {
                 required: Some(true),
                 visible: None,
                 display_label: Some("Content".to_string()),
-            }],
+            }
+            .into()],
             compatible_types: Some(vec!["com.test/section.text".to_string()]),
             protection: None,
             export_config: None,
@@ -4448,6 +4585,346 @@ mod tests {
             !rendered.contains("Summary Table"),
             "instance_id_filter should exclude the other ContainerSubset member; got:\n{}",
             rendered
+        );
+    }
+
+    /// RFC-041 fixture — reproduces srs-rust#889: `rfc-catalog`/`decision-log`'s
+    /// Status line silently disappeared once `rfc_status` retired to
+    /// `ext:lifecycle`, because `FieldView` can only address `fieldId` and
+    /// `lifecycleState` is deliberately not a Field (`rfc-decision-2a1e1590`).
+    ///
+    /// Builds one record of a Type bound to a Lifecycle (`lifecycle_ref`) via
+    /// `create_record`, which auto-assigns `lifecycle_state` to the Lifecycle's
+    /// `initial_state` — exactly how a real `rfc`/`rfc-decision` record gets its
+    /// state. `view_field_views` lets each test supply its own row list so the
+    /// "before" and "after" renders share every other fixture detail.
+    fn make_lifecycle_status_store(
+        view_field_views: Vec<srs_core::types::view::ViewRow>,
+    ) -> (crate::store::memory::MemoryStore, String, String) {
+        use crate::package::Package;
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
+        use srs_core::types::lifecycle::{Lifecycle, LifecycleState, LifecycleTransition};
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+        use srs_core::types::view::{DocumentSection, DocumentView, SectionSource, View};
+
+        let title_field = Field {
+            schema: None,
+            id: "f-title".to_string(),
+            namespace: "com.test".to_string(),
+            name: "title".to_string(),
+            version: 1,
+            field_type: FieldType::string(),
+            description: "Title".to_string(),
+            instructions: None,
+            ai_guidance: Some(AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            }),
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let lifecycle = Lifecycle {
+            schema: None,
+            id: "lc-rfc".to_string(),
+            version: 1,
+            namespace: "com.test".to_string(),
+            name: "rfc-lifecycle".to_string(),
+            states: vec![
+                LifecycleState {
+                    id: None,
+                    version: None,
+                    namespace: None,
+                    key: "draft".to_string(),
+                    label: Some("Draft".to_string()),
+                    description: None,
+                    aliases: None,
+                    is_initial: Some(true),
+                    is_final: None,
+                    status: None,
+                    requires_relation: None,
+                    meta: None,
+                },
+                LifecycleState {
+                    id: None,
+                    version: None,
+                    namespace: None,
+                    key: "accepted".to_string(),
+                    label: Some("Accepted".to_string()),
+                    description: None,
+                    aliases: None,
+                    is_initial: None,
+                    is_final: Some(true),
+                    status: None,
+                    requires_relation: None,
+                    meta: None,
+                },
+            ],
+            transitions: vec![LifecycleTransition {
+                id: None,
+                name: "accept".to_string(),
+                from: "draft".to_string(),
+                to: "accepted".to_string(),
+                description: None,
+                meta: None,
+            }],
+            initial_state: "accepted".to_string(),
+            extends_lifecycle_id: None,
+            extends_lifecycle_version: None,
+            description: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let rfc_type = RecordType {
+            extra: Default::default(),
+            schema: None,
+            ai_guidance: None,
+            tags: None,
+            id: "t-rfc".to_string(),
+            namespace: "com.test".to_string(),
+            name: "rfc".to_string(),
+            version: 1,
+            description: "RFC record".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "f-title".to_string(),
+                order: 0,
+                required: true,
+                display_label: None,
+                description: None,
+            }],
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: None,
+            lifecycle: None,
+            lifecycle_ref: Some("lc-rfc".to_string()),
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            lineage: None,
+            provenance: None,
+        };
+
+        let view = View {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
+            id: "v-rfc".to_string(),
+            namespace: "com.test".to_string(),
+            name: "rfc-view".to_string(),
+            version: 1,
+            description: "View over an rfc record".to_string(),
+            field_views: view_field_views,
+            compatible_types: None,
+            protection: None,
+            export_config: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let doc_view = DocumentView {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
+            composite_renderers: None,
+            id: "dv-rfc".to_string(),
+            namespace: "com.test".to_string(),
+            name: "rfc-catalog".to_string(),
+            version: 1,
+            description: "Reproduces srs-rust#889's rfc-catalog rendering".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![DocumentSection {
+                composite_renderers: None,
+                section_id: "s1".to_string(),
+                title: None,
+                description: None,
+                order: 0,
+                source: SectionSource::FixedInstances {
+                    instance_ids: vec!["00000000-0000-4000-8000-0000000000f1".to_string()],
+                },
+                render_view_id: Some("v-rfc".to_string()),
+                type_dispatch: None,
+                title_field_id: None,
+                ordering: None,
+                required: None,
+                empty_behavior: None,
+                relations_presentation: None,
+            }],
+            navigation_links: None,
+            preamble: None,
+            format: Some("markdown".to_string()),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            container: None,
+            federation_path: None,
+            upstream_package: None,
+            federation_events_path: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "pkg-rfc".to_string(),
+            namespace: "com.test".to_string(),
+            name: "rfc-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![title_field],
+            record_types: vec![rfc_type],
+            relation_type_definitions: vec![],
+            views: vec![view],
+            document_views: vec![doc_view],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            dependency_refs: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![lifecycle],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        let mut fv = srs_core::types::record::FieldValues::new();
+        fv.insert("title", serde_json::json!("Adopt the Widget Format"));
+        let record_id = "00000000-0000-4000-8000-0000000000f1".to_string();
+        // A deterministic instance id (rather than `create_record`'s generated
+        // one) lets the DocumentSection's FixedInstances list above be authored
+        // ahead of time. `lifecycle_state: "accepted"` mirrors what a real
+        // rfc/rfc-decision record carries after `create_record` auto-assigns
+        // the bound Lifecycle's `initial_state` (also "accepted" here).
+        let record = srs_core::types::record::Record {
+            instance_id: record_id.clone(),
+            type_id: "t-rfc".to_string(),
+            type_version: 1,
+            type_namespace: "com.test".to_string(),
+            type_name: "rfc".to_string(),
+            field_values: fv,
+            field_meta: None,
+            lifecycle_state: Some("accepted".to_string()),
+            tags: None,
+            created_at: Some("2026-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2026-01-01T00:00:00Z".to_string()),
+            extra: std::collections::BTreeMap::new(),
+        };
+        store.save_record(&record).unwrap();
+
+        (store, record_id, "dv-rfc".to_string())
+    }
+
+    /// RED: before RFC-041, `FieldView` had no way to name `lifecycleState` at
+    /// all — a View could declare only Field rows, so the rendered document
+    /// carried no Status line whatsoever for a record whose Field-based status
+    /// (`rfc_status`) had retired to `ext:lifecycle`. This test reproduces that
+    /// exact "before" state with today's types: a row list containing only a
+    /// `FieldView`, no `RecordPropertyView`.
+    #[test]
+    fn rfc_catalog_status_line_absent_without_record_property_view_row() {
+        use srs_core::types::view::{FieldView, ViewRow};
+
+        let (store, _record_id, view_id) =
+            make_lifecycle_status_store(vec![ViewRow::Field(FieldView {
+                display_hint: None,
+                editor_hint_override: None,
+                composite_renderer: None,
+                field_id: "f-title".to_string(),
+                order: 0,
+                required: None,
+                visible: None,
+                display_label: None,
+            })]);
+
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: &view_id,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+
+        assert!(
+            result.rendered.contains("Adopt the Widget Format"),
+            "title should still render; got:\n{}",
+            result.rendered
+        );
+        assert!(
+            !result.rendered.contains("Status"),
+            "no RecordPropertyView row declared — the Status line must stay absent \
+             (this is srs-rust#889's reported defect); got:\n{}",
+            result.rendered
+        );
+    }
+
+    /// GREEN: adding a `RecordPropertyView` row for `lifecycleState`, ordered
+    /// after the title `FieldView`, recovers the Status line — resolved via the
+    /// bound Lifecycle's `LifecycleState.label` (`[R6]`), interleaved into the
+    /// same presentation sequence by `order` (`[R1]`/`[R7]`).
+    #[test]
+    fn rfc_catalog_status_line_present_with_record_property_view_row() {
+        use srs_core::types::view::{FieldView, RecordProperty, RecordPropertyView, ViewRow};
+
+        let (store, _record_id, view_id) = make_lifecycle_status_store(vec![
+            ViewRow::Field(FieldView {
+                display_hint: None,
+                editor_hint_override: None,
+                composite_renderer: None,
+                field_id: "f-title".to_string(),
+                order: 0,
+                required: None,
+                visible: None,
+                display_label: None,
+            }),
+            ViewRow::RecordProperty(RecordPropertyView {
+                property: RecordProperty::LifecycleState,
+                order: 1,
+                display_label: None,
+                visible: None,
+            }),
+        ]);
+
+        let result = render_document_view(RenderDocumentViewOptions {
+            store: &store,
+            view_id: &view_id,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+
+        let rendered = &result.rendered;
+        assert!(
+            rendered.contains("Adopt the Widget Format"),
+            "title should still render; got:\n{rendered}"
+        );
+        // `[R6]`: the bound Lifecycle's state label ("Accepted"), not the raw
+        // state key ("accepted"), and the default label "Status" (Change C).
+        let title_pos = rendered.find("Adopt the Widget Format").unwrap();
+        let status_pos = rendered
+            .find("Status")
+            .expect("Status line should now render; got:\n{rendered}");
+        assert!(
+            rendered.contains("Accepted"),
+            "lifecycleState should resolve via the bound Lifecycle's label; got:\n{rendered}"
+        );
+        assert!(
+            title_pos < status_pos,
+            "Status row (order 1) should render after the title row (order 0); got:\n{rendered}"
         );
     }
 
@@ -4861,7 +5338,8 @@ mod tests {
                     required: None,
                     visible: None,
                     display_label: None,
-                },
+                }
+                .into(),
                 FieldView {
                     display_hint: None,
                     editor_hint_override: None,
@@ -4874,7 +5352,8 @@ mod tests {
                     required: None,
                     visible: None,
                     display_label: None,
-                },
+                }
+                .into(),
             ],
             compatible_types: None,
             protection: None,
@@ -6100,7 +6579,8 @@ mod tests {
                 required: Some(true),
                 visible: None,
                 display_label: Some("Content".to_string()),
-            }],
+            }
+            .into()],
             compatible_types: Some(vec!["com.test/section.text".to_string()]),
             protection: None,
             export_config: None,
@@ -10757,7 +11237,8 @@ mod tests {
                         required: None,
                         visible: None,
                         display_label: None,
-                    },
+                    }
+                    .into(),
                     FieldView {
                         display_hint: None,
                         editor_hint_override: None,
@@ -10767,14 +11248,14 @@ mod tests {
                         required: Some(true),
                         visible: None,
                         display_label: Some("Executive Summary".to_string()),
-                    },
+                    }
+                    .into(),
                 ],
                 compatible_types: None,
                 protection: None,
                 export_config: Some(ExportConfig {
                     format: None,
                     preamble: None,
-                    field_order: None,
                     omit_empty_fields: None,
                 }),
                 tags: None,

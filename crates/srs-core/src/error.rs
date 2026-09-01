@@ -92,6 +92,12 @@ pub enum CoreError {
     #[error("duplicate field view id: {field_id}")]
     DuplicateFieldViewId { field_id: String },
 
+    /// RFC-041 [R7]: every `order` value in a View's mixed `fieldViews[]` row
+    /// list (`FieldView` | `RecordPropertyView`) must be unique, since both
+    /// row kinds share one presentation/export ordering axis.
+    #[error("duplicate view row order: {order}")]
+    DuplicateViewRowOrder { order: i32 },
+
     #[error("view must contain at least one field view")]
     EmptyViewFieldViews,
 
