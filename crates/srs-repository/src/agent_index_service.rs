@@ -30,7 +30,7 @@ pub struct AgentIndex {
     pub title: Option<String>,
     pub description: Option<String>,
     pub total_instances: usize,
-    /// Tier-2 Records only; Tier-1 TypedRecords are excluded (not yet implemented).
+    /// Tier-2 Records only (Tier 1 / TypedRecord was retired — srs#448/rfc-decision-53635966, srs-rust#888).
     pub records: usize,
     pub notes: usize,
     pub types: Vec<AgentTypeEntry>,

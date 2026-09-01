@@ -4,18 +4,19 @@
 //! Composes existing services (it does not duplicate them): the structured filter
 //! pass reuses [`record_store::list_records_filtered`] for Tier 2 and the manifest
 //! instance index (via [`crate::container_service::list_members`] for container
-//! scoping) for Tier 0/1; content matching reuses
-//! [`text_projection::project_text`] / [`text_projection::project_note_text`] /
-//! [`text_projection::project_typed_record_text`]; hit labels reuse
-//! [`record_label::record_display_label`] for Tier 2 and the manifest `title`
-//! (falling back to `instanceId`) for Tier 0/1. Substring content matching is the
-//! recall floor — `score` is always `None` at Layer 1. A future `DiscoveryIndex`
-//! (Layer 2) may add recall and ranking but must never drop a Layer-1 match.
+//! scoping) for Tier 0; content matching reuses
+//! [`text_projection::project_text`] / [`text_projection::project_note_text`];
+//! hit labels reuse [`record_label::record_display_label`] for Tier 2 and the
+//! manifest `title` (falling back to `instanceId`) for Tier 0. Substring content
+//! matching is the recall floor — `score` is always `None` at Layer 1. A future
+//! `DiscoveryIndex` (Layer 2) may add recall and ranking but must never drop a
+//! Layer-1 match.
 //!
-//! Discovery spans all three tiers (RFC-012 `R1`/`I-113`, `R11`/`I-123` — see
-//! srs-rust#797): `typeId`/`typeNamespace`/`typeName`/`lifecycleState` are
-//! Tier-2-only predicates and exclude Tier 0/1 instances outright when specified,
-//! since those tiers carry none of those fields; `tag`, `containerId`, and `tier`
+//! Discovery spans both remaining tiers (RFC-012 `R1`/`I-113`, `R11`/`I-123` —
+//! see srs-rust#797; Tier 1 / TypedRecord was retired, srs#448/rfc-decision-53635966,
+//! srs-rust#888): `typeId`/`typeNamespace`/`typeName`/`lifecycleState` are
+//! Tier-2-only predicates and exclude Tier 0 instances outright when specified,
+//! since Tier 0 carries none of those fields; `tag`, `containerId`, and `tier`
 //! apply uniformly.
 
 use crate::container_service;
@@ -52,8 +53,9 @@ pub struct DiscoveryQuery {
     /// the "show all" override for an authored default-hidden set.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exclude_lifecycle_states: Vec<String>,
-    /// Instance tier filter (0=Note, 1=TypedRecord, 2=Record). Unspecified matches
-    /// all tiers.
+    /// Instance tier filter (0=Note, 2=Record — Tier 1/TypedRecord is retired,
+    /// srs#448/rfc-decision-53635966, srs-rust#888). Unspecified matches all
+    /// tiers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tier: Option<u8>,
     /// Free-text recall-floor predicate over the Text Projection.
@@ -122,20 +124,15 @@ pub fn find(
         )?);
     }
 
-    // Tier 0/1 carry no typeId/typeNamespace/typeName/lifecycleState — a query
-    // constraining any of those predicates can never match them.
+    // Tier 0 carries no typeId/typeNamespace/typeName/lifecycleState — a query
+    // constraining any of those predicates can never match it.
     let tier2_only_predicate = query.type_id.is_some()
         || query.type_namespace.is_some()
         || query.type_name.is_some()
         || query.lifecycle_state.is_some();
 
-    if !tier2_only_predicate {
-        if query.tier.is_none() || query.tier == Some(0) {
-            hits.extend(find_tier0(store, &query, needle.as_deref())?);
-        }
-        if query.tier.is_none() || query.tier == Some(1) {
-            hits.extend(find_tier1(store, &query, needle.as_deref())?);
-        }
+    if !tier2_only_predicate && (query.tier.is_none() || query.tier == Some(0)) {
+        hits.extend(find_tier0(store, &query, needle.as_deref())?);
     }
 
     // Deterministic order independent of index/store iteration order.
@@ -323,68 +320,6 @@ fn find_tier0(
     Ok(hits)
 }
 
-/// Tier 1 (TypedRecord) structured pass + content match. No typed `TypedRecord`
-/// struct exists yet, so the body is read via the generic-JSON shim
-/// (`load_instance_json` — CLAUDE.md storage boundary rules) rather than a typed
-/// logical-id method. TypedRecords carry no type binding or lifecycle state —
-/// only `tag`, `containerId`, and `tier` apply.
-fn find_tier1(
-    store: &dyn RepositoryStore,
-    query: &DiscoveryQuery,
-    needle: Option<&str>,
-) -> Result<Vec<DiscoveryHit>, RepositoryError> {
-    let members = member_set(store, &query.container_id)?;
-    let cat = store.catalog()?;
-
-    let mut hits = Vec::new();
-    for entry in &cat.instances {
-        if entry.tier != Some(1) {
-            continue;
-        }
-        if let Some(ref members) = members {
-            if !members.contains(entry.id.as_str()) {
-                continue;
-            }
-        }
-        let locator = entry.locator.as_deref().unwrap_or_default();
-        let value = store.load_instance_json(locator)?;
-        let entry_ref =
-            crate::store::instance_ref_from_body(entry.id.clone(), entry.tier.unwrap_or(1), &value);
-        if !tags_match(&query.tag, &entry_ref.tags) {
-            continue;
-        }
-
-        let (matched_fields, snippet) = match needle {
-            Some(needle) => {
-                match_content(text_projection::project_typed_record_text(&value), needle)
-            }
-            None => (Vec::new(), None),
-        };
-        if needle.is_some() && matched_fields.is_empty() {
-            continue;
-        }
-
-        let title = value
-            .get("title")
-            .and_then(|v| v.as_str())
-            .map(str::to_string);
-        let label = title.unwrap_or_else(|| entry.id.clone());
-
-        hits.push(DiscoveryHit {
-            instance_id: entry.id.clone(),
-            label,
-            type_namespace: None,
-            type_name: None,
-            lifecycle_state: None,
-            score: None,
-            snippet,
-            matched_fields,
-        });
-    }
-
-    Ok(hits)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,7 +341,6 @@ mod tests {
     const ID2: &str = "22222222-2222-4222-8222-222222222222";
     const ID3: &str = "33333333-3333-4333-8333-333333333333";
     const NOTE1: &str = "44444444-4444-4444-8444-444444444444";
-    const TYPED1: &str = "55555555-5555-4555-8555-555555555555";
 
     fn field(id: &str, name: &str) -> Field {
         Field {
@@ -550,11 +484,14 @@ mod tests {
     }
 
     /// Extends [`store_with`]'s three Tier-2 fixtures with one Tier-0 Note
-    /// (`NOTE1`, tag `policy`) and one Tier-1 TypedRecord (`TYPED1`, tag
-    /// `finance`), built the same way `store_with` builds Tier 2: manual
-    /// `InstanceIndexEntry` + `save_instance_json`, since no typed `TypedRecord`
-    /// struct exists yet (CLAUDE.md storage boundary rules).
-    fn store_with_all_tiers() -> MemoryStore {
+    /// (`NOTE1`, tag `policy`), built the same way `store_with` builds Tier 2:
+    /// manual `InstanceIndexEntry` + `save_instance_json`.
+    ///
+    /// This used to also add a Tier-1 TypedRecord fixture (`TYPED1`); Tier 1 is
+    /// retired (srs#448/rfc-decision-53635966, srs-rust#888) and its raw-JSON
+    /// shape no longer classifies at catalog build — adding it here would make
+    /// `store.catalog()` fatal for every test below ([R24]).
+    fn store_with_note() -> MemoryStore {
         let store = store_with(fixtures());
         let manifest = store.load_manifest().unwrap();
 
@@ -571,18 +508,6 @@ mod tests {
         store
             .save_instance_json(&note_path, &serde_json::to_value(&note).unwrap())
             .unwrap();
-
-        let typed_tags = ["finance"];
-        let typed = serde_json::json!({
-            "instanceId": TYPED1,
-            "title": "Budget planning",
-            "fields": [
-                { "name": "owner", "fieldType": {"datatype": "string"}, "value": "engineering" }
-            ],
-            "tags": typed_tags,
-        });
-        let typed_path = format!("records/typed-records/{TYPED1}.json");
-        store.save_instance_json(&typed_path, &typed).unwrap();
 
         store.save_manifest(&manifest).unwrap();
         store
@@ -714,7 +639,7 @@ mod tests {
 
     #[test]
     fn tier_filter_note_returns_only_tier_0() {
-        let store = store_with_all_tiers();
+        let store = store_with_note();
         let result = find(
             &store,
             DiscoveryQuery {
@@ -730,34 +655,23 @@ mod tests {
         assert!(result.diagnostics.is_empty());
     }
 
-    #[test]
-    fn tier_filter_typed_record_returns_only_tier_1() {
-        let store = store_with_all_tiers();
-        let result = find(
-            &store,
-            DiscoveryQuery {
-                tier: Some(1),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        assert_eq!(ids(&result), vec![TYPED1]);
-        assert_eq!(result.hits[0].label, "Budget planning");
-    }
+    // tier_filter_typed_record_returns_only_tier_1 retired by srs-rust#888
+    // (Tier 1 / TypedRecord retirement, srs#448/rfc-decision-53635966): a
+    // `tier: 1` query can never match anything again — no instance ever
+    // classifies into that tier — so there is nothing left to assert.
 
     #[test]
-    fn empty_query_spans_all_three_tiers() {
-        let store = store_with_all_tiers();
+    fn empty_query_spans_both_tiers() {
+        let store = store_with_note();
         let result = find(&store, DiscoveryQuery::default()).unwrap();
-        assert_eq!(result.total, 5);
+        assert_eq!(result.total, 4);
         let hit_ids = ids(&result);
         assert!(hit_ids.contains(&NOTE1));
-        assert!(hit_ids.contains(&TYPED1));
     }
 
     #[test]
-    fn type_namespace_predicate_excludes_tier_0_and_1() {
-        let store = store_with_all_tiers();
+    fn type_namespace_predicate_excludes_tier_0() {
+        let store = store_with_note();
         let result = find(
             &store,
             DiscoveryQuery {
@@ -769,23 +683,11 @@ mod tests {
         assert_eq!(result.total, 3);
         let hit_ids = ids(&result);
         assert!(!hit_ids.contains(&NOTE1));
-        assert!(!hit_ids.contains(&TYPED1));
     }
 
     #[test]
-    fn content_match_recalls_note_and_typed_record_text() {
-        let store = store_with_all_tiers();
-        // "engineering" lives only in the TypedRecord's `owner` field.
-        let typed = find(
-            &store,
-            DiscoveryQuery {
-                content_match: Some("engineering".to_string()),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        assert_eq!(ids(&typed), vec![TYPED1]);
-
+    fn content_match_recalls_note_text() {
+        let store = store_with_note();
         // "recall floor" lives only in the Note's `background` section.
         let note = find(
             &store,
@@ -800,7 +702,7 @@ mod tests {
 
     #[test]
     fn tag_predicate_applies_uniformly_across_tiers() {
-        let store = store_with_all_tiers();
+        let store = store_with_note();
         let result = find(
             &store,
             DiscoveryQuery {
@@ -810,15 +712,15 @@ mod tests {
         )
         .unwrap();
         // ID1 (Record, tags=[policy]), ID2 (Record, tags=[ops, policy]), and NOTE1
-        // all carry "policy"; TYPED1 (finance) does not.
+        // all carry "policy".
         assert_eq!(ids(&result), vec![ID1, ID2, NOTE1]);
     }
 
     #[test]
-    fn all_tiers_are_identical_across_stores_memory_to_file() {
-        // Cross-store roundtrip (memory -> file) covering the new Tier 0/1 path,
-        // per CLAUDE.md storage rules.
-        let store = store_with_all_tiers();
+    fn both_tiers_are_identical_across_stores_memory_to_file() {
+        // Cross-store roundtrip (memory -> file) covering the Tier 0 path, per
+        // CLAUDE.md storage rules.
+        let store = store_with_note();
         let query = DiscoveryQuery::default();
         let from_memory = find(&store, query.clone()).unwrap();
 
@@ -827,11 +729,11 @@ mod tests {
         crate::repository_portability::copy_repository(&store, &file_store).unwrap();
         let from_file = find(&file_store, query).unwrap();
 
-        assert_eq!(from_memory.total, 5);
+        assert_eq!(from_memory.total, 4);
         assert_eq!(
             serde_json::to_value(&from_memory).unwrap(),
             serde_json::to_value(&from_file).unwrap(),
-            "DiscoveryResult must be identical across stores (memory -> file) across all three tiers"
+            "DiscoveryResult must be identical across stores (memory -> file) across both tiers"
         );
     }
 }

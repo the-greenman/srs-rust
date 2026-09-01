@@ -14,18 +14,20 @@
 //! A failing scenario is a finding about `discovery_service`'s conformance, or about the fixture
 //! itself — never "fixed" by editing `scenarios.json`, which is spec-repo-owned (rfc-012:207).
 //!
-//! ## Tier 0/1 discovery (srs-rust#797)
+//! ## Tier 0/2 discovery (srs-rust#797, srs-rust#888)
 //!
 //! Spec research resolved (issue #793, `epic-256:decision:793-discovery-tier-scope`) that RFC-012
-//! `R1`/`I-113` and `R11`/`I-123` require discovery across Tiers 0, 1 and 2 — there is no "Phase 1
+//! `R1`/`I-113` and `R11`/`I-123` require discovery across every live tier — there is no "Phase 1
 //! = Tier 2 only" carve-out in the spec. srs-rust#797 landed that composition:
-//! `discovery_service::find` now composes Tier 0 (Note) and Tier 1 (TypedRecord) alongside Tier 2,
-//! so all 18 scenarios are asserted directly — no quarantine remains.
+//! `discovery_service::find` composes Tier 0 (Note) alongside Tier 2, so every scenario is
+//! asserted directly — no quarantine remains. (Tier 1 / TypedRecord was retired,
+//! srs#448/rfc-decision-53635966, srs-rust#888 — the spec's own conformance fixture already
+//! carries zero Tier-1 scenarios/content as of that retirement.)
 
 use serde::Deserialize;
 use srs_repository::discovery_service::{find, DiscoveryQuery};
 use srs_repository::store::{FileStore, RepositoryStore};
-use srs_repository::text_projection::{project_note_text, project_text, project_typed_record_text};
+use srs_repository::text_projection::{project_note_text, project_text};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -61,8 +63,9 @@ struct ExpectedSegments {
 /// Project one instance's full ordered `TextSegment` stream, dispatching by tier
 /// via the catalog. This is glue only — every branch calls the exact same
 /// per-tier projection function `discovery_service::find` uses internally
-/// (`project_text` / `project_note_text` / `project_typed_record_text`), never a
-/// second implementation of the algorithm itself.
+/// (`project_text` / `project_note_text`), never a second implementation of
+/// the algorithm itself. (Tier 1 / TypedRecord is retired — srs#448/
+/// rfc-decision-53635966, srs-rust#888 — there is no third branch.)
 fn project_instance_text(
     store: &dyn RepositoryStore,
     instance_id: &str,
@@ -84,13 +87,6 @@ fn project_instance_text(
                 .load_note_by_id(instance_id)
                 .unwrap_or_else(|e| panic!("load_note_by_id('{instance_id}') failed: {e}"));
             project_note_text(&note)
-        }
-        Some(1) => {
-            let locator = entry.locator.as_deref().unwrap_or_default();
-            let value = store
-                .load_instance_json(locator)
-                .unwrap_or_else(|e| panic!("load_instance_json('{locator}') failed: {e}"));
-            project_typed_record_text(&value)
         }
         _ => {
             let record = store

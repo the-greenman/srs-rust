@@ -390,6 +390,68 @@ fn declared_protocol_definition_classifies_by_shape() {
     );
 }
 
+/// srs-rust#888: Tier 1 (TypedRecord) is retired (srs#448,
+/// rfc-decision-53635966) — a shape-classified `typed-record.json`-style
+/// instance (no `$schema`, `fields` array, no `typeId`/`sections`) is no
+/// longer admissible at any revision. Classification fails loudly
+/// ([R8] `SHAPE_NO_MATCH`) rather than silently accepting or dropping it,
+/// and [R24] fatality means the checked `store.catalog()` seam refuses the
+/// whole load — the clean cut the retirement requires, not a quiet carve-out.
+#[test]
+fn tier1_typed_record_shape_no_longer_classifies() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write(
+        root,
+        "records/typed-records/leftover.json",
+        r#"{"instanceId": "00000000-0000-4000-8000-0000000000aa", "fields": [{"name": "owner", "fieldType": {"datatype": "string"}, "value": "x"}]}"#,
+    );
+    let store = FileStore::new(root);
+
+    let cat = catalog::build(&store).unwrap();
+    assert_eq!(
+        code_counts(&cat).get(codes::SHAPE_NO_MATCH),
+        Some(&1),
+        "{:?}",
+        cat.diagnostics
+    );
+    assert!(
+        cat.instances.is_empty(),
+        "a Tier-1-shaped file must never be classified into the instance set: {:?}",
+        cat.instances
+    );
+
+    // [R24]: the checked seam every ordinary command uses refuses the load
+    // entirely — a repository cannot silently tolerate leftover Tier-1
+    // content elsewhere in the tree.
+    assert!(
+        store.catalog().is_err(),
+        "store.catalog() must be fatal while Tier-1-shaped content remains"
+    );
+}
+
+/// A `typed-record.json` `$schema` declaration is likewise unresolvable now
+/// that the schema itself is retired (deleted from the mirror, srs-rust#888).
+#[test]
+fn declared_typed_record_schema_is_unresolvable() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write(
+        root,
+        "records/leftover.json",
+        r#"{"$schema": "https://srs.semanticops.com/schema/2.0/typed-record.json", "instanceId": "00000000-0000-4000-8000-0000000000ab", "fields": []}"#,
+    );
+    let cat = catalog::build(&FileStore::new(root)).unwrap();
+    assert_eq!(
+        code_counts(&cat).get(codes::SCHEMA_UNRESOLVABLE),
+        Some(&1),
+        "{:?}",
+        cat.diagnostics
+    );
+}
+
 #[test]
 fn near_miss_package_manifest_diagnosed_and_does_not_anchor() {
     let tmp = tempfile::tempdir().unwrap();

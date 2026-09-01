@@ -35,7 +35,6 @@ pub const TERM_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/term.js
 pub const VOCABULARY_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/vocabulary.json";
 pub const LIFECYCLE_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/lifecycle.json";
 pub const TYPE_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/type.json";
-pub const TYPED_RECORD_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/typed-record.json";
 pub const VIEW_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/view.json";
 
 pub const ALL_SCHEMA_IDS: &[&str] = &[
@@ -62,7 +61,6 @@ pub const ALL_SCHEMA_IDS: &[&str] = &[
     LIFECYCLE_SCHEMA_ID,
     THEME_SCHEMA_ID,
     TYPE_SCHEMA_ID,
-    TYPED_RECORD_SCHEMA_ID,
     VIEW_SCHEMA_ID,
 ];
 
@@ -123,7 +121,6 @@ static SCHEMA_SOURCES: &[(&str, &str)] = &[
     (LIFECYCLE_SCHEMA_ID, include_schema!("lifecycle.json")),
     (THEME_SCHEMA_ID, include_schema!("theme.json")),
     (TYPE_SCHEMA_ID, include_schema!("type.json")),
-    (TYPED_RECORD_SCHEMA_ID, include_schema!("typed-record.json")),
     (VIEW_SCHEMA_ID, include_schema!("view.json")),
 ];
 
@@ -241,7 +238,9 @@ mod tests {
     #[test]
     fn registry_builds_and_has_all_schema_ids() {
         let reg = SchemaRegistry::global();
-        assert_eq!(reg.schema_ids().len(), 25);
+        // 24, not 25: typed-record.json was removed (Tier 1 / TypedRecord
+        // retirement, srs#448/rfc-decision-53635966, srs-rust#888).
+        assert_eq!(reg.schema_ids().len(), 24);
         for id in ALL_SCHEMA_IDS {
             assert!(reg.schema_ids().contains(id), "missing: {id}");
         }

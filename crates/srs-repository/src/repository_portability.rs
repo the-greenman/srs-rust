@@ -1171,7 +1171,7 @@ fn instance_path_with_id_fragment(
             .and_then(|v| v.as_str())
             .map(slugify_instance_name)
             .unwrap_or_default(),
-        1 | 2 => instance
+        2 => instance
             .value
             .get("typeName")
             .and_then(|v| v.as_str())
@@ -1186,8 +1186,11 @@ fn instance_path_with_id_fragment(
     };
     let dir = match instance.tier {
         0 => store.record_tier_dir(RecordTier::Note),
-        1 => store.record_tier_dir(RecordTier::Tier1),
         2 => store.record_tier_dir(RecordTier::Tier2),
+        // Tier 1 (TypedRecord) is retired (srs#448/rfc-decision-53635966,
+        // srs-rust#888) — it falls into this same "unknown tier" refusal as
+        // any other value: a snapshot import can no longer place Tier-1
+        // content on disk at any revision.
         tier => {
             return Err(RepositoryError::InvalidSnapshotData {
                 message: format!(
@@ -1851,9 +1854,14 @@ mod tests {
     }
 
     #[test]
-    fn copy_tier1_record_no_type_name_produces_id_only_filename() {
-        // Tier-1 TypedRecords have named fields but no type binding — they
-        // carry no `typeName` field, so the slug falls back to id-only.
+    fn import_refuses_tier1_typed_record_instance() {
+        // Tier 1 (TypedRecord) is retired (srs#448/rfc-decision-53635966,
+        // srs-rust#888): a snapshot carrying a `tier: 1` instance — the old
+        // shape had named fields but no type binding — can no longer be
+        // placed on disk at any revision. `instance_path_with_id_fragment`
+        // folds it into the same "unknown tier" refusal as any other
+        // out-of-range value, so the whole import fails loudly rather than
+        // silently writing to the retired `records/tier-1/` location.
         let source = MemoryStore::uninitialized();
         source.initialize_repository(&make_input()).unwrap();
         let mut snapshot = export_repository_snapshot(&source).unwrap();
@@ -1870,11 +1878,14 @@ mod tests {
 
         let temp = TempDir::new().unwrap();
         let target = FileStore::new(temp.path());
-        import_repository_snapshot(&target, &snapshot).unwrap();
-
+        let err = import_repository_snapshot(&target, &snapshot).unwrap_err();
         assert!(
-            temp.path().join("records/tier-1/55555555.json").exists(),
-            "expected records/tier-1/55555555.json (id-only — tier-1 has no typeName)"
+            err.to_string().contains("unknown tier 1"),
+            "expected an unknown-tier refusal naming tier 1, got: {err}"
+        );
+        assert!(
+            !temp.path().join("records/tier-1").exists(),
+            "no records/tier-1 directory must be created for retired Tier-1 content"
         );
     }
 
@@ -2404,8 +2415,7 @@ mod tests {
         copy_repository(&source, &store).unwrap();
 
         // Inject a non-canonical tier-2 file directly to disk via the store.
-        // (Tier 1 TypedRecords carry no `typeName` — see
-        // copy_tier1_record_no_type_name_produces_id_only_filename — so a
+        // (Tier 1 / TypedRecord is retired — srs-rust#888 — so a
         // slug-bearing fixture must be Tier 2.)
         let id = "ddccbbaa-1234-5678-90ab-cdef01234567";
         let value = tier2_record_value(id, "com.example/section");
