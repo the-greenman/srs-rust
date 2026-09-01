@@ -61,6 +61,23 @@ jobs:
             echo "archive=$archive"
           } >> "$GITHUB_OUTPUT"
 
+      # Handed to `corpus-gate` directly instead of via a release download (srs-rust#877
+      # follow-up). `gh release create --draft` does not push a git tag until the release
+      # is promoted, so `gh release download <tag>` cannot resolve a draft's assets by tag
+      # ("release not found") — that is exactly what held every release in draft forever
+      # once the gate's own download step needed to succeed before promotion could run.
+      # The gate needs to validate the exact binary THIS RUN built, not depend on release
+      # visibility, so the artifact travels job-to-job via actions/artifact instead; the
+      # sha256 alongside it still lets the gate verify the transfer end to end.
+      - name: Upload built archive for the corpus gate
+        uses: actions/upload-artifact@v4
+        with:
+          name: srs-release-archive
+          path: |
+            ${{ steps.package.outputs.archive }}
+            ${{ steps.package.outputs.archive }}.sha256
+          retention-days: 1
+
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
@@ -86,11 +103,15 @@ jobs:
       # published asset to exist before it can validate it (the ordering note on
       # that job explains why gate-before-any-publish deadlocks), but a draft is
       # never resolved by the public, unauthenticated `/releases/latest/download/`
-      # URL or by an anonymous fetch of its tag's asset URL — only an
-      # authenticated repo collaborator can reach it (e.g. via `gh release
-      # download` with their own credentials, which is exactly the escape hatch
-      # a maintainer driving a deliberate corpus-breaking migration already
-      # uses). The `promote-release` job below flips it to published + latest
+      # URL. Note that `gh release download <tag>` cannot reach it either, for
+      # ANY caller, regardless of credentials: GitHub's tag-lookup endpoint
+      # (`GET .../releases/tags/{tag}`) 404s on a draft release outright — this
+      # is exactly what broke `corpus-gate`'s own download step below before this
+      # PR (srs-rust#877 follow-up) moved it onto actions/artifact instead. A
+      # maintainer who needs a draft's asset deliberately still can, just not via
+      # that command — `gh release view <tag> --json assets` plus an
+      # authenticated fetch of an asset's `url` field works. The `promote-release`
+      # job below flips it to published + latest
       # ONLY once the gate passes, so a build that fails corpus conformance can
       # never become "the latest release" a consumer fetches anonymously — it
       # stays a draft, reachable only by someone who already knows what they're
@@ -161,17 +182,19 @@ jobs:
   # corpora already validate means a cutover can never start, so the first deliberate
   # breaking change would stop releases indefinitely with no way out except disabling the
   # gate. Publishing a draft first keeps that escape hatch open — an authenticated
-  # maintainer can still fetch the draft's asset deliberately — while the failure is loud
-  # and attributable beside it.
+  # maintainer can still fetch the draft's asset deliberately (see the release job's
+  # comment on *how*: not `gh release download <tag>`, which 404s on any draft
+  # regardless of credentials — that's the bug this PR's `corpus-gate` change fixes) —
+  # while the failure is loud and attributable beside it.
   #
   # What changed from the original design (found live: build.295 published — and stayed
   # the anonymously-fetchable `latest` release — despite this gate failing): a red gate
   # here no longer promotes the draft. See `promote-release` below. It is the ONLY thing
   # that flips a release from draft to published + `latest`, and it runs only `needs:
   # corpus-gate` succeeding. A build that fails corpus conformance therefore never becomes
-  # the release that `/releases/latest/download/` or an anonymous tag-asset fetch resolves
-  # to — it stays a draft, visible only to someone with repo read access who goes looking
-  # for it by tag, which is exactly the deliberate-migration escape hatch above.
+  # the release that `/releases/latest/download/` resolves to — it stays a draft, visible
+  # only to someone with repo read access who goes looking for it by tag, which is exactly
+  # the deliberate-migration escape hatch above.
   #
   # FAILURE SEMANTICS: this job is required for the workflow to be green, but it is a SEPARATE job,
   # so a red gate never retracts the already-created draft asset (nothing to retract — it isn't
@@ -268,18 +291,20 @@ jobs:
             echo "::warning::muSrs was NOT validated by this gate — muDemocracy.org is private and no CORPUS_TOKEN secret is set. Set that secret to include it. NOTE: muSrs has no standing CI of its own until the-greenman/srs#392 row 1 (the muDemocracy.org conformance job) merges, so until then this skip means muSrs is validated by nothing on a schedule."
           fi
 
-      # The PUBLISHED asset, not the local build. If the tarball is corrupt or the wrong artifact
-      # got attached, that is exactly as bad as a binary that cannot read the corpus, and only
-      # downloading what was published can catch it.
-      - name: Download the release just published
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release download "${{ needs.release.outputs.tag }}" \
-            --repo ${{ github.repository }} \
-            --pattern "${{ needs.release.outputs.archive }}" \
-            --pattern "${{ needs.release.outputs.archive }}.sha256" \
-            --dir /tmp/srs-release
+      # The exact binary THIS RUN built, handed over via actions/artifact rather than
+      # fetched back from the release (srs-rust#877 follow-up — see the matching upload
+      # step in the `release` job for the reason: a draft release has no git tag until
+      # `promote-release` runs, so `gh release download <tag>` cannot resolve its assets
+      # by tag). The sha256 check right below still verifies the artifact-transfer path
+      # end to end; the one thing that check no longer covers is the *published* GH
+      # release asset bytes specifically — an acceptable trade because `promote-release`
+      # only flips the draft/latest flags, it never re-uploads or re-packages anything,
+      # so those bytes are the same ones validated here.
+      - name: Download built archive
+        uses: actions/download-artifact@v4
+        with:
+          name: srs-release-archive
+          path: /tmp/srs-release
 
       - name: Verify checksum and extract
         working-directory: /tmp/srs-release
