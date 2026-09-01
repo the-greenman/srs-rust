@@ -683,7 +683,8 @@ mod tests {
                 required: None,
                 visible: None,
                 display_label: None,
-            }],
+            }
+            .into()],
             compatible_types: None,
             protection: None,
             export_config: None,
@@ -765,6 +766,38 @@ mod tests {
         let mut v = minimal_view("bad");
         v.field_views = vec![];
         assert!(create_view(&store, v, None).is_err());
+    }
+
+    /// RFC-041 [R7]: a duplicate `order` across the mixed FieldView/RecordPropertyView
+    /// row list is rejected at package-validation time (create_view routes through
+    /// `validate_view`), mirroring `srs`'s `scripts/validate-package.mjs` check.
+    #[test]
+    fn create_view_fails_with_duplicate_row_order_across_row_kinds() {
+        use srs_core::types::view::{RecordProperty, RecordPropertyView};
+
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let store = FileStore::new(temp.path());
+
+        let mut v = minimal_view("dup-order");
+        // minimal_view()'s sole FieldView row already has order 0.
+        v.field_views.push(
+            RecordPropertyView {
+                property: RecordProperty::LifecycleState,
+                order: 0,
+                display_label: None,
+                visible: None,
+            }
+            .into(),
+        );
+
+        match create_view(&store, v, None) {
+            Err(RepositoryError::ViewValidation {
+                source: srs_core::error::CoreError::DuplicateViewRowOrder { order: 0 },
+                ..
+            }) => {}
+            other => panic!("expected DuplicateViewRowOrder, got: {}", other.is_ok()),
+        }
     }
 
     #[test]

@@ -48,6 +48,128 @@ pub struct FieldView {
     pub composite_renderer: Option<CompositeRendererBinding>,
 }
 
+/// RFC-041 Change B — the closed, DERIVED vocabulary of top-level Record
+/// properties a `RecordPropertyView` row may present. Regenerated (never
+/// hand-edited) from `record.json` by `srs`'s
+/// `scripts/gen-record-property-view-enum.mjs` — this Rust enum mirrors that
+/// generated `view.json` enum, so it must be kept in step with it by hand
+/// until the metamodel-generation epic (#272) subsumes both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RecordProperty {
+    LifecycleState,
+    Tags,
+    CreatedAt,
+    UpdatedAt,
+}
+
+impl RecordProperty {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::LifecycleState => "lifecycleState",
+            Self::Tags => "tags",
+            Self::CreatedAt => "createdAt",
+            Self::UpdatedAt => "updatedAt",
+        }
+    }
+
+    /// RFC-041 Change C — the per-property default row label, used when the
+    /// row carries no `displayLabel` override. Fixed table inside one general
+    /// mechanism, not per-instance special-casing ([R3]).
+    pub const fn default_label(self) -> &'static str {
+        match self {
+            Self::LifecycleState => "Status",
+            Self::Tags => "Tags",
+            Self::CreatedAt => "Created",
+            Self::UpdatedAt => "Updated",
+        }
+    }
+}
+
+impl std::fmt::Display for RecordProperty {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// RFC-041 Change A — presentation of a top-level Record property, a sibling
+/// row kind of [`FieldView`] in `View.fieldViews[]`. Deliberately carries no
+/// `required`, `editorHintOverride`, or `compositeRenderer` — a record-level
+/// property is never a Field a Type can require and has no composite-range
+/// value to dispatch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordPropertyView {
+    pub property: RecordProperty,
+    pub order: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visible: Option<bool>,
+}
+
+/// RFC-041 [R1] — a row in `View.fieldViews[]`. The two sibling kinds are
+/// discriminated by which of two mutually exclusive required keys the JSON
+/// object carries: `fieldId` (`FieldView`) XOR `property` (`RecordPropertyView`).
+/// `#[serde(untagged)]` over two `deny_unknown_fields` variants enforces the
+/// XOR structurally: a row naming both or neither key matches no variant and
+/// is rejected at deserialize time.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ViewRow {
+    Field(FieldView),
+    RecordProperty(RecordPropertyView),
+}
+
+impl ViewRow {
+    pub fn order(&self) -> i32 {
+        match self {
+            Self::Field(row) => row.order,
+            Self::RecordProperty(row) => row.order,
+        }
+    }
+
+    pub fn visible(&self) -> bool {
+        match self {
+            Self::Field(row) => row.visible.unwrap_or(true),
+            Self::RecordProperty(row) => row.visible.unwrap_or(true),
+        }
+    }
+
+    pub fn display_label(&self) -> Option<&str> {
+        match self {
+            Self::Field(row) => row.display_label.as_deref(),
+            Self::RecordProperty(row) => row.display_label.as_deref(),
+        }
+    }
+
+    pub fn as_field(&self) -> Option<&FieldView> {
+        match self {
+            Self::Field(row) => Some(row),
+            Self::RecordProperty(_) => None,
+        }
+    }
+
+    pub fn as_record_property(&self) -> Option<&RecordPropertyView> {
+        match self {
+            Self::RecordProperty(row) => Some(row),
+            Self::Field(_) => None,
+        }
+    }
+}
+
+impl From<FieldView> for ViewRow {
+    fn from(value: FieldView) -> Self {
+        Self::Field(value)
+    }
+}
+
+impl From<RecordPropertyView> for ViewRow {
+    fn from(value: RecordPropertyView) -> Self {
+        Self::RecordProperty(value)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExportConfig {
@@ -55,8 +177,6 @@ pub struct ExportConfig {
     pub format: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preamble: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub field_order: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub omit_empty_fields: Option<bool>,
 }
@@ -82,7 +202,7 @@ pub struct View {
     pub name: String,
     pub version: u32,
     pub description: String,
-    pub field_views: Vec<FieldView>,
+    pub field_views: Vec<ViewRow>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compatible_types: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -367,6 +487,81 @@ pub struct DocumentView {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn view_row_round_trips_both_kinds() {
+        let field_json = serde_json::json!({
+            "fieldId": "00000000-0000-4000-8000-000000000001",
+            "order": 0,
+            "displayLabel": "Title"
+        });
+        let property_json = serde_json::json!({
+            "property": "lifecycleState",
+            "order": 1,
+            "displayLabel": "Status",
+            "visible": false
+        });
+
+        let field: ViewRow = serde_json::from_value(field_json.clone()).unwrap();
+        let property: ViewRow = serde_json::from_value(property_json.clone()).unwrap();
+
+        assert!(matches!(field, ViewRow::Field(_)));
+        assert!(matches!(property, ViewRow::RecordProperty(_)));
+        assert_eq!(serde_json::to_value(field).unwrap(), field_json);
+        assert_eq!(serde_json::to_value(property).unwrap(), property_json);
+    }
+
+    /// RFC-041 [R1]: `fieldId` XOR `property`. Neither key, or both, is rejected.
+    #[test]
+    fn view_row_rejects_both_or_neither_discriminator() {
+        let both = serde_json::json!({
+            "fieldId": "00000000-0000-4000-8000-000000000001",
+            "property": "tags",
+            "order": 0
+        });
+        let neither = serde_json::json!({ "order": 0 });
+
+        assert!(serde_json::from_value::<ViewRow>(both).is_err());
+        assert!(serde_json::from_value::<ViewRow>(neither).is_err());
+    }
+
+    /// RFC-041 [R2]: the enum is closed — an unrecognized `property` is rejected.
+    #[test]
+    fn record_property_is_closed_and_uses_schema_names() {
+        for (json_name, property, label) in [
+            ("lifecycleState", RecordProperty::LifecycleState, "Status"),
+            ("tags", RecordProperty::Tags, "Tags"),
+            ("createdAt", RecordProperty::CreatedAt, "Created"),
+            ("updatedAt", RecordProperty::UpdatedAt, "Updated"),
+        ] {
+            assert_eq!(
+                serde_json::from_value::<RecordProperty>(serde_json::json!(json_name)).unwrap(),
+                property
+            );
+            assert_eq!(property.as_str(), json_name);
+            assert_eq!(property.default_label(), label);
+        }
+        assert!(serde_json::from_value::<RecordProperty>(serde_json::json!("sourceRefs")).is_err());
+    }
+
+    #[test]
+    fn view_row_helpers_share_common_row_behavior() {
+        let row = ViewRow::from(RecordPropertyView {
+            property: RecordProperty::Tags,
+            order: 3,
+            display_label: Some("Topics".to_string()),
+            visible: None,
+        });
+
+        assert_eq!(row.order(), 3);
+        assert!(row.visible());
+        assert_eq!(row.display_label(), Some("Topics"));
+        assert!(row.as_field().is_none());
+        assert_eq!(
+            row.as_record_property().map(|view| view.property),
+            Some(RecordProperty::Tags)
+        );
+    }
 
     #[test]
     fn document_view_roundtrips_json() {
