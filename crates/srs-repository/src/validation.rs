@@ -120,6 +120,29 @@ fn data_model_revision_diagnostics(manifest_value: &Value) -> Vec<ValidationDiag
     }]
 }
 
+/// Best-effort load of a Container from a `cat.containers` catalog entry — the root
+/// embed via `manifest.container`, or a file-backed container at its locator path.
+/// Silent-skip (`None`) on any load/parse failure: both callers (the I-145 and
+/// I-63/I-64 diagnostic loops below) are advisory scans over every container, not a
+/// place that should abort `repo validate` over one malformed entry — the catalog's
+/// own [R24] fatal-load diagnostics already cover that. One loader, not two —
+/// ADR-048 rule 3.
+fn load_container_for_diagnostics(
+    store: &dyn RepositoryStore,
+    centry: &crate::catalog::CatalogEntry,
+) -> Option<srs_core::types::container::Container> {
+    match centry.locator.as_deref() {
+        Some(crate::catalog::ROOT_CONTAINER_LOCATOR) => {
+            store.load_manifest().ok().and_then(|m| m.container)
+        }
+        Some(path) => store
+            .load_instance_json(path)
+            .ok()
+            .and_then(|v| serde_json::from_value(v).ok()),
+        None => None,
+    }
+}
+
 pub fn validate_repository(
     store: &dyn RepositoryStore,
 ) -> Result<RepositoryValidationReport, RepositoryError> {
@@ -1492,22 +1515,8 @@ pub fn validate_repository(
     // rootInstanceIds, and memberInstanceIds are all fields on the same loaded Container,
     // so this must not be gated behind a successful package load.
     for centry in &cat.containers {
-        let container: srs_core::types::container::Container = match centry.locator.as_deref() {
-            Some(crate::catalog::ROOT_CONTAINER_LOCATOR) => {
-                match store.load_manifest().ok().and_then(|m| m.container) {
-                    Some(c) => c,
-                    None => continue,
-                }
-            }
-            Some(path) => match store
-                .load_instance_json(path)
-                .ok()
-                .and_then(|v| serde_json::from_value(v).ok())
-            {
-                Some(c) => c,
-                None => continue,
-            },
-            None => continue,
+        let Some(container) = load_container_for_diagnostics(store, centry) else {
+            continue;
         };
         let container_id = container.container_id.clone();
         match &container.anchor_instance_id {
@@ -1693,24 +1702,9 @@ pub fn validate_repository(
         // per backend; the catalog is store-agnostic.
         {
             for centry in &cat.containers {
-                let container: srs_core::types::container::Container =
-                    match centry.locator.as_deref() {
-                        Some(crate::catalog::ROOT_CONTAINER_LOCATOR) => {
-                            match store.load_manifest().ok().and_then(|m| m.container) {
-                                Some(c) => c,
-                                None => continue,
-                            }
-                        }
-                        Some(path) => match store
-                            .load_instance_json(path)
-                            .ok()
-                            .and_then(|v| serde_json::from_value(v).ok())
-                        {
-                            Some(c) => c,
-                            None => continue,
-                        },
-                        None => continue,
-                    };
+                let Some(container) = load_container_for_diagnostics(store, centry) else {
+                    continue;
+                };
                 let container_id = container.container_id.clone();
                 let (Some(ctype), Some(roots)) =
                     (&container.container_type, &container.root_instance_ids)

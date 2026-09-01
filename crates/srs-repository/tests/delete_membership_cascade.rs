@@ -116,6 +116,9 @@ fn populate(store: &dyn RepositoryStore) {
 
     let mut root = container(ROOT_CONTAINER_ID, "Root");
     root.identity_instance_id = Some(KEEPER_ID.to_string());
+    // srs#446/I-145: anchorInstanceId gets the same delete-cascade treatment as
+    // identityInstanceId — named here on NOTE_ID, which run_cascade_suite deletes.
+    root.anchor_instance_id = Some(NOTE_ID.to_string());
     root.root_instance_ids = Some(vec![NOTE_ID.to_string(), KEEPER_ID.to_string()]);
     root.member_instance_ids = Some(vec![
         KEEPER_ID.to_string(),
@@ -203,6 +206,11 @@ fn run_cascade_suite(store: &dyn RepositoryStore) {
         root.identity_instance_id,
         Some(KEEPER_ID.to_string()),
         "an identity naming a surviving instance is left alone"
+    );
+    assert!(
+        root.anchor_instance_id.is_none(),
+        "srs#446/I-145: a dangling anchorInstanceId is fatal at repo-validate time \
+         (RFC-009 I-145 'not a member') — the cascade must clear it just like identity"
     );
 }
 

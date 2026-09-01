@@ -1085,6 +1085,12 @@ mod tests {
              note (this test's container has no anchorInstanceId), got: {:?}",
             result.diagnostics
         );
+        assert!(
+            result.diagnostics.iter().any(|d| d.contains("I-145")),
+            "this test's container has roots and no anchorInstanceId, so the \
+             transitional-fallback note is expected to actually be present, not just \
+             absent-of-anything-else"
+        );
     }
 
     #[test]
@@ -1146,6 +1152,12 @@ mod tests {
             "no diagnostics expected other than the srs#446/I-145 transitional-fallback \
              note (this test's container has no anchorInstanceId), got: {:?}",
             result.diagnostics
+        );
+        assert!(
+            result.diagnostics.iter().any(|d| d.contains("I-145")),
+            "this test's container has roots and no anchorInstanceId, so the \
+             transitional-fallback note is expected to actually be present, not just \
+             absent-of-anything-else"
         );
     }
 
@@ -1237,6 +1249,12 @@ mod tests {
             "no diagnostics expected other than the srs#446/I-145 transitional-fallback \
              note (this test's container has no anchorInstanceId), got: {:?}",
             result.diagnostics
+        );
+        assert!(
+            result.diagnostics.iter().any(|d| d.contains("I-145")),
+            "this test's container has roots and no anchorInstanceId, so the \
+             transitional-fallback note is expected to actually be present, not just \
+             absent-of-anything-else"
         );
     }
 
