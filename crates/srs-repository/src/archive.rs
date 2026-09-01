@@ -155,7 +155,7 @@ pub(crate) fn tree_entries(
     //
     // A catalog entry exists only for an object the catalog could *classify*:
     // a record with a broken `instanceId`, an unparseable relations file, a
-    // declared federation registry with no `registryId` all produce a
+    // declared changelog with no `repositoryId` all produce a
     // diagnostic and no entry. Pack is a faithful copier, not a validator —
     // dropping those files would turn a diagnosable repository into a lossy
     // snapshot with a zero exit code. Content files beside a sidecar are here
@@ -199,8 +199,6 @@ pub(crate) fn tree_entries(
     let declared_files = [
         manifest_value.get("changelogPath").and_then(|v| v.as_str()),
         manifest_value.get("relationsPath").and_then(|v| v.as_str()),
-        manifest.federation_path.as_deref(),
-        manifest.federation_events_path.as_deref(),
     ];
 
     // Each declared aggregate names one file, and is read as a file — never

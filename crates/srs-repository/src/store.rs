@@ -2523,9 +2523,7 @@ pub mod memory {
             );
             let manifest = Manifest {
                 container: None,
-                federation_path: None,
                 upstream_package: None,
-                federation_events_path: None,
                 extra,
                 source_documents_path: None,
                 root: PathBuf::from("/memory"),
@@ -2689,9 +2687,7 @@ pub mod memory {
         pub fn uninitialized() -> Self {
             let manifest = Manifest {
                 container: None,
-                federation_path: None,
                 upstream_package: None,
-                federation_events_path: None,
                 extra: std::collections::BTreeMap::new(),
                 source_documents_path: None,
                 root: PathBuf::from("/memory"),
@@ -2841,9 +2837,7 @@ pub mod memory {
                     &input.repository.repository_id,
                     input.repository.title.as_deref().unwrap_or_default(),
                 )),
-                federation_path: None,
                 upstream_package: None,
-                federation_events_path: None,
                 extra: manifest_extra,
                 source_documents_path: None,
                 root: PathBuf::from("/memory"),
@@ -3769,9 +3763,7 @@ mod tests {
     fn minimal_manifest(repo_root: &std::path::Path) -> Manifest {
         Manifest {
             container: None,
-            federation_path: None,
             upstream_package: None,
-            federation_events_path: None,
             extra: std::collections::BTreeMap::new(),
             source_documents_path: None,
             root: repo_root.to_path_buf(),

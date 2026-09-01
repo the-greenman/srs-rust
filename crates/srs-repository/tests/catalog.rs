@@ -594,19 +594,11 @@ fn extension_set_enumerates_with_kind_id_identity() {
         r#"{
           "dataModelRevision": 2,
           "repositoryId": "0e0e0e0e-0000-4000-8000-000000000001",
-          "declaredExtensions": ["ext:changelog", "ext:federation"],
-          "changelogPath": "changelog.json",
-          "federationPath": "federation/registry.json",
-          "federationEventsPath": "federation/events.json"
+          "declaredExtensions": ["ext:changelog"],
+          "changelogPath": "changelog.json"
         }"#,
     );
     write(root, "changelog.json", r#"{"entries": []}"#);
-    write(
-        root,
-        "federation/registry.json",
-        r#"{"registryId": "aaaa0000-0000-4000-8000-000000000002", "repositories": []}"#,
-    );
-    write(root, "federation/events.json", r#"{"events": []}"#);
     let store = FileStore::new(root);
     let cat = store.catalog().unwrap();
     let entries: Vec<(&str, &str)> = cat
@@ -615,18 +607,10 @@ fn extension_set_enumerates_with_kind_id_identity() {
         .map(|e| (e.kind.as_str(), e.id.as_str()))
         .collect();
     // [R14]: extension set orders by kind byte-wise, then id. Identity is the
-    // {kind, id} pair: changelog and events both project the owning
-    // repositoryId without colliding.
+    // {kind, id} pair: the aggregate projects the owning repositoryId.
     assert_eq!(
         entries,
-        vec![
-            ("changelog", "0e0e0e0e-0000-4000-8000-000000000001"),
-            ("federation-event", "0e0e0e0e-0000-4000-8000-000000000001"),
-            (
-                "federation-registry",
-                "aaaa0000-0000-4000-8000-000000000002"
-            ),
-        ]
+        vec![("changelog", "0e0e0e0e-0000-4000-8000-000000000001")]
     );
     assert!(cat.extensions.iter().all(|e| e.tier.is_none()));
 }
@@ -635,19 +619,17 @@ fn extension_set_enumerates_with_kind_id_identity() {
 fn extension_locations_require_the_owning_extension_declared() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    // Paths named, files present — but no owning extension declared ([R5]).
+    // Path named, file present — but no owning extension declared ([R5]).
     write(
         root,
         "manifest.json",
         r#"{
           "dataModelRevision": 2,
           "repositoryId": "0e0e0e0e-0000-4000-8000-000000000001",
-          "changelogPath": "changelog.json",
-          "federationPath": "federation/registry.json"
+          "changelogPath": "changelog.json"
         }"#,
     );
     write(root, "changelog.json", r#"{"entries": []}"#);
-    write(root, "federation/registry.json", r#"{"registryId": "r"}"#);
     let cat = catalog::build(&FileStore::new(root)).unwrap();
     assert!(cat.extensions.is_empty());
     assert!(cat.diagnostics.is_empty(), "{:?}", cat.diagnostics);

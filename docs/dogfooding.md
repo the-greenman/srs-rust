@@ -1082,7 +1082,7 @@ $SRS_BIN repo create --repo "$SCRATCH" --namespace com.example.dogfood
 $SRS_BIN repo extensions conformance --repo "$SCRATCH" --pretty
 ```
 
-`payload.declared`, `payload.usedButUndeclared`, and `payload.declaredButUnsupported` are all empty. `payload.supported` lists all 7 implemented extension IDs.
+`payload.declared`, `payload.usedButUndeclared`, and `payload.declaredButUnsupported` are all empty. `payload.supported` lists all 6 implemented extension IDs.
 
 **Scenario — declare a supported extension, confirm it is no longer a gap.**
 
@@ -1111,7 +1111,7 @@ $SRS_BIN repo validate --repo "$SCRATCH" --pretty
 `ok: true`, `diagnostics: []` — conformance mismatches are informational, not validation errors.
 
 **Done when.**
-- Empty repo: `declared: []`, `usedButUndeclared: []`, `declaredButUnsupported: []`, `supported` has 7 entries.
+- Empty repo: `declared: []`, `usedButUndeclared: []`, `declaredButUnsupported: []`, `supported` has 6 entries.
 - After `extensions enable ext:lifecycle`: `declared` contains `"ext:lifecycle"`, `declaredButUnsupported` empty.
 - After `extensions enable ext:federation`: `declaredButUnsupported` contains `"ext:federation"`.
 - `repo validate` returns `ok: true` throughout.
@@ -1380,197 +1380,6 @@ srs registry list --path /tmp/nonexistent-registry.json --pretty
 - Multi-tag step (step 4): passing `--tag governance --tag risk` returns only entries that carry **both** tags (`filteredCount` 1); entries missing either tag are excluded
 
 **Verified 2026-07-20 (#542):** All eight steps passed. Step 4 (multi-tag AND: `--tag governance --tag risk`) returned `filteredCount=1` with only `com.semanticops.governance` (the only entry carrying both tags). Steps 7 and 8 produce correct `ok: false` envelopes with exit code 1. `filter_json` for WASM callers uses `"tags": [...]`; passing the old `"tag": "..."` key now produces an explicit parse error (`deny_unknown_fields`).
-
----
-
-## S26 — Resolve cross-repository references and record federation events (`srs federation`, ext:federation, #248)
-
-**Intention.** I want to know whether a repository ID I've encountered in a relation or document belongs to a known peer — so I can locate it, and I want to record that this repository recently merged content from another repository so the provenance is auditable.
-
-**Preparation.** Create a repo with `ext:federation` declared, then write a federation registry manually (no CLI command creates one; that's out of scope).
-
-```bash
-SRS_BIN=$(which srs)   # or path to the built binary
-SCRATCH=/tmp/dogfood-federation-s26
-
-$SRS_BIN repo create --repo "$SCRATCH" --namespace com.example.dogfood --pretty
-$SRS_BIN repo extensions enable --repo "$SCRATCH" ext:federation --pretty
-
-REPO_ID=$(cat "$SCRATCH/.srs/manifest.json" | python3 -c "import sys,json; print(json.load(sys.stdin)['repositoryId'])")
-
-mkdir -p "$SCRATCH/federation"
-
-cat > "$SCRATCH/federation/registry.json" <<'EOF'
-{
-  "registryId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-  "title": "Example Root Registry",
-  "updatedAt": "2026-07-12T00:00:00Z",
-  "entries": [
-    {
-      "repositoryId": "repo-alpha-0000-0000-0000-000000000001",
-      "title": "Alpha Repository",
-      "location": "https://alpha.example.com/repo"
-    }
-  ],
-  "childRegistries": ["child-registry.json"]
-}
-EOF
-
-cat > "$SCRATCH/federation/child-registry.json" <<'EOF'
-{
-  "registryId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-  "title": "Example Child Registry",
-  "updatedAt": "2026-07-12T00:00:00Z",
-  "entries": [
-    {
-      "repositoryId": "repo-beta-0000-0000-0000-000000000002",
-      "title": "Beta Repository",
-      "location": "https://beta.example.com/repo"
-    }
-  ],
-  "childRegistries": []
-}
-EOF
-```
-
-1. **Resolve a known repository ID (root registry).** Confirm `ok: true`, `found: true`, `entry.title` is `"Alpha Repository"`, `registryId` matches the root registry.
-
-```bash
-$SRS_BIN federation resolve \
-  --repository-id repo-alpha-0000-0000-0000-000000000001 \
-  --repo "$SCRATCH" --pretty
-```
-
-2. **Resolve a known repository ID (child registry — DFS).** Confirm `found: true`, `registryId` is the child registry's ID (`bbbb…`).
-
-```bash
-$SRS_BIN federation resolve \
-  --repository-id repo-beta-0000-0000-0000-000000000002 \
-  --repo "$SCRATCH" --pretty
-```
-
-3. **Negative case — unknown repository ID (graceful degradation).** Confirm `ok: true` (not an error), `found: false`, `entry` absent from payload.
-
-```bash
-$SRS_BIN federation resolve \
-  --repository-id repo-unknown-does-not-exist \
-  --repo "$SCRATCH" --pretty
-```
-
-4. **List events (empty on a fresh repo).** Confirm `ok: true`, `events: []`, `totalCount: 0`.
-
-```bash
-$SRS_BIN federation events-list --repo "$SCRATCH" --pretty
-```
-
-5. **Append a merge event.** Confirm `ok: true`, `totalEvents: 1`.
-
-```bash
-echo '{
-  "repositoryId": "'"$REPO_ID"'",
-  "event": {
-    "eventId": "ev00000000000000000000000000001",
-    "event": "merge",
-    "at": "2026-07-12T10:00:00Z",
-    "sourceRepositoryId": "repo-alpha-0000-0000-0000-000000000001",
-    "targetRepositoryId": "'"$REPO_ID"'",
-    "affectedInstanceIds": ["00000000-0000-4000-8000-000000000001"]
-  }
-}' | $SRS_BIN federation events-append --repo "$SCRATCH" --pretty
-```
-
-6. **Append an import event.** Confirm `ok: true`, `totalEvents: 2`.
-
-```bash
-echo '{
-  "repositoryId": "'"$REPO_ID"'",
-  "event": {
-    "eventId": "ev00000000000000000000000000002",
-    "event": "import",
-    "at": "2026-07-12T11:00:00Z",
-    "sourceRepositoryId": "repo-beta-0000-0000-0000-000000000002",
-    "targetRepositoryId": "'"$REPO_ID"'",
-    "affectedInstanceIds": ["00000000-0000-4000-8000-000000000001"]
-  }
-}' | $SRS_BIN federation events-append --repo "$SCRATCH" --pretty
-```
-
-7. **List all events.** Confirm `totalCount: 2`, `filteredCount: 2`, both events appear.
-
-```bash
-$SRS_BIN federation events-list --repo "$SCRATCH" --pretty
-```
-
-8. **Filter by kind.** Confirm `filteredCount: 1`, only the merge event appears.
-
-```bash
-$SRS_BIN federation events-list --repo "$SCRATCH" --kind merge --pretty
-```
-
-9. **Filter by source.** Confirm `filteredCount: 1`, only the import event (from beta) appears.
-
-```bash
-$SRS_BIN federation events-list --repo "$SCRATCH" --source repo-beta-0000-0000-0000-000000000002 --pretty
-```
-
-10. **Negative filter — no matches.** Confirm `ok: true`, `filteredCount: 0`, `events: []`, `totalCount: 2` (not 0 — total is unchanged).
-
-```bash
-$SRS_BIN federation events-list --repo "$SCRATCH" --kind split --pretty
-```
-
-11. **Validate the repo.** Confirm `diagnostics: []`.
-
-```bash
-$SRS_BIN repo validate --repo "$SCRATCH" --pretty
-```
-
-12. **Custom `federationPath` and `federationEventsPath`.** Set typed manifest fields and confirm the CLI routes to the custom paths instead of the defaults (`federation/registry.json`, `federation/events.json`).
-
-```bash
-SCRATCH2=/tmp/dogfood-federation-s26-custom
-$SRS_BIN repo create --repo "$SCRATCH2" --namespace com.example.dogfood-custom
-
-# Write custom registry at a non-default path
-mkdir -p "$SCRATCH2/custom"
-cat > "$SCRATCH2/custom/registry.json" <<'REOF'
-{
-  "registryId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-  "title": "Custom Path Registry",
-  "updatedAt": "2026-07-16T00:00:00Z",
-  "entries": [{"repositoryId": "repo-custom-0001", "title": "Custom Repo"}]
-}
-REOF
-
-# Stamp custom paths into manifest
-python3 -c "
-import json
-p = '$SCRATCH2/manifest.json'
-m = json.load(open(p))
-m['federationPath'] = 'custom/registry.json'
-m['federationEventsPath'] = 'custom/events.json'
-json.dump(m, open(p,'w'), indent=2)
-"
-
-$SRS_BIN federation resolve --repo "$SCRATCH2" \
-  --repository-id repo-custom-0001 --pretty
-# Confirm found: true, registryId: cccccccc-…
-$SRS_BIN federation events-list --repo "$SCRATCH2" --pretty
-# Confirm events: [], no error (empty custom events file is graceful)
-```
-
-**Done when:**
-- Step 3 returns `ok: true`, `found: false` — not an error, not a crash.
-- Steps 5–6 return `ok: true` and `totalEvents` increments correctly.
-- Step 7 `totalCount` equals `filteredCount` when no filter is applied.
-- Steps 8–9 `filteredCount` < `totalCount` — AND semantics hold.
-- Step 10 `totalCount: 2` even when `filteredCount: 0` — total reflects all stored events.
-- Step 11 `diagnostics: []`.
-- Step 12 custom `federationPath`/`federationEventsPath` in manifest resolve to the configured files.
-
-**Verified 2026-07-12 (#248):** All eleven steps passed. Graceful degradation confirmed — unknown repository ID returns `ok: true, found: false` (not an error envelope). DFS traversal confirmed — child registry entry resolves via the `childRegistries` pointer without manual path specification. Filter AND semantics correct across all combinations. `totalCount` vs `filteredCount` distinction correct.
-
-**Verified 2026-07-16 (#249):** Step 12 (custom manifest paths) confirmed — `federationPath` and `federationEventsPath` are now typed manifest fields (not `extra` map entries); `federation resolve` and `federation events-list` route to the configured paths. Storage boundary fix confirmed — federation I/O routes through `RepositoryStore` trait (WASM-safe). WASM bindings `federation_resolve`, `federation_events_list`, `federation_events_append` added; smoke-tested via `JsonStore` with all three methods serializing correct camelCase output.
 
 ---
 
@@ -3244,7 +3053,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `type` `validationRules` (ext:cross-field-validation — conditional-required / field-ordering / mutual-exclusion, #242); **CFR violations are now hard errors at `record create`/`record update` write time (#437)** — `repo validate` still enforces for any pre-existing records | S23 |
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
 | `registry` (ext:registry — `registry list`, `registry get`) | S25; WASM free functions (`parse_registry`, `list_registry_entries`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#244) |
-| `federation` (ext:federation — `federation resolve`, `federation events-list`, `federation events-append`) | S26 (step 12 adds custom `federationPath`/`federationEventsPath` manifest fields, #249); WASM free functions (`parse_federation_registry`, `filter_federation_events_json`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#248); WASM repo-backed bindings (`federation_resolve`, `federation_events_list`, `federation_events_append` on `SrsRepository`) added and smoke-tested (#249) |
+| `federation` (ext:federation) | _removed — srs decision 4f1e12e5 + owner disposition srs-rust#878 (2026-09-01); return is committed, see the spec roadmap's federation entry; S26 retired with it_ |
 | `context` (ext:addressability — `context field`, `context record`, `context revision`) | S27; WASM bindings (`context_field`, `context_record`, `context_revision` on `SrsRepository`) verified via native integration tests in `crates/srs-bindings/tests/context_query.rs` (#251) |
 | `package` | CLI: covered implicitly by field/type creation in S2; **`srs package install`/`srs package import`/`srs package imports`** end-to-end in S29 (#246); WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 | `attachment list` | S31 |
