@@ -1,5 +1,5 @@
 use crate::error::CoreError;
-use crate::types::view::{DocumentView, View};
+use crate::types::view::{DocumentView, View, ViewRow};
 use std::collections::HashSet;
 
 pub fn validate_view(view: &View) -> Result<(), CoreError> {
@@ -8,11 +8,26 @@ pub fn validate_view(view: &View) -> Result<(), CoreError> {
     }
 
     let mut seen_field_ids = HashSet::new();
-    for field_view in &view.field_views {
-        if !seen_field_ids.insert(&field_view.field_id) {
-            return Err(CoreError::DuplicateFieldViewId {
-                field_id: field_view.field_id.clone(),
-            });
+    for row in &view.field_views {
+        if let ViewRow::Field(field_view) = row {
+            if !seen_field_ids.insert(&field_view.field_id) {
+                return Err(CoreError::DuplicateFieldViewId {
+                    field_id: field_view.field_id.clone(),
+                });
+            }
+        }
+    }
+
+    // RFC-041 [R7]: FieldView and RecordPropertyView rows share one ordering
+    // axis; a duplicate `order` anywhere in the mixed list is a validation
+    // error (mirrors `srs`'s `scripts/validate-package.mjs` package-validation
+    // check — JSON Schema's `uniqueItems` cannot express uniqueness by a
+    // single property across two differently-shaped object kinds).
+    let mut seen_orders = HashSet::new();
+    for row in &view.field_views {
+        let order = row.order();
+        if !seen_orders.insert(order) {
+            return Err(CoreError::DuplicateViewRowOrder { order });
         }
     }
 
@@ -67,8 +82,8 @@ pub fn validate_document_view(dv: &DocumentView) -> Result<(), CoreError> {
 mod tests {
     use super::*;
     use crate::types::view::{
-        DocumentSection, DocumentView, FieldView, SectionSource, ThemeMode, ThemeReference,
-        ThemeVariant, View,
+        DocumentSection, DocumentView, FieldView, RecordProperty, RecordPropertyView,
+        SectionSource, ThemeMode, ThemeReference, ThemeVariant, View,
     };
 
     fn minimal_view() -> View {
@@ -92,7 +107,8 @@ mod tests {
                 visible: None,
                 display_label: None,
                 composite_renderer: None,
-            }],
+            }
+            .into()],
             compatible_types: None,
             protection: None,
             export_config: None,
@@ -188,6 +204,73 @@ mod tests {
         let mut view = minimal_view();
         view.field_views = vec![];
         assert_eq!(validate_view(&view), Err(CoreError::EmptyViewFieldViews));
+    }
+
+    #[test]
+    fn validate_duplicate_field_view_id_still_fails_with_mixed_rows() {
+        let mut view = minimal_view();
+        view.field_views.insert(
+            0,
+            RecordPropertyView {
+                property: RecordProperty::LifecycleState,
+                order: 5,
+                display_label: None,
+                visible: None,
+            }
+            .into(),
+        );
+        let duplicate = view.field_views[1].as_field().unwrap().clone();
+        view.field_views.push(
+            FieldView {
+                order: 6,
+                ..duplicate
+            }
+            .into(),
+        );
+
+        assert_eq!(
+            validate_view(&view),
+            Err(CoreError::DuplicateFieldViewId {
+                field_id: "f1".to_string()
+            })
+        );
+    }
+
+    /// RFC-041 [R7]: order must be unique across the whole mixed row list,
+    /// not just within one row kind.
+    #[test]
+    fn validate_duplicate_row_order_fails_across_row_kinds() {
+        let mut view = minimal_view();
+        view.field_views.push(
+            RecordPropertyView {
+                property: RecordProperty::Tags,
+                order: 0, // duplicates the FieldView row's order in minimal_view()
+                display_label: None,
+                visible: None,
+            }
+            .into(),
+        );
+
+        assert_eq!(
+            validate_view(&view),
+            Err(CoreError::DuplicateViewRowOrder { order: 0 })
+        );
+    }
+
+    #[test]
+    fn validate_distinct_mixed_rows_passes() {
+        let mut view = minimal_view();
+        view.field_views.push(
+            RecordPropertyView {
+                property: RecordProperty::Tags,
+                order: 1,
+                display_label: Some("Labels".to_string()),
+                visible: Some(true),
+            }
+            .into(),
+        );
+
+        assert!(validate_view(&view).is_ok());
     }
 
     #[test]
