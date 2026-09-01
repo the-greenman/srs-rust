@@ -105,6 +105,8 @@ Migrate a local copy with `srs repo apply-migration --id rfc039-carrier` (after
 
 `crates/srs-schema/schemas/2.0/` is a **mirror** of `srs/docs/schema/2.0/` — never edit schema files there directly. The canonical source is always the `srs/` spec repo. `srs-vscode/schemas/2.0/` is a second mirror with the same constraint.
 
+**One sync source (srs-rust#874):** `sync-schemas-from-spec.sh` defaults to the `srs` release asset (`schemas-2.0.tar.gz`) — no local-sibling auto-discovery. `--local <path>` (or the equivalent `$SRS_SPEC_DIR`) opts into a checkout explicitly, and is refused unless that checkout's HEAD is an ancestor of (or equal to) its own `origin/master` — a diverged or foreign branch (the exact false-green trap this fixes: a long-lived sibling sitting on a docs/RFC branch, silently mirrored with a green exit code) is rejected outright. The script always prints the resolved source (release tag, or local commit + ancestor relationship). `srs-vscode`'s copy of the script has the tracking issue srs-vscode#105 to port the same fix.
+
 When schemas change in `srs/docs/schema/2.0/` (e.g. after a spec RFC merges into `srs`):
 
 ```bash
@@ -135,7 +137,7 @@ git commit -m "chore(schema): sync schemas from spec (RFC-NNN)"
 
 **Multi-repo merge order:** there is no merge order that avoids a red CI window, and none is required. `srs`'s `check-release-drift` (`srs/scripts/check-release-drift.mjs`) never inspects a sibling repository — it only validates state inside `srs` itself, so a spec PR goes green on its own regardless of mirror state. Meanwhile both mirror-facing drift jobs (`srs-rust/.github/workflows/ci.yml`'s `schema-drift` job and `schema-drift.yml`) check out `srs` with no `ref:`, so they always resolve to `srs`'s default branch — a mirror PR opened before the spec PR merges is red by construction, and one opened after leaves `srs-rust` red until it merges. A green spec PR is never evidence the mirrors are safe.
 
-Treat the spec change and its mirror as **one landing executed close together**, not an ordered pair: pre-stage the mirror branch while the spec PR is still open (accepting the red-by-construction drift job as expected), then merge the mirror immediately after the spec PR merges.
+Treat the spec change and its mirror as **one landing executed close together**, not an ordered pair: pre-stage the mirror branch while the spec PR is still open (accepting the red-by-construction drift job as expected), then merge the mirror immediately after the spec PR merges. Pre-staging from an open (unmerged) spec PR branch means `sync-schemas-from-spec.sh --local` will refuse it (its HEAD isn't yet an ancestor of `origin/master` — srs-rust#874's ancestor check, working as intended) — `cp` the changed schema files by hand for the pre-stage commit, then run the script normally (against the release asset) once the spec PR has merged, to pick up the canonical, verified copy and regenerate `SHA256SUMS`.
 
 CI enforces correctness via the `schema-drift` job (`scripts/check-schema-drift.sh ../srs`). If it fails locally, running `sync-schemas-from-spec.sh` will fix it.
 
@@ -147,7 +149,8 @@ The hook runs `cargo test --test payload_contracts`. If it fails, regenerate sch
 
 - **Cargo gates by exit code:** `cargo build --workspace`, `cargo test --workspace` (ZERO failures is the standard — master is green at that standard), `cargo clippy --workspace --all-targets -- -D warnings`. Never judge by a piped output tail.
 - **`SRS_SPEC_DIR` must point at a fresh clone of `srs` `origin/master`** for parity tests. The sibling fallback panics loudly by design — do not "fix" that; point the env var at a fresh clone instead (srs-rust#874).
-- **Schema mirrors sync from the release asset** via `scripts/sync-schemas-from-spec.sh` — verify the source commit it used (srs-rust#874); never sync from a local sibling checkout.
+- **Schema mirrors sync from the release asset** via `scripts/sync-schemas-from-spec.sh` — verify the source it printed (srs-rust#874, shipped); a local checkout is only ever used through the ancestor-checked `--local`/`$SRS_SPEC_DIR` opt-in, never silently.
+- **A published release is a draft until the corpus-conformance gate passes** (srs-rust#877) — `promote-release` is the only job that flips it to published + `latest`; a red gate leaves the draft as-is, so a corpus-breaking build never becomes the anonymously-fetchable `latest` release. Fetch a specific draft tag's assets only with authenticated repo access.
 - **Revision-bump choreography — this repo's step is step 1:** support (supported-revision constant + migration-registry entry + fixture test; binary loads old AND new revisions) lands here before the release cuts. Same-shape precedents: PRs #879, #883, #895.
 - **Implementation charter:** see `docs/adr/048-implementation-decision-rules.md` (landing via PR #897 — cite the path even while unmerged).
 - **Owner-merge, revival, baseline-honesty:** same rules as `srs/CLAUDE.md`'s "Gates and choreography" section — consume, don't clone. In short: every PR carries `epic-256:owner-merge` and agents never merge; a branch predating the newest `rfc-decision-*` record is re-derived against the decision log before shipping; a "pre-existing failure" claim is proven against the last GREEN master CI run, never current master.

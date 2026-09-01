@@ -45,7 +45,7 @@
           { "$ref": "#/$defs/RecordPropertyView" }
         ]
       },
-      "description": "Presentation configuration for fields and record-level properties. Field rows omitted here are treated as visible: false."
+      "description": "Presentation configuration for fields and record-level properties. Each item's order MUST be unique within this array; that cross-item constraint is enforced at package validation time because JSON Schema cannot express uniqueness by an object property. Field rows omitted here are treated as visible: false."
     },
     "exportConfig": {
       "$ref": "#/$defs/ExportConfig"
@@ -170,11 +170,6 @@
         "preamble": {
           "type": "string",
           "description": "Template string rendered before field values. Standard variables: {{instance-id}}, {{date}}, {{status}}, {{namespace}}, {{name}}. In section rendering context, {{heading-3}} is also available (resolves to heading level 3 + depthOffset)."
-        },
-        "fieldOrder": {
-          "type": "array",
-          "items": { "type": "string", "format": "uuid" },
-          "description": "Explicit export field ordering by fieldId. Defaults to fieldViews[].order."
         },
         "omitEmptyFields": {
           "type": "boolean",

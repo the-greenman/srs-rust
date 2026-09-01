@@ -344,15 +344,21 @@ pub struct GraduateNoteResult {
 /// The canonical relation type asserted from a graduated Record back to its
 /// source Note (R11 — design-note 044; srs-rust#779). This is the sole
 /// graduation-provenance mechanism: no `graduatedAt` field is written on any
-/// dataModelRevision (rev-3 or rev-4).
-const GRADUATION_RELATION_TYPE: &str = "derived-from";
+/// dataModelRevision (rev-3 or rev-4). `pub(crate)`: reused by
+/// `graduated_at_migration_service` (srs-rust#896) so the legacy-field
+/// migration recognizes the exact same relation, rather than a second
+/// literal of the same string.
+pub(crate) const GRADUATION_RELATION_TYPE: &str = "derived-from";
 
 /// Does `note_id` already carry a `derived-from` edge asserted by a prior
 /// graduation (some Record --derived-from--> this Note)? Used, alongside the
 /// legacy `graduated_at` field, so the already-graduated guard recognizes both
 /// a relation-only graduation (current writer) and a field-only one (legacy
-/// rev-3 data that predates this fix).
-fn note_has_graduation_relation(
+/// rev-3 data that predates this fix). `pub(crate)`: also the derivability
+/// check `graduated_at_migration_service` (srs-rust#896) uses to decide
+/// whether a legacy note's field can be dropped outright or must be left in
+/// place as underivable.
+pub(crate) fn note_has_graduation_relation(
     store: &dyn RepositoryStore,
     note_id: &str,
 ) -> Result<bool, RepositoryError> {

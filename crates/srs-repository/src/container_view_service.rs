@@ -396,6 +396,9 @@ fn resolve_columns(
     let mut field_views: Vec<_> = view
         .field_views
         .iter()
+        // RFC-041: a RecordPropertyView row has no Field.id and no column
+        // form here — column resolution only concerns FieldView rows.
+        .filter_map(|row| row.as_field())
         .filter(|fv| fv.visible != Some(false))
         .collect();
     field_views.sort_by_key(|fv| fv.order);
@@ -501,7 +504,8 @@ mod tests {
     use srs_core::types::record::{FieldValues, Record};
     use srs_core::types::record_type::{FieldAssignment, RecordType};
     use srs_core::types::view::{
-        DocumentSection, DocumentView, ExactTypeRef, FieldView, SectionSource, View,
+        DocumentSection, DocumentView, ExactTypeRef, FieldView, RecordProperty, RecordPropertyView,
+        SectionSource, View, ViewRow,
     };
     use std::path::PathBuf;
 
@@ -539,8 +543,8 @@ mod tests {
         order: i32,
         visible: Option<bool>,
         label: Option<&str>,
-    ) -> FieldView {
-        FieldView {
+    ) -> ViewRow {
+        ViewRow::Field(FieldView {
             display_hint: None,
             editor_hint_override: None,
             composite_renderer: None,
@@ -549,10 +553,19 @@ mod tests {
             required: None,
             visible,
             display_label: label.map(|s| s.to_string()),
-        }
+        })
     }
 
-    fn view_with_fields(field_views: Vec<FieldView>) -> View {
+    fn record_property_view(property: RecordProperty, order: i32) -> ViewRow {
+        ViewRow::RecordProperty(RecordPropertyView {
+            property,
+            order,
+            display_label: None,
+            visible: None,
+        })
+    }
+
+    fn view_with_fields(field_views: Vec<ViewRow>) -> View {
         View {
             schema: None,
             ai_guidance: None,
@@ -732,7 +745,7 @@ mod tests {
 
     /// Standard fixture: two fields (title, status), a view exposing both (status hidden
     /// in some tests), a document view targeting the container, and two Tier-2 records.
-    fn standard_store(field_views: Vec<FieldView>, sections: Vec<DocumentSection>) -> MemoryStore {
+    fn standard_store(field_views: Vec<ViewRow>, sections: Vec<DocumentSection>) -> MemoryStore {
         let fields = vec![field("f-title", "title"), field("f-status", "status")];
         let view = view_with_fields(field_views);
         let dv = document_view(DV_ID, sections);
@@ -789,6 +802,46 @@ mod tests {
         // display_label override applied.
         assert_eq!(result.columns[1].display_label, "Status");
         assert_eq!(result.document_view_id.as_deref(), Some(DV_ID));
+    }
+
+    /// RFC-041: a RecordPropertyView row has no field-column form here — it
+    /// must not become a column, and its presence must not perturb FieldView
+    /// column ordering or resolution.
+    #[test]
+    fn resolve_container_view_excludes_record_property_rows_from_columns() {
+        let rows = vec![
+            record_property_view(RecordProperty::LifecycleState, 0),
+            field_view("f-status", 2, None, Some("Status")),
+            field_view("f-title", 1, None, None),
+        ];
+        let sections = vec![section(
+            "s1",
+            0,
+            SectionSource::ContainerSubset {
+                container_id: CONTAINER_ID.to_string(),
+                container_type: None,
+                type_filter: None,
+            },
+            Some(VIEW_ID),
+        )];
+        let store = standard_store(rows, sections);
+        container_service::create_container(&store, make_container(vec!["root-1"], vec![]))
+            .unwrap();
+
+        let result = resolve_container_view(&store, input(None)).unwrap();
+
+        assert_eq!(
+            result
+                .columns
+                .iter()
+                .map(|column| column.field_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["f-title", "f-status"]
+        );
+        assert!(result
+            .diagnostics
+            .iter()
+            .all(|diagnostic| !diagnostic.contains("lifecycleState")));
     }
 
     #[test]

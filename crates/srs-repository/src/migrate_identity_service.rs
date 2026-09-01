@@ -83,7 +83,16 @@ pub fn migration_status(
     match mc.identity_instance_id.as_deref() {
         None => Ok(IdentityMigrationStatus::Needed),
         Some(id) => {
-            let cat = store.catalog()?;
+            // The unchecked catalog (ADR-045's repair seam), not `catalog()`:
+            // this is a read-only status probe consumed by `list_migrations`
+            // alongside every other migration's own probe, and an unrelated
+            // instance elsewhere in the repository failing schema validation
+            // must not make this specific, unrelated check unavailable too
+            // ([R24] fatality is global to the checked catalog — srs-rust#896
+            // demonstrated this exact cross-migration breakage via a legacy
+            // `graduatedAt` Note coexisting with an identity pointer, the
+            // realistic shape of an RFC-013-conformant repository).
+            let cat = store.catalog_unchecked()?;
             let entry = cat.instances.iter().find(|e| e.id == id);
             match entry {
                 None => Ok(IdentityMigrationStatus::Needed),

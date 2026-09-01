@@ -108,7 +108,8 @@ fn make_view(name: &str) -> View {
             required: None,
             visible: None,
             display_label: None,
-        }],
+        }
+        .into()],
         compatible_types: None,
         protection: None,
         export_config: None,
