@@ -853,6 +853,7 @@ mod tests {
                 updated_at: None,
                 meta: None,
                 identity_instance_id: None,
+                anchor_instance_id: None,
                 extra: std::collections::BTreeMap::new(),
             }
         }

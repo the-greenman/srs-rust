@@ -25,6 +25,10 @@ pub fn validate_container(container: &Container) -> Result<(), CoreError> {
         container.identity_instance_id.iter().map(String::as_str),
     )?;
     reject_blank_ids(
+        "anchorInstanceId",
+        container.anchor_instance_id.iter().map(String::as_str),
+    )?;
+    reject_blank_ids(
         "rootInstanceIds",
         container
             .root_instance_ids
@@ -70,6 +74,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
+            anchor_instance_id: None,
             root_instance_ids: None,
             member_instance_ids: None,
             tags: None,
@@ -151,10 +156,18 @@ mod tests {
     }
 
     #[test]
+    fn validate_container_blank_anchor_instance_id_fails() {
+        let mut c = minimal();
+        c.anchor_instance_id = Some(String::new());
+        assert_eq!(validate_container(&c), blank("anchorInstanceId"));
+    }
+
+    #[test]
     fn validate_container_passes_with_populated_membership() {
         let mut c = minimal();
         let id = "6ba7b810-9dad-11d1-80b4-00c04fd430c8".to_string();
         c.identity_instance_id = Some(id.clone());
+        c.anchor_instance_id = Some(id.clone());
         c.root_instance_ids = Some(vec![id.clone()]);
         c.member_instance_ids = Some(vec![id]);
         assert!(validate_container(&c).is_ok());

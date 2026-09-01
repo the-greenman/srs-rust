@@ -130,6 +130,29 @@ pub fn resolve_container_view(
     // rather than duplicating it here.
     let container = container_service::get_container(store, &container_id)?;
 
+    // ADR-044-consistent inline diagnostic (srs#446/I-145): once anchorInstanceId is a
+    // declared field, treating the positional rootInstanceIds[0] read as equivalent for
+    // typing-anchor resolution is the "misrepresent rather than merely select" transition
+    // ADR-044 reserves as separately tracked work for this exact call chain
+    // (`view_service::document_views_for_container`, invoked below via
+    // `document_views_for_container`). Surface it here — the one caller with both an
+    // already-loaded `container` and an existing `diagnostics` bag — rather than only via
+    // a separate `repo validate` invocation the caller of this function may never make.
+    if container.anchor_instance_id.is_none()
+        && container
+            .root_instance_ids
+            .as_ref()
+            .is_some_and(|ids| !ids.is_empty())
+    {
+        diagnostics.push(format!(
+            "resolve-container-view: container {container_id} has no anchorInstanceId; \
+             falling back to rootInstanceIds[0] as the typing anchor (RFC-009 I-145). This \
+             positional fallback is transitional and is withdrawn at the Continuity flip \
+             (rfc-decision-cce3c00e axis 2-8, the first full public release) — set \
+             anchorInstanceId explicitly before then"
+        ));
+    }
+
     // Build instance_id -> tier and instance_id -> display label lookups from one catalog
     // snapshot. The label index provides display labels for Tier-0/1 members (the entity
     // body's `title` field, catalog-derived — RFC-038 Change K retires the index column).
@@ -688,6 +711,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
+            anchor_instance_id: None,
             root_instance_ids: if roots.is_empty() {
                 None
             } else {
@@ -899,6 +923,56 @@ mod tests {
         assert!(result.root.is_some());
     }
 
+    #[test]
+    fn resolve_container_view_no_anchor_warns_transitional_fallback_naming_continuity_flip() {
+        let fields = vec![field("f-title", "title")];
+        let view = view_with_fields(vec![field_view("f-title", 0, None, None)]);
+        let root = record("root-1", "title", "Root");
+        let store = build_store(
+            fields,
+            vec![view],
+            vec![],
+            vec![("root-1", 2, serde_json::to_value(&root).unwrap())],
+        );
+        // No anchorInstanceId set — make_container's default (srs#446/I-145 transitional
+        // fallback: rootInstanceIds[0] is used as the typing anchor).
+        container_service::create_container(&store, make_container(vec!["root-1"], vec![]))
+            .unwrap();
+
+        let result = resolve_container_view(&store, input(None)).unwrap();
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("I-145") && d.contains("Continuity flip")),
+            "expected an I-145 transitional-fallback diagnostic naming the Continuity flip, got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn resolve_container_view_declared_anchor_no_fallback_diagnostic() {
+        let fields = vec![field("f-title", "title")];
+        let view = view_with_fields(vec![field_view("f-title", 0, None, None)]);
+        let root = record("root-1", "title", "Root");
+        let store = build_store(
+            fields,
+            vec![view],
+            vec![],
+            vec![("root-1", 2, serde_json::to_value(&root).unwrap())],
+        );
+        let mut container = make_container(vec!["root-1"], vec![]);
+        container.anchor_instance_id = Some("root-1".to_string());
+        container_service::create_container(&store, container).unwrap();
+
+        let result = resolve_container_view(&store, input(None)).unwrap();
+        assert!(
+            !result.diagnostics.iter().any(|d| d.contains("I-145")),
+            "declared anchorInstanceId should not trigger the transitional-fallback diagnostic, got: {:?}",
+            result.diagnostics
+        );
+    }
+
     // resolve_container_view_unknown_tier_member_skipped retired by RFC-038
     // Phase 3 (srs-rust#783): its scenario — a stored member whose tier is
     // outside 0/1/2 — cannot exist under the catalog model. Tier comes from
@@ -1005,7 +1079,12 @@ mod tests {
         );
         assert_eq!(note.display_label, "My Note");
         assert!(note.is_visible_by_default);
-        assert!(result.diagnostics.is_empty(), "no diagnostics expected");
+        assert!(
+            result.diagnostics.iter().all(|d| d.contains("I-145")),
+            "no diagnostics expected other than the srs#446/I-145 transitional-fallback \
+             note (this test's container has no anchorInstanceId), got: {:?}",
+            result.diagnostics
+        );
     }
 
     #[test]
@@ -1062,7 +1141,12 @@ mod tests {
         );
         assert_eq!(typed.display_label, "TypedRecord One");
         assert!(typed.is_visible_by_default);
-        assert!(result.diagnostics.is_empty(), "no diagnostics expected");
+        assert!(
+            result.diagnostics.iter().all(|d| d.contains("I-145")),
+            "no diagnostics expected other than the srs#446/I-145 transitional-fallback \
+             note (this test's container has no anchorInstanceId), got: {:?}",
+            result.diagnostics
+        );
     }
 
     #[test]
@@ -1148,7 +1232,12 @@ mod tests {
         assert!(root.record.is_none(), "Tier-0 root must have record: None");
         assert_eq!(root.display_label, "Root Note");
         assert!(root.is_visible_by_default);
-        assert!(result.diagnostics.is_empty(), "no diagnostics expected");
+        assert!(
+            result.diagnostics.iter().all(|d| d.contains("I-145")),
+            "no diagnostics expected other than the srs#446/I-145 transitional-fallback \
+             note (this test's container has no anchorInstanceId), got: {:?}",
+            result.diagnostics
+        );
     }
 
     #[test]

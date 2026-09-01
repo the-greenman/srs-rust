@@ -1485,6 +1485,76 @@ pub fn validate_repository(
         }
     }
 
+    // --- RFC-009 I-145: Container.anchorInstanceId (srs#446) ---
+    // Runs for every container (root and file-backed), unlike I-81 (identityInstanceId,
+    // root-only): the schema's anchorInstanceId description is not root-scoped, and
+    // unlike I-63/I-64 below this needs no package/type resolution — anchorInstanceId,
+    // rootInstanceIds, and memberInstanceIds are all fields on the same loaded Container,
+    // so this must not be gated behind a successful package load.
+    for centry in &cat.containers {
+        let container: srs_core::types::container::Container = match centry.locator.as_deref() {
+            Some(crate::catalog::ROOT_CONTAINER_LOCATOR) => {
+                match store.load_manifest().ok().and_then(|m| m.container) {
+                    Some(c) => c,
+                    None => continue,
+                }
+            }
+            Some(path) => match store
+                .load_instance_json(path)
+                .ok()
+                .and_then(|v| serde_json::from_value(v).ok())
+            {
+                Some(c) => c,
+                None => continue,
+            },
+            None => continue,
+        };
+        let container_id = container.container_id.clone();
+        match &container.anchor_instance_id {
+            Some(anchor_id) => {
+                let in_roots = container
+                    .root_instance_ids
+                    .as_ref()
+                    .is_some_and(|ids| ids.contains(anchor_id));
+                let in_members = container
+                    .member_instance_ids
+                    .as_ref()
+                    .is_some_and(|ids| ids.contains(anchor_id));
+                if !in_roots && !in_members {
+                    diagnostics.push(ValidationDiagnostic {
+                        severity: DiagnosticSeverity::Error,
+                        relative_path: format!("container {container_id}"),
+                        schema_id: None,
+                        message: format!(
+                            "RFC-009 I-145: container '{}' anchorInstanceId '{}' is not in rootInstanceIds or memberInstanceIds",
+                            container_id, anchor_id
+                        ),
+                    });
+                }
+            }
+            None => {
+                // Transitional fallback (srs#446/I-145): no declared anchor, so the typing
+                // anchor resolves positionally to rootInstanceIds[0]. Nothing to report when
+                // there are no roots at all — there is no anchor to derive either way.
+                if container
+                    .root_instance_ids
+                    .as_ref()
+                    .is_some_and(|ids| !ids.is_empty())
+                {
+                    diagnostics.push(ValidationDiagnostic {
+                        severity: DiagnosticSeverity::Warning,
+                        relative_path: format!("container {container_id}"),
+                        schema_id: None,
+                        message: format!(
+                            "RFC-009 I-145: container '{}' has no anchorInstanceId; falling back to rootInstanceIds[0] as the typing anchor. This positional fallback is transitional and is withdrawn at the Continuity flip (rfc-decision-cce3c00e axis 2-8, the first full public release) — set anchorInstanceId explicitly before then",
+                            container_id
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
     // --- RFC-009 root-type anchor diagnostics (I-63, I-64) ---
     // Both are advisory (Warning): neither invalidates the repository. See RFC-009.
     if let Ok(pkg) = store.load_package() {
@@ -5107,6 +5177,7 @@ mod tests {
             description: None,
             container_type: Some("not-guide".to_string()),
             identity_instance_id: None,
+            anchor_instance_id: None,
             root_instance_ids: Some(vec![record.instance_id.clone()]),
             member_instance_ids: None,
             tags: None,
@@ -5168,6 +5239,7 @@ mod tests {
             description: None,
             container_type: Some("guide".to_string()),
             identity_instance_id: None,
+            anchor_instance_id: None,
             root_instance_ids: None,
             member_instance_ids: None,
             tags: None,
@@ -5224,6 +5296,7 @@ mod tests {
             description: None,
             container_type: Some("guide".to_string()),
             identity_instance_id: None,
+            anchor_instance_id: None,
             // Root id that is not present in the manifest index.
             root_instance_ids: Some(vec!["99999999-9999-4999-8999-999999999999".to_string()]),
             member_instance_ids: None,
@@ -5308,6 +5381,7 @@ mod tests {
             description: None,
             container_type: Some("not-guide".to_string()),
             identity_instance_id: None,
+            anchor_instance_id: None,
             root_instance_ids: Some(vec![record.instance_id.clone()]),
             member_instance_ids: None,
             tags: None,
@@ -5743,6 +5817,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
+            anchor_instance_id: None,
             member_instance_ids: if members.is_empty() {
                 None
             } else {
@@ -5908,6 +5983,125 @@ mod tests {
         assert!(
             !errors.is_empty(),
             "expected I-81 error when identity not in root or members, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn srs446_i145_anchor_not_in_root_or_members_errors() {
+        let temp = TempDir::new().unwrap();
+        let root_id = "00000000-0000-4000-8000-000000000310";
+        let anchor_id = "00000000-0000-4000-8000-000000000311";
+        let member_id = "00000000-0000-4000-8000-000000000312";
+
+        // anchorInstanceId names a record that is NOT in rootInstanceIds/memberInstanceIds.
+        let manifest = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "dataModelRevision": 2,
+            "repositoryId": root_id,
+            "title": "Test I-145 fail",
+            "container": {
+                "containerId": root_id,
+                "title": "Root",
+                "anchorInstanceId": anchor_id,
+                "memberInstanceIds": [member_id],
+                "rootInstanceIds": [member_id]
+            },
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        write_json(temp.path(), "manifest.json", &manifest);
+        write_json(
+            temp.path(),
+            &format!("records/{member_id}.json"),
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": member_id,
+                "typeId": "t1",
+                "typeVersion": 1,
+                "typeNamespace": "ns",
+                "typeName": "Section",
+                "fieldValues": {}
+            }),
+        );
+        write_json(
+            temp.path(),
+            &format!("records/{anchor_id}.json"),
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": anchor_id,
+                "typeId": "t1",
+                "typeVersion": 1,
+                "typeNamespace": "ns",
+                "typeName": "Section",
+                "fieldValues": {}
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("I-145"))
+            .collect();
+        assert!(
+            !errors.is_empty(),
+            "expected I-145 error when anchorInstanceId not in root or members, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn srs446_i145_no_anchor_warns_transitional_fallback_naming_continuity_flip() {
+        let temp = TempDir::new().unwrap();
+        let root_id = "00000000-0000-4000-8000-000000000320";
+        let member_id = "00000000-0000-4000-8000-000000000321";
+
+        // No anchorInstanceId at all — a pre-srs#446 container relying on the
+        // transitional rootInstanceIds[0] fallback.
+        let manifest = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+            "srsVersion": "2.0",
+            "dataModelRevision": 2,
+            "repositoryId": root_id,
+            "title": "Test I-145 transitional",
+            "container": {
+                "containerId": root_id,
+                "title": "Root",
+                "rootInstanceIds": [member_id]
+            },
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        write_json(temp.path(), "manifest.json", &manifest);
+        write_json(
+            temp.path(),
+            &format!("records/{member_id}.json"),
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": member_id,
+                "typeId": "t1",
+                "typeVersion": 1,
+                "typeNamespace": "ns",
+                "typeName": "Section",
+                "fieldValues": {}
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let warnings: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                d.severity == DiagnosticSeverity::Warning
+                    && d.message.contains("I-145")
+                    && d.message.contains("Continuity flip")
+            })
+            .collect();
+        assert!(
+            !warnings.is_empty(),
+            "expected I-145 transitional-fallback warning naming the Continuity flip, got: {:?}",
             report.diagnostics
         );
     }
@@ -6324,6 +6518,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: Some(identity_id.to_string()),
+            anchor_instance_id: None,
             member_instance_ids: Some(vec![identity_id.to_string()]),
             root_instance_ids: Some(vec![section_id.to_string()]),
             tags: None,

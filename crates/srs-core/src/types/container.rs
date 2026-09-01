@@ -18,6 +18,17 @@ pub struct Container {
     pub container_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub identity_instance_id: Option<String>,
+    /// RFC-009 (amended by srs#446). The instance id of the record whose Type is this
+    /// Container's typing anchor — what RFC-009 `rootTypeRefs` matching (I-63) and RFC-010's
+    /// (Draft) three-way-merge conflict detection resolve against. Declared, never positional
+    /// (`rfc-decision-cce3c00e`, cell Containment: "declaration over location"). When present,
+    /// MUST equal a member id in `rootInstanceIds`/`memberInstanceIds` (I-145). When absent,
+    /// resolution falls back to `rootInstanceIds[0]` — transitional, withdrawn at the
+    /// Continuity flip (`rfc-decision-cce3c00e` axis 2-8). RFC-010 merge semantics (once an
+    /// engine exists): merges as a declared scalar, the same as `identityInstanceId` — a
+    /// `container-root` conflict on divergence, never resolved by precedence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anchor_instance_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub root_instance_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -68,6 +79,7 @@ mod tests {
             description: Some("desc".to_string()),
             container_type: Some("project".to_string()),
             identity_instance_id: Some("aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa".to_string()),
+            anchor_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
             root_instance_ids: Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]),
             member_instance_ids: Some(vec!["22222222-2222-4222-8222-222222222222".to_string()]),
             tags: Some(vec!["alpha".to_string()]),
@@ -92,6 +104,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
+            anchor_instance_id: None,
             root_instance_ids: None,
             member_instance_ids: None,
             tags: None,
@@ -104,6 +117,7 @@ mod tests {
         let value = serde_json::to_value(&container).unwrap();
         assert!(value.get("namespace").is_none());
         assert!(value.get("memberInstanceIds").is_none());
+        assert!(value.get("anchorInstanceId").is_none());
 
         let parsed: Container = serde_json::from_value(value).unwrap();
         assert_eq!(parsed, container);
@@ -179,6 +193,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
+            anchor_instance_id: None,
             root_instance_ids: None,
             member_instance_ids: None,
             tags: None,

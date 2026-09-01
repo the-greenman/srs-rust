@@ -52,6 +52,7 @@ pub struct ContainerPatch {
     pub tags: Option<Vec<String>>,
     pub meta: Option<serde_json::Value>,
     pub identity_instance_id: Option<String>,
+    pub anchor_instance_id: Option<String>,
     pub root_instance_ids: Option<Vec<String>>,
     pub member_instance_ids: Option<Vec<String>>,
 }
@@ -368,6 +369,9 @@ pub fn update_container(
     if let Some(ref v) = patch.identity_instance_id {
         container.identity_instance_id = Some(v.clone());
     }
+    if let Some(ref v) = patch.anchor_instance_id {
+        container.anchor_instance_id = Some(v.clone());
+    }
     if let Some(mut v) = patch.root_instance_ids {
         v.sort();
         v.dedup();
@@ -419,6 +423,22 @@ pub fn delete_container(
         }
     }
     Ok(container_id.to_string())
+}
+
+/// The **one** typing-anchor resolution (RFC-009 Change A, amended by srs#446/I-145):
+/// prefers the declared `anchorInstanceId`, falling back to `rootInstanceIds[0]` only
+/// transitionally (pre-#446 containers with no anchor). "Declaration over location"
+/// (`rfc-decision-cce3c00e`, cell Containment) — every caller resolving "which record's
+/// type is this container's typing anchor" routes through here rather than reading
+/// `rootInstanceIds.first()` directly (`document_views_for_container`, RFC-009 I-63
+/// rootTypeRefs matching). Pure — no I/O, no diagnostic; callers that need to know
+/// whether the transitional fallback fired check `container.anchor_instance_id.is_none()`
+/// themselves (see `container_view_service::resolve_container_view`'s I-145 diagnostic).
+pub fn typing_anchor_instance_id(container: &Container) -> Option<String> {
+    container
+        .anchor_instance_id
+        .clone()
+        .or_else(|| container.root_instance_ids.as_ref()?.first().cloned())
 }
 
 /// The **one** membership operation (I-66, I-118) — the union of all three
@@ -685,9 +705,16 @@ pub fn remove_root(
 ///   identity node and drops it from `sections`. That fallback predates this
 ///   cascade and fires for any identity-less root container — srs-rust#838.
 ///
-/// Only containers that list the instance are visited, so an identity naming a
-/// non-member is not reached. RFC-013 requires an identity to be a member, and
-/// I-81 enforces it on the root container, so that shape is already invalid.
+/// `anchorInstanceId` (srs#446/I-145) is cleared the same way and for the same reason:
+/// leaving it behind trades a fatal `validate` diagnostic ("I-145: anchorInstanceId is
+/// not a member") for an invalid repository, and — unlike identity — clearing it always
+/// falls back cleanly to the transitional `rootInstanceIds[0]` typing-anchor rule rather
+/// than leaving the container without any usable state.
+///
+/// Only containers that list the instance are visited, so an identity or anchor naming a
+/// non-member is not reached. RFC-013/I-81 requires an identity to be a member (enforced
+/// on the root container), and I-145 requires the same of `anchorInstanceId` (enforced on
+/// every container), so that shape is already invalid.
 ///
 /// The edits are applied to one loaded container and written once rather than
 /// through `remove_member`/`remove_root`: they must land in a single write (the
@@ -716,6 +743,15 @@ pub(crate) fn remove_instance_from_all_containers(
         }
         if container.identity_instance_id.as_deref() == Some(instance_id) {
             container.identity_instance_id = None;
+            changed = true;
+        }
+        // Same rationale as identityInstanceId above, for the RFC-009 typing anchor
+        // (srs#446/I-145): leaving a dangling anchorInstanceId behind trades a fatal
+        // I-145 diagnostic ("not a member") for an invalid repository, and clearing it
+        // is always a valid state (absence falls back to the transitional
+        // rootInstanceIds[0] rule, same as a pre-#446 container).
+        if container.anchor_instance_id.as_deref() == Some(instance_id) {
+            container.anchor_instance_id = None;
             changed = true;
         }
         // Since I-66 condition 3 landed, `containers_for_instance` also returns
@@ -893,6 +929,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
+            anchor_instance_id: None,
             root_instance_ids: None,
             member_instance_ids: None,
             tags: None,
@@ -901,6 +938,33 @@ mod tests {
             meta: None,
             extra: std::collections::BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn typing_anchor_instance_id_prefers_declared_anchor() {
+        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
+        c.root_instance_ids = Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]);
+        c.anchor_instance_id = Some("22222222-2222-4222-8222-222222222222".to_string());
+        assert_eq!(
+            typing_anchor_instance_id(&c),
+            Some("22222222-2222-4222-8222-222222222222".to_string())
+        );
+    }
+
+    #[test]
+    fn typing_anchor_instance_id_falls_back_to_first_root_when_absent() {
+        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
+        c.root_instance_ids = Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]);
+        assert_eq!(
+            typing_anchor_instance_id(&c),
+            Some("11111111-1111-4111-8111-111111111111".to_string())
+        );
+    }
+
+    #[test]
+    fn typing_anchor_instance_id_none_when_no_anchor_and_no_roots() {
+        let c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
+        assert_eq!(typing_anchor_instance_id(&c), None);
     }
 
     #[test]
