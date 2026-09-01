@@ -176,9 +176,9 @@ fn record_item(
     let record = &member["record"];
     let type_id = record["typeId"].as_str().unwrap_or("").to_string();
     let type_version = record["typeVersion"].as_u64().unwrap_or(1);
-    // Tier 0 (Note) / Tier 1 (TypedRecord) container members carry no type
-    // binding — `container resolve-view` returns `record: null` for them
-    // (ADR-019/020) — so there is no schema to load or fieldValues to shape.
+    // Tier 0 (Note) container members carry no type binding — `container
+    // resolve-view` returns `record: null` for them (ADR-019/020) — so there
+    // is no schema to load or fieldValues to shape.
     let detail_rows = if type_id.is_empty() {
         Vec::new()
     } else {

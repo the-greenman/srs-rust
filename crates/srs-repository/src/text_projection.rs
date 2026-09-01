@@ -25,11 +25,6 @@ pub const NOTE_TITLE_SENTINEL: &str = "note-title";
 /// Sentinel `fieldId` for a Tier-0 Note section segment; `fieldName` is the
 /// section's `name`.
 pub const NOTE_SECTION_SENTINEL: &str = "note-section";
-/// Sentinel `fieldId`/`fieldName` for a Tier-1 TypedRecord's title segment.
-pub const TYPED_RECORD_TITLE_SENTINEL: &str = "typed-record-title";
-/// Sentinel `fieldId` for a Tier-1 TypedRecord field segment; `fieldName` is the
-/// `TypedField.name`.
-pub const TYPED_RECORD_FIELD_SENTINEL: &str = "typed-record-field";
 
 /// One searchable unit of a record's text projection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -222,76 +217,6 @@ pub fn project_note_text(note: &Note) -> Vec<TextSegment> {
                 field_id: TAG_SENTINEL.to_string(),
                 field_name: TAG_SENTINEL.to_string(),
                 text: tag.clone(),
-            });
-        }
-    }
-
-    segments
-}
-
-/// Project a Tier-1 TypedRecord into its ordered, deterministic text-segment
-/// stream (RFC-012 Change B). Operates on the raw JSON value — no typed
-/// `TypedRecord` struct exists in `srs-core` yet (see
-/// `docs/schema/2.0/typed-record.json` for the storage shape).
-///
-/// Order: title (if non-empty) → `fields[]` (array order, searchable and
-/// non-empty only) → tags. RFC-039 [R8]: a TypedField carries an inline
-/// `fieldType`; it is searchable when `datatype == "string"` with an
-/// allow-listed prose/uri `format` (mirroring I-120 at Tier 2). A TypedField
-/// with no `fieldType` is a revision ≤ 1 document ([R9]) — the reader rejects
-/// it before projection; here it defensively contributes nothing.
-pub fn project_typed_record_text(value: &serde_json::Value) -> Vec<TextSegment> {
-    let mut segments = Vec::new();
-
-    if let Some(title) = value.get("title").and_then(|v| v.as_str()) {
-        if !title.is_empty() {
-            segments.push(TextSegment {
-                field_id: TYPED_RECORD_TITLE_SENTINEL.to_string(),
-                field_name: TYPED_RECORD_TITLE_SENTINEL.to_string(),
-                text: title.to_string(),
-            });
-        }
-    }
-
-    if let Some(fields) = value.get("fields").and_then(|v| v.as_array()) {
-        for field in fields {
-            let Some(name) = field.get("name").and_then(|v| v.as_str()) else {
-                continue;
-            };
-            let field_value = field.get("value").unwrap_or(&serde_json::Value::Null);
-
-            let searchable = field
-                .get("fieldType")
-                .map(|ft| {
-                    ft.get("datatype").and_then(|d| d.as_str()) == Some("string")
-                        && matches!(
-                            ft.get("format").and_then(|f| f.as_str()),
-                            None | Some("plain") | Some("markdown") | Some("uri")
-                        )
-                })
-                .unwrap_or(false);
-            if !searchable {
-                continue;
-            }
-
-            for text in value_strings(field_value) {
-                if !text.is_empty() {
-                    segments.push(TextSegment {
-                        field_id: TYPED_RECORD_FIELD_SENTINEL.to_string(),
-                        field_name: name.to_string(),
-                        text,
-                    });
-                }
-            }
-        }
-    }
-
-    if let Some(tags) = value.get("tags").and_then(|v| v.as_array()) {
-        for tag in tags.iter().filter_map(|t| t.as_str()) {
-            segments.push(TextSegment {
-                field_id: TAG_SENTINEL.to_string(),
-                field_name: TAG_SENTINEL.to_string(),
-                text: tag.to_string(),
             });
         }
     }
@@ -615,50 +540,11 @@ mod tests {
         assert!(project_note_text(&n).is_empty());
     }
 
-    #[test]
-    fn typed_record_projection_orders_title_fields_then_tags() {
-        // RFC-039 [R8]: every TypedField carries an inline fieldType.
-        let value = serde_json::json!({
-            "instanceId": "tr1",
-            "title": "Discovery Feature Planning Meeting",
-            "fields": [
-                { "name": "agenda", "fieldType": {"datatype": "string"}, "value": "Discuss text projection algorithm" },
-                { "name": "attendee_count", "fieldType": {"datatype": "number"}, "value": 4 },
-                { "name": "labels", "fieldType": {"datatype": "string", "valueDomain": "closed", "allowedValues": ["alpha", "beta"], "cardinality": "list"}, "value": ["alpha", "beta"] },
-                { "name": "plain_note", "fieldType": {"datatype": "string"}, "value": "no valueType but string value" }
-            ],
-            "tags": ["searchable"]
-        });
-        let segments = project_typed_record_text(&value);
-        assert_eq!(
-            texts(&segments),
-            vec![
-                "Discovery Feature Planning Meeting",
-                "Discuss text projection algorithm",
-                "alpha",
-                "beta",
-                "no valueType but string value",
-                "searchable",
-            ]
-        );
-        assert_eq!(segments[0].field_id, TYPED_RECORD_TITLE_SENTINEL);
-        assert_eq!(segments[1].field_id, TYPED_RECORD_FIELD_SENTINEL);
-        assert_eq!(segments[1].field_name, "agenda");
-        assert_eq!(segments.last().unwrap().field_id, TAG_SENTINEL);
-    }
-
-    #[test]
-    fn typed_record_projection_skips_number_boolean_date_and_empty_values() {
-        let value = serde_json::json!({
-            "instanceId": "tr2",
-            "fields": [
-                { "name": "score", "fieldType": {"datatype": "number"}, "value": 3 },
-                { "name": "done", "fieldType": {"datatype": "boolean"}, "value": true },
-                { "name": "due", "fieldType": {"datatype": "date"}, "value": "2026-01-01" },
-                { "name": "empty", "fieldType": {"datatype": "string"}, "value": "" },
-                { "name": "no_value", "fieldType": {"datatype": "string"} }
-            ]
-        });
-        assert!(project_typed_record_text(&value).is_empty());
-    }
+    // typed_record_projection_* retired by srs-rust#888 (Tier 1 / TypedRecord
+    // retirement, srs#448/rfc-decision-53635966): `project_typed_record_text`
+    // is removed along with the rest of the raw-JSON Tier-1 handling — a
+    // typed-record-shaped instance no longer classifies at catalog build
+    // ([R8] `SHAPE_NO_MATCH`, see `crates/srs-repository/tests/catalog.rs`'s
+    // `tier1_typed_record_shape_no_longer_classifies`), so there is nothing
+    // left to project.
 }

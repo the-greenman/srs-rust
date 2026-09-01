@@ -136,6 +136,48 @@
             "$ref": "#/$defs/ProjectedRelationRow"
           },
           "description": "RFC-027 [I-027-8]. Present only when the section declares relationsPresentation and this record has surviving link rows; rows in display order. Omitted when no edges survive selection."
+        },
+        "properties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProjectedPropertyRow"
+          },
+          "description": "RFC-041 [R8]. Present only when the section's render view declares at least one RecordPropertyView row and this record has at least one surviving (non-omitted, [R4]) row; rows in ascending View.fieldViews[].order. Omitted when no property row survives selection."
+        }
+      }
+    },
+    "ProjectedPropertyRow": {
+      "type": "object",
+      "required": [
+        "property",
+        "label",
+        "value"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "property": {
+          "type": "string",
+          "enum": [
+            "lifecycleState",
+            "tags",
+            "createdAt",
+            "updatedAt"
+          ],
+          "description": "RFC-041 Change B closed, generated enum — the RecordPropertyView.property this row presents."
+        },
+        "label": {
+          "type": "string",
+          "description": "Resolved row label per RFC-041 Change C: RecordPropertyView.displayLabel if set, else the per-property default (Status/Tags/Created/Updated)."
+        },
+        "value": {
+          "description": "Resolved value per RFC-041 Change C: lifecycleState resolves through the bound Lifecycle's LifecycleState.label when [R6] applies, otherwise the raw state key; tags is the raw string array; createdAt/updatedAt are raw ISO-8601 strings.",
+          "type": [
+            "string",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

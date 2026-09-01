@@ -36,9 +36,9 @@ use std::rc::Rc;
 pub enum RecordTier {
     /// Notes (Tier 0): free-text sections — maps to `records/notes`
     Note,
-    /// Typed records (Tier 1): named fields, no Type binding — maps to `records/tier-1`
-    Tier1,
     /// Records (Tier 2): instantiated Type — maps to `records/tier-2`
+    /// (Tier 1 / TypedRecord was retired — srs#448/rfc-decision-53635966,
+    /// srs-rust#888 — `records/tier-1` is no longer written or read.)
     Tier2,
     /// Extension/package records — maps to `package/records`
     Extension,
@@ -48,7 +48,6 @@ impl RecordTier {
     fn dir(self) -> &'static str {
         match self {
             RecordTier::Note => "records/notes",
-            RecordTier::Tier1 => "records/tier-1",
             RecordTier::Tier2 => "records/tier-2",
             RecordTier::Extension => "package/records",
         }
@@ -322,7 +321,7 @@ pub trait RepositoryStore {
     ) -> Result<(), RepositoryError>;
     fn ensure_lifecycles_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
 
-    // --- Instances (Notes, TypedRecords, Records) ---
+    // --- Instances (Notes, Records) ---
 
     fn load_instance_json(&self, relative_path: &str)
         -> Result<serde_json::Value, RepositoryError>;
@@ -5050,7 +5049,6 @@ mod tests {
     fn record_tier_dir_values() {
         let store = MemoryStore::empty();
         assert_eq!(store.record_tier_dir(RecordTier::Note), "records/notes");
-        assert_eq!(store.record_tier_dir(RecordTier::Tier1), "records/tier-1");
         assert_eq!(store.record_tier_dir(RecordTier::Tier2), "records/tier-2");
         assert_eq!(
             store.record_tier_dir(RecordTier::Extension),

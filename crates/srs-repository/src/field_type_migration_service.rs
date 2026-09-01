@@ -38,11 +38,27 @@ pub const FIELD_TYPE_REVISION: u64 = 1;
 pub const METAMODEL_V1_1_0_REVISION: u64 = 3;
 /// The revision Tier 1 (TypedRecord) retirement produces. This is migration
 /// #4 (revision 3 -> 4), per srs#448 (rfc-decision-53635966) / srs PR #505.
-/// Unlike #3, Tier-1 content is not rejected unconditionally by the loader —
-/// a `typed-record.json` instance still loads fine today — so this migration
-/// cannot be a pure re-stamp: it verifies the repository carries zero Tier-1
-/// instances (the same corpus attestation #505 made for the spec repo) and
-/// aborts, rather than silently stamping a false claim, if any remain.
+/// Unlike #3, Tier-1 content was not rejected unconditionally by the loader
+/// when this migration first landed (srs-rust#883) — a `typed-record.json`
+/// instance still loaded fine — so this migration was never a pure re-stamp:
+/// it verifies the repository carries zero Tier-1 instances (the same corpus
+/// attestation #505 made for the spec repo) and aborts, rather than silently
+/// stamping a false claim, if any remain.
+///
+/// **srs-rust#888 (the deferred code-removal pass):** the raw-JSON Tier-1
+/// handling code paths #883 deliberately kept live (catalog classification,
+/// discovery, text projection, container-view) are now removed — Tier-1 is no
+/// longer an admissible catalog shape **at any revision**, not just at
+/// revision >= 4. The min-supported-revision consequence (ADR-048 rule 1):
+/// `CURRENT_DATA_MODEL_REVISION` does not change and every revision 0..=5
+/// still loads — this is a *content*-shape floor, not a revision floor. A
+/// repository at any revision that still carries real Tier-1 content now
+/// fails the checked catalog seam ([R24], `store.catalog()`) for every
+/// ordinary command, repository-wide, the moment such a file exists anywhere
+/// in the tree. The two sanctioned readers of that leftover content are
+/// `repo validate` (the ADR-045 unchecked seam surfaces it as a diagnostic
+/// naming the file) and this migration (`migrate_tier1_removal`, same
+/// unchecked seam) — there is no third, more tolerant path, by design.
 pub const TIER1_REMOVAL_REVISION: u64 = 4;
 /// The revision the substrate `properties` -> `meta` rename produces. This is
 /// migration #5 (revision 4 -> 5), per srs#433 (rfc-decision-6fc7e142,
@@ -212,6 +228,22 @@ pub fn tier1_removal_migration_needed(
 /// migration can apply; this migration does not do that conversion for
 /// you, since it would be a content decision (a Type + field mapping),
 /// not a mechanical re-stamp.
+///
+/// **srs-rust#888 consequence:** Tier 1 (TypedRecord) is no longer an
+/// admissible catalog shape at all — the code-removal pass that retired
+/// `catalog::classify_instance_candidate`'s `TypedRecord` branch means a
+/// repository that still carries real Tier-1 content now fails the
+/// **checked** catalog seam ([R24] fatality, `store.catalog()`) for *every*
+/// ordinary command, not just this one. This migration therefore reads the
+/// **unchecked** seam instead (`store.catalog_unchecked()`, ADR-045's
+/// repair path — the same one `repo validate` uses), so it remains usable
+/// on exactly the repository it exists to unblock. Detection no longer
+/// keys on `CatalogEntry.tier == Some(1)` (nothing classifies into that tier
+/// any more — the count would always read zero, a false-clean result); it
+/// instead counts `[R8] SHAPE_NO_MATCH` diagnostics located under a reserved
+/// instance root (`catalog::INSTANCE_ROOT_NAMES`) — the population that,
+/// with Tier 1 retired, can now only be residual Tier-1 (or otherwise
+/// unclassifiable) content.
 pub fn migrate_tier1_removal(
     store: &dyn RepositoryStore,
 ) -> Result<Tier1RemovalMigrationResult, RepositoryError> {
@@ -227,18 +259,27 @@ pub fn migrate_tier1_removal(
         });
     }
 
-    let catalog = store.catalog()?;
-    let tier1_count = catalog
-        .instances
+    let catalog = store.catalog_unchecked()?;
+    let leftover_locators: Vec<String> = catalog
+        .diagnostics
         .iter()
-        .filter(|entry| entry.tier == Some(1))
-        .count();
-    if tier1_count > 0 {
+        .filter(|d| d.code == crate::catalog::codes::SHAPE_NO_MATCH)
+        .flat_map(|d| d.locators.iter().cloned())
+        .filter(|locator| {
+            locator
+                .split('/')
+                .any(|seg| crate::catalog::INSTANCE_ROOT_NAMES.contains(&seg))
+        })
+        .collect();
+    if !leftover_locators.is_empty() {
         return Err(RepositoryError::InvalidSnapshotData {
             message: format!(
-                "tier1-removal migration cannot apply: {tier1_count} Tier-1 (TypedRecord) \
-                 instance(s) remain. Tier 1 is retired (srs#448, rfc-decision-53635966) — \
-                 graduate each one to a Tier-2 Record before running this migration."
+                "tier1-removal migration cannot apply: {} instance(s) under a reserved \
+                 location no longer classify as Note or Record ({}). Tier 1 (TypedRecord) \
+                 is retired (srs#448, rfc-decision-53635966) — graduate each one to a \
+                 Tier-2 Record (or otherwise remove it) before running this migration.",
+                leftover_locators.len(),
+                leftover_locators.join(", ")
             ),
         });
     }

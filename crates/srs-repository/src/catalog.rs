@@ -41,7 +41,6 @@ use std::sync::OnceLock;
 #[serde(rename_all = "kebab-case")]
 pub enum CatalogKind {
     Note,
-    TypedRecord,
     Record,
     Relation,
     Container,
@@ -63,7 +62,6 @@ impl CatalogKind {
     pub fn as_str(self) -> &'static str {
         match self {
             CatalogKind::Note => "note",
-            CatalogKind::TypedRecord => "typed-record",
             CatalogKind::Record => "record",
             CatalogKind::Relation => "relation",
             CatalogKind::Container => "container",
@@ -85,7 +83,8 @@ impl CatalogKind {
 
 /// One enumerated object: `{id, kind, tier?, locator?}` ([R23]).
 ///
-/// `tier` is present only for instances (0/1/2). `locator` is adapter-private,
+/// `tier` is present only for instances (0 Note, 2 Record — Tier 1/TypedRecord
+/// was retired, srs#448/rfc-decision-53635966, srs-rust#888). `locator` is adapter-private,
 /// for diagnostics and portable-tree projection only — it is never semantic
 /// identity and is excluded from the validity token.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -287,6 +286,12 @@ pub(crate) fn declared_location(value: Option<&str>) -> Option<String> {
 }
 
 /// The reserved instance root directory names ([R3]).
+///
+/// `typed-records` stays reserved even though Tier 1 (TypedRecord) is retired
+/// (srs#448/rfc-decision-53635966, srs-rust#888): dropping it here would make
+/// leftover Tier-1 content under a top-level `typed-records/` directory
+/// invisible to classification instead of loudly [R8] `SHAPE_NO_MATCH`-fatal.
+/// The clean cut is "no longer admissible," never "silently unenumerated."
 pub(crate) const INSTANCE_ROOT_NAMES: &[&str] = &["records", "notes", "typed-records"];
 
 /// The recognised instance-sidecar suffix list ([R9]) — closed.
@@ -715,11 +720,6 @@ impl Builder<'_> {
         };
         let admissible = [
             (srs_schema::NOTE_SCHEMA_ID, CatalogKind::Note, 0u8),
-            (
-                srs_schema::TYPED_RECORD_SCHEMA_ID,
-                CatalogKind::TypedRecord,
-                1,
-            ),
             (srs_schema::RECORD_SCHEMA_ID, CatalogKind::Record, 2),
         ];
         let registry = SchemaRegistry::global();
@@ -776,7 +776,9 @@ impl Builder<'_> {
                     self.error(
                         codes::SHAPE_NO_MATCH,
                         vec![path.to_string()],
-                        "object declares no $schema and validates as none of note.json, typed-record.json, record.json".to_string(),
+                        "object declares no $schema and validates as none of note.json, record.json \
+                         (Tier 1 / TypedRecord is retired — srs#448, rfc-decision-53635966, \
+                         srs-rust#888 — and no longer an admissible shape)".to_string(),
                     );
                     None
                 }
@@ -1396,11 +1398,7 @@ pub fn instance_discriminator_error() -> Option<&'static String> {
     static CHECK: OnceLock<Option<String>> = OnceLock::new();
     CHECK
         .get_or_init(|| {
-            let ids = [
-                srs_schema::NOTE_SCHEMA_ID,
-                srs_schema::TYPED_RECORD_SCHEMA_ID,
-                srs_schema::RECORD_SCHEMA_ID,
-            ];
+            let ids = [srs_schema::NOTE_SCHEMA_ID, srs_schema::RECORD_SCHEMA_ID];
             let mut parsed: Vec<(&str, Value)> = Vec::new();
             for id in ids {
                 let Some(src) = srs_schema::schema_source(id) else {

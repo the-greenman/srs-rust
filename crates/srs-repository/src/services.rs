@@ -850,12 +850,19 @@ mod tests {
                 }),
             )
             .unwrap();
+        // Tier-2 Record — Tier 1 (TypedRecord) is retired (srs-rust#888) and
+        // its raw-JSON shape no longer classifies at catalog build, so a
+        // Record is the only remaining "non-note" shape to exercise here.
         store
             .save_instance_json(
-                "records/typed-records/typed.json",
+                "records/tier-2/record.json",
                 &serde_json::json!({
                     "instanceId": "22222222-2222-4222-8222-222222222222",
-                    "fields": [],
+                    "typeId": "33333333-3333-4333-8333-333333333333",
+                    "typeVersion": 1,
+                    "typeNamespace": "com.test",
+                    "typeName": "thing",
+                    "fieldValues": {},
                     "tags": ["not-counted"]
                 }),
             )
@@ -942,7 +949,10 @@ mod tests {
     #[test]
     fn get_note_by_id_refuses_non_note() {
         // RFC-038: tier comes from body shape classification, not the index —
-        // a real Tier-1 typed-record file makes the instance discoverable.
+        // a real Tier-2 record file makes the instance discoverable. (This
+        // used to exercise a hand-authored Tier-1 typed-record file; Tier 1
+        // is retired — srs#448/rfc-decision-53635966, srs-rust#888 — and its
+        // raw-JSON shape no longer classifies at catalog build.)
         let manifest = Manifest {
             container: None,
             upstream_package: None,
@@ -976,13 +986,17 @@ mod tests {
                 "records/spec.json",
                 &serde_json::json!({
                     "instanceId": "22222222-2222-2222-8222-222222222222",
-                    "fields": []
+                    "typeId": "33333333-3333-4333-8333-333333333333",
+                    "typeVersion": 1,
+                    "typeNamespace": "com.test",
+                    "typeName": "thing",
+                    "fieldValues": {}
                 }),
             )
             .unwrap();
         let result = get_note_by_id(&store, "22222222-2222-2222-8222-222222222222").unwrap();
         match result {
-            GetNoteResult::NotANote { tier } => assert_eq!(tier, 1),
+            GetNoteResult::NotANote { tier } => assert_eq!(tier, 2),
             _ => panic!("Expected NotANote"),
         }
     }
