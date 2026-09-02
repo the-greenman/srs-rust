@@ -7081,7 +7081,7 @@ fn repo_migrations_lists_the_registered_migrations() {
     let migrations = result["payload"]["migrations"]
         .as_array()
         .expect("migrations must be an array");
-    assert_eq!(migrations.len(), 9, "expected exactly nine migrations");
+    assert_eq!(migrations.len(), 10, "expected exactly ten migrations");
 
     let ids: Vec<&str> = migrations
         .iter()
@@ -7091,6 +7091,7 @@ fn repo_migrations_lists_the_registered_migrations() {
         ids,
         vec![
             "graduated-at-cleanup",
+            "revisions-sidecar-cleanup",
             "field-type",
             "rfc039-carrier",
             "metamodel-v1-1-0",
@@ -7134,6 +7135,7 @@ fn repo_migrations_lists_the_registered_migrations() {
             .clone()
     };
     assert_eq!(status("graduated-at-cleanup", "alreadyApplied"), true);
+    assert_eq!(status("revisions-sidecar-cleanup", "alreadyApplied"), true);
     assert_eq!(status("field-type", "alreadyApplied"), true);
     assert_eq!(status("rfc039-carrier", "alreadyApplied"), true);
     assert_eq!(status("metamodel-v1-1-0", "needed"), true);

@@ -33,7 +33,7 @@ use srs_core::types::lifecycle::{RelationDirection, RequiresRelation};
 use srs_core::types::record::{FieldValues, Record};
 use srs_core::types::relation::Relation;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
-use srs_core::types::revision::{Revision, RevisionAgent, RevisionProvenance};
+use srs_core::types::revision::Revision;
 use srs_core::types::source_reference::SourceReference;
 use srs_core::validation::lifecycle::validate_type_lifecycle_v9;
 use srs_core::validation::record::{validate_record, validate_record_all, validate_type_lifecycle};
@@ -544,20 +544,18 @@ pub fn delete_record(
     }
     // The record's own file, deleted only after its incident relations are gone.
     //
-    // Both deletes propagate their failure (srs-rust#839). They were best-effort
+    // This delete propagates its failure (srs-rust#839). It was best-effort
     // until the #834 cascade above started running first: a swallowed failure now
     // means the instance survives on disk stripped of every container reference
     // and every incident relation, reported as successfully deleted — the caller
     // is told the record is gone while it sits there belonging to nothing.
     // Truthful diagnostics over convenience: no `ok: true` over damage.
     //
-    // The sidecar goes first so every failure leaves a re-runnable state. The
-    // record file is what makes the instance discoverable ([R1]: membership is
-    // the tree), so while it exists a repeat `delete_record` finds the instance
-    // again and completes the remaining steps — the earlier ones being
-    // idempotent no-ops. Deleting it before the sidecar would strand an orphan
-    // sidecar that no later call could reach.
-    revision_service::delete_sidecar(store, &path)?;
+    // A revision sidecar delete used to run first here. Removed (rfc-decision-
+    // 2a1e1590, srs-rust#866): it was unreachable anyway — any `.revisions.json`
+    // left in the tree, this record's own included, already fails `store.catalog()`
+    // above ([R24], whole-repository fatal), so this line could never have run
+    // while there was a sidecar for it to delete.
     store.delete_instance_file(&path)?;
 
     Ok(instance_id.to_string())
@@ -1343,57 +1341,11 @@ pub fn transition_record_lifecycle(
         return Err(e);
     }
 
-    // Best-effort: append one Revision per field value, tagged with the lifecycle transition.
-    // Transition is already committed at this point — if append fails we emit a diagnostic
-    // rather than returning an error (the file store has no cross-entity transactions).
-    let now = updated
-        .updated_at
-        .clone()
-        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
-    let provenance = RevisionProvenance {
-        lifecycle_transition: Some(updated.lifecycle_state.clone().unwrap_or_default()),
-        transitioned_at: Some(now.clone()),
-        import_source: None,
-    };
-    // Name-keyed carrier: recover each key's fieldId through the Type
-    // (RFC-039 Type-mediated resolution); unresolvable keys are skipped on
-    // this best-effort path.
-    let name_to_id: std::collections::HashMap<String, String> = store
-        .load_package()
-        .ok()
-        .and_then(|p| {
-            let rt = p.resolve_type(&updated.type_id, updated.type_version)?;
-            let eff = p.resolved_effective_fields(rt).ok()?;
-            Some(
-                eff.into_iter()
-                    .map(|f| (f.name, f.field_id))
-                    .collect::<std::collections::HashMap<_, _>>(),
-            )
-        })
-        .unwrap_or_default();
-    for (key, value) in updated.field_values.iter() {
-        let Some(field_id) = name_to_id.get(key) else {
-            continue;
-        };
-        let prior_revision_id =
-            find_latest_revision_id(store, &path, &updated.instance_id, field_id);
-        let revision = Revision {
-            revision_id: new_instance_id(),
-            record_id: updated.instance_id.clone(),
-            field_id: field_id.clone(),
-            value: value.clone(),
-            prior_revision_id,
-            agent: RevisionAgent::Ai,
-            provenance: Some(provenance.clone()),
-            source_refs: None,
-            created_at: now.clone(),
-        };
-        if let Err(_e) = revision_service::append(store, &path, revision) {
-            warnings.push(format!(
-                "REVISION_APPEND_FAILED: could not append revision for field '{key}'"
-            ));
-        }
-    }
+    // Revision sidecars removed: rfc-decision-2a1e1590 retired the per-field
+    // Revision mechanism from the spec (zero corpus consumers, PascalCase wire
+    // leak, no implementation exercising the return-trigger chain). This was
+    // the mechanism's one production write site (srs-rust#866) — a lifecycle
+    // transition no longer appends anything here.
 
     Ok(TransitionLifecycleResult {
         record: updated,
@@ -1512,18 +1464,6 @@ pub fn get_allowed_lifecycle_transitions(
         transitions,
         is_immutable,
     })
-}
-
-/// Find the most recent revision_id for a (record, field) pair, if any.
-fn find_latest_revision_id(
-    store: &dyn RepositoryStore,
-    record_path: &str,
-    record_id: &str,
-    field_id: &str,
-) -> Option<String> {
-    revision_service::list(store, record_path, record_id, Some(field_id), None, None)
-        .ok()
-        .and_then(|revs| revs.into_iter().last().map(|r| r.revision_id))
 }
 
 /// Create a successor record (supersedes or refines an existing record).
@@ -3147,6 +3087,18 @@ mod tests {
         .unwrap();
         assert_eq!(result.record.lifecycle_state.as_deref(), Some("active"));
         assert!(result.warnings.is_empty());
+
+        // rfc-decision-2a1e1590 / srs-rust#866: a lifecycle transition used to
+        // best-effort append one Revision per field here — the mechanism's
+        // one production write site. It must write no `.revisions.json`
+        // sidecar any more.
+        assert!(
+            store
+                .list_files_recursive("")
+                .iter()
+                .all(|p| !p.ends_with(".revisions.json")),
+            "a transition must not write a .revisions.json sidecar"
+        );
     }
 
     #[test]
@@ -6066,19 +6018,20 @@ mod tests {
         assert!(store.find_instance(&instance_id).unwrap().is_none());
     }
 
-    /// srs-rust#839, for each of the two deletes `delete_record` ends with.
+    /// srs-rust#839: `delete_record`'s own file delete is best-effort no
+    /// longer — a swallowed failure here, after the #834 cascade already ran,
+    /// would leave the instance on disk stripped of every container reference
+    /// and incident relation, reported as deleted. So the failure must
+    /// surface, and the partial state must be re-runnable to completion.
     ///
-    /// Both were best-effort and returned `Ok`. Since the #834 cascade runs
-    /// first, a swallowed failure leaves the instance on disk stripped of every
-    /// container reference and incident relation, reported as deleted — the
-    /// worst interleaving of the two. So each failure must surface, and each
-    /// partial state must be re-runnable to completion.
-    ///
-    /// The fault is armed **by path**: `revision_service::delete_sidecar` routes
-    /// through `delete_instance_file` too, so the path-blind `DeleteInstanceFile`
-    /// variant fires on whichever delete runs first and is consumed there,
-    /// leaving the other one untested.
-    fn assert_delete_fault_surfaces_and_re_runs(fail_on_sidecar: bool) {
+    /// Used to also cover a revision sidecar delete that ran before this one
+    /// (two best-effort deletes, two fault-injection variants). That call is
+    /// removed (rfc-decision-2a1e1590, srs-rust#866): it was unreachable —
+    /// any `.revisions.json` in the tree already fails `store.catalog()`
+    /// above ([R24]), so `delete_record` never reached it while one existed.
+    /// One delete remains; one variant is enough.
+    #[test]
+    fn delete_record_instance_file_fail_surfaces_and_is_re_runnable() {
         use crate::store::memory::FailPoint;
 
         let store = make_store_with_package();
@@ -6101,72 +6054,30 @@ mod tests {
             .find(|e| e.id == instance_id)
             .and_then(|e| e.locator.clone())
             .expect("the new record has a catalog locator");
-        // Give the record a revision sidecar so both deletes have something to do.
-        revision_service::append(
-            &store,
-            &record_path,
-            srs_core::types::revision::Revision {
-                revision_id: "00000000-0000-4000-8000-00000000e001".to_string(),
-                record_id: instance_id.clone(),
-                field_id: "00000000-0000-4000-8000-00000000f001".to_string(),
-                value: serde_json::json!("v"),
-                prior_revision_id: None,
-                agent: srs_core::types::revision::RevisionAgent::Human,
-                provenance: None,
-                source_refs: None,
-                created_at: "2026-01-01T00:00:00Z".to_string(),
-            },
-        )
-        .expect("sidecar write");
 
-        let target = if fail_on_sidecar {
-            revision_service::sidecar_path_for(&record_path)
-        } else {
-            record_path.clone()
-        };
-
-        store.arm_fail_at(FailPoint::DeleteInstanceFileAt(target.clone()));
+        store.arm_fail_at(FailPoint::DeleteInstanceFileAt(record_path.clone()));
         let err = delete_record(&store, &instance_id)
-            .map(|ok| panic!("expected {target} to fail the delete, got Ok({ok})"))
+            .map(|ok| panic!("expected {record_path} to fail the delete, got Ok({ok})"))
             .unwrap_err();
         assert!(
             matches!(err, RepositoryError::Io { .. }),
-            "expected the underlying I/O failure for {target}, got: {err:?}"
+            "expected the underlying I/O failure for {record_path}, got: {err:?}"
         );
 
-        // The record file survived either way — the sidecar is deleted first
-        // precisely so that stays true — so the instance is still discoverable
-        // ([R1]: membership is the tree), which is what makes the re-run possible.
+        // The record file survived the failed delete, so the instance is
+        // still discoverable ([R1]: membership is the tree), which is what
+        // makes the re-run possible.
         assert!(
             store.find_instance(&instance_id).unwrap().is_some(),
-            "the record must remain discoverable after a failed {target}"
+            "the record must remain discoverable after a failed delete"
         );
-
-        let sidecar_path = revision_service::sidecar_path_for(&record_path);
 
         // Re-run: the earlier steps are idempotent no-ops and the delete completes.
         delete_record(&store, &instance_id).expect("re-running the delete must complete it");
-        // Both files are gone — this is the orphan-sidecar claim the ordering
-        // exists for: because the sidecar goes first, no interleaving can leave
-        // it behind a deleted record file where nothing could reach it again.
-        assert!(
-            store.load_instance_json(&sidecar_path).is_err(),
-            "the revision sidecar must not outlive the record it belongs to"
-        );
         assert!(
             store.find_instance(&instance_id).unwrap().is_none(),
             "the record must be gone after the successful re-run"
         );
-    }
-
-    #[test]
-    fn delete_record_instance_file_fail_surfaces_and_is_re_runnable() {
-        assert_delete_fault_surfaces_and_re_runs(false);
-    }
-
-    #[test]
-    fn delete_record_sidecar_fail_surfaces_and_is_re_runnable() {
-        assert_delete_fault_surfaces_and_re_runs(true);
     }
 
     // ── get_field_value_by_name tests ─────────────────────────────────────────

@@ -136,10 +136,6 @@ pub mod codes {
     pub const CANDIDATE_MALFORMED: &str = "SRS038-R9-CANDIDATE-MALFORMED";
     /// A non-candidate file under a reserved location's closed candidate policy ([R9]).
     pub const CANDIDATE_UNRECOGNISED: &str = "SRS038-R9-CANDIDATE-UNRECOGNISED";
-    /// A recognised-suffix sidecar whose base resolves to no discovered instance ([R9]).
-    pub const SIDECAR_ORPHANED: &str = "SRS038-R9-SIDECAR-ORPHANED";
-    /// A recognised-suffix sidecar with no declared schema for the suffix, or failing it ([R9]).
-    pub const SIDECAR_SCHEMA: &str = "SRS038-R9-SIDECAR-SCHEMA";
     /// Relation filename disagrees with the in-file `relationId` ([R11]).
     pub const RELATION_FILENAME_MISMATCH: &str = "SRS038-R11-FILENAME-MISMATCH";
     /// A file nested in a subdirectory of `relations/`, which must be flat ([R11]).
@@ -294,12 +290,13 @@ pub(crate) fn declared_location(value: Option<&str>) -> Option<String> {
 /// The clean cut is "no longer admissible," never "silently unenumerated."
 pub(crate) const INSTANCE_ROOT_NAMES: &[&str] = &["records", "notes", "typed-records"];
 
-/// The recognised instance-sidecar suffix list ([R9]) — closed.
-/// `.revisions.json` is classified by `revisions.json`; recognition is not
-/// conferred by filename alone, so a resolving sidecar that fails that schema
-/// is an error per [R9]'s third conjunct.
-const SIDECAR_SUFFIX_REVISIONS: &str = ".revisions.json";
-
+/// The recognised instance-sidecar suffix list ([R9]) is now empty: the sole
+/// entry, `.revisions.json`, was retired with the mechanism it backed
+/// (rfc-decision-2a1e1590, srs-rust#866) — a `.revisions.json` file under a
+/// reserved instance root is no longer conferred any recognition by filename;
+/// it falls through to ordinary instance-candidate classification like any
+/// other object under [R8]/[R9], where its shape does not match and it errors.
+///
 /// TRANSITIONAL shim masking a filed corpus defect (the-greenman/srs#369):
 /// every live source-document sidecar declares this `$schema` URL, but no
 /// `source-document.json` schema exists anywhere — the canonical sidecar
@@ -550,11 +547,6 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
 
     // --- Classification dispatch (Changes C/D; [R5] most-specific wins) ---
 
-    // First pass over instance roots collects discovered instance locators so
-    // sidecar bases can resolve ([R9]).
-    let mut discovered_instances: BTreeSet<String> = BTreeSet::new();
-    let mut sidecar_files: Vec<String> = Vec::new();
-
     for path in &files {
         if path == "manifest.json" || extension_paths.contains(path) {
             continue;
@@ -562,17 +554,17 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
         if under(path, &sd_path) {
             b.classify_source_document_candidate(path, &file_set);
         } else if under_any(path, &instance_roots) {
-            if path.ends_with(SIDECAR_SUFFIX_REVISIONS) {
-                sidecar_files.push(path.clone());
-            } else if path.ends_with(".json") {
-                if b.classify_instance_candidate(path) {
-                    discovered_instances.insert(path.clone());
-                }
+            if path.ends_with(".json") {
+                // No recognised sidecar suffix remains (see the
+                // `SIDECAR_SUFFIX` doc comment above) — every `.json` file
+                // under a reserved instance root, `.revisions.json` included,
+                // is an ordinary instance candidate.
+                b.classify_instance_candidate(path);
             } else {
                 b.error(
                     codes::CANDIDATE_UNRECOGNISED,
                     vec![path.clone()],
-                    "file under a reserved instance root is not a JSON candidate or recognised sidecar".to_string(),
+                    "file under a reserved instance root is not a JSON candidate".to_string(),
                 );
             }
         } else if under(path, "relations") {
@@ -585,40 +577,6 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
         // Everything else — package-root files not declared as definitions,
         // and files outside every reserved location — is application content:
         // not discovered, not validated, not modified ([R10]).
-    }
-
-    // Recognised sidecars ([R9]): closed suffix list, base must resolve to a
-    // discovered instance in the same directory, and the object must validate
-    // against the suffix's declared schema. `revisions.json` landed with the
-    // #297 spec cutover, so all three conjuncts are now checked for real and a
-    // failure is the error [R9] specifies. The schema declares `$schema` as an
-    // optional property with a `const` value, so a wrongly-declared `$schema`
-    // fails here too.
-    for path in sidecar_files {
-        let base = path
-            .strip_suffix(SIDECAR_SUFFIX_REVISIONS)
-            .unwrap_or(&path)
-            .to_string();
-        if !discovered_instances.contains(&format!("{base}.json")) {
-            b.error(
-                codes::SIDECAR_ORPHANED,
-                vec![path.clone()],
-                format!("orphaned sidecar: base name '{base}.json' resolves to no discovered instance in the same directory"),
-            );
-            continue;
-        }
-        let Some(value) = b.read_candidate(&path) else {
-            continue;
-        };
-        if let Err(e) =
-            SchemaRegistry::global().validate_by_id(srs_schema::REVISIONS_SCHEMA_ID, &value)
-        {
-            b.error(
-                codes::SIDECAR_SCHEMA,
-                vec![path.clone()],
-                format!("sidecar fails its suffix's declared schema revisions.json: {e}"),
-            );
-        }
     }
 
     // Declared definition paths that resolve to no file.

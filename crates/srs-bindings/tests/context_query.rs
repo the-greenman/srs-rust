@@ -75,28 +75,21 @@ fn fixture_store() -> FileStore {
                 "typeNamespace": "com.test",
                 "typeName": "decision",
                 "fieldValues": {"title": "First Decision"}
-            },
-            format!("records/tier-2/{RECORD_ID}.revisions.json"): {
-                "recordId": RECORD_ID,
-                "revisions": [
-                    {
-                        "revisionId": REVISION_ID,
-                        "recordId": RECORD_ID,
-                        "fieldId": FIELD_TITLE,
-                        "value": "First Decision",
-                        "agent": {"type": "Human"},
-                        "createdAt": "2026-01-01T00:00:00Z"
-                    }
-                ]
             }
+            // No `.revisions.json` sidecar: rfc-decision-2a1e1590 retired the
+            // mechanism, and catalog.rs no longer tolerates one (srs-rust#866)
+            // — a repository carrying one now fails to load at all ([R24]).
         }
     })
     .to_string();
     srs_repository::srsj::open_srsj(&srsj).expect("fixture srsj must load")
 }
 
+/// No `.revisions.json` sidecar can exist in a loadable repository any more
+/// (rfc-decision-2a1e1590, srs-rust#866) — `revisions` is always empty now;
+/// this only exercises current-value assembly.
 #[test]
-fn context_field_returns_value_and_revision() {
+fn context_field_returns_current_value_with_no_revision_history() {
     let store = fixture_store();
     let result = get_field_context(
         &store,
@@ -110,8 +103,10 @@ fn context_field_returns_value_and_revision() {
     assert_eq!(result.record_id, RECORD_ID);
     assert_eq!(result.field_id, FIELD_TITLE);
     assert_eq!(result.field_name, Some("title".to_string()));
-    assert_eq!(result.revisions.len(), 1);
-    assert_eq!(result.revisions[0].revision_id, REVISION_ID);
+    assert!(
+        result.revisions.is_empty(),
+        "no revision mechanism remains to populate this"
+    );
 }
 
 #[test]
@@ -135,10 +130,14 @@ fn context_record_returns_type_and_fields() {
     );
 }
 
+/// No repository can carry a `.revisions.json` sidecar any more
+/// (rfc-decision-2a1e1590, srs-rust#866 — catalog.rs no longer tolerates
+/// one), so no revision id is ever traceable: this must fail clean with
+/// `NotFound`, never invent or silently return an empty trace.
 #[test]
-fn context_revision_traces_single_revision() {
+fn context_revision_trace_not_found_when_no_revisions_exist() {
     let store = fixture_store();
-    let result = get_revision_trace(
+    let err = get_revision_trace(
         &store,
         RevisionTraceQuery {
             record_id: RECORD_ID.to_string(),
@@ -146,13 +145,12 @@ fn context_revision_traces_single_revision() {
             revision_id: REVISION_ID.to_string(),
         },
     )
-    .expect("get_revision_trace must succeed");
+    .expect_err("no revision mechanism remains — this must not succeed");
 
-    assert_eq!(result.revision.revision_id, REVISION_ID);
-    assert!(
-        result.prior_chain.is_empty(),
-        "no prior revisions for the root"
-    );
+    assert!(matches!(
+        err,
+        srs_repository::error::RepositoryError::NotFound { .. }
+    ));
 }
 
 #[test]

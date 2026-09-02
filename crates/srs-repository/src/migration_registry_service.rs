@@ -96,6 +96,49 @@ static MIGRATIONS: &[MigrationDefinition] = &[
             })
         },
     },
+    // Also raw-tree, also run early: a `.revisions.json` sidecar is no
+    // longer a recognised sidecar (catalog.rs, srs-rust#866) — an unmigrated
+    // one fails ordinary instance classification and takes the whole checked
+    // catalog down with it ([R24]), the same `graduated-at-cleanup` reasoning
+    // above. No ordering dependency between the two — both repair
+    // independent file sets.
+    MigrationDefinition {
+        id: "revisions-sidecar-cleanup",
+        title: "Delete orphaned revisions.json sidecars",
+        description: "Deletes every `.revisions.json` sidecar file in the repository tree — \
+                       the per-field Revision mechanism they backed was retired from the spec \
+                       (rfc-decision-2a1e1590: zero corpus consumers, a RevisionAgent \
+                       PascalCase wire-format leak, no implementation exercising the return- \
+                       trigger chain) and srs-rust's one production write site \
+                       (`transition_record_lifecycle`) is removed in this same change \
+                       (srs-rust#866). A sidecar carries no spec-recognised meaning any more — \
+                       no schema validates it, nothing reads it — so deletion loses nothing the \
+                       spec recognizes. Unlike graduated-at-cleanup there is no underivable-\
+                       target case to refuse honestly: a sidecar is either present (delete it) \
+                       or absent (nothing to do), so this migration is the registry's default \
+                       all-or-nothing, not a partial apply. Structural, not revision-keyed: the \
+                       defect is not gated by dataModelRevision (a sidecar could be written by \
+                       any binary since the #297 cutover regardless of the repository's stamped \
+                       revision), so this migration stamps nothing. Reads and writes the raw \
+                       file tree directly rather than through `store.catalog()`, which an \
+                       unmigrated sidecar makes unusable.",
+        status_fn: |store| {
+            if crate::revisions_sidecar_cleanup_service::migration_needed(store) {
+                Ok(MigrationStatus::Needed)
+            } else {
+                Ok(MigrationStatus::AlreadyApplied)
+            }
+        },
+        apply_fn: |store| {
+            let result =
+                crate::revisions_sidecar_cleanup_service::migrate_revisions_sidecars(store)?;
+            serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!(
+                    "failed to serialize revisions-sidecar-cleanup migration result: {e}"
+                ),
+            })
+        },
+    },
     MigrationDefinition {
         id: "field-type",
         title: "Adopt the RFC-032 fieldType model",
@@ -486,34 +529,37 @@ mod tests {
     fn list_migrations_returns_every_entry_for_store_with_no_identity_note() {
         let store = make_store_with_container_no_identity();
         let migrations = list_migrations(&store).unwrap();
-        assert_eq!(migrations.len(), 9);
+        assert_eq!(migrations.len(), 10);
         assert_eq!(migrations[0].id, "graduated-at-cleanup");
-        assert_eq!(migrations[1].id, "field-type");
-        assert_eq!(migrations[2].id, "rfc039-carrier");
-        assert_eq!(migrations[3].id, "metamodel-v1-1-0");
-        assert_eq!(migrations[4].id, "tier1-removal");
-        assert_eq!(migrations[5].id, "substrate-properties-to-meta");
-        assert_eq!(migrations[6].id, "migrate-identity");
-        assert_eq!(migrations[7].id, "repo-upgrade");
-        assert_eq!(migrations[8].id, "rfc038-storage");
+        assert_eq!(migrations[1].id, "revisions-sidecar-cleanup");
+        assert_eq!(migrations[2].id, "field-type");
+        assert_eq!(migrations[3].id, "rfc039-carrier");
+        assert_eq!(migrations[4].id, "metamodel-v1-1-0");
+        assert_eq!(migrations[5].id, "tier1-removal");
+        assert_eq!(migrations[6].id, "substrate-properties-to-meta");
+        assert_eq!(migrations[7].id, "migrate-identity");
+        assert_eq!(migrations[8].id, "repo-upgrade");
+        assert_eq!(migrations[9].id, "rfc038-storage");
         // No legacy graduatedAt Notes → AlreadyApplied
         assert_eq!(migrations[0].status, MigrationStatus::AlreadyApplied);
+        // No .revisions.json sidecars → AlreadyApplied
+        assert_eq!(migrations[1].status, MigrationStatus::AlreadyApplied);
         // Unstamped manifest → field-type Needed
-        assert_eq!(migrations[1].status, MigrationStatus::Needed);
-        // Revision < 2 → rfc039-carrier Needed
         assert_eq!(migrations[2].status, MigrationStatus::Needed);
-        // Revision < 3 → metamodel-v1-1-0 Needed
+        // Revision < 2 → rfc039-carrier Needed
         assert_eq!(migrations[3].status, MigrationStatus::Needed);
-        // Revision < 4 → tier1-removal Needed
+        // Revision < 3 → metamodel-v1-1-0 Needed
         assert_eq!(migrations[4].status, MigrationStatus::Needed);
-        // Revision < 5 → substrate-properties-to-meta Needed
+        // Revision < 4 → tier1-removal Needed
         assert_eq!(migrations[5].status, MigrationStatus::Needed);
-        // Container exists but identity_instance_id is None → migrate-identity Needed
+        // Revision < 5 → substrate-properties-to-meta Needed
         assert_eq!(migrations[6].status, MigrationStatus::Needed);
+        // Container exists but identity_instance_id is None → migrate-identity Needed
+        assert_eq!(migrations[7].status, MigrationStatus::Needed);
         // Zero instances → all paths canonical → AlreadyApplied
-        assert_eq!(migrations[7].status, MigrationStatus::AlreadyApplied);
+        assert_eq!(migrations[8].status, MigrationStatus::AlreadyApplied);
         // MemoryStore is not a file tree — there is no storage layout to place.
-        assert_eq!(migrations[8].status, MigrationStatus::NotApplicable);
+        assert_eq!(migrations[9].status, MigrationStatus::NotApplicable);
     }
 
     fn indexed_srsj_store() -> crate::store::FileStore {

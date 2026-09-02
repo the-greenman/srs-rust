@@ -4,7 +4,6 @@ use crate::relation_service::load_relations;
 use crate::repository_lifecycle::{
     InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
 };
-use crate::revision_service::sidecar_path_for;
 use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::slugify_instance_name;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -996,7 +995,6 @@ struct PlannedRename {
     from_path: String,
     to_path: String,
     value: serde_json::Value,
-    sidecar_value: Option<serde_json::Value>,
 }
 
 /// Catalog-backed (RFC-038 [R1]): membership and locators come from one
@@ -1059,23 +1057,11 @@ fn collect_planned_renames(
     {
         let current_path = entry.locator.as_deref().unwrap_or_default();
         if current_path != canonical {
-            let old_sidecar = sidecar_path_for(current_path);
-            let sidecar_value = match store.load_instance_json(&old_sidecar) {
-                Ok(v) => Some(v),
-                Err(RepositoryError::NotFound { .. }) => None,
-                Err(RepositoryError::Io { source, .. })
-                    if source.kind() == std::io::ErrorKind::NotFound =>
-                {
-                    None
-                }
-                Err(e) => return Err(e),
-            };
             planned.push(PlannedRename {
                 instance_id: entry.id.clone(),
                 from_path: current_path.to_string(),
                 to_path: canonical.clone(),
                 value: instance.value.clone(),
-                sidecar_value,
             });
         }
     }
@@ -1105,25 +1091,24 @@ pub fn upgrade_repository_paths(
         });
     }
 
-    // Phase 2: apply — write canonical instance files (and sidecars). No
-    // manifest write follows: membership and locators come from the tree
-    // ([R1]/[R22]) — there is no index entry to repoint.
+    // Phase 2: apply — write canonical instance files. No manifest write
+    // follows: membership and locators come from the tree ([R1]/[R22]) —
+    // there is no index entry to repoint.
+    //
+    // Used to also move a `.revisions.json` sidecar alongside its renamed
+    // record. Removed (rfc-decision-2a1e1590, srs-rust#866): it was
+    // unreachable — `collect_planned_renames` above already requires
+    // `store.catalog()` to succeed, which any `.revisions.json` left in the
+    // tree already fails ([R24], whole-repository fatal), so this could
+    // never have found one to move.
     for rename in &planned {
         ensure_instance_parent(store, &rename.to_path)?;
         store.save_instance_json(&rename.to_path, &rename.value)?;
-        if let Some(sidecar_value) = &rename.sidecar_value {
-            let new_sidecar = sidecar_path_for(&rename.to_path);
-            ensure_instance_parent(store, &new_sidecar)?;
-            store.save_instance_json(&new_sidecar, sidecar_value)?;
-        }
     }
 
     // Phase 3: cleanup — delete old files (best-effort; orphans are harmless per ADR-007)
     for rename in &planned {
         let _ = store.delete_instance_file(&rename.from_path);
-        if rename.sidecar_value.is_some() {
-            let _ = store.delete_instance_file(&sidecar_path_for(&rename.from_path));
-        }
     }
 
     let renames: Vec<InstancePathRename> = planned
@@ -2440,8 +2425,14 @@ mod tests {
         // Filesystem state is the focus here; full schema validation is covered by dogfooding.
     }
 
+    /// Used to assert `upgrade_repository_paths` moves a `.revisions.json`
+    /// sidecar alongside its renamed record. rfc-decision-2a1e1590 /
+    /// srs-rust#866 retired that: `collect_planned_renames` requires
+    /// `store.catalog()` to succeed first, and any `.revisions.json` left in
+    /// the tree already fails that ([R24], whole-repository fatal) — so the
+    /// upgrade itself must now refuse, not silently carry the sidecar along.
     #[test]
-    fn upgrade_moves_revision_sidecar() {
+    fn upgrade_refuses_while_a_stray_revisions_sidecar_remains() {
         use crate::revision_service::sidecar_path_for;
 
         let store = MemoryStore::uninitialized();
@@ -2449,29 +2440,23 @@ mod tests {
 
         let id = "aabbccdd-1234-5678-90ab-cdef01234567";
         let old_path = "records/tier-2/old-name.json";
-        let canonical_path = "records/tier-2/com-example-my-type-aabbccdd.json";
         let old_sidecar = sidecar_path_for(old_path);
-        let new_sidecar = sidecar_path_for(canonical_path);
 
         let value = tier2_record_value(id, "com.example/my-type");
         inject_non_canonical_instance(&store, id, 2, old_path, value);
 
-        // Write a fake sidecar at the old path.
+        // A stray sidecar left by a pre-#866 binary.
         let sidecar_value = serde_json::json!({"recordId": id, "revisions": []});
         store
             .save_instance_json(&old_sidecar, &sidecar_value)
             .unwrap();
 
-        upgrade_repository_paths(&store).unwrap();
-
-        // Old sidecar gone, new sidecar present.
         assert!(
-            store.load_instance_json(&old_sidecar).is_err(),
-            "old sidecar should be deleted"
-        );
-        assert!(
-            store.load_instance_json(&new_sidecar).is_ok(),
-            "new sidecar should exist at canonical path"
+            matches!(
+                upgrade_repository_paths(&store).unwrap_err(),
+                RepositoryError::CatalogLoad { .. }
+            ),
+            "the upgrade must refuse rather than silently carry a retired sidecar along"
         );
     }
 
