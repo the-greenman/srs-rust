@@ -84,7 +84,7 @@
         "views",
         "projections"
       ],
-      "content": "Extraction schemas, semantic Types, Views, DocumentViews, templates, and rendered projections can easily blur together. The challenge is to keep each construct responsible for the right thing: what to extract, what kind of object exists, how fields are shown, how records are assembled, and how outputs are communicated."
+      "content": "Extraction schemas, semantic Types, Views, Compositions, templates, and rendered projections can easily blur together. The challenge is to keep each construct responsible for the right thing: what to extract, what kind of object exists, how fields are shown, how records are assembled, and how outputs are communicated."
     },
     {
       "name": "maintaining_ai_as_assistant",

@@ -35,7 +35,7 @@
     "compatibleTypes": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Optional semanticObjectType hints this View was designed for. Informational only; not a compatibility constraint."
+      "description": "Optional Type-key hints (namespace/name) this View was designed for. Informational only; not a compatibility constraint."
     },
     "fieldViews": {
       "type": "array",
@@ -165,7 +165,7 @@
       "properties": {
         "format": {
           "type": "string",
-          "description": "Target output format. Portable values: 'markdown', 'adoc', 'html', 'text'. In section rendering context (ext:views-l2), DocumentView.format supersedes this value."
+          "description": "Target output format. Portable values: 'markdown', 'adoc', 'html', 'text'. In section rendering context (ext:views-l2), Composition.format supersedes this value."
         },
         "preamble": {
           "type": "string",

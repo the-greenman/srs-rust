@@ -75,11 +75,11 @@ fn write_json(path: &std::path::Path, value: serde_json::Value) {
                 "$schema",
                 serde_json::json!("https://srs.semanticops.com/schema/2.0/relation-type.json"),
             );
-        } else if p.contains("/document-views/") {
+        } else if p.contains("/compositions/") {
             ins(
                 obj,
                 "$schema",
-                serde_json::json!("https://srs.semanticops.com/schema/2.0/document-view.json"),
+                serde_json::json!("https://srs.semanticops.com/schema/2.0/composition.json"),
             );
         } else if p.contains("/views/") {
             ins(
@@ -144,7 +144,7 @@ fn create_navigation_repo() -> TempDir {
             "types": [],
             "relationTypes": [],
             "views": [],
-            "documentViews": [],
+            "compositions": [],
             "blueprints": [],
             "protocols": [],
             "vocabularies": [],
@@ -1411,7 +1411,7 @@ fn tag_list_returns_ok_envelope() {
     assert!(result["payload"]["terms"].is_array());
 }
 
-// ---------- render document-view tests ----------
+// ---------- render composition tests ----------
 
 fn field_groups_fixture_dir() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/field-groups")
@@ -1422,30 +1422,30 @@ fn repeatable_fields_fixture_dir() -> std::path::PathBuf {
 }
 
 #[test]
-fn document_view_list_root_type_filter_is_wired() {
-    // RFC-009: `document-view list --root-type <uuid>` filters by rootTypeRefs.
+fn composition_list_root_type_filter_is_wired() {
+    // RFC-009: `composition list --root-type <uuid>` filters by rootTypeRefs.
     let fixture = repeatable_fields_fixture_dir();
 
     // Unfiltered listing returns the fixture's document views.
-    let all = run_srs_in_dir(&fixture, &["document-view", "list"]);
+    let all = run_srs_in_dir(&fixture, &["composition", "list"]);
     assert_eq!(all["ok"], true, "unfiltered list should succeed: {all}");
-    let total = all["payload"]["documentViews"].as_array().unwrap().len();
+    let total = all["payload"]["compositions"].as_array().unwrap().len();
     assert!(total > 0, "fixture should declare document views");
 
     // A root-type UUID that no fixture view anchors to yields an empty list (still ok:true).
     let filtered = run_srs_in_dir(
         &fixture,
         &[
-            "document-view",
+            "composition",
             "list",
             "--root-type",
             "11111111-1111-4111-8111-111111111111",
         ],
     );
     assert_eq!(filtered["ok"], true);
-    assert_eq!(filtered["command"], "document-view list");
+    assert_eq!(filtered["command"], "composition list");
     assert_eq!(
-        filtered["payload"]["documentViews"]
+        filtered["payload"]["compositions"]
             .as_array()
             .unwrap()
             .len(),
@@ -1455,13 +1455,13 @@ fn document_view_list_root_type_filter_is_wired() {
 }
 
 #[test]
-fn render_document_view_json_returns_projection_payload() {
+fn render_composition_json_returns_projection_payload() {
     let fixture = field_groups_fixture_dir();
     let result = run_srs_in_dir(
         &fixture,
         &[
             "render",
-            "document-view",
+            "composition",
             "--view",
             "00000000-0000-4000-8000-000000000971",
             "--view-format",
@@ -1470,7 +1470,7 @@ fn render_document_view_json_returns_projection_payload() {
     );
 
     assert_eq!(result["ok"], true);
-    assert_eq!(result["command"], "render document-view");
+    assert_eq!(result["command"], "render composition");
 
     let payload = &result["payload"];
     assert!(
@@ -1485,7 +1485,7 @@ fn render_document_view_json_returns_projection_payload() {
         "https://srs.semanticops.com/schema/2.0/document-view-output.json"
     );
     assert_eq!(
-        proj["documentViewId"],
+        proj["compositionId"],
         "00000000-0000-4000-8000-000000000971"
     );
     assert!(proj["generatedAt"].is_string());
@@ -1494,13 +1494,13 @@ fn render_document_view_json_returns_projection_payload() {
 }
 
 #[test]
-fn render_document_view_json_projection_sections_and_records() {
+fn render_composition_json_projection_sections_and_records() {
     let fixture = field_groups_fixture_dir();
     let result = run_srs_in_dir(
         &fixture,
         &[
             "render",
-            "document-view",
+            "composition",
             "--view",
             "00000000-0000-4000-8000-000000000971",
             "--view-format",
@@ -1536,13 +1536,13 @@ fn render_document_view_json_projection_sections_and_records() {
 }
 
 #[test]
-fn render_document_view_json_rendered_string_is_empty() {
+fn render_composition_json_rendered_string_is_empty() {
     let fixture = field_groups_fixture_dir();
     let result = run_srs_in_dir(
         &fixture,
         &[
             "render",
-            "document-view",
+            "composition",
             "--view",
             "00000000-0000-4000-8000-000000000971",
             "--view-format",
@@ -1558,7 +1558,7 @@ fn render_document_view_json_rendered_string_is_empty() {
 }
 
 #[test]
-fn render_document_view_json_writes_output_file() {
+fn render_composition_json_writes_output_file() {
     let fixture = field_groups_fixture_dir();
     let temp = tempfile::TempDir::new().unwrap();
     let out_path = temp.path().join("output.json");
@@ -1568,7 +1568,7 @@ fn render_document_view_json_writes_output_file() {
         &fixture,
         &[
             "render",
-            "document-view",
+            "composition",
             "--view",
             "00000000-0000-4000-8000-000000000971",
             "--view-format",
@@ -1590,14 +1590,14 @@ fn render_document_view_json_writes_output_file() {
         "https://srs.semanticops.com/schema/2.0/document-view-output.json"
     );
     assert_eq!(
-        parsed["documentViewId"],
+        parsed["compositionId"],
         "00000000-0000-4000-8000-000000000971"
     );
     assert!(parsed["sections"].is_array());
 }
 
 #[test]
-fn render_document_view_markup_writes_markup_to_output_file() {
+fn render_composition_markup_writes_markup_to_output_file() {
     let fixture = repeatable_fields_fixture_dir();
     let temp = tempfile::TempDir::new().unwrap();
     let out_path = temp.path().join("output.md");
@@ -1607,7 +1607,7 @@ fn render_document_view_markup_writes_markup_to_output_file() {
         &fixture,
         &[
             "render",
-            "document-view",
+            "composition",
             "--view",
             "00000000-0000-4000-8000-000000000981",
             "--output",
@@ -1630,13 +1630,13 @@ fn render_document_view_markup_writes_markup_to_output_file() {
 }
 
 #[test]
-fn render_document_view_markup_no_projection_in_payload() {
+fn render_composition_markup_no_projection_in_payload() {
     let fixture = repeatable_fields_fixture_dir();
     let result = run_srs_in_dir(
         &fixture,
         &[
             "render",
-            "document-view",
+            "composition",
             "--view",
             "00000000-0000-4000-8000-000000000981",
         ],
@@ -1658,7 +1658,7 @@ fn render_document_view_markup_no_projection_in_payload() {
 }
 
 #[test]
-fn render_document_view_json_includes_visible_false_fields() {
+fn render_composition_json_includes_visible_false_fields() {
     // Regression: `visible: false` in a fieldView must not exclude the field from the JSON
     // projection. `visible` is a rendering hint for text/markdown output only.
     let fixture = repeatable_fields_fixture_dir();
@@ -1666,7 +1666,7 @@ fn render_document_view_json_includes_visible_false_fields() {
         &fixture,
         &[
             "render",
-            "document-view",
+            "composition",
             "--view",
             "00000000-0000-4000-8000-000000000992",
             "--view-format",
@@ -1696,13 +1696,13 @@ fn render_document_view_json_includes_visible_false_fields() {
 }
 
 #[test]
-fn render_document_view_unknown_view_id_returns_error() {
+fn render_composition_unknown_view_id_returns_error() {
     let fixture = field_groups_fixture_dir();
     let (ok, raw) = run_srs_raw(
         &fixture,
         &[
             "render",
-            "document-view",
+            "composition",
             "--view",
             "00000000-0000-0000-0000-000000000000",
         ],
@@ -1710,7 +1710,7 @@ fn render_document_view_unknown_view_id_returns_error() {
     assert!(ok, "command should exit 0 with JSON envelope");
     let result: Value = serde_json::from_str(&raw).expect("json output");
     assert_eq!(result["ok"], false);
-    assert_eq!(result["command"], "render document-view");
+    assert_eq!(result["command"], "render composition");
 }
 
 // ---------- relation-type tests ----------
@@ -3561,7 +3561,7 @@ fn create_temp_repo_with_protocol_package() -> TempDir {
         serde_json::to_string_pretty(&serde_json::json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
-            "dataModelRevision": 5,
+            "dataModelRevision": 6,
             "repositoryId": "00000000-0000-4000-8000-000000009900",
             "title": "Protocol Test Repo",
             "container": {
@@ -4862,15 +4862,15 @@ fn container_scope_relation_list_filters_to_internal() {
 }
 
 #[test]
-fn render_document_view_returns_rendered_payload() {
+fn render_composition_returns_rendered_payload() {
     let result = run_srs(&[
         "render",
-        "document-view",
+        "composition",
         "--view",
         "3a000004-0000-4000-a000-000000000004",
     ]);
     assert_eq!(result["ok"], true);
-    assert_eq!(result["command"], "render document-view");
+    assert_eq!(result["command"], "render composition");
     assert!(!result["payload"]["rendered"]
         .as_str()
         .unwrap_or("")
@@ -4879,12 +4879,12 @@ fn render_document_view_returns_rendered_payload() {
 }
 
 #[test]
-fn render_document_view_unknown_id_returns_ok_false() {
+fn render_composition_unknown_id_returns_ok_false() {
     let (ok, stdout) = run_srs_raw(
         &srs_spec_repo_dir(),
         &[
             "render",
-            "document-view",
+            "composition",
             "--view",
             "00000000-0000-0000-0000-000000000000",
         ],
@@ -4892,17 +4892,17 @@ fn render_document_view_unknown_id_returns_ok_false() {
     assert!(ok, "command should return JSON envelope");
     let result: Value = serde_json::from_str(&stdout).expect("json output");
     assert_eq!(result["ok"], false);
-    assert_eq!(result["command"], "render document-view");
+    assert_eq!(result["command"], "render composition");
 }
 
 #[test]
-fn render_document_view_writes_output_file() {
+fn render_composition_writes_output_file() {
     let temp = TempDir::new().expect("tempdir");
     let out_path = temp.path().join("rendered.md");
     let out_str = out_path.to_string_lossy().to_string();
     let result = run_srs(&[
         "render",
-        "document-view",
+        "composition",
         "--view",
         "3a000004-0000-4000-a000-000000000004",
         "--output",
@@ -4914,10 +4914,10 @@ fn render_document_view_writes_output_file() {
 }
 
 #[test]
-fn render_document_view_view_format_text_overrides_markup() {
+fn render_composition_view_format_text_overrides_markup() {
     let result = run_srs(&[
         "render",
-        "document-view",
+        "composition",
         "--view",
         "3a000004-0000-4000-a000-000000000004",
         "--view-format",
@@ -4947,12 +4947,12 @@ fn repeatable_fixture_root() -> std::path::PathBuf {
 }
 
 #[test]
-fn cli_render_document_view_with_theme_variant_flag_passes_through() {
+fn cli_render_composition_with_theme_variant_flag_passes_through() {
     let result = run_srs_in_dir(
         &repeatable_fixture_root(),
         &[
             "render",
-            "document-view",
+            "composition",
             "--view",
             "00000000-0000-4000-8000-000000000987",
             "--theme-variant",
@@ -4969,12 +4969,12 @@ fn cli_render_document_view_with_theme_variant_flag_passes_through() {
 }
 
 #[test]
-fn cli_render_document_view_without_theme_variant_works_as_before() {
+fn cli_render_composition_without_theme_variant_works_as_before() {
     let result = run_srs_in_dir(
         &repeatable_fixture_root(),
         &[
             "render",
-            "document-view",
+            "composition",
             "--view",
             "00000000-0000-4000-8000-000000000987",
         ],
@@ -4989,12 +4989,12 @@ fn cli_render_document_view_without_theme_variant_works_as_before() {
 }
 
 #[test]
-fn cli_render_document_view_theme_variant_not_found_produces_diagnostic_not_error() {
+fn cli_render_composition_theme_variant_not_found_produces_diagnostic_not_error() {
     let result = run_srs_in_dir(
         &repeatable_fixture_root(),
         &[
             "render",
-            "document-view",
+            "composition",
             "--view",
             "00000000-0000-4000-8000-000000000987",
             "--theme-variant",
@@ -5379,7 +5379,7 @@ fn create_temp_repo_with_views() -> TempDir {
     .unwrap();
     let package_dir = temp.path().join("package");
     std::fs::create_dir_all(package_dir.join("views")).unwrap();
-    std::fs::create_dir_all(package_dir.join("document-views")).unwrap();
+    std::fs::create_dir_all(package_dir.join("compositions")).unwrap();
     write_json(
         &package_dir.join("package.json"),
         serde_json::json!({
@@ -5391,7 +5391,7 @@ fn create_temp_repo_with_views() -> TempDir {
             "types": [],
             "relationTypes": [],
             "views": [],
-            "documentViews": []
+            "compositions": []
         }),
     );
     temp
@@ -5411,7 +5411,7 @@ fn minimal_view_json() -> String {
     .to_string()
 }
 
-fn minimal_document_view_json() -> String {
+fn minimal_composition_json() -> String {
     serde_json::json!({
         "id": "",
         "namespace": "com.test",
@@ -5599,78 +5599,78 @@ fn view_create_fails_validation() {
 }
 
 // ---------------------------------------------------------------------------
-// document-view command integration tests
+// composition command integration tests
 // ---------------------------------------------------------------------------
 
 #[test]
-fn document_view_list_returns_ok_envelope() {
+fn composition_list_returns_ok_envelope() {
     let temp = create_temp_repo_with_views();
-    let result = run_srs_in_dir(temp.path(), &["document-view", "list"]);
+    let result = run_srs_in_dir(temp.path(), &["composition", "list"]);
     assert_eq!(result["ok"], true);
-    assert_eq!(result["command"], "document-view list");
-    assert!(result["payload"]["documentViews"].is_array());
+    assert_eq!(result["command"], "composition list");
+    assert!(result["payload"]["compositions"].is_array());
     assert_eq!(
-        result["payload"]["documentViews"].as_array().unwrap().len(),
+        result["payload"]["compositions"].as_array().unwrap().len(),
         0
     );
 }
 
 #[test]
-fn document_view_create_returns_document_view_with_id() {
+fn composition_create_returns_composition_with_id() {
     let temp = create_temp_repo_with_views();
     let result = run_srs_stdin_in_dir(
         temp.path(),
-        &["document-view", "create"],
-        &minimal_document_view_json(),
+        &["composition", "create"],
+        &minimal_composition_json(),
     );
     assert_eq!(
         result["ok"], true,
-        "document-view create failed: {:?}",
+        "composition create failed: {:?}",
         result
     );
-    let id = result["payload"]["documentView"]["id"].as_str().unwrap();
+    let id = result["payload"]["composition"]["id"].as_str().unwrap();
     assert!(!id.is_empty());
 }
 
 #[test]
-fn document_view_get_returns_created() {
+fn composition_get_returns_created() {
     let temp = create_temp_repo_with_views();
     let created = run_srs_stdin_in_dir(
         temp.path(),
-        &["document-view", "create"],
-        &minimal_document_view_json(),
+        &["composition", "create"],
+        &minimal_composition_json(),
     );
-    let id = created["payload"]["documentView"]["id"].as_str().unwrap();
+    let id = created["payload"]["composition"]["id"].as_str().unwrap();
 
-    let result = run_srs_in_dir(temp.path(), &["document-view", "get", id]);
+    let result = run_srs_in_dir(temp.path(), &["composition", "get", id]);
     assert_eq!(result["ok"], true);
-    assert_eq!(result["payload"]["documentView"]["name"], "test-doc-view");
+    assert_eq!(result["payload"]["composition"]["name"], "test-doc-view");
 }
 
 #[test]
-fn document_view_list_contains_created() {
+fn composition_list_contains_created() {
     let temp = create_temp_repo_with_views();
     let created = run_srs_stdin_in_dir(
         temp.path(),
-        &["document-view", "create"],
-        &minimal_document_view_json(),
+        &["composition", "create"],
+        &minimal_composition_json(),
     );
-    let id = created["payload"]["documentView"]["id"].as_str().unwrap();
+    let id = created["payload"]["composition"]["id"].as_str().unwrap();
 
-    let result = run_srs_in_dir(temp.path(), &["document-view", "list"]);
+    let result = run_srs_in_dir(temp.path(), &["composition", "list"]);
     assert_eq!(result["ok"], true);
-    let dviews = result["payload"]["documentViews"].as_array().unwrap();
+    let dviews = result["payload"]["compositions"].as_array().unwrap();
     assert!(dviews.iter().any(|v| v["id"] == id));
 }
 
 #[test]
-fn document_view_list_filters_by_namespace() {
+fn composition_list_filters_by_namespace() {
     let temp = create_temp_repo_with_views();
 
     run_srs_stdin_in_dir(
         temp.path(),
-        &["document-view", "create"],
-        &minimal_document_view_json(),
+        &["composition", "create"],
+        &minimal_composition_json(),
     );
 
     let other = serde_json::json!({
@@ -5687,27 +5687,27 @@ fn document_view_list_filters_by_namespace() {
         "createdAt": "2026-01-01T00:00:00Z"
     })
     .to_string();
-    run_srs_stdin_in_dir(temp.path(), &["document-view", "create"], &other);
+    run_srs_stdin_in_dir(temp.path(), &["composition", "create"], &other);
 
     let result = run_srs_in_dir(
         temp.path(),
-        &["document-view", "list", "--namespace", "com.other"],
+        &["composition", "list", "--namespace", "com.other"],
     );
     assert_eq!(result["ok"], true);
-    let dviews = result["payload"]["documentViews"].as_array().unwrap();
+    let dviews = result["payload"]["compositions"].as_array().unwrap();
     assert_eq!(dviews.len(), 1);
     assert_eq!(dviews[0]["namespace"], "com.other");
 }
 
 #[test]
-fn document_view_update_replaces_description() {
+fn composition_update_replaces_description() {
     let temp = create_temp_repo_with_views();
     let created = run_srs_stdin_in_dir(
         temp.path(),
-        &["document-view", "create"],
-        &minimal_document_view_json(),
+        &["composition", "create"],
+        &minimal_composition_json(),
     );
-    let id = created["payload"]["documentView"]["id"].as_str().unwrap();
+    let id = created["payload"]["composition"]["id"].as_str().unwrap();
 
     let updated_json = serde_json::json!({
         "id": id,
@@ -5724,53 +5724,49 @@ fn document_view_update_replaces_description() {
     })
     .to_string();
     let update_result =
-        run_srs_stdin_in_dir(temp.path(), &["document-view", "update", id], &updated_json);
+        run_srs_stdin_in_dir(temp.path(), &["composition", "update", id], &updated_json);
     assert_eq!(
         update_result["ok"], true,
-        "document-view update failed: {:?}",
+        "composition update failed: {:?}",
         update_result
     );
     assert_eq!(
-        update_result["payload"]["documentView"]["description"],
+        update_result["payload"]["composition"]["description"],
         "Updated doc view description"
     );
 }
 
 #[test]
-fn document_view_delete_removes_view() {
+fn composition_delete_removes_view() {
     let temp = create_temp_repo_with_views();
     let created = run_srs_stdin_in_dir(
         temp.path(),
-        &["document-view", "create"],
-        &minimal_document_view_json(),
+        &["composition", "create"],
+        &minimal_composition_json(),
     );
-    let id = created["payload"]["documentView"]["id"].as_str().unwrap();
+    let id = created["payload"]["composition"]["id"].as_str().unwrap();
 
-    let delete_result = run_srs_in_dir(temp.path(), &["document-view", "delete", id]);
+    let delete_result = run_srs_in_dir(temp.path(), &["composition", "delete", id]);
     assert_eq!(delete_result["ok"], true);
     assert_eq!(delete_result["payload"]["id"], id);
 
-    let list_result = run_srs_in_dir(temp.path(), &["document-view", "list"]);
-    let dviews = list_result["payload"]["documentViews"].as_array().unwrap();
+    let list_result = run_srs_in_dir(temp.path(), &["composition", "list"]);
+    let dviews = list_result["payload"]["compositions"].as_array().unwrap();
     assert!(dviews.iter().all(|v| v["id"] != id));
 }
 
 #[test]
-fn document_view_get_not_found_returns_error() {
+fn composition_get_not_found_returns_error() {
     let temp = create_temp_repo_with_views();
     let result = run_srs_in_dir(
         temp.path(),
-        &[
-            "document-view",
-            "get",
-            "00000000-0000-0000-0000-000000000000",
-        ],
+        &["composition", "get", "00000000-0000-0000-0000-000000000000"],
     );
     assert_eq!(result["ok"], false);
 }
 
 #[test]
-fn document_view_create_fails_validation() {
+fn composition_create_fails_validation() {
     let temp = create_temp_repo_with_views();
     let bad = serde_json::json!({
         "id": "",
@@ -5782,7 +5778,7 @@ fn document_view_create_fails_validation() {
         "createdAt": "2026-01-01T00:00:00Z"
     })
     .to_string();
-    let result = run_srs_stdin_in_dir(temp.path(), &["document-view", "create"], &bad);
+    let result = run_srs_stdin_in_dir(temp.path(), &["composition", "create"], &bad);
     assert_eq!(result["ok"], false);
 }
 
@@ -7002,12 +6998,12 @@ fn rfc008_container_subset_repo() -> TempDir {
 
 #[test]
 fn container_resolve_view_with_view_id() {
-    // Patch the type-filter DocumentView's container-subset section to carry a
+    // Patch the type-filter Composition's container-subset section to carry a
     // renderViewId so the column spec resolves from the text-view's field_views.
     let temp = rfc008_container_subset_repo();
     let dv_path = temp
         .path()
-        .join("package/document-views/type-filter-view.json");
+        .join("package/compositions/type-filter-view.json");
     let mut dv: Value = serde_json::from_str(&std::fs::read_to_string(&dv_path).unwrap()).unwrap();
     dv["sections"][0]["renderViewId"] = Value::String(RFC008_TEXT_VIEW.to_string());
     std::fs::write(&dv_path, serde_json::to_string_pretty(&dv).unwrap()).unwrap();
@@ -7029,7 +7025,7 @@ fn container_resolve_view_with_view_id() {
     assert_eq!(result["ok"], true, "expected ok: {result:?}");
     assert_eq!(result["command"], "container resolve-view");
     let cv = &result["payload"]["containerView"];
-    assert_eq!(cv["documentViewId"], RFC008_TYPE_FILTER_DV);
+    assert_eq!(cv["compositionId"], RFC008_TYPE_FILTER_DV);
     // One column from text-view, with the displayLabel override.
     let columns = cv["columns"].as_array().unwrap();
     assert_eq!(columns.len(), 1, "expected one column: {cv:?}");
@@ -7042,7 +7038,7 @@ fn container_resolve_view_with_view_id() {
 
 #[test]
 fn container_resolve_view_happy_path() {
-    // No --view-id and the container has no root binding, so no DocumentView matches:
+    // No --view-id and the container has no root binding, so no Composition matches:
     // columns are empty but the ordered members are still returned.
     let temp = rfc008_container_subset_repo();
     let repo_str = temp.path().to_str().unwrap().to_string();
@@ -7081,7 +7077,7 @@ fn repo_migrations_lists_the_registered_migrations() {
     let migrations = result["payload"]["migrations"]
         .as_array()
         .expect("migrations must be an array");
-    assert_eq!(migrations.len(), 10, "expected exactly ten migrations");
+    assert_eq!(migrations.len(), 11, "expected exactly eleven migrations");
 
     let ids: Vec<&str> = migrations
         .iter()
@@ -7097,6 +7093,7 @@ fn repo_migrations_lists_the_registered_migrations() {
             "metamodel-v1-1-0",
             "tier1-removal",
             "substrate-properties-to-meta",
+            "composition-cutover",
             "migrate-identity",
             "repo-upgrade",
             "rfc038-storage"
@@ -7363,8 +7360,8 @@ fn repo_apply_migration_field_type_rewrites_a_legacy_field_end_to_end() {
     // ...and after completing the ladder to the current revision
     // (rfc039-carrier is migration #2, metamodel-v1-1-0 is migration #3,
     // tier1-removal is migration #4, substrate-properties-to-meta is
-    // migration #5, rfc038-storage is the placement transform), the
-    // repository validates clean.
+    // migration #5, composition-cutover is migration #6, rfc038-storage is
+    // the placement transform), the repository validates clean.
     let carrier = run_srs_in_dir(repo, &["repo", "apply-migration", "--id", "rfc039-carrier"]);
     assert_eq!(carrier["ok"], true, "expected ok: {carrier:?}");
     let metamodel = run_srs_in_dir(
@@ -7386,6 +7383,14 @@ fn repo_apply_migration_field_type_rewrites_a_legacy_field_end_to_end() {
     assert_eq!(
         substrate_meta["ok"], true,
         "expected ok: {substrate_meta:?}"
+    );
+    let composition_cutover = run_srs_in_dir(
+        repo,
+        &["repo", "apply-migration", "--id", "composition-cutover"],
+    );
+    assert_eq!(
+        composition_cutover["ok"], true,
+        "expected ok: {composition_cutover:?}"
     );
     let storage = run_srs_in_dir(repo, &["repo", "apply-migration", "--id", "rfc038-storage"]);
     assert_eq!(storage["ok"], true, "expected ok: {storage:?}");
@@ -7494,7 +7499,7 @@ fn create_repo_with_tier0_identity() -> TempDir {
             "name": "primary",
             "version": "1.0.0",
             "fields": [], "types": [], "relationTypes": [],
-            "views": [], "documentViews": [], "blueprints": []
+            "views": [], "compositions": [], "blueprints": []
         }),
     );
 

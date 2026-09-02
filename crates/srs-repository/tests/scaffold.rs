@@ -64,7 +64,7 @@ fn scaffold_from_raw_seed_produces_valid_repository() {
         .collect();
     assert!(
         dangling.is_empty(),
-        "fresh scaffold must not ship dangling document-view container refs: {dangling:?}"
+        "fresh scaffold must not ship dangling composition container refs: {dangling:?}"
     );
 }
 

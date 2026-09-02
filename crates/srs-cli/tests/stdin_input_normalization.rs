@@ -1,5 +1,5 @@
 //! End-to-end tests for issue #511 against the real binary:
-//! - `document-view create` succeeds without `createdAt` on stdin (normalization)
+//! - `composition create` succeeds without `createdAt` on stdin (normalization)
 //! - `note create` with a wrong section shape fails with a JSON-path-bearing error
 
 use serde_json::Value;
@@ -27,7 +27,7 @@ fn create_temp_repo() -> TempDir {
             "types": [],
             "relationTypes": [],
             "views": [],
-            "documentViews": [],
+            "compositions": [],
             "themes": []
         }))
         .unwrap(),
@@ -66,7 +66,7 @@ fn run_srs_stdin(dir: &std::path::Path, args: &[&str], stdin: &str) -> (Value, b
 }
 
 #[test]
-fn document_view_create_succeeds_without_created_at() {
+fn composition_create_succeeds_without_created_at() {
     let repo = create_temp_repo();
     let body = serde_json::json!({
         "namespace": "com.test",
@@ -81,12 +81,12 @@ fn document_view_create_succeeds_without_created_at() {
         ]
     });
     let (envelope, success) =
-        run_srs_stdin(repo.path(), &["document-view", "create"], &body.to_string());
+        run_srs_stdin(repo.path(), &["composition", "create"], &body.to_string());
     assert!(
         success && envelope["ok"] == true,
-        "document-view create without createdAt should succeed, got: {envelope}"
+        "composition create without createdAt should succeed, got: {envelope}"
     );
-    let dv = &envelope["payload"]["documentView"];
+    let dv = &envelope["payload"]["composition"];
     assert!(
         dv["createdAt"].as_str().is_some_and(|s| !s.is_empty()),
         "createdAt should be stamped, got: {envelope}"

@@ -19,12 +19,14 @@ use crate::store::RepositoryStore;
 use serde::Serialize;
 
 /// The data-model generation this build writes.
-/// The revision this build reads and writes — the substrate escape-bag
-/// rename `properties` -> `meta` (migration #5: srs#433/srs-rust#894, srs PR
-/// #510). Tier 1 (TypedRecord) retirement is revision 4; RFC-040's metamodel
-/// v1.1.0 engine sync is revision 3; RFC-039's carrier model is revision 2;
-/// RFC-032's fieldType model is revision 1.
-pub const CURRENT_DATA_MODEL_REVISION: u64 = 5;
+/// The revision this build reads and writes — the Composition rename +
+/// semanticObjectType collapse + packageDependencies fold (migration #6:
+/// srs-rust#910/#873, srs#523/#524, `rfc-decision-92d2da05`,
+/// `rfc-decision-c8704763`). The substrate escape-bag rename `properties` ->
+/// `meta` is revision 5; Tier 1 (TypedRecord) retirement is revision 4;
+/// RFC-040's metamodel v1.1.0 engine sync is revision 3; RFC-039's carrier
+/// model is revision 2; RFC-032's fieldType model is revision 1.
+pub const CURRENT_DATA_MODEL_REVISION: u64 = 6;
 /// The revision the RFC-032 `field-type` migration produces.
 pub const FIELD_TYPE_REVISION: u64 = 1;
 /// The revision RFC-040's metamodel v1.1.0 engine sync produces. This is
@@ -72,6 +74,21 @@ pub const TIER1_REMOVAL_REVISION: u64 = 4;
 /// `meta` on disk. Idempotent: a definition already using `meta` reproduces
 /// byte for byte.
 pub const SUBSTRATE_META_REVISION: u64 = 5;
+/// The revision the `composition-cutover` migration produces. This is
+/// migration #6 (revision 5 -> 6), per srs-rust#910/#873 (srs#523/#524,
+/// `rfc-decision-92d2da05`, `rfc-decision-c8704763`) — the one shared stamp
+/// for three riders composed in a single first-party cutover (RFC-038/039
+/// precedent, "no 6-then-7"): the `DocumentView` -> `Composition` rename
+/// (schema, directory/file, `$schema` pointer, `manifest.renderedPresentations`
+/// key), the `semanticObjectType` collapse (`RecordType`, `SectionSource.type-query`,
+/// `RelationTypeDefinition`'s E4 constraints), and the `dependencyRefs` ->
+/// `packageDependencies` fold (srs-rust#873). A real content transform, like
+/// #2/#5: none of these renames carry a serde alias, so an un-migrated rev-5
+/// document fails the checked catalog outright ([R24]) rather than loading
+/// through a tolerant path — this migration is the only sanctioned reader of
+/// the old shapes, via the raw file tree (ADR-045-style repair seam), same as
+/// `rfc038-storage`.
+pub const COMPOSITION_CUTOVER_REVISION: u64 = 6;
 
 /// The manifest property carrying the generation stamp (RFC-033 [R6] / #265).
 pub const DATA_MODEL_REVISION_KEY: &str = "dataModelRevision";
@@ -322,6 +339,13 @@ pub fn substrate_properties_to_meta_migration_needed(
     store: &dyn RepositoryStore,
 ) -> Result<bool, RepositoryError> {
     Ok(data_model_revision(store)? < SUBSTRATE_META_REVISION)
+}
+
+/// Whether this repository still needs migration #6 (`composition-cutover`).
+pub fn composition_cutover_migration_needed(
+    store: &dyn RepositoryStore,
+) -> Result<bool, RepositoryError> {
+    Ok(data_model_revision(store)? < COMPOSITION_CUTOVER_REVISION)
 }
 
 /// Apply migration #5: rename the substrate escape bag `properties` -> `meta`

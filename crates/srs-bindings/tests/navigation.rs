@@ -51,7 +51,7 @@ fn nav_fixture_srsj() -> String {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": [],
+                "compositions": [],
                 "blueprints": []
             },
             "package/fields/title.json": {
@@ -202,7 +202,7 @@ fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": [],
+                "compositions": [],
                 "blueprints": []
             },
             "package/fields/title.json": {
@@ -351,7 +351,7 @@ fn repository_navigation_root_is_member_of_its_own_sub_container() {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": [],
+                "compositions": [],
                 "blueprints": []
             },
             "package/fields/title.json": {

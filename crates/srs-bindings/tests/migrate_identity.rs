@@ -51,7 +51,7 @@ fn tier0_fixture_srsj() -> String {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": [],
+                "compositions": [],
                 "blueprints": []
             },
             "records/notes/identity.json": {
@@ -137,7 +137,7 @@ fn migrate_identity_no_prior_identity_succeeds() {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": [],
+                "compositions": [],
                 "blueprints": []
             }
         }
@@ -239,7 +239,7 @@ fn sections_survive_migrate_identity() {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": [],
+                "compositions": [],
                 "blueprints": []
             },
             format!("package/fields/{FIELD_TITLE_ID}.json"): {

@@ -447,12 +447,12 @@ mod tests {
             record_types,
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         }
@@ -486,7 +486,6 @@ mod tests {
         assignments: Vec<FieldAssignment>,
     ) -> srs_core::types::record_type::RecordType {
         srs_core::types::record_type::RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,

@@ -175,13 +175,13 @@ pub enum RepositoryError {
     },
 
     #[error("failed to load document view at {path:?}: {source}")]
-    DocumentViewLoad {
+    CompositionLoad {
         path: PathBuf,
         source: serde_json::Error,
     },
 
     #[error("document view validation failed at {path:?}: {source}")]
-    DocumentViewValidation {
+    CompositionValidation {
         path: PathBuf,
         source: srs_core::error::CoreError,
     },
@@ -205,7 +205,7 @@ pub enum RepositoryError {
     },
 
     #[error("document view not found: {view_id}")]
-    DocumentViewNotFound { view_id: String },
+    CompositionNotFound { view_id: String },
 
     #[error("view not found: {view_id}")]
     ViewNotFound { view_id: String },
@@ -225,8 +225,8 @@ pub enum RepositoryError {
     #[error("invalid package selector: {message}")]
     InvalidPackageSelector { message: String },
 
-    #[error("document view not found: {document_view_id}")]
-    DocumentViewNotFoundById { document_view_id: String },
+    #[error("document view not found: {composition_id}")]
+    CompositionNotFoundById { composition_id: String },
 
     #[error("package ref path '{path}' is outside the repository root")]
     PackageRefOutsideRepo { path: String },
@@ -593,15 +593,15 @@ impl PartialEq for RepositoryError {
                 },
             ) => a == b && sa == sb,
             (
-                RepositoryError::DocumentViewLoad { path: a, source: _ },
-                RepositoryError::DocumentViewLoad { path: b, source: _ },
+                RepositoryError::CompositionLoad { path: a, source: _ },
+                RepositoryError::CompositionLoad { path: b, source: _ },
             ) => a == b,
             (
-                RepositoryError::DocumentViewValidation {
+                RepositoryError::CompositionValidation {
                     path: a,
                     source: sa,
                 },
-                RepositoryError::DocumentViewValidation {
+                RepositoryError::CompositionValidation {
                     path: b,
                     source: sb,
                 },
@@ -637,8 +637,8 @@ impl PartialEq for RepositoryError {
                 },
             ) => a == b && sa == sb,
             (
-                RepositoryError::DocumentViewNotFound { view_id: a },
-                RepositoryError::DocumentViewNotFound { view_id: b },
+                RepositoryError::CompositionNotFound { view_id: a },
+                RepositoryError::CompositionNotFound { view_id: b },
             ) => a == b,
             (
                 RepositoryError::ViewNotFound { view_id: a },
@@ -649,12 +649,8 @@ impl PartialEq for RepositoryError {
                 RepositoryError::ThemeNotFound { theme_id: b },
             ) => a == b,
             (
-                RepositoryError::DocumentViewNotFoundById {
-                    document_view_id: a,
-                },
-                RepositoryError::DocumentViewNotFoundById {
-                    document_view_id: b,
-                },
+                RepositoryError::CompositionNotFoundById { composition_id: a },
+                RepositoryError::CompositionNotFoundById { composition_id: b },
             ) => a == b,
             (
                 RepositoryError::PackageRefOutsideRepo { path: a },

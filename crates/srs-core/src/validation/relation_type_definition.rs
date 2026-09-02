@@ -11,8 +11,6 @@ use crate::types::relation_type_definition::RelationTypeDefinition;
 /// - `version` is at least 1
 /// - `created_at` is non-empty
 /// - Namespaced `relationType` values have the form `namespace/name` where both parts are non-empty
-/// - `allowed_source_types` entries are non-empty (when present)
-/// - `allowed_target_types` entries are non-empty (when present)
 pub fn validate_relation_type_definition(rtd: &RelationTypeDefinition) -> Result<(), CoreError> {
     if rtd.id.is_empty() {
         return Err(CoreError::MissingRequiredField {
@@ -60,28 +58,6 @@ pub fn validate_relation_type_definition(rtd: &RelationTypeDefinition) -> Result
         }
     }
 
-    // Validate allowedSourceTypes entries are non-empty
-    if let Some(src_types) = &rtd.allowed_source_types {
-        for t in src_types {
-            if t.is_empty() {
-                return Err(CoreError::InvalidRelationType {
-                    relation_type: rtd.key.clone(),
-                });
-            }
-        }
-    }
-
-    // Validate allowedTargetTypes entries are non-empty
-    if let Some(tgt_types) = &rtd.allowed_target_types {
-        for t in tgt_types {
-            if t.is_empty() {
-                return Err(CoreError::InvalidRelationType {
-                    relation_type: rtd.key.clone(),
-                });
-            }
-        }
-    }
-
     Ok(())
 }
 
@@ -114,9 +90,7 @@ mod tests {
             canonical_direction: None,
             inverse_type: None,
             irreflexive: None,
-            allowed_source_types: None,
-            allowed_target_types: None,
-            require_same_semantic_object_type: None,
+            require_same_type: None,
             status: None,
             updated_at: None,
             meta: None,
@@ -196,29 +170,6 @@ mod tests {
             result.unwrap_err(),
             CoreError::InvalidRelationType { .. }
         ));
-    }
-
-    #[test]
-    fn empty_allowed_source_type_fails() {
-        let rtd = RelationTypeDefinition {
-            allowed_source_types: Some(vec!["section".to_string(), "".to_string()]),
-            ..make_rtd("precedes")
-        };
-        let result = validate_relation_type_definition(&rtd);
-        assert!(matches!(
-            result.unwrap_err(),
-            CoreError::InvalidRelationType { .. }
-        ));
-    }
-
-    #[test]
-    fn valid_allowed_types_passes() {
-        let rtd = RelationTypeDefinition {
-            allowed_source_types: Some(vec!["section".to_string()]),
-            allowed_target_types: Some(vec!["section".to_string(), "subsection".to_string()]),
-            ..make_rtd("precedes")
-        };
-        assert!(validate_relation_type_definition(&rtd).is_ok());
     }
 
     #[test]

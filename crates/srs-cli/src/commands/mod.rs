@@ -1,9 +1,9 @@
 pub mod archive;
 pub mod attachment;
 pub mod blueprint;
+pub mod composition;
 pub mod container;
 pub mod context;
-pub mod document_view;
 pub mod extension;
 pub mod field;
 pub mod find;
@@ -352,8 +352,8 @@ pub enum Commands {
     #[command(subcommand)]
     View(ViewCommand),
     /// Document view (L2 render view) definition management
-    #[command(subcommand, name = "document-view")]
-    DocumentView(DocumentViewCommand),
+    #[command(subcommand, name = "composition")]
+    Composition(CompositionCommand),
     /// Vocabulary definition commands (RFC-006)
     #[command(subcommand)]
     Vocabulary(VocabularyCommand),
@@ -411,7 +411,7 @@ pub enum AttachmentCommand {
     },
     /// Resolve linked attachments for a list of record instance IDs (reads JSON from stdin).
     ///
-    /// Input: `{"instanceIds": ["<uuid>", ...]}` (from a rendered document_view projection).
+    /// Input: `{"instanceIds": ["<uuid>", ...]}` (from a rendered composition projection).
     ResolveViewAttachments,
     /// Read the current attachment policy from the optional com.semanticops.base/repo_settings
     /// record. Returns built-in defaults when no policy record exists.
@@ -467,11 +467,11 @@ pub enum ContainerCommand {
     Roots(ContainerRootsCommand),
     /// Validate container invariants
     Validate { container_id: String },
-    /// Resolve a structured container view: root + ordered members + DocumentView-driven
+    /// Resolve a structured container view: root + ordered members + Composition-driven
     /// column spec + per-member display label (issue #254).
     ResolveView {
         container_id: String,
-        /// Optional DocumentView UUID override; defaults to the view matched from the
+        /// Optional Composition UUID override; defaults to the view matched from the
         /// container's root type binding.
         #[arg(long = "view-id")]
         view_id: Option<String>,
@@ -970,7 +970,7 @@ pub enum ViewCommand {
 }
 
 #[derive(Subcommand)]
-pub enum DocumentViewCommand {
+pub enum CompositionCommand {
     /// List document view (L2) definitions
     List {
         /// Filter by namespace
@@ -988,7 +988,7 @@ pub enum DocumentViewCommand {
     },
     /// Get a document view definition by ID
     Get {
-        /// DocumentView ID
+        /// Composition ID
         id: String,
     },
     /// Create a new document view definition (reads JSON from stdin)
@@ -999,15 +999,15 @@ pub enum DocumentViewCommand {
     },
     /// Update a document view definition (reads full JSON from stdin)
     Update {
-        /// DocumentView ID
+        /// Composition ID
         id: String,
     },
     /// Delete a document view definition by ID
     Delete {
-        /// DocumentView ID
+        /// Composition ID
         id: String,
     },
-    /// List DocumentViews whose rootTypeRefs match the root instance type of a container
+    /// List Compositions whose rootTypeRefs match the root instance type of a container
     #[command(name = "list-for-container")]
     ListForContainer {
         /// Container ID
@@ -1513,14 +1513,14 @@ pub enum BlueprintCommand {
 #[derive(Subcommand)]
 pub enum RenderCommand {
     /// Render a document view
-    DocumentView {
-        /// DocumentView UUID
+    Composition {
+        /// Composition UUID
         #[arg(long = "view")]
         view: String,
         /// Optional render format override (markdown, text, adoc)
         #[arg(long = "view-format")]
         view_format: Option<String>,
-        /// Optional named theme variant defined on the DocumentView
+        /// Optional named theme variant defined on the Composition
         #[arg(long = "theme-variant")]
         theme_variant: Option<String>,
         /// Optional instance UUID: scopes ContainerSubset sections to this single record,
@@ -1533,7 +1533,7 @@ pub enum RenderCommand {
     },
     /// Export a record as a shareable ZIP bundle (rendered view + attachments)
     ExportBundle {
-        /// DocumentView UUID
+        /// Composition UUID
         #[arg(long = "view")]
         view: String,
         /// Record instance UUID
@@ -1779,7 +1779,7 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Package(pkg_cmd) => package::dispatch(ctx, pkg_cmd),
         Commands::Theme(theme_cmd) => theme::dispatch(ctx, theme_cmd),
         Commands::View(view_cmd) => view::dispatch(ctx, view_cmd),
-        Commands::DocumentView(dv_cmd) => document_view::dispatch(ctx, dv_cmd),
+        Commands::Composition(dv_cmd) => composition::dispatch(ctx, dv_cmd),
         Commands::Vocabulary(vocab_cmd) => vocabulary::dispatch(ctx, vocab_cmd),
         Commands::Lifecycle(lc_cmd) => lifecycle::dispatch(ctx, lc_cmd),
         Commands::Term(term_cmd) => term::dispatch(ctx, term_cmd),

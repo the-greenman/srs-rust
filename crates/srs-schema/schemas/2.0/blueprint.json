@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://srs.semanticops.com/schema/2.0/blueprint.json",
   "title": "SRS Blueprint Definition (ext:blueprint)",
-  "description": "Declares a document type for Record extraction and container instantiation. A Blueprint names the root Record Types it produces, the Relation structure between extracted Records, and which Record Types must be present for the Blueprint to be considered complete. Blueprint.rootTypes uses ExactTypeRef (typeVersion required) — the same shape as DocumentView.rootTypeRefs — completing the fully UUID-anchored chain: Blueprint.rootTypes → DocumentView.rootTypeRefs → Container.anchorInstanceId (RFC-009, amended by srs#446; pre-#446 repositories resolve the chain against Container.rootInstanceIds[0]).",
+  "description": "Declares a document type for Record extraction and container instantiation. A Blueprint names the root Record Types it produces, the Relation structure between extracted Records, and which Record Types must be present for the Blueprint to be considered complete. Blueprint.rootTypes uses ExactTypeRef (typeVersion required) — the same shape as Composition.rootTypeRefs — completing the fully UUID-anchored chain: Blueprint.rootTypes → Composition.rootTypeRefs → Container.anchorInstanceId (RFC-009, amended by srs#446; pre-#446 repositories resolve the chain against Container.rootInstanceIds[0]).",
   "type": "object",
   "required": ["id", "namespace", "name", "version", "description", "rootTypes", "createdAt"],
   "additionalProperties": false,

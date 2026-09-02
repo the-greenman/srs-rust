@@ -58,7 +58,7 @@ Orient before writing: read srs://<repositoryId>/map for counts and package info
 srs://<repositoryId>/navigation for the document structure. Read individual records via the \
 srs://<repositoryId>/record/{instanceId} resource template, containers via \
 srs://<repositoryId>/container/<containerId>, and rendered document views via \
-srs://<repositoryId>/view/<documentViewId>. Type schemas live at \
+srs://<repositoryId>/view/<compositionId>. Type schemas live at \
 srs://<repositoryId>/type/{typeId} (also via the type_schema tool): read one before \
 authoring records of an unfamiliar type — its properties are keyed by Field.name (the \
 same keys record_create fieldValues uses, RFC-039) and carry aiGuidance. Use the find tool for structured discovery \

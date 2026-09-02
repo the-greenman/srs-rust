@@ -17,10 +17,10 @@ use srs_repository::container_view_service::{resolve_container_view, ResolveCont
 use srs_repository::error::RepositoryError;
 use srs_repository::package_service::{list_types_filtered, TypeListFilter};
 use srs_repository::record_store::get_record_by_id;
-use srs_repository::render_service::{render_document_view, RenderDocumentViewOptions};
+use srs_repository::render_service::{render_composition, RenderCompositionOptions};
 use srs_repository::repository_navigation_service::repository_navigation;
 use srs_repository::type_schema_service::{type_schema, TypeSchemaInput};
-use srs_repository::view_service::{list_document_views_summary, DocumentViewListFilter};
+use srs_repository::view_service::{list_compositions_summary, CompositionListFilter};
 
 use crate::server::SrsMcpServer;
 use crate::uri::{self, SrsUri};
@@ -71,13 +71,13 @@ pub(crate) fn list_resources(server: &SrsMcpServer) -> Result<ListResourcesResul
         );
     }
 
-    for v in list_document_views_summary(&store, &DocumentViewListFilter::default())
-        .map_err(service_err)?
+    for v in
+        list_compositions_summary(&store, &CompositionListFilter::default()).map_err(service_err)?
     {
         resources.push(
             Resource::new(
-                uri::format(&SrsUri::View(v.id.clone()), repo_id),
-                // DocumentView has no title field — the namespace-qualified name
+                uri::format(&SrsUri::Composition(v.id.clone()), repo_id),
+                // Composition has no title field — the namespace-qualified name
                 // is the identity (plan review AR-5).
                 format!("{}/{}", v.namespace, v.name),
             )
@@ -159,8 +159,8 @@ pub(crate) fn read_resource(
             .map_err(service_err)?;
             json_text(&view, raw_uri)?
         }
-        SrsUri::View(id) => {
-            let result = render_document_view(RenderDocumentViewOptions {
+        SrsUri::Composition(id) => {
+            let result = render_composition(RenderCompositionOptions {
                 store: &store,
                 view_id: &id,
                 format: Some("markdown"),

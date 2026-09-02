@@ -263,7 +263,6 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let test_type = RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -307,12 +306,12 @@ mod tests {
             record_types: vec![test_type],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -439,7 +438,6 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let test_type = RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -487,12 +485,12 @@ mod tests {
             record_types: vec![test_type],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -596,9 +594,7 @@ mod tests {
             canonical_direction: None,
             inverse_type: None,
             irreflexive: None,
-            allowed_source_types: None,
-            allowed_target_types: None,
-            require_same_semantic_object_type: None,
+            require_same_type: None,
             status: None,
             updated_at: None,
             meta: None,

@@ -33,7 +33,7 @@ fn list_containers_returns_all() {
 }
 
 /// A root filter resolves the single container a guide/root belongs to — the path the
-/// web guides editor uses to map a selected guide to its document-view container.
+/// web guides editor uses to map a selected guide to its composition container.
 #[test]
 fn list_containers_filters_by_root() {
     let store = gallery_store();

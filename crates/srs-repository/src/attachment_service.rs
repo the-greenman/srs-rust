@@ -442,11 +442,11 @@ pub fn link_attachment(
     })
 }
 
-// ── resolve_document_view_attachments ──────────────────────────────────────────
+// ── resolve_composition_attachments ──────────────────────────────────────────
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ResolveDocumentViewAttachmentsInput {
+pub struct ResolveCompositionAttachmentsInput {
     pub instance_ids: Vec<String>,
 }
 
@@ -477,7 +477,7 @@ pub struct RecordAttachments {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ResolveDocumentViewAttachmentsResult {
+pub struct ResolveCompositionAttachmentsResult {
     pub source_documents_path: String,
     pub records: Vec<RecordAttachments>,
 }
@@ -505,16 +505,16 @@ fn resolve_source_ref_to_attachment(
     }
 }
 
-/// Given a list of instance IDs from a rendered document_view, resolve each record's
+/// Given a list of instance IDs from a rendered composition, resolve each record's
 /// `sourceRefs` with `sourceRole: attaches` and `sourceType: repository-document`
 /// to their sidecar metadata (RFC-038 [R25]: the catalog's source-document set).
 ///
 /// Resolution is sourceRefs-only per RFC-017 Rev 3 [R1].
 /// Records with no qualifying sourceRefs are omitted from the result.
-pub fn resolve_document_view_attachments(
+pub fn resolve_composition_attachments(
     store: &dyn RepositoryStore,
-    input: ResolveDocumentViewAttachmentsInput,
-) -> Result<ResolveDocumentViewAttachmentsResult, RepositoryError> {
+    input: ResolveCompositionAttachmentsInput,
+) -> Result<ResolveCompositionAttachmentsResult, RepositoryError> {
     let manifest = store.load_manifest()?;
 
     let src_docs_base = manifest
@@ -574,7 +574,7 @@ pub fn resolve_document_view_attachments(
         }
     }
 
-    Ok(ResolveDocumentViewAttachmentsResult {
+    Ok(ResolveCompositionAttachmentsResult {
         source_documents_path: src_docs_base,
         records,
     })
@@ -589,7 +589,7 @@ pub struct GetRecordAttachmentsInput {
 }
 
 /// Single-record analog to `RecordAttachments`; carries `source_documents_path` inline
-/// because the multi-record path (`ResolveDocumentViewAttachmentsResult`) surfaces it at
+/// because the multi-record path (`ResolveCompositionAttachmentsResult`) surfaces it at
 /// the top level instead.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -722,12 +722,12 @@ mod tests {
             record_types: vec![],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         }
@@ -1609,14 +1609,14 @@ mod tests {
         );
     }
 
-    // ── resolve_document_view_attachments tests ───────────────────────────────────
+    // ── resolve_composition_attachments tests ───────────────────────────────────
 
     #[test]
-    fn resolve_document_view_attachments_empty_ids() {
+    fn resolve_composition_attachments_empty_ids() {
         let store = store_with_manifest(Manifest::default());
-        let result = resolve_document_view_attachments(
+        let result = resolve_composition_attachments(
             &store,
-            ResolveDocumentViewAttachmentsInput {
+            ResolveCompositionAttachmentsInput {
                 instance_ids: vec![],
             },
         )
@@ -1626,13 +1626,13 @@ mod tests {
     }
 
     #[test]
-    fn resolve_document_view_attachments_no_source_refs() {
+    fn resolve_composition_attachments_no_source_refs() {
         let doc_id = "doc-no-refs-001";
         let record_id = "aaaa0001-0000-4000-8000-000000000001";
         let store = store_with_doc_and_record(doc_id, record_id);
-        let result = resolve_document_view_attachments(
+        let result = resolve_composition_attachments(
             &store,
-            ResolveDocumentViewAttachmentsInput {
+            ResolveCompositionAttachmentsInput {
                 instance_ids: vec![record_id.to_string()],
             },
         )
@@ -1644,7 +1644,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_document_view_attachments_wrong_role() {
+    fn resolve_composition_attachments_wrong_role() {
         let doc_id = "doc-wrong-role-002";
         let record_id = "aaaa0002-0000-4000-8000-000000000002";
         let store = store_with_doc_and_record(doc_id, record_id);
@@ -1667,9 +1667,9 @@ mod tests {
                 }),
             )
             .unwrap();
-        let result = resolve_document_view_attachments(
+        let result = resolve_composition_attachments(
             &store,
-            ResolveDocumentViewAttachmentsInput {
+            ResolveCompositionAttachmentsInput {
                 instance_ids: vec![record_id.to_string()],
             },
         )
@@ -1681,7 +1681,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_document_view_attachments_happy_path() {
+    fn resolve_composition_attachments_happy_path() {
         let doc_id = "doc-happy-003";
         let record_id = "aaaa0003-0000-4000-8000-000000000003";
         let store = empty_store();
@@ -1718,9 +1718,9 @@ mod tests {
         )
         .unwrap();
 
-        let result = resolve_document_view_attachments(
+        let result = resolve_composition_attachments(
             &store,
-            ResolveDocumentViewAttachmentsInput {
+            ResolveCompositionAttachmentsInput {
                 instance_ids: vec![record_id.to_string()],
             },
         )
@@ -1741,7 +1741,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_document_view_attachments_unindexed_doc() {
+    fn resolve_composition_attachments_unindexed_doc() {
         let record_id = "aaaa0004-0000-4000-8000-000000000004";
         let store = empty_store();
         let record_path = format!("records/tier-2/test-record-{}.json", &record_id[..8]);
@@ -1764,9 +1764,9 @@ mod tests {
             )
             .unwrap();
 
-        let result = resolve_document_view_attachments(
+        let result = resolve_composition_attachments(
             &store,
-            ResolveDocumentViewAttachmentsInput {
+            ResolveCompositionAttachmentsInput {
                 instance_ids: vec![record_id.to_string()],
             },
         )
@@ -1793,7 +1793,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_document_view_attachments_skips_missing_instance() {
+    fn resolve_composition_attachments_skips_missing_instance() {
         let doc_id = "doc-skip-005";
         let record_id = "aaaa0005-0000-4000-8000-000000000005";
         let store = store_with_doc_and_record(doc_id, record_id);
@@ -1806,9 +1806,9 @@ mod tests {
         )
         .unwrap();
 
-        let result = resolve_document_view_attachments(
+        let result = resolve_composition_attachments(
             &store,
-            ResolveDocumentViewAttachmentsInput {
+            ResolveCompositionAttachmentsInput {
                 instance_ids: vec![
                     "nonexistent-instance-000000000000".to_string(),
                     record_id.to_string(),
@@ -1826,7 +1826,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_document_view_attachments_filestore_roundtrip() {
+    fn resolve_composition_attachments_filestore_roundtrip() {
         use crate::store::FileStore;
         use tempfile::TempDir;
 
@@ -1896,9 +1896,9 @@ mod tests {
         )
         .unwrap();
 
-        let result = resolve_document_view_attachments(
+        let result = resolve_composition_attachments(
             &store,
-            ResolveDocumentViewAttachmentsInput {
+            ResolveCompositionAttachmentsInput {
                 instance_ids: vec![record_id.to_string()],
             },
         )

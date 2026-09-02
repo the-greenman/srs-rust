@@ -40,7 +40,7 @@ fn fixture_store() -> FileStore {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": [],
+                "compositions": [],
                 "blueprints": []
             },
             "package/fields/title.json": {

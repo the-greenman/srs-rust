@@ -3,8 +3,8 @@
   "createdAt": "2026-06-24T16:05:55.630725083+00:00",
   "fieldValues": {
     "title": "RFC-009 Change B: Demote containerType to a derived/validated hint",
-    "affected_components": "Container, DocumentView, container.json, document-view.json",
-    "proposed_change": "On Container: containerType SHOULD equal the resolved root Type name (bare name, not namespace/name) when rootInstanceIds is present. Mismatch is diagnostic-only (I-64), not a validity error. On DocumentView: containerType MUST NOT be used for matching when rootTypeRefs is present. Retained as fallback for pre-RFC-009 tools (DV-Rx1).",
+    "affected_components": "Container, Composition, container.json, composition.json",
+    "proposed_change": "On Container: containerType SHOULD equal the resolved root Type name (bare name, not namespace/name) when rootInstanceIds is present. Mismatch is diagnostic-only (I-64), not a validity error. On Composition: containerType MUST NOT be used for matching when rootTypeRefs is present. Retained as fallback for pre-RFC-009 tools (DV-Rx1).",
     "rationale": "containerType is optional; making mismatch a validity error would penalise authors of existing repos. A SHOULD diagnostic flags stale hints without breaking data."
   },
   "instanceId": "3deb00d2-2302-4259-a697-7a83933c8609",

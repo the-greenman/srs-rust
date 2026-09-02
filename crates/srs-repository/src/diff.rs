@@ -121,7 +121,7 @@ pub struct DiffPackage {
     pub fields: DiffPackageCategory,
     pub record_types: DiffPackageCategory,
     pub blueprints: DiffPackageCategory,
-    pub document_views: DiffPackageCategory,
+    pub compositions: DiffPackageCategory,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -142,9 +142,9 @@ pub struct DiffSummary {
     pub blueprints_added: usize,
     pub blueprints_removed: usize,
     pub blueprints_modified: usize,
-    pub document_views_added: usize,
-    pub document_views_removed: usize,
-    pub document_views_modified: usize,
+    pub compositions_added: usize,
+    pub compositions_removed: usize,
+    pub compositions_modified: usize,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -297,9 +297,9 @@ fn compute_diff(snap_from: &RepositorySnapshot, snap_to: &RepositorySnapshot) ->
         blueprints_added: package.blueprints.added.len(),
         blueprints_removed: package.blueprints.removed.len(),
         blueprints_modified: package.blueprints.modified.len(),
-        document_views_added: package.document_views.added.len(),
-        document_views_removed: package.document_views.removed.len(),
-        document_views_modified: package.document_views.modified.len(),
+        compositions_added: package.compositions.added.len(),
+        compositions_removed: package.compositions.removed.len(),
+        compositions_modified: package.compositions.modified.len(),
     };
 
     RepoDiff {
@@ -336,8 +336,8 @@ fn diff_packages(
     let mut types_to: HashMap<&str, &srs_core::types::record_type::RecordType> = HashMap::new();
     let mut blueprints_from: HashMap<&str, &srs_core::types::blueprint::Blueprint> = HashMap::new();
     let mut blueprints_to: HashMap<&str, &srs_core::types::blueprint::Blueprint> = HashMap::new();
-    let mut doc_views_from: HashMap<&str, &srs_core::types::view::DocumentView> = HashMap::new();
-    let mut doc_views_to: HashMap<&str, &srs_core::types::view::DocumentView> = HashMap::new();
+    let mut doc_views_from: HashMap<&str, &srs_core::types::view::Composition> = HashMap::new();
+    let mut doc_views_to: HashMap<&str, &srs_core::types::view::Composition> = HashMap::new();
 
     for pkg in from_pkgs {
         for f in &pkg.fields {
@@ -349,7 +349,7 @@ fn diff_packages(
         for b in &pkg.blueprints {
             blueprints_from.insert(b.id.as_str(), b);
         }
-        for dv in &pkg.document_views {
+        for dv in &pkg.compositions {
             doc_views_from.insert(dv.id.as_str(), dv);
         }
     }
@@ -364,7 +364,7 @@ fn diff_packages(
         for b in &pkg.blueprints {
             blueprints_to.insert(b.id.as_str(), b);
         }
-        for dv in &pkg.document_views {
+        for dv in &pkg.compositions {
             doc_views_to.insert(dv.id.as_str(), dv);
         }
     }
@@ -379,7 +379,7 @@ fn diff_packages(
         blueprints: diff_package_items(&blueprints_from, &blueprints_to, |b| {
             (b.namespace.as_str(), b.name.as_str(), b.version)
         }),
-        document_views: diff_package_items(&doc_views_from, &doc_views_to, |dv| {
+        compositions: diff_package_items(&doc_views_from, &doc_views_to, |dv| {
             (dv.namespace.as_str(), dv.name.as_str(), dv.version)
         }),
     }
@@ -578,7 +578,7 @@ mod tests {
             record_types: vec![],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             blueprints,
             themes: vec![],
             vocabularies: vec![],

@@ -24,16 +24,16 @@
     "themes/base-theme.json",
     "themes/print-theme.json"
   ],
-  "documentViews": [
-    "document-views/repeatable-doc-view.json",
-    "document-views/deep-offset-view.json",
-    "document-views/title-field-view.json",
-    "document-views/labeled-field-view.json",
-    "document-views/bad-semantic-type-view.json",
-    "document-views/themed-document-view.json",
-    "document-views/missing-theme-view.json",
-    "document-views/json-hidden-field-view.json",
-    "document-views/identity-fallback-view.json"
+  "compositions": [
+    "compositions/repeatable-doc-view.json",
+    "compositions/deep-offset-view.json",
+    "compositions/title-field-view.json",
+    "compositions/labeled-field-view.json",
+    "compositions/bad-semantic-type-view.json",
+    "compositions/themed-composition.json",
+    "compositions/missing-theme-view.json",
+    "compositions/json-hidden-field-view.json",
+    "compositions/identity-fallback-view.json"
   ],
   "createdAt": "2026-05-01T00:00:00Z",
   "dataModelRevision": 2

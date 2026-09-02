@@ -18,7 +18,7 @@ const FIELD_TITLE: &str = "77777777-7777-4777-8777-777777777777";
 const FIELD_STATUS: &str = "88888888-8888-4888-8888-888888888888";
 const SUPERSEDED_ID: &str = "99999999-9999-4999-8999-999999999999";
 
-/// Minimal `.srsj`: a container (root + one extra member) bound to a DocumentView whose
+/// Minimal `.srsj`: a container (root + one extra member) bound to a Composition whose
 /// container-subset section renders via a View exposing the title and status fields.
 fn fixture_srsj() -> String {
     serde_json::json!({
@@ -45,7 +45,7 @@ fn fixture_srsj() -> String {
                 "types": [],
                 "relationTypes": [],
                 "views": ["views/decision-view.json"],
-                "documentViews": ["document-views/dv.json"],
+                "compositions": ["compositions/dv.json"],
                 "blueprints": []
             },
             "package/fields/title.json": {
@@ -83,8 +83,8 @@ fn fixture_srsj() -> String {
                 ],
                 "createdAt": "2026-01-01T00:00:00Z"
             },
-            "package/document-views/dv.json": {
-                "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
+            "package/compositions/dv.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
                 "id": DV_ID,
                 "namespace": "com.test",
                 "name": "dv",
@@ -134,7 +134,7 @@ fn fixture_srsj() -> String {
 }
 
 /// The default path the web editor uses: resolve a container into root + ordered members +
-/// the DocumentView-driven column spec.
+/// the Composition-driven column spec.
 #[test]
 fn resolve_container_view_returns_root_members_and_columns() {
     let store = srs_repository::srsj::open_srsj(&fixture_srsj()).expect("fixture srsj must load");
@@ -148,7 +148,7 @@ fn resolve_container_view_returns_root_members_and_columns() {
     .expect("resolve must succeed");
 
     assert_eq!(result.container_id, CONTAINER_ID);
-    assert_eq!(result.document_view_id.as_deref(), Some(DV_ID));
+    assert_eq!(result.composition_id.as_deref(), Some(DV_ID));
 
     // Columns resolved from the View, ordered, with the displayLabel override.
     assert_eq!(result.columns.len(), 2);
@@ -206,7 +206,7 @@ fn fixture_srsj_with_excluded_states() -> String {
                 "types": [],
                 "relationTypes": [],
                 "views": ["views/decision-view.json"],
-                "documentViews": ["document-views/dv.json"],
+                "compositions": ["compositions/dv.json"],
                 "blueprints": []
             },
             "package/fields/title.json": {
@@ -230,8 +230,8 @@ fn fixture_srsj_with_excluded_states() -> String {
                 "fieldViews": [{"fieldId": FIELD_TITLE, "order": 0}],
                 "createdAt": "2026-01-01T00:00:00Z"
             },
-            "package/document-views/dv.json": {
-                "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
+            "package/compositions/dv.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
                 "id": DV_ID,
                 "namespace": "com.test",
                 "name": "dv",
@@ -245,7 +245,7 @@ fn fixture_srsj_with_excluded_states() -> String {
                         "order": 0,
                         "source": {
                             "type": "type-query",
-                            "semanticObjectType": "com.test/decision",
+                            "typeKey": "com.test/decision",
                             "containerIds": [CONTAINER_ID],
                             "excludeLifecycleStates": ["superseded", "abandoned"]
                         },
@@ -344,11 +344,11 @@ fn resolve_container_view_unknown_view_id_is_diagnostic_not_error() {
     )
     .expect("resolve must succeed");
 
-    assert!(result.document_view_id.is_none());
+    assert!(result.composition_id.is_none());
     assert!(result.columns.is_empty());
     assert_eq!(result.members.len(), 2);
     assert!(result
         .diagnostics
         .iter()
-        .any(|d| d.contains("documentView no-such-dv not found")));
+        .any(|d| d.contains("composition no-such-dv not found")));
 }

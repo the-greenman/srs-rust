@@ -430,7 +430,7 @@ pub fn delete_container(
 /// transitionally (pre-#446 containers with no anchor). "Declaration over location"
 /// (`rfc-decision-cce3c00e`, cell Containment) — every caller resolving "which record's
 /// type is this container's typing anchor" routes through here rather than reading
-/// `rootInstanceIds.first()` directly (`document_views_for_container`, RFC-009 I-63
+/// `rootInstanceIds.first()` directly (`compositions_for_container`, RFC-009 I-63
 /// rootTypeRefs matching). Pure — no I/O, no diagnostic; callers that need to know
 /// whether the transitional fallback fired check `container.anchor_instance_id.is_none()`
 /// themselves (see `container_view_service::resolve_container_view`'s I-145 diagnostic).

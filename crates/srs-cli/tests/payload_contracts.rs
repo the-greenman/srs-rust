@@ -407,25 +407,25 @@ fn view_delete() {
 // ── Document view ─────────────────────────────────────────────────────────────
 
 #[test]
-fn document_view_list() {
-    check::<DocumentViewListPayload>("document-view-list");
+fn composition_list() {
+    check::<CompositionListPayload>("composition-list");
 }
 
 #[test]
-fn document_view_get() {
-    check::<DocumentViewPayload>("document-view-get");
+fn composition_get() {
+    check::<CompositionPayload>("composition-get");
 }
 
 #[test]
-fn document_view_delete() {
-    check::<DocumentViewDeletePayload>("document-view-delete");
+fn composition_delete() {
+    check::<CompositionDeletePayload>("composition-delete");
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
 
 #[test]
-fn render_document_view() {
-    check::<RenderDocumentViewPayload>("render-document-view");
+fn render_composition() {
+    check::<RenderCompositionPayload>("render-composition");
 }
 
 // ── Repo ──────────────────────────────────────────────────────────────────────

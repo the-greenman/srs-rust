@@ -4,7 +4,7 @@
   "fieldValues": {
     "invariant_number": "15",
     "title": "Every typeId referenced by any View in Package.views[] must appear in…",
-    "normative_statement": "Every `typeId` referenced by any `View` in `Package.views[]` must appear in `Package.dependencyRefs` with `definitionType: \"type\"`. If `mode === \"bundled\"`, that `Type` must be present in `types[]`.",
+    "normative_statement": "Every `typeId` referenced by any `View` in `Package.views[]` must appear in `Package.packageDependencies` with `definitionType: \"type\"`. If `mode === \"bundled\"`, that `Type` must be present in `types[]`.",
     "applies_to": "ext:views-l1 — Distribution"
   },
   "instanceId": "e1000015-0000-4000-a000-000000000015",

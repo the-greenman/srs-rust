@@ -33,6 +33,14 @@ DRIFT=0
 # tolerance are all clean-cut together. Empty for now; the next entry follows
 # the same per-item pattern when its issue makes the same call.
 DECLARED_EXTRA_ALLOWLIST=(
+    # srs-rust#910: the DocumentView -> Composition rename (rfc-decision-92d2da05)
+    # lands here first per the binary-first choreography (CLAUDE.md "Gates and
+    # choreography" — support lands + releases before the spec PR merges). Our
+    # mirror already carries composition.json; the canonical srs spec schema
+    # still ships document-view.json until srs#523 merges. Remove this entry
+    # when srs#523 merges and the next sync-schemas-from-spec.sh run picks up
+    # the renamed canonical file.
+    "composition.json"
 )
 is_allowlisted() {
     local needle="$1"
@@ -42,12 +50,32 @@ is_allowlisted() {
     return 1
 }
 
+# Declared transitional allowlist for the reverse direction: a file the
+# canonical spec still ships that our mirror has already renamed away from
+# (same srs-rust#910 rename, same expiry — srs#523 merging). Symmetric to
+# DECLARED_EXTRA_ALLOWLIST; add an entry here only when the mirror renames a
+# schema ahead of the spec's own rename landing.
+DECLARED_MISSING_ALLOWLIST=(
+    "document-view.json"
+)
+is_missing_allowlisted() {
+    local needle="$1"
+    for entry in "${DECLARED_MISSING_ALLOWLIST[@]}"; do
+        [[ "${entry}" == "${needle}" ]] && return 0
+    done
+    return 1
+}
+
 for src_file in "${SRC}"/*.json; do
     filename="$(basename "${src_file}")"
     dst_file="${DST}/${filename}"
     if [[ ! -f "${dst_file}" ]]; then
-        echo "MISSING in artifact: ${filename}"
-        DRIFT=1
+        if is_missing_allowlisted "${filename}"; then
+            echo "MISSING in artifact (declared transitional, see script comment): ${filename}"
+        else
+            echo "MISSING in artifact: ${filename}"
+            DRIFT=1
+        fi
     elif ! diff -q "${src_file}" "${dst_file}" > /dev/null; then
         echo "DRIFT detected: ${filename}"
         DRIFT=1

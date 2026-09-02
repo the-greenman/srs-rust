@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://srs.semanticops.com/schema/2.0/theme.json",
   "title": "SRS Theme Definition (ext:themes-l1)",
-  "description": "Visual presentation layer for a DocumentView. Specifies assets, element templates, and stylesheets without altering semantic structure. Depends on ext:views-l2.",
+  "description": "Visual presentation layer for a Composition. Specifies assets, element templates, and stylesheets without altering semantic structure. Depends on ext:views-l2.",
   "type": "object",
   "required": [
     "$schema",
@@ -45,7 +45,7 @@
       "items": {
         "type": "string"
       },
-      "description": "Output formats this theme is designed for (e.g. 'html', 'markdown'). Implementations apply this theme only when DocumentView.format appears in this list. MUST contain at least one entry (Rule [T-1b])."
+      "description": "Output formats this theme is designed for (e.g. 'html', 'markdown'). Implementations apply this theme only when Composition.format appears in this list. MUST contain at least one entry (Rule [T-1b])."
     },
     "assets": {
       "type": "object",
@@ -147,7 +147,7 @@
       "properties": {
         "coverPage": {
           "type": "string",
-          "description": "Rendered as the first page. Available variables: all DocumentView preamble variables, {{asset:*}}, {{heading-1}}."
+          "description": "Rendered as the first page. Available variables: all Composition preamble variables, {{asset:*}}, {{heading-1}}."
         },
         "pageHeader": {
           "type": "string",

@@ -25,7 +25,7 @@ fn create_temp_repo_with_themes() -> TempDir {
             "types": [],
             "relationTypes": [],
             "views": [],
-            "documentViews": [],
+            "compositions": [],
             "themes": []
         }))
         .unwrap(),
@@ -104,7 +104,7 @@ fn minimal_theme_json(name: &str) -> String {
     .to_string()
 }
 
-fn minimal_document_view_with_theme_json(theme_id: &str) -> String {
+fn minimal_composition_with_theme_json(theme_id: &str) -> String {
     serde_json::json!({
         "id": "",
         "namespace": "com.test",
@@ -257,12 +257,12 @@ fn theme_delete_removes_from_list() {
 }
 
 #[test]
-fn theme_delete_blocked_when_document_view_references_it() {
+fn theme_delete_blocked_when_composition_references_it() {
     let temp = create_temp_repo_with_themes();
 
-    // Create the package with documentViews array too
+    // Create the package with compositions array too
     let package_dir = temp.path().join("package");
-    std::fs::create_dir_all(package_dir.join("document-views")).unwrap();
+    std::fs::create_dir_all(package_dir.join("compositions")).unwrap();
     let pkg = serde_json::json!({
         "id": "primary-pkg",
         "namespace": "com.test",
@@ -272,7 +272,7 @@ fn theme_delete_blocked_when_document_view_references_it() {
         "types": [],
         "relationTypes": [],
         "views": [],
-        "documentViews": [],
+        "compositions": [],
         "themes": []
     });
     std::fs::write(
@@ -292,12 +292,12 @@ fn theme_delete_blocked_when_document_view_references_it() {
         .unwrap()
         .to_string();
 
-    // Create a document-view that references the theme
-    let dv_json = minimal_document_view_with_theme_json(&theme_id);
-    let dv_result = run_srs_stdin(temp.path(), &["document-view", "create"], &dv_json);
+    // Create a composition that references the theme
+    let dv_json = minimal_composition_with_theme_json(&theme_id);
+    let dv_result = run_srs_stdin(temp.path(), &["composition", "create"], &dv_json);
     assert_eq!(
         dv_result["ok"], true,
-        "document-view create failed: {:?}",
+        "composition create failed: {:?}",
         dv_result
     );
 
@@ -314,7 +314,7 @@ fn theme_delete_blocked_when_document_view_references_it() {
 
     assert_eq!(
         result["ok"], false,
-        "theme delete should be blocked when referenced by document-view, got: {:?}",
+        "theme delete should be blocked when referenced by composition, got: {:?}",
         result
     );
 }

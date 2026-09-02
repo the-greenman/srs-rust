@@ -241,7 +241,14 @@ pub enum SectionSource {
     FixedInstances { instance_ids: Vec<String> },
     #[serde(rename_all = "camelCase")]
     TypeQuery {
-        semantic_object_type: String,
+        /// KEYED `namespace/name` (version-independent) resolved against the
+        /// effective package set — the same convention as `ContainerSubset.type_filter`
+        /// and `DocumentSection.type_dispatch`. srs-rust#910: renamed from the
+        /// retired `semanticObjectType` (owner ruling on #383, srs#372/#481/#524,
+        /// `rfc-decision-c8704763`) — the resolution behind this field was already
+        /// real Type-keyed selection (`list_records_by_type(namespace, name)`),
+        /// never the dead E4 `semanticObjectType` string; only the name was wrong.
+        type_key: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         lifecycle_state: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -290,8 +297,8 @@ pub struct SectionOrdering {
     /// RFC-015 [N+29] — the view-owned explicit presentation sequence for a
     /// `container-subset` section: `instanceId`s in presentation order, with
     /// unlisted members appended in [N+12] order. Declared by
-    /// `document-view.json`, so a strict `SectionOrdering` has to model it or a
-    /// schema-valid DocumentView would stop loading. Carried, not yet consumed
+    /// `composition.json`, so a strict `SectionOrdering` has to model it or a
+    /// schema-valid Composition would stop loading. Carried, not yet consumed
     /// — honouring it is srs-rust#567.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub member_order: Option<Vec<String>>,
@@ -416,7 +423,7 @@ pub struct ThemeVariant {
     pub theme_ref: ThemeReference,
 }
 
-/// A version-exact reference to a Type, used in `DocumentView.root_type_refs` (RFC-009).
+/// A version-exact reference to a Type, used in `Composition.root_type_refs` (RFC-009).
 ///
 /// Distinct from the blueprint-level [`crate::types::blueprint::TypeRef`], where
 /// `type_version` is optional. `ExactTypeRef` requires `type_version` because it is a
@@ -431,7 +438,7 @@ pub struct ExactTypeRef {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct DocumentView {
+pub struct Composition {
     /// The `$schema` pointer the file may carry — declared by the schema itself,
     /// preserved so a loaded-then-written definition keeps it.
     #[serde(rename = "$schema", default, skip_serializing_if = "Option::is_none")]
@@ -444,7 +451,7 @@ pub struct DocumentView {
     pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub container_type: Option<String>,
-    /// RFC-009: version-exact Type anchors. When present and non-empty, this DocumentView
+    /// RFC-009: version-exact Type anchors. When present and non-empty, this Composition
     /// applies to Containers whose root Record resolves to one of these Types (OR semantics).
     /// Replaces `container_type` as the load-bearing join; `container_type` is a back-compat hint.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -469,7 +476,7 @@ pub struct DocumentView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
     pub created_at: String,
-    /// Authoring guidance for the DocumentView (`document-view.json`
+    /// Authoring guidance for the Composition (`composition.json`
     /// `aiGuidance`) — carried, not interpreted.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_guidance: Option<serde_json::Value>,
@@ -564,8 +571,8 @@ mod tests {
     }
 
     #[test]
-    fn document_view_roundtrips_json() {
-        let dv = DocumentView {
+    fn composition_roundtrips_json() {
+        let dv = Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -574,7 +581,7 @@ mod tests {
             composite_renderers: None,
             id: "ec34f54b-8636-5c8b-af5b-c9eb3df24fe6".to_string(),
             namespace: "com.semanticops.srs".to_string(),
-            name: "srs-spec-document-view".to_string(),
+            name: "srs-spec-composition".to_string(),
             version: 1,
             description: "desc".to_string(),
             container_type: Some("spec".to_string()),
@@ -588,7 +595,7 @@ mod tests {
                 description: Some("full spec".to_string()),
                 order: 0,
                 source: SectionSource::TypeQuery {
-                    semantic_object_type: "com.semanticops.srs/meta.section".to_string(),
+                    type_key: "com.semanticops.srs/meta.section".to_string(),
                     lifecycle_state: Some("active".to_string()),
                     container_ids: Some(vec!["c1".to_string()]),
                     lifecycle_states: None,
@@ -642,7 +649,7 @@ mod tests {
             json.contains("\"rootTypeRefs\""),
             "rootTypeRefs must serialize with camelCase key"
         );
-        let parsed: DocumentView = serde_json::from_str(&json).unwrap();
+        let parsed: Composition = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, dv);
         assert_eq!(
             parsed.root_type_refs.as_ref().unwrap()[0].type_version,
@@ -653,12 +660,12 @@ mod tests {
 
     #[test]
     fn section_source_type_query_deserialises() {
-        let json = r#"{"type":"type-query","semanticObjectType":"com.example/decision"}"#;
+        let json = r#"{"type":"type-query","typeKey":"com.example/decision"}"#;
         let parsed: SectionSource = serde_json::from_str(json).unwrap();
         assert_eq!(
             parsed,
             SectionSource::TypeQuery {
-                semantic_object_type: "com.example/decision".to_string(),
+                type_key: "com.example/decision".to_string(),
                 lifecycle_state: None,
                 container_ids: None,
                 lifecycle_states: None,
@@ -672,7 +679,7 @@ mod tests {
     fn section_source_type_query_new_fields_round_trip() {
         // All three new fields present — should round-trip correctly.
         let source = SectionSource::TypeQuery {
-            semantic_object_type: "com.example/decision".to_string(),
+            type_key: "com.example/decision".to_string(),
             lifecycle_state: None,
             container_ids: None,
             lifecycle_states: Some(vec!["active".to_string(), "draft".to_string()]),
@@ -704,7 +711,7 @@ mod tests {
     fn section_source_type_query_new_fields_absent_round_trip() {
         // When new fields are absent, they must not appear in serialised JSON and must deserialise to None.
         let source = SectionSource::TypeQuery {
-            semantic_object_type: "com.example/decision".to_string(),
+            type_key: "com.example/decision".to_string(),
             lifecycle_state: None,
             container_ids: None,
             lifecycle_states: None,

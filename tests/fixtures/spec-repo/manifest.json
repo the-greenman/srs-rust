@@ -34,7 +34,7 @@
     "ext:views-l1",
     "ext:views-l2"
   ],
-  "description": "The SRS specification, authored as an SRS repository. The rendered specification is a DocumentView export of the records in this repository.",
+  "description": "The SRS specification, authored as an SRS repository. The rendered specification is a Composition export of the records in this repository.",
   "meta": {
     "sourceOfTruth": "records"
   },

@@ -16,11 +16,11 @@ use srs_core::types::record::Record;
 use srs_core::types::record_type::RecordType;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::theme::Theme;
-use srs_core::types::view::{DocumentView, View};
+use srs_core::types::view::{Composition, View};
 use srs_core::types::vocabulary::Vocabulary;
 use srs_core::validation::relation_type_definition::validate_relation_type_definition;
 use srs_core::validation::theme::validate_theme;
-use srs_core::validation::view::{validate_document_view, validate_view};
+use srs_core::validation::view::{validate_composition, validate_view};
 use srs_schema::{NOTE_SCHEMA_ID, RECORD_SCHEMA_ID};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -260,18 +260,18 @@ pub trait RepositoryStore {
 
     // --- Document Views (L2) ---
 
-    fn save_document_view(
+    fn save_composition(
         &self,
         relative_path: &str,
-        view: &DocumentView,
+        view: &Composition,
     ) -> Result<(), RepositoryError>;
-    fn update_document_view_file(
+    fn update_composition_file(
         &self,
         relative_path: &str,
-        view: &DocumentView,
+        view: &Composition,
     ) -> Result<(), RepositoryError>;
-    fn delete_document_view_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
-    fn ensure_document_views_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
+    fn delete_composition_file(&self, relative_path: &str) -> Result<(), RepositoryError>;
+    fn ensure_compositions_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
 
     // --- Themes ---
 
@@ -940,7 +940,7 @@ struct PackageMetadata {
     #[serde(default)]
     views: Vec<String>,
     #[serde(default)]
-    document_views: Vec<String>,
+    compositions: Vec<String>,
     #[serde(default)]
     themes: Vec<String>,
     #[serde(default)]
@@ -948,7 +948,7 @@ struct PackageMetadata {
     #[serde(default)]
     protocols: Vec<String>,
     #[serde(default)]
-    dependency_refs: Vec<crate::package::DependencyRef>,
+    package_dependencies: Vec<crate::package::DependencyRef>,
     #[serde(default)]
     vocabularies: Vec<String>,
     #[serde(default)]
@@ -966,7 +966,7 @@ fn load_package_from_dir(
         Vec<Field>,
         Vec<RecordType>,
         Vec<View>,
-        Vec<DocumentView>,
+        Vec<Composition>,
         Vec<Theme>,
         Vec<crate::package::LoadedBlueprint>,
         Vec<crate::package::LoadedProtocol>,
@@ -1053,21 +1053,21 @@ fn load_package_from_dir(
         views.push(view);
     }
 
-    let mut document_views = Vec::new();
-    for dv_path in &metadata.document_views {
+    let mut compositions = Vec::new();
+    for dv_path in &metadata.compositions {
         let rel = vfs_join(prefix, dv_path);
         let full_path = err_root.join(&rel);
         let content = vfs.read_to_string(&rel)?;
-        let dv: DocumentView =
-            serde_json::from_str(&content).map_err(|source| RepositoryError::DocumentViewLoad {
+        let dv: Composition =
+            serde_json::from_str(&content).map_err(|source| RepositoryError::CompositionLoad {
                 path: full_path.clone(),
                 source,
             })?;
-        validate_document_view(&dv).map_err(|source| RepositoryError::DocumentViewValidation {
+        validate_composition(&dv).map_err(|source| RepositoryError::CompositionValidation {
             path: full_path.clone(),
             source,
         })?;
-        document_views.push(dv);
+        compositions.push(dv);
     }
 
     let mut themes = Vec::new();
@@ -1142,7 +1142,7 @@ fn load_package_from_dir(
         fields,
         record_types,
         views,
-        document_views,
+        compositions,
         themes,
         blueprints,
         protocols,
@@ -1219,7 +1219,7 @@ impl RepositoryStore for FileStore {
             "types": [],
             "relationTypes": [],
             "views": [],
-            "documentViews": [],
+            "compositions": [],
             "blueprints": []
         });
         self.write_json("package/package.json", &package)?;
@@ -1287,7 +1287,7 @@ impl RepositoryStore for FileStore {
             mut fields,
             mut record_types,
             mut views,
-            mut document_views,
+            mut compositions,
             mut themes,
             mut blueprints,
             mut protocols,
@@ -1313,7 +1313,7 @@ impl RepositoryStore for FileStore {
             for v in &views {
                 view_sources.insert(v.id.clone(), package_dir.clone());
             }
-            for dv in &document_views {
+            for dv in &compositions {
                 doc_view_sources.insert(dv.id.clone(), package_dir.clone());
             }
             for theme in &themes {
@@ -1412,11 +1412,11 @@ impl RepositoryStore for FileStore {
                 }
                 for dv in sub_doc_views {
                     if let Some(first_path) = doc_view_sources.get(&dv.id) {
-                        let existing = document_views.iter().find(|d| d.id == dv.id).unwrap();
+                        let existing = compositions.iter().find(|d| d.id == dv.id).unwrap();
                         if existing.name != dv.name {
                             return Err(RepositoryError::PackageRefConflict {
                                 path: rel_path.to_string(),
-                                kind: "document-view".to_string(),
+                                kind: "composition".to_string(),
                                 id: dv.id.clone(),
                                 first_path: first_path.clone(),
                                 second_path: sub_dir.clone(),
@@ -1424,7 +1424,7 @@ impl RepositoryStore for FileStore {
                         }
                     } else {
                         doc_view_sources.insert(dv.id.clone(), sub_dir.clone());
-                        document_views.push(dv);
+                        compositions.push(dv);
                     }
                 }
                 for theme in sub_themes {
@@ -1534,12 +1534,12 @@ impl RepositoryStore for FileStore {
             record_types,
             relation_type_definitions,
             views,
-            document_views,
+            compositions,
             themes,
             blueprints,
             protocols,
             root: self.repo_root.clone(),
-            dependency_refs: metadata.dependency_refs.clone(),
+            package_dependencies: metadata.package_dependencies.clone(),
             vocabularies,
             lifecycles,
         })
@@ -1658,33 +1658,33 @@ impl RepositoryStore for FileStore {
 
     // --- Document Views (L2) ---
 
-    fn save_document_view(
+    fn save_composition(
         &self,
         relative_path: &str,
-        view: &DocumentView,
+        view: &Composition,
     ) -> Result<(), RepositoryError> {
         let value = serde_json::to_value(view).map_err(|e| RepositoryError::Serialize {
             path: self.abs(relative_path),
             source: e,
         })?;
         let mut value = value;
-        inject_definition_schema(&mut value, srs_schema::DOCUMENT_VIEW_SCHEMA_ID);
+        inject_definition_schema(&mut value, srs_schema::COMPOSITION_SCHEMA_ID);
         self.write_json(relative_path, &value)
     }
 
-    fn update_document_view_file(
+    fn update_composition_file(
         &self,
         relative_path: &str,
-        view: &DocumentView,
+        view: &Composition,
     ) -> Result<(), RepositoryError> {
-        self.save_document_view(relative_path, view)
+        self.save_composition(relative_path, view)
     }
 
-    fn delete_document_view_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
+    fn delete_composition_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
         self.delete_file(relative_path)
     }
 
-    fn ensure_document_views_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
+    fn ensure_compositions_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
         self.ensure_dir(relative_dir)
     }
 
@@ -1955,7 +1955,7 @@ impl RepositoryStore for FileStore {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": [],
+                "compositions": [],
                 "blueprints": []
             })
         };
@@ -2146,7 +2146,7 @@ pub(crate) fn definition_kind_key(kind: DefinitionKind) -> &'static str {
         DefinitionKind::Field => "fields",
         DefinitionKind::Type => "types",
         DefinitionKind::View => "views",
-        DefinitionKind::DocumentView => "documentViews",
+        DefinitionKind::Composition => "compositions",
         DefinitionKind::RelationType => "relationTypes",
         DefinitionKind::Blueprint => "blueprints",
         DefinitionKind::Protocol => "protocols",
@@ -2349,7 +2349,7 @@ fn save_container_at<S: RepositoryStore + ?Sized>(
 /// Inject `$schema` into a serialized definition value when absent. The typed
 /// definition structs (`RecordType`, `View`, ...) mostly carry no `$schema`
 /// field, but RFC-038's catalog validates every definition against its schema
-/// — and type.json / relation-type.json / view.json / document-view.json /
+/// — and type.json / relation-type.json / view.json / composition.json /
 /// theme.json all REQUIRE `$schema` — so a writer that omits it produces a
 /// file its own repository can no longer load.
 pub(crate) fn inject_definition_schema(value: &mut serde_json::Value, schema_id: &str) {
@@ -2489,7 +2489,7 @@ pub mod memory {
                 view_paths: vec![],
                 relation_type_paths: vec![],
                 lifecycle_paths: vec![],
-                document_view_paths: vec![],
+                composition_paths: vec![],
             };
             let mut boundaries = HashMap::new();
             boundaries.insert(None, primary_boundary);
@@ -2536,12 +2536,12 @@ pub mod memory {
                 record_types: vec![],
                 relation_type_definitions: vec![],
                 views: vec![],
-                document_views: vec![],
+                compositions: vec![],
                 themes: vec![],
                 blueprints: vec![],
                 protocols: vec![],
                 root: PathBuf::from("/memory"),
-                dependency_refs: vec![],
+                package_dependencies: vec![],
                 vocabularies: vec![],
                 lifecycles: vec![],
             };
@@ -2644,7 +2644,7 @@ pub mod memory {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": [],
+                "compositions": [],
                 "blueprints": [],
                 "protocols": [],
                 "vocabularies": [],
@@ -2700,12 +2700,12 @@ pub mod memory {
                 record_types: vec![],
                 relation_type_definitions: vec![],
                 views: vec![],
-                document_views: vec![],
+                compositions: vec![],
                 themes: vec![],
                 blueprints: vec![],
                 protocols: vec![],
                 root: PathBuf::from("/memory"),
-                dependency_refs: vec![],
+                package_dependencies: vec![],
                 vocabularies: vec![],
                 lifecycles: vec![],
             };
@@ -2851,12 +2851,12 @@ pub mod memory {
                 record_types: vec![],
                 relation_type_definitions: vec![],
                 views: vec![],
-                document_views: vec![],
+                compositions: vec![],
                 themes: vec![],
                 blueprints: vec![],
                 protocols: vec![],
                 root: PathBuf::from("/memory"),
-                dependency_refs: vec![],
+                package_dependencies: vec![],
                 vocabularies: vec![],
                 lifecycles: vec![],
             };
@@ -2878,7 +2878,7 @@ pub mod memory {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": [],
+                "compositions": [],
                 "blueprints": [],
                 "protocols": [],
                 "vocabularies": [],
@@ -3098,34 +3098,34 @@ pub mod memory {
             Ok(())
         }
 
-        fn save_document_view(
+        fn save_composition(
             &self,
             relative_path: &str,
-            view: &DocumentView,
+            view: &Composition,
         ) -> Result<(), RepositoryError> {
             let mut v = serde_json::to_value(view).unwrap();
-            inject_definition_schema(&mut v, srs_schema::DOCUMENT_VIEW_SCHEMA_ID);
+            inject_definition_schema(&mut v, srs_schema::COMPOSITION_SCHEMA_ID);
             self.data.borrow_mut().insert(relative_path.to_string(), v);
             Ok(())
         }
 
-        fn update_document_view_file(
+        fn update_composition_file(
             &self,
             relative_path: &str,
-            view: &DocumentView,
+            view: &Composition,
         ) -> Result<(), RepositoryError> {
             if !self.data.borrow().contains_key(relative_path) {
                 return Err(not_found(relative_path));
             }
-            self.save_document_view(relative_path, view)
+            self.save_composition(relative_path, view)
         }
 
-        fn delete_document_view_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
+        fn delete_composition_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
             self.data.borrow_mut().remove(relative_path);
             Ok(())
         }
 
-        fn ensure_document_views_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
+        fn ensure_compositions_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {
             Ok(())
         }
 
@@ -3559,7 +3559,7 @@ pub mod memory {
                     view_paths: vec![],
                     relation_type_paths: vec![],
                     lifecycle_paths: vec![],
-                    document_view_paths: vec![],
+                    composition_paths: vec![],
                 }
             });
             drop(boundaries);
@@ -3570,7 +3570,7 @@ pub mod memory {
                 serde_json::json!({
                     "id": "", "namespace": "", "name": "", "version": "",
                     "fields": [], "types": [], "relationTypes": [],
-                    "views": [], "documentViews": [], "blueprints": []
+                    "views": [], "compositions": [], "blueprints": []
                 })
             });
             // Also update manifest packageRefs
@@ -3628,7 +3628,7 @@ pub mod memory {
                     {
                         boundary.protocol_paths.push(path.to_string());
                     }
-                    _ => {} // View/DocumentView/RelationType/Vocabulary/Lifecycle — resolved via
+                    _ => {} // View/Composition/RelationType/Vocabulary/Lifecycle — resolved via
                             // package.json in the data map (memory_store_sync_pkg_json)
                 }
             }
@@ -3678,7 +3678,7 @@ pub mod memory {
                     Some(p) => p.clone(),
                 };
                 // For Field/Type use the in-memory boundary paths (fast path).
-                // For View/DocumentView/RelationType, read from the boundary's package.json in data.
+                // For View/Composition/RelationType, read from the boundary's package.json in data.
                 match kind {
                     crate::package_types::DefinitionKind::Field => {
                         for rel_path in &boundary.field_paths {
@@ -3701,7 +3701,7 @@ pub mod memory {
                         }
                     }
                     _ => {
-                        // For View, DocumentView, RelationType: scan the boundary's package.json
+                        // For View, Composition, RelationType: scan the boundary's package.json
                         let pkg_key = format!("{prefix}/package.json");
                         let array_key = definition_kind_key(kind);
                         let data = self.data.borrow();
@@ -3779,12 +3779,12 @@ mod tests {
             record_types: vec![],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: repo_root.to_path_buf(),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         }
@@ -3814,7 +3814,7 @@ mod tests {
             "fields": [],
             "types": [],
             "views": [],
-            "documentViews": []
+            "compositions": []
         });
         std::fs::write(
             root.join("package/package.json"),
@@ -3996,7 +3996,7 @@ mod tests {
             "fields": ["fields/shadow-field.json"],
             "types": [],
             "views": [],
-            "documentViews": []
+            "compositions": []
         });
         std::fs::write(
             temp.path().join("package/package.json"),
@@ -4895,7 +4895,7 @@ mod tests {
             "fields": ["fields/field-aaa.json"],
             "types": [],
             "views": [],
-            "documentViews": []
+            "compositions": []
         });
         std::fs::write(
             root.join("package/package.json"),
@@ -4913,7 +4913,7 @@ mod tests {
             "fields": [],
             "types": [],
             "views": [],
-            "documentViews": []
+            "compositions": []
         });
         std::fs::write(
             root.join("extensions/myext/package.json"),
@@ -4963,7 +4963,7 @@ mod tests {
             "fields": [],
             "types": [],
             "views": [],
-            "documentViews": [],
+            "compositions": [],
             "blueprints": ["blueprints/root-bp.json"]
         });
         std::fs::write(
@@ -4996,7 +4996,7 @@ mod tests {
             "fields": [],
             "types": [],
             "views": [],
-            "documentViews": [],
+            "compositions": [],
             "blueprints": ["blueprints/sub-bp.json"]
         });
         std::fs::write(

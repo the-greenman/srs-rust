@@ -41,10 +41,10 @@ Command groups:
 ```
 note  repo  migrate  tag  relation-type  field  type  record  relation
 extension  protocol  blueprint  container  render  package  theme  view
-document-view  vocabulary  lifecycle  term  tree  find
+composition  vocabulary  lifecycle  term  tree  find
 ```
 
-Most groups are CRUD. Notable non-CRUD surface: `repo validate|map|diff|copy|extensions`, `container resolve-view` (root + ordered members + DocumentView column spec), `render document-view`, `lifecycle` transitions, `tree`, and `find` (the discovery contract).
+Most groups are CRUD. Notable non-CRUD surface: `repo validate|map|diff|copy|extensions`, `container resolve-view` (root + ordered members + Composition column spec), `render composition`, `lifecycle` transitions, `tree`, and `find` (the discovery contract).
 
 Global flags (accepted by all commands):
 

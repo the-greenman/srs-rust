@@ -3,7 +3,7 @@
   "blueprints": [],
   "createdAt": "2026-01-01T00:00:00Z",
   "description": "",
-  "documentViews": [],
+  "compositions": [],
   "fields": [
     "fields/title-22222222.json",
     "fields/approved-22222222.json"

@@ -5,6 +5,22 @@
 - **Supersedes:** —
 - **Superseded by:** —
 
+## Addendum (2026-09-02, srs-rust#910)
+
+The Composition rename and semanticObjectType collapse landed in the engine
+(migration #6, `dataModelRevision: 6`) before Governance Epic 15 republishes
+the package — this is **not** the convergence point rule 2 describes. The
+vendored seed's `document-views/` directory renamed to `compositions/` (row
+1a/1b's shape choice is untouched: 3 views stay `container-subset`, `decision-log`
+stays `type-query`) and `decision-log`'s `type-query` section's
+`semanticObjectType: "governance/decision"` renamed to `typeKey` (same value —
+srs-rust#910's collapse re-keys the retired construct onto the same KEYED
+`namespace/name` selection this field already performed). No row's *shape*
+changed; this is the same mechanical field/directory rename every other
+first-party corpus received to stay loadable at rev 6, not a re-vendor. The
+fork's bound (the inventory table above) is otherwise unchanged and the
+convergence trigger is still Governance Epic 15's republish.
+
 ## Context
 
 `crates/srs-gov/assets/governance-seed.srsj` is the seed `srs-gov` installs when it creates a

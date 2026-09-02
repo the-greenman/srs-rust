@@ -53,7 +53,7 @@ fn lifecycle_srsj() -> String {
                     "relationTypes/depends-on.json"
                 ],
                 "views": [],
-                "documentViews": []
+                "compositions": []
             },
             "package/fields/title-lc.json": {
                 "$schema": "https://srs.semanticops.com/schema/2.0/field.json",

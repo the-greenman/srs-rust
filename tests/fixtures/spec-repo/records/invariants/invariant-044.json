@@ -4,7 +4,7 @@
   "fieldValues": {
     "invariant_number": "44",
     "title": "Every NavigationLink.fromSectionId and NavigationLink.toSectionId…",
-    "normative_statement": "Every `NavigationLink.fromSectionId` and `NavigationLink.toSectionId` must reference a `sectionId` declared in the enclosing `DocumentView.sections[]`.",
+    "normative_statement": "Every `NavigationLink.fromSectionId` and `NavigationLink.toSectionId` must reference a `sectionId` declared in the enclosing `Composition.sections[]`.",
     "applies_to": "ext:views-l2 — Navigation"
   },
   "instanceId": "e1000044-0000-4000-a000-000000000044",

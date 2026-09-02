@@ -288,7 +288,6 @@ mod tests {
 
         fn rt(id: &str, identity_field_id: Option<&str>, extends: Option<&str>) -> RecordType {
             RecordType {
-                extra: Default::default(),
                 schema: None,
                 ai_guidance: None,
                 tags: None,
@@ -325,12 +324,12 @@ mod tests {
             record_types: vec![valid_type, broken_type],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };

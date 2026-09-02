@@ -1,5 +1,5 @@
 use srs_repository::attachment_service::{
-    resolve_document_view_attachments, ResolveDocumentViewAttachmentsInput,
+    resolve_composition_attachments, ResolveCompositionAttachmentsInput,
 };
 
 const REC_ID: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -28,24 +28,24 @@ fn minimal_srsj() -> String {
 }
 
 #[test]
-fn binding_resolve_document_view_attachments_empty_ids() {
+fn binding_resolve_composition_attachments_empty_ids() {
     let srsj = minimal_srsj();
     let store = srs_repository::srsj::open_srsj(&srsj).expect("load store");
-    let input = ResolveDocumentViewAttachmentsInput {
+    let input = ResolveCompositionAttachmentsInput {
         instance_ids: vec![],
     };
-    let result = resolve_document_view_attachments(&store, input).expect("resolve ok");
+    let result = resolve_composition_attachments(&store, input).expect("resolve ok");
     assert!(result.records.is_empty());
 }
 
 #[test]
-fn binding_resolve_document_view_attachments_no_source_refs() {
+fn binding_resolve_composition_attachments_no_source_refs() {
     let srsj = minimal_srsj();
     let store = srs_repository::srsj::open_srsj(&srsj).expect("load store");
-    let input = ResolveDocumentViewAttachmentsInput {
+    let input = ResolveCompositionAttachmentsInput {
         instance_ids: vec![REC_ID.to_string()],
     };
-    let result = resolve_document_view_attachments(&store, input).expect("resolve ok");
+    let result = resolve_composition_attachments(&store, input).expect("resolve ok");
     // Record has no sourceRefs → no attachments → not included in output
     assert!(result.records.is_empty());
 }

@@ -61,10 +61,10 @@
       "items": { "type": "string" },
       "description": "Relative paths from this package directory to L1 View definition files (ext:views-l1). Omit or use empty array if the package defines no Views."
     },
-    "documentViews": {
+    "compositions": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "ext:views-l2 — relative paths from this package directory to DocumentView definition files. Omit if the package defines no DocumentViews."
+      "description": "ext:views-l2 — relative paths from this package directory to Composition definition files. Omit if the package defines no Compositions."
     },
     "themes": {
       "type": "array",
@@ -96,11 +96,11 @@
       "items": { "type": "string" },
       "description": "Relative paths from this package directory to Protocol definition files (ext:protocol). Omit or use empty array if the package defines no Protocols."
     },
-    "dependencyRefs": {
+    "packageDependencies": {
       "type": "array",
       "items": { "$ref": "#/$defs/DependencyRef" },
       "description": "Other packages this package depends on. Consumers must resolve these before using this package.",
-      "$comment": "PARKED (srs#478, rfc-decision-c8704763 item 2): rules the rename to `packageDependencies`, but the currently pinned srs-rust binary (and its latest available release as of the discovery) rejects that name outright (additionalProperties:false), breaking catalog load for the whole repo. Deferred to a follow-up PR that lands together with the srs-rust mirror update. See #478's PARK comment for the ready-to-run schema + migration diff."
+      "$comment": "srs-rust#873/#910: renamed from `dependencyRefs` (srs#478, rfc-decision-c8704763 item 2) — the fold rides srs-rust#910's shared dataModelRevision 6 stamp per the map's accepted (unvetoed) proposal on srs#524. The old name is read only by the `composition-cutover` migration (#6), never the runtime load path."
     },
     "createdAt": {
       "type": "string",

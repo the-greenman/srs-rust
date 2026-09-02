@@ -24,8 +24,8 @@
   "views": [
     "views/entry-view-9a1b0c60.json"
   ],
-  "documentViews": [
-    "document-views/entry-log-9a1b0c70.json"
+  "compositions": [
+    "compositions/entry-log-9a1b0c70.json"
   ],
   "blueprints": [
     "blueprints/entry-log-9a1b0c80.json"

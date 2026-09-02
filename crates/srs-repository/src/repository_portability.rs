@@ -17,7 +17,7 @@ use srs_core::types::record_type::RecordType;
 use srs_core::types::relation::Relation;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::theme::Theme;
-use srs_core::types::view::{DocumentView, View};
+use srs_core::types::view::{Composition, View};
 use srs_core::types::vocabulary::Vocabulary;
 use std::collections::{HashMap, HashSet};
 
@@ -43,7 +43,13 @@ pub struct PackageBoundarySnapshot {
     pub record_types: Vec<RecordType>,
     pub relation_type_definitions: Vec<RelationTypeDefinition>,
     pub views: Vec<View>,
-    pub document_views: Vec<DocumentView>,
+    // srs-rust#910: accepts the pre-cutover `documentViews` key too — this
+    // struct is also the reader for `package/package.snapshot.json` inside
+    // `legacy_snapshot_from_map`'s pre-ADR-039 archive migration ramp (#688),
+    // and the committed `legacy-snapshot.srs` fixture predates the
+    // Composition rename. Writes always emit `compositions`.
+    #[serde(alias = "documentViews")]
+    pub compositions: Vec<Composition>,
     #[serde(default)]
     pub blueprints: Vec<Blueprint>,
     #[serde(default)]
@@ -148,7 +154,7 @@ struct RawPackageMetadata {
     #[serde(default)]
     views: Vec<String>,
     #[serde(default)]
-    document_views: Vec<String>,
+    compositions: Vec<String>,
     #[serde(default)]
     blueprints: Vec<String>,
     #[serde(default)]
@@ -614,7 +620,7 @@ fn export_package_boundary(
             record_types: pkg.record_types,
             relation_type_definitions: pkg.relation_type_definitions,
             views: pkg.views,
-            document_views: pkg.document_views,
+            compositions: pkg.compositions,
             blueprints: pkg.blueprints.into_iter().map(|lb| lb.blueprint).collect(),
             themes: pkg.themes,
             vocabularies: pkg.vocabularies,
@@ -654,10 +660,10 @@ fn export_package_boundary(
         .iter()
         .map(|p| load_typed_json::<View>(source, &package_prefix, p))
         .collect::<Result<Vec<_>, _>>()?;
-    let document_views = metadata
-        .document_views
+    let compositions = metadata
+        .compositions
         .iter()
-        .map(|p| load_typed_json::<DocumentView>(source, &package_prefix, p))
+        .map(|p| load_typed_json::<Composition>(source, &package_prefix, p))
         .collect::<Result<Vec<_>, _>>()?;
     let blueprints = metadata
         .blueprints
@@ -692,7 +698,7 @@ fn export_package_boundary(
         record_types,
         relation_type_definitions,
         views,
-        document_views,
+        compositions,
         blueprints,
         themes,
         vocabularies,
@@ -781,9 +787,9 @@ fn import_package_boundary(
     }
 
     let mut doc_view_paths = Vec::new();
-    for view in &package.document_views {
+    for view in &package.compositions {
         let path = format!(
-            "document-views/{}-{}.json",
+            "compositions/{}-{}.json",
             slugify(&view.name),
             id_prefix(&view.id)?
         );
@@ -792,7 +798,7 @@ fn import_package_boundary(
             &base_prefix,
             &path,
             view,
-            Some(srs_schema::DOCUMENT_VIEW_SCHEMA_ID),
+            Some(srs_schema::COMPOSITION_SCHEMA_ID),
         )?;
         doc_view_paths.push(path);
     }
@@ -879,7 +885,7 @@ fn import_package_boundary(
         "types": type_paths,
         "relationTypes": relation_type_paths,
         "views": view_paths,
-        "documentViews": doc_view_paths,
+        "compositions": doc_view_paths,
         "blueprints": blueprint_paths,
         "themes": theme_paths,
         "vocabularies": vocabulary_paths,
@@ -1571,7 +1577,7 @@ mod tests {
             record_types: vec![],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             blueprints: vec![],
             themes: vec![],
             vocabularies: vec![],

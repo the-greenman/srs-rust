@@ -8,9 +8,11 @@ pub struct RelationValidationContext<'a> {
     pub definitions: &'a [RelationTypeDefinition],
     /// All known instance IDs in the repository. Used for E2 endpoint checks.
     pub known_instance_ids: &'a HashSet<String>,
-    /// Maps instanceId → semanticObjectType for instances that carry the field.
-    /// If an instance is absent from this map, E4 type-constraint checks are skipped for it.
-    pub instance_semantic_types: &'a HashMap<String, String>,
+    /// Maps instanceId → `typeId` for Tier-2 Records (the bound Type, srs-rust#910's
+    /// semanticObjectType collapse — srs#372/#383/#524, `rfc-decision-c8704763`). A
+    /// Tier-0 Note has no Type binding and is absent from this map; `requireSameType`
+    /// is skipped whenever either endpoint is absent.
+    pub instance_type_ids: &'a HashMap<String, String>,
 }
 
 /// A single relation validation error.
@@ -36,7 +38,7 @@ pub enum RelationValidationCode {
     E2UnknownEndpoint,
     /// E3: irreflexive constraint — source and target are the same instance.
     E3Irreflexive,
-    /// E4: source or target semanticObjectType violates allowedSourceTypes/allowedTargetTypes.
+    /// E4: `requireSameType` violated — source and target resolve to different Types.
     E4TypeConstraint,
 }
 
@@ -281,58 +283,21 @@ fn validate_e4(
     ctx: &RelationValidationContext,
     errors: &mut Vec<RelationValidationError>,
 ) {
-    // allowedSourceTypes
-    if let Some(allowed) = &def.allowed_source_types {
-        if let Some(src_type) = ctx
-            .instance_semantic_types
-            .get(&relation.source_instance_id)
-        {
-            if !allowed.contains(src_type) {
-                errors.push(RelationValidationError {
-                    relation_id: relation.relation_id.clone(),
-                    code: RelationValidationCode::E4TypeConstraint,
-                    message: format!(
-                        "E4: source instance '{}' has semanticObjectType '{}' which is not in allowedSourceTypes {:?} for relation type '{}'",
-                        relation.source_instance_id, src_type, allowed, relation.relation_type
-                    ),
-                });
-            }
-        }
-    }
-
-    // allowedTargetTypes
-    if let Some(allowed) = &def.allowed_target_types {
-        if let Some(tgt_type) = ctx
-            .instance_semantic_types
-            .get(&relation.target_instance_id)
-        {
-            if !allowed.contains(tgt_type) {
-                errors.push(RelationValidationError {
-                    relation_id: relation.relation_id.clone(),
-                    code: RelationValidationCode::E4TypeConstraint,
-                    message: format!(
-                        "E4: target instance '{}' has semanticObjectType '{}' which is not in allowedTargetTypes {:?} for relation type '{}'",
-                        relation.target_instance_id, tgt_type, allowed, relation.relation_type
-                    ),
-                });
-            }
-        }
-    }
-
-    // requireSameSemanticObjectType
-    if def.require_same_semantic_object_type.unwrap_or(false) {
+    // requireSameType (srs-rust#910: semanticObjectType collapse, srs#372/#383/#524).
+    // allowedSourceTypes/allowedTargetTypes retired with it — both were keyed on the
+    // same retired semanticObjectType string and, per #372, could never fire against
+    // a schema-conforming Record/Note in the first place.
+    if def.require_same_type.unwrap_or(false) {
         if let (Some(src_type), Some(tgt_type)) = (
-            ctx.instance_semantic_types
-                .get(&relation.source_instance_id),
-            ctx.instance_semantic_types
-                .get(&relation.target_instance_id),
+            ctx.instance_type_ids.get(&relation.source_instance_id),
+            ctx.instance_type_ids.get(&relation.target_instance_id),
         ) {
             if src_type != tgt_type {
                 errors.push(RelationValidationError {
                     relation_id: relation.relation_id.clone(),
                     code: RelationValidationCode::E4TypeConstraint,
                     message: format!(
-                        "E4: relation type '{}' requires same semanticObjectType but source is '{}' and target is '{}'",
+                        "E4: relation type '{}' requires same type but source is '{}' and target is '{}'",
                         relation.relation_type, src_type, tgt_type
                     ),
                 });
@@ -360,9 +325,7 @@ mod tests {
             canonical_direction: None,
             inverse_type: None,
             irreflexive: None,
-            allowed_source_types: None,
-            allowed_target_types: None,
-            require_same_semantic_object_type: None,
+            require_same_type: None,
             status: None,
             updated_at: None,
             meta: None,
@@ -398,7 +361,7 @@ mod tests {
         RelationValidationContext {
             definitions: defs,
             known_instance_ids: ids,
-            instance_semantic_types: types,
+            instance_type_ids: types,
         }
     }
 
@@ -561,25 +524,9 @@ mod tests {
     }
 
     #[test]
-    fn e4_allowed_source_type_rejected() {
-        let defs = vec![RelationTypeDefinition {
-            allowed_source_types: Some(vec!["section".to_string()]),
-            ..make_def("precedes")
-        }];
-        let ids: HashSet<String> = ["src".to_string(), "tgt".to_string()].into();
-        let types: HashMap<String, String> = [("src".to_string(), "note".to_string())].into();
-        let ctx = ctx_with_defs(&defs, &ids, &types);
-        let r = make_relation("precedes", "src", "tgt");
-        let err = validate_relation(&r, &ctx, false).unwrap_err();
-        assert!(err
-            .iter()
-            .any(|e| e.code == RelationValidationCode::E4TypeConstraint));
-    }
-
-    #[test]
     fn e4_require_same_type_mismatch() {
         let defs = vec![RelationTypeDefinition {
-            require_same_semantic_object_type: Some(true),
+            require_same_type: Some(true),
             ..make_def("precedes")
         }];
         let ids: HashSet<String> = ["src".to_string(), "tgt".to_string()].into();

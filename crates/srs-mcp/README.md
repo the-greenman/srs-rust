@@ -18,7 +18,7 @@ service call, and no business logic lives here.
 | `srs://<repositoryId>/navigation` | Identity record + ordered navigation sections (JSON) |
 | `srs://<repositoryId>/record/{instanceId}` | One record, any tier (JSON; resource template) |
 | `srs://<repositoryId>/container/<containerId>` | Container resolve-view: authored columns + ordered members (JSON) |
-| `srs://<repositoryId>/view/<documentViewId>` | Rendered document view (markdown) |
+| `srs://<repositoryId>/composition/<compositionId>` | Rendered document view (markdown) |
 | `srs://<repositoryId>/type/{typeId}` | Type authoring schema: fieldIds, required flags, aiGuidance (JSON; enumerated + template) |
 
 The `srs://` scheme is implementation tooling, not spec — every component is an
@@ -43,7 +43,7 @@ Tool descriptions live as `pub const` items in [`src/tools.rs`](src/tools.rs)
 The container membership tools change membership only. Their returned
 `memberInstanceIds` array has no semantic or presentation-order authority. Use
 a `precedes` relation when order is itself a semantic claim. For display or
-curation order, author a `container-subset` DocumentView's
+curation order, author a `container-subset` Composition's
 `ordering.memberOrder` through the definition-authoring or CLI surface; MCP
 currently has no definition/view update tool.
 

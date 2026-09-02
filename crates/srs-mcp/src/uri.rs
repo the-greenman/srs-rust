@@ -4,8 +4,12 @@
 //! `srs://<repositoryId>/navigation`
 //! `srs://<repositoryId>/record/<instanceId>`
 //! `srs://<repositoryId>/container/<containerId>`
-//! `srs://<repositoryId>/view/<documentViewId>`
+//! `srs://<repositoryId>/composition/<compositionId>`
 //! `srs://<repositoryId>/type/<typeId>`
+//!
+//! srs-rust#910: the `view` path segment renamed to `composition`
+//! (`rfc-decision-92d2da05`) — no alias, per the standing zero-backwards-
+//! compatibility rule.
 //!
 //! Every component is an existing SRS identifier; the scheme adds no semantics.
 
@@ -20,7 +24,7 @@ pub enum SrsUri {
     Navigation,
     Record(String),
     Container(String),
-    View(String),
+    Composition(String),
     Type(String),
 }
 
@@ -59,7 +63,7 @@ pub fn parse(uri: &str, repository_id: &str) -> Result<SrsUri, UriError> {
         Some((kind, id)) if !id.is_empty() && !id.contains('/') => match kind {
             "record" => Ok(SrsUri::Record(id.to_string())),
             "container" => Ok(SrsUri::Container(id.to_string())),
-            "view" => Ok(SrsUri::View(id.to_string())),
+            "composition" => Ok(SrsUri::Composition(id.to_string())),
             "type" => Ok(SrsUri::Type(id.to_string())),
             other => Err(UriError(format!("unknown resource kind '{other}'"))),
         },
@@ -74,7 +78,7 @@ pub fn format(kind: &SrsUri, repository_id: &str) -> String {
         SrsUri::Navigation => format!("{SCHEME}{repository_id}/navigation"),
         SrsUri::Record(id) => format!("{SCHEME}{repository_id}/record/{id}"),
         SrsUri::Container(id) => format!("{SCHEME}{repository_id}/container/{id}"),
-        SrsUri::View(id) => format!("{SCHEME}{repository_id}/view/{id}"),
+        SrsUri::Composition(id) => format!("{SCHEME}{repository_id}/composition/{id}"),
         SrsUri::Type(id) => format!("{SCHEME}{repository_id}/type/{id}"),
     }
 }
@@ -102,7 +106,7 @@ mod tests {
             SrsUri::Navigation,
             SrsUri::Record("abc".into()),
             SrsUri::Container("def".into()),
-            SrsUri::View("ghi".into()),
+            SrsUri::Composition("ghi".into()),
             SrsUri::Type("jkl".into()),
         ];
         for kind in kinds {

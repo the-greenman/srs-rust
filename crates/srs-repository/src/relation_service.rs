@@ -159,12 +159,10 @@ fn load_validation_data(
     store: &dyn RepositoryStore,
 ) -> Result<(HashSet<String>, HashMap<String, String>), RepositoryError> {
     let cat = store.catalog()?;
-    // Populate the semantic-type map so E4 (allowedSourceTypes / allowedTargetTypes /
-    // requireSameSemanticObjectType) fires on the write path exactly as it does in
-    // `repo validate` — previously this was an empty map, so E4 was dead on create (#556).
-    Ok(crate::writer::known_instances_and_semantic_types(
-        store, &cat,
-    ))
+    // Populate the type-id map so E4 (requireSameType) fires on the write path
+    // exactly as it does in `repo validate` — previously this was an empty map,
+    // so E4 was dead on create (#556).
+    Ok(crate::writer::known_instances_and_type_ids(store, &cat))
 }
 
 /// Create a new relation with E1-E4 validation.
@@ -179,11 +177,11 @@ pub fn create_relation(
     if relation.relation_id.trim().is_empty() {
         relation.relation_id = new_instance_id();
     }
-    let (known_instance_ids, instance_semantic_types) = load_validation_data(store)?;
+    let (known_instance_ids, instance_type_ids) = load_validation_data(store)?;
     let ctx = RelationValidationContext {
         definitions,
         known_instance_ids: &known_instance_ids,
-        instance_semantic_types: &instance_semantic_types,
+        instance_type_ids: &instance_type_ids,
     };
 
     // Validate the relation (E1-E4 checks)
@@ -671,11 +669,11 @@ pub fn rebuild_precedes_chain(
         Vec::new()
     } else {
         let package = store.load_package()?;
-        let (known_instance_ids, instance_semantic_types) = load_validation_data(store)?;
+        let (known_instance_ids, instance_type_ids) = load_validation_data(store)?;
         let ctx = RelationValidationContext {
             definitions: &package.relation_type_definitions,
             known_instance_ids: &known_instance_ids,
-            instance_semantic_types: &instance_semantic_types,
+            instance_type_ids: &instance_type_ids,
         };
         let mut rels = Vec::with_capacity(input.instance_ids.len() - 1);
         for window in input.instance_ids.windows(2) {
@@ -920,9 +918,7 @@ mod tests {
             canonical_direction: None,
             inverse_type: None,
             irreflexive: None,
-            allowed_source_types: None,
-            allowed_target_types: None,
-            require_same_semantic_object_type: None,
+            require_same_type: None,
             status: None,
             updated_at: None,
             meta: None,
@@ -937,35 +933,50 @@ mod tests {
         assert_eq!(all.len(), 4);
     }
 
-    /// A store with two Tier-2 instances carrying `semanticObjectType`, for E4-on-create tests (#556).
-    // KNOWN GAP (srs-rust#783 Phase 3): `semanticObjectType` is not a declared property of
-    // record.json (additionalProperties: false), so these fixtures are schema-invalid under
-    // the RFC-038 catalog and their tests fail catalog load — a pre-existing conflict between
-    // E4's raw-property read and the schema, not introduced by the instance_index rewire and
-    // not resolved here; see final report.
-    fn make_store_with_typed_instances(src_type: &str, tgt_type: &str) -> MemoryStore {
+    /// A store with two Tier-2 Records bound to the given Type ids, for E4-on-create
+    /// tests (#556, re-keyed onto the Type system by srs-rust#910's semanticObjectType
+    /// collapse — srs#372/#383/#524). Written through the typed `save_record` seam
+    /// (ADR-042) rather than raw JSON, so the fixtures are real catalog-valid Records.
+    fn make_store_with_typed_instances(src_type_id: &str, tgt_type_id: &str) -> MemoryStore {
+        use srs_core::types::record::{FieldValues, Record};
         let store = MemoryStore::default();
         store
-            .save_instance_json(
-                "records/src.json",
-                &json!({ "instanceId": "src", "semanticObjectType": src_type }),
-            )
+            .save_record(&Record {
+                field_meta: None,
+                instance_id: "00000000-0000-4000-8000-00000000005c".to_string(),
+                type_id: src_type_id.to_string(),
+                type_version: 1,
+                type_namespace: "com.test".to_string(),
+                type_name: "src-type".to_string(),
+                field_values: FieldValues::new(),
+                lifecycle_state: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                extra: std::collections::BTreeMap::new(),
+            })
             .unwrap();
         store
-            .save_instance_json(
-                "records/tgt.json",
-                &json!({ "instanceId": "tgt", "semanticObjectType": tgt_type }),
-            )
+            .save_record(&Record {
+                field_meta: None,
+                instance_id: "00000000-0000-4000-8000-00000000007c".to_string(),
+                type_id: tgt_type_id.to_string(),
+                type_version: 1,
+                type_namespace: "com.test".to_string(),
+                type_name: "tgt-type".to_string(),
+                field_values: FieldValues::new(),
+                lifecycle_state: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                extra: std::collections::BTreeMap::new(),
+            })
             .unwrap();
         store
     }
 
-    /// A relation type definition keyed `com.test/links` with the given E4 constraints.
-    fn links_def(
-        allowed_source: Option<Vec<&str>>,
-        allowed_target: Option<Vec<&str>>,
-        require_same: Option<bool>,
-    ) -> RelationTypeDefinition {
+    /// A relation type definition keyed `com.test/links` with the given `requireSameType`.
+    fn links_def(require_same: Option<bool>) -> RelationTypeDefinition {
         use srs_core::types::relation_type_definition::RelationTypeCategory;
         RelationTypeDefinition {
             schema: None,
@@ -980,31 +991,25 @@ mod tests {
             canonical_direction: None,
             inverse_type: None,
             irreflexive: None,
-            allowed_source_types: allowed_source
-                .map(|v| v.into_iter().map(|s| s.to_string()).collect()),
-            allowed_target_types: allowed_target
-                .map(|v| v.into_iter().map(|s| s.to_string()).collect()),
-            require_same_semantic_object_type: require_same,
+            require_same_type: require_same,
             status: None,
             updated_at: None,
             meta: None,
         }
     }
 
-    // KNOWN GAP (srs-rust#783 Phase 3, flagged not resolved): see
-    // `make_store_with_typed_instances`'s comment above. `semanticObjectType`
-    // is not a declared property of record.json (additionalProperties: false),
-    // so no schema-valid instance can carry it, yet it's the documented E4
-    // mechanism. Whether to add it to the schema, carry it out-of-band, or
-    // something else is a spec-level call for the owner (srs-rust#768-adjacent).
     #[test]
-    #[ignore = "srs-rust#783 Phase 3: semanticObjectType is not a declared record.json property (additionalProperties: false) — owner decision needed, see srs-rust#768"]
-    fn create_relation_enforces_e4_allowed_source_types() {
-        // Regression for #556: E4 was dead on create because the semantic-type map was empty,
-        // so a source whose semanticObjectType is not in allowedSourceTypes was accepted.
-        let store = make_store_with_typed_instances("com.x/forbidden", "com.x/anything");
-        let def = links_def(Some(vec!["com.x/allowed"]), None, None);
-        let rel = make_relation("r-e4", "src", "tgt", "com.test/links");
+    fn create_relation_enforces_e4_require_same_type() {
+        // Regression for #556 (re-keyed by srs-rust#910): E4 was dead on create because
+        // the type-id map was empty, so a mismatched-type relation was accepted.
+        let store = make_store_with_typed_instances("type-one", "type-two");
+        let def = links_def(Some(true));
+        let rel = make_relation(
+            "d0000006-0000-4000-a000-000000000006",
+            "00000000-0000-4000-8000-00000000005c",
+            "00000000-0000-4000-8000-00000000007c",
+            "com.test/links",
+        );
         let err = create_relation(&store, rel, &[def]).unwrap_err();
         let msg = format!("{err:?}");
         assert!(
@@ -1017,22 +1022,26 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "srs-rust#783 Phase 3: semanticObjectType is not a declared record.json property (additionalProperties: false) — owner decision needed, see srs-rust#768"]
-    fn create_relation_enforces_require_same_semantic_object_type() {
-        let store = make_store_with_typed_instances("com.x/one", "com.x/two");
-        let def = links_def(None, None, Some(true));
-        let rel = make_relation("r-same", "src", "tgt", "com.test/links");
-        let err = create_relation(&store, rel, &[def]).unwrap_err();
-        assert!(format!("{err:?}").contains("E4"));
+    fn create_relation_allows_same_type_under_require_same_type() {
+        let store = make_store_with_typed_instances("type-one", "type-one");
+        let def = links_def(Some(true));
+        let rel = make_relation(
+            "d0000007-0000-4000-a000-000000000007",
+            "00000000-0000-4000-8000-00000000005c",
+            "00000000-0000-4000-8000-00000000007c",
+            "com.test/links",
+        );
+        let result = create_relation(&store, rel, &[def]);
+        assert!(
+            result.is_ok(),
+            "matching types must not trip E4: {result:?}"
+        );
     }
 
     #[test]
     fn create_relation_allows_untyped_endpoints_under_constrained_type() {
-        // Endpoints carry NO semanticObjectType, so E4 must stay a no-op even under a
+        // Endpoints carry NO typeId (Tier-0 Notes), so E4 must stay a no-op even under a
         // constrained type — proves the fix doesn't over-reject (the `if let Some` guard holds).
-        // RFC-038: endpoints must be catalog-valid instances (a bare `{instanceId}` object
-        // matches no tier schema — SRS038-R8-SHAPE-NO-MATCH); minimal valid Notes stand in,
-        // since this test only cares about the *absence* of semanticObjectType, not tier/shape.
         let store = MemoryStore::default();
         store
             .save_instance_json(
@@ -1047,7 +1056,7 @@ mod tests {
             )
             .unwrap();
 
-        let def = links_def(Some(vec!["com.x/allowed"]), None, None);
+        let def = links_def(Some(true));
         let rel = make_relation(
             "d0000005-0000-4000-a000-000000000005",
             "00000005-5c00-4000-8000-000000000005",
@@ -1117,7 +1126,7 @@ mod tests {
                 .unwrap();
         }
 
-        let def = links_def(None, None, None);
+        let def = links_def(None);
         let rel = make_relation(
             "da000001-0000-4000-a000-000000000001",
             "src-1",
@@ -1154,7 +1163,7 @@ mod tests {
         let sibling = "relations/aaaaaaaa-0000-4000-8000-000000000001.json";
         let before = store.load_relations_json(sibling).unwrap();
 
-        let def = links_def(None, None, None);
+        let def = links_def(None);
         let rel = make_relation(
             "da000002-0000-4000-a000-000000000002",
             "note-1",
@@ -1180,7 +1189,7 @@ mod tests {
     #[test]
     fn delete_relation_standalone_touches_only_its_file() {
         let store = make_store_with_relations();
-        let def = links_def(None, None, None);
+        let def = links_def(None);
         create_relation(
             &store,
             make_relation(
@@ -1269,7 +1278,7 @@ mod tests {
     #[test]
     fn create_relation_refuses_duplicate_id() {
         let store = make_store_with_relations();
-        let def = links_def(None, None, None);
+        let def = links_def(None);
         create_relation(
             &store,
             make_relation(
@@ -1305,7 +1314,7 @@ mod tests {
         // common base each create one relation; a git merge unions the two
         // standalone files with no textual conflict. Simulated by replaying each
         // branch's file into the base store and asserting both enumerate cleanly.
-        let def = links_def(None, None, None);
+        let def = links_def(None);
 
         let branch_a = make_store_with_relations();
         create_relation(
@@ -1547,24 +1556,24 @@ mod tests {
             fn ensure_views_dir(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
-            fn save_document_view(
+            fn save_composition(
                 &self,
                 _: &str,
-                _: &srs_core::types::view::DocumentView,
+                _: &srs_core::types::view::Composition,
             ) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
-            fn update_document_view_file(
+            fn update_composition_file(
                 &self,
                 _: &str,
-                _: &srs_core::types::view::DocumentView,
+                _: &srs_core::types::view::Composition,
             ) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
-            fn delete_document_view_file(&self, _: &str) -> Result<(), RepositoryError> {
+            fn delete_composition_file(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
-            fn ensure_document_views_dir(&self, _: &str) -> Result<(), RepositoryError> {
+            fn ensure_compositions_dir(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
             fn save_blueprint(
@@ -1929,9 +1938,7 @@ mod tests {
                     canonical_direction: None,
                     inverse_type: None,
                     irreflexive: None,
-                    allowed_source_types: None,
-                    allowed_target_types: None,
-                    require_same_semantic_object_type: None,
+                    require_same_type: None,
                     status: None,
                     updated_at: None,
                     meta: None,

@@ -4,7 +4,7 @@ use srs_core::types::relation::Relation;
 use srs_repository::attachment_service::{
     self as attachment_service, AddAttachmentInput, GetAttachmentBytesInput,
     GetRecordAttachmentsInput, LinkAttachmentInput, ListAttachmentsFilter,
-    ResolveDocumentViewAttachmentsInput,
+    ResolveCompositionAttachmentsInput,
 };
 use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service;
@@ -37,7 +37,7 @@ use srs_repository::registry_service::{
 use srs_repository::relation_service::{
     self, ListRelationsFilter, OrderByPrecedesInput, RebuildPrecedesChainInput,
 };
-use srs_repository::render_service::{self, RenderDocumentViewOptions};
+use srs_repository::render_service::{self, RenderCompositionOptions};
 use srs_repository::repository_lifecycle::{self, InitNewRepositoryInput};
 use srs_repository::repository_navigation_service;
 use srs_repository::services::{
@@ -46,7 +46,7 @@ use srs_repository::services::{
 use srs_repository::tag_service;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation;
-use srs_repository::view_service::{self, DocumentViewListFilter, GetViewResult};
+use srs_repository::view_service::{self, CompositionListFilter, GetViewResult};
 use srs_repository::FileStore;
 use wasm_bindgen::prelude::*;
 
@@ -576,8 +576,8 @@ impl SrsRepository {
     /// `instance_id_filter` optionally scopes ContainerSubset sections to a single record,
     /// producing a per-record export document.
     /// Returns `{ "rendered": <string>, "diagnostics": [...], "projection": <json|null> }`.
-    /// When `format == "json"`, `projection` is a `DocumentViewProjection` object with shape:
-    /// `{ $schema, documentViewId, containerId: string|null, generatedAt, containerTitle,
+    /// When `format == "json"`, `projection` is a `CompositionProjection` object with shape:
+    /// `{ $schema, compositionId, containerId: string|null, generatedAt, containerTitle,
     ///   preamble?, sections: [{ sectionId, title?, order, records: [{ instanceId, typeId,
     ///   typeNamespace, typeName, recordHeading?, preamble?, fields, orderedFieldKeys,
     ///   fieldGroups?, relations? }] }] }`.
@@ -587,14 +587,14 @@ impl SrsRepository {
     /// each entry is `{ label: string, targets: [{ instanceId, displayLabel }] }`.
     /// `records[*].fieldGroups` is present when the record type defines field groups;
     /// each entry is `{ groupId: string, label?, entries: [{ entryId?, fields }] }`.
-    pub fn render_document_view(
+    pub fn render_composition(
         &self,
         view_id: &str,
         format: &str,
         container_id: Option<String>,
         instance_id_filter: Option<String>,
     ) -> Result<JsValue, JsValue> {
-        let result = render_service::render_document_view(RenderDocumentViewOptions {
+        let result = render_service::render_composition(RenderCompositionOptions {
             store: &self.store,
             view_id,
             format: Some(format),
@@ -606,22 +606,22 @@ impl SrsRepository {
         to_js(&result)
     }
 
-    /// List document-view (L2) summaries. `filter_json` is a JSON string matching
+    /// List composition (L2) summaries. `filter_json` is a JSON string matching
     /// `{ "namespace"?: string, "name"?: string, "containerType"?: string, "rootTypeId"?: string }`;
     /// pass `"{}"` for all document views. `name` filters to an exact view name. `rootTypeId` keeps only views whose
     /// `rootTypeRefs` include that Type UUID (RFC-009). Returns a JS array of objects
     /// `{ id, namespace, name, version, description, containerType?, rootTypeRefs?, sourcePackage? }`.
-    pub fn list_document_views(&self, filter_json: &str) -> Result<JsValue, JsValue> {
-        let parsed: DocumentViewListBindingFilter = serde_json::from_str(filter_json)
+    pub fn list_compositions(&self, filter_json: &str) -> Result<JsValue, JsValue> {
+        let parsed: CompositionListBindingFilter = serde_json::from_str(filter_json)
             .map_err(|e| js_err(format!("invalid filter: {e}")))?;
-        let filter = DocumentViewListFilter {
+        let filter = CompositionListFilter {
             namespace: parsed.namespace,
             name: parsed.name,
             container_type: parsed.container_type,
             root_type_id: parsed.root_type_id,
         };
         let summaries =
-            view_service::list_document_views_summary(&self.store, &filter).map_err(js_err)?;
+            view_service::list_compositions_summary(&self.store, &filter).map_err(js_err)?;
         to_js(&summaries)
     }
 
@@ -906,22 +906,22 @@ impl SrsRepository {
     }
 
     /// List the document views (L2) bound to a container's root type. Resolves the container's
-    /// first root instance's `typeId`/`typeVersion`, then returns every `DocumentView` whose
+    /// first root instance's `typeId`/`typeVersion`, then returns every `Composition` whose
     /// `rootTypeRefs` includes that exact type binding (RFC-009). Returns an empty array — not an
     /// error — when the container has no root instance, the root carries no type binding (Tier 0/1),
-    /// or no view matches. Returns a JS array of **full** `DocumentView` objects (including
-    /// `sections`) — not the lighter summaries that `list_document_views` returns — because the
+    /// or no view matches. Returns a JS array of **full** `Composition` objects (including
+    /// `sections`) — not the lighter summaries that `list_compositions` returns — because the
     /// caller needs the section definitions to render the view.
-    pub fn document_views_for_container(&self, container_id: &str) -> Result<JsValue, JsValue> {
-        let views = view_service::document_views_for_container(&self.store, container_id)
-            .map_err(js_err)?;
+    pub fn compositions_for_container(&self, container_id: &str) -> Result<JsValue, JsValue> {
+        let views =
+            view_service::compositions_for_container(&self.store, container_id).map_err(js_err)?;
         to_js(&views)
     }
 
     /// Resolve a structured container view for an editor member list (issue #254, #256):
     /// the container root record, the ordered member records (Tier-0, Tier-1, or Tier-2;
-    /// full `Record` present only for Tier-2), the DocumentView-driven column spec, and
-    /// diagnostics. `view_id` optionally overrides the DocumentView; when omitted it is
+    /// full `Record` present only for Tier-2), the Composition-driven column spec, and
+    /// diagnostics. `view_id` optionally overrides the Composition; when omitted it is
     /// matched from the container's root type binding. Returns a `ContainerView` object.
     pub fn resolve_container_view(
         &self,
@@ -1154,13 +1154,13 @@ impl SrsRepository {
 
     /// Resolve linked attachments for a list of record instance IDs.
     ///
-    /// `input_json` is `{"instanceIds": ["<uuid>", ...]}` (from a rendered document_view).
+    /// `input_json` is `{"instanceIds": ["<uuid>", ...]}` (from a rendered composition).
     /// Returns `{sourceDocumentsPath, records: [{instanceId, attachments: [{documentId,
     /// contentPath, sidecarPath, title?, contentChecksum?, sidecarChecksum?, sizeBytes?}]}]}`.
-    pub fn resolve_document_view_attachments(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: ResolveDocumentViewAttachmentsInput =
+    pub fn resolve_composition_attachments(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: ResolveCompositionAttachmentsInput =
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
-        let result = attachment_service::resolve_document_view_attachments(&self.store, input)
+        let result = attachment_service::resolve_composition_attachments(&self.store, input)
             .map_err(js_err)?;
         to_js(&result)
     }
@@ -1270,10 +1270,10 @@ pub fn list_registry_entries(catalog_json: &str, filter_json: &str) -> Result<Js
     to_js(&filtered)
 }
 
-/// Input shape for `list_document_views` — parsed from caller-supplied JSON.
+/// Input shape for `list_compositions` — parsed from caller-supplied JSON.
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-struct DocumentViewListBindingFilter {
+struct CompositionListBindingFilter {
     #[serde(default)]
     namespace: Option<String>,
     #[serde(default)]
@@ -1391,7 +1391,7 @@ mod tests {
                     "types": ["types/bind-type.json"],
                     "relationTypes": [],
                     "views": [],
-                    "documentViews": []
+                    "compositions": []
                 },
                 "package/fields/body.json": {
                     "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
@@ -1506,7 +1506,7 @@ mod tests {
                     "types": ["types/container-item-type.json"],
                     "relationTypes": [],
                     "views": [],
-                    "documentViews": []
+                    "compositions": []
                 },
                 "package/fields/title.json": {
                     "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
@@ -1711,7 +1711,7 @@ mod tests {
                     "types": ["types/titled-type.json"],
                     "relationTypes": [],
                     "views": [],
-                    "documentViews": []
+                    "compositions": []
                 },
                 "package/fields/title.json": {
                     "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
@@ -2032,7 +2032,7 @@ mod tests {
                     "types": ["types/repo_settings.json"],
                     "relationTypes": [],
                     "views": [],
-                    "documentViews": [],
+                    "compositions": [],
                     "createdAt": "2026-01-01T00:00:00Z"
                 },
                 "package/fields/max_per_file_bytes.json": {

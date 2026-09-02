@@ -392,7 +392,7 @@ const DEFINITION_KEYS: [&str; 10] = [
     "types",
     "relationTypes",
     "views",
-    "documentViews",
+    "compositions",
     "themes",
     "blueprints",
     "protocols",
@@ -985,7 +985,7 @@ mod tests {
         // Without the to_value fix, load_text_file("manifest.json") emits them in HashMap
         // iteration order (non-deterministic across process runs). With the fix, to_value
         // normalises all keys — typed fields and extra — into BTreeMap (sorted) order (ADR-017).
-        let srsj = r#"{"srsj":"2","manifest":{"dataModelRevision":2,"repositoryId":"det-test-id","namespace":"com.example.det","srsVersion":"2.0-draft","title":"Det Test","zzz":"last","aaa":"first","createdAt":"2026-01-01T00:00:00Z"},"data":{"package/package.json":{"id":"p","namespace":"com.example.det","name":"n","version":"1","fields":[],"types":[],"relationTypes":[],"views":[],"documentViews":[]}}}"#;
+        let srsj = r#"{"srsj":"2","manifest":{"dataModelRevision":2,"repositoryId":"det-test-id","namespace":"com.example.det","srsVersion":"2.0-draft","title":"Det Test","zzz":"last","aaa":"first","createdAt":"2026-01-01T00:00:00Z"},"data":{"package/package.json":{"id":"p","namespace":"com.example.det","name":"n","version":"1","fields":[],"types":[],"relationTypes":[],"views":[],"compositions":[]}}}"#;
 
         let store = crate::srsj::open_srsj(srsj).unwrap();
         let archive_bytes = pack_to_bytes(&store);

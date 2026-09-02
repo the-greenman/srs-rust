@@ -463,7 +463,7 @@ mod tests {
                     "name": "Governance",
                     "version": "1.0.0",
                     "fields": [], "types": [], "relationTypes": [],
-                    "views": [], "documentViews": []
+                    "views": [], "compositions": []
                 }
             }
         })
@@ -495,7 +495,7 @@ mod tests {
                     "name": "Governance",
                     "version": "1.0.0",
                     "fields": [], "types": [], "relationTypes": [],
-                    "views": [], "documentViews": []
+                    "views": [], "compositions": []
                 }
             }
         })

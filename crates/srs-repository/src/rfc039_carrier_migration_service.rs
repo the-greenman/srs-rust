@@ -1369,7 +1369,7 @@ mod tests {
                         "fields/role.json", "fields/aliases.json"
                     ],
                     "types": ["types/item.json", "types/plain.json"],
-                    "views": [], "documentViews": []
+                    "views": [], "compositions": []
                 },
                 "package/fields/title.json": field(F_TITLE, "title", json!({"datatype": "string"})),
                 "package/fields/labels.json":
@@ -1553,7 +1553,7 @@ mod tests {
                     "version": "1.0.0", "createdAt": "2026-01-01T00:00:00Z",
                     "fields": ["fields/heading.json", "fields/body.json", "fields/note.json"],
                     "types": ["types/base.json", "types/child.json"],
-                    "views": [], "documentViews": []
+                    "views": [], "compositions": []
                 },
                 "package/fields/heading.json": field(F_HEADING, "heading"),
                 "package/fields/body.json": field(F_BODY, "body"),
@@ -1821,7 +1821,7 @@ mod tests {
                     "namespace": "com.test", "name": "root-pkg", "title": "Root",
                     "description": "root", "status": "active", "version": "1.0.0",
                     "createdAt": "2026-01-01T00:00:00Z",
-                    "fields": [], "types": [], "views": [], "documentViews": []
+                    "fields": [], "types": [], "views": [], "compositions": []
                 },
                 "package/sub/package.json": {
                     "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
@@ -1830,7 +1830,7 @@ mod tests {
                     "description": "sub", "status": "active", "version": "1.0.0",
                     "createdAt": "2026-01-01T00:00:00Z",
                     "fields": ["fields/subtitle.json"], "types": ["types/subthing.json"],
-                    "views": [], "documentViews": []
+                    "views": [], "compositions": []
                 },
                 "package/sub/fields/subtitle.json": {
                     "id": "00000000-0000-4000-8000-000000000921",

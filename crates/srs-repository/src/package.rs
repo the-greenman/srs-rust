@@ -6,7 +6,7 @@ use srs_core::types::record_type::{FieldAssignment, RecordType};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::term::Term;
 use srs_core::types::theme::Theme;
-use srs_core::types::view::{DocumentView, View};
+use srs_core::types::view::{Composition, View};
 use srs_core::types::vocabulary::Vocabulary;
 use std::path::PathBuf;
 
@@ -23,13 +23,13 @@ pub struct Package {
     pub record_types: Vec<RecordType>,
     pub relation_type_definitions: Vec<RelationTypeDefinition>,
     pub views: Vec<View>,
-    pub document_views: Vec<DocumentView>,
+    pub compositions: Vec<Composition>,
     pub themes: Vec<Theme>,
     pub blueprints: Vec<LoadedBlueprint>,
     pub protocols: Vec<LoadedProtocol>,
     pub root: PathBuf,
-    /// ext:type-inheritance — external package dependencies declared in dependencyRefs.
-    pub dependency_refs: Vec<DependencyRef>,
+    /// ext:type-inheritance — external package dependencies declared in packageDependencies.
+    pub package_dependencies: Vec<DependencyRef>,
     pub vocabularies: Vec<Vocabulary>,
     pub lifecycles: Vec<Lifecycle>,
 }
@@ -100,8 +100,8 @@ impl Package {
     }
 
     /// Resolve a document view by its UUID id.
-    pub fn resolve_document_view(&self, id: &str) -> Option<&DocumentView> {
-        self.document_views.iter().find(|v| v.id == id)
+    pub fn resolve_composition(&self, id: &str) -> Option<&Composition> {
+        self.compositions.iter().find(|v| v.id == id)
     }
 
     /// Resolve a theme by its UUID id.
@@ -663,37 +663,37 @@ mod tests {
     }
 
     #[test]
-    fn load_package_loads_document_views() {
+    fn load_package_loads_compositions() {
         let srs_repo = srs_spec_repo();
         let package = FileStore::new(&srs_repo)
             .load_package()
             .expect("should load live srs package");
         assert!(
-            !package.document_views.is_empty(),
+            !package.compositions.is_empty(),
             "expected at least one document view"
         );
     }
 
     #[test]
-    fn resolve_document_view_finds_srs_spec_view() {
+    fn resolve_composition_finds_srs_spec_view() {
         let srs_repo = srs_spec_repo();
         let package = FileStore::new(&srs_repo)
             .load_package()
             .expect("should load live srs package");
         let view = package
-            .resolve_document_view("3a000004-0000-4000-a000-000000000004")
+            .resolve_composition("3a000004-0000-4000-a000-000000000004")
             .expect("should find srs spec document view");
-        assert_eq!(view.name, "unified-document-view");
+        assert_eq!(view.name, "unified-composition");
     }
 
     #[test]
-    fn resolve_document_view_returns_none_for_unknown() {
+    fn resolve_composition_returns_none_for_unknown() {
         let srs_repo = srs_spec_repo();
         let package = FileStore::new(&srs_repo)
             .load_package()
             .expect("should load live srs package");
         assert!(package
-            .resolve_document_view("00000000-0000-0000-0000-000000000000")
+            .resolve_composition("00000000-0000-0000-0000-000000000000")
             .is_none());
     }
 
@@ -732,7 +732,7 @@ mod tests {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": [],
+                "compositions": [],
                 "themes": ["themes/basic-theme.json"]
             }))
             .unwrap(),
@@ -779,7 +779,7 @@ mod tests {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": [],
+                "compositions": [],
                 "themes": ["themes/basic-theme.json"]
             }))
             .unwrap(),
@@ -828,7 +828,7 @@ mod tests {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": [],
+                "compositions": [],
                 "themes": ["themes/basic-theme.json"]
             }))
             .unwrap(),
@@ -888,7 +888,7 @@ mod tests {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": [],
+                "compositions": [],
                 "themes": ["themes/invalid-theme.json"]
             }))
             .unwrap(),
@@ -958,7 +958,7 @@ mod tests {
             "types": types,
             "relationTypes": [],
             "views": [],
-            "documentViews": []
+            "compositions": []
         });
         std::fs::write(
             dir.join("package.json"),
@@ -1149,12 +1149,12 @@ mod tests {
             record_types: types,
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: PathBuf::from("/test"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         }
@@ -1172,7 +1172,6 @@ mod tests {
 
     fn make_type(id: &str, fields: Vec<FieldAssignment>) -> RecordType {
         RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -1204,7 +1203,6 @@ mod tests {
         overrides: Option<Vec<FieldAssignmentOverride>>,
     ) -> RecordType {
         RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -1675,7 +1673,6 @@ mod tests {
         lifecycle_ref: Option<String>,
     ) -> srs_core::types::record_type::RecordType {
         srs_core::types::record_type::RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -1710,12 +1707,12 @@ mod tests {
             record_types: vec![],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles,
         }

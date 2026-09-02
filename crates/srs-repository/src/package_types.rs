@@ -72,8 +72,8 @@ pub struct PackageBoundary {
     pub relation_type_paths: Vec<String>,
     /// Paths of lifecycle files, relative to the boundary directory.
     pub lifecycle_paths: Vec<String>,
-    /// Paths of document-view files, relative to the boundary directory.
-    pub document_view_paths: Vec<String>,
+    /// Paths of composition files, relative to the boundary directory.
+    pub composition_paths: Vec<String>,
 }
 
 impl PackageBoundary {
@@ -113,7 +113,7 @@ impl PackageBoundary {
             view_paths: str_paths("views"),
             relation_type_paths: str_paths("relationTypes"),
             lifecycle_paths: str_paths("lifecycles"),
-            document_view_paths: str_paths("documentViews"),
+            composition_paths: str_paths("compositions"),
         }
     }
 }
@@ -241,7 +241,7 @@ pub enum DefinitionKind {
     Field,
     Type,
     View,
-    DocumentView,
+    Composition,
     RelationType,
     Blueprint,
     Protocol,

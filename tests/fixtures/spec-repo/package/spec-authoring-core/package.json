@@ -61,10 +61,10 @@
   "views": [
     "views/table-record-view-77f51737.json"
   ],
-  "documentViews": [
-    "document-views/spec-document-view.json",
-    "document-views/rationale-document-view.json",
-    "document-views/unified-document-view.json"
+  "compositions": [
+    "compositions/spec-composition.json",
+    "compositions/rationale-composition.json",
+    "compositions/unified-composition.json"
   ],
   "createdAt": "2026-05-27T00:00:00Z",
   "updatedAt": "2026-05-29T00:00:00Z",

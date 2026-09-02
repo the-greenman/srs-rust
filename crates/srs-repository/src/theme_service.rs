@@ -16,7 +16,7 @@ use crate::package_types::{validate_package_selector, DefinitionKind, PackageSel
 use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
 use srs_core::types::theme::Theme;
-use srs_core::types::view::DocumentView;
+use srs_core::types::view::Composition;
 use srs_core::validation::theme::validate_theme;
 
 // ── Result enums (read-only) ──────────────────────────────────────────────────
@@ -220,14 +220,14 @@ pub fn update_theme(
     Ok(UpdateThemeResult { theme })
 }
 
-/// Returns the IDs of any DocumentViews whose `theme_ref.theme_id` references `theme_id`.
-fn find_document_views_referencing_theme(
+/// Returns the IDs of any Compositions whose `theme_ref.theme_id` references `theme_id`.
+fn find_compositions_referencing_theme(
     store: &dyn RepositoryStore,
     theme_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
     let package = store.load_package()?;
     let refs: Vec<String> = package
-        .document_views
+        .compositions
         .iter()
         .filter(|dv| references_theme(dv, theme_id))
         .map(|dv| dv.id.clone())
@@ -235,7 +235,7 @@ fn find_document_views_referencing_theme(
     Ok(refs)
 }
 
-fn references_theme(dv: &DocumentView, theme_id: &str) -> bool {
+fn references_theme(dv: &Composition, theme_id: &str) -> bool {
     if let Some(theme_ref) = &dv.theme_ref {
         if theme_ref.theme_id.as_deref() == Some(theme_id) {
             return true;
@@ -252,12 +252,12 @@ fn references_theme(dv: &DocumentView, theme_id: &str) -> bool {
 }
 
 /// Delete a Theme by ID. Removes the file and unregisters from `package.json` themes array.
-/// Returns `CannotDeleteInUse` if any DocumentView references this theme via `themeRef.themeId`.
+/// Returns `CannotDeleteInUse` if any Composition references this theme via `themeRef.themeId`.
 pub fn delete_theme(
     store: &dyn RepositoryStore,
     theme_id: &str,
 ) -> Result<DeleteThemeResult, RepositoryError> {
-    let refs = find_document_views_referencing_theme(store, theme_id)?;
+    let refs = find_compositions_referencing_theme(store, theme_id)?;
     if !refs.is_empty() {
         return Err(RepositoryError::CannotDeleteInUse {
             entity_type: "theme".to_string(),
@@ -287,7 +287,7 @@ pub fn delete_theme(
 mod tests {
     use super::*;
     use crate::store::{FileStore, RepositoryStore};
-    use crate::view_service::{create_document_view, CreateDocumentViewResult};
+    use crate::view_service::{create_composition, CreateCompositionResult};
     use srs_core::types::view::{DocumentSection, SectionSource, ThemeMode, ThemeReference};
 
     fn setup_minimal_repo(root: &std::path::Path) {
@@ -305,7 +305,7 @@ mod tests {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": [],
+                "compositions": [],
                 "themes": []
             })
             .to_string(),
@@ -336,11 +336,11 @@ mod tests {
         }
     }
 
-    fn minimal_document_view_with_theme(
+    fn minimal_composition_with_theme(
         name: &str,
         theme_id: &str,
-    ) -> srs_core::types::view::DocumentView {
-        srs_core::types::view::DocumentView {
+    ) -> srs_core::types::view::Composition {
+        srs_core::types::view::Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -387,8 +387,8 @@ mod tests {
         }
     }
 
-    fn minimal_document_view_no_theme(name: &str) -> srs_core::types::view::DocumentView {
-        srs_core::types::view::DocumentView {
+    fn minimal_composition_no_theme(name: &str) -> srs_core::types::view::Composition {
+        srs_core::types::view::Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -572,7 +572,7 @@ mod tests {
     }
 
     #[test]
-    fn delete_theme_blocked_when_document_view_references_it() {
+    fn delete_theme_blocked_when_composition_references_it() {
         let temp = tempfile::TempDir::new().unwrap();
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
@@ -580,9 +580,8 @@ mod tests {
         let theme = create_theme(&store, minimal_theme("ref-target"), None).unwrap();
         let theme_id = theme.theme.id.clone();
 
-        let dv = minimal_document_view_with_theme("referencing-dv", &theme_id);
-        let CreateDocumentViewResult { document_view } =
-            create_document_view(&store, dv, None).unwrap();
+        let dv = minimal_composition_with_theme("referencing-dv", &theme_id);
+        let CreateCompositionResult { composition } = create_composition(&store, dv, None).unwrap();
 
         let result = delete_theme(&store, &theme_id);
         match result {
@@ -593,20 +592,20 @@ mod tests {
             }) => {
                 assert_eq!(entity_type, "theme");
                 assert_eq!(id, theme_id);
-                assert!(used_by.contains(&document_view.id));
+                assert!(used_by.contains(&composition.id));
             }
             other => panic!("expected CannotDeleteInUse, got {:?}", other),
         }
     }
 
     #[test]
-    fn delete_theme_succeeds_when_no_document_view_references_it() {
+    fn delete_theme_succeeds_when_no_composition_references_it() {
         let temp = tempfile::TempDir::new().unwrap();
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
         // A document view with no theme_ref -- should not block deletion
-        create_document_view(&store, minimal_document_view_no_theme("unrelated-dv"), None).unwrap();
+        create_composition(&store, minimal_composition_no_theme("unrelated-dv"), None).unwrap();
 
         let theme = create_theme(&store, minimal_theme("free-theme"), None).unwrap();
         delete_theme(&store, &theme.theme.id).unwrap();

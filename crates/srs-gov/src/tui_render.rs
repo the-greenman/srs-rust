@@ -108,7 +108,7 @@ fn render_records(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         })
         .collect();
     let title = state
-        .active_document_view_id
+        .active_composition_id
         .as_deref()
         .map(short_id)
         .map(|id| format!("Records view {id}"))

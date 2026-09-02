@@ -4,7 +4,7 @@
     "title": "RFC-011 Change B: Add excludeLifecycleStates to SectionSource.type-query",
     "affected_components": "ext:views-l2, SectionSource.type-query",
     "proposed_change": "Add optional excludeLifecycleStates?: string[] to SectionSource.type-query. When present and non-empty, the query result MUST exclude Records whose lifecycleState matches any listed value. When absent or empty, no exclusion is applied. When both lifecycleStates and excludeLifecycleStates are present, inclusion is applied first, then exclusion. Requires ext:lifecycle; implementations without ext:lifecycle MUST treat this field as absent. Invariant I-011-2.",
-    "rationale": "The decision-log use case requires excluding superseded and abandoned records without enumerating all valid states. An exclusion filter is more forward-compatible: as new lifecycle states are added, existing DocumentViews continue to work correctly without update."
+    "rationale": "The decision-log use case requires excluding superseded and abandoned records without enumerating all valid states. An exclusion filter is more forward-compatible: as new lifecycle states are added, existing Compositions continue to work correctly without update."
   },
   "instanceId": "05fc673c-0d59-45ae-80d5-0c1a879d32d4",
   "typeId": "6a000002-0000-4000-a000-000000000002",

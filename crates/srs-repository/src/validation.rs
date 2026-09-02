@@ -1208,11 +1208,11 @@ pub fn validate_repository(
                 let base_version = rt.extends_type_version.unwrap_or(1);
                 if pkg.resolve_type(base_id, base_version).is_none() {
                     // The base type is not local. Check whether the specializing type's
-                    // namespace (a proxy for its package) is covered by any dependency_refs entry.
+                    // namespace (a proxy for its package) is covered by any package_dependencies entry.
                     // Cross-package base type resolution is V2 work (RFC-003); for now we warn
-                    // only when no dependencyRefs entry matches the specializing type's namespace,
+                    // only when no packageDependencies entry matches the specializing type's namespace,
                     // which indicates the package has not declared its external dependency at all.
-                    let covered_by_dep = pkg.dependency_refs.iter().any(|dep| {
+                    let covered_by_dep = pkg.package_dependencies.iter().any(|dep| {
                         dep.namespace == rt.namespace
                             || pkg
                                 .record_types()
@@ -1225,7 +1225,7 @@ pub fn validate_repository(
                             relative_path: "package/package.json".to_string(),
                             schema_id: None,
                             message: format!(
-                                "ext:type-inheritance (Inv 43): type '{}' extends base type '{}@{}' which is not in this package; add a dependencyRefs entry for the external package",
+                                "ext:type-inheritance (Inv 43): type '{}' extends base type '{}@{}' which is not in this package; add a packageDependencies entry for the external package",
                                 rt.id, base_id, base_version
                             ),
                         });
@@ -1385,11 +1385,11 @@ pub fn validate_repository(
             }
         };
 
-        // Build known instance IDs + the semanticObjectType map from the catalog
-        // snapshot already built above, via the shared helper so `repo validate`
-        // and `create_relation` enforce E1/E4 over identical inputs (#556).
-        let (known_instance_ids, instance_semantic_types) =
-            crate::writer::known_instances_and_semantic_types(store, &cat);
+        // Build known instance IDs + the type-id map from the catalog snapshot
+        // already built above, via the shared helper so `repo validate` and
+        // `create_relation` enforce E1/E4 over identical inputs (#556).
+        let (known_instance_ids, instance_type_ids) =
+            crate::writer::known_instances_and_type_ids(store, &cat);
 
         let coll: RelationsCollection = match serde_json::from_value(relations_value) {
             Ok(c) => c,
@@ -1422,7 +1422,7 @@ pub fn validate_repository(
         let ctx = RelationValidationContext {
             definitions: &pkg.relation_type_definitions,
             known_instance_ids: &known_instance_ids,
-            instance_semantic_types: &instance_semantic_types,
+            instance_type_ids: &instance_type_ids,
         };
         for relation in &coll.relations {
             if let Err(errs) = validate_relation(relation, &ctx, false) {
@@ -1451,12 +1451,12 @@ pub fn validate_repository(
         Ok(standalone) if !standalone.is_empty() => {
             match store.load_package() {
                 Ok(pkg) => {
-                    let (known_instance_ids, instance_semantic_types) =
-                        crate::writer::known_instances_and_semantic_types(store, &cat);
+                    let (known_instance_ids, instance_type_ids) =
+                        crate::writer::known_instances_and_type_ids(store, &cat);
                     let ctx = RelationValidationContext {
                         definitions: &pkg.relation_type_definitions,
                         known_instance_ids: &known_instance_ids,
-                        instance_semantic_types: &instance_semantic_types,
+                        instance_type_ids: &instance_type_ids,
                     };
                     for relation in &standalone {
                         let rel_path = format!("relations/{}.json", relation.relation_id);
@@ -1567,11 +1567,11 @@ pub fn validate_repository(
     // --- RFC-009 root-type anchor diagnostics (I-63, I-64) ---
     // Both are advisory (Warning): neither invalidates the repository. See RFC-009.
     if let Ok(pkg) = store.load_package() {
-        // I-63: each DocumentView.rootTypeRefs entry MUST resolve to a Type in the package.
+        // I-63: each Composition.rootTypeRefs entry MUST resolve to a Type in the package.
         // An unresolved entry is reported and "will not be used for Container matching".
         // Read views from the already-loaded `pkg` (avoids a second package load).
         {
-            for dv in &pkg.document_views {
+            for dv in &pkg.compositions {
                 if let Some(refs) = &dv.root_type_refs {
                     for r in refs {
                         if pkg.resolve_type(&r.type_id, r.type_version).is_none() {
@@ -1580,7 +1580,7 @@ pub fn validate_repository(
                                 relative_path: "package/package.json".to_string(),
                                 schema_id: None,
                                 message: format!(
-                                    "RFC-009 I-63: documentView '{}' rootTypeRefs entry '{}@{}' does not resolve to a Type in the package; it will not be used for Container matching",
+                                    "RFC-009 I-63: composition '{}' rootTypeRefs entry '{}@{}' does not resolve to a Type in the package; it will not be used for Container matching",
                                     dv.id, r.type_id, r.type_version
                                 ),
                             });
@@ -1590,7 +1590,7 @@ pub fn validate_repository(
             }
         }
 
-        // Dangling document-view container references (#509): a section whose source
+        // Dangling composition container references (#509): a section whose source
         // names a containerId that does not resolve renders as empty at render time.
         // Advisory (Warning) — the repository stays valid, but the broken reference
         // should be visible before render time.
@@ -1604,7 +1604,7 @@ pub fn validate_repository(
                 checked_ids.insert(id.to_string(), ok);
                 ok
             };
-            for dv in &pkg.document_views {
+            for dv in &pkg.compositions {
                 for section in &dv.sections {
                     let referenced: Vec<&str> = match &section.source {
                         srs_core::types::view::SectionSource::ContainerSubset {
@@ -1628,7 +1628,7 @@ pub fn validate_repository(
                                 relative_path: "package/package.json".to_string(),
                                 schema_id: None,
                                 message: format!(
-                                    "documentView '{}' section '{}' references containerId '{}' which does not resolve to a Container in this repository; the section will render as empty",
+                                    "composition '{}' section '{}' references containerId '{}' which does not resolve to a Container in this repository; the section will render as empty",
                                     dv.id, section.section_id, cid
                                 ),
                             });
@@ -1642,7 +1642,7 @@ pub fn validate_repository(
         // and must each resolve to a non-retired RTD. Both conditions are advisory (Warning).
         {
             use srs_core::types::relation_type_definition::RelationTypeStatus;
-            for dv in &pkg.document_views {
+            for dv in &pkg.compositions {
                 for section in &dv.sections {
                     if let Some(rp) = &section.relations_presentation {
                         let mut seen_types: HashSet<&str> = HashSet::new();
@@ -1653,7 +1653,7 @@ pub fn validate_repository(
                                     relative_path: "package/package.json".to_string(),
                                     schema_id: None,
                                     message: format!(
-                                        "I-027-2a: documentView '{}' section '{}' relationsPresentation.include has duplicate relationType '{}'; the duplicate entry will be skipped at render time",
+                                        "I-027-2a: composition '{}' section '{}' relationsPresentation.include has duplicate relationType '{}'; the duplicate entry will be skipped at render time",
                                         dv.id, section.section_id, entry.relation_type
                                     ),
                                 });
@@ -1665,7 +1665,7 @@ pub fn validate_repository(
                                         relative_path: "package/package.json".to_string(),
                                         schema_id: None,
                                         message: format!(
-                                            "I-027-2a: documentView '{}' section '{}' relationsPresentation.include entry '{}' does not resolve to a relation type in the package; the entry will be skipped at render time",
+                                            "I-027-2a: composition '{}' section '{}' relationsPresentation.include entry '{}' does not resolve to a relation type in the package; the entry will be skipped at render time",
                                             dv.id, section.section_id, entry.relation_type
                                         ),
                                     });
@@ -1676,7 +1676,7 @@ pub fn validate_repository(
                                         relative_path: "package/package.json".to_string(),
                                         schema_id: None,
                                         message: format!(
-                                            "I-027-2a: documentView '{}' section '{}' relationsPresentation.include entry '{}' resolves to a retired relation type; the entry will be skipped at render time",
+                                            "I-027-2a: composition '{}' section '{}' relationsPresentation.include entry '{}' resolves to a retired relation type; the entry will be skipped at render time",
                                             dv.id, section.section_id, entry.relation_type
                                         ),
                                     });
@@ -1979,7 +1979,7 @@ fn validate_cross_field_rule_configuration(
 /// this is the validation plane, surfacing the misconfiguration rather than letting
 /// it disappear silently into a missing heading.
 ///
-/// `TypeQuery.semanticObjectType` and `ContainerSubset.typeFilter` declare their
+/// `TypeQuery.typeKey` and `ContainerSubset.typeFilter` declare their
 /// candidate Types statically. `FixedInstances` and `RelationQuery` declare none —
 /// their members are only known by resolving actual instances, exactly as the
 /// render plane's `resolve_section_instances` does — so this reads those instances
@@ -2019,7 +2019,7 @@ fn validate_title_field_id_eligibility(
     // Loaded at most once, and only when a RelationQuery section actually needs it.
     let mut relations: Option<Vec<srs_core::types::relation::Relation>> = None;
 
-    for dv in &pkg.document_views {
+    for dv in &pkg.compositions {
         for section in &dv.sections {
             let Some(field_id) = &section.title_field_id else {
                 continue;
@@ -2032,10 +2032,7 @@ fn validate_title_field_id_eligibility(
 
             let candidate_types: Vec<&srs_core::types::record_type::RecordType> =
                 match &section.source {
-                    SectionSource::TypeQuery {
-                        semantic_object_type,
-                        ..
-                    } => match semantic_object_type.split_once('/') {
+                    SectionSource::TypeQuery { type_key, .. } => match type_key.split_once('/') {
                         Some((namespace, name)) => pkg
                             .record_types()
                             .iter()
@@ -2098,7 +2095,7 @@ fn validate_title_field_id_eligibility(
                         relative_path: "package/package.json".to_string(),
                         schema_id: None,
                         message: format!(
-                            "RFC-032 Revision 7 ([N+1]): documentView '{}' section '{}' titleFieldId '{}' is not eligible (must be an effective-single, open-domain, prose-formatted string field); the heading will be omitted at render time",
+                            "RFC-032 Revision 7 ([N+1]): composition '{}' section '{}' titleFieldId '{}' is not eligible (must be an effective-single, open-domain, prose-formatted string field); the heading will be omitted at render time",
                             dv.id, section.section_id, field_id
                         ),
                     });
@@ -2113,7 +2110,7 @@ fn validate_title_field_id_eligibility(
                         relative_path: "package/package.json".to_string(),
                         schema_id: None,
                         message: format!(
-                            "RFC-032 Revision 7 ([N+1]): documentView '{}' section '{}' titleFieldId '{}' is not eligible for type '{}/{}@{}' (must be an effective-single, open-domain, prose-formatted string field); the heading will be omitted at render time",
+                            "RFC-032 Revision 7 ([N+1]): composition '{}' section '{}' titleFieldId '{}' is not eligible for type '{}/{}@{}' (must be an effective-single, open-domain, prose-formatted string field); the heading will be omitted at render time",
                             dv.id, section.section_id, field_id, rt.namespace, rt.name, rt.version
                         ),
                     });
@@ -2334,13 +2331,13 @@ fn validate_value_against_schema(
         if schema_id == srs_schema::PACKAGE_MANIFEST_SCHEMA_ID
             && rel_path == "package/package.json"
             && message.contains("Additional properties are not allowed")
-            && message.contains("documentViews")
+            && message.contains("compositions")
         {
             diags.push(ValidationDiagnostic {
                 severity: DiagnosticSeverity::Warning,
                 relative_path: rel_path.to_string(),
                 schema_id: Some(schema_id.to_string()),
-                message: "package manifest uses forward-compatible field 'documentViews' not yet present in embedded schema".to_string(),
+                message: "package manifest uses forward-compatible field 'compositions' not yet present in embedded schema".to_string(),
             });
             return Some(diags);
         }
@@ -2411,8 +2408,8 @@ mod tests {
         if let Some(obj) = value.as_object_mut() {
             let schema_for =
                 |kind: &str| format!("https://srs.semanticops.com/schema/2.0/{kind}.json");
-            let kind = if rel.contains("/document-views/") {
-                Some("document-view")
+            let kind = if rel.contains("/compositions/") {
+                Some("composition")
             } else if rel.contains("/relation-types/") {
                 Some("relation-type")
             } else if rel.contains("/types/") {
@@ -2453,7 +2450,7 @@ mod tests {
         json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
-            "dataModelRevision": 5,
+            "dataModelRevision": 6,
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Test Repo",
             "container": {
@@ -4177,7 +4174,7 @@ mod tests {
     }
 
     // Resolved (srs-rust#825). The defects this test was ignored for — a
-    // document-view missing `$schema`, a `fieldType` shape matching no schema
+    // composition missing `$schema`, a `fieldType` shape matching no schema
     // variant, dangling `FieldAssignment.fieldId`s (the srs#307 calibration
     // case) — were fixture staleness, all fixed upstream. The fixture is
     // re-vendored from `srs` master and validates clean.
@@ -4186,7 +4183,18 @@ mod tests {
     // is calibration data for `tests/catalog.rs`, and a hand-edit would decouple
     // it from the corpus it exists to represent — fixes belong upstream in the
     // `srs` repo (spec independence — CLAUDE.md), followed by a re-vendor.
+    // srs-rust#910: expected red until srs#523/#524 merge. Binary-first
+    // choreography (CLAUDE.md "Gates and choreography"): this mirror's
+    // schemas are intentionally ahead of the live `srs` corpus — the Composition
+    // rename and semanticObjectType collapse land here, release, THEN the spec
+    // PRs merge and re-pin. Until then the live repo's still-rev-5
+    // `manifest.renderedPresentations[].viewId` and any `type-query`/
+    // `semanticObjectType` sections legitimately fail our current-shape
+    // schemas — exactly the same "red by construction" window
+    // `scripts/check-schema-drift.sh`'s CI job already tolerates for schema
+    // file drift. Un-ignore once srs#523/#524 merge and the corpus re-pins.
     #[test]
+    #[ignore = "srs-rust#910: expected red until srs#523/#524 merge — see comment above"]
     fn live_srs_repo_validates_cleanly() {
         let repo_root = srs_spec_repo();
         if !repo_root.join("manifest.json").exists() {
@@ -4213,7 +4221,7 @@ mod tests {
 
     #[test]
     fn validate_flags_unresolved_root_type_ref() {
-        // I-63: a DocumentView rootTypeRefs entry that does not resolve to a package
+        // I-63: a Composition rootTypeRefs entry that does not resolve to a package
         // Type produces a Warning; the repository stays valid (is_ok).
         let temp = TempDir::new().unwrap();
         write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
@@ -4234,12 +4242,12 @@ mod tests {
                 "fields": [],
                 "types": [],
                 "views": [],
-                "documentViews": ["document-views/dv.json"]
+                "compositions": ["compositions/dv.json"]
             }),
         );
         write_json(
             temp.path(),
-            "package/document-views/dv.json",
+            "package/compositions/dv.json",
             &json!({
                 "id": "00000000-0000-4000-8000-0000000000d1",
                 "namespace": "com.test",
@@ -4253,7 +4261,7 @@ mod tests {
                 "sections": [{
                     "sectionId": "s1",
                     "order": 0,
-                    "source": {"type": "type-query", "semanticObjectType": "com.test/nonexistent"}
+                    "source": {"type": "type-query", "typeKey": "com.test/nonexistent"}
                 }],
                 "createdAt": "2026-01-01T00:00:00Z"
             }),
@@ -4303,7 +4311,7 @@ mod tests {
                 "fields": ["fields/f1.json"],
                 "types": ["types/t1.json"],
                 "views": [],
-                "documentViews": ["document-views/dv.json"]
+                "compositions": ["compositions/dv.json"]
             }),
         );
         write_json(
@@ -4340,7 +4348,7 @@ mod tests {
         );
         write_json(
             temp.path(),
-            "package/document-views/dv.json",
+            "package/compositions/dv.json",
             &json!({
                 "id": "00000000-0000-4000-8000-0000000000d2",
                 "namespace": "com.test",
@@ -4352,7 +4360,7 @@ mod tests {
                     "order": 0,
                     "source": {
                         "type": "type-query",
-                        "semanticObjectType": "com.test/test-type"
+                        "typeKey": "com.test/test-type"
                     },
                     "titleFieldId": "00000000-0000-4000-8000-0000000000f1"
                 }],
@@ -4402,7 +4410,7 @@ mod tests {
                 "fields": ["fields/f1.json"],
                 "types": ["types/t1.json"],
                 "views": [],
-                "documentViews": ["document-views/dv.json"]
+                "compositions": ["compositions/dv.json"]
             }),
         );
         write_json(
@@ -4436,7 +4444,7 @@ mod tests {
         );
         write_json(
             temp.path(),
-            "package/document-views/dv.json",
+            "package/compositions/dv.json",
             &json!({
                 "id": "00000000-0000-4000-8000-0000000000d2",
                 "namespace": "com.test",
@@ -4448,7 +4456,7 @@ mod tests {
                     "order": 0,
                     "source": {
                         "type": "type-query",
-                        "semanticObjectType": "com.test/test-type"
+                        "typeKey": "com.test/test-type"
                     },
                     "titleFieldId": "00000000-0000-4000-8000-0000000000f1"
                 }],
@@ -4502,7 +4510,7 @@ mod tests {
                 "fields": ["fields/f1.json"],
                 "types": ["types/t1.json"],
                 "views": [],
-                "documentViews": ["document-views/dv.json"]
+                "compositions": ["compositions/dv.json"]
             }),
         );
         write_json(
@@ -4538,7 +4546,7 @@ mod tests {
         );
         write_json(
             temp.path(),
-            "package/document-views/dv.json",
+            "package/compositions/dv.json",
             &json!({
                 "id": "00000000-0000-4000-8000-0000000000d2",
                 "namespace": "com.test",
@@ -4595,8 +4603,8 @@ mod tests {
         // string-matching the markdown, since the field's value legitimately still
         // renders as an ordinary body row either way (omit-not-substitute, srs
         // PR #341) — only heading *promotion* is what must not happen.
-        let result = crate::render_service::render_document_view(
-            crate::render_service::RenderDocumentViewOptions {
+        let result = crate::render_service::render_composition(
+            crate::render_service::RenderCompositionOptions {
                 store: &store,
                 view_id: "00000000-0000-4000-8000-0000000000d2",
                 format: Some("json"),
@@ -4653,7 +4661,7 @@ mod tests {
                 "fields": ["fields/f1.json"],
                 "types": ["types/t1.json"],
                 "views": [],
-                "documentViews": ["document-views/dv.json"]
+                "compositions": ["compositions/dv.json"]
             }),
         );
         write_json(
@@ -4687,7 +4695,7 @@ mod tests {
         );
         write_json(
             temp.path(),
-            "package/document-views/dv.json",
+            "package/compositions/dv.json",
             &json!({
                 "id": "00000000-0000-4000-8000-0000000000d2",
                 "namespace": "com.test",
@@ -4763,8 +4771,8 @@ mod tests {
             report.diagnostics
         );
 
-        let result = crate::render_service::render_document_view(
-            crate::render_service::RenderDocumentViewOptions {
+        let result = crate::render_service::render_composition(
+            crate::render_service::RenderCompositionOptions {
                 store: &store,
                 view_id: "00000000-0000-4000-8000-0000000000d2",
                 format: Some("json"),
@@ -4811,7 +4819,7 @@ mod tests {
                 "fields": ["fields/f1.json", "fields/f2.json"],
                 "types": ["types/t1.json"],
                 "views": [],
-                "documentViews": []
+                "compositions": []
             }),
         );
         write_json(
@@ -4906,7 +4914,7 @@ mod tests {
                 "fields": ["fields/f1.json", "fields/f2.json"],
                 "types": ["types/t1.json"],
                 "views": [],
-                "documentViews": []
+                "compositions": []
             }),
         );
         write_json(
@@ -4974,8 +4982,8 @@ mod tests {
     }
 
     #[test]
-    fn validate_flags_dangling_document_view_container_ref() {
-        // #509: a document-view section whose containerId does not resolve to a
+    fn validate_flags_dangling_composition_container_ref() {
+        // #509: a composition section whose containerId does not resolve to a
         // Container produces a Warning; the repository stays valid (is_ok).
         let temp = TempDir::new().unwrap();
         write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
@@ -4996,12 +5004,12 @@ mod tests {
                 "fields": [],
                 "types": [],
                 "views": [],
-                "documentViews": ["document-views/dv.json"]
+                "compositions": ["compositions/dv.json"]
             }),
         );
         write_json(
             temp.path(),
-            "package/document-views/dv.json",
+            "package/compositions/dv.json",
             &json!({
                 "id": "00000000-0000-4000-8000-0000000000d2",
                 "namespace": "com.test",
@@ -5036,14 +5044,14 @@ mod tests {
                     && d.message.contains("00000000-0000-4000-8000-0000000dead0")
                     && d.message.contains("does not resolve to a Container")
             }),
-            "expected a dangling document-view container warning, got {:?}",
+            "expected a dangling composition container warning, got {:?}",
             report.diagnostics
         );
     }
 
     #[test]
-    fn validate_document_view_embed_only_root_container_ref_is_not_dangling() {
-        // #744: a document-view section referencing the RFC-013 embed-only root
+    fn validate_composition_embed_only_root_container_ref_is_not_dangling() {
+        // #744: a composition section referencing the RFC-013 embed-only root
         // container (present only in manifest.container, no containerIndex entry)
         // must resolve via the same embed-fallback every other container operation
         // uses — it must NOT be reported as a dangling container reference.
@@ -5068,12 +5076,12 @@ mod tests {
                 "fields": [],
                 "types": [],
                 "views": [],
-                "documentViews": ["document-views/dv.json"]
+                "compositions": ["compositions/dv.json"]
             }),
         );
         write_json(
             temp.path(),
-            "package/document-views/dv.json",
+            "package/compositions/dv.json",
             &json!({
                 "id": "00000000-0000-4000-8000-0000000000d3",
                 "namespace": "com.test",
@@ -5134,7 +5142,7 @@ mod tests {
                 "fields": [],
                 "types": ["types/guide.json"],
                 "views": [],
-                "documentViews": []
+                "compositions": []
             }),
         );
         write_json(
@@ -5220,7 +5228,7 @@ mod tests {
                 "fields": [],
                 "types": [],
                 "views": [],
-                "documentViews": []
+                "compositions": []
             }),
         );
 
@@ -5277,7 +5285,7 @@ mod tests {
                 "fields": [],
                 "types": [],
                 "views": [],
-                "documentViews": []
+                "compositions": []
             }),
         );
 
@@ -5340,7 +5348,7 @@ mod tests {
                 "fields": [],
                 "types": ["types/guide.json"],
                 "views": [],
-                "documentViews": []
+                "compositions": []
             }),
         );
         write_json(
@@ -5557,7 +5565,7 @@ mod tests {
             &json!({
                 "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
                 "srsVersion": "2.0",
-                "dataModelRevision": 5,
+                "dataModelRevision": 6,
                 "repositoryId": "00000000-0000-4000-8000-000000000700",
                 "title": "Rev-3 Metamodel Test Repo",
                 "container": {
@@ -5699,9 +5707,9 @@ mod tests {
             rt.validation_rules
         );
 
-        // No revision diagnostic: dataModelRevision 5 is exactly what this
-        // build supports (bumped 4 -> 5 for srs-rust#894's substrate
-        // properties -> meta rename).
+        // No revision diagnostic: dataModelRevision 6 is exactly what this
+        // build supports (bumped 5 -> 6 for srs-rust#910's Composition
+        // rename / semanticObjectType collapse / packageDependencies fold).
         let report = validate_repository(&store).unwrap();
         assert!(
             !report
@@ -5771,10 +5779,15 @@ mod tests {
     /// red-then-green proof.
     #[test]
     fn rev5_manifest_loads_with_no_revision_diagnostic() {
+        // Historical name (kept per this file's convention of tracking the
+        // fixture number forward across revision bumps rather than renaming
+        // the test): the manifest is stamped at the CURRENT revision, 6 as of
+        // srs-rust#910 (was 5 before the Composition rename / semanticObjectType
+        // collapse / packageDependencies fold).
         let store = manifest_store(json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
-            "dataModelRevision": 5,
+            "dataModelRevision": 6,
             "repositoryId": "00000000-0000-4000-8000-000000000901",
             "title": "Rev-5 Test Repo",
             "container": {
@@ -5791,8 +5804,9 @@ mod tests {
             .collect();
         assert!(
             manifest_diags.is_empty(),
-            "a rev-5 manifest must load with no revision-gate diagnostic (before this fix, \
-             this asserted 'newer than this build supports (revision 4)'): {manifest_diags:?}"
+            "a manifest at the current revision must load with no revision-gate diagnostic \
+             (before this fix, this asserted 'newer than this build supports (revision 4)'): \
+             {manifest_diags:?}"
         );
     }
 
@@ -7354,7 +7368,7 @@ mod tests {
             "fields": field_paths,
             "types": [type_path],
             "views": [],
-            "documentViews": []
+            "compositions": []
         })
     }
 
@@ -7954,12 +7968,12 @@ mod tests {
             record_types: vec![record_type],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -8301,7 +8315,7 @@ mod tests {
                 "fields": ["fields/invariant-number.json"],
                 "types": [],
                 "views": [],
-                "documentViews": []
+                "compositions": []
             }),
         );
         write_json(
@@ -8738,12 +8752,12 @@ mod tests {
             record_types: vec![repo_settings_type],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -9023,12 +9037,12 @@ mod tests {
             record_types: vec![repo_settings_type],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -9209,12 +9223,12 @@ mod tests {
             record_types: vec![repo_settings_type],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -9332,12 +9346,12 @@ mod tests {
             record_types: vec![repo_settings_type],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -9481,7 +9495,7 @@ mod tests {
             "sections": [{
                 "sectionId": "s1",
                 "order": 0,
-                "source": {"type": "type-query", "semanticObjectType": "com.test/nonexistent"},
+                "source": {"type": "type-query", "typeKey": "com.test/nonexistent"},
                 "relationsPresentation": { "include": include_entries }
             }],
             "createdAt": "2026-01-01T00:00:00Z"
@@ -9508,7 +9522,7 @@ mod tests {
             "types": [],
             "views": [],
             "relationTypes": relation_types,
-            "documentViews": ["document-views/dv.json"]
+            "compositions": ["compositions/dv.json"]
         })
     }
 
@@ -9525,7 +9539,7 @@ mod tests {
         );
         write_json(
             temp.path(),
-            "package/document-views/dv.json",
+            "package/compositions/dv.json",
             &rp_dv_json(json!([
                 {"relationType": "precedes"},
                 {"relationType": "precedes"}
@@ -9564,7 +9578,7 @@ mod tests {
         write_json(temp.path(), "package/package.json", &rp_package_json(false));
         write_json(
             temp.path(),
-            "package/document-views/dv.json",
+            "package/compositions/dv.json",
             &rp_dv_json(json!([
                 {"relationType": "nonexistent-type"}
             ])),
@@ -9607,7 +9621,7 @@ mod tests {
         );
         write_json(
             temp.path(),
-            "package/document-views/dv.json",
+            "package/compositions/dv.json",
             &rp_dv_json(json!([
                 {"relationType": "precedes"}
             ])),
@@ -9688,12 +9702,12 @@ mod tests {
             record_types: vec![],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -9955,12 +9969,12 @@ mod tests {
             record_types: vec![],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };

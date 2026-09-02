@@ -259,7 +259,6 @@ mod tests {
 
     fn make_type(id: &str, name: &str, field_ids: &[&str]) -> RecordType {
         RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -322,20 +321,18 @@ mod tests {
                 inverse_type: None,
                 version: 1,
                 created_at: "2026-01-01T00:00:00Z".to_string(),
-                allowed_source_types: None,
-                allowed_target_types: None,
-                require_same_semantic_object_type: None,
+                require_same_type: None,
                 status: None,
                 updated_at: None,
                 meta: None,
             }],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
