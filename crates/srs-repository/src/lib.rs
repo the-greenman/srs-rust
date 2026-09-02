@@ -51,6 +51,7 @@ pub mod repository_navigation_service;
 pub mod repository_portability;
 pub mod resolver;
 pub mod revision_service;
+pub mod revisions_sidecar_cleanup_service;
 pub mod rfc038_storage_migration_service;
 pub mod rfc039_carrier_migration_service;
 #[cfg(test)]

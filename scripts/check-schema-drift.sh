@@ -27,12 +27,12 @@ DRIFT=0
 # Each entry names the tracking issue that owns the reconciliation. Remove an
 # entry here only when its issue closes with the schema (and its consuming
 # code) actually deleted.
-#   - revisions.json: ext:addressability's Revision sidecar; srs-rust#866
-#     tracks it — explicitly "the timing and shape of any actual code removal
-#     is an srs-rust maintainer call" (rfc-decision-2a1e1590's return trigger),
-#     not yet made.
+#
+# revisions.json's entry is retired (srs-rust#866): rfc-decision-2a1e1590's
+# code-removal call is now made — the write path, the mirror, and this
+# tolerance are all clean-cut together. Empty for now; the next entry follows
+# the same per-item pattern when its issue makes the same call.
 DECLARED_EXTRA_ALLOWLIST=(
-    "revisions.json"
 )
 is_allowlisted() {
     local needle="$1"

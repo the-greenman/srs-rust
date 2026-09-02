@@ -1385,6 +1385,21 @@ srs registry list --path /tmp/nonexistent-registry.json --pretty
 
 ## S27 — Retrieve addressability context for a decision field and its revision chain (`srs context`, ext:addressability, #251)
 
+**RETIRED (rfc-decision-2a1e1590, srs-rust#866, 2026-09-02).** The per-field
+Revision sidecar mechanism this scenario exercises is retired from the spec —
+zero corpus consumers, a `RevisionAgent` PascalCase wire-format leak, no
+implementation exercising the return-trigger chain. `record transition` no
+longer writes `.revisions.json`, and `catalog.rs` no longer tolerates one on
+disk: any repository still carrying one now fails to load entirely ([R24]).
+The `srs context field`/`record`/`revision` CLI surface and its service
+functions are left in place (not this issue's scope), but `revisions` is now
+always empty and `srs context revision` always returns `not found` — this
+scenario's steps below cannot be reproduced as written and are kept only as
+the historical verification record. The gallery fixture this scenario points
+at (`../srs/docs/spec/examples/gallery-project-v2`) still carries 3 stray
+`.revisions.json` sidecars as of this writing; loading it will fatal-error
+until the srs-side cleanup migration referenced from srs-rust#866 runs there.
+
 **Intention.** *"An AI agent is being asked to evaluate and improve a governance decision. Before prompting the model, I want to give it the current field value, the field's extraction guidance, and the full revision history — so it knows what has been decided, why it was framed that way, and how the wording evolved through the lifecycle."*
 
 **Capabilities exercised.** ext:addressability detection; `srs context field` assembling current value + revision history + `aiGuidance` in a single call; `srs context record` assembling all field values + outbound relations + display label; `srs context revision` tracing a specific revision's prior chain to show the complete evolution.

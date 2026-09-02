@@ -269,10 +269,16 @@ fn malformed_candidate_fatal_inside_reserved_location_untouched_outside() {
     ));
 }
 
-/// [R9]'s three conjuncts, now that `revisions.json` exists (srs#297 unit 3):
-/// recognised suffix + resolving base + passes the suffix's declared schema.
+/// `.revisions.json` is no longer a recognised sidecar (rfc-decision-2a1e1590,
+/// srs-rust#866): recognition-by-filename is retired along with the
+/// mechanism it backed. A bare (no `$schema`) sidecar body — the shape
+/// `revision_service` used to write — now falls through to ordinary
+/// instance-candidate classification like any other object under [R8]/[R9],
+/// matches no admissible shape, and errors — mirroring
+/// `tier1_typed_record_shape_no_longer_classifies` below for the analogous
+/// Tier-1 retirement.
 #[test]
-fn revisions_sidecar_orphaned_vs_schema_failure() {
+fn revisions_sidecar_shape_no_longer_classifies() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
     write(root, "manifest.json", MINIMAL_MANIFEST);
@@ -281,63 +287,52 @@ fn revisions_sidecar_orphaned_vs_schema_failure() {
         "records/a.json",
         &note_json("00000000-0000-4000-8000-000000000001"),
     );
-    // Base resolves, but the object fails revisions.json — an error, not the
-    // pre-#297 warning: recognition is not conferred by filename alone.
-    write(root, "records/a.revisions.json", "{}");
-    // Base resolves to nothing: orphaned.
-    write(root, "records/b.revisions.json", "{}");
-    let cat = catalog::build(&FileStore::new(root)).unwrap();
-    let counts = code_counts(&cat);
-    assert_eq!(counts.get(codes::SIDECAR_SCHEMA), Some(&1));
-    assert_eq!(counts.get(codes::SIDECAR_ORPHANED), Some(&1));
-    assert!(
-        cat.diagnostics
-            .iter()
-            .filter(|d| d.code == codes::SIDECAR_SCHEMA)
-            .all(|d| d.severity == DiagnosticSeverity::Error),
-        "{:?}",
-        cat.diagnostics
-    );
-}
-
-/// The long-standing shape `revision_service` writes must classify clean —
-/// the tightening above must not make every repository that ever recorded a
-/// revision fail to load ([R24]).
-#[test]
-fn conforming_revisions_sidecar_is_silent() {
-    let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path();
-    write(root, "manifest.json", MINIMAL_MANIFEST);
-    let rec = "00000000-0000-4000-8000-000000000001";
-    write(root, "records/a.json", &note_json(rec));
+    // The legacy sidecar shape: no `$schema`, `recordId` + `revisions[]`.
     write(
         root,
         "records/a.revisions.json",
-        &serde_json::to_string(&serde_json::json!({
-            "recordId": rec,
-            "revisions": [srs_core::types::revision::Revision {
-                revision_id: "11111111-0000-4000-8000-000000000001".to_string(),
-                record_id: rec.to_string(),
-                field_id: "22222222-0000-4000-8000-000000000001".to_string(),
-                value: serde_json::json!("hello"),
-                prior_revision_id: None,
-                agent: srs_core::types::revision::RevisionAgent::Human,
-                provenance: None,
-                source_refs: None,
-                created_at: "2026-01-01T00:00:00Z".to_string(),
-            }],
-        }))
-        .unwrap(),
+        r#"{"recordId": "00000000-0000-4000-8000-000000000001", "revisions": []}"#,
     );
-    let cat = catalog::build(&FileStore::new(root)).unwrap();
-    let counts = code_counts(&cat);
+    let store = FileStore::new(root);
+    let cat = catalog::build(&store).unwrap();
     assert_eq!(
-        counts.get(codes::SIDECAR_SCHEMA),
-        None,
+        code_counts(&cat).get(codes::SHAPE_NO_MATCH),
+        Some(&1),
         "{:?}",
         cat.diagnostics
     );
-    assert_eq!(counts.get(codes::SIDECAR_ORPHANED), None);
+
+    // [R24]: the checked seam every ordinary command uses refuses the load
+    // entirely — exactly why the cleanup migration (srs-rust#866,
+    // `revisions-sidecar-cleanup`) exists rather than leaving these tolerated.
+    assert!(
+        store.catalog().is_err(),
+        "store.catalog() must be fatal while a .revisions.json sidecar remains"
+    );
+}
+
+/// A `.revisions.json` file declaring `$schema: .../revisions.json` is
+/// likewise unresolvable now that the schema itself is retired (deleted from
+/// the mirror, srs-rust#866) — mirrors
+/// `declared_typed_record_schema_is_unresolvable` for the analogous Tier-1
+/// retirement.
+#[test]
+fn declared_revisions_schema_is_unresolvable() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write(
+        root,
+        "records/a.revisions.json",
+        r#"{"$schema": "https://srs.semanticops.com/schema/2.0/revisions.json", "recordId": "00000000-0000-4000-8000-000000000001", "revisions": []}"#,
+    );
+    let cat = catalog::build(&FileStore::new(root)).unwrap();
+    assert_eq!(
+        code_counts(&cat).get(codes::SCHEMA_UNRESOLVABLE),
+        Some(&1),
+        "{:?}",
+        cat.diagnostics
+    );
 }
 
 /// [R8] shape-matching for a declared protocol definition: it carries no

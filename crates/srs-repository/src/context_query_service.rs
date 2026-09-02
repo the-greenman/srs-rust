@@ -360,13 +360,21 @@ mod tests {
         assert_eq!(result.current_value, Some(json!("Alice")));
     }
 
+    /// rfc-decision-2a1e1590 / srs-rust#866: `.revisions.json` is no longer a
+    /// recognised sidecar (`catalog.rs`) — writing one (`revision_service::append`
+    /// still exists as a raw file primitive; nothing in production calls it any
+    /// more) now poisons the checked catalog for the *whole* repository ([R24]).
+    /// This is why `get_field_context`/`get_revision_trace` can never surface a
+    /// revision again in practice: replaces the former
+    /// `field_context_filters_by_field_id` / `revision_trace_prior_chain` /
+    /// `field_context_cross_store_roundtrip` tests, which asserted the
+    /// now-impossible combination of "a sidecar exists" and "the repository
+    /// still loads".
     #[test]
-    fn field_context_filters_by_field_id() {
+    fn appending_a_revision_now_makes_the_record_unloadable() {
         let store = make_store();
         let fv = make_field_values("test-name", json!("Bob"));
         let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
-        // RFC-038: path recovery goes through the catalog now — `create_record`
-        // no longer writes `manifest.instance_index` ([R22]).
         let path = store
             .catalog()
             .unwrap()
@@ -384,24 +392,28 @@ mod tests {
             make_revision("rev-a1", &rec.instance_id, "field-name-001", None),
         )
         .unwrap();
-        revision_service::append(
-            &store,
-            &path,
-            make_revision("rev-b1", &rec.instance_id, "field-other-001", None),
-        )
-        .unwrap();
 
-        let result = get_field_context(
+        assert!(matches!(
+            store.catalog().unwrap_err(),
+            RepositoryError::CatalogLoad { .. }
+        ));
+        assert!(get_field_context(
             &store,
             FieldContextQuery {
                 record_id: rec.instance_id.clone(),
                 field_id: "field-name-001".to_string(),
             },
         )
-        .unwrap();
-
-        assert_eq!(result.revisions.len(), 1);
-        assert_eq!(result.revisions[0].revision_id, "rev-a1");
+        .is_err());
+        assert!(get_revision_trace(
+            &store,
+            RevisionTraceQuery {
+                record_id: rec.instance_id,
+                field_id: "field-name-001".to_string(),
+                revision_id: "rev-a1".to_string(),
+            },
+        )
+        .is_err());
     }
 
     #[test]
@@ -668,59 +680,6 @@ mod tests {
     }
 
     #[test]
-    fn revision_trace_prior_chain() {
-        let store = make_store();
-        let fv = make_field_values("test-name", json!("Frank"));
-        let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
-        // RFC-038: path recovery goes through the catalog now — `create_record`
-        // no longer writes `manifest.instance_index` ([R22]).
-        let path = store
-            .catalog()
-            .unwrap()
-            .instances
-            .iter()
-            .find(|e| e.id == rec.instance_id)
-            .unwrap()
-            .locator
-            .clone()
-            .unwrap();
-
-        revision_service::append(
-            &store,
-            &path,
-            make_revision("rev-1", &rec.instance_id, "field-name-001", None),
-        )
-        .unwrap();
-        revision_service::append(
-            &store,
-            &path,
-            make_revision("rev-2", &rec.instance_id, "field-name-001", Some("rev-1")),
-        )
-        .unwrap();
-        revision_service::append(
-            &store,
-            &path,
-            make_revision("rev-3", &rec.instance_id, "field-name-001", Some("rev-2")),
-        )
-        .unwrap();
-
-        let result = get_revision_trace(
-            &store,
-            RevisionTraceQuery {
-                record_id: rec.instance_id.clone(),
-                field_id: "field-name-001".to_string(),
-                revision_id: "rev-3".to_string(),
-            },
-        )
-        .unwrap();
-
-        assert_eq!(result.revision.revision_id, "rev-3");
-        assert_eq!(result.prior_chain.len(), 2);
-        assert_eq!(result.prior_chain[0].revision_id, "rev-1");
-        assert_eq!(result.prior_chain[1].revision_id, "rev-2");
-    }
-
-    #[test]
     fn revision_trace_not_found() {
         let store = make_store();
         let fv = make_field_values("test-name", json!("Grace"));
@@ -736,107 +695,6 @@ mod tests {
         )
         .unwrap_err();
         assert!(matches!(err, RepositoryError::NotFound { .. }));
-    }
-
-    #[test]
-    fn field_context_cross_store_roundtrip() {
-        // 1. Build MemoryStore, create record, append revision
-        let store = make_store();
-        let fv = make_field_values("test-name", json!("Heidi"));
-        let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
-        // RFC-038: path recovery goes through the catalog now — `create_record`
-        // no longer writes `manifest.instance_index` ([R22]).
-        let cat = store.catalog().unwrap();
-        let entry = cat
-            .instances
-            .iter()
-            .find(|e| e.id == rec.instance_id)
-            .unwrap();
-        let record_path = entry.locator.clone().unwrap();
-
-        revision_service::append(
-            &store,
-            &record_path,
-            make_revision("rev-x1", &rec.instance_id, "field-name-001", None),
-        )
-        .unwrap();
-
-        // 2. Build SRSJ from MemoryStore data
-        let record_json = store.load_instance_json(&record_path).unwrap();
-        let sidecar_path = revision_service::sidecar_path_for(&record_path);
-        let sidecar_json = store.load_instance_json(&sidecar_path).unwrap();
-
-        let srsj = serde_json::json!({
-            "srsj": "2",
-            "manifest": {
-                "dataModelRevision": 2,
-                "packageRef": {"mode": "local", "path": "package"}
-            },
-            "data": {
-                record_path: record_json,
-                sidecar_path: sidecar_json,
-                // RFC-039: the carrier keys by Field.name, so field-id queries
-                // need the Field definition to bridge id → name.
-                "package/fields/test-name.json": {
-                    "id": "field-name-001",
-                    "namespace": "com.test",
-                    "name": "test-name",
-                    "version": 1,
-                    "description": "Name field",
-                    "fieldType": {"datatype": "string"},
-                    "aiGuidance": {"purpose": "Name field"},
-                    "createdAt": "2026-01-01T00:00:00Z"
-                },
-                "package/package.json": {
-                    "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
-                    "id": "test-pkg",
-                    "namespace": "com.test",
-                    "name": "test-package",
-                    "version": "1.0.0",
-                    "title": "Test Package",
-                    "description": "Test package fixture",
-                    "status": "active",
-                    "createdAt": "2026-01-01T00:00:00Z",
-                    "fields": ["fields/test-name.json"],
-                    "types": [],
-                    "relationTypes": [],
-                    "views": [],
-                    "documentViews": [],
-                    "blueprints": [],
-                    "protocols": [],
-                    "vocabularies": [],
-                    "lifecycles": []
-                }
-            }
-        })
-        .to_string();
-
-        // 3. Load into FileStore, call get_field_context on both, assert results match
-        let json_store = crate::srsj::open_srsj(&srsj).unwrap();
-
-        let mem_result = get_field_context(
-            &store,
-            FieldContextQuery {
-                record_id: rec.instance_id.clone(),
-                field_id: "field-name-001".to_string(),
-            },
-        )
-        .unwrap();
-        let json_result = get_field_context(
-            &json_store,
-            FieldContextQuery {
-                record_id: rec.instance_id.clone(),
-                field_id: "field-name-001".to_string(),
-            },
-        )
-        .unwrap();
-
-        assert_eq!(mem_result.revisions.len(), json_result.revisions.len());
-        assert_eq!(
-            mem_result.revisions[0].revision_id,
-            json_result.revisions[0].revision_id
-        );
-        assert_eq!(mem_result.current_value, json_result.current_value);
     }
 
     #[test]

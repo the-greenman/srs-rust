@@ -23,7 +23,8 @@ pub const RELATION_TYPE_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/relation-type.json";
 pub const RELATIONS_COLLECTION_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/relations-collection.json";
-pub const REVISIONS_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/revisions.json";
+// REVISIONS_SCHEMA_ID removed: rfc-decision-2a1e1590 retired the Revision
+// sidecar mechanism from the spec; srs-rust#866 clean-cut the mirror.
 pub const SOURCE_DOCUMENT_META_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/source-document-meta.json";
 pub const THEME_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/theme.json";
@@ -48,7 +49,6 @@ pub const ALL_SCHEMA_IDS: &[&str] = &[
     RELATION_SCHEMA_ID,
     RELATION_TYPE_SCHEMA_ID,
     RELATIONS_COLLECTION_SCHEMA_ID,
-    REVISIONS_SCHEMA_ID,
     SOURCE_DOCUMENT_META_SCHEMA_ID,
     TERM_SCHEMA_ID,
     VOCABULARY_SCHEMA_ID,
@@ -97,7 +97,6 @@ static SCHEMA_SOURCES: &[(&str, &str)] = &[
         RELATIONS_COLLECTION_SCHEMA_ID,
         include_schema!("relations-collection.json"),
     ),
-    (REVISIONS_SCHEMA_ID, include_schema!("revisions.json")),
     (
         SOURCE_DOCUMENT_META_SCHEMA_ID,
         include_schema!("source-document-meta.json"),
@@ -224,9 +223,10 @@ mod tests {
     #[test]
     fn registry_builds_and_has_all_schema_ids() {
         let reg = SchemaRegistry::global();
-        // 22: typed-record.json removed (Tier-1 retirement, srs#448/srs-rust#888)
-        // and federation-{events,registry}.json removed (srs-rust#878/#912).
-        assert_eq!(reg.schema_ids().len(), 22);
+        // 21: typed-record.json removed (Tier-1 retirement, srs#448/srs-rust#888),
+        // federation-{events,registry}.json removed (srs-rust#878/#912), and
+        // revisions.json removed (rfc-decision-2a1e1590, srs-rust#866).
+        assert_eq!(reg.schema_ids().len(), 21);
         for id in ALL_SCHEMA_IDS {
             assert!(reg.schema_ids().contains(id), "missing: {id}");
         }
