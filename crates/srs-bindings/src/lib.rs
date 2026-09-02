@@ -2203,25 +2203,30 @@ mod tests {
 
     /// Verify that `ProjectedRecord.relations` serialises with camelCase keys matching the
     /// TypeScript interface declared in `srs-web/src/lib/srs-client.ts` (#713).
+    ///
+    /// srs-rust#817: `relationType`/`direction` (RTD-27) and `typeVersion` now
+    /// serialise too — the canonical `document-view-output.json` requires
+    /// both, and the prior omission was the conformance bug this issue fixed.
     #[test]
     fn projected_record_with_relations_serialises() {
         use srs_repository::render_service::{
-            ProjectedRecord, ProjectedRelationRow, ProjectedRelationTarget,
+            ProjectedRecord, ProjectedRelationDirection, ProjectedRelationRow,
+            ProjectedRelationTarget,
         };
         let target = ProjectedRelationTarget {
             instance_id: "target-001".to_string(),
             display_label: "Target Label".to_string(),
         };
         let row = ProjectedRelationRow {
+            relation_type: "relates-to".to_string(),
+            direction: ProjectedRelationDirection::Forward,
             label: "Related decisions".to_string(),
             targets: vec![target],
-            // Not serialised — it backs the `srs-relationtype-*` identity class
-            // of RFC-037 [FR-037-12], and the json projection is unchanged.
-            relation_type_key: "relates-to".to_string(),
         };
         let record = ProjectedRecord {
             instance_id: "rec-001".to_string(),
             type_id: "type-001".to_string(),
+            type_version: 1,
             type_namespace: "com.test".to_string(),
             type_name: "decision".to_string(),
             record_heading: None,
@@ -2229,12 +2234,19 @@ mod tests {
             fields: serde_json::json!({}),
             ordered_field_keys: vec![],
             relations: Some(vec![row]),
+            properties: None,
         };
         let json = serde_json::to_value(&record).expect("ProjectedRecord must serialize");
+        assert_eq!(json["typeVersion"].as_u64(), Some(1));
         let relations = json["relations"]
             .as_array()
             .expect("relations must be array");
         assert_eq!(relations.len(), 1, "one relation row");
+        assert_eq!(
+            json["relations"][0]["relationType"].as_str(),
+            Some("relates-to")
+        );
+        assert_eq!(json["relations"][0]["direction"].as_str(), Some("forward"));
         assert_eq!(
             json["relations"][0]["label"].as_str(),
             Some("Related decisions")
@@ -2272,6 +2284,7 @@ mod tests {
         let record = ProjectedRecord {
             instance_id: "rec-002".to_string(),
             type_id: "type-001".to_string(),
+            type_version: 1,
             type_namespace: "com.test".to_string(),
             type_name: "decision".to_string(),
             record_heading: None,
@@ -2279,6 +2292,7 @@ mod tests {
             fields: serde_json::json!({"rows": [{"cells": ["a", "b"]}]}),
             ordered_field_keys: vec!["rows".to_string()],
             relations: None,
+            properties: None,
         };
         let json = serde_json::to_value(&record).expect("ProjectedRecord must serialize");
         assert_eq!(
