@@ -717,7 +717,7 @@
           "key": "superseded",
           "label": "Superseded",
           "requiresRelation": {
-            "relationType": "supersedes"
+            "relationType": ["supersedes"]
           }
         },
         {

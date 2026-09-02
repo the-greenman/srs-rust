@@ -4298,7 +4298,10 @@ mod tests {
         superseded.is_final = Some(true);
         superseded.requires_relation = Some(RequiresRelation {
             enforcement: None,
-            relation_type: RelationTypeSpec::One("supersedes".to_string()),
+            // Array form: the canonical lifecycle.json schema now requires it
+            // (RFC-032 Change F removed the single-string form) — synced
+            // 2026-09-02, unrelated to srs-rust#910's own changes.
+            relation_type: RelationTypeSpec::Many(vec!["supersedes".to_string()]),
             direction: None, // incoming by default
         });
         let mut closed = state("closed");

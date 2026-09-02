@@ -66,6 +66,33 @@ is_missing_allowlisted() {
     return 1
 }
 
+# Declared transitional allowlist for CONTENT drift: a file present on both
+# sides whose bytes differ because our mirror leads the spec on an already-
+# ratified rename (srs-rust#910: the Composition rename, rfc-decision-92d2da05,
+# and the semanticObjectType collapse, owner ruling on #383/rfc-decision-
+# c8704763) — every entry here is prose or a key rename inside a file that
+# also exists (unlike the whole-file EXTRA/MISSING pairs above). Same expiry
+# as those: remove each entry when srs#523/#524 merge and the next
+# sync-schemas-from-spec.sh run picks up the renamed canonical content.
+DECLARED_CONTENT_DRIFT_ALLOWLIST=(
+    "blueprint.json"              # prose: DocumentView -> Composition
+    "document-view-output.json"   # documentViewId -> compositionId
+    "manifest.json"                # renderedPresentations[].viewId -> compositionId
+    "package-bundle.json"          # documentViews -> compositions
+    "package-manifest.json"        # documentViews -> compositions; dependencyRefs -> packageDependencies (srs-rust#873 fold)
+    "relation-type.json"           # semanticObjectType collapse: requireSameType; allowedSourceTypes/allowedTargetTypes dropped
+    "theme.json"                   # prose: DocumentView -> Composition
+    "type.json"                    # semanticObjectType property removed
+    "view.json"                    # prose: DocumentView -> Composition / semanticObjectType -> Type-key
+)
+is_content_drift_allowlisted() {
+    local needle="$1"
+    for entry in "${DECLARED_CONTENT_DRIFT_ALLOWLIST[@]}"; do
+        [[ "${entry}" == "${needle}" ]] && return 0
+    done
+    return 1
+}
+
 for src_file in "${SRC}"/*.json; do
     filename="$(basename "${src_file}")"
     dst_file="${DST}/${filename}"
@@ -77,8 +104,12 @@ for src_file in "${SRC}"/*.json; do
             DRIFT=1
         fi
     elif ! diff -q "${src_file}" "${dst_file}" > /dev/null; then
-        echo "DRIFT detected: ${filename}"
-        DRIFT=1
+        if is_content_drift_allowlisted "${filename}"; then
+            echo "DRIFT detected (declared transitional, see script comment): ${filename}"
+        else
+            echo "DRIFT detected: ${filename}"
+            DRIFT=1
+        fi
     fi
 done
 
