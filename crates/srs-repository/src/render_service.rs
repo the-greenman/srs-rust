@@ -3094,11 +3094,11 @@ fn render_field_value(
 }
 
 /// The ordered sequence behind a multi-entry value, or `None` when the value is
-/// a scalar. An array value is a sequence whatever its Field declares — that is
-/// how a Tier 1 `TypedField` array is recognised (`[FR-037-18]`). The RFC-039
-/// carrier stores structure natively, so the pre-cutover JSON-in-a-string
-/// coercion branch is deleted, not ported (RFC-039: "no field value is a
-/// JSON-bearing string once structure is expressible").
+/// a scalar. An array value is a sequence whatever its Field declares
+/// (`[FR-037-18]`). The RFC-039 carrier stores structure natively, so the
+/// pre-cutover JSON-in-a-string coercion branch is deleted, not ported
+/// (RFC-039: "no field value is a JSON-bearing string once structure is
+/// expressible").
 fn sequence_items(
     value: &serde_json::Value,
     _field_type: Option<&FieldType>,

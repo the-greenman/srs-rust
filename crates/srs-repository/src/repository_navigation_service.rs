@@ -132,9 +132,16 @@ pub fn repository_navigation(
     // constraint on the non-identity members that are the navigation sections,
     // and RFC-029 Change B explicitly permits `repo create` to scaffold a Tier-0
     // root note as one. Reading every member through the Tier-2-only
-    // `get_record_by_id` made a legitimate Tier-0 or Tier-1 member throw a
-    // `missing field typeId` parse error that took down the *whole* navigation
-    // payload — of a repository `repo validate` reports as healthy.
+    // `get_record_by_id` made a legitimate Tier-0 member throw a `missing field
+    // typeId` parse error that took down the *whole* navigation payload — of a
+    // repository `repo validate` reports as healthy.
+    //
+    // Tier 1 (TypedRecord) was retired (srs#448/rfc-decision-53635966,
+    // srs-rust#888) and its raw-JSON shape no longer classifies at catalog
+    // build, so `catalog()` — used only for existence-checking here — can no
+    // longer surface a Tier-1 member for this loop to special-case: every
+    // resolvable member is now Tier 0 or Tier 2, both of which load through
+    // the tier-aware `get_instance_by_id` seam below.
     let instances = store.catalog()?.instances;
     let section_containers = section_containers_by_root(store)?;
     let mut section_members = Vec::new();
@@ -143,71 +150,46 @@ pub fn repository_navigation(
         if identity_id.as_deref() == Some(id.as_str()) {
             continue;
         }
-        let Some(entry) = instances.iter().find(|e| &e.id == id) else {
+        if instances.iter().all(|e| &e.id != id) {
             diagnostics.push(format!(
                 "repository-navigation: root container member {id} does not resolve"
             ));
             continue;
-        };
+        }
         let section_container_id = section_containers.get(id).cloned();
-        section_members.push(if entry.tier == Some(1) {
-            // Tier-1 is the one shape no loader can return: the catalog admits
-            // `typed-record.json`, but `srs-core` has no TypedRecord type, so
-            // `get_instance_by_id` would route it to `load_record_by_id` and
-            // fail on the missing `typeId`. Fall back to the catalog-derived
-            // title — the same projection the identity slot above uses. The type
-            // keys stay at their defaults rather than being invented (ADR-044).
-            //
-            // `created_at` is unavailable here because the projection does not
-            // carry one. That affects only the fallback tiebreak for a member no
-            // `precedes` edge reaches — `precedes` is the ordering mechanism
-            // (Rule [N+12]) — and the instance_id component keeps it a total
-            // order. Closing this properly means a TypedRecord core type.
-            let title = crate::store::catalog_instance_ref(store, entry)?.title;
-            SectionMember {
-                created_at: None,
-                node: NavigationNode {
-                    instance_id: id.clone(),
-                    display_label: title.unwrap_or_else(|| id.clone()),
+        // Tier 0 and Tier 2 both load through the tier-aware seam, whose own
+        // doc comment names container members and roots as its reason to
+        // exist. Going through it (rather than the catalog projection) keeps
+        // a Tier-0 note's real `createdAt`, so it takes its rightful place in
+        // the fallback ordering instead of sorting ahead of every timestamped
+        // section.
+        let instance = record_store::get_instance_by_id(store, id)?.ok_or_else(|| {
+            RepositoryError::NotFound {
+                path: PathBuf::from(format!("instance/{id}")),
+            }
+        })?;
+        let created_at = instance.created_at().map(str::to_string);
+        section_members.push(SectionMember {
+            created_at,
+            node: match instance {
+                record_store::LoadedInstance::Record(record) => node_for_record(
+                    &record,
+                    &identity_field_index,
+                    &field_name_index,
+                    section_container_id,
+                ),
+                // A Note has no type binding and no identity field, so its
+                // own title is the only label there is.
+                record_store::LoadedInstance::Note(note) => NavigationNode {
+                    display_label: note
+                        .title
+                        .clone()
+                        .unwrap_or_else(|| note.instance_id.clone()),
+                    instance_id: note.instance_id,
                     section_container_id,
                     ..Default::default()
                 },
-            }
-        } else {
-            // Tier 0 and Tier 2 both load through the tier-aware seam, whose own
-            // doc comment names container members and roots as its reason to
-            // exist. Going through it (rather than the catalog projection) keeps
-            // a Tier-0 note's real `createdAt`, so it takes its rightful place in
-            // the fallback ordering instead of sorting ahead of every timestamped
-            // section.
-            let instance = record_store::get_instance_by_id(store, id)?.ok_or_else(|| {
-                RepositoryError::NotFound {
-                    path: PathBuf::from(format!("instance/{id}")),
-                }
-            })?;
-            let created_at = instance.created_at().map(str::to_string);
-            SectionMember {
-                created_at,
-                node: match instance {
-                    record_store::LoadedInstance::Record(record) => node_for_record(
-                        &record,
-                        &identity_field_index,
-                        &field_name_index,
-                        section_container_id,
-                    ),
-                    // A Note has no type binding and no identity field, so its
-                    // own title is the only label there is.
-                    record_store::LoadedInstance::Note(note) => NavigationNode {
-                        display_label: note
-                            .title
-                            .clone()
-                            .unwrap_or_else(|| note.instance_id.clone()),
-                        instance_id: note.instance_id,
-                        section_container_id,
-                        ..Default::default()
-                    },
-                },
-            }
+            },
         });
     }
 

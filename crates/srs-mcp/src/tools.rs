@@ -160,7 +160,8 @@ pub struct FindToolInput {
     pub lifecycle_state: Option<String>,
     #[serde(default)]
     pub exclude_lifecycle_states: Vec<String>,
-    /// Instance tier (0=Note, 1=TypedRecord, 2=Record).
+    /// Instance tier (0=Note, 2=Record — Tier 1/TypedRecord is retired,
+    /// srs#448/rfc-decision-53635966, srs-rust#888).
     pub tier: Option<u8>,
     /// Content substring match (the CLI's --text flag).
     pub content_match: Option<String>,

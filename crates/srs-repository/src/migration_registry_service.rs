@@ -179,7 +179,12 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        there is no mechanical content rewrite — only the generation number to \
                        record. Aborts, rather than silently stamping a false claim, if any \
                        Tier-1 instances remain (they must be graduated to Tier-2 Records \
-                       first). Requires the metamodel-v1-1-0 migration (#3) first.",
+                       first). Since srs-rust#888 (the deferred raw-JSON code-removal pass), \
+                       Tier 1 is no longer an admissible catalog shape at any revision, so \
+                       this migration reads the ADR-045 unchecked catalog seam — the same \
+                       one `repo validate` uses — to still be able to see and name leftover \
+                       Tier-1 content on a repository that now fails the checked seam. \
+                       Requires the metamodel-v1-1-0 migration (#3) first.",
         status_fn: |store| {
             if crate::field_type_migration_service::tier1_removal_migration_needed(store)? {
                 Ok(MigrationStatus::Needed)
@@ -888,9 +893,11 @@ mod tests {
             3
         );
 
-        // A real Tier-1 (typed-record.json) instance, same fixture shape as
-        // discovery_service's store_with_all_tiers (no typed `TypedRecord`
-        // struct exists — CLAUDE.md storage boundary rules).
+        // A real Tier-1 (typed-record.json) instance, same fixture shape
+        // discovery_service used before srs-rust#888 retired it. Tier 1 is no
+        // longer an admissible catalog shape at all, so this migration reads
+        // the unchecked catalog seam (ADR-045) to still be able to see it and
+        // name it — see `migrate_tier1_removal`'s doc comment.
         let typed = serde_json::json!({
             "instanceId": "22222222-2222-4222-8222-222222222222",
             "title": "A typed record",
@@ -902,8 +909,11 @@ mod tests {
 
         let err = apply_migration(&store, "tier1-removal").unwrap_err();
         assert!(
-            err.to_string().contains("1 Tier-1"),
-            "error must name the remaining Tier-1 count, got: {err}"
+            err.to_string().contains("1 instance(s)")
+                && err
+                    .to_string()
+                    .contains("records/typed-records/typed-1.json"),
+            "error must name the remaining count and locator, got: {err}"
         );
         assert_eq!(
             crate::field_type_migration_service::data_model_revision(&store).unwrap(),

@@ -3,12 +3,13 @@
 //! `resolve_container_view` composes a Container, an optional DocumentView, and the
 //! referenced View into a single read-only result the editor can render as an
 //! interactive, selectable list: the container's root record, the ordered member
-//! records (Tier-0, Tier-1, or Tier-2; full [`Record`] present only for Tier-2), and
-//! the column/field spec resolved from the DocumentView.
+//! records (Tier-0 or Tier-2; full [`Record`] present only for Tier-2), and
+//! the column/field spec resolved from the DocumentView. (Tier 1 / TypedRecord
+//! was retired — srs#448/rfc-decision-53635966, srs-rust#888.)
 //!
-//! Tier-0 (Note) and Tier-1 (TypedRecord) members carry `record: None` and a
-//! `display_label` sourced from the manifest index entry's `title`. Clients that drive
-//! field-column cells check `record.is_some()`; cells for non-Tier-2 rows are empty.
+//! Tier-0 (Note) members carry `record: None` and a `display_label` sourced
+//! from the manifest index entry's `title`. Clients that drive field-column
+//! cells check `record.is_some()`; cells for non-Tier-2 rows are empty.
 //!
 //! This is a Layer-1 typed projection — all semantics live here so the CLI, the WASM
 //! binding, and any future consumer get the same answer (see
@@ -56,25 +57,26 @@ pub struct ColumnSpec {
 
 /// A resolved member (or root) of the container.
 ///
-/// Tier-2 Records carry a full [`Record`] in `record`; Tier-0 (Note) and Tier-1
-/// (TypedRecord) members carry `record: None` — their `display_label` is sourced from
-/// the manifest index entry's `title`. Clients that render field-column cells check
+/// Tier-2 Records carry a full [`Record`] in `record`; Tier-0 (Note) members
+/// carry `record: None` — their `display_label` is sourced from the manifest
+/// index entry's `title`. Clients that render field-column cells check
 /// `record.is_some()`; cells for non-Tier-2 rows are intentionally empty.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolvedMember {
     pub instance_id: String,
-    /// Instance tier: 0 (Note), 1 (TypedRecord), or 2 (Record).
+    /// Instance tier: 0 (Note) or 2 (Record) — Tier 1/TypedRecord is retired
+    /// (srs#448/rfc-decision-53635966, srs-rust#888).
     pub tier: u8,
     /// Core-resolved label: `record_display_label` for Tier-2; manifest index `title`
-    /// (falling back to `instance_id`) for Tier-0/1.
+    /// (falling back to `instance_id`) for Tier-0.
     pub display_label: String,
     /// `false` when this member's `lifecycleState` is in the container's authored
     /// `excludeLifecycleStates` list (ADR-020). `true` when the lifecycle state is absent
-    /// or not in the exclusion list. Always `true` for Tier-0/1 (no lifecycle state).
+    /// or not in the exclusion list. Always `true` for Tier-0 (no lifecycle state).
     /// Clients use this to implement a "show all" toggle without re-querying.
     pub is_visible_by_default: bool,
-    /// Present for Tier-2 Records; `None` for Tier-0/1. Serialized with
+    /// Present for Tier-2 Records; `None` for Tier-0. Serialized with
     /// `skip_serializing_if = "Option::is_none"` so the JSON field is absent (not `null`)
     /// for non-Tier-2 members.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -154,7 +156,7 @@ pub fn resolve_container_view(
     }
 
     // Build instance_id -> tier and instance_id -> display label lookups from one catalog
-    // snapshot. The label index provides display labels for Tier-0/1 members (the entity
+    // snapshot. The label index provides display labels for Tier-0 members (the entity
     // body's `title` field, catalog-derived — RFC-038 Change K retires the index column).
     // Tier-2 members use record_display_label instead; the label_by_id entry still exists
     // but is unused for them.
@@ -265,9 +267,9 @@ pub fn resolve_container_view(
 ///
 /// - **Tier 2 (Record):** loads the full record, resolves `display_label` via
 ///   `record_display_label`, and sets `is_visible_by_default` from `lifecycleState`.
-/// - **Tier 0 (Note) or Tier 1 (TypedRecord):** sets `record: None`, uses the manifest
-///   index `title` (falling back to `instance_id`) as `display_label`, and sets
-///   `is_visible_by_default: true` (no lifecycle state on these tiers).
+/// - **Tier 0 (Note):** sets `record: None`, uses the manifest index `title`
+///   (falling back to `instance_id`) as `display_label`, and sets
+///   `is_visible_by_default: true` (no lifecycle state on this tier).
 /// - **Unknown tier:** emits a diagnostic and returns `None` (mirrors `tree_service`).
 /// - **Not in manifest:** emits a diagnostic and returns `None`.
 #[allow(clippy::too_many_arguments)]
@@ -283,7 +285,7 @@ fn resolve_member(
     diagnostics: &mut Vec<String>,
 ) -> Result<Option<ResolvedMember>, RepositoryError> {
     match tier_by_id.get(id) {
-        Some(t @ 0) | Some(t @ 1) => {
+        Some(t @ 0) => {
             let display_label = label_by_id
                 .get(id)
                 .cloned()
@@ -1033,7 +1035,7 @@ mod tests {
     // "unknown-tier" member to skip.
 
     /// Like [`build_store`], but each instance tuple includes an optional manifest index title.
-    /// Use this when testing `display_label` for Tier-0/1 members where the title must be
+    /// Use this when testing `display_label` for Tier-0 members where the title must be
     /// non-null; `build_store` always sets `title: None`.
     fn build_store_titled(
         fields: Vec<Field>,
@@ -1142,76 +1144,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn resolve_container_view_includes_tier1_typed_record_member() {
-        // A Tier-1 member with a manifest index title must appear with record: None.
-        let fields = vec![field("f-title", "title")];
-        let view = view_with_fields(vec![field_view("f-title", 0, None, None)]);
-        let dv = document_view(
-            DV_ID,
-            vec![section(
-                "s1",
-                0,
-                SectionSource::ContainerSubset {
-                    container_id: CONTAINER_ID.to_string(),
-                    container_type: None,
-                    type_filter: None,
-                },
-                Some(VIEW_ID),
-            )],
-        );
-        let root = record("root-1", "title", "Root Decision");
-        // RFC-038: Tier-1 shape is typed-record.json (requires `fields`); title
-        // lives in the body; a stray "tier" property breaks shape-match.
-        let typed_json = serde_json::json!({
-            "instanceId": "typed-1",
-            "title": "TypedRecord One",
-            "fields": []
-        });
-        let store = build_store_titled(
-            fields,
-            vec![view],
-            vec![dv],
-            vec![
-                ("root-1", 2, None, serde_json::to_value(&root).unwrap()),
-                ("typed-1", 1, Some("TypedRecord One"), typed_json),
-            ],
-        );
-        container_service::create_container(
-            &store,
-            make_container(vec!["root-1"], vec!["typed-1"]),
-        )
-        .unwrap();
-
-        let result = resolve_container_view(&store, input(None)).unwrap();
-        let typed = result
-            .members
-            .iter()
-            .find(|m| m.instance_id == "typed-1")
-            .expect("Tier-1 member must appear");
-        assert_eq!(typed.tier, 1);
-        assert!(
-            typed.record.is_none(),
-            "Tier-1 member must have record: None"
-        );
-        assert_eq!(typed.display_label, "TypedRecord One");
-        assert!(typed.is_visible_by_default);
-        assert!(
-            result.diagnostics.iter().all(|d| d.contains("I-145")),
-            "no diagnostics expected other than the srs#446/I-145 transitional-fallback \
-             note (this test's container has no anchorInstanceId), got: {:?}",
-            result.diagnostics
-        );
-        assert!(
-            result.diagnostics.iter().any(|d| d.contains("I-145")),
-            "this test's container has roots and no anchorInstanceId, so the \
-             transitional-fallback note is expected to actually be present, not just \
-             absent-of-anything-else"
-        );
-    }
+    // resolve_container_view_includes_tier1_typed_record_member retired by
+    // srs-rust#888 (Tier 1 / TypedRecord retirement, srs#448/rfc-decision-53635966):
+    // its fixture — a `tier: 1` instance with a body-shape `typed-record.json`
+    // requires — no longer classifies at catalog build (fatal [R8]
+    // `SHAPE_NO_MATCH`, see `tier1_typed_record_shape_no_longer_classifies` in
+    // `crates/srs-repository/tests/catalog.rs`), so `resolve_container_view`
+    // can never see a Tier-1 member to resolve.
 
     #[test]
-    fn resolve_container_view_tier01_label_falls_back_to_instance_id() {
+    fn resolve_container_view_tier0_label_falls_back_to_instance_id() {
         // When a Tier-0 member has no manifest index title, display_label falls back to
         // instance_id.
         let fields = vec![field("f-title", "title")];

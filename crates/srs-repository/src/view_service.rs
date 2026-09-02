@@ -355,7 +355,7 @@ pub fn list_document_views_summary(
 ///
 /// Returns an empty vec — not an error — when:
 /// - the container has no `anchorInstanceId` and no `rootInstanceIds`
-/// - the anchor/root instance has no `typeId` (Tier 0 Note or Tier 1 TypedRecord)
+/// - the anchor/root instance has no `typeId` (Tier 0 Note)
 /// - no DocumentViews match the type binding
 ///
 /// Returns `RepositoryError` when:

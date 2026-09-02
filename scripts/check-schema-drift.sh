@@ -31,15 +31,8 @@ DRIFT=0
 #     tracks it — explicitly "the timing and shape of any actual code removal
 #     is an srs-rust maintainer call" (rfc-decision-2a1e1590's return trigger),
 #     not yet made.
-#   - typed-record.json: srs#505 retired Tier 1 (TypedRecord) from the spec
-#     (rfc-decision-53635966), but #883 deliberately kept the Tier-1 raw-JSON
-#     handling code paths live (catalog classification, discovery text
-#     projection, container-view display) since a rev-3 repository may still
-#     carry real Tier-1 content — srs-rust#888 tracks the actual code removal;
-#     remove this entry together with that removal, not separately.
 DECLARED_EXTRA_ALLOWLIST=(
     "revisions.json"
-    "typed-record.json"
 )
 is_allowlisted() {
     local needle="$1"

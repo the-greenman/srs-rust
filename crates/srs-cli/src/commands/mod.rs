@@ -1687,7 +1687,8 @@ pub struct FindArgs {
     /// Exclude records whose lifecycleState matches this value (repeatable; applied after --lifecycle-state)
     #[arg(long = "exclude-lifecycle-state", action = clap::ArgAction::Append)]
     pub exclude_lifecycle_state: Vec<String>,
-    /// Instance tier filter (0=Note, 1=TypedRecord, 2=Record).
+    /// Instance tier filter (0=Note, 2=Record — Tier 1/TypedRecord is retired,
+    /// srs#448/rfc-decision-53635966, srs-rust#888).
     #[arg(long = "tier")]
     pub tier: Option<u8>,
 }

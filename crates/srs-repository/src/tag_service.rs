@@ -78,7 +78,8 @@ pub fn get_term_by_id(
     vocabulary_service::get_term_by_id(store, id)
 }
 
-/// Cross-tier tag query — returns all instances (Notes, TypedRecords, Records)
+/// Cross-tier tag query — returns all instances (Notes, Records — Tier 1
+/// TypedRecord is retired, srs#448/rfc-decision-53635966, srs-rust#888)
 /// whose entity body carries `tag_key`. One catalog snapshot, then one body
 /// read per instance (RFC-038: tags are catalog-derived, not a cached index
 /// column).
