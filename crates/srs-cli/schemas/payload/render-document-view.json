@@ -71,6 +71,40 @@
         }
       }
     },
+    "ProjectedPropertyRow": {
+      "description": "RFC-041 [R8] — one resolved `RecordPropertyView` row in the JSON projection, `{ property, label, value }`.",
+      "type": "object",
+      "required": [
+        "label",
+        "property",
+        "value"
+      ],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "property": {
+          "$ref": "#/definitions/ProjectedRecordProperty"
+        },
+        "value": {
+          "$ref": "#/definitions/ProjectedPropertyValue"
+        }
+      }
+    },
+    "ProjectedPropertyValue": {
+      "description": "A `RecordPropertyView` row's resolved value: `lifecycleState`/`createdAt`/ `updatedAt` are a single string, `tags` is a string array (RFC-041 Change C).",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
     "ProjectedRecord": {
       "description": "A single record in a JSON projection section.",
       "type": "object",
@@ -80,7 +114,8 @@
         "orderedFieldKeys",
         "typeId",
         "typeName",
-        "typeNamespace"
+        "typeNamespace",
+        "typeVersion"
       ],
       "properties": {
         "fields": {
@@ -101,6 +136,15 @@
             "string",
             "null"
           ]
+        },
+        "properties": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/ProjectedPropertyRow"
+          }
         },
         "recordHeading": {
           "type": [
@@ -125,18 +169,50 @@
         },
         "typeNamespace": {
           "type": "string"
+        },
+        "typeVersion": {
+          "description": "`Record.typeVersion` (RFC-032/RFC-039) — the authoritative half of the record-to-type PINNED binding alongside `typeId`.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
         }
       }
+    },
+    "ProjectedRecordProperty": {
+      "description": "RFC-041 Change B — the closed vocabulary of top-level Record properties a `RecordPropertyView` row may present.",
+      "type": "string",
+      "enum": [
+        "lifecycleState",
+        "tags",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ProjectedRelationDirection": {
+      "description": "Whether a `ProjectedRelationRow` presents the record as the source (`forward`) or target (`inverse`) of its listed edges (RFC-027).",
+      "type": "string",
+      "enum": [
+        "forward",
+        "inverse"
+      ]
     },
     "ProjectedRelationRow": {
       "description": "A single labelled row of relation targets in a projected record's links block.",
       "type": "object",
       "required": [
+        "direction",
         "label",
+        "relationType",
         "targets"
       ],
       "properties": {
+        "direction": {
+          "$ref": "#/definitions/ProjectedRelationDirection"
+        },
         "label": {
+          "type": "string"
+        },
+        "relationType": {
           "type": "string"
         },
         "targets": {
