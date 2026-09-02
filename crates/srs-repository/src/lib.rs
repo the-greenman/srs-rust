@@ -7,6 +7,7 @@ pub mod blueprint_brief_service;
 pub mod blueprint_schema_service;
 pub mod blueprint_service;
 pub mod catalog;
+pub mod composition_cutover_migration_service;
 pub mod container_service;
 pub mod container_view_service;
 pub mod context_query_service;

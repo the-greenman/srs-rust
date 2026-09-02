@@ -1,7 +1,7 @@
 //! # View Service
 //!
-//! Public API for View (L1) and DocumentView (L2) CRUD operations.
-//! This module is the sole entry point for all view and document-view logic.
+//! Public API for View (L1) and Composition (L2) CRUD operations.
+//! This module is the sole entry point for all view and composition logic.
 //! CLI handlers and future API handlers must call these functions;
 //! they must not call internal helpers or store I/O methods directly.
 //!
@@ -27,14 +27,14 @@ use crate::error::RepositoryError;
 use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
 use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
-use srs_core::types::view::{DocumentView, ExactTypeRef, View};
-use srs_core::validation::view::{validate_document_view, validate_view};
+use srs_core::types::view::{Composition, ExactTypeRef, View};
+use srs_core::validation::view::{validate_composition, validate_view};
 
 // ── Result enums (read-only) ──────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
-pub enum GetDocumentViewResult {
-    Found(Box<DocumentView>),
+pub enum GetCompositionResult {
+    Found(Box<Composition>),
     NotFound,
 }
 
@@ -64,7 +64,7 @@ pub struct ViewSummary {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DocumentViewSummary {
+pub struct CompositionSummary {
     pub id: String,
     pub namespace: String,
     pub name: String,
@@ -72,7 +72,7 @@ pub struct DocumentViewSummary {
     pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub container_type: Option<String>,
-    /// RFC-009: version-exact Type anchors this DocumentView applies to (OR semantics).
+    /// RFC-009: version-exact Type anchors this Composition applies to (OR semantics).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub root_type_refs: Option<Vec<ExactTypeRef>>,
     /// Boundary path of the package that owns this document view.
@@ -81,11 +81,11 @@ pub struct DocumentViewSummary {
     pub source_package: Option<String>,
 }
 
-/// Filter for [`list_document_views_summary`]. All criteria are AND-combined; a `None`
+/// Filter for [`list_compositions_summary`]. All criteria are AND-combined; a `None`
 /// field imposes no constraint. `root_type_id` matches when the view's `root_type_refs`
 /// contains an `ExactTypeRef` with that `type_id` (any version).
 #[derive(Debug, Clone, Default)]
-pub struct DocumentViewListFilter {
+pub struct CompositionListFilter {
     pub namespace: Option<String>,
     pub name: Option<String>,
     pub container_type: Option<String>,
@@ -108,15 +108,15 @@ pub struct DeleteViewResult {
     pub id: String,
 }
 
-pub struct CreateDocumentViewResult {
-    pub document_view: DocumentView,
+pub struct CreateCompositionResult {
+    pub composition: Composition,
 }
 
-pub struct UpdateDocumentViewResult {
-    pub document_view: DocumentView,
+pub struct UpdateCompositionResult {
+    pub composition: Composition,
 }
 
-pub struct DeleteDocumentViewResult {
+pub struct DeleteCompositionResult {
     pub id: String,
 }
 
@@ -158,12 +158,12 @@ fn find_view_path(
     Ok(None)
 }
 
-/// Same as `find_view_path` but scans the `documentViews` array.
-fn find_document_view_path(
+/// Same as `find_view_path` but scans the `compositions` array.
+fn find_composition_path(
     store: &dyn RepositoryStore,
     id: &str,
 ) -> Result<Option<(String, crate::package_types::PackageSelector)>, RepositoryError> {
-    let owner = match store.resolve_definition_owner(id, DefinitionKind::DocumentView) {
+    let owner = match store.resolve_definition_owner(id, DefinitionKind::Composition) {
         Ok(sel) => sel,
         Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
         Err(e) => return Err(e),
@@ -171,7 +171,7 @@ fn find_document_view_path(
     // Load the *owner's* package.json (not always the primary one).
     let prefix = owner.as_deref().unwrap_or("package");
     let pkg_json = store.load_instance_json(&format!("{prefix}/package.json"))?;
-    let paths = pkg_json["documentViews"]
+    let paths = pkg_json["compositions"]
         .as_array()
         .cloned()
         .unwrap_or_default();
@@ -190,21 +190,19 @@ fn find_document_view_path(
 
 // ── Read-only service functions ───────────────────────────────────────────────
 
-pub fn list_document_views(
-    store: &dyn RepositoryStore,
-) -> Result<Vec<DocumentView>, RepositoryError> {
+pub fn list_compositions(store: &dyn RepositoryStore) -> Result<Vec<Composition>, RepositoryError> {
     let package = store.load_package()?;
-    Ok(package.document_views)
+    Ok(package.compositions)
 }
 
-pub fn get_document_view_by_id(
+pub fn get_composition_by_id(
     store: &dyn RepositoryStore,
     id: &str,
-) -> Result<GetDocumentViewResult, RepositoryError> {
+) -> Result<GetCompositionResult, RepositoryError> {
     let package = store.load_package()?;
-    match package.resolve_document_view(id) {
-        Some(view) => Ok(GetDocumentViewResult::Found(Box::new(view.clone()))),
-        None => Ok(GetDocumentViewResult::NotFound),
+    match package.resolve_composition(id) {
+        Some(view) => Ok(GetCompositionResult::Found(Box::new(view.clone()))),
+        None => Ok(GetCompositionResult::NotFound),
     }
 }
 
@@ -269,10 +267,10 @@ pub fn list_views_summary(
         .collect())
 }
 
-pub fn list_document_views_summary(
+pub fn list_compositions_summary(
     store: &dyn RepositoryStore,
-    filter: &DocumentViewListFilter,
-) -> Result<Vec<DocumentViewSummary>, RepositoryError> {
+    filter: &CompositionListFilter,
+) -> Result<Vec<CompositionSummary>, RepositoryError> {
     // Build provenance map: document view id → boundary selector
     let mut provenance: std::collections::HashMap<String, Option<String>> =
         std::collections::HashMap::new();
@@ -281,7 +279,7 @@ pub fn list_document_views_summary(
         let prefix = boundary.selector.as_deref().unwrap_or("package");
         let pkg_json_path = format!("{prefix}/package.json");
         if let Ok(pkg_json) = store.load_instance_json(&pkg_json_path) {
-            if let Some(paths) = pkg_json["documentViews"].as_array() {
+            if let Some(paths) = pkg_json["compositions"].as_array() {
                 for entry in paths {
                     if let Some(rel) = entry.as_str() {
                         let full = format!("{prefix}/{rel}");
@@ -298,7 +296,7 @@ pub fn list_document_views_summary(
         }
     }
 
-    Ok(list_document_views(store)?
+    Ok(list_compositions(store)?
         .into_iter()
         .filter(|v| {
             // namespace: exact match
@@ -333,7 +331,7 @@ pub fn list_document_views_summary(
         })
         .map(|v| {
             let source_package = provenance.get(&v.id).cloned().flatten();
-            DocumentViewSummary {
+            CompositionSummary {
                 id: v.id,
                 namespace: v.namespace,
                 name: v.name,
@@ -350,13 +348,13 @@ pub fn list_document_views_summary(
 /// Given a container ID, resolves its typing anchor's `typeId`/`typeVersion` — the
 /// declared `anchorInstanceId` when present, falling back to `rootInstanceIds[0]` only
 /// transitionally for a pre-srs#446 container with no anchor (RFC-009 Change A, amended;
-/// I-145) — then returns all DocumentViews whose `rootTypeRefs` contains an `ExactTypeRef`
+/// I-145) — then returns all Compositions whose `rootTypeRefs` contains an `ExactTypeRef`
 /// matching that exact type binding (both `typeId` and `typeVersion` must match).
 ///
 /// Returns an empty vec — not an error — when:
 /// - the container has no `anchorInstanceId` and no `rootInstanceIds`
 /// - the anchor/root instance has no `typeId` (Tier 0 Note)
-/// - no DocumentViews match the type binding
+/// - no Compositions match the type binding
 ///
 /// Returns `RepositoryError` when:
 /// - the container is not found
@@ -365,14 +363,14 @@ pub fn list_document_views_summary(
 /// This function does not itself emit a diagnostic for the transitional-fallback case —
 /// see `container_service::typing_anchor_instance_id`'s doc comment and
 /// `container_view_service::resolve_container_view`'s inline I-145 diagnostic (ADR-044).
-pub fn document_views_for_container(
+pub fn compositions_for_container(
     store: &dyn RepositoryStore,
     container_id: &str,
-) -> Result<Vec<DocumentView>, RepositoryError> {
+) -> Result<Vec<Composition>, RepositoryError> {
     let container = container_service::get_container(store, container_id)?;
 
     // Resolve the typing anchor (declared anchorInstanceId, else the transitional
-    // rootInstanceIds[0] fallback); if neither exists, no DocumentView can match.
+    // rootInstanceIds[0] fallback); if neither exists, no Composition can match.
     let root_id = match container_service::typing_anchor_instance_id(&container) {
         Some(id) => id,
         None => return Ok(vec![]),
@@ -408,8 +406,8 @@ pub fn document_views_for_container(
         None => return Ok(vec![]), // typeId present but typeVersion missing — not a valid Tier 2
     };
 
-    // Filter all DocumentViews to those that reference this exact type binding.
-    let all_views = list_document_views(store)?;
+    // Filter all Compositions to those that reference this exact type binding.
+    let all_views = list_compositions(store)?;
     let matched = all_views
         .into_iter()
         .filter(|dv| {
@@ -486,12 +484,12 @@ pub fn update_view(
     Ok(UpdateViewResult { view })
 }
 
-/// Returns the IDs of any DocumentViews whose sections reference `view_id` via `render_view_id`.
-fn find_document_views_referencing_view(
+/// Returns the IDs of any Compositions whose sections reference `view_id` via `render_view_id`.
+fn find_compositions_referencing_view(
     store: &dyn RepositoryStore,
     view_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
-    let refs: Vec<String> = list_document_views(store)?
+    let refs: Vec<String> = list_compositions(store)?
         .into_iter()
         .filter(|dv| {
             dv.sections
@@ -504,12 +502,12 @@ fn find_document_views_referencing_view(
 }
 
 /// Delete a View by ID. Removes the file and unregisters from `package.json` views array.
-/// Returns `CannotDeleteInUse` if any DocumentView section references this view.
+/// Returns `CannotDeleteInUse` if any Composition section references this view.
 pub fn delete_view(
     store: &dyn RepositoryStore,
     view_id: &str,
 ) -> Result<DeleteViewResult, RepositoryError> {
-    let refs = find_document_views_referencing_view(store, view_id)?;
+    let refs = find_compositions_referencing_view(store, view_id)?;
     if !refs.is_empty() {
         return Err(RepositoryError::CannotDeleteInUse {
             entity_type: "view".to_string(),
@@ -533,101 +531,96 @@ pub fn delete_view(
     })
 }
 
-// ── DocumentView CRUD ─────────────────────────────────────────────────────────
+// ── Composition CRUD ─────────────────────────────────────────────────────────
 
-/// Create a DocumentView from a raw JSON value with normalized defaults (issue #511).
+/// Create a Composition from a raw JSON value with normalized defaults (issue #511).
 ///
 /// Boilerplate the caller may omit is defaulted before typed deserialization:
 /// `createdAt` (now) and `description` (empty string). Explicit values win.
-pub fn create_document_view_normalized(
+pub fn create_composition_normalized(
     store: &dyn RepositoryStore,
     mut raw: serde_json::Value,
     selector: PackageSelector,
-) -> Result<CreateDocumentViewResult, RepositoryError> {
+) -> Result<CreateCompositionResult, RepositoryError> {
     crate::input_normalization::default_created_at(&mut raw, "createdAt");
     crate::input_normalization::default_empty_string(&mut raw, "description");
-    let document_view = crate::input_normalization::from_value_with_path(raw, "DocumentView")?;
-    create_document_view(store, document_view, selector)
+    let composition = crate::input_normalization::from_value_with_path(raw, "Composition")?;
+    create_composition(store, composition, selector)
 }
 
-/// Create a new DocumentView. Validates, writes file, registers in the boundary's `package.json` documentViews array.
+/// Create a new Composition. Validates, writes file, registers in the boundary's `package.json` compositions array.
 /// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.
-pub fn create_document_view(
+pub fn create_composition(
     store: &dyn RepositoryStore,
-    mut document_view: DocumentView,
+    mut composition: Composition,
     selector: PackageSelector,
-) -> Result<CreateDocumentViewResult, RepositoryError> {
+) -> Result<CreateCompositionResult, RepositoryError> {
     // Validate the selector form, then that the boundary exists, before touching the filesystem.
     validate_package_selector(&selector)?;
     store.load_package_boundary(&selector)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");
-    validate_document_view(&document_view).map_err(|e| {
-        RepositoryError::DocumentViewValidation {
-            path: std::path::PathBuf::from(format!("{boundary_path}/document-views")),
-            source: e,
-        }
+    validate_composition(&composition).map_err(|e| RepositoryError::CompositionValidation {
+        path: std::path::PathBuf::from(format!("{boundary_path}/compositions")),
+        source: e,
     })?;
-    if document_view.id.is_empty() {
-        document_view.id = new_instance_id();
+    if composition.id.is_empty() {
+        composition.id = new_instance_id();
     }
-    store.ensure_document_views_dir(&format!("{boundary_path}/document-views"))?;
-    let id_prefix = &document_view.id[..document_view.id.len().min(8)];
+    store.ensure_compositions_dir(&format!("{boundary_path}/compositions"))?;
+    let id_prefix = &composition.id[..composition.id.len().min(8)];
     let rel_filename = format!(
-        "document-views/{}-{}.json",
-        slugify(&document_view.name),
+        "compositions/{}-{}.json",
+        slugify(&composition.name),
         id_prefix
     );
     let full_path = format!("{boundary_path}/{rel_filename}");
-    store.save_document_view(&full_path, &document_view)?;
-    store.add_definition_to_boundary(&selector, DefinitionKind::DocumentView, &rel_filename)?;
-    Ok(CreateDocumentViewResult { document_view })
+    store.save_composition(&full_path, &composition)?;
+    store.add_definition_to_boundary(&selector, DefinitionKind::Composition, &rel_filename)?;
+    Ok(CreateCompositionResult { composition })
 }
 
-/// Update an existing DocumentView (full replace). Validates, locates existing file, overwrites.
-/// The `id` field of the written file is always set to `document_view_id` — the caller's JSON may
+/// Update an existing Composition (full replace). Validates, locates existing file, overwrites.
+/// The `id` field of the written file is always set to `composition_id` — the caller's JSON may
 /// omit or leave it blank; the positional argument is authoritative.
-pub fn update_document_view(
+pub fn update_composition(
     store: &dyn RepositoryStore,
-    document_view_id: &str,
-    mut document_view: DocumentView,
-) -> Result<UpdateDocumentViewResult, RepositoryError> {
-    document_view.id = document_view_id.to_string();
-    validate_document_view(&document_view).map_err(|e| {
-        RepositoryError::DocumentViewValidation {
-            path: std::path::PathBuf::from("package/document-views"),
-            source: e,
+    composition_id: &str,
+    mut composition: Composition,
+) -> Result<UpdateCompositionResult, RepositoryError> {
+    composition.id = composition_id.to_string();
+    validate_composition(&composition).map_err(|e| RepositoryError::CompositionValidation {
+        path: std::path::PathBuf::from("package/compositions"),
+        source: e,
+    })?;
+    let (path, _owner) = find_composition_path(store, composition_id)?.ok_or_else(|| {
+        RepositoryError::CompositionNotFoundById {
+            composition_id: composition_id.to_string(),
         }
     })?;
-    let (path, _owner) = find_document_view_path(store, document_view_id)?.ok_or_else(|| {
-        RepositoryError::DocumentViewNotFoundById {
-            document_view_id: document_view_id.to_string(),
-        }
-    })?;
-    store.update_document_view_file(&path, &document_view)?;
-    Ok(UpdateDocumentViewResult { document_view })
+    store.update_composition_file(&path, &composition)?;
+    Ok(UpdateCompositionResult { composition })
 }
 
-/// Delete a DocumentView by ID. Removes the file and unregisters from `package.json`.
-pub fn delete_document_view(
+/// Delete a Composition by ID. Removes the file and unregisters from `package.json`.
+pub fn delete_composition(
     store: &dyn RepositoryStore,
-    document_view_id: &str,
-) -> Result<DeleteDocumentViewResult, RepositoryError> {
-    let (full_path, owner) =
-        find_document_view_path(store, document_view_id)?.ok_or_else(|| {
-            RepositoryError::DocumentViewNotFoundById {
-                document_view_id: document_view_id.to_string(),
-            }
-        })?;
+    composition_id: &str,
+) -> Result<DeleteCompositionResult, RepositoryError> {
+    let (full_path, owner) = find_composition_path(store, composition_id)?.ok_or_else(|| {
+        RepositoryError::CompositionNotFoundById {
+            composition_id: composition_id.to_string(),
+        }
+    })?;
     let boundary_prefix = owner.as_deref().unwrap_or("package");
     let rel_path = full_path
         .strip_prefix(&format!("{boundary_prefix}/"))
         .unwrap_or(&full_path)
         .to_string();
-    let _ = store.delete_document_view_file(&full_path); // best-effort
-    store.remove_definition_from_boundary(&owner, DefinitionKind::DocumentView, &rel_path)?;
-    Ok(DeleteDocumentViewResult {
-        id: document_view_id.to_string(),
+    let _ = store.delete_composition_file(&full_path); // best-effort
+    store.remove_definition_from_boundary(&owner, DefinitionKind::Composition, &rel_path)?;
+    Ok(DeleteCompositionResult {
+        id: composition_id.to_string(),
     })
 }
 
@@ -655,7 +648,7 @@ mod tests {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": []
+                "compositions": []
             })
             .to_string(),
         )
@@ -693,8 +686,8 @@ mod tests {
         }
     }
 
-    fn minimal_document_view(name: &str) -> DocumentView {
-        DocumentView {
+    fn minimal_composition(name: &str) -> Composition {
+        Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -912,7 +905,7 @@ mod tests {
     }
 
     #[test]
-    fn delete_view_blocked_when_document_view_references_it() {
+    fn delete_view_blocked_when_composition_references_it() {
         let temp = tempfile::TempDir::new().unwrap();
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
@@ -920,9 +913,9 @@ mod tests {
         let view = create_view(&store, minimal_view("ref-target"), None).unwrap();
         let view_id = view.view.id.clone();
 
-        let mut dv = minimal_document_view("referencing-dv");
+        let mut dv = minimal_composition("referencing-dv");
         dv.sections[0].render_view_id = Some(view_id.clone());
-        let dv_result = create_document_view(&store, dv, None).unwrap();
+        let dv_result = create_composition(&store, dv, None).unwrap();
 
         let result = delete_view(&store, &view_id);
         match result {
@@ -933,39 +926,38 @@ mod tests {
             }) => {
                 assert_eq!(entity_type, "view");
                 assert_eq!(id, view_id);
-                assert!(used_by.contains(&dv_result.document_view.id));
+                assert!(used_by.contains(&dv_result.composition.id));
             }
             other => panic!("expected CannotDeleteInUse, got {:?}", other),
         }
     }
 
     #[test]
-    fn delete_view_succeeds_when_no_document_view_references_it() {
+    fn delete_view_succeeds_when_no_composition_references_it() {
         let temp = tempfile::TempDir::new().unwrap();
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
         // A document view with no render_view_id — should not block deletion
-        create_document_view(&store, minimal_document_view("unrelated-dv"), None).unwrap();
+        create_composition(&store, minimal_composition("unrelated-dv"), None).unwrap();
 
         let view = create_view(&store, minimal_view("free-view"), None).unwrap();
         delete_view(&store, &view.view.id).unwrap();
     }
 
-    // ── DocumentView tests ────────────────────────────────────────────────────
+    // ── Composition tests ────────────────────────────────────────────────────
 
     #[test]
-    fn create_document_view_assigns_id_and_registers_in_package_json() {
+    fn create_composition_assigns_id_and_registers_in_package_json() {
         let temp = tempfile::TempDir::new().unwrap();
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        let result =
-            create_document_view(&store, minimal_document_view("my-doc-view"), None).unwrap();
-        assert!(!result.document_view.id.is_empty());
+        let result = create_composition(&store, minimal_composition("my-doc-view"), None).unwrap();
+        assert!(!result.composition.id.is_empty());
 
         let pkg_json = store.load_package_json().unwrap();
-        let dviews = pkg_json["documentViews"].as_array().unwrap();
+        let dviews = pkg_json["compositions"].as_array().unwrap();
         assert!(
             dviews
                 .iter()
@@ -975,216 +967,208 @@ mod tests {
     }
 
     #[test]
-    fn create_document_view_fails_with_empty_sections() {
+    fn create_composition_fails_with_empty_sections() {
         let temp = tempfile::TempDir::new().unwrap();
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        let mut dv = minimal_document_view("bad");
+        let mut dv = minimal_composition("bad");
         dv.sections = vec![];
-        assert!(create_document_view(&store, dv, None).is_err());
+        assert!(create_composition(&store, dv, None).is_err());
     }
 
     #[test]
-    fn list_document_views_summary_returns_created() {
+    fn list_compositions_summary_returns_created() {
         let temp = tempfile::TempDir::new().unwrap();
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        let created =
-            create_document_view(&store, minimal_document_view("listed-dv"), None).unwrap();
+        let created = create_composition(&store, minimal_composition("listed-dv"), None).unwrap();
         let summaries =
-            list_document_views_summary(&store, &DocumentViewListFilter::default()).unwrap();
-        assert!(summaries.iter().any(|s| s.id == created.document_view.id));
+            list_compositions_summary(&store, &CompositionListFilter::default()).unwrap();
+        assert!(summaries.iter().any(|s| s.id == created.composition.id));
     }
 
     #[test]
-    fn list_document_views_summary_filters_by_name() {
+    fn list_compositions_summary_filters_by_name() {
         let temp = tempfile::TempDir::new().unwrap();
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
         // Two views in the same namespace — filtering by name must narrow to one (issue #404).
-        let wanted =
-            create_document_view(&store, minimal_document_view("wanted-dv"), None).unwrap();
-        create_document_view(&store, minimal_document_view("other-dv"), None).unwrap();
+        let wanted = create_composition(&store, minimal_composition("wanted-dv"), None).unwrap();
+        create_composition(&store, minimal_composition("other-dv"), None).unwrap();
 
-        let filter = DocumentViewListFilter {
+        let filter = CompositionListFilter {
             name: Some("wanted-dv".to_string()),
             ..Default::default()
         };
-        let matched = list_document_views_summary(&store, &filter).unwrap();
+        let matched = list_compositions_summary(&store, &filter).unwrap();
         assert_eq!(matched.len(), 1, "name filter must return exactly one view");
-        assert_eq!(matched[0].id, wanted.document_view.id);
+        assert_eq!(matched[0].id, wanted.composition.id);
         assert_eq!(matched[0].name, "wanted-dv");
 
         // A non-matching name returns nothing.
-        let none_filter = DocumentViewListFilter {
+        let none_filter = CompositionListFilter {
             name: Some("no-such-dv".to_string()),
             ..Default::default()
         };
-        assert!(list_document_views_summary(&store, &none_filter)
+        assert!(list_compositions_summary(&store, &none_filter)
             .unwrap()
             .is_empty());
     }
 
     #[test]
-    fn list_document_views_summary_filters_by_root_type() {
+    fn list_compositions_summary_filters_by_root_type() {
         let temp = tempfile::TempDir::new().unwrap();
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
         let type_id = "00000000-0000-4000-8000-00000000aaaa";
-        let mut anchored = minimal_document_view("anchored-dv");
+        let mut anchored = minimal_composition("anchored-dv");
         anchored.root_type_refs = Some(vec![ExactTypeRef {
             type_id: type_id.to_string(),
             type_version: 1,
         }]);
-        let anchored = create_document_view(&store, anchored, None).unwrap();
+        let anchored = create_composition(&store, anchored, None).unwrap();
         // A second view with no rootTypeRefs — must be excluded by the filter.
-        create_document_view(&store, minimal_document_view("unanchored-dv"), None).unwrap();
+        create_composition(&store, minimal_composition("unanchored-dv"), None).unwrap();
 
         // Matching root_type_id returns only the anchored view; its summary carries rootTypeRefs.
-        let filter = DocumentViewListFilter {
+        let filter = CompositionListFilter {
             root_type_id: Some(type_id.to_string()),
             ..Default::default()
         };
-        let matched = list_document_views_summary(&store, &filter).unwrap();
+        let matched = list_compositions_summary(&store, &filter).unwrap();
         assert_eq!(matched.len(), 1, "expected exactly the anchored view");
-        assert_eq!(matched[0].id, anchored.document_view.id);
+        assert_eq!(matched[0].id, anchored.composition.id);
         assert_eq!(
             matched[0].root_type_refs.as_ref().unwrap()[0].type_id,
             type_id
         );
 
         // A non-matching type id returns nothing.
-        let none_filter = DocumentViewListFilter {
+        let none_filter = CompositionListFilter {
             root_type_id: Some("00000000-0000-4000-8000-00000000ffff".to_string()),
             ..Default::default()
         };
-        assert!(list_document_views_summary(&store, &none_filter)
+        assert!(list_compositions_summary(&store, &none_filter)
             .unwrap()
             .is_empty());
     }
 
     #[test]
-    fn get_document_view_by_id_finds_created() {
+    fn get_composition_by_id_finds_created() {
         let temp = tempfile::TempDir::new().unwrap();
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        let created =
-            create_document_view(&store, minimal_document_view("get-me-dv"), None).unwrap();
-        match get_document_view_by_id(&store, &created.document_view.id).unwrap() {
-            GetDocumentViewResult::Found(dv) => assert_eq!(dv.name, "get-me-dv"),
-            GetDocumentViewResult::NotFound => panic!("expected Found"),
+        let created = create_composition(&store, minimal_composition("get-me-dv"), None).unwrap();
+        match get_composition_by_id(&store, &created.composition.id).unwrap() {
+            GetCompositionResult::Found(dv) => assert_eq!(dv.name, "get-me-dv"),
+            GetCompositionResult::NotFound => panic!("expected Found"),
         }
     }
 
     #[test]
-    fn get_document_view_by_id_not_found_returns_not_found() {
+    fn get_composition_by_id_not_found_returns_not_found() {
         let temp = tempfile::TempDir::new().unwrap();
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        match get_document_view_by_id(&store, "00000000-0000-0000-0000-000000000000").unwrap() {
-            GetDocumentViewResult::NotFound => {}
-            GetDocumentViewResult::Found(_) => panic!("expected NotFound"),
+        match get_composition_by_id(&store, "00000000-0000-0000-0000-000000000000").unwrap() {
+            GetCompositionResult::NotFound => {}
+            GetCompositionResult::Found(_) => panic!("expected NotFound"),
         }
     }
 
     #[test]
-    fn update_document_view_overwrites_description() {
+    fn update_composition_overwrites_description() {
         let temp = tempfile::TempDir::new().unwrap();
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        let created =
-            create_document_view(&store, minimal_document_view("update-dv"), None).unwrap();
-        let mut updated = created.document_view.clone();
+        let created = create_composition(&store, minimal_composition("update-dv"), None).unwrap();
+        let mut updated = created.composition.clone();
         updated.description = "updated dv description".to_string();
 
-        let result = update_document_view(&store, &created.document_view.id, updated).unwrap();
-        assert_eq!(result.document_view.description, "updated dv description");
+        let result = update_composition(&store, &created.composition.id, updated).unwrap();
+        assert_eq!(result.composition.description, "updated dv description");
     }
 
     #[test]
-    fn update_document_view_preserves_id_when_input_id_is_empty() {
+    fn update_composition_preserves_id_when_input_id_is_empty() {
         let temp = tempfile::TempDir::new().unwrap();
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
         let created =
-            create_document_view(&store, minimal_document_view("id-preserve-dv"), None).unwrap();
-        let authoritative_id = created.document_view.id.clone();
+            create_composition(&store, minimal_composition("id-preserve-dv"), None).unwrap();
+        let authoritative_id = created.composition.id.clone();
 
         // Simulate caller sending update JSON with id stripped out
-        let mut updated = created.document_view.clone();
+        let mut updated = created.composition.clone();
         updated.id = String::new();
 
-        let result = update_document_view(&store, &authoritative_id, updated).unwrap();
+        let result = update_composition(&store, &authoritative_id, updated).unwrap();
         assert_eq!(
-            result.document_view.id, authoritative_id,
+            result.composition.id, authoritative_id,
             "update must restore the id from the positional argument even when input id is empty"
         );
 
         // Confirm the file on disk has the correct id
-        let fetched = get_document_view_by_id(&store, &authoritative_id).unwrap();
+        let fetched = get_composition_by_id(&store, &authoritative_id).unwrap();
         assert!(
-            matches!(fetched, GetDocumentViewResult::Found(dv) if dv.id == authoritative_id),
+            matches!(fetched, GetCompositionResult::Found(dv) if dv.id == authoritative_id),
             "persisted file must have the authoritative id"
         );
     }
 
     #[test]
-    fn update_document_view_not_found_returns_error() {
+    fn update_composition_not_found_returns_error() {
         let temp = tempfile::TempDir::new().unwrap();
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        let result = update_document_view(
+        let result = update_composition(
             &store,
             "00000000-0000-0000-0000-000000000000",
-            minimal_document_view("x"),
+            minimal_composition("x"),
         );
         assert!(
-            matches!(
-                result,
-                Err(RepositoryError::DocumentViewNotFoundById { .. })
-            ),
-            "expected DocumentViewNotFoundById"
+            matches!(result, Err(RepositoryError::CompositionNotFoundById { .. })),
+            "expected CompositionNotFoundById"
         );
     }
 
     #[test]
-    fn delete_document_view_removes_from_package_json() {
+    fn delete_composition_removes_from_package_json() {
         let temp = tempfile::TempDir::new().unwrap();
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        let created =
-            create_document_view(&store, minimal_document_view("delete-dv"), None).unwrap();
-        let id = created.document_view.id.clone();
+        let created = create_composition(&store, minimal_composition("delete-dv"), None).unwrap();
+        let id = created.composition.id.clone();
 
-        delete_document_view(&store, &id).unwrap();
+        delete_composition(&store, &id).unwrap();
 
         let pkg_json = store.load_package_json().unwrap();
-        let dviews = pkg_json["documentViews"].as_array().unwrap();
+        let dviews = pkg_json["compositions"].as_array().unwrap();
         assert!(dviews
             .iter()
             .all(|v| !v.as_str().unwrap_or("").contains(&id[..8])));
     }
 
     #[test]
-    fn delete_document_view_not_found_returns_error() {
+    fn delete_composition_not_found_returns_error() {
         let temp = tempfile::TempDir::new().unwrap();
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        let result = delete_document_view(&store, "00000000-0000-0000-0000-000000000000");
+        let result = delete_composition(&store, "00000000-0000-0000-0000-000000000000");
         assert!(matches!(
             result,
-            Err(RepositoryError::DocumentViewNotFoundById { .. })
+            Err(RepositoryError::CompositionNotFoundById { .. })
         ));
     }
 
@@ -1219,23 +1203,22 @@ mod tests {
     }
 
     #[test]
-    fn create_document_view_in_sub_package() {
+    fn create_composition_in_sub_package() {
         let store = MemoryStore::default();
         let selector = Some("package/ext".to_string());
         store.register_package_boundary(&selector).unwrap();
 
         let result =
-            create_document_view(&store, minimal_document_view("sub-dv"), selector.clone())
-                .unwrap();
-        assert!(!result.document_view.id.is_empty());
+            create_composition(&store, minimal_composition("sub-dv"), selector.clone()).unwrap();
+        assert!(!result.composition.id.is_empty());
 
         let data = store.all_data();
         let has_sub_path = data
             .keys()
-            .any(|k| k.starts_with("package/ext/document-views/") && k.contains("sub-dv"));
+            .any(|k| k.starts_with("package/ext/compositions/") && k.contains("sub-dv"));
         assert!(
             has_sub_path,
-            "document view should be stored under package/ext/document-views/; keys: {:?}",
+            "document view should be stored under package/ext/compositions/; keys: {:?}",
             data.keys().collect::<Vec<_>>()
         );
     }
@@ -1256,15 +1239,15 @@ mod tests {
     }
 
     #[test]
-    fn list_document_views_includes_source_package() {
+    fn list_compositions_includes_source_package() {
         let temp = tempfile::TempDir::new().unwrap();
         setup_minimal_repo(temp.path());
         let store = FileStore::new(temp.path());
 
-        create_document_view(&store, minimal_document_view("primary-dv"), None).unwrap();
+        create_composition(&store, minimal_composition("primary-dv"), None).unwrap();
 
         let summaries =
-            list_document_views_summary(&store, &DocumentViewListFilter::default()).unwrap();
+            list_compositions_summary(&store, &CompositionListFilter::default()).unwrap();
         assert!(
             summaries.iter().any(|s| s.source_package.is_none()),
             "primary package document views should have source_package = None"
@@ -1308,10 +1291,10 @@ mod tests {
         );
     }
 
-    // ── document_views_for_container tests ────────────────────────────────────
+    // ── compositions_for_container tests ────────────────────────────────────
 
     /// Build a MemoryStore containing:
-    /// - one DocumentView with `rootTypeRefs` pointing at the given `type_id`/`type_version`
+    /// - one Composition with `rootTypeRefs` pointing at the given `type_id`/`type_version`
     /// - one Tier-2 instance JSON at `instance_path` with the given `type_id`/`type_version`
     /// - one instance index entry pointing at that path
     fn make_store_with_dv_and_instance(
@@ -1324,7 +1307,7 @@ mod tests {
         use crate::package::Package;
         use std::path::PathBuf;
 
-        let dv = DocumentView {
+        let dv = Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -1385,12 +1368,12 @@ mod tests {
             record_types: vec![],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![dv],
+            compositions: vec![dv],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -1411,7 +1394,7 @@ mod tests {
     }
 
     #[test]
-    fn document_views_for_container_root_present_returns_matching_view() {
+    fn compositions_for_container_root_present_returns_matching_view() {
         use crate::container_service;
         use srs_core::types::container::Container;
 
@@ -1447,12 +1430,8 @@ mod tests {
         };
         container_service::create_container(&store, container).unwrap();
 
-        let result = document_views_for_container(&store, container_id).unwrap();
-        assert_eq!(
-            result.len(),
-            1,
-            "expected exactly one matching DocumentView"
-        );
+        let result = compositions_for_container(&store, container_id).unwrap();
+        assert_eq!(result.len(), 1, "expected exactly one matching Composition");
         assert_eq!(result[0].id, "dv-test-id");
         assert_eq!(
             result[0].root_type_refs.as_ref().unwrap()[0].type_id,
@@ -1461,7 +1440,7 @@ mod tests {
     }
 
     #[test]
-    fn document_views_for_container_prefers_declared_anchor_over_first_root() {
+    fn compositions_for_container_prefers_declared_anchor_over_first_root() {
         use crate::container_service;
         use srs_core::types::container::Container;
 
@@ -1480,7 +1459,7 @@ mod tests {
         // A second instance of a DIFFERENT (non-matching) type, declared FIRST in
         // rootInstanceIds — srs#446/I-145: anchorInstanceId is declared, never
         // positional. If resolution still read `rootInstanceIds[0]` directly, this
-        // instance's mismatched type would make the DocumentView match fail.
+        // instance's mismatched type would make the Composition match fail.
         let other_instance_json = serde_json::json!({
             "instanceId": other_root_instance_id,
             "typeId": "00000000-0000-4000-8000-00000000bbbb",
@@ -1513,7 +1492,7 @@ mod tests {
         };
         container_service::create_container(&store, container).unwrap();
 
-        let result = document_views_for_container(&store, container_id).unwrap();
+        let result = compositions_for_container(&store, container_id).unwrap();
         assert_eq!(
             result.len(),
             1,
@@ -1524,7 +1503,7 @@ mod tests {
     }
 
     #[test]
-    fn document_views_for_container_no_root_returns_empty() {
+    fn compositions_for_container_no_root_returns_empty() {
         use crate::container_service;
         use srs_core::types::container::Container;
 
@@ -1554,7 +1533,7 @@ mod tests {
         };
         container_service::create_container(&store, container).unwrap();
 
-        let result = document_views_for_container(&store, container_id).unwrap();
+        let result = compositions_for_container(&store, container_id).unwrap();
         assert!(
             result.is_empty(),
             "expected empty vec when container has no rootInstanceIds"
@@ -1562,7 +1541,7 @@ mod tests {
     }
 
     #[test]
-    fn document_views_for_container_untyped_root_returns_empty() {
+    fn compositions_for_container_untyped_root_returns_empty() {
         use crate::container_service;
         use crate::manifest::Manifest;
         use crate::package::Package;
@@ -1573,8 +1552,8 @@ mod tests {
         let instance_id = "11111111-1111-4111-8111-111111111111";
         let container_id = "550e8400-e29b-41d4-a716-446655440000";
 
-        // DocumentView expects a typed instance, but instance is Tier 0 (Note — no typeId)
-        let dv = DocumentView {
+        // Composition expects a typed instance, but instance is Tier 0 (Note — no typeId)
+        let dv = Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -1635,12 +1614,12 @@ mod tests {
             record_types: vec![],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![dv],
+            compositions: vec![dv],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -1674,7 +1653,7 @@ mod tests {
         };
         container_service::create_container(&store, container).unwrap();
 
-        let result = document_views_for_container(&store, container_id).unwrap();
+        let result = compositions_for_container(&store, container_id).unwrap();
         assert!(
             result.is_empty(),
             "expected empty vec when root instance has no typeId"
@@ -1682,9 +1661,9 @@ mod tests {
     }
 
     #[test]
-    fn document_views_for_container_not_found_returns_error() {
+    fn compositions_for_container_not_found_returns_error() {
         let store = MemoryStore::default();
-        let err = document_views_for_container(&store, "missing-container").unwrap_err();
+        let err = compositions_for_container(&store, "missing-container").unwrap_err();
         assert!(
             matches!(err, crate::error::RepositoryError::ContainerNotFound { .. }),
             "expected ContainerNotFound, got {:?}",
@@ -1693,7 +1672,7 @@ mod tests {
     }
 
     #[test]
-    fn document_views_for_container_type_version_mismatch_returns_empty() {
+    fn compositions_for_container_type_version_mismatch_returns_empty() {
         use crate::container_service;
         use srs_core::types::container::Container;
 
@@ -1701,7 +1680,7 @@ mod tests {
         let instance_id = "11111111-1111-4111-8111-111111111111";
         let container_id = "550e8400-e29b-41d4-a716-446655440000";
 
-        // Instance has typeVersion=1, DocumentView requires typeVersion=2
+        // Instance has typeVersion=1, Composition requires typeVersion=2
         let store = make_store_with_dv_and_instance(
             type_id,
             2, // DV expects v2
@@ -1741,7 +1720,7 @@ mod tests {
         };
         container_service::create_container(&store, container).unwrap();
 
-        let result = document_views_for_container(&store, container_id).unwrap();
+        let result = compositions_for_container(&store, container_id).unwrap();
         assert!(
             result.is_empty(),
             "expected empty vec when typeVersion does not match"

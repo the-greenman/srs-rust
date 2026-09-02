@@ -1,7 +1,7 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
   "blueprints": [],
-  "documentViews": [],
+  "compositions": [],
   "fields": [
     "fields/statement-3b000001.json",
     "fields/title-3b000002.json"

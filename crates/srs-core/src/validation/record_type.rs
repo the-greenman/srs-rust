@@ -398,7 +398,6 @@ mod tests {
 
     fn make_rt(lifecycle: bool, lifecycle_ref: bool) -> RecordType {
         RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,

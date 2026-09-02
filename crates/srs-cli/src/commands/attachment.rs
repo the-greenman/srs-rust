@@ -8,7 +8,7 @@ use anyhow::{Context as _, Result};
 use srs_repository::attachment_policy_service;
 use srs_repository::attachment_service::{
     self, AddAttachmentInput, LinkAttachmentInput, ListAttachmentsFilter,
-    ResolveDocumentViewAttachmentsInput,
+    ResolveCompositionAttachmentsInput,
 };
 
 pub fn dispatch(ctx: CliContext, cmd: AttachmentCommand) -> Result<String> {
@@ -94,10 +94,10 @@ fn cmd_attachment_add(
 }
 
 fn cmd_attachment_resolve_view_attachments(ctx: CliContext) -> Result<String> {
-    let input: ResolveDocumentViewAttachmentsInput =
+    let input: ResolveCompositionAttachmentsInput =
         crate::input::from_stdin("resolve-view-attachments")?;
     let result = with_store(&ctx, |store| {
-        Ok(attachment_service::resolve_document_view_attachments(
+        Ok(attachment_service::resolve_composition_attachments(
             store, input,
         )?)
     })?;

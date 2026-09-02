@@ -1,5 +1,5 @@
 use crate::error::CoreError;
-use crate::types::view::{DocumentView, View, ViewRow};
+use crate::types::view::{Composition, View, ViewRow};
 use std::collections::HashSet;
 
 pub fn validate_view(view: &View) -> Result<(), CoreError> {
@@ -42,9 +42,9 @@ pub fn validate_view(view: &View) -> Result<(), CoreError> {
     Ok(())
 }
 
-pub fn validate_document_view(dv: &DocumentView) -> Result<(), CoreError> {
+pub fn validate_composition(dv: &Composition) -> Result<(), CoreError> {
     if dv.sections.is_empty() {
-        return Err(CoreError::EmptyDocumentViewSections);
+        return Err(CoreError::EmptyCompositionSections);
     }
 
     let mut seen_section_ids = HashSet::new();
@@ -82,8 +82,8 @@ pub fn validate_document_view(dv: &DocumentView) -> Result<(), CoreError> {
 mod tests {
     use super::*;
     use crate::types::view::{
-        DocumentSection, DocumentView, FieldView, RecordProperty, RecordPropertyView,
-        SectionSource, ThemeMode, ThemeReference, ThemeVariant, View,
+        Composition, DocumentSection, FieldView, RecordProperty, RecordPropertyView, SectionSource,
+        ThemeMode, ThemeReference, ThemeVariant, View,
     };
 
     fn minimal_view() -> View {
@@ -117,8 +117,8 @@ mod tests {
         }
     }
 
-    fn minimal_document_view() -> DocumentView {
-        DocumentView {
+    fn minimal_composition() -> Composition {
+        Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -162,17 +162,17 @@ mod tests {
 
     #[test]
     fn validate_empty_sections_fails() {
-        let mut dv = minimal_document_view();
+        let mut dv = minimal_composition();
         dv.sections = vec![];
         assert_eq!(
-            validate_document_view(&dv),
-            Err(CoreError::EmptyDocumentViewSections)
+            validate_composition(&dv),
+            Err(CoreError::EmptyCompositionSections)
         );
     }
 
     #[test]
     fn validate_duplicate_section_id_fails() {
-        let mut dv = minimal_document_view();
+        let mut dv = minimal_composition();
         dv.sections.push(DocumentSection {
             composite_renderers: None,
             section_id: "s1".to_string(),
@@ -192,7 +192,7 @@ mod tests {
         });
 
         assert_eq!(
-            validate_document_view(&dv),
+            validate_composition(&dv),
             Err(CoreError::DuplicateDocumentSectionId {
                 section_id: "s1".to_string()
             })
@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn validate_duplicate_theme_variant_name_fails() {
-        let mut dv = minimal_document_view();
+        let mut dv = minimal_composition();
         let v = ThemeVariant {
             name: "print".to_string(),
             description: None,
@@ -289,7 +289,7 @@ mod tests {
         dv.theme_variants = Some(vec![v.clone(), v]);
 
         assert_eq!(
-            validate_document_view(&dv),
+            validate_composition(&dv),
             Err(CoreError::DuplicateThemeVariantName {
                 name: "print".to_string()
             })
@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn validate_unique_theme_variant_names_passes() {
-        let mut dv = minimal_document_view();
+        let mut dv = minimal_composition();
         dv.theme_variants = Some(vec![
             ThemeVariant {
                 name: "print".to_string(),
@@ -321,6 +321,6 @@ mod tests {
                 },
             },
         ]);
-        assert!(validate_document_view(&dv).is_ok());
+        assert!(validate_composition(&dv).is_ok());
     }
 }

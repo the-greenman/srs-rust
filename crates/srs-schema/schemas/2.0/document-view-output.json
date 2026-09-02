@@ -6,7 +6,7 @@
   "type": "object",
   "required": [
     "$schema",
-    "documentViewId",
+    "compositionId",
     "containerId",
     "generatedAt",
     "sections"
@@ -17,10 +17,10 @@
       "type": "string",
       "const": "https://srs.semanticops.com/schema/2.0/document-view-output.json"
     },
-    "documentViewId": {
+    "compositionId": {
       "type": "string",
       "format": "uuid",
-      "description": "ID of the DocumentView that produced this projection."
+      "description": "ID of the Composition that produced this projection. srs-rust#910: renamed from documentViewId — this file's own name/$id/shape stay parked pending #365's dedicated review (three disagreeing copies: this schema's unemitted relations member, the pre-#910 mirror's fieldGroups with no successor, and the real ProjectedRecord output matching neither)."
     },
     "containerId": {
       "type": [

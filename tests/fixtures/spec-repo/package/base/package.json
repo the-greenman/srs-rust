@@ -1,7 +1,7 @@
 {
   "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
   "blueprints": [],
-  "documentViews": [],
+  "compositions": [],
   "fields": [
     "fields/allowedmimetypes-8912f486.json",
     "fields/maxperfilebytes-f1bce663.json",

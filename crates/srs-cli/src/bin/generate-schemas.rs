@@ -157,14 +157,14 @@ fn main() {
     write_schema!("view-delete", ViewDeletePayload);
 
     // Document-view payloads
-    write_schema!("document-view-list", DocumentViewListPayload);
-    write_schema!("document-view-get", DocumentViewPayload);
-    write_schema!("document-view-create", DocumentViewPayload);
-    write_schema!("document-view-update", DocumentViewPayload);
-    write_schema!("document-view-delete", DocumentViewDeletePayload);
+    write_schema!("composition-list", CompositionListPayload);
+    write_schema!("composition-get", CompositionPayload);
+    write_schema!("composition-create", CompositionPayload);
+    write_schema!("composition-update", CompositionPayload);
+    write_schema!("composition-delete", CompositionDeletePayload);
     write_schema!(
-        "document-view-list-for-container",
-        DocumentViewsForContainerPayload
+        "composition-list-for-container",
+        CompositionsForContainerPayload
     );
 
     // Theme payloads
@@ -175,7 +175,7 @@ fn main() {
     write_schema!("theme-delete", ThemeDeletePayload);
 
     // Render payloads
-    write_schema!("render-document-view", RenderDocumentViewPayload);
+    write_schema!("render-composition", RenderCompositionPayload);
     write_schema!("render-export-bundle", ExportBundlePayload);
     write_schema!("render-okf-bundle", OkfBundlePayload);
 

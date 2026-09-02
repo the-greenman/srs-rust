@@ -8,7 +8,7 @@
     "title": "RFC-008: Heterogeneous ContainerSubset Sections — typeFilter and typeDispatch",
     "rfc_number": "008",
     "author": "Peter Brownell",
-    "affected_components": "`typeDispatch` on `DocumentSection` + `typeFilter` on `container-subset` source (both `ext:views-l2`).\n\n<!-- srs-integration:v1\next:views-l2\nschema:document-view.json\n-->",
+    "affected_components": "`typeDispatch` on `DocumentSection` + `typeFilter` on `container-subset` source (both `ext:views-l2`).\n\n<!-- srs-integration:v1\next:views-l2\nschema:composition.json\n-->",
     "proposal_artifact_path": "rfcs/rfc-008-heterogeneous-container-subset-sections.md",
     "content": "Adds two backward-compatible optional fields under `ext:views-l2` — `typeDispatch` on `DocumentSection` (per-type L1 view selection) and `typeFilter` on the `container-subset` source — to allow heterogeneous cross-type sections that preserve `precedes` reading order. Full text: rfcs/rfc-008-heterogeneous-container-subset-sections.md."
   },

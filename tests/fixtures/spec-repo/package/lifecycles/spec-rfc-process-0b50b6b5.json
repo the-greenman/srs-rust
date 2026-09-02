@@ -43,7 +43,7 @@
       "description": "Replaced by a later RFC or decision.",
       "isFinal": true,
       "requiresRelation": {
-        "relationType": "supersedes"
+        "relationType": ["supersedes"]
       }
     },
     {

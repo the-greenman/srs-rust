@@ -12,12 +12,12 @@ use srs_core::types::relation::Relation;
 use srs_core::types::relation::RelationStatus;
 use srs_core::types::theme::{AssetMode, Theme};
 use srs_core::types::view::{
-    ContainerScope, DocumentSection, DocumentView, PresentationDirection, RelationDirection,
+    Composition, ContainerScope, DocumentSection, PresentationDirection, RelationDirection,
     SectionSource, SortDirection, ThemeMode, ViewRow,
 };
 use std::collections::HashSet;
 
-pub struct RenderDocumentViewOptions<'a> {
+pub struct RenderCompositionOptions<'a> {
     pub store: &'a dyn RepositoryStore,
     pub view_id: &'a str,
     pub format: Option<&'a str>,
@@ -31,7 +31,7 @@ pub struct RenderDocumentViewOptions<'a> {
     pub instance_id_filter: Option<&'a str>,
 }
 
-impl<'a> RenderDocumentViewOptions<'a> {
+impl<'a> RenderCompositionOptions<'a> {
     pub fn new(store: &'a dyn RepositoryStore, view_id: &'a str) -> Self {
         Self {
             store,
@@ -44,12 +44,12 @@ impl<'a> RenderDocumentViewOptions<'a> {
     }
 }
 
-// Clone not derived: DocumentViewProjection does not implement Clone.
+// Clone not derived: CompositionProjection does not implement Clone.
 #[derive(Debug, serde::Serialize)]
 pub struct RenderResult {
     pub rendered: String,
     pub diagnostics: Vec<String>,
-    pub projection: Option<DocumentViewProjection>,
+    pub projection: Option<CompositionProjection>,
 }
 
 // ── JSON projection output types ──────────────────────────────────────────────
@@ -141,10 +141,10 @@ pub struct ProjectedSection {
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DocumentViewProjection {
+pub struct CompositionProjection {
     #[serde(rename = "$schema")]
     pub schema: String,
-    pub document_view_id: String,
+    pub composition_id: String,
     pub container_id: Option<String>,
     pub generated_at: String,
     pub container_title: String,
@@ -179,17 +179,17 @@ struct RenderContext<'a> {
     /// — the RFC-039 carrier keys by name.
     status_field_name: Option<String>,
     active_theme: Option<Theme>,
-    /// RFC-036 — DocumentView.compositeRenderers, the lowest-precedence
+    /// RFC-036 — Composition.compositeRenderers, the lowest-precedence
     /// composite dispatch site ([CR-036-6]).
     doc_composite_renderers: Option<Vec<srs_core::types::view::CompositeRendererDirective>>,
 }
 
-pub fn render_document_view(
-    opts: RenderDocumentViewOptions<'_>,
+pub fn render_composition(
+    opts: RenderCompositionOptions<'_>,
 ) -> Result<RenderResult, RepositoryError> {
     let package = opts.store.load_package()?;
-    let dv = package.resolve_document_view(opts.view_id).ok_or_else(|| {
-        RepositoryError::DocumentViewNotFound {
+    let dv = package.resolve_composition(opts.view_id).ok_or_else(|| {
+        RepositoryError::CompositionNotFound {
             view_id: opts.view_id.to_string(),
         }
     })?;
@@ -212,7 +212,7 @@ pub fn render_document_view(
         resolve_active_theme(&dv, &package, opts.theme_variant, format, &mut diagnostics);
 
     if format == "json" {
-        let projection = project_document_view_json(
+        let projection = project_composition_json(
             opts.store,
             &package,
             &dv,
@@ -308,17 +308,17 @@ pub fn render_document_view(
 // ── JSON projection engine ─────────────────────────────────────────────────────
 
 #[allow(clippy::too_many_arguments)]
-fn project_document_view_json(
+fn project_composition_json(
     store: &dyn RepositoryStore,
     package: &Package,
-    dv: &DocumentView,
+    dv: &Composition,
     manifest: &crate::manifest::Manifest,
     container_title: &str,
     relations: &[Relation],
     cli_container_id: Option<&str>,
     instance_id_filter: Option<&str>,
     diagnostics: &mut Vec<String>,
-) -> Result<DocumentViewProjection, RepositoryError> {
+) -> Result<CompositionProjection, RepositoryError> {
     let container_id = resolve_container_id_from_sections(&dv.sections);
     if container_id.is_none() {
         let subset_ids: Vec<String> = dv
@@ -362,9 +362,9 @@ fn project_document_view_json(
         projected_sections.push(projected);
     }
 
-    Ok(DocumentViewProjection {
+    Ok(CompositionProjection {
         schema: "https://srs.semanticops.com/schema/2.0/document-view-output.json".to_string(),
-        document_view_id: dv.id.clone(),
+        composition_id: dv.id.clone(),
         container_id,
         generated_at: chrono::Utc::now().to_rfc3339(),
         container_title: container_title.to_string(),
@@ -486,7 +486,7 @@ fn project_section_json(
                 )?);
             }
             LoadedInstance::Note(note) => {
-                // The document-view JSON output schema models typed records only;
+                // The composition JSON output schema models typed records only;
                 // Tier-0 notes are skipped from the projection with a warning (#510).
                 diagnostics.push(format!(
                     "[section:{}] tier-0 note {} is not representable in the JSON projection; skipped",
@@ -757,7 +757,7 @@ fn coerce_json_value(raw: &serde_json::Value, field_type: Option<&FieldType>) ->
 }
 
 fn resolve_active_theme(
-    dv: &DocumentView,
+    dv: &Composition,
     package: &Package,
     theme_variant: Option<&str>,
     format: &str,
@@ -1354,7 +1354,7 @@ fn css_classes_for_record(
 
 fn resolve_container_title(
     store: &dyn RepositoryStore,
-    dv: &DocumentView,
+    dv: &Composition,
     manifest: &crate::manifest::Manifest,
     container_id: Option<&str>,
 ) -> String {
@@ -1660,7 +1660,7 @@ fn resolve_section_instances(
                 match get_instance_by_id(store, id)? {
                     Some(LoadedInstance::Note(_)) => {
                         diagnostics.push(format!(
-                            "[section:{}] FixedInstances: skipping Tier-0 note {}; notes are not rendered in document-view sections",
+                            "[section:{}] FixedInstances: skipping Tier-0 note {}; notes are not rendered in composition sections",
                             section.section_id, id
                         ));
                     }
@@ -1671,17 +1671,17 @@ fn resolve_section_instances(
             Ok(records)
         }
         SectionSource::TypeQuery {
-            semantic_object_type,
+            type_key,
             container_ids,
             lifecycle_state,
             lifecycle_states,
             exclude_lifecycle_states,
             container_scope,
         } => {
-            let Some((namespace, name)) = semantic_object_type.split_once('/') else {
+            let Some((namespace, name)) = type_key.split_once('/') else {
                 diagnostics.push(format!(
-                    "[N] TypeQuery semanticObjectType '{}' has no namespace separator '/' — expected 'namespace/name' format",
-                    semantic_object_type
+                    "[N] TypeQuery typeKey '{}' has no namespace separator '/' — expected 'namespace/name' format",
+                    type_key
                 ));
                 return Ok(Vec::new());
             };
@@ -1789,7 +1789,7 @@ fn resolve_section_instances(
             if result.is_empty() {
                 diagnostics.push(format!(
                     "[section:{}] type-query '{}' matched 0 records",
-                    section.section_id, semantic_object_type
+                    section.section_id, type_key
                 ));
             }
             Ok(result)
@@ -1823,7 +1823,7 @@ fn resolve_section_instances(
                 match get_instance_by_id(store, &id)? {
                     Some(LoadedInstance::Note(_)) => {
                         diagnostics.push(format!(
-                            "[section:{}] RelationQuery: skipping Tier-0 note {}; notes are not rendered in document-view sections",
+                            "[section:{}] RelationQuery: skipping Tier-0 note {}; notes are not rendered in composition sections",
                             section.section_id, id
                         ));
                     }
@@ -1839,7 +1839,7 @@ fn resolve_section_instances(
             type_filter: _,
         } => {
             // CLI --container overrides the view-declared container_id, allowing one
-            // ContainerSubset document-view to render any guide by switching at render time.
+            // ContainerSubset composition to render any guide by switching at render time.
             let effective_id = cli_container_id.unwrap_or(container_id.as_str());
             let members =
                 list_members_degraded(store, effective_id, &section.section_id, diagnostics)?;
@@ -1857,7 +1857,7 @@ fn resolve_section_instances(
     }
 }
 
-/// Render a Tier-0 note as a document-view entry: the note title becomes the
+/// Render a Tier-0 note as a composition entry: the note title becomes the
 /// heading and each note section's free-text content is emitted as body text
 /// (with the section label, when present, as a sub-heading). Notes are legal
 /// container roots/members (RFC-013), so ContainerSubset sections must be able
@@ -2527,7 +2527,7 @@ fn render_relations_block(
 
 /// RFC-036 [CR-036-6] — resolve the composite renderer binding for a field:
 /// FieldView.compositeRenderer > DocumentSection.compositeRenderers >
-/// DocumentView.compositeRenderers > none (baseline). The `baseline` sentinel
+/// Composition.compositeRenderers > none (baseline). The `baseline` sentinel
 /// cancels lower-precedence sites.
 fn composite_binding_for(
     field_id: &str,
@@ -2548,7 +2548,7 @@ fn composite_binding_for(
         }
     }
     if let Some(directives) = &section.composite_renderers {
-        // First in array order wins (document-view.json).
+        // First in array order wins (composition.json).
         if let Some(d) = directives.iter().find(|d| d.field_id == field_id) {
             return Some(srs_core::types::view::CompositeRendererBinding {
                 renderer: d.renderer.clone(),
@@ -3444,13 +3444,13 @@ mod tests {
     // rejects on load; the fixture is calibration substrate for
     // tests/catalog.rs and must not be repaired here — upstream srs-repo fix.
     #[test]
-    fn render_document_view_produces_output() {
+    fn render_composition_produces_output() {
         let repo_root = srs_spec_repo();
         if !repo_root.join("manifest.json").exists() {
             return;
         }
         let store = FileStore::new(repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "3a000004-0000-4000-a000-000000000004",
             format: None,
@@ -3469,13 +3469,13 @@ mod tests {
     }
 
     #[test]
-    fn render_document_view_unknown_id_returns_error() {
+    fn render_composition_unknown_id_returns_error() {
         let repo_root = srs_spec_repo();
         if !repo_root.join("manifest.json").exists() {
             return;
         }
         let store = FileStore::new(repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-0000-0000-000000000000",
             format: None,
@@ -3485,7 +3485,7 @@ mod tests {
         });
         assert!(matches!(
             result,
-            Err(RepositoryError::DocumentViewNotFound { .. })
+            Err(RepositoryError::CompositionNotFound { .. })
         ));
     }
 
@@ -3506,7 +3506,7 @@ mod tests {
     fn repeatable_field_entries_render_all_values() {
         let repo_root = repeatable_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000981",
             format: None,
@@ -3541,7 +3541,7 @@ mod tests {
     fn depth_offset_warning_emitted() {
         let repo_root = repeatable_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000982",
             format: None,
@@ -3577,7 +3577,7 @@ mod tests {
     fn n1_repeatable_title_field_id_emits_no_record_heading() {
         let repo_root = repeatable_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000983",
             format: None,
@@ -3614,7 +3614,7 @@ mod tests {
         let repo_root = repeatable_fixture_root();
         let store = FileStore::new(&repo_root);
         // repeatable-doc-view has no titleFieldId — records render without an H3 heading
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000981",
             format: None,
@@ -3635,7 +3635,7 @@ mod tests {
     fn l1_view_display_label_renders_in_structured_section() {
         let repo_root = repeatable_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000986",
             format: None,
@@ -3656,7 +3656,7 @@ mod tests {
     fn missing_required_field_view_emits_soft_diagnostic() {
         let repo_root = render_identity_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000986",
             format: None,
@@ -3684,10 +3684,10 @@ mod tests {
     }
 
     #[test]
-    fn semantic_object_type_missing_slash_emits_diagnostic() {
+    fn type_key_missing_slash_emits_diagnostic() {
         let repo_root = repeatable_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000984",
             format: None,
@@ -3718,10 +3718,10 @@ mod tests {
     }
 
     #[test]
-    fn themed_document_view_wraps_content_and_keeps_unknown_vars_literal() {
+    fn themed_composition_wraps_content_and_keeps_unknown_vars_literal() {
         let repo_root = repeatable_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000987",
             format: None,
@@ -3771,7 +3771,7 @@ mod tests {
     fn theme_variant_selection_uses_matching_variant() {
         let repo_root = repeatable_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000987",
             format: None,
@@ -3797,7 +3797,7 @@ mod tests {
     fn theme_variant_not_found_falls_back_to_theme_ref() {
         let repo_root = repeatable_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000987",
             format: None,
@@ -3826,7 +3826,7 @@ mod tests {
     fn theme_format_mismatch_skips_theme_and_emits_diagnostic() {
         let repo_root = repeatable_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000987",
             format: Some("text"),
@@ -3852,7 +3852,7 @@ mod tests {
     fn theme_bundled_ref_not_found_emits_diagnostic() {
         let repo_root = repeatable_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000988",
             format: None,
@@ -3886,7 +3886,7 @@ mod tests {
     fn json_projection_returns_projection_not_rendered_string() {
         let repo_root = field_groups_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000971",
             format: Some("json"),
@@ -3909,7 +3909,7 @@ mod tests {
     fn json_projection_schema_and_view_id_fields() {
         let repo_root = field_groups_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000971",
             format: Some("json"),
@@ -3923,10 +3923,7 @@ mod tests {
             proj.schema,
             "https://srs.semanticops.com/schema/2.0/document-view-output.json"
         );
-        assert_eq!(
-            proj.document_view_id,
-            "00000000-0000-4000-8000-000000000971"
-        );
+        assert_eq!(proj.composition_id, "00000000-0000-4000-8000-000000000971");
         assert!(!proj.generated_at.is_empty(), "generatedAt must be set");
     }
 
@@ -3934,7 +3931,7 @@ mod tests {
     fn json_projection_container_id_is_null_for_type_query_section() {
         let repo_root = field_groups_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000971",
             format: Some("json"),
@@ -3955,7 +3952,7 @@ mod tests {
     fn json_projection_preamble_blanks_heading_vars() {
         let repo_root = field_groups_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000971",
             format: Some("json"),
@@ -3984,7 +3981,7 @@ mod tests {
     fn json_projection_sections_ordered_and_records_present() {
         let repo_root = field_groups_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000971",
             format: Some("json"),
@@ -4005,7 +4002,7 @@ mod tests {
     fn json_projection_record_has_identity_fields() {
         let repo_root = field_groups_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000971",
             format: Some("json"),
@@ -4031,7 +4028,7 @@ mod tests {
     fn json_projection_record_composite_carried_under_field_key() {
         let repo_root = field_groups_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000971",
             format: Some("json"),
@@ -4063,7 +4060,7 @@ mod tests {
     fn json_projection_format_override_uses_json_branch() {
         let repo_root = repeatable_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000981",
             format: Some("json"),
@@ -4086,7 +4083,7 @@ mod tests {
     fn theme_no_themeref_renders_without_theme() {
         let repo_root = repeatable_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000981",
             format: None,
@@ -4223,12 +4220,12 @@ mod tests {
             record_types: vec![record_type],
             relation_type_definitions: Vec::new(),
             views: Vec::new(),
-            document_views: Vec::new(),
+            compositions: Vec::new(),
             themes: vec![theme.clone()],
             blueprints: Vec::new(),
             protocols: Vec::new(),
             root: std::path::PathBuf::from("."),
-            dependency_refs: Vec::new(),
+            package_dependencies: Vec::new(),
             vocabularies: Vec::new(),
             lifecycles: Vec::new(),
         };
@@ -4279,7 +4276,7 @@ mod tests {
         use srs_core::types::record_type::{FieldAssignment, RecordType};
         use srs_core::types::relation::Relation;
         use srs_core::types::view::{
-            DocumentSection, DocumentView, EmptyBehavior, FieldView, SectionSource, View,
+            Composition, DocumentSection, EmptyBehavior, FieldView, SectionSource, View,
         };
 
         let heading_field = Field {
@@ -4341,7 +4338,6 @@ mod tests {
         };
 
         let text_type = RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -4380,7 +4376,6 @@ mod tests {
             provenance: None,
         };
         let table_type = RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -4449,8 +4444,8 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
 
-        // DocumentView: ContainerSubset section with the text-only view
-        let doc_view = DocumentView {
+        // Composition: ContainerSubset section with the text-only view
+        let doc_view = Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -4522,21 +4517,19 @@ mod tests {
                     inverse_type: None,
                     version: 1,
                     created_at: "2026-01-01T00:00:00Z".to_string(),
-                    allowed_source_types: None,
-                    allowed_target_types: None,
-                    require_same_semantic_object_type: None,
+                    require_same_type: None,
                     status: None,
                     updated_at: None,
                     meta: None,
                 },
             ],
             views: vec![text_only_view],
-            document_views: vec![doc_view],
+            compositions: vec![doc_view],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -4615,7 +4608,7 @@ mod tests {
     #[test]
     fn container_subset_renders_in_precedes_order() {
         let (store, text_id, table_id, view_id) = make_hetero_store();
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: &view_id,
             format: None,
@@ -4644,7 +4637,7 @@ mod tests {
     #[test]
     fn container_subset_instance_id_filter_scopes_to_single_record() {
         let (store, text_id, _table_id, view_id) = make_hetero_store();
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: &view_id,
             format: None,
@@ -4684,7 +4677,7 @@ mod tests {
         use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::lifecycle::{Lifecycle, LifecycleState, LifecycleTransition};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
-        use srs_core::types::view::{DocumentSection, DocumentView, SectionSource, View};
+        use srs_core::types::view::{Composition, DocumentSection, SectionSource, View};
 
         let title_field = Field {
             schema: None,
@@ -4759,7 +4752,6 @@ mod tests {
         };
 
         let rfc_type = RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -4807,7 +4799,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
 
-        let doc_view = DocumentView {
+        let doc_view = Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -4864,12 +4856,12 @@ mod tests {
             record_types: vec![rfc_type],
             relation_type_definitions: vec![],
             views: vec![view],
-            document_views: vec![doc_view],
+            compositions: vec![doc_view],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![lifecycle],
         };
@@ -4924,7 +4916,7 @@ mod tests {
                 display_label: None,
             })]);
 
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: &view_id,
             format: None,
@@ -4974,7 +4966,7 @@ mod tests {
             }),
         ]);
 
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: &view_id,
             format: None,
@@ -5035,7 +5027,7 @@ mod tests {
             }),
         ]);
 
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: &view_id,
             format: Some("json"),
@@ -5090,7 +5082,7 @@ mod tests {
                 display_label: None,
             })]);
 
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: &view_id,
             format: Some("json"),
@@ -5136,7 +5128,7 @@ mod tests {
             }),
         ]);
 
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: &view_id,
             format: Some("json"),
@@ -5158,7 +5150,7 @@ mod tests {
     #[test]
     fn json_projection_container_subset_instance_id_filter_scopes_to_single_record() {
         let (store, text_id, table_id, view_id) = make_hetero_store();
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: &view_id,
             format: Some("json"),
@@ -5184,7 +5176,7 @@ mod tests {
     #[test]
     fn view_dispatch_applies_view_to_matching_type_and_falls_back_for_non_matching() {
         let (store, _text_id, _table_id, view_id) = make_hetero_store();
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: &view_id,
             format: None,
@@ -5224,7 +5216,7 @@ mod tests {
         // f-heading, so headings render for all. This test asserts no crash when rendering
         // a heterogeneous set — the existing l1_view tests cover the heading-omit path.
         let (store, _text_id, _table_id, view_id) = make_hetero_store();
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: &view_id,
             format: None,
@@ -5430,7 +5422,7 @@ mod tests {
         use srs_core::types::record::FieldValues;
         use srs_core::types::record_type::{FieldAssignment, RecordType};
         use srs_core::types::view::{
-            CompositeRendererBinding, DocumentSection, DocumentView, EmptyBehavior, FieldView,
+            CompositeRendererBinding, Composition, DocumentSection, EmptyBehavior, FieldView,
             SectionSource, View,
         };
 
@@ -5472,7 +5464,6 @@ mod tests {
         ];
 
         let row_type = RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -5502,7 +5493,6 @@ mod tests {
             provenance: None,
         };
         let record_type = RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -5589,7 +5579,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
 
-        let doc_view = DocumentView {
+        let doc_view = Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -5610,7 +5600,7 @@ mod tests {
                 description: None,
                 order: 0,
                 source: SectionSource::TypeQuery {
-                    semantic_object_type: "com.test/table-record".to_string(),
+                    type_key: "com.test/table-record".to_string(),
                     lifecycle_state: None,
                     container_ids: None,
                     lifecycle_states: None,
@@ -5658,12 +5648,12 @@ mod tests {
             record_types: vec![row_type, record_type],
             relation_type_definitions: vec![],
             views: vec![table_view],
-            document_views: vec![doc_view],
+            compositions: vec![doc_view],
             themes: theme.into_iter().collect(),
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -5682,14 +5672,14 @@ mod tests {
     }
 
     #[test]
-    fn composite_table_renders_gfm_table_in_document_view() {
+    fn composite_table_renders_gfm_table_in_composition() {
         let store = make_composite_table_store(
             Some("table"),
             serde_json::json!(["Col1", "Col2"]),
             serde_json::json!([{"cells": ["A", "B"]}, {"cells": ["C", "D"]}]),
             None,
         );
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-table",
             format: None,
@@ -5730,7 +5720,7 @@ mod tests {
             serde_json::json!([{"cells": ["q1", "a1"]}]),
             None,
         );
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-table",
             format: None,
@@ -5758,7 +5748,7 @@ mod tests {
             serde_json::json!([{"cells": ["val"]}]),
             None,
         );
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-table",
             format: None,
@@ -5827,7 +5817,7 @@ mod tests {
             Some(serde_json::json!("<script>alert(1)</script>")),
         );
 
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-table",
             format: None,
@@ -5857,7 +5847,7 @@ mod tests {
             serde_json::json!([{}]),
             None,
         );
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-table",
             format: None,
@@ -5892,9 +5882,7 @@ mod tests {
         use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::record::{FieldValues, Record};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
-        use srs_core::types::view::{
-            DocumentSection, DocumentView, SectionOrdering, SectionSource,
-        };
+        use srs_core::types::view::{Composition, DocumentSection, SectionOrdering, SectionSource};
 
         let heading_field = Field {
             schema: None,
@@ -5917,7 +5905,6 @@ mod tests {
         };
 
         let record_type = RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -5947,7 +5934,7 @@ mod tests {
             provenance: None,
         };
 
-        let doc_view = DocumentView {
+        let doc_view = Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -6010,12 +5997,12 @@ mod tests {
             record_types: vec![record_type],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![doc_view],
+            compositions: vec![doc_view],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -6088,7 +6075,7 @@ mod tests {
     #[test]
     fn container_subset_field_ordering_asc_sorts_by_string_value() {
         let store = make_field_sort_store(SortDirection::Asc);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-field-sort",
             format: None,
@@ -6118,7 +6105,7 @@ mod tests {
     #[test]
     fn container_subset_field_ordering_desc_reverses_string_sort() {
         let store = make_field_sort_store(SortDirection::Desc);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-field-sort",
             format: None,
@@ -6148,7 +6135,7 @@ mod tests {
     #[test]
     fn json_projection_container_subset_field_ordering_asc() {
         let store = make_field_sort_store(SortDirection::Asc);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-field-sort",
             format: Some("json"),
@@ -6183,7 +6170,7 @@ mod tests {
     #[test]
     fn json_projection_container_subset_field_ordering_desc() {
         let store = make_field_sort_store(SortDirection::Desc);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-field-sort",
             format: Some("json"),
@@ -6229,7 +6216,7 @@ mod tests {
         use srs_core::types::record_type::{FieldAssignment, RecordType};
         use srs_core::types::theme::{ElementTemplates, Theme};
         use srs_core::types::view::{
-            DocumentSection, DocumentView, EmptyBehavior, SectionSource, ThemeMode, ThemeReference,
+            Composition, DocumentSection, EmptyBehavior, SectionSource, ThemeMode, ThemeReference,
         };
 
         let body_field = Field {
@@ -6253,7 +6240,6 @@ mod tests {
         };
 
         let rt = RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -6317,7 +6303,7 @@ mod tests {
         let mut themes = vec![base_theme];
         themes.extend(extra_themes);
 
-        let doc_view = DocumentView {
+        let doc_view = Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -6342,7 +6328,7 @@ mod tests {
                 render_view_id: None,
                 type_dispatch: None,
                 source: SectionSource::TypeQuery {
-                    semantic_object_type: "com.test/section".to_string(),
+                    type_key: "com.test/section".to_string(),
                     lifecycle_state: None,
                     container_ids: None,
                     lifecycle_states: None,
@@ -6389,12 +6375,12 @@ mod tests {
             record_types: vec![rt],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![doc_view],
+            compositions: vec![doc_view],
             themes,
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -6454,7 +6440,7 @@ mod tests {
         };
         let store = make_auto_select_store(vec![variant], vec![html_theme]);
 
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-auto-select",
             format: Some("html"),
@@ -6517,7 +6503,7 @@ mod tests {
         };
         let store = make_auto_select_store(vec![variant], vec![text_theme]);
 
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-auto-select",
             format: Some("html"),
@@ -6569,7 +6555,7 @@ mod tests {
         ];
         let store = make_auto_select_store(variants, vec![html_theme_a, html_theme_b]);
 
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-auto-select",
             format: Some("html"),
@@ -6603,7 +6589,7 @@ mod tests {
         // auto-selection does not run.
         let repo_root = repeatable_fixture_root();
         let store = FileStore::new(&repo_root);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000987",
             format: None,
@@ -6630,10 +6616,10 @@ mod tests {
 
     const RFC008_CONTAINER_ID: &str = "00000000-0000-4000-8000-000000000c09";
 
-    /// MemoryStore with text + table records in a container, accepting a custom DocumentView.
+    /// MemoryStore with text + table records in a container, accepting a custom Composition.
     /// Fields/types/views are identical to make_hetero_store. Returns (store, text_id, table_id).
     fn make_rfc008_store(
-        doc_view: DocumentView,
+        doc_view: Composition,
     ) -> (crate::store::memory::MemoryStore, String, String) {
         use crate::container_service;
         use crate::package::Package;
@@ -6703,7 +6689,6 @@ mod tests {
         };
 
         let text_type = RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -6742,7 +6727,6 @@ mod tests {
             provenance: None,
         };
         let table_type = RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -6839,21 +6823,19 @@ mod tests {
                     inverse_type: None,
                     version: 1,
                     created_at: "2026-01-01T00:00:00Z".to_string(),
-                    allowed_source_types: None,
-                    allowed_target_types: None,
-                    require_same_semantic_object_type: None,
+                    require_same_type: None,
                     status: None,
                     updated_at: None,
                     meta: None,
                 },
             ],
             views: vec![text_only_view],
-            document_views: vec![doc_view],
+            compositions: vec![doc_view],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -6942,14 +6924,14 @@ mod tests {
         (store, text_id, table_id)
     }
 
-    /// Build a minimal ContainerSubset DocumentView for RFC-008 tests.
+    /// Build a minimal ContainerSubset Composition for RFC-008 tests.
     fn rfc008_doc_view(
         type_filter: Option<Vec<String>>,
         render_view_id: Option<String>,
         type_dispatch: Option<std::collections::BTreeMap<String, String>>,
-    ) -> DocumentView {
+    ) -> Composition {
         use srs_core::types::view::EmptyBehavior;
-        DocumentView {
+        Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -6997,7 +6979,7 @@ mod tests {
     fn type_filter_restricts_to_matching_types() {
         let view = rfc008_doc_view(Some(vec!["com.test/section.text".to_string()]), None, None);
         let (store, _text_id, _table_id) = make_rfc008_store(view);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-rfc008",
             format: None,
@@ -7023,7 +7005,7 @@ mod tests {
     fn type_filter_empty_renders_all_members() {
         let view = rfc008_doc_view(Some(vec![]), None, None);
         let (store, _text_id, _table_id) = make_rfc008_store(view);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-rfc008",
             format: None,
@@ -7049,7 +7031,7 @@ mod tests {
     fn type_filter_absent_renders_all_members() {
         let view = rfc008_doc_view(None, None, None);
         let (store, _text_id, _table_id) = make_rfc008_store(view);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-rfc008",
             format: None,
@@ -7082,7 +7064,7 @@ mod tests {
         );
         let view = rfc008_doc_view(None, None, Some(dispatch));
         let (store, _text_id, _table_id) = make_rfc008_store(view);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-rfc008",
             format: None,
@@ -7115,7 +7097,7 @@ mod tests {
         );
         let view = rfc008_doc_view(None, Some("v-text-only".to_string()), Some(dispatch));
         let (store, _text_id, _table_id) = make_rfc008_store(view);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-rfc008",
             format: None,
@@ -7146,7 +7128,7 @@ mod tests {
         // No view-dispatch diagnostic should be emitted.
         let view = rfc008_doc_view(None, None, None);
         let (store, _text_id, _table_id) = make_rfc008_store(view);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-rfc008",
             format: None,
@@ -7233,7 +7215,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-rfc008",
             format: None,
@@ -7269,7 +7251,7 @@ mod tests {
         let correct_view =
             rfc008_doc_view(Some(vec!["com.test/section.text".to_string()]), None, None);
         let (store, _text_id, _table_id) = make_rfc008_store(correct_view);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-rfc008",
             format: None,
@@ -7288,7 +7270,7 @@ mod tests {
         let wrong_view =
             rfc008_doc_view(Some(vec!["com.test/text-section".to_string()]), None, None);
         let (store2, _text_id2, _table_id2) = make_rfc008_store(wrong_view);
-        let result2 = render_document_view(RenderDocumentViewOptions {
+        let result2 = render_composition(RenderCompositionOptions {
             store: &store2,
             view_id: "dv-rfc008",
             format: None,
@@ -7309,7 +7291,7 @@ mod tests {
     /// Build a minimal MemoryStore pre-populated with records at given lifecycle states.
     /// Each record's type is "com.test/decision". Returns the store and the instance IDs.
     fn make_rfc011_store(
-        dv: srs_core::types::view::DocumentView,
+        dv: srs_core::types::view::Composition,
         records: &[(&str, Option<&str>)], // (instance_id, lifecycle_state)
     ) -> crate::store::memory::MemoryStore {
         use crate::manifest::Manifest;
@@ -7332,12 +7314,12 @@ mod tests {
             record_types: vec![],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![dv],
+            compositions: vec![dv],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -7376,8 +7358,8 @@ mod tests {
         container_scope: Option<ContainerScope>,
         container_ids: Option<Vec<String>>,
         lifecycle_state: Option<String>,
-    ) -> srs_core::types::view::DocumentView {
-        srs_core::types::view::DocumentView {
+    ) -> srs_core::types::view::Composition {
+        srs_core::types::view::Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -7398,7 +7380,7 @@ mod tests {
                 description: None,
                 order: 0,
                 source: SectionSource::TypeQuery {
-                    semantic_object_type: "com.test/decision".to_string(),
+                    type_key: "com.test/decision".to_string(),
                     lifecycle_state,
                     container_ids,
                     lifecycle_states,
@@ -7454,7 +7436,7 @@ mod tests {
                 ("r-superseded", Some("superseded")),
             ],
         );
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-exclude",
             format: Some("json"),
@@ -7493,7 +7475,7 @@ mod tests {
                 ("r-superseded", Some("superseded")),
             ],
         );
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-include",
             format: Some("json"),
@@ -7515,7 +7497,7 @@ mod tests {
     /// `precedes` chain and share (or lack) `created_at`. Previously chain
     /// heads fell back to HashMap iteration order and shuffled across runs.
     #[test]
-    fn render_document_view_ordering_is_deterministic() {
+    fn render_composition_ordering_is_deterministic() {
         // Records deliberately have created_at: None and no precedes relations —
         // the pure-tiebreak case.
         let dv = rfc011_dv("dv-determinism", None, None, None, None, None);
@@ -7531,7 +7513,7 @@ mod tests {
         );
 
         let render = |format: &'static str| {
-            render_document_view(RenderDocumentViewOptions {
+            render_composition(RenderCompositionOptions {
                 store: &store,
                 view_id: "dv-determinism",
                 format: Some(format),
@@ -7580,7 +7562,7 @@ mod tests {
             dv,
             &[("r-none", None), ("r-superseded", Some("superseded"))],
         );
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-no-state-not-excluded",
             format: Some("json"),
@@ -7612,7 +7594,7 @@ mod tests {
             None,
         );
         let store = make_rfc011_store(dv, &[("r-none", None), ("r-active", Some("active"))]);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-no-state-excluded-by-include",
             format: Some("json"),
@@ -7700,7 +7682,7 @@ mod tests {
         .unwrap();
         container_service::add_member(&store, C2_ID, R_IN_C2).unwrap();
 
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-repo-scope",
             format: Some("json"),
@@ -7740,7 +7722,7 @@ mod tests {
             dv,
             &[("r-active", Some("active")), ("r-draft", Some("draft"))],
         );
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-backcompat",
             format: Some("json"),
@@ -7781,7 +7763,7 @@ mod tests {
 
         // ── MemoryStore result ──────────────────────────────────────────
         let mem_store = make_rfc011_store(dv.clone(), records);
-        let mem_result = render_document_view(RenderDocumentViewOptions {
+        let mem_result = render_composition(RenderCompositionOptions {
             store: &mem_store,
             view_id: dv_id,
             format: Some("json"),
@@ -7829,11 +7811,11 @@ mod tests {
         )
         .unwrap();
 
-        // Write DocumentView as a separate file (FileStore loads via path references).
-        std::fs::create_dir_all(repo_root.join("package/document-views")).unwrap();
+        // Write Composition as a separate file (FileStore loads via path references).
+        std::fs::create_dir_all(repo_root.join("package/compositions")).unwrap();
         let dv_json = serde_json::to_value(&dv).unwrap();
         std::fs::write(
-            repo_root.join("package/document-views/dv-roundtrip.json"),
+            repo_root.join("package/compositions/dv-roundtrip.json"),
             serde_json::to_string_pretty(&dv_json).unwrap(),
         )
         .unwrap();
@@ -7846,14 +7828,14 @@ mod tests {
                 "namespace": "com.test",
                 "name": "rfc011-file",
                 "version": "1.0.0",
-                "documentViews": ["document-views/dv-roundtrip.json"],
+                "compositions": ["compositions/dv-roundtrip.json"],
             }))
             .unwrap(),
         )
         .unwrap();
 
         let file_store = FileStore::new(repo_root);
-        let file_result = render_document_view(RenderDocumentViewOptions {
+        let file_result = render_composition(RenderCompositionOptions {
             store: &file_store,
             view_id: dv_id,
             format: Some("json"),
@@ -7892,7 +7874,7 @@ mod tests {
             dv,
             &[("r-active", Some("active")), ("r-draft", Some("draft"))],
         );
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-precedence",
             format: Some("json"),
@@ -7977,7 +7959,7 @@ mod tests {
         container_service::add_member(&store, C2_ID, R_IN_C2).unwrap();
 
         // Pass C1_ID as cli container_id — in repository scope, this must be ignored.
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-repo-cli-ignore",
             format: Some("json"),
@@ -8010,7 +7992,7 @@ mod tests {
         // The section output is still empty (emptyBehavior hide / default).
         let dv = rfc011_dv("dv-zero", None, None, None, None, None);
         let store = make_rfc011_store(dv, &[]); // no records of com.test/decision
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-zero",
             format: Some("markdown"),
@@ -8040,7 +8022,7 @@ mod tests {
         // #697: the JSON projection path must also emit the diagnostic.
         let dv = rfc011_dv("dv-zero-json", None, None, None, None, None);
         let store = make_rfc011_store(dv, &[]);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-zero-json",
             format: Some("json"),
@@ -8070,9 +8052,9 @@ mod tests {
     #[test]
     fn type_query_zero_records_empty_behavior_hide_still_warns() {
         // #697: emptyBehavior:hide suppresses the output block, not the diagnostic.
-        use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
+        use srs_core::types::view::{Composition, DocumentSection, EmptyBehavior, SectionSource};
 
-        let dv = DocumentView {
+        let dv = Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -8093,7 +8075,7 @@ mod tests {
                 description: None,
                 order: 0,
                 source: SectionSource::TypeQuery {
-                    semantic_object_type: "com.test/decision".to_string(),
+                    type_key: "com.test/decision".to_string(),
                     lifecycle_state: None,
                     container_ids: None,
                     lifecycle_states: None,
@@ -8118,7 +8100,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let store = make_rfc011_store(dv, &[]);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-zero-hide",
             format: Some("markdown"),
@@ -8149,7 +8131,7 @@ mod tests {
         // Confirm the zero-records diagnostic is absent when the TypeQuery has matches.
         let dv = rfc011_dv("dv-nonzero", None, None, None, None, None);
         let store = make_rfc011_store(dv, &[("r1", None)]); // one record of com.test/decision
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-nonzero",
             format: Some("markdown"),
@@ -8184,7 +8166,7 @@ mod tests {
         use crate::record_store::create_record;
         use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
-        use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
+        use srs_core::types::view::{Composition, DocumentSection, EmptyBehavior, SectionSource};
 
         let heading_field = Field {
             schema: None,
@@ -8250,7 +8232,6 @@ mod tests {
         };
 
         let identity_type = RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -8297,7 +8278,6 @@ mod tests {
 
         // Type WITHOUT identityFieldId (for the no-heading regression test)
         let plain_type = RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -8333,7 +8313,7 @@ mod tests {
             description: None,
             order: 0,
             source: SectionSource::TypeQuery {
-                semantic_object_type: sot.to_string(),
+                type_key: sot.to_string(),
                 lifecycle_state: None,
                 container_ids: None,
                 lifecycle_states: None,
@@ -8349,7 +8329,7 @@ mod tests {
             relations_presentation: None,
         };
 
-        let make_dv = |id: &str, name: &str, section: DocumentSection, format: &str| DocumentView {
+        let make_dv = |id: &str, name: &str, section: DocumentSection, format: &str| Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -8421,7 +8401,7 @@ mod tests {
             record_types: vec![identity_type, plain_type],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![
+            compositions: vec![
                 dv_no_title,
                 dv_with_title,
                 dv_no_identity,
@@ -8432,7 +8412,7 @@ mod tests {
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -8467,7 +8447,7 @@ mod tests {
     #[test]
     fn identity_field_id_fallback_emits_heading_markdown() {
         let (store, view_id, _, _, _, _) = make_identity_fallback_store();
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: &view_id,
             format: None,
@@ -8499,7 +8479,7 @@ mod tests {
     #[test]
     fn title_field_id_takes_precedence_over_identity_field_id() {
         let (store, _, view_id, _, _, _) = make_identity_fallback_store();
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: &view_id,
             format: None,
@@ -8524,7 +8504,7 @@ mod tests {
     #[test]
     fn no_identity_field_id_no_title_field_id_no_heading() {
         let (store, _, _, view_id, _, _) = make_identity_fallback_store();
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: &view_id,
             format: None,
@@ -8547,7 +8527,7 @@ mod tests {
         // identity-fallback-view: TypeQuery for fixture.render/identity-item, no titleFieldId
         // identity-item type has identityFieldId → heading field
         // The identity record's heading = "identity heading value"
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "00000000-0000-4000-8000-000000000985",
             format: None,
@@ -8566,7 +8546,7 @@ mod tests {
     #[test]
     fn identity_field_id_fallback_record_heading_json() {
         let (store, _, _, _, view_id, _) = make_identity_fallback_store();
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: &view_id,
             format: Some("json"),
@@ -8596,7 +8576,7 @@ mod tests {
     #[test]
     fn n1_ineligible_title_field_id_omits_heading_without_identity_fallback() {
         let (store, _, _, _, _, view_id) = make_identity_fallback_store();
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: &view_id,
             format: None,
@@ -8633,8 +8613,8 @@ mod tests {
 
     // --- resolve_container_title unit tests (Phase 1 milestone) ---
 
-    fn minimal_document_view() -> srs_core::types::view::DocumentView {
-        srs_core::types::view::DocumentView {
+    fn minimal_composition() -> srs_core::types::view::Composition {
+        srs_core::types::view::Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -8705,7 +8685,7 @@ mod tests {
         // reads the container file, not the index.
         let manifest = minimal_manifest_no_index();
 
-        let dv = minimal_document_view();
+        let dv = minimal_composition();
         let title = resolve_container_title(
             &store,
             &dv,
@@ -8750,7 +8730,7 @@ mod tests {
 
         let manifest = minimal_manifest_no_index();
 
-        let dv = minimal_document_view();
+        let dv = minimal_composition();
         let title = resolve_container_title(&store, &dv, &manifest, Some("idx-test-cid"));
         assert_eq!(title, "File Title");
     }
@@ -8766,7 +8746,7 @@ mod tests {
             .extra
             .insert("title".to_string(), serde_json::json!("My Repo"));
 
-        let dv = minimal_document_view();
+        let dv = minimal_composition();
         let title = resolve_container_title(&store, &dv, &manifest, None);
         assert_eq!(
             title, "My Repo",
@@ -8831,7 +8811,7 @@ mod tests {
             root: repo_root.to_path_buf(),
         };
 
-        let dv = minimal_document_view();
+        let dv = minimal_composition();
         let title = resolve_container_title(&store, &dv, &manifest, Some(cid));
         assert_eq!(
             title, "FileStore Fallback Title",
@@ -8871,7 +8851,6 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let item_type = RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -8937,10 +8916,10 @@ mod tests {
         use crate::container_service;
         use crate::package::Package;
         use crate::record_store::create_record;
-        use srs_core::types::view::DocumentView;
+        use srs_core::types::view::Composition;
 
         let (heading_field, item_type) = simple_field_and_type();
-        let doc_view = DocumentView {
+        let doc_view = Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -8990,12 +8969,12 @@ mod tests {
             record_types: vec![item_type],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![doc_view],
+            compositions: vec![doc_view],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -9040,7 +9019,7 @@ mod tests {
         // (emptyBehavior hide → the section is omitted) with a warning diagnostic,
         // while the resolvable section still renders.
         let store = make_degradation_store(None);
-        let result = render_document_view(RenderDocumentViewOptions::new(&store, "dv-degrade"))
+        let result = render_composition(RenderCompositionOptions::new(&store, "dv-degrade"))
             .expect("render must not fail on a dangling section containerId");
 
         assert!(
@@ -9074,7 +9053,7 @@ mod tests {
         // #509: a required section over a dangling container degrades to the same
         // output as a genuinely empty required section ("No records.").
         let store = make_degradation_store(Some(true));
-        let result = render_document_view(RenderDocumentViewOptions::new(&store, "dv-degrade"))
+        let result = render_composition(RenderCompositionOptions::new(&store, "dv-degrade"))
             .expect("render must not fail on a dangling section containerId");
 
         assert!(
@@ -9102,7 +9081,7 @@ mod tests {
         // #509: the JSON projection path shares resolve_section_instances — a dangling
         // containerId yields an empty section plus a warning, not a failed render.
         let store = make_degradation_store(None);
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-degrade",
             format: Some("json"),
@@ -9136,10 +9115,10 @@ mod tests {
         use crate::package::Package;
         use crate::record_store::create_record;
         use srs_core::types::note::{Note, NoteSection};
-        use srs_core::types::view::DocumentView;
+        use srs_core::types::view::Composition;
 
         let (heading_field, item_type) = simple_field_and_type();
-        let doc_view = DocumentView {
+        let doc_view = Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -9186,12 +9165,12 @@ mod tests {
             record_types: vec![item_type],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![doc_view],
+            compositions: vec![doc_view],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -9260,7 +9239,7 @@ mod tests {
         // #510: a Tier-0 note root/member renders through its note shape (title as
         // heading, section content as body) instead of failing the render.
         let (store, _note_id, _record_id) = make_note_member_store();
-        let result = render_document_view(RenderDocumentViewOptions::new(&store, "dv-notes"))
+        let result = render_composition(RenderCompositionOptions::new(&store, "dv-notes"))
             .expect("render must not fail on a tier-0 note container member");
 
         assert!(
@@ -9282,10 +9261,10 @@ mod tests {
 
     #[test]
     fn json_projection_skips_tier0_note_with_warning() {
-        // #510 (JSON path): the document-view JSON output schema models typed records
+        // #510 (JSON path): the composition JSON output schema models typed records
         // only, so tier-0 notes are skipped with a warning instead of failing.
         let (store, note_id, record_id) = make_note_member_store();
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-notes",
             format: Some("json"),
@@ -9325,12 +9304,12 @@ mod tests {
         // diagnostic rather than pushing it into the records Vec.
         use crate::record_store::create_record;
         use srs_core::types::note::{Note, NoteSection};
-        use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
+        use srs_core::types::view::{Composition, DocumentSection, EmptyBehavior, SectionSource};
 
         const NOTE_ID: &str = "00000000-0000-4000-8000-0000000f1001";
 
         let (heading_field, item_type) = simple_field_and_type();
-        let doc_view = DocumentView {
+        let doc_view = Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -9371,7 +9350,7 @@ mod tests {
                     description: None,
                     order: 1,
                     source: SectionSource::TypeQuery {
-                        semantic_object_type: "com.test/item".to_string(),
+                        type_key: "com.test/item".to_string(),
                         lifecycle_state: None,
                         container_ids: None,
                         lifecycle_states: None,
@@ -9413,12 +9392,12 @@ mod tests {
             record_types: vec![item_type],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![doc_view],
+            compositions: vec![doc_view],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -9453,7 +9432,7 @@ mod tests {
         };
         create_record(&store, "t-item", 1, fv, None, None).unwrap();
 
-        let result = render_document_view(RenderDocumentViewOptions::new(&store, "dv-fixed-note"))
+        let result = render_composition(RenderCompositionOptions::new(&store, "dv-fixed-note"))
             .expect("render must not fail when FixedInstances references a Tier-0 note");
 
         assert!(
@@ -9473,7 +9452,7 @@ mod tests {
                 .any(|d| d.contains("[section:fixed-sec]")
                     && d.contains("FixedInstances:")
                     && d.contains(NOTE_ID)
-                    && d.contains("notes are not rendered in document-view sections")),
+                    && d.contains("notes are not rendered in composition sections")),
             "expected FixedInstances note-skip diagnostic; got: {:?}",
             result.diagnostics
         );
@@ -9489,15 +9468,15 @@ mod tests {
         use srs_core::types::relation_type_definition::{
             RelationTypeCategory, RelationTypeDefinition,
         };
-        use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
+        use srs_core::types::view::{Composition, DocumentSection, EmptyBehavior, SectionSource};
 
-        // Pre-specified IDs so they are known before the DocumentView is built.
+        // Pre-specified IDs so they are known before the Composition is built.
         const SOURCE_ID: &str = "00000000-0000-4000-8000-000000009001";
         const NOTE_ID: &str = "00000000-0000-4000-8000-000000009002";
         const SECTION_ID: &str = "rq-sec";
 
         let (heading_field, item_type) = simple_field_and_type();
-        let doc_view = DocumentView {
+        let doc_view = Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -9567,20 +9546,18 @@ mod tests {
                 inverse_type: None,
                 version: 1,
                 created_at: "2026-01-01T00:00:00Z".to_string(),
-                allowed_source_types: None,
-                allowed_target_types: None,
-                require_same_semantic_object_type: None,
+                require_same_type: None,
                 status: None,
                 updated_at: None,
                 meta: None,
             }],
             views: vec![],
-            document_views: vec![doc_view],
+            compositions: vec![doc_view],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -9630,7 +9607,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = render_document_view(RenderDocumentViewOptions::new(&store, "dv-rq-note"))
+        let result = render_composition(RenderCompositionOptions::new(&store, "dv-rq-note"))
             .expect("render must not fail when RelationQuery resolves to a Tier-0 note");
 
         assert!(
@@ -9645,7 +9622,7 @@ mod tests {
                 .any(|d| d.contains("[section:rq-sec]")
                     && d.contains("RelationQuery:")
                     && d.contains(NOTE_ID)
-                    && d.contains("notes are not rendered in document-view sections")),
+                    && d.contains("notes are not rendered in composition sections")),
             "expected RelationQuery note-skip diagnostic; got: {:?}",
             result.diagnostics
         );
@@ -9678,9 +9655,7 @@ mod tests {
             canonical_direction: None,
             inverse_type: inverse_type.map(|s| s.to_string()),
             irreflexive: None,
-            allowed_source_types: None,
-            allowed_target_types: None,
-            require_same_semantic_object_type: None,
+            require_same_type: None,
             status: if retired {
                 Some(RelationTypeStatus::Retired)
             } else {
@@ -9739,12 +9714,12 @@ mod tests {
             record_types: vec![],
             relation_type_definitions: rtds,
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -10231,7 +10206,6 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let rt = RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -10276,12 +10250,12 @@ mod tests {
             record_types: vec![rt],
             relation_type_definitions: vec![test_rtd("links-to", "Links To", None, false)],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -10503,9 +10477,9 @@ mod tests {
         rp_entries: Vec<RelationPresentationEntry>,
         relations: &[Relation],
     ) -> crate::store::memory::MemoryStore {
-        use srs_core::types::view::{DocumentSection, DocumentView, SectionSource};
+        use srs_core::types::view::{Composition, DocumentSection, SectionSource};
 
-        let dv = DocumentView {
+        let dv = Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -10576,12 +10550,12 @@ mod tests {
             record_types: vec![],
             relation_type_definitions: rtds,
             views: vec![],
-            document_views: vec![dv],
+            compositions: vec![dv],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -10616,7 +10590,7 @@ mod tests {
         );
         add_rp_record(&store, "rec-tgt", None);
 
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-rp-test",
             format: Some("json"),
@@ -10669,7 +10643,7 @@ mod tests {
         );
         add_rp_record(&store, "rec-src", None);
 
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-rp-test",
             format: Some("json"),
@@ -10696,7 +10670,7 @@ mod tests {
     fn project_record_json_carries_type_version() {
         let store = make_rp_doc_store(vec![], "rec-src", vec![], &[]);
 
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-rp-test",
             format: Some("json"),
@@ -10728,7 +10702,7 @@ mod tests {
         );
         add_rp_record(&store, "rec-tgt", None);
 
-        let result = render_document_view(RenderDocumentViewOptions {
+        let result = render_composition(RenderCompositionOptions {
             store: &store,
             view_id: "dv-rp-test",
             format: Some("json"),
@@ -10749,7 +10723,7 @@ mod tests {
 
     #[test]
     fn relations_block_cross_store_roundtrip() {
-        use srs_core::types::view::{DocumentSection, DocumentView, SectionSource};
+        use srs_core::types::view::{Composition, DocumentSection, SectionSource};
 
         let dv_id = "dv-rp-roundtrip";
         let rtype = "links-to";
@@ -10762,7 +10736,7 @@ mod tests {
             forward_label: Some("Links To".to_string()),
             inverse_label: None,
         };
-        let dv = DocumentView {
+        let dv = Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -10831,12 +10805,12 @@ mod tests {
             record_types: vec![],
             relation_type_definitions: vec![the_rtd.clone()],
             views: vec![],
-            document_views: vec![dv.clone()],
+            compositions: vec![dv.clone()],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -10848,7 +10822,7 @@ mod tests {
         });
         crate::store::write_relations_standalone_for_test(&mem_store, &coll);
 
-        let mem_result = render_document_view(RenderDocumentViewOptions {
+        let mem_result = render_composition(RenderCompositionOptions {
             store: &mem_store,
             view_id: dv_id,
             format: Some("json"),
@@ -10908,9 +10882,9 @@ mod tests {
         )
         .unwrap();
 
-        std::fs::create_dir_all(repo_root.join("package/document-views")).unwrap();
+        std::fs::create_dir_all(repo_root.join("package/compositions")).unwrap();
         std::fs::write(
-            repo_root.join(format!("package/document-views/{dv_id}.json")),
+            repo_root.join(format!("package/compositions/{dv_id}.json")),
             serde_json::to_string_pretty(&serde_json::to_value(&dv).unwrap()).unwrap(),
         )
         .unwrap();
@@ -10929,7 +10903,7 @@ mod tests {
                 "namespace": "com.test",
                 "name": "rp-file",
                 "version": "1.0.0",
-                "documentViews": [format!("document-views/{dv_id}.json")],
+                "compositions": [format!("compositions/{dv_id}.json")],
                 "relationTypes": [format!("relation-types/{rtype}.json")],
             }))
             .unwrap(),
@@ -10937,7 +10911,7 @@ mod tests {
         .unwrap();
 
         let file_store = FileStore::new(repo_root);
-        let file_result = render_document_view(RenderDocumentViewOptions {
+        let file_result = render_composition(RenderCompositionOptions {
             store: &file_store,
             view_id: dv_id,
             format: Some("json"),
@@ -11389,7 +11363,7 @@ mod tests {
         use crate::record_store::create_record;
         use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
-        use srs_core::types::view::{DocumentSection, DocumentView, SectionSource};
+        use srs_core::types::view::{Composition, DocumentSection, SectionSource};
 
         let make_field = |id: &str, name: &str| Field {
             schema: None,
@@ -11420,7 +11394,6 @@ mod tests {
             };
 
         let record_type = RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -11448,7 +11421,7 @@ mod tests {
             provenance: None,
         };
 
-        let doc_view = DocumentView {
+        let doc_view = Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -11469,7 +11442,7 @@ mod tests {
                 description: None,
                 order: 0,
                 source: SectionSource::TypeQuery {
-                    semantic_object_type: "com.test/row-record".to_string(),
+                    type_key: "com.test/row-record".to_string(),
                     lifecycle_state: None,
                     container_ids: None,
                     lifecycle_states: None,
@@ -11566,12 +11539,12 @@ mod tests {
             record_types: vec![record_type],
             relation_type_definitions: vec![],
             views: l1_views,
-            document_views: vec![doc_view],
+            compositions: vec![doc_view],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -11588,7 +11561,7 @@ mod tests {
     }
 
     fn render_rows(store: &crate::store::memory::MemoryStore) -> String {
-        render_document_view(RenderDocumentViewOptions {
+        render_composition(RenderCompositionOptions {
             store,
             view_id: "dv-row",
             format: None,

@@ -3,8 +3,8 @@
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
     "invariant_number": "35",
-    "title": "Every DocumentSection.renderViewId in any DocumentView within…",
-    "normative_statement": "Every `DocumentSection.renderViewId` in any `DocumentView` within `Package.documentViews[]` must reference a `View.id` that appears in `Package.views[]` or `Package.dependencyRefs`. If `mode === \"bundled\"`, that `View` must be present in `Package.views[]`.",
+    "title": "Every DocumentSection.renderViewId in any Composition within…",
+    "normative_statement": "Every `DocumentSection.renderViewId` in any `Composition` within `Package.compositions[]` must reference a `View.id` that appears in `Package.views[]` or `Package.packageDependencies`. If `mode === \"bundled\"`, that `View` must be present in `Package.views[]`.",
     "applies_to": "ext:views-l2 — Distribution"
   },
   "instanceId": "e1000035-0000-4000-a000-000000000035",

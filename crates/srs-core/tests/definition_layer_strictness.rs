@@ -9,7 +9,7 @@
 use serde::de::DeserializeOwned;
 use srs_core::types::{
     blueprint::Blueprint, lifecycle::Lifecycle, protocol::Protocol,
-    relation_type_definition::RelationTypeDefinition, theme::Theme, view::DocumentView, view::View,
+    relation_type_definition::RelationTypeDefinition, theme::Theme, view::Composition, view::View,
 };
 
 fn rejects_unknown_key<T: DeserializeOwned>(kind: &str, mut doc: serde_json::Value) {
@@ -40,8 +40,8 @@ fn definition_types_reject_unknown_keys() {
             "createdAt": "2026-01-01T00:00:00Z"
         }),
     );
-    rejects_unknown_key::<DocumentView>(
-        "DocumentView",
+    rejects_unknown_key::<Composition>(
+        "Composition",
         serde_json::json!({
             "id": "00000000-0000-4000-8000-000000000002",
             "namespace": "com.test", "name": "dv", "version": 1,
@@ -101,10 +101,10 @@ fn definition_types_reject_unknown_keys() {
 /// not yet act on. `DocumentSection.ordering.memberOrder` (RFC-015 [N+29]) is
 /// the case that nearly slipped through: no first-party corpus uses it, so a
 /// corpus-only safety gate would have stayed green while a schema-valid
-/// DocumentView became unloadable.
+/// Composition became unloadable.
 #[test]
-fn document_view_accepts_schema_declared_but_unconsumed_keys() {
-    let dv: DocumentView = serde_json::from_value(serde_json::json!({
+fn composition_accepts_schema_declared_but_unconsumed_keys() {
+    let dv: Composition = serde_json::from_value(serde_json::json!({
         "id": "00000000-0000-4000-8000-000000000002",
         "namespace": "com.test", "name": "dv", "version": 1,
         "description": "d",
@@ -119,7 +119,7 @@ fn document_view_accepts_schema_declared_but_unconsumed_keys() {
         }],
         "createdAt": "2026-01-01T00:00:00Z"
     }))
-    .expect("memberOrder is declared by document-view.json");
+    .expect("memberOrder is declared by composition.json");
     let ordering = dv.sections[0].ordering.as_ref().expect("ordering");
     assert_eq!(ordering.member_order.as_ref().map(Vec::len), Some(2));
     // Carried back out — an unconsumed key must not be a silently dropped one.

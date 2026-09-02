@@ -37,7 +37,7 @@ fn vocab_srsj() -> String {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": [],
+                "compositions": [],
                 "vocabularies": ["vocabularies/tags.json"]
             },
             "package/vocabularies/tags.json": {

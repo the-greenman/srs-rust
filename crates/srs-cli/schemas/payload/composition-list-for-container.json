@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CompositionsForContainerPayload",
+  "description": "Payload for `composition list-for-container <container-id>`.\n\nReturns the Compositions whose `rootTypeRefs` match the type bound to the container's first root instance. Empty when the root instance has no type binding or when no Compositions match.",
+  "type": "object",
+  "required": [
+    "compositions",
+    "containerId"
+  ],
+  "properties": {
+    "compositions": {
+      "type": "array",
+      "items": true
+    },
+    "containerId": {
+      "type": "string"
+    }
+  }
+}

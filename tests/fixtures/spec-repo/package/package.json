@@ -2,7 +2,7 @@
   "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
   "createdAt": "2026-05-27T00:00:00Z",
   "description": "Bundled local package containing all fields, types, and views for the SRS specification authoring.",
-  "documentViews": [],
+  "compositions": [],
   "fields": [
     "fields/canonical-key.json",
     "fields/title.json",

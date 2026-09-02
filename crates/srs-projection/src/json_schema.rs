@@ -1225,7 +1225,6 @@ mod tests {
 
     fn record_type(id: &str, name: &str, version: u32, fields: Vec<FieldAssignment>) -> RecordType {
         RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,

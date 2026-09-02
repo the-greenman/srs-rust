@@ -4,7 +4,7 @@ use crate::manifest_service::{set_manifest_root_container, SetManifestRootContai
 use crate::record_store::{create_record_in_context, CreateRecordInput};
 use crate::repository_lifecycle::{init_new_repository, InitNewRepositoryInput};
 use crate::store::RepositoryStore;
-use crate::view_service::{delete_document_view, list_document_views, update_document_view};
+use crate::view_service::{delete_composition, list_compositions, update_composition};
 use serde::{Deserialize, Serialize};
 use srs_core::types::container::Container;
 use srs_core::types::record::FieldValues;
@@ -30,12 +30,12 @@ pub struct ScaffoldGovernanceRepoResult {
     pub decision_log_container_id: String,
     pub decision_log_root_id: String,
     pub root_container_id: String,
-    /// DocumentViews whose sections were rewritten to reference the containers this
+    /// Compositions whose sections were rewritten to reference the containers this
     /// scaffold created (srs#163 — the package ships gallery container UUIDs).
-    pub rebound_document_view_ids: Vec<String>,
-    /// DocumentViews removed because none of their sections can bind to a
+    pub rebound_composition_ids: Vec<String>,
+    /// Compositions removed because none of their sections can bind to a
     /// scaffold-created container in the release-1 (decision-log-only) shape.
-    pub removed_document_view_ids: Vec<String>,
+    pub removed_composition_ids: Vec<String>,
 }
 
 /// Combined input for `create_governance_repository`.
@@ -66,10 +66,10 @@ pub struct CreateGovernanceRepositoryResult {
     pub decision_log_container_id: String,
     pub decision_log_root_id: String,
     pub root_container_id: String,
-    /// See [`ScaffoldGovernanceRepoResult::rebound_document_view_ids`].
-    pub rebound_document_view_ids: Vec<String>,
-    /// See [`ScaffoldGovernanceRepoResult::removed_document_view_ids`].
-    pub removed_document_view_ids: Vec<String>,
+    /// See [`ScaffoldGovernanceRepoResult::rebound_composition_ids`].
+    pub rebound_composition_ids: Vec<String>,
+    /// See [`ScaffoldGovernanceRepoResult::removed_composition_ids`].
+    pub removed_composition_ids: Vec<String>,
 }
 
 /// Derive a default namespace from a repository title.
@@ -108,7 +108,7 @@ fn derive_namespace_from_title(title: &str) -> String {
 ///
 /// Finally, the installed document views are re-bound to the containers created above
 /// (srs#163): the canonical package ships gallery-example container UUIDs, which are
-/// meaningless in a fresh install. See [`rebind_document_views_to_scaffold`].
+/// meaningless in a fresh install. See [`rebind_compositions_to_scaffold`].
 pub fn scaffold_governance_repo(
     store: &dyn RepositoryStore,
     input: ScaffoldGovernanceRepoInput,
@@ -246,19 +246,19 @@ pub fn scaffold_governance_repo(
         },
     )?;
 
-    // 4. Re-bind the installed DocumentViews to the containers this scaffold created
+    // 4. Re-bind the installed Compositions to the containers this scaffold created
     //    (srs#163): the canonical package ships document views whose sections reference
     //    the gallery example's container UUIDs, which do not exist in any fresh install.
-    let (rebound_document_view_ids, removed_document_view_ids) =
-        rebind_document_views_to_scaffold(store, &dl_container_id)?;
+    let (rebound_composition_ids, removed_composition_ids) =
+        rebind_compositions_to_scaffold(store, &dl_container_id)?;
 
     Ok(ScaffoldGovernanceRepoResult {
         identity_record_id: identity_id,
         decision_log_container_id: dl_container_id,
         decision_log_root_id: dl_root_id,
         root_container_id,
-        rebound_document_view_ids,
-        removed_document_view_ids,
+        rebound_composition_ids,
+        removed_composition_ids,
     })
 }
 
@@ -296,14 +296,14 @@ fn container_exists(store: &dyn RepositoryStore, id: &str) -> bool {
 ///
 /// Sections whose references all resolve are left untouched. Returns
 /// `(rebound_view_ids, removed_view_ids)`.
-fn rebind_document_views_to_scaffold(
+fn rebind_compositions_to_scaffold(
     store: &dyn RepositoryStore,
     decision_log_container_id: &str,
 ) -> Result<(Vec<String>, Vec<String>), RepositoryError> {
     let mut rebound = Vec::new();
     let mut removed = Vec::new();
 
-    for view in list_document_views(store)? {
+    for view in list_compositions(store)? {
         let mut changed = false;
         let mut kept_sections = Vec::with_capacity(view.sections.len());
 
@@ -311,8 +311,8 @@ fn rebind_document_views_to_scaffold(
             let is_decision_section = section.section_id == DECISIONS_SECTION_ID
                 || matches!(
                     &section.source,
-                    SectionSource::TypeQuery { semantic_object_type, .. }
-                        if semantic_object_type == DECISION_TYPE_KEY
+                    SectionSource::TypeQuery { type_key, .. }
+                        if type_key == DECISION_TYPE_KEY
                 );
 
             let keep = match &mut section.source {
@@ -362,12 +362,12 @@ fn rebind_document_views_to_scaffold(
             continue;
         }
         if kept_sections.is_empty() {
-            delete_document_view(store, &view.id)?;
+            delete_composition(store, &view.id)?;
             removed.push(view.id);
         } else {
             let mut updated = view.clone();
             updated.sections = kept_sections;
-            update_document_view(store, &view.id, updated)?;
+            update_composition(store, &view.id, updated)?;
             rebound.push(view.id);
         }
     }
@@ -433,8 +433,8 @@ pub fn create_governance_repository(
         decision_log_container_id: scaffold.decision_log_container_id,
         decision_log_root_id: scaffold.decision_log_root_id,
         root_container_id: scaffold.root_container_id,
-        rebound_document_view_ids: scaffold.rebound_document_view_ids,
-        removed_document_view_ids: scaffold.removed_document_view_ids,
+        rebound_composition_ids: scaffold.rebound_composition_ids,
+        removed_composition_ids: scaffold.removed_composition_ids,
     })
 }
 
@@ -491,7 +491,7 @@ mod tests {
     }
 
     #[test]
-    fn scaffold_rebinds_document_views_to_created_containers() {
+    fn scaffold_rebinds_compositions_to_created_containers() {
         // srs#163: the canonical package ships document views referencing gallery
         // container UUIDs. After scaffold, every remaining container reference must
         // resolve, decision sections must point at the scaffold's decision-log
@@ -506,7 +506,7 @@ mod tests {
         )
         .expect("scaffold succeeds");
 
-        let views = crate::view_service::list_document_views(&store).unwrap();
+        let views = crate::view_service::list_compositions(&store).unwrap();
         let dl = &result.decision_log_container_id;
 
         // articles-and-roles has no bindable section in the release-1 shape → removed.
@@ -515,7 +515,7 @@ mod tests {
             "articles-and-roles view must be removed from a fresh install"
         );
         assert_eq!(
-            result.removed_document_view_ids,
+            result.removed_composition_ids,
             vec!["78b11038-e5d8-4269-9982-fe5c459802b2".to_string()],
             "removed set is exactly the articles-and-roles view"
         );
@@ -592,7 +592,7 @@ mod tests {
         }
 
         // The three surviving views are reported as rebound.
-        let mut rebound = result.rebound_document_view_ids.clone();
+        let mut rebound = result.rebound_composition_ids.clone();
         rebound.sort();
         let mut expected = vec![
             "5a3ce87e-8340-4d91-a140-ab56b57f704f".to_string(), // decision-deliberation
@@ -636,7 +636,7 @@ mod tests {
     #[test]
     fn scaffold_rebinding_survives_srsj_roundtrip_and_validates_clean() {
         // The rewritten views must survive serialisation, and a fresh scaffold must
-        // produce zero dangling document-view container warnings (#509 validate check).
+        // produce zero dangling composition container warnings (#509 validate check).
         let store = load_seed_store();
         create_governance_repository(
             &store,
@@ -659,7 +659,7 @@ mod tests {
             .collect();
         assert!(
             dangling.is_empty(),
-            "fresh repo-create must not ship dangling document-view container refs: {dangling:?}"
+            "fresh repo-create must not ship dangling composition container refs: {dangling:?}"
         );
     }
 

@@ -56,14 +56,6 @@ pub(crate) struct TypeJson {
     created_at: Option<String>,
     #[serde(default)]
     ai_guidance: Option<serde_json::Value>,
-    /// TRANSITIONAL (srs#372/#383/#422; collapse pending srs#272): still
-    /// declared by `type.json`, still accepted here, but routed into
-    /// `RecordType.extra` rather than a typed field in `into_record_type` —
-    /// it was ruled a duplicate of the Type system, not real Type surface.
-    /// Delete this field (and the `extra` insert below) when #383 executes
-    /// the collapse.
-    #[serde(default)]
-    semantic_object_type: Option<String>,
     #[serde(default)]
     tags: Option<Vec<String>>,
     /// RFC-039 [R7] retired this construct. It is accepted here and dropped so
@@ -136,21 +128,10 @@ impl TypeJson {
                 })
                 .collect()
         });
-        // TRANSITIONAL (srs#372/#383/#422): semanticObjectType rides in
-        // `extra` untyped, not as a named RecordType field — see the
-        // field's own doc comment above and RecordType::extra's.
-        let mut extra = std::collections::BTreeMap::new();
-        if let Some(v) = self.semantic_object_type {
-            extra.insert(
-                "semanticObjectType".to_string(),
-                serde_json::Value::String(v),
-            );
-        }
         RecordType {
             schema: self.schema,
             ai_guidance: self.ai_guidance,
             tags: self.tags,
-            extra,
             id: self.id,
             namespace: self.namespace,
             name: self.name,
@@ -246,56 +227,25 @@ mod tests {
         assert!(err.to_string().contains("defaultValue"), "{err}");
     }
 
-    /// Owner ruling 2026-08-26 on #876: `semanticObjectType` was ruled a
-    /// duplicate of the Type system (srs#372/#383/#422; collapse execution
-    /// pending at srs#272), so unlike `$schema`/`aiGuidance`/`tags` it is
-    /// deliberately NOT re-typed as a named `RecordType` field — re-typing it
-    /// would re-entrench the construct being removed. It still round-trips
-    /// byte-faithfully, just via `RecordType.extra` instead, until #383
-    /// executes the collapse.
+    /// srs-rust#910: the semanticObjectType collapse (owner ruling on #383,
+    /// srs#372/#524, `rfc-decision-c8704763`) retires the construct entirely —
+    /// no transitional `extra` carriage (that was PR #876's bridge, retired by
+    /// this same unit). At rev 6, `semanticObjectType` is simply an unknown
+    /// key: `type.json` no longer declares it, and `TypeJson`'s
+    /// `deny_unknown_fields` rejects it like any other unrecognised property.
+    /// A rev-5 Type carrying it reaches rev 6 only through the
+    /// `composition-cutover` migration, never the runtime load path.
     #[test]
-    fn semantic_object_type_round_trips_via_extra_not_a_typed_field() {
-        let tj: TypeJson = serde_json::from_str(
+    fn semantic_object_type_is_rejected_as_unknown_at_rev_6() {
+        let err = serde_json::from_str::<TypeJson>(
             r#"{
                 "id": "t1", "namespace": "com.test", "name": "thing",
                 "version": 1, "fields": [],
                 "semanticObjectType": "com.example/decision"
             }"#,
         )
-        .unwrap();
-        let rt = tj.into_record_type();
-
-        assert_eq!(
-            rt.extra.get("semanticObjectType"),
-            Some(&serde_json::Value::String(
-                "com.example/decision".to_string()
-            )),
-            "semanticObjectType must survive load, carried in extra"
-        );
-
-        let val = serde_json::to_value(&rt).unwrap();
-        assert_eq!(
-            val["semanticObjectType"], "com.example/decision",
-            "must re-emit as a top-level key, not nested under an \"extra\" wrapper"
-        );
-    }
-
-    /// The single-key transitional bag still enforces the definition layer's
-    /// reject-unknown policy (srs-rust#863) for everything except the one
-    /// legacy key it exists for.
-    #[test]
-    fn record_type_extra_rejects_anything_other_than_semantic_object_type() {
-        use srs_core::types::record_type::RecordType;
-        let err = serde_json::from_str::<RecordType>(
-            r#"{
-                "id": "t1", "namespace": "com.test", "name": "thing",
-                "version": 1, "description": "a type", "fields": [],
-                "createdAt": "2026-01-01T00:00:00Z",
-                "somethingElse": true
-            }"#,
-        )
-        .expect_err("only semanticObjectType may ride in RecordType.extra");
-        assert!(err.to_string().contains("somethingElse"), "{err}");
+        .expect_err("semanticObjectType must be rejected as an unknown key at rev 6");
+        assert!(err.to_string().contains("semanticObjectType"), "{err}");
     }
 
     /// srs-rust#863: a Type file is definition-layer data, so the loader

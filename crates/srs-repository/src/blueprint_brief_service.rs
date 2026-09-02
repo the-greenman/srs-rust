@@ -466,12 +466,12 @@ mod tests {
             record_types,
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![],
+            compositions: vec![],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -504,7 +504,6 @@ mod tests {
 
     fn make_article_type() -> RecordType {
         RecordType {
-            extra: Default::default(),
             schema: None,
             // Type-level guidance now travels as a named field rather than an
             // `extra` bag entry — this is what `type_brief` reads.
@@ -851,7 +850,6 @@ mod tests {
             .collect();
 
         let proto_type = RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,

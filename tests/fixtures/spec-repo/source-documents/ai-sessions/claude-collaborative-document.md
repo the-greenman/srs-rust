@@ -989,7 +989,7 @@ A stable pointer to a specific definition version. Used in dependency manifests,
   version: integer    // min: 1
   definitionType?: "field" | "module" | "template"
   // When omitted, consuming systems may assume "field" for backward compatibility.
-  // Required when dependencyRefs contains module or template references.
+  // Required when packageDependencies contains module or template references.
 }
 ```
 
@@ -1027,7 +1027,7 @@ The distributable artifact. Contains field, module, template, and relation type 
   mode: "bundled" | "standalone"
 
   // Complete dependency manifest (required in both modes)
-  dependencyRefs: DefinitionReference[]
+  packageDependencies: DefinitionReference[]
   // Contains field references (definitionType: "field") used by modules,
   // and module references (definitionType: "module") used by templates.
   // Consumers use this manifest to validate completeness without parsing content internals.
@@ -1039,14 +1039,14 @@ The distributable artifact. Contains field, module, template, and relation type 
 | Mode | Meaning |
 |---|---|
 | `"bundled"` | All `FieldDefinition` records referenced by any module, and all `ModuleDefinition` records referenced by any template, are included in `fields[]` and `modules[]` respectively. Self-contained and portable. |
-| `"standalone"` | Dependencies are expected to be pre-installed in the consumer's registry. `dependencyRefs` is the required manifest. |
+| `"standalone"` | Dependencies are expected to be pre-installed in the consumer's registry. `packageDependencies` is the required manifest. |
 
 **Package invariants** (see also Section 5):
-- Every `fieldId` in any `ModuleFieldAssignment` within `modules[]` must appear in `dependencyRefs[].id`.
-- Every `moduleDefinitionId` referenced by any `TemplateDefinition` in `templates[]` must appear in `dependencyRefs[].id` (with `definitionType: "module"`).
-- If `mode === "bundled"`: every field `DefinitionReference` in `dependencyRefs` must have a matching `FieldDefinition` in `fields[]`; every module `DefinitionReference` must have a matching `ModuleDefinition` in `modules[]`.
+- Every `fieldId` in any `ModuleFieldAssignment` within `modules[]` must appear in `packageDependencies[].id`.
+- Every `moduleDefinitionId` referenced by any `TemplateDefinition` in `templates[]` must appear in `packageDependencies[].id` (with `definitionType: "module"`).
+- If `mode === "bundled"`: every field `DefinitionReference` in `packageDependencies` must have a matching `FieldDefinition` in `fields[]`; every module `DefinitionReference` must have a matching `ModuleDefinition` in `modules[]`.
 
-`dependencyRefs` is required in both modes because consumers need the complete manifest to validate completeness without parsing content internals.
+`packageDependencies` is required in both modes because consumers need the complete manifest to validate completeness without parsing content internals.
 
 ---
 
@@ -1582,9 +1582,9 @@ Conforming implementations must uphold the following invariants.
 
 ### Distribution
 
-7. Every `fieldId` referenced in any `ModuleFieldAssignment` within a `DefinitionPackage.modules[]` must appear as the `id` of an entry in `DefinitionPackage.dependencyRefs`.
+7. Every `fieldId` referenced in any `ModuleFieldAssignment` within a `DefinitionPackage.modules[]` must appear as the `id` of an entry in `DefinitionPackage.packageDependencies`.
 
-8. If `DefinitionPackage.mode === "bundled"`: every `DefinitionReference` in `dependencyRefs` must have a matching `FieldDefinition` in `fields[]` (matched on `id` and `version`).
+8. If `DefinitionPackage.mode === "bundled"`: every `DefinitionReference` in `packageDependencies` must have a matching `FieldDefinition` in `fields[]` (matched on `id` and `version`).
 
 9. `FieldDefinition.id` is stable across versions. A new `id` means a new definition, not a new version of an existing one.
 
@@ -1622,7 +1622,7 @@ Conforming implementations must uphold the following invariants.
 
 ### Distribution — templates
 
-21. Every `moduleDefinitionId` referenced by any `TemplateDefinition` in `DefinitionPackage.templates[]` must appear in `DefinitionPackage.dependencyRefs` with `definitionType: "module"`. If `mode === "bundled"`, that `ModuleDefinition` must be present in `modules[]`.
+21. Every `moduleDefinitionId` referenced by any `TemplateDefinition` in `DefinitionPackage.templates[]` must appear in `DefinitionPackage.packageDependencies` with `definitionType: "module"`. If `mode === "bundled"`, that `ModuleDefinition` must be present in `modules[]`.
 
 ### Containers
 
@@ -3067,7 +3067,7 @@ The distributable artefact. Contains Field, Type, View, and Relation type defini
 
   mode: "bundled" | "standalone"
 
-  dependencyRefs: Reference[]
+  packageDependencies: Reference[]
 }
 ```
 
@@ -3076,9 +3076,9 @@ The distributable artefact. Contains Field, Type, View, and Relation type defini
 | Mode | Meaning |
 |---|---|
 | `"bundled"` | All Field records referenced by any Type, and all Type records referenced by any View, are included in `fields[]` and `types[]`. Self-contained. |
-| `"standalone"` | Dependencies are expected pre-installed in the consumer's registry. `dependencyRefs` is the required manifest. |
+| `"standalone"` | Dependencies are expected pre-installed in the consumer's registry. `packageDependencies` is the required manifest. |
 
-`dependencyRefs` is required in both modes. Consumers use it to validate completeness without parsing content internals.
+`packageDependencies` is required in both modes. Consumers use it to validate completeness without parsing content internals.
 
 ---
 
@@ -3970,9 +3970,9 @@ Conforming implementations must uphold the following invariants.
 
 ### Distribution
 
-**7.** Every `fieldId` referenced in any `FieldAssignment` within a `Package.types[]` must appear as the `id` of an entry in `Package.dependencyRefs`.
+**7.** Every `fieldId` referenced in any `FieldAssignment` within a `Package.types[]` must appear as the `id` of an entry in `Package.packageDependencies`.
 
-**8.** If `Package.mode === "bundled"`: every `Reference` in `dependencyRefs` must have a matching `Field` in `fields[]` (matched on `id` and `version`).
+**8.** If `Package.mode === "bundled"`: every `Reference` in `packageDependencies` must have a matching `Field` in `fields[]` (matched on `id` and `version`).
 
 **9.** `Field.id` is stable across versions. A new `id` means a new definition, not a new version of an existing one.
 
@@ -3992,7 +3992,7 @@ Conforming implementations must uphold the following invariants.
 
 ### Distribution — Views (ext:views-l1)
 
-**15.** Every `typeId` referenced by any `View` in `Package.views[]` must appear in `Package.dependencyRefs` with `definitionType: "type"`. If `mode === "bundled"`, that `Type` must be present in `types[]`.
+**15.** Every `typeId` referenced by any `View` in `Package.views[]` must appear in `Package.packageDependencies` with `definitionType: "type"`. If `mode === "bundled"`, that `Type` must be present in `types[]`.
 
 ### Relations
 
@@ -4464,7 +4464,7 @@ The note says "for cross-system portability, use namespace/name format" — but 
 
 *4. `Document View` needs a TypeScript programmatic name.*
 
-The ext:views-l2 section defines the type inline under a heading but never gives it a formal `DocumentView` identifier. Every other type has a code-block name. This matters for the `renderViewId` field in `DocumentSection` — it says `View (ext:views-l1)` but a Document View could theoretically also be nested. Minor, but worth being explicit.
+The ext:views-l2 section defines the type inline under a heading but never gives it a formal `Composition` identifier. Every other type has a code-block name. This matters for the `renderViewId` field in `DocumentSection` — it says `View (ext:views-l1)` but a Document View could theoretically also be nested. Minor, but worth being explicit.
 
 **One softer concern**
 
@@ -5480,7 +5480,7 @@ A stable pointer to a specific definition version. Used in dependency manifests,
   version: integer    // min: 1
   definitionType?: "field" | "module" | "template"
   // When omitted, consuming systems may assume "field" for backward compatibility.
-  // Required when dependencyRefs contains module or template references.
+  // Required when packageDependencies contains module or template references.
 }
 ```
 
@@ -5518,7 +5518,7 @@ The distributable artifact. Contains field, module, template, and relation type 
   mode: "bundled" | "standalone"
 
   // Complete dependency manifest (required in both modes)
-  dependencyRefs: DefinitionReference[]
+  packageDependencies: DefinitionReference[]
   // Contains field references (definitionType: "field") used by modules,
   // and module references (definitionType: "module") used by templates.
   // Consumers use this manifest to validate completeness without parsing content internals.
@@ -5530,14 +5530,14 @@ The distributable artifact. Contains field, module, template, and relation type 
 | Mode | Meaning |
 |---|---|
 | `"bundled"` | All `FieldDefinition` records referenced by any module, and all `ModuleDefinition` records referenced by any template, are included in `fields[]` and `modules[]` respectively. Self-contained and portable. |
-| `"standalone"` | Dependencies are expected to be pre-installed in the consumer's registry. `dependencyRefs` is the required manifest. |
+| `"standalone"` | Dependencies are expected to be pre-installed in the consumer's registry. `packageDependencies` is the required manifest. |
 
 **Package invariants** (see also Section 5):
-- Every `fieldId` in any `ModuleFieldAssignment` within `modules[]` must appear in `dependencyRefs[].id`.
-- Every `moduleDefinitionId` referenced by any `TemplateDefinition` in `templates[]` must appear in `dependencyRefs[].id` (with `definitionType: "module"`).
-- If `mode === "bundled"`: every field `DefinitionReference` in `dependencyRefs` must have a matching `FieldDefinition` in `fields[]`; every module `DefinitionReference` must have a matching `ModuleDefinition` in `modules[]`.
+- Every `fieldId` in any `ModuleFieldAssignment` within `modules[]` must appear in `packageDependencies[].id`.
+- Every `moduleDefinitionId` referenced by any `TemplateDefinition` in `templates[]` must appear in `packageDependencies[].id` (with `definitionType: "module"`).
+- If `mode === "bundled"`: every field `DefinitionReference` in `packageDependencies` must have a matching `FieldDefinition` in `fields[]`; every module `DefinitionReference` must have a matching `ModuleDefinition` in `modules[]`.
 
-`dependencyRefs` is required in both modes because consumers need the complete manifest to validate completeness without parsing content internals.
+`packageDependencies` is required in both modes because consumers need the complete manifest to validate completeness without parsing content internals.
 
 ---
 
@@ -6079,9 +6079,9 @@ Conforming implementations must uphold the following invariants.
 
 ### Distribution
 
-7. Every `fieldId` referenced in any `ModuleFieldAssignment` within a `DefinitionPackage.modules[]` must appear as the `id` of an entry in `DefinitionPackage.dependencyRefs`.
+7. Every `fieldId` referenced in any `ModuleFieldAssignment` within a `DefinitionPackage.modules[]` must appear as the `id` of an entry in `DefinitionPackage.packageDependencies`.
 
-8. If `DefinitionPackage.mode === "bundled"`: every `DefinitionReference` in `dependencyRefs` must have a matching `FieldDefinition` in `fields[]` (matched on `id` and `version`).
+8. If `DefinitionPackage.mode === "bundled"`: every `DefinitionReference` in `packageDependencies` must have a matching `FieldDefinition` in `fields[]` (matched on `id` and `version`).
 
 9. `FieldDefinition.id` is stable across versions. A new `id` means a new definition, not a new version of an existing one.
 
@@ -6119,7 +6119,7 @@ Conforming implementations must uphold the following invariants.
 
 ### Distribution — templates
 
-21. Every `moduleDefinitionId` referenced by any `TemplateDefinition` in `DefinitionPackage.templates[]` must appear in `DefinitionPackage.dependencyRefs` with `definitionType: "module"`. If `mode === "bundled"`, that `ModuleDefinition` must be present in `modules[]`.
+21. Every `moduleDefinitionId` referenced by any `TemplateDefinition` in `DefinitionPackage.templates[]` must appear in `DefinitionPackage.packageDependencies` with `definitionType: "module"`. If `mode === "bundled"`, that `ModuleDefinition` must be present in `modules[]`.
 
 ### Containers
 
@@ -6846,7 +6846,7 @@ The distributable artefact. Contains Field, Type, View, and Relation type defini
 
   mode: "bundled" | "standalone"
 
-  dependencyRefs: Reference[]
+  packageDependencies: Reference[]
 }
 ```
 
@@ -6855,9 +6855,9 @@ The distributable artefact. Contains Field, Type, View, and Relation type defini
 | Mode | Meaning |
 |---|---|
 | `"bundled"` | All Field records referenced by any Type, and all Type records referenced by any View, are included in `fields[]` and `types[]`. Self-contained. |
-| `"standalone"` | Dependencies are expected pre-installed in the consumer's registry. `dependencyRefs` is the required manifest. |
+| `"standalone"` | Dependencies are expected pre-installed in the consumer's registry. `packageDependencies` is the required manifest. |
 
-`dependencyRefs` is required in both modes. Consumers use it to validate completeness without parsing content internals.
+`packageDependencies` is required in both modes. Consumers use it to validate completeness without parsing content internals.
 
 ---
 
@@ -7423,7 +7423,7 @@ One section in a Document View.
 }
 ```
 
-#### `DocumentView`
+#### `Composition`
 
 A versioned, Container-level projection. Defines how a Container's Records are assembled into a readable document.
 
@@ -7457,9 +7457,9 @@ A versioned, Container-level projection. Defines how a Container's Records are a
 }
 ```
 
-A `DocumentView` may reference multiple `View` records (via `DocumentSection.renderViewId`) — one per instance type in the document. It orchestrates; it does not replace them.
+A `Composition` may reference multiple `View` records (via `DocumentSection.renderViewId`) — one per instance type in the document. It orchestrates; it does not replace them.
 
-`DocumentSection.renderViewId` references a `View.id` (from `ext:views-l1`). A `DocumentView.id` is not a valid value for `renderViewId` — Document Views are not nestable.
+`DocumentSection.renderViewId` references a `View.id` (from `ext:views-l1`). A `Composition.id` is not a valid value for `renderViewId` — Document Views are not nestable.
 
 ---
 
@@ -7785,9 +7785,9 @@ Conforming implementations must uphold the following invariants.
 
 ### Distribution
 
-**7.** Every `fieldId` referenced in any `FieldAssignment` within a `Package.types[]` must appear as the `id` of an entry in `Package.dependencyRefs`.
+**7.** Every `fieldId` referenced in any `FieldAssignment` within a `Package.types[]` must appear as the `id` of an entry in `Package.packageDependencies`.
 
-**8.** If `Package.mode === "bundled"`: every `Reference` in `dependencyRefs` must have a matching `Field` in `fields[]` (matched on `id` and `version`).
+**8.** If `Package.mode === "bundled"`: every `Reference` in `packageDependencies` must have a matching `Field` in `fields[]` (matched on `id` and `version`).
 
 **9.** `Field.id` is stable across versions. A new `id` means a new definition, not a new version of an existing one.
 
@@ -7807,7 +7807,7 @@ Conforming implementations must uphold the following invariants.
 
 ### Distribution — Views (ext:views-l1)
 
-**15.** Every `typeId` referenced by any `View` in `Package.views[]` must appear in `Package.dependencyRefs` with `definitionType: "type"`. If `mode === "bundled"`, that `Type` must be present in `types[]`.
+**15.** Every `typeId` referenced by any `View` in `Package.views[]` must appear in `Package.packageDependencies` with `definitionType: "type"`. If `mode === "bundled"`, that `Type` must be present in `types[]`.
 
 ### Relations
 
@@ -7857,7 +7857,7 @@ Conforming implementations must uphold the following invariants.
 
 ### Views L2 (ext:views-l2)
 
-**32.** When a `DocumentView` is included in a `Package` (i.e. published for distribution), any `SectionSource` with `type === "type-query"` must use `namespace/name` format for `semanticObjectType` (e.g. `"core/decision"`, not `"decision"`). Bare strings are acceptable only in single-system `DocumentView` records not intended for distribution. Implementations receiving a distributed `DocumentView` with a bare `semanticObjectType` in a `type-query` section should treat the portability of that section as undefined.
+**32.** When a `Composition` is included in a `Package` (i.e. published for distribution), any `SectionSource` with `type === "type-query"` must use `namespace/name` format for `semanticObjectType` (e.g. `"core/decision"`, not `"decision"`). Bare strings are acceptable only in single-system `Composition` records not intended for distribution. Implementations receiving a distributed `Composition` with a bare `semanticObjectType` in a `type-query` section should treat the portability of that section as undefined.
 
 ### Addressability (ext:addressability)
 
@@ -7914,14 +7914,14 @@ Actually this looks like the *newer* version, not the old one. Comparing against
 
 - **Invariant 31** — `order` vs `dependsOn` conflict resolution is now explicit: "`order` is display and presentation sequence... execution sequence is determined by `dependsOn` resolution" with the consistency requirement
 - **AttentionState/Address overlap** — now clarified directly in the `AttentionState` definition: "an `Address` is a stable, resolvable identifier... `AttentionState` is the mutable cursor that records *where focus currently is*"
-- **`type-query` federation hole** — closed by **Invariant 32**, which requires `namespace/name` format for `semanticObjectType` when a `DocumentView` is distributed in a Package
-- **`DocumentView`** — now has a proper TypeScript type name instead of "Document View" in a heading
+- **`type-query` federation hole** — closed by **Invariant 32**, which requires `namespace/name` format for `semanticObjectType` when a `Composition` is distributed in a Package
+- **`Composition`** — now has a proper TypeScript type name instead of "Document View" in a heading
 
 **New additions not in the previous version:**
 
 - The co-dependency note for `ext:protocol` + `ext:addressability` is now in the conformance table with a plain-English explanation, not just buried in the rationale
 - A non-normative Protocol chain example under `ext:protocol` showing AttentionState tagging, chunk context queries, and the full derivation trace — this is the most operationally useful addition
-- `DocumentSection.renderViewId` nesting clarification: "A `DocumentView.id` is not a valid value for `renderViewId` — Document Views are not nestable"
+- `DocumentSection.renderViewId` nesting clarification: "A `Composition.id` is not a valid value for `renderViewId` — Document Views are not nestable"
 
 The invariant count went from 32 to 34 (adding the `order`/`dependsOn` consistency rule and the `type-query` portability rule).
 
@@ -8528,7 +8528,7 @@ The distributable artefact. Contains Field, Type, View, and Relation type defini
 
   mode: "bundled" | "standalone"
 
-  dependencyRefs: Reference[]
+  packageDependencies: Reference[]
 }
 ```
 
@@ -8537,9 +8537,9 @@ The distributable artefact. Contains Field, Type, View, and Relation type defini
 | Mode | Meaning |
 |---|---|
 | `"bundled"` | All Field records referenced by any Type, and all Type records referenced by any View, are included in `fields[]` and `types[]`. Self-contained. |
-| `"standalone"` | Dependencies are expected pre-installed in the consumer's registry. `dependencyRefs` is the required manifest. |
+| `"standalone"` | Dependencies are expected pre-installed in the consumer's registry. `packageDependencies` is the required manifest. |
 
-`dependencyRefs` is required in both modes. Consumers use it to validate completeness without parsing content internals.
+`packageDependencies` is required in both modes. Consumers use it to validate completeness without parsing content internals.
 
 ---
 
@@ -9105,7 +9105,7 @@ One section in a Document View.
 }
 ```
 
-#### `DocumentView`
+#### `Composition`
 
 A versioned, Container-level projection. Defines how a Container's Records are assembled into a readable document.
 
@@ -9139,9 +9139,9 @@ A versioned, Container-level projection. Defines how a Container's Records are a
 }
 ```
 
-A `DocumentView` may reference multiple `View` records (via `DocumentSection.renderViewId`) — one per instance type in the document. It orchestrates; it does not replace them.
+A `Composition` may reference multiple `View` records (via `DocumentSection.renderViewId`) — one per instance type in the document. It orchestrates; it does not replace them.
 
-`DocumentSection.renderViewId` references a `View.id` (from `ext:views-l1`). A `DocumentView.id` is not a valid value for `renderViewId` — Document Views are not nestable.
+`DocumentSection.renderViewId` references a `View.id` (from `ext:views-l1`). A `Composition.id` is not a valid value for `renderViewId` — Document Views are not nestable.
 
 ---
 
@@ -9467,9 +9467,9 @@ Conforming implementations must uphold the following invariants.
 
 ### Distribution
 
-**7.** Every `fieldId` referenced in any `FieldAssignment` within a `Package.types[]` must appear as the `id` of an entry in `Package.dependencyRefs`.
+**7.** Every `fieldId` referenced in any `FieldAssignment` within a `Package.types[]` must appear as the `id` of an entry in `Package.packageDependencies`.
 
-**8.** If `Package.mode === "bundled"`: every `Reference` in `dependencyRefs` must have a matching `Field` in `fields[]` (matched on `id` and `version`).
+**8.** If `Package.mode === "bundled"`: every `Reference` in `packageDependencies` must have a matching `Field` in `fields[]` (matched on `id` and `version`).
 
 **9.** `Field.id` is stable across versions. A new `id` means a new definition, not a new version of an existing one.
 
@@ -9489,7 +9489,7 @@ Conforming implementations must uphold the following invariants.
 
 ### Distribution — Views (ext:views-l1)
 
-**15.** Every `typeId` referenced by any `View` in `Package.views[]` must appear in `Package.dependencyRefs` with `definitionType: "type"`. If `mode === "bundled"`, that `Type` must be present in `types[]`.
+**15.** Every `typeId` referenced by any `View` in `Package.views[]` must appear in `Package.packageDependencies` with `definitionType: "type"`. If `mode === "bundled"`, that `Type` must be present in `types[]`.
 
 ### Relations
 
@@ -9539,7 +9539,7 @@ Conforming implementations must uphold the following invariants.
 
 ### Views L2 (ext:views-l2)
 
-**32.** When a `DocumentView` is included in a `Package` (i.e. published for distribution), any `SectionSource` with `type === "type-query"` must use `namespace/name` format for `semanticObjectType` (e.g. `"core/decision"`, not `"decision"`). Bare strings are acceptable only in single-system `DocumentView` records not intended for distribution. Implementations receiving a distributed `DocumentView` with a bare `semanticObjectType` in a `type-query` section should treat the portability of that section as undefined.
+**32.** When a `Composition` is included in a `Package` (i.e. published for distribution), any `SectionSource` with `type === "type-query"` must use `namespace/name` format for `semanticObjectType` (e.g. `"core/decision"`, not `"decision"`). Bare strings are acceptable only in single-system `Composition` records not intended for distribution. Implementations receiving a distributed `Composition` with a bare `semanticObjectType` in a `type-query` section should treat the portability of that section as undefined.
 
 ### Addressability (ext:addressability)
 
@@ -9594,7 +9594,7 @@ Confirmed — same document I already reviewed, all four fixes are in. The spec 
 
 One gap I missed in the previous review, now that I'm reading more carefully:
 
-**`Package` is missing `documentViews`**
+**`Package` is missing `compositions`**
 
 The Package type has:
 ```typescript
@@ -9603,19 +9603,19 @@ schemas?: Schema[]         // ext:schema
 protocols?: Protocol[]     // ext:protocol
 ```
 
-But no `documentViews?: DocumentView[]` for `ext:views-l2`. This means DocumentViews can't be distributed via Package — which quietly breaks the distribution story for that extension.
+But no `compositions?: Composition[]` for `ext:views-l2`. This means Compositions can't be distributed via Package — which quietly breaks the distribution story for that extension.
 
-This makes Invariant 32 self-contradictory: it says "When a `DocumentView` is included in a `Package`..." but there's currently no field in Package where a DocumentView can appear.
+This makes Invariant 32 self-contradictory: it says "When a `Composition` is included in a `Package`..." but there's currently no field in Package where a Composition can appear.
 
 The fix is straightforward — add to Package:
 
 ```typescript
-documentViews?: DocumentView[]   // ext:views-l2; omit if not in use
+compositions?: Composition[]   // ext:views-l2; omit if not in use
 ```
 
 And add a corresponding distribution invariant (Invariant 35 or between 15 and 16):
 
-> When a `DocumentView` is included in a `Package`, any `DocumentSection.renderViewId` must reference a `View.id` that appears in `Package.views[]` or `Package.dependencyRefs`. If `mode === "bundled"`, that `View` must be present in `Package.views[]`.
+> When a `Composition` is included in a `Package`, any `DocumentSection.renderViewId` must reference a `View.id` that appears in `Package.views[]` or `Package.packageDependencies`. If `mode === "bundled"`, that `View` must be present in `Package.views[]`.
 
 That's the only gap I can find. Everything else holds together.
 
@@ -11056,9 +11056,9 @@ These are mutually exclusive. `overrideFieldOrder` requires inherited UUIDs in `
 Under the current rules (no re-declaration of inherited fields), a specializing Type has no mechanism to set `required` on an inherited field at all. Invariant 42 prevents the field from appearing in `fields[]`. So the constraint being guarded against is structurally impossible, and Invariant 43 is vacuously true.
 This exposes a real design gap: if specializations can't override any `FieldAssignment` properties of inherited fields, that's a significant limitation (no relabelling, no ordering adjustment, no `required` relaxation). If they can, there needs to be an explicit override mechanism — e.g., `fieldAssignmentOverrides?: { fieldId: UUID; displayLabel?: string; required?: boolean }[]` — with Invariant 43 then guarding the `required` property within that override. The current draft is silent on this question.
 4. `transclusionFallback` is on the wrong type
-`ExportConfig` is defined in `ext:views-l1` and lives on `View` — a single-Record presentation. Field transclusion `{{field:...}}` is being introduced in `ext:views-l2` and applies to `DocumentView.preamble`, `DocumentSection.title`, and `DocumentSection.description`. `DocumentView` has no `ExportConfig`. Either add `transclusionFallback` directly to `DocumentView`, or define a `DocumentViewExportConfig` that `DocumentView` gets alongside `format`. Putting it on the `View`-level `ExportConfig` is the wrong attachment point.
+`ExportConfig` is defined in `ext:views-l1` and lives on `View` — a single-Record presentation. Field transclusion `{{field:...}}` is being introduced in `ext:views-l2` and applies to `Composition.preamble`, `DocumentSection.title`, and `DocumentSection.description`. `Composition` has no `ExportConfig`. Either add `transclusionFallback` directly to `Composition`, or define a `CompositionExportConfig` that `Composition` gets alongside `format`. Putting it on the `View`-level `ExportConfig` is the wrong attachment point.
 5. Open Question 1 needs a decision, not just documentation
-The transitive closure question for multi-level inheritance has a straightforward answer: yes, `Package.dependencyRefs` must include the full transitive closure of base Types for any Type in `types[]`. This should be stated as a corollary to Invariant 44 (or as Invariant 44 itself, made more precise) rather than left as an open question — it's an invariant the spec needs to enforce, not optional guidance.
+The transitive closure question for multi-level inheritance has a straightforward answer: yes, `Package.packageDependencies` must include the full transitive closure of base Types for any Type in `types[]`. This should be stated as a corollary to Invariant 44 (or as Invariant 44 itself, made more precise) rather than left as an open question — it's an invariant the spec needs to enforce, not optional guidance.
 
 ---
 
@@ -11074,7 +11074,7 @@ All five points addressed:
 
 **3. Invariant 43 vacuous truth** — removed. Replaced by two meaningful invariants: 43 (fieldOrder must contain exactly the effective field set) and 44 (fieldAssignmentOverrides.required may not tighten). Invariant 44 now guards something that can actually happen.
 
-**4. `transclusionFallback` attachment** — moved from `ExportConfig` to `DocumentView` directly, with an explicit note explaining why: `ExportConfig` lives on `View` in ext:views-l1 and doesn't apply to `DocumentView`.
+**4. `transclusionFallback` attachment** — moved from `ExportConfig` to `Composition` directly, with an explicit note explaining why: `ExportConfig` lives on `View` in ext:views-l1 and doesn't apply to `Composition`.
 
 **5. Open Question 1** — closed as resolved. Invariant 45 now states the transitive closure rule explicitly. Open Question 1 is struck through and annotated. A new Open Question 5 was added (the `fieldAssignmentOverrides` × `ext:views-l1` precedence rule) which surfaced as a consequence of the fix to point 3.
 
@@ -11683,14 +11683,14 @@ The distributable artefact. Contains Field, Type, View, and Relation type defini
   fields: Field[]
   types: Type[]
   views?: View[]             // ext:views-l1; omit if not in use
-  documentViews?: DocumentView[]  // ext:views-l2; omit if not in use
+  compositions?: Composition[]  // ext:views-l2; omit if not in use
   schemas?: Schema[]         // ext:schema; omit if not in use
   protocols?: Protocol[]     // ext:protocol; omit if not in use
   relationTypes?: RelationTypeDefinition[]  // ext:recommended-relations
 
   mode: "bundled" | "standalone"
 
-  dependencyRefs: Reference[]
+  packageDependencies: Reference[]
 }
 ```
 
@@ -11698,10 +11698,10 @@ The distributable artefact. Contains Field, Type, View, and Relation type defini
 
 | Mode | Meaning |
 |---|---|
-| `"bundled"` | All Field records referenced by any Type, all Type records referenced by any Type or View, and all View records referenced by any DocumentView are included in their respective arrays. Self-contained. |
-| `"standalone"` | Dependencies are expected pre-installed in the consumer's registry. `dependencyRefs` is the required manifest. |
+| `"bundled"` | All Field records referenced by any Type, all Type records referenced by any Type or View, and all View records referenced by any Composition are included in their respective arrays. Self-contained. |
+| `"standalone"` | Dependencies are expected pre-installed in the consumer's registry. `packageDependencies` is the required manifest. |
 
-`dependencyRefs` is required in both modes. Consumers use it to validate completeness without parsing content internals.
+`packageDependencies` is required in both modes. Consumers use it to validate completeness without parsing content internals.
 
 ---
 
@@ -12350,7 +12350,7 @@ An assembly-time cross-section link in a Document View. Navigation links are rea
 }
 ```
 
-#### `DocumentView`
+#### `Composition`
 
 A versioned, Container-level projection. Defines how a Container's Records are assembled into a readable document.
 
@@ -12386,9 +12386,9 @@ A versioned, Container-level projection. Defines how a Container's Records are a
 }
 ```
 
-A `DocumentView` may reference multiple `View` records (via `DocumentSection.renderViewId`) — one per instance type in the document. It orchestrates; it does not replace them.
+A `Composition` may reference multiple `View` records (via `DocumentSection.renderViewId`) — one per instance type in the document. It orchestrates; it does not replace them.
 
-`DocumentSection.renderViewId` references a `View.id` (from `ext:views-l1`). A `DocumentView.id` is not a valid value for `renderViewId` — Document Views are not nestable.
+`DocumentSection.renderViewId` references a `View.id` (from `ext:views-l1`). A `Composition.id` is not a valid value for `renderViewId` — Document Views are not nestable.
 
 Use `navigationLinks` when a rendered document should include "see also" or related-section links. Use `Relation` only when the relationship is a semantic assertion about Records.
 
@@ -12718,9 +12718,9 @@ Conforming implementations must uphold the following invariants.
 
 ### Distribution
 
-**7.** Every `fieldId` referenced in any `FieldAssignment` within a `Package.types[]` must appear as the `id` of an entry in `Package.dependencyRefs`.
+**7.** Every `fieldId` referenced in any `FieldAssignment` within a `Package.types[]` must appear as the `id` of an entry in `Package.packageDependencies`.
 
-**8.** If `Package.mode === "bundled"`: every `Reference` in `dependencyRefs` must have a matching `Field` in `fields[]` (matched on `id` and `version`).
+**8.** If `Package.mode === "bundled"`: every `Reference` in `packageDependencies` must have a matching `Field` in `fields[]` (matched on `id` and `version`).
 
 **9.** `Field.id` is stable across versions. A new `id` means a new definition, not a new version of an existing one.
 
@@ -12740,7 +12740,7 @@ Conforming implementations must uphold the following invariants.
 
 ### Distribution — Views (ext:views-l1)
 
-**15.** Every `typeId` referenced by any `View` in `Package.views[]` must appear in `Package.dependencyRefs` with `definitionType: "type"`. If `mode === "bundled"`, that `Type` must be present in `types[]`.
+**15.** Every `typeId` referenced by any `View` in `Package.views[]` must appear in `Package.packageDependencies` with `definitionType: "type"`. If `mode === "bundled"`, that `Type` must be present in `types[]`.
 
 ### Relations
 
@@ -12790,7 +12790,7 @@ Conforming implementations must uphold the following invariants.
 
 ### Views L2 (ext:views-l2)
 
-**32.** Any `DocumentView` in `Package.documentViews[]` that contains a `SectionSource` with `type === "type-query"` must use `namespace/name` format for `semanticObjectType` (e.g. `"core/decision"`, not `"decision"`). Bare strings are acceptable only in single-system `DocumentView` records not included in a Package. Implementations receiving a `DocumentView` from a Package with a bare `semanticObjectType` in a `type-query` section should treat the portability of that section as undefined.
+**32.** Any `Composition` in `Package.compositions[]` that contains a `SectionSource` with `type === "type-query"` must use `namespace/name` format for `semanticObjectType` (e.g. `"core/decision"`, not `"decision"`). Bare strings are acceptable only in single-system `Composition` records not included in a Package. Implementations receiving a `Composition` from a Package with a bare `semanticObjectType` in a `type-query` section should treat the portability of that section as undefined.
 
 ### Addressability (ext:addressability)
 
@@ -12800,15 +12800,15 @@ Conforming implementations must uphold the following invariants.
 
 ### Distribution — Views L2 (ext:views-l2)
 
-**35.** Every `DocumentSection.renderViewId` in any `DocumentView` within `Package.documentViews[]` must reference a `View.id` that appears in `Package.views[]` or `Package.dependencyRefs`. If `mode === "bundled"`, that `View` must be present in `Package.views[]`.
+**35.** Every `DocumentSection.renderViewId` in any `Composition` within `Package.compositions[]` must reference a `View.id` that appears in `Package.views[]` or `Package.packageDependencies`. If `mode === "bundled"`, that `View` must be present in `Package.views[]`.
 
 ### Distribution — Schema (ext:schema)
 
-**36.** Every `TypeRef.typeId` referenced in any `Schema.rootTypes[]`, `Schema.requiredTypes[]`, or in any `RelationSpec.sourceType` or `RelationSpec.targetType` within `Schema.structure[]`, for each Schema in `Package.schemas[]`, must appear in `Package.dependencyRefs` with `definitionType: "type"`. If `mode === "bundled"`, each such Type must be present in `Package.types[]`.
+**36.** Every `TypeRef.typeId` referenced in any `Schema.rootTypes[]`, `Schema.requiredTypes[]`, or in any `RelationSpec.sourceType` or `RelationSpec.targetType` within `Schema.structure[]`, for each Schema in `Package.schemas[]`, must appear in `Package.packageDependencies` with `definitionType: "type"`. If `mode === "bundled"`, each such Type must be present in `Package.types[]`.
 
 ### Distribution — Protocol (ext:protocol)
 
-**37.** Every `TypeRef.typeId` referenced in `Protocol.targetType` or in any `ProtocolStage.outputType`, for each Protocol in `Package.protocols[]`, must appear in `Package.dependencyRefs` with `definitionType: "type"`. Every `FieldRef.fieldId` in any `ProtocolStage.contributesTo[]` must appear in `Package.dependencyRefs` with `definitionType: "field"`. If `mode === "bundled"`, those Types must be in `Package.types[]` and those Fields in `Package.fields[]`.
+**37.** Every `TypeRef.typeId` referenced in `Protocol.targetType` or in any `ProtocolStage.outputType`, for each Protocol in `Package.protocols[]`, must appear in `Package.packageDependencies` with `definitionType: "type"`. Every `FieldRef.fieldId` in any `ProtocolStage.contributesTo[]` must appear in `Package.packageDependencies` with `definitionType: "field"`. If `mode === "bundled"`, those Types must be in `Package.types[]` and those Fields in `Package.fields[]`.
 
 ### Field semantics — content format
 
@@ -12824,11 +12824,11 @@ Conforming implementations must uphold the following invariants.
 
 **42.** Every `fieldId` in `Type.fieldAssignmentOverrides[]` must reference a field inherited from the base Type or an ancestor Type. Overrides must not reference fields declared in the specializing Type's own `fields[]`, must not alter Field semantics, and must not relax an inherited required field from `true` to `false`.
 
-**43.** When `ext:type-inheritance` is declared, `Package.dependencyRefs` must include a `Reference` for every Type in the transitive closure of base Types for any Type in `Package.types[]`. If `mode === "bundled"`, all such base Types must be present in `types[]`.
+**43.** When `ext:type-inheritance` is declared, `Package.packageDependencies` must include a `Reference` for every Type in the transitive closure of base Types for any Type in `Package.types[]`. If `mode === "bundled"`, all such base Types must be present in `types[]`.
 
 ### Views L2 navigation (ext:views-l2)
 
-**44.** Every `NavigationLink.fromSectionId` and `NavigationLink.toSectionId` must reference a `sectionId` declared in the enclosing `DocumentView.sections[]`.
+**44.** Every `NavigationLink.fromSectionId` and `NavigationLink.toSectionId` must reference a `sectionId` declared in the enclosing `Composition.sections[]`.
 
 ---
 
@@ -12895,7 +12895,7 @@ Good evolution. Let me give a precise read against what was proposed.
 
 **What's incorporated cleanly**
 
-`ext:type-inheritance` is in. `fieldOrder` and `fieldAssignmentOverrides` replaced `overrideFieldOrder` correctly. Distribution invariants 35–37 close the DocumentView/Schema/Protocol bundling gaps that were flagged. `documentViews` is now in Package with the bundled mode semantics updated to cover the DocumentView → View closure. NavigationLink is in ext:views-l2. Section 8.5 exists. Invariant 30 is significantly improved — the `outputType` vs `targetType` split is now explicit and the vacuous case (neither declared) is handled. Invariant 10 and 23 have been tightened. Field Groups independence from ext:repeatable-fields is explicitly documented.
+`ext:type-inheritance` is in. `fieldOrder` and `fieldAssignmentOverrides` replaced `overrideFieldOrder` correctly. Distribution invariants 35–37 close the Composition/Schema/Protocol bundling gaps that were flagged. `compositions` is now in Package with the bundled mode semantics updated to cover the Composition → View closure. NavigationLink is in ext:views-l2. Section 8.5 exists. Invariant 30 is significantly improved — the `outputType` vs `targetType` split is now explicit and the vacuous case (neither declared) is handled. Invariant 10 and 23 have been tightened. Field Groups independence from ext:repeatable-fields is explicitly documented.
 
 **One substantive correction: the spec improved on the proposal**
 
@@ -12913,7 +12913,7 @@ The spec's version is correct for DITA-style graceful degradation. If a speciali
 
 `ext:annotations` is not yet in the spec. This cascades correctly — `View.protection "comments-only"` is absent (it depends on ext:annotations), the ext:annotations × ext:addressability Section 8.5 entry is absent, and the annotation invariants (39–40 in the proposal) are not present. The spec ends at Invariant 44. This is the right staging — add ext:annotations as a discrete step.
 
-`ext:field-domains` is not yet in the spec. No field transclusion (`{{field:...}}` syntax, `DocumentView.transclusionFallback`). Both sensibly deferred.
+`ext:field-domains` is not yet in the spec. No field transclusion (`{{field:...}}` syntax, `Composition.transclusionFallback`). Both sensibly deferred.
 
 **One minor naming collision to track**
 
@@ -13532,14 +13532,14 @@ The distributable artefact. Contains Field, Type, View, and Relation type defini
   fields: Field[]
   types: Type[]
   views?: View[]             // ext:views-l1; omit if not in use
-  documentViews?: DocumentView[]  // ext:views-l2; omit if not in use
+  compositions?: Composition[]  // ext:views-l2; omit if not in use
   schemas?: Schema[]         // ext:schema; omit if not in use
   protocols?: Protocol[]     // ext:protocol; omit if not in use
   relationTypes?: RelationTypeDefinition[]  // ext:recommended-relations
 
   mode: "bundled" | "standalone"
 
-  dependencyRefs: Reference[]
+  packageDependencies: Reference[]
 }
 ```
 
@@ -13547,10 +13547,10 @@ The distributable artefact. Contains Field, Type, View, and Relation type defini
 
 | Mode | Meaning |
 |---|---|
-| `"bundled"` | All Field records referenced by any Type, all Type records referenced by any Type or View, and all View records referenced by any DocumentView are included in their respective arrays. Self-contained. |
-| `"standalone"` | Dependencies are expected pre-installed in the consumer's registry. `dependencyRefs` is the required manifest. |
+| `"bundled"` | All Field records referenced by any Type, all Type records referenced by any Type or View, and all View records referenced by any Composition are included in their respective arrays. Self-contained. |
+| `"standalone"` | Dependencies are expected pre-installed in the consumer's registry. `packageDependencies` is the required manifest. |
 
-`dependencyRefs` is required in both modes. Consumers use it to validate completeness without parsing content internals.
+`packageDependencies` is required in both modes. Consumers use it to validate completeness without parsing content internals.
 
 ---
 
@@ -14199,7 +14199,7 @@ An assembly-time cross-section link in a Document View. Navigation links are rea
 }
 ```
 
-#### `DocumentView`
+#### `Composition`
 
 A versioned, Container-level projection. Defines how a Container's Records are assembled into a readable document.
 
@@ -14235,9 +14235,9 @@ A versioned, Container-level projection. Defines how a Container's Records are a
 }
 ```
 
-A `DocumentView` may reference multiple `View` records (via `DocumentSection.renderViewId`) — one per instance type in the document. It orchestrates; it does not replace them.
+A `Composition` may reference multiple `View` records (via `DocumentSection.renderViewId`) — one per instance type in the document. It orchestrates; it does not replace them.
 
-`DocumentSection.renderViewId` references a `View.id` (from `ext:views-l1`). A `DocumentView.id` is not a valid value for `renderViewId` — Document Views are not nestable.
+`DocumentSection.renderViewId` references a `View.id` (from `ext:views-l1`). A `Composition.id` is not a valid value for `renderViewId` — Document Views are not nestable.
 
 Use `navigationLinks` when a rendered document should include "see also" or related-section links. Use `Relation` only when the relationship is a semantic assertion about Records.
 
@@ -14567,9 +14567,9 @@ Conforming implementations must uphold the following invariants.
 
 ### Distribution
 
-**7.** Every `fieldId` referenced in any `FieldAssignment` within a `Package.types[]` must appear as the `id` of an entry in `Package.dependencyRefs`.
+**7.** Every `fieldId` referenced in any `FieldAssignment` within a `Package.types[]` must appear as the `id` of an entry in `Package.packageDependencies`.
 
-**8.** If `Package.mode === "bundled"`: every `Reference` in `dependencyRefs` must have a matching `Field` in `fields[]` (matched on `id` and `version`).
+**8.** If `Package.mode === "bundled"`: every `Reference` in `packageDependencies` must have a matching `Field` in `fields[]` (matched on `id` and `version`).
 
 **9.** `Field.id` is stable across versions. A new `id` means a new definition, not a new version of an existing one.
 
@@ -14589,7 +14589,7 @@ Conforming implementations must uphold the following invariants.
 
 ### Distribution — Views (ext:views-l1)
 
-**15.** Every `typeId` referenced by any `View` in `Package.views[]` must appear in `Package.dependencyRefs` with `definitionType: "type"`. If `mode === "bundled"`, that `Type` must be present in `types[]`.
+**15.** Every `typeId` referenced by any `View` in `Package.views[]` must appear in `Package.packageDependencies` with `definitionType: "type"`. If `mode === "bundled"`, that `Type` must be present in `types[]`.
 
 ### Relations
 
@@ -14639,7 +14639,7 @@ Conforming implementations must uphold the following invariants.
 
 ### Views L2 (ext:views-l2)
 
-**32.** Any `DocumentView` in `Package.documentViews[]` that contains a `SectionSource` with `type === "type-query"` must use `namespace/name` format for `semanticObjectType` (e.g. `"core/decision"`, not `"decision"`). Bare strings are acceptable only in single-system `DocumentView` records not included in a Package. Implementations receiving a `DocumentView` from a Package with a bare `semanticObjectType` in a `type-query` section should treat the portability of that section as undefined.
+**32.** Any `Composition` in `Package.compositions[]` that contains a `SectionSource` with `type === "type-query"` must use `namespace/name` format for `semanticObjectType` (e.g. `"core/decision"`, not `"decision"`). Bare strings are acceptable only in single-system `Composition` records not included in a Package. Implementations receiving a `Composition` from a Package with a bare `semanticObjectType` in a `type-query` section should treat the portability of that section as undefined.
 
 ### Addressability (ext:addressability)
 
@@ -14649,15 +14649,15 @@ Conforming implementations must uphold the following invariants.
 
 ### Distribution — Views L2 (ext:views-l2)
 
-**35.** Every `DocumentSection.renderViewId` in any `DocumentView` within `Package.documentViews[]` must reference a `View.id` that appears in `Package.views[]` or `Package.dependencyRefs`. If `mode === "bundled"`, that `View` must be present in `Package.views[]`.
+**35.** Every `DocumentSection.renderViewId` in any `Composition` within `Package.compositions[]` must reference a `View.id` that appears in `Package.views[]` or `Package.packageDependencies`. If `mode === "bundled"`, that `View` must be present in `Package.views[]`.
 
 ### Distribution — Schema (ext:schema)
 
-**36.** Every `TypeRef.typeId` referenced in any `Schema.rootTypes[]`, `Schema.requiredTypes[]`, or in any `RelationSpec.sourceType` or `RelationSpec.targetType` within `Schema.structure[]`, for each Schema in `Package.schemas[]`, must appear in `Package.dependencyRefs` with `definitionType: "type"`. If `mode === "bundled"`, each such Type must be present in `Package.types[]`.
+**36.** Every `TypeRef.typeId` referenced in any `Schema.rootTypes[]`, `Schema.requiredTypes[]`, or in any `RelationSpec.sourceType` or `RelationSpec.targetType` within `Schema.structure[]`, for each Schema in `Package.schemas[]`, must appear in `Package.packageDependencies` with `definitionType: "type"`. If `mode === "bundled"`, each such Type must be present in `Package.types[]`.
 
 ### Distribution — Protocol (ext:protocol)
 
-**37.** Every `TypeRef.typeId` referenced in `Protocol.targetType` or in any `ProtocolStage.outputType`, for each Protocol in `Package.protocols[]`, must appear in `Package.dependencyRefs` with `definitionType: "type"`. Every `FieldRef.fieldId` in any `ProtocolStage.contributesTo[]` must appear in `Package.dependencyRefs` with `definitionType: "field"`. If `mode === "bundled"`, those Types must be in `Package.types[]` and those Fields in `Package.fields[]`.
+**37.** Every `TypeRef.typeId` referenced in `Protocol.targetType` or in any `ProtocolStage.outputType`, for each Protocol in `Package.protocols[]`, must appear in `Package.packageDependencies` with `definitionType: "type"`. Every `FieldRef.fieldId` in any `ProtocolStage.contributesTo[]` must appear in `Package.packageDependencies` with `definitionType: "field"`. If `mode === "bundled"`, those Types must be in `Package.types[]` and those Fields in `Package.fields[]`.
 
 ### Field semantics — content format
 
@@ -14673,11 +14673,11 @@ Conforming implementations must uphold the following invariants.
 
 **42.** Every `fieldId` in `Type.fieldAssignmentOverrides[]` must reference a field inherited from the base Type or an ancestor Type. Overrides must not reference fields declared in the specializing Type's own `fields[]`, must not alter Field semantics, and must not relax an inherited required field from `true` to `false`.
 
-**43.** When `ext:type-inheritance` is declared, `Package.dependencyRefs` must include a `Reference` for every Type in the transitive closure of base Types for any Type in `Package.types[]`. If `mode === "bundled"`, all such base Types must be present in `types[]`.
+**43.** When `ext:type-inheritance` is declared, `Package.packageDependencies` must include a `Reference` for every Type in the transitive closure of base Types for any Type in `Package.types[]`. If `mode === "bundled"`, all such base Types must be present in `types[]`.
 
 ### Views L2 navigation (ext:views-l2)
 
-**44.** Every `NavigationLink.fromSectionId` and `NavigationLink.toSectionId` must reference a `sectionId` declared in the enclosing `DocumentView.sections[]`.
+**44.** Every `NavigationLink.fromSectionId` and `NavigationLink.toSectionId` must reference a `sectionId` declared in the enclosing `Composition.sections[]`.
 
 ---
 
@@ -15716,13 +15716,13 @@ This is where the architecture becomes genuinely interesting. A smart contract i
 
 ```
 SCDS ContractTerm Records (agreed semantic state)
-  ↓ DocumentView
+  ↓ Composition
   Human-readable contract document
   ↓ SmartContractView  ← new projection type
   Executable code (Solidity, Michelson, etc.)
 ```
 
-A `SmartContractView` is architecturally the same as `DocumentView` but produces code instead of prose. It maps:
+A `SmartContractView` is architecturally the same as `Composition` but produces code instead of prose. It maps:
 
 ```
 ContractTerm.amount (number) → uint256
@@ -15793,7 +15793,7 @@ The extension dependency graph becomes machine-navigable. The invariant-to-exten
 
 **The document becomes a projection**
 
-The markdown spec file is currently the source of truth. In the self-describing architecture it becomes a DocumentView — a projection from the Records. Invariant 42's statement lives in an Invariant Record; the spec document is generated from it. Changes to the spec are Record-first: update the Record with full provenance, regenerate the document.
+The markdown spec file is currently the source of truth. In the self-describing architecture it becomes a Composition — a projection from the Records. Invariant 42's statement lives in an Invariant Record; the spec document is generated from it. Changes to the spec are Record-first: update the Record with full provenance, regenerate the document.
 
 This has a practical consequence: internal consistency becomes verifiable. Does every `dependsOn` extension reference in the conformance table correspond to a `depends-on` Relation between Extension Records? Checkable. Does every invariant belong to exactly one extension or core? Checkable.
 

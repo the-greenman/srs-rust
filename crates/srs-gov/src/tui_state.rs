@@ -53,7 +53,7 @@ pub struct AppState {
     pub repo_title: String,
     pub sections: Vec<SectionItem>,
     pub records: Vec<RecordItem>,
-    pub active_document_view_id: Option<String>,
+    pub active_composition_id: Option<String>,
     pub columns: Vec<ColumnItem>,
     pub diagnostics: Vec<String>,
     pub section_index: usize,
@@ -77,7 +77,7 @@ impl AppState {
             repo_title: repo_title.into(),
             sections,
             records: Vec::new(),
-            active_document_view_id: None,
+            active_composition_id: None,
             columns: Vec::new(),
             diagnostics: Vec::new(),
             section_index: 0,
@@ -98,11 +98,11 @@ impl AppState {
 
     pub fn set_view_context(
         &mut self,
-        document_view_id: Option<String>,
+        composition_id: Option<String>,
         columns: Vec<ColumnItem>,
         diagnostics: Vec<String>,
     ) {
-        self.active_document_view_id = document_view_id;
+        self.active_composition_id = composition_id;
         self.columns = columns;
         self.diagnostics = diagnostics;
     }

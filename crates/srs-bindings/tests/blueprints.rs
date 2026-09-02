@@ -39,7 +39,7 @@ fn blueprint_srsj() -> String {
                 "types": ["types/guide.json", "types/section.json"],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": [],
+                "compositions": [],
                 "blueprints": ["blueprints/guide.json"]
             },
             "package/fields/title.json": {

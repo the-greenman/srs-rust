@@ -771,16 +771,16 @@ fn setup_repo(suffix: &str) -> TempGovRepo {
 // not the gallery-fixture container UUIDs the canonical package ships with.
 // ---------------------------------------------------------------------------
 
-/// Package-stable DocumentView UUIDs (com.mudemocracy.governance @1.0.0).
+/// Package-stable Composition UUIDs (com.mudemocracy.governance @1.0.0).
 const DECISION_LOG_VIEW: &str = "b5c8d124-2084-4a6b-a231-425e800e1e55";
 const DELIBERATION_VIEW: &str = "5a3ce87e-8340-4d91-a140-ab56b57f704f";
-const GOV_DOCUMENT_VIEW: &str = "732a982b-3765-4f22-90e0-e456463bac54";
+const GOV_COMPOSITION: &str = "732a982b-3765-4f22-90e0-e456463bac54";
 
 #[test]
-fn repo_create_document_views_bind_to_scaffolded_containers() {
+fn repo_create_compositions_bind_to_scaffolded_containers() {
     let repo = setup_repo("dv-rebind");
 
-    // 1. validate: zero errors AND zero dangling document-view container warnings
+    // 1. validate: zero errors AND zero dangling composition container warnings
     //    (the #509 validate check would flag any gallery UUID that survived install).
     let v = srs_json(&repo.path, &["repo", "validate"], None);
     assert_eq!(v["payload"]["summary"]["errors"].as_u64(), Some(0));
@@ -797,13 +797,13 @@ fn repo_create_document_views_bind_to_scaffolded_containers() {
         .collect();
     assert!(
         dangling.is_empty(),
-        "fresh repo-create must not ship dangling document-view container refs: {dangling:?}"
+        "fresh repo-create must not ship dangling composition container refs: {dangling:?}"
     );
 
     // 2. articles-and-roles cannot bind in the release-1 (decision-log-only) shape
     //    and must be removed from the install.
-    let list = srs_json(&repo.path, &["document-view", "list"], None);
-    let names: Vec<&str> = list["payload"]["documentViews"]
+    let list = srs_json(&repo.path, &["composition", "list"], None);
+    let names: Vec<&str> = list["payload"]["compositions"]
         .as_array()
         .unwrap()
         .iter()
@@ -816,12 +816,8 @@ fn repo_create_document_views_bind_to_scaffolded_containers() {
 
     // 3. All three surviving views render ok and include real decision-log content
     //    (setup_repo created decisions; "Adopt monthly cadence" is the draft one).
-    for view in [DECISION_LOG_VIEW, DELIBERATION_VIEW, GOV_DOCUMENT_VIEW] {
-        let r = srs_json(
-            &repo.path,
-            &["render", "document-view", "--view", view],
-            None,
-        );
+    for view in [DECISION_LOG_VIEW, DELIBERATION_VIEW, GOV_COMPOSITION] {
+        let r = srs_json(&repo.path, &["render", "composition", "--view", view], None);
         let rendered = r["payload"]["rendered"].as_str().unwrap_or("");
         assert!(
             rendered.contains("Adopt monthly cadence"),

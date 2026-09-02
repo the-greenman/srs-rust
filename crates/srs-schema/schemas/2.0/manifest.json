@@ -246,15 +246,15 @@
     "RenderedPresentation": {
       "type": "object",
       "required": [
-        "viewId"
+        "compositionId"
       ],
       "additionalProperties": false,
-      "description": "RFC-015 [N+31]. A declared presentation of this repository: a DocumentView that a conformant viewer should offer as a rendered entry point.",
+      "description": "RFC-015 [N+31]. A declared presentation of this repository: a Composition that a conformant viewer should offer as a rendered entry point.",
       "properties": {
-        "viewId": {
+        "compositionId": {
           "type": "string",
           "format": "uuid",
-          "description": "UUID of the DocumentView (DocumentView.id) constituting this presentation. Must resolve to a DocumentView in the active package(s). Resolution conflict across packages is a validation error."
+          "description": "UUID of the Composition (Composition.id) constituting this presentation. Must resolve to a Composition in the active package(s). Resolution conflict across packages is a validation error. srs-rust#910: renamed from viewId (rfc-decision-92d2da05); unconsumed by srs-rust today (srs-rust#567)."
         },
         "isDefault": {
           "type": "boolean",

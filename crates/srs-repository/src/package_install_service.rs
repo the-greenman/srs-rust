@@ -58,7 +58,7 @@ const INSTALL_ORDER: [DefinitionKind; 10] = [
     DefinitionKind::Lifecycle,
     DefinitionKind::Vocabulary,
     DefinitionKind::View,
-    DefinitionKind::DocumentView,
+    DefinitionKind::Composition,
     DefinitionKind::Theme,
     DefinitionKind::Blueprint,
     DefinitionKind::Protocol,
@@ -70,7 +70,7 @@ fn kind_label(kind: DefinitionKind) -> &'static str {
         DefinitionKind::Field => "field",
         DefinitionKind::Type => "type",
         DefinitionKind::View => "view",
-        DefinitionKind::DocumentView => "documentView",
+        DefinitionKind::Composition => "composition",
         DefinitionKind::RelationType => "relationType",
         DefinitionKind::Blueprint => "blueprint",
         DefinitionKind::Protocol => "protocol",
@@ -114,7 +114,7 @@ pub struct PackageSourceBundle {
 /// the target repository.
 ///
 /// Every definition is validated with the same strictness the repository loader
-/// applies (typed parse + core validation for views/document-views/themes/
+/// applies (typed parse + core validation for views/compositions/themes/
 /// relation types), so a successful install can never leave the target repo in a
 /// state where `load_package()` fails.
 pub fn load_package_source_dir(source_dir: &Path) -> Result<PackageSourceBundle, RepositoryError> {
@@ -305,14 +305,14 @@ fn validate_source_definition(
                 }
             })?;
         }
-        DefinitionKind::DocumentView => {
-            let dv: srs_core::types::view::DocumentView = serde_json::from_value(value.clone())
-                .map_err(|source| RepositoryError::DocumentViewLoad {
+        DefinitionKind::Composition => {
+            let dv: srs_core::types::view::Composition = serde_json::from_value(value.clone())
+                .map_err(|source| RepositoryError::CompositionLoad {
                     path: path.to_path_buf(),
                     source,
                 })?;
-            srs_core::validation::view::validate_document_view(&dv).map_err(|source| {
-                RepositoryError::DocumentViewValidation {
+            srs_core::validation::view::validate_composition(&dv).map_err(|source| {
+                RepositoryError::CompositionValidation {
                     path: path.to_path_buf(),
                     source,
                 }
@@ -409,7 +409,7 @@ fn to_definition_type(kind: DefinitionKind) -> Option<DefinitionType> {
         DefinitionKind::View => Some(DefinitionType::View),
         DefinitionKind::Blueprint => Some(DefinitionType::Blueprint),
         DefinitionKind::Protocol => Some(DefinitionType::Protocol),
-        DefinitionKind::DocumentView
+        DefinitionKind::Composition
         | DefinitionKind::Lifecycle
         | DefinitionKind::Vocabulary
         | DefinitionKind::Theme => None,

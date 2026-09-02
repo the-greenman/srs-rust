@@ -29,7 +29,7 @@ use srs_core::types::{
     relation_type_definition::RelationTypeDefinition,
     term::Term,
     theme::Theme,
-    view::{DocumentView, View},
+    view::{Composition, View},
     vocabulary::Vocabulary,
 };
 use srs_repository::{
@@ -49,7 +49,7 @@ use srs_repository::{
     services::{ListNoteTagsResult, NoteSummary, TagSummary},
     theme_service::ThemeSummary,
     validation::{RepositoryValidationReport, ValidationSummary},
-    view_service::{DocumentViewSummary, ViewSummary},
+    view_service::{CompositionSummary, ViewSummary},
     vocabulary_service::TagSetEntry,
 };
 use std::path::PathBuf;
@@ -575,7 +575,7 @@ pub struct ContainerValidatePayload {
 ///
 /// Carries the structured container view: the container root record, ordered member
 /// records (Tier-0, Tier-1, or Tier-2; full `Record` present only for Tier-2), the
-/// DocumentView-driven column spec, and non-fatal diagnostics.
+/// Composition-driven column spec, and non-fatal diagnostics.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerViewPayload {
@@ -1097,35 +1097,35 @@ pub struct ViewDeletePayload {
 
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct DocumentViewListPayload {
+pub struct CompositionListPayload {
     #[schemars(with = "Vec<serde_json::Value>")]
-    pub document_views: Vec<DocumentViewSummary>,
+    pub compositions: Vec<CompositionSummary>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct DocumentViewPayload {
+pub struct CompositionPayload {
     #[schemars(with = "serde_json::Value")]
-    pub document_view: DocumentView,
+    pub composition: Composition,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct DocumentViewDeletePayload {
+pub struct CompositionDeletePayload {
     pub id: String,
 }
 
-/// Payload for `document-view list-for-container <container-id>`.
+/// Payload for `composition list-for-container <container-id>`.
 ///
-/// Returns the DocumentViews whose `rootTypeRefs` match the type bound to
+/// Returns the Compositions whose `rootTypeRefs` match the type bound to
 /// the container's first root instance. Empty when the root instance has no
-/// type binding or when no DocumentViews match.
+/// type binding or when no Compositions match.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct DocumentViewsForContainerPayload {
+pub struct CompositionsForContainerPayload {
     pub container_id: String,
     #[schemars(with = "Vec<serde_json::Value>")]
-    pub document_views: Vec<DocumentViewSummary>,
+    pub compositions: Vec<CompositionSummary>,
 }
 
 // ── Theme payloads ────────────────────────────────────────────────────────────
@@ -1248,11 +1248,11 @@ pub struct ProjectedSection {
 /// The top-level JSON projection object for a rendered document view.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct DocumentViewProjection {
+pub struct CompositionProjection {
     #[serde(rename = "$schema")]
     #[schemars(rename = "$schema")]
     pub schema: String,
-    pub document_view_id: String,
+    pub composition_id: String,
     pub container_id: Option<String>,
     pub generated_at: String,
     pub container_title: String,
@@ -1263,11 +1263,11 @@ pub struct DocumentViewProjection {
 
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct RenderDocumentViewPayload {
+pub struct RenderCompositionPayload {
     pub rendered: String,
     pub diagnostics: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub projection: Option<DocumentViewProjection>,
+    pub projection: Option<CompositionProjection>,
 }
 
 // ── Repo payloads ─────────────────────────────────────────────────────────────
@@ -1329,9 +1329,9 @@ pub struct RepoDiffSummary {
     pub blueprints_added: usize,
     pub blueprints_removed: usize,
     pub blueprints_modified: usize,
-    pub document_views_added: usize,
-    pub document_views_removed: usize,
-    pub document_views_modified: usize,
+    pub compositions_added: usize,
+    pub compositions_removed: usize,
+    pub compositions_modified: usize,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -1462,7 +1462,7 @@ pub struct RepoDiffPackage {
     pub fields: RepoDiffPackageCategory,
     pub record_types: RepoDiffPackageCategory,
     pub blueprints: RepoDiffPackageCategory,
-    pub document_views: RepoDiffPackageCategory,
+    pub compositions: RepoDiffPackageCategory,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -2243,10 +2243,10 @@ pub struct ResolveViewAttachmentsPayload {
     pub records: Vec<RecordAttachmentsPayload>,
 }
 
-impl From<srs_repository::attachment_service::ResolveDocumentViewAttachmentsResult>
+impl From<srs_repository::attachment_service::ResolveCompositionAttachmentsResult>
     for ResolveViewAttachmentsPayload
 {
-    fn from(r: srs_repository::attachment_service::ResolveDocumentViewAttachmentsResult) -> Self {
+    fn from(r: srs_repository::attachment_service::ResolveCompositionAttachmentsResult) -> Self {
         Self {
             source_documents_path: r.source_documents_path,
             records: r

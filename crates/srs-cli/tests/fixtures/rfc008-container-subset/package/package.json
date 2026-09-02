@@ -4,7 +4,7 @@
   "namespace": "fixture.rfc008",
   "name": "rfc008-container-subset",
   "title": "RFC-008 Container Subset Test Package",
-  "description": "Test fixture for typeFilter and typeDispatch in ContainerSubset document-view sections.",
+  "description": "Test fixture for typeFilter and typeDispatch in ContainerSubset composition sections.",
   "status": "active",
   "version": "1.0.0",
   "fields": [
@@ -22,10 +22,10 @@
     "views/table-view.json",
     "views/fallback-view.json"
   ],
-  "documentViews": [
-    "document-views/type-filter-view.json",
-    "document-views/type-dispatch-view.json",
-    "document-views/cross-type-order-view.json"
+  "compositions": [
+    "compositions/type-filter-view.json",
+    "compositions/type-dispatch-view.json",
+    "compositions/cross-type-order-view.json"
   ],
   "createdAt": "2026-01-01T00:00:00Z",
   "dataModelRevision": 2

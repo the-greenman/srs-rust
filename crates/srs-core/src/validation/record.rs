@@ -155,7 +155,6 @@ mod tests {
 
     fn create_test_record_type() -> RecordType {
         RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,

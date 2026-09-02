@@ -1,0 +1,22 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
+  "id": "00000000-0000-4000-8000-000000000985",
+  "namespace": "fixture.render",
+  "name": "identity-fallback-view",
+  "version": 1,
+  "description": "No titleFieldId; heading falls back to identityFieldId (Rule [N+37])",
+  "format": "markdown",
+  "sections": [
+    {
+      "sectionId": "items",
+      "title": "Items",
+      "order": 0,
+      "source": {
+        "type": "type-query",
+        "typeKey": "fixture.render/identity-item"
+      },
+      "emptyBehavior": "hide"
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00Z"
+}

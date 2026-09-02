@@ -5,7 +5,7 @@
   "key": "com.semanticops.srs/subsection-sequence",
   "namespace": "com.semanticops.srs",
   "label": "Subsection sequence",
-  "description": "Orders subsection records belonging to a parent section for document-view rendering.",
+  "description": "Orders subsection records belonging to a parent section for composition rendering.",
   "category": "sequence",
   "irreflexive": true,
   "status": "deprecated",

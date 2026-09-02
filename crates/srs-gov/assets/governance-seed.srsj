@@ -7,7 +7,7 @@
       "title": "Empty Governance Document"
     },
     "createdAt": "2026-01-01T00:00:00Z",
-    "dataModelRevision": 2,
+    "dataModelRevision": 6,
     "description": "An empty governance document: the canonical MuDemocracy governance package installed with zero records, ready for a clerk to capture their first decision.",
     "meta": {},
     "namespace": "com.mudemocracy.governance",
@@ -80,8 +80,8 @@
       ],
       "version": 1
     },
-    "package/document-views/articles-and-roles-78b11038.json": {
-      "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
+    "package/compositions/articles-and-roles-78b11038.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Renders the Articles of Association together with the current role holders.",
       "format": "markdown",
@@ -118,8 +118,8 @@
       ],
       "version": 1
     },
-    "package/document-views/decision-deliberation-5a3ce87e.json": {
-      "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
+    "package/compositions/decision-deliberation-5a3ce87e.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Full deliberation view — shows all fields including question, context, friction, alternatives, requirements, statement, rationale, next steps, owner, revisit, and status.",
       "format": "markdown",
@@ -141,8 +141,8 @@
       ],
       "version": 1
     },
-    "package/document-views/decision-log-b5c8d124.json": {
-      "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
+    "package/compositions/decision-log-b5c8d124.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Decision log view — compact summary showing only decision statement, alternatives considered, rationale, and revisit trigger.",
       "format": "markdown",
@@ -171,7 +171,7 @@
               "closed",
               "abandoned"
             ],
-            "semanticObjectType": "governance/decision",
+            "typeKey": "governance/decision",
             "type": "type-query"
           },
           "title": "Decision Log",
@@ -180,8 +180,8 @@
       ],
       "version": 1
     },
-    "package/document-views/governance-document-732a982b.json": {
-      "$schema": "https://srs.semanticops.com/schema/2.0/document-view.json",
+    "package/compositions/governance-document-732a982b.json": {
+      "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
       "createdAt": "2026-07-06T00:00:00Z",
       "description": "Renders the complete governance corpus — articles of association, roles, and decision log — as a single whole-document export.",
       "format": "markdown",
@@ -717,7 +717,7 @@
           "key": "superseded",
           "label": "Superseded",
           "requiresRelation": {
-            "relationType": "supersedes"
+            "relationType": ["supersedes"]
           }
         },
         {
@@ -794,13 +794,13 @@
         "blueprints/decision-log-e2e09a77.json"
       ],
       "createdAt": "2026-01-01T00:00:00Z",
-      "dataModelRevision": 2,
+      "dataModelRevision": 6,
       "description": "",
-      "documentViews": [
-        "document-views/articles-and-roles-78b11038.json",
-        "document-views/decision-deliberation-5a3ce87e.json",
-        "document-views/decision-log-b5c8d124.json",
-        "document-views/governance-document-732a982b.json"
+      "compositions": [
+        "compositions/articles-and-roles-78b11038.json",
+        "compositions/decision-deliberation-5a3ce87e.json",
+        "compositions/decision-log-b5c8d124.json",
+        "compositions/governance-document-732a982b.json"
       ],
       "fields": [
         "fields/alternativesconsidered-636ce948.json",

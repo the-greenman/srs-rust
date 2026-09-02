@@ -2,7 +2,7 @@
 //!
 //! The source fixture (`tests/fixtures/install-package/`) is a minimal synthetic
 //! package modeled on the canonical `com.mudemocracy.governance` package shape
-//! (fields, type, relation-type, lifecycle, view, document-view, blueprint,
+//! (fields, type, relation-type, lifecycle, view, composition, blueprint,
 //! protocol). Per CLAUDE.md ("Working with the Spec Repo") the real spec-repo
 //! package is not referenced from tests.
 
@@ -117,7 +117,7 @@ fn install_into_empty_repo_installs_everything() {
             ("relationType", 1),
             ("lifecycle", 1),
             ("view", 1),
-            ("documentView", 1),
+            ("composition", 1),
             ("blueprint", 1),
             ("protocol", 1),
         ]
@@ -143,10 +143,7 @@ fn install_into_empty_repo_installs_everything() {
         .iter()
         .any(|rt| rt.key == "precedes" && rt.namespace == "com.example.install"));
     assert!(package.views.iter().any(|v| v.name == "entry-view"));
-    assert!(package
-        .document_views
-        .iter()
-        .any(|dv| dv.name == "entry-log"));
+    assert!(package.compositions.iter().any(|dv| dv.name == "entry-log"));
     assert!(package
         .blueprints
         .iter()

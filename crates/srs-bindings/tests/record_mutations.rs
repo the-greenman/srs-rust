@@ -34,7 +34,7 @@ fn minimal_srsj() -> String {
                 "types": ["types/widget.json"],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": []
+                "compositions": []
             },
             "package/fields/title.json": {
                 "$schema": "https://srs.semanticops.com/schema/2.0/field.json",

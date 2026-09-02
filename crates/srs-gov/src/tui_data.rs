@@ -34,7 +34,7 @@ pub fn refresh_records(repo: &str, state: &mut AppState) -> Result<()> {
         None => SectionViewData::default(),
     };
     let count = view.records.len();
-    state.set_view_context(view.document_view_id, view.columns, view.diagnostics);
+    state.set_view_context(view.composition_id, view.columns, view.diagnostics);
     state.set_records(view.records);
     state.status = format!("{count} records");
     Ok(())
@@ -42,7 +42,7 @@ pub fn refresh_records(repo: &str, state: &mut AppState) -> Result<()> {
 
 #[derive(Debug, Clone, Default)]
 struct SectionViewData {
-    document_view_id: Option<String>,
+    composition_id: Option<String>,
     columns: Vec<ColumnItem>,
     diagnostics: Vec<String>,
     records: Vec<RecordItem>,
@@ -90,7 +90,7 @@ fn load_section_view(
     )?;
     let view = &payload["containerView"];
     let root_id = view["root"]["instanceId"].as_str().unwrap_or("");
-    let document_view_id = view["documentViewId"].as_str().map(String::from);
+    let composition_id = view["compositionId"].as_str().map(String::from);
     let columns = column_items(view);
     let diagnostics = view["diagnostics"]
         .as_array()
@@ -144,7 +144,7 @@ fn load_section_view(
     });
 
     Ok(SectionViewData {
-        document_view_id,
+        composition_id,
         columns,
         diagnostics,
         records,

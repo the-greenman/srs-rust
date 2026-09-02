@@ -3,8 +3,8 @@
   "createdAt": "2026-05-27T00:00:00Z",
   "fieldValues": {
     "invariant_number": "43",
-    "title": "When ext:type-inheritance is declared, Package.dependencyRefs must…",
-    "normative_statement": "When `ext:type-inheritance` is declared, `Package.dependencyRefs` must include a `Reference` for every Type in the transitive closure of base Types for any Type in `Package.types[]`. If `mode === \"bundled\"`, all such base Types must be present in `types[]`.",
+    "title": "When ext:type-inheritance is declared, Package.packageDependencies must…",
+    "normative_statement": "When `ext:type-inheritance` is declared, `Package.packageDependencies` must include a `Reference` for every Type in the transitive closure of base Types for any Type in `Package.types[]`. If `mode === \"bundled\"`, all such base Types must be present in `types[]`.",
     "applies_to": "ext:type-inheritance"
   },
   "instanceId": "e1000043-0000-4000-a000-000000000043",

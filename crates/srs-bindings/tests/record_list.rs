@@ -41,7 +41,7 @@ fn fixture_srsj() -> String {
                 "types": [],
                 "relationTypes": [],
                 "views": [],
-                "documentViews": [],
+                "compositions": [],
                 "blueprints": []
             },
             "package/fields/title.json": {

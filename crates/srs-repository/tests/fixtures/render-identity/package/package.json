@@ -20,8 +20,8 @@
   "views": [
     "views/labeled-body-view.json"
   ],
-  "documentViews": [
-    "document-views/identity-fallback-view.json",
-    "document-views/labeled-field-view.json"
+  "compositions": [
+    "compositions/identity-fallback-view.json",
+    "compositions/labeled-field-view.json"
   ]
 }

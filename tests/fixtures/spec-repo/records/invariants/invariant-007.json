@@ -4,7 +4,7 @@
   "fieldValues": {
     "invariant_number": "7",
     "title": "Every fieldId referenced in any FieldAssignment within a…",
-    "normative_statement": "Every `fieldId` referenced in any `FieldAssignment` within a `Package.types[]` must appear as the `id` of an entry in `Package.dependencyRefs`.",
+    "normative_statement": "Every `fieldId` referenced in any `FieldAssignment` within a `Package.types[]` must appear as the `id` of an entry in `Package.packageDependencies`.",
     "applies_to": "core — Package"
   },
   "instanceId": "e1000007-0000-4000-a000-000000000007",

@@ -1016,7 +1016,7 @@ pub fn create_package(
         view_paths: vec![],
         relation_type_paths: vec![],
         lifecycle_paths: vec![],
-        document_view_paths: vec![],
+        composition_paths: vec![],
     };
     store.save_package_boundary_metadata(&boundary)?;
     store.register_package_boundary(&selector)?;
@@ -1266,7 +1266,7 @@ pub fn list_package_imports(
             .chain(&boundary.view_paths)
             .chain(&boundary.relation_type_paths)
             .chain(&boundary.lifecycle_paths)
-            .chain(&boundary.document_view_paths)
+            .chain(&boundary.composition_paths)
             .map(String::as_str)
             .collect();
 
@@ -1413,7 +1413,6 @@ mod tests {
 
     fn make_type(id: &str, name: &str) -> RecordType {
         RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -2152,9 +2151,7 @@ mod tests {
             canonical_direction: None,
             inverse_type: None,
             irreflexive: None,
-            allowed_source_types: None,
-            allowed_target_types: None,
-            require_same_semantic_object_type: None,
+            require_same_type: None,
             updated_at: None,
             meta: None,
         };
@@ -2212,9 +2209,7 @@ mod tests {
             canonical_direction: None,
             inverse_type: None,
             irreflexive: None,
-            allowed_source_types: None,
-            allowed_target_types: None,
-            require_same_semantic_object_type: None,
+            require_same_type: None,
             updated_at: None,
             meta: None,
         };
@@ -2247,9 +2242,7 @@ mod tests {
             canonical_direction: None,
             inverse_type: None,
             irreflexive: None,
-            allowed_source_types: None,
-            allowed_target_types: None,
-            require_same_semantic_object_type: None,
+            require_same_type: None,
             updated_at: None,
             meta: None,
         };
@@ -2328,9 +2321,7 @@ mod tests {
             canonical_direction: None,
             inverse_type: None,
             irreflexive: None,
-            allowed_source_types: None,
-            allowed_target_types: None,
-            require_same_semantic_object_type: None,
+            require_same_type: None,
             updated_at: None,
             meta: None,
         };

@@ -36,10 +36,6 @@
     "description": {
       "type": "string"
     },
-    "semanticObjectType": {
-      "type": "string",
-      "title": "Semantic Object Type"
-    },
     "aiGuidance": {
       "type": "object",
       "description": "Guidance for AI agents determining whether source material matches this Type.",

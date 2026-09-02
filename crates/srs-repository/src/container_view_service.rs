@@ -1,10 +1,10 @@
 //! Structured container-view projection for editor member lists (issue #254, #256).
 //!
-//! `resolve_container_view` composes a Container, an optional DocumentView, and the
+//! `resolve_container_view` composes a Container, an optional Composition, and the
 //! referenced View into a single read-only result the editor can render as an
 //! interactive, selectable list: the container's root record, the ordered member
 //! records (Tier-0 or Tier-2; full [`Record`] present only for Tier-2), and
-//! the column/field spec resolved from the DocumentView. (Tier 1 / TypedRecord
+//! the column/field spec resolved from the Composition. (Tier 1 / TypedRecord
 //! was retired — srs#448/rfc-decision-53635966, srs-rust#888.)
 //!
 //! Tier-0 (Note) members carry `record: None` and a `display_label` sourced
@@ -20,10 +20,10 @@ use crate::error::RepositoryError;
 use crate::record_label;
 use crate::record_store;
 use crate::store::RepositoryStore;
-use crate::view_service::{self, GetDocumentViewResult, GetViewResult};
+use crate::view_service::{self, GetCompositionResult, GetViewResult};
 use serde::{Deserialize, Serialize};
 use srs_core::types::record::Record;
-use srs_core::types::view::{DocumentSection, DocumentView, SectionSource};
+use srs_core::types::view::{Composition, DocumentSection, SectionSource};
 use std::collections::HashMap;
 
 /// Input to [`resolve_container_view`]. Constructed from CLI args / binding params;
@@ -31,8 +31,8 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct ResolveContainerViewInput {
     pub container_id: String,
-    /// Optional DocumentView UUID override. When `None`, the DocumentView is matched
-    /// from the container's root type binding (`document_views_for_container`).
+    /// Optional Composition UUID override. When `None`, the Composition is matched
+    /// from the container's root type binding (`compositions_for_container`).
     pub view_id: Option<String>,
 }
 
@@ -49,7 +49,7 @@ pub struct ColumnSpec {
     pub order: i32,
     pub required: bool,
     /// True when this column's `fieldId` is the effective `identityFieldId` shared by **all**
-    /// Types in the DocumentView's `root_type_refs` — see ADR-023 (single-entry case) and
+    /// Types in the Composition's `root_type_refs` — see ADR-023 (single-entry case) and
     /// ADR-027 (common-identity multi-entry extension). `false` whenever that resolution is
     /// absent, ambiguous, or any referenced Type disagrees. Never affects column order.
     pub is_identity_column: bool,
@@ -91,9 +91,9 @@ pub struct ResolvedMember {
 #[serde(rename_all = "camelCase")]
 pub struct ContainerView {
     pub container_id: String,
-    /// UUID of the resolved DocumentView, or `None` when none resolves (columns empty).
+    /// UUID of the resolved Composition, or `None` when none resolves (columns empty).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub document_view_id: Option<String>,
+    pub composition_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub root: Option<ResolvedMember>,
     pub members: Vec<ResolvedMember>,
@@ -103,13 +103,13 @@ pub struct ContainerView {
     /// unless that section is a `SectionSource::TypeQuery` declaring `excludeLifecycleStates`.
     /// Clients forward these to `find` (`--exclude-lifecycle-state`) for the default-hidden
     /// list, dropping them for a "show all" toggle — see ADR-020. Clients MUST NOT re-derive
-    /// them from the DocumentView source.
+    /// them from the Composition source.
     pub exclude_lifecycle_states: Vec<String>,
     /// Non-fatal notes (skipped unknown-tier members, unresolved view/field references).
     pub diagnostics: Vec<String>,
 }
 
-/// Resolve a container into root + ordered members + DocumentView-driven column spec.
+/// Resolve a container into root + ordered members + Composition-driven column spec.
 ///
 /// Column source follows the precedence in
 /// [ADR-018](../../docs/adr/018-container-view-column-source-precedence.md), via
@@ -125,8 +125,8 @@ pub fn resolve_container_view(
     let container_id = input.container_id.clone();
     let mut diagnostics: Vec<String> = Vec::new();
 
-    // Validate the container exists and read its root binding directly. DocumentView
-    // matching and member ordering below go through `document_views_for_container` and
+    // Validate the container exists and read its root binding directly. Composition
+    // matching and member ordering below go through `compositions_for_container` and
     // `list_container_members`, which each re-load the container — an acceptable cost on
     // this Layer-1 read path in exchange for reusing the tested membership/matching logic
     // rather than duplicating it here.
@@ -136,8 +136,8 @@ pub fn resolve_container_view(
     // declared field, treating the positional rootInstanceIds[0] read as equivalent for
     // typing-anchor resolution is the "misrepresent rather than merely select" transition
     // ADR-044 reserves as separately tracked work for this exact call chain
-    // (`view_service::document_views_for_container`, invoked below via
-    // `document_views_for_container`). Surface it here — the one caller with both an
+    // (`view_service::compositions_for_container`, invoked below via
+    // `compositions_for_container`). Surface it here — the one caller with both an
     // already-loaded `container` and an existing `diagnostics` bag — rather than only via
     // a separate `repo validate` invocation the caller of this function may never make.
     if container.anchor_instance_id.is_none()
@@ -175,26 +175,26 @@ pub fn resolve_container_view(
     // indexes together, from a single Package load.
     let (field_name_index, identity_field_index) = record_label::build_label_indexes(store)?;
 
-    // Resolve the DocumentView.
-    let document_view: Option<DocumentView> = match &input.view_id {
-        Some(id) => match view_service::get_document_view_by_id(store, id)? {
-            GetDocumentViewResult::Found(dv) => Some(*dv),
-            GetDocumentViewResult::NotFound => {
+    // Resolve the Composition.
+    let composition: Option<Composition> = match &input.view_id {
+        Some(id) => match view_service::get_composition_by_id(store, id)? {
+            GetCompositionResult::Found(dv) => Some(*dv),
+            GetCompositionResult::NotFound => {
                 diagnostics.push(format!(
-                    "resolve-container-view: documentView {id} not found"
+                    "resolve-container-view: composition {id} not found"
                 ));
                 None
             }
         },
         // Reuse the tested matcher rather than re-deriving the root type binding.
-        None => view_service::document_views_for_container(store, &container_id)?
+        None => view_service::compositions_for_container(store, &container_id)?
             .into_iter()
             .next(),
     };
-    let document_view_id = document_view.as_ref().map(|dv| dv.id.clone());
+    let composition_id = composition.as_ref().map(|dv| dv.id.clone());
 
-    // Resolve columns from the chosen DocumentView.
-    let columns = match &document_view {
+    // Resolve columns from the chosen Composition.
+    let columns = match &composition {
         Some(dv) => resolve_columns(
             store,
             dv,
@@ -207,7 +207,7 @@ pub fn resolve_container_view(
     };
 
     // Authored default-hidden lifecycle states from the same governing section (ADR-020).
-    let exclude_lifecycle_states = document_view
+    let exclude_lifecycle_states = composition
         .as_ref()
         .and_then(|dv| select_governing_section(dv, &container_id))
         .map(section_exclude_lifecycle_states)
@@ -254,7 +254,7 @@ pub fn resolve_container_view(
 
     Ok(ContainerView {
         container_id,
-        document_view_id,
+        composition_id,
         root,
         members,
         columns,
@@ -339,13 +339,13 @@ fn resolve_member(
     }
 }
 
-/// Returns the common `identityFieldId` for a DocumentView's `root_type_refs` (ADR-027):
+/// Returns the common `identityFieldId` for a Composition's `root_type_refs` (ADR-027):
 /// - `None` / empty: `None`
 /// - 1 entry: same as ADR-023 — look up that Type in the index
 /// - N > 1 entries: return the field only if ALL entries resolve to the *same* field ID;
 ///   `None` if any entry is absent from the index or disagrees.
 fn common_identity_field<'a>(
-    dv: &DocumentView,
+    dv: &Composition,
     identity_field_index: &'a record_label::IdentityFieldIndex,
 ) -> Option<&'a String> {
     let refs = dv.root_type_refs.as_deref()?;
@@ -363,7 +363,7 @@ fn common_identity_field<'a>(
     }
 }
 
-/// Resolve the column spec from a DocumentView, per the ADR-018 precedence.
+/// Resolve the column spec from a Composition, per the ADR-018 precedence.
 ///
 /// `is_identity_column` (ADR-023, ADR-027, RFC-020) is derived via `common_identity_field` —
 /// the same `(type_id, type_version) -> identityFieldId` index already built by
@@ -374,7 +374,7 @@ fn common_identity_field<'a>(
 /// an error. This function never independently calls `Package::effective_identity_field_id`.
 fn resolve_columns(
     store: &dyn RepositoryStore,
-    dv: &DocumentView,
+    dv: &Composition,
     container_id: &str,
     identity_field_index: &HashMap<(String, u32), String>,
     field_name_index: &HashMap<String, String>,
@@ -388,7 +388,7 @@ fn resolve_columns(
         GetViewResult::Found(v) => *v,
         GetViewResult::NotFound => {
             diagnostics.push(format!(
-                "resolve-container-view: view {view_id} referenced by documentView {} not found",
+                "resolve-container-view: view {view_id} referenced by composition {} not found",
                 dv.id
             ));
             return Ok(Vec::new());
@@ -461,7 +461,7 @@ fn source_targets_container(source: &SectionSource, container_id: &str) -> bool 
 /// `ContainerSubset` and a `TypeQuery` target the container, the lower-`order` one wins (the
 /// sort below is stable; sections are visited in `order` ascending).
 fn select_governing_section<'a>(
-    dv: &'a DocumentView,
+    dv: &'a Composition,
     container_id: &str,
 ) -> Option<&'a DocumentSection> {
     let mut sections: Vec<&DocumentSection> = dv.sections.iter().collect();
@@ -490,7 +490,7 @@ fn section_exclude_lifecycle_states(section: &DocumentSection) -> Vec<String> {
     }
 }
 
-fn select_column_view_id(dv: &DocumentView, container_id: &str) -> Option<String> {
+fn select_column_view_id(dv: &Composition, container_id: &str) -> Option<String> {
     select_governing_section(dv, container_id).and_then(|s| s.render_view_id.clone())
 }
 
@@ -506,7 +506,7 @@ mod tests {
     use srs_core::types::record::{FieldValues, Record};
     use srs_core::types::record_type::{FieldAssignment, RecordType};
     use srs_core::types::view::{
-        DocumentSection, DocumentView, ExactTypeRef, FieldView, RecordProperty, RecordPropertyView,
+        Composition, DocumentSection, ExactTypeRef, FieldView, RecordProperty, RecordPropertyView,
         SectionSource, View, ViewRow,
     };
     use std::path::PathBuf;
@@ -611,8 +611,8 @@ mod tests {
         }
     }
 
-    fn document_view(id: &str, sections: Vec<DocumentSection>) -> DocumentView {
-        DocumentView {
+    fn composition(id: &str, sections: Vec<DocumentSection>) -> Composition {
+        Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -667,10 +667,10 @@ mod tests {
     fn build_store(
         fields: Vec<Field>,
         views: Vec<View>,
-        document_views: Vec<DocumentView>,
+        compositions: Vec<Composition>,
         instances: Vec<(&str, u8, serde_json::Value)>,
     ) -> MemoryStore {
-        build_store_with_types(fields, vec![], views, document_views, instances)
+        build_store_with_types(fields, vec![], views, compositions, instances)
     }
 
     /// Like [`build_store`], but also installs the given `record_types` in the package —
@@ -680,7 +680,7 @@ mod tests {
         fields: Vec<Field>,
         record_types: Vec<RecordType>,
         views: Vec<View>,
-        document_views: Vec<DocumentView>,
+        compositions: Vec<Composition>,
         instances: Vec<(&str, u8, serde_json::Value)>,
     ) -> MemoryStore {
         let manifest = Manifest {
@@ -699,12 +699,12 @@ mod tests {
             record_types,
             relation_type_definitions: vec![],
             views,
-            document_views,
+            compositions,
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -748,7 +748,7 @@ mod tests {
     fn standard_store(field_views: Vec<ViewRow>, sections: Vec<DocumentSection>) -> MemoryStore {
         let fields = vec![field("f-title", "title"), field("f-status", "status")];
         let view = view_with_fields(field_views);
-        let dv = document_view(DV_ID, sections);
+        let dv = composition(DV_ID, sections);
         let root = record("root-1", "title", "Root Decision");
         let member = record("mem-1", "title", "Member Decision");
         build_store(
@@ -801,7 +801,7 @@ mod tests {
         assert_eq!(result.columns[1].field_id, "f-status");
         // display_label override applied.
         assert_eq!(result.columns[1].display_label, "Status");
-        assert_eq!(result.document_view_id.as_deref(), Some(DV_ID));
+        assert_eq!(result.composition_id.as_deref(), Some(DV_ID));
     }
 
     /// RFC-041: a RecordPropertyView row has no field-column form here — it
@@ -879,10 +879,10 @@ mod tests {
     #[test]
     fn resolve_container_view_view_id_override() {
         // Two document views; the override selects the alternate, whose section has no
-        // render_view_id, so columns are empty but document_view_id is the override.
+        // render_view_id, so columns are empty but composition_id is the override.
         let fields = vec![field("f-title", "title")];
         let view = view_with_fields(vec![field_view("f-title", 0, None, None)]);
-        let primary = document_view(
+        let primary = composition(
             DV_ID,
             vec![section(
                 "s1",
@@ -895,7 +895,7 @@ mod tests {
                 Some(VIEW_ID),
             )],
         );
-        let alt = document_view(
+        let alt = composition(
             ALT_DV_ID,
             vec![section(
                 "s1",
@@ -917,7 +917,7 @@ mod tests {
             .unwrap();
 
         let result = resolve_container_view(&store, input(Some(ALT_DV_ID))).unwrap();
-        assert_eq!(result.document_view_id.as_deref(), Some(ALT_DV_ID));
+        assert_eq!(result.composition_id.as_deref(), Some(ALT_DV_ID));
         assert!(result.columns.is_empty());
     }
 
@@ -940,18 +940,18 @@ mod tests {
             .unwrap();
 
         let result = resolve_container_view(&store, input(Some("no-such-dv"))).unwrap();
-        assert!(result.document_view_id.is_none());
+        assert!(result.composition_id.is_none());
         assert!(result.columns.is_empty());
         assert!(result
             .diagnostics
             .iter()
-            .any(|d| d.contains("documentView no-such-dv not found")));
+            .any(|d| d.contains("composition no-such-dv not found")));
         // Members/root still returned.
         assert!(result.root.is_some());
     }
 
     #[test]
-    fn resolve_container_view_no_document_view_returns_members_only() {
+    fn resolve_container_view_no_composition_returns_members_only() {
         // Build a store with NO document views; columns empty, members present.
         let fields = vec![field("f-title", "title")];
         let view = view_with_fields(vec![field_view("f-title", 0, None, None)]);
@@ -970,7 +970,7 @@ mod tests {
             .unwrap();
 
         let result = resolve_container_view(&store, input(None)).unwrap();
-        assert!(result.document_view_id.is_none());
+        assert!(result.composition_id.is_none());
         assert!(result.columns.is_empty());
         assert_eq!(result.members.len(), 2);
         assert!(result.root.is_some());
@@ -1040,7 +1040,7 @@ mod tests {
     fn build_store_titled(
         fields: Vec<Field>,
         views: Vec<View>,
-        document_views: Vec<DocumentView>,
+        compositions: Vec<Composition>,
         instances: Vec<(&str, u8, Option<&str>, serde_json::Value)>,
     ) -> MemoryStore {
         let manifest = Manifest {
@@ -1059,12 +1059,12 @@ mod tests {
             record_types: vec![],
             relation_type_definitions: vec![],
             views,
-            document_views,
+            compositions,
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };
@@ -1081,7 +1081,7 @@ mod tests {
         // record: None and display_label sourced from the index title.
         let fields = vec![field("f-title", "title")];
         let view = view_with_fields(vec![field_view("f-title", 0, None, None)]);
-        let dv = document_view(
+        let dv = composition(
             DV_ID,
             vec![section(
                 "s1",
@@ -1158,7 +1158,7 @@ mod tests {
         // instance_id.
         let fields = vec![field("f-title", "title")];
         let view = view_with_fields(vec![field_view("f-title", 0, None, None)]);
-        let dv = document_view(
+        let dv = composition(
             DV_ID,
             vec![section(
                 "s1",
@@ -1205,7 +1205,7 @@ mod tests {
         // `resolve_member` path as members, so this guards against future special-casing.
         let fields = vec![field("f-title", "title")];
         let view = view_with_fields(vec![field_view("f-title", 0, None, None)]);
-        let dv = document_view(
+        let dv = composition(
             DV_ID,
             vec![section(
                 "s1",
@@ -1318,7 +1318,7 @@ mod tests {
                 field_view(F_STATUS, 1, None, Some("Status")),
             ])
         };
-        let dv = DocumentView {
+        let dv = Composition {
             id: DV.to_string(),
             sections: vec![section(
                 "section-0001",
@@ -1330,7 +1330,7 @@ mod tests {
                 },
                 Some(VIEW),
             )],
-            ..document_view(DV, vec![])
+            ..composition(DV, vec![])
         };
         let root = record(ROOT, "title", "Root Decision");
         let member = record(MEM, "title", "Member Decision");
@@ -1383,7 +1383,7 @@ mod tests {
     /// `excludeLifecycleStates` on the payload (ADR-020).
     fn type_query_source(exclude: Option<Vec<&str>>) -> SectionSource {
         SectionSource::TypeQuery {
-            semantic_object_type: "com.test/decision".to_string(),
+            type_key: "com.test/decision".to_string(),
             lifecycle_state: None,
             container_ids: Some(vec![CONTAINER_ID.to_string()]),
             lifecycle_states: None,
@@ -1415,7 +1415,7 @@ mod tests {
         // Columns still resolve from the same governing (type-query) section.
         assert_eq!(result.columns.len(), 1);
         assert_eq!(result.columns[0].field_id, "f-title");
-        assert_eq!(result.document_view_id.as_deref(), Some(DV_ID));
+        assert_eq!(result.composition_id.as_deref(), Some(DV_ID));
     }
 
     #[test]
@@ -1443,7 +1443,7 @@ mod tests {
     fn resolve_view_columns_unchanged_after_exclude_states_addition() {
         // The governing-section refactor must not change column selection: a type-query
         // section and a container-subset section over the same View resolve identical columns
-        // and document_view_id (only exclude_lifecycle_states differs).
+        // and composition_id (only exclude_lifecycle_states differs).
         let fvs = || {
             vec![
                 field_view("f-title", 0, None, None),
@@ -1491,7 +1491,7 @@ mod tests {
             serde_json::to_value(&tq.columns).unwrap(),
             "column resolution must be source-shape-agnostic"
         );
-        assert_eq!(cs.document_view_id, tq.document_view_id);
+        assert_eq!(cs.composition_id, tq.composition_id);
         assert!(cs.exclude_lifecycle_states.is_empty());
         assert_eq!(tq.exclude_lifecycle_states, vec!["closed".to_string()]);
     }
@@ -1512,7 +1512,7 @@ mod tests {
             id: VIEW.to_string(),
             ..view_with_fields(vec![field_view(F_TITLE, 0, None, None)])
         };
-        let dv = DocumentView {
+        let dv = Composition {
             id: DV.to_string(),
             sections: vec![section(
                 "section-0001",
@@ -1520,7 +1520,7 @@ mod tests {
                 type_query_source(Some(vec!["superseded", "closed"])),
                 Some(VIEW),
             )],
-            ..document_view(DV, vec![])
+            ..composition(DV, vec![])
         };
         let root = record(ROOT, "title", "Root Decision");
         let member = record(MEM, "title", "Member Decision");
@@ -1567,7 +1567,7 @@ mod tests {
         let mut superseded_rec = record("superseded1", "title", "Superseded Record");
         superseded_rec.lifecycle_state = Some("superseded".to_string());
 
-        let dv = document_view(
+        let dv = composition(
             DV_ID,
             vec![section(
                 "s1",
@@ -1632,7 +1632,7 @@ mod tests {
             id: VIEW.to_string(),
             ..view_with_fields(vec![field_view(F_TITLE, 0, None, None)])
         };
-        let dv = DocumentView {
+        let dv = Composition {
             id: DV.to_string(),
             sections: vec![section(
                 "section-0001",
@@ -1640,7 +1640,7 @@ mod tests {
                 type_query_source(Some(vec!["superseded", "abandoned"])),
                 Some(VIEW),
             )],
-            ..document_view(DV, vec![])
+            ..composition(DV, vec![])
         };
         let root = record(ROOT, "title", "Root Decision");
         let mut superseded_rec = record(SUPERSEDED, "title", "Superseded Decision");
@@ -1702,7 +1702,6 @@ mod tests {
 
     fn record_type_with_identity(identity_field_id: Option<&str>) -> RecordType {
         RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -1743,7 +1742,6 @@ mod tests {
 
     fn record_type_with_identity_v2(identity_field_id: Option<&str>) -> RecordType {
         RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,
@@ -1800,7 +1798,7 @@ mod tests {
         )];
         let fields = vec![field("f-title", "title"), field("f-status", "status")];
         let view = view_with_fields(fvs);
-        let dv = document_view(DV_ID, sections);
+        let dv = composition(DV_ID, sections);
         let root = record("root-1", "title", "Root Decision");
         let store = build_store_with_types(
             fields,
@@ -1852,7 +1850,7 @@ mod tests {
         )];
         let fields = vec![field("f-title", "title"), field("f-status", "status")];
         let view = view_with_fields(fvs);
-        let dv = document_view(DV_ID, sections);
+        let dv = composition(DV_ID, sections);
         let root = record("root-1", "title", "Root Decision");
         let store = build_store_with_types(
             fields,
@@ -1890,7 +1888,7 @@ mod tests {
         )];
         let fields = vec![field("f-title", "title")];
         let view = view_with_fields(fvs);
-        let mut dv = document_view(DV_ID, sections);
+        let mut dv = composition(DV_ID, sections);
         dv.root_type_refs = Some(vec![
             ExactTypeRef {
                 type_id: TYPE_ID.to_string(),
@@ -1923,15 +1921,15 @@ mod tests {
 
     #[test]
     fn resolve_container_view_view_id_override_still_resolves_identity_column() {
-        // The explicit view_id branch skips document_views_for_container entirely
+        // The explicit view_id branch skips compositions_for_container entirely
         // (container_view_service.rs ~126-135) — this test proves is_identity_column still
-        // resolves correctly via the explicitly-referenced DocumentView's own root_type_refs.
+        // resolves correctly via the explicitly-referenced Composition's own root_type_refs.
         let fields = vec![field("f-title", "title"), field("f-status", "status")];
         let view = view_with_fields(vec![
             field_view("f-title", 0, None, None),
             field_view("f-status", 1, None, None),
         ]);
-        let primary = document_view(
+        let primary = composition(
             DV_ID,
             vec![section(
                 "s1",
@@ -1944,9 +1942,9 @@ mod tests {
                 Some(VIEW_ID),
             )],
         );
-        // The alt DV also targets TYPE_ID via `document_view()`'s default root_type_refs, and
+        // The alt DV also targets TYPE_ID via `composition()`'s default root_type_refs, and
         // its own section carries a render_view_id so columns actually resolve.
-        let alt = document_view(
+        let alt = composition(
             ALT_DV_ID,
             vec![section(
                 "s1",
@@ -1970,7 +1968,7 @@ mod tests {
 
         let result = resolve_container_view(&store, input(Some(ALT_DV_ID))).unwrap();
 
-        assert_eq!(result.document_view_id.as_deref(), Some(ALT_DV_ID));
+        assert_eq!(result.composition_id.as_deref(), Some(ALT_DV_ID));
         let title_col = result
             .columns
             .iter()
@@ -1978,15 +1976,15 @@ mod tests {
             .unwrap();
         assert!(
             title_col.is_identity_column,
-            "identity column must resolve via the explicitly-referenced DocumentView, got: {:?}",
+            "identity column must resolve via the explicitly-referenced Composition, got: {:?}",
             result.columns
         );
     }
 
     // --- ADR-027: common-identity extension for multi-entry root_type_refs ---
 
-    fn multi_type_dv(sections: Vec<DocumentSection>) -> DocumentView {
-        let mut dv = document_view(DV_ID, sections);
+    fn multi_type_dv(sections: Vec<DocumentSection>) -> Composition {
+        let mut dv = composition(DV_ID, sections);
         dv.root_type_refs = Some(vec![
             ExactTypeRef {
                 type_id: TYPE_ID.to_string(),
@@ -2146,7 +2144,7 @@ mod tests {
                 field_view(F_STATUS, 1, None, None),
             ])
         };
-        let dv = DocumentView {
+        let dv = Composition {
             id: DV.to_string(),
             root_type_refs: Some(vec![
                 ExactTypeRef {
@@ -2168,10 +2166,9 @@ mod tests {
                 },
                 Some(VIEW),
             )],
-            ..document_view(DV, vec![])
+            ..composition(DV, vec![])
         };
         let make_rt = |id: &str| RecordType {
-            extra: Default::default(),
             schema: None,
             ai_guidance: None,
             tags: None,

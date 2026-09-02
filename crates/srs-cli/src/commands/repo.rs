@@ -475,9 +475,9 @@ fn cmd_repo_diff(
                 blueprints_added: diff.summary.blueprints_added,
                 blueprints_removed: diff.summary.blueprints_removed,
                 blueprints_modified: diff.summary.blueprints_modified,
-                document_views_added: diff.summary.document_views_added,
-                document_views_removed: diff.summary.document_views_removed,
-                document_views_modified: diff.summary.document_views_modified,
+                compositions_added: diff.summary.compositions_added,
+                compositions_removed: diff.summary.compositions_removed,
+                compositions_modified: diff.summary.compositions_modified,
             },
             manifest: RepoDiffManifest {
                 namespace_changed: diff.manifest.namespace_changed,
@@ -552,7 +552,7 @@ fn cmd_repo_diff(
                 fields: map_pkg_category(diff.package.fields),
                 record_types: map_pkg_category(diff.package.record_types),
                 blueprints: map_pkg_category(diff.package.blueprints),
-                document_views: map_pkg_category(diff.package.document_views),
+                compositions: map_pkg_category(diff.package.compositions),
             },
         },
     )

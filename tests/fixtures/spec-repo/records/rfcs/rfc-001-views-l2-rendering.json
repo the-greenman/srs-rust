@@ -7,9 +7,9 @@
   "fieldValues": {
     "title": "RFC-001: Views L2 — Rendering Hierarchy and Default Rendering Baseline",
     "rfc_number": "001",
-    "affected_components": "<!-- srs-integration:v1\next:views-l2\next:views-l1\nschema:document-view.json\nschema:view.json\n-->",
+    "affected_components": "<!-- srs-integration:v1\next:views-l2\next:views-l1\nschema:composition.json\nschema:view.json\n-->",
     "proposal_artifact_path": "rfcs/rfc-001.md",
-    "content": "Defines the default (View-agnostic) rendering baseline, a normative heading hierarchy (`depthOffset`/`titleFieldId`), a portable `format` vocabulary with an L1/L2 precedence rule, and reserves `themeRef`/`themeVariants` plus the `ThemeReference`/`ThemeVariant` types on `DocumentView` for RFC-002. Full text: rfcs/rfc-001.md."
+    "content": "Defines the default (View-agnostic) rendering baseline, a normative heading hierarchy (`depthOffset`/`titleFieldId`), a portable `format` vocabulary with an L1/L2 precedence rule, and reserves `themeRef`/`themeVariants` plus the `ThemeReference`/`ThemeVariant` types on `Composition` for RFC-002. Full text: rfcs/rfc-001.md."
   },
   "lifecycleState": "accepted",
   "tags": [

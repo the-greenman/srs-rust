@@ -84,7 +84,7 @@ pub enum CoreError {
     },
 
     #[error("document view must contain at least one section")]
-    EmptyDocumentViewSections,
+    EmptyCompositionSections,
 
     #[error("duplicate document section id: {section_id}")]
     DuplicateDocumentSectionId { section_id: String },

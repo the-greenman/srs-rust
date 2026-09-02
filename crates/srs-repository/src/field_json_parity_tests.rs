@@ -39,7 +39,7 @@ fn write_minimal_file_repo(temp: &TempDir) {
         "fields": [],
         "types": [],
         "views": [],
-        "documentViews": []
+        "compositions": []
     });
     std::fs::write(
         root.join("package/package.json"),
@@ -155,7 +155,7 @@ fn cross_store_unknown_field_property_is_rejected_identically() {
     .unwrap();
     let package_json = json!({
         "id": "parity-pkg", "namespace": "com.test", "name": "test", "version": "1.0.0",
-        "fields": ["fields/hinted_field.json"], "types": [], "views": [], "documentViews": []
+        "fields": ["fields/hinted_field.json"], "types": [], "views": [], "compositions": []
     });
     std::fs::write(
         fs_tmp.path().join("package/package.json"),

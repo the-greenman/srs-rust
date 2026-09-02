@@ -82,7 +82,7 @@
       },
       "description": "ext:views-l1; omit if not in use."
     },
-    "documentViews": {
+    "compositions": {
       "type": "array",
       "items": {
         "type": "object"
@@ -314,7 +314,7 @@
           "type": "string",
           "enum": [
             "blueprint",
-            "document-view",
+            "composition",
             "field",
             "lifecycle",
             "protocol",

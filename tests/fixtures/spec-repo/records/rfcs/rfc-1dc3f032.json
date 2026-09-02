@@ -8,9 +8,9 @@
     "title": "RFC-015: View-Owned Ordering & Declared Root Presentations",
     "rfc_number": "015",
     "author": "the-greenman",
-    "affected_components": "`ordering.memberOrder` on `container-subset` sections + `renderedPresentations` on the manifest. Invariants I-125–I-128 (RFC-015 Rules [N+28]-[N+31]).\n\n<!-- srs-integration:v1\nschema:document-view.json\nschema:manifest.json\nI-125\nI-126\nI-127\nI-128\n-->",
+    "affected_components": "`ordering.memberOrder` on `container-subset` sections + `renderedPresentations` on the manifest. Invariants I-125–I-128 (RFC-015 Rules [N+28]-[N+31]).\n\n<!-- srs-integration:v1\nschema:composition.json\nschema:manifest.json\nI-125\nI-126\nI-127\nI-128\n-->",
     "proposal_artifact_path": "rfcs/rfc-015-view-owned-ordering-declared-presentations.md",
-    "content": "Separates semantic order (`precedes`) from presentational order via a view-owned `ordering.memberOrder` list on `container-subset` DocumentView sections and a normative `renderedPresentations` array on the manifest declaring the default presentation. Full text: rfcs/rfc-015-view-owned-ordering-declared-presentations.md."
+    "content": "Separates semantic order (`precedes`) from presentational order via a view-owned `ordering.memberOrder` list on `container-subset` Composition sections and a normative `renderedPresentations` array on the manifest declaring the default presentation. Full text: rfcs/rfc-015-view-owned-ordering-declared-presentations.md."
   },
   "lifecycleState": "accepted",
   "tags": [

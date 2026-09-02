@@ -11,7 +11,7 @@ use srs_repository::analysis::build_repo_map;
 use srs_repository::container_view_service::{resolve_container_view, ResolveContainerViewInput};
 use srs_repository::package_service::{create_field_normalized, create_type_normalized};
 use srs_repository::record_store::get_record_by_id;
-use srs_repository::render_service::{render_document_view, RenderDocumentViewOptions};
+use srs_repository::render_service::{render_composition, RenderCompositionOptions};
 use srs_repository::repository_lifecycle::{
     create_repository_with_intent, InitializeRepositoryInput, PrimaryPackageMetadata,
     RepositoryMetadata,
@@ -19,7 +19,7 @@ use srs_repository::repository_lifecycle::{
 use srs_repository::repository_navigation_service::repository_navigation;
 use srs_repository::store::FileStore;
 use srs_repository::type_schema_service::{type_schema, TypeSchemaInput};
-use srs_repository::view_service::create_document_view_normalized;
+use srs_repository::view_service::create_composition_normalized;
 
 struct Fixture {
     #[allow(dead_code)]
@@ -65,7 +65,7 @@ fn make_fixture() -> Fixture {
         .container_id;
 
     let view_id = uuid::Uuid::new_v4().to_string();
-    create_document_view_normalized(
+    create_composition_normalized(
         &store,
         serde_json::json!({
             "id": view_id,
@@ -159,7 +159,7 @@ async fn list_resources_enumerates_containers_and_views() {
     assert!(uris.contains(&format!("srs://{}/map", fx.repo_id).as_str()));
     assert!(uris.contains(&format!("srs://{}/navigation", fx.repo_id).as_str()));
     assert!(uris.contains(&format!("srs://{}/container/{}", fx.repo_id, fx.container_id).as_str()));
-    assert!(uris.contains(&format!("srs://{}/view/{}", fx.repo_id, fx.view_id).as_str()));
+    assert!(uris.contains(&format!("srs://{}/composition/{}", fx.repo_id, fx.view_id).as_str()));
 
     // Container resource is named by its title; view by namespace-qualified name.
     let container = listed
@@ -275,11 +275,14 @@ async fn read_view_renders_markdown() {
     let fx = make_fixture();
     let client = connect(&fx).await;
 
-    let (mime, text) =
-        read_text(&client, format!("srs://{}/view/{}", fx.repo_id, fx.view_id)).await;
+    let (mime, text) = read_text(
+        &client,
+        format!("srs://{}/composition/{}", fx.repo_id, fx.view_id),
+    )
+    .await;
     assert_eq!(mime.as_deref(), Some("text/markdown"));
 
-    let expected = render_document_view(RenderDocumentViewOptions {
+    let expected = render_composition(RenderCompositionOptions {
         store: &store_for(&fx),
         view_id: &fx.view_id,
         format: Some("markdown"),

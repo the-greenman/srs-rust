@@ -1,32 +1,32 @@
 use crate::commands::{with_store, CliContext, RenderCommand};
 use crate::output;
 use crate::payload::{
-    DocumentViewProjection, ExportBundlePayload, OkfBundlePayload, ProjectedPropertyRow,
+    CompositionProjection, ExportBundlePayload, OkfBundlePayload, ProjectedPropertyRow,
     ProjectedPropertyValue, ProjectedRecord, ProjectedRecordProperty, ProjectedRelationDirection,
-    ProjectedRelationRow, ProjectedRelationTarget, ProjectedSection, RenderDocumentViewPayload,
+    ProjectedRelationRow, ProjectedRelationTarget, ProjectedSection, RenderCompositionPayload,
 };
 use anyhow::Result;
 use srs_core::types::view::RecordProperty as SvcRecordProperty;
 use srs_repository::export_service::{export_record_bundle, ExportBundleInput};
 use srs_repository::okf_export_service::{OkfBundle, OkfEntry, OkfExportInput};
 use srs_repository::render_service::{
-    render_document_view, DocumentViewProjection as SvcProjection,
+    render_composition, CompositionProjection as SvcProjection,
     ProjectedPropertyRow as SvcPropertyRow, ProjectedPropertyValue as SvcPropertyValue,
     ProjectedRecord as SvcRecord, ProjectedRelationDirection as SvcRelationDirection,
     ProjectedRelationRow as SvcRelationRow, ProjectedRelationTarget as SvcRelationTarget,
-    ProjectedSection as SvcSection, RenderDocumentViewOptions,
+    ProjectedSection as SvcSection, RenderCompositionOptions,
 };
 use std::path::{Path, PathBuf};
 
 pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String> {
     match cmd {
-        RenderCommand::DocumentView {
+        RenderCommand::Composition {
             view,
             view_format,
             theme_variant,
             instance,
             output,
-        } => cmd_render_document_view(ctx, view, view_format, theme_variant, instance, output),
+        } => cmd_render_composition(ctx, view, view_format, theme_variant, instance, output),
         RenderCommand::ExportBundle {
             view,
             instance,
@@ -115,10 +115,10 @@ fn map_section(s: SvcSection) -> ProjectedSection {
     }
 }
 
-fn map_projection(p: SvcProjection) -> DocumentViewProjection {
-    DocumentViewProjection {
+fn map_projection(p: SvcProjection) -> CompositionProjection {
+    CompositionProjection {
         schema: p.schema,
-        document_view_id: p.document_view_id,
+        composition_id: p.composition_id,
         container_id: p.container_id,
         generated_at: p.generated_at,
         container_title: p.container_title,
@@ -127,7 +127,7 @@ fn map_projection(p: SvcProjection) -> DocumentViewProjection {
     }
 }
 
-fn cmd_render_document_view(
+fn cmd_render_composition(
     ctx: CliContext,
     view_id: String,
     format: Option<String>,
@@ -136,7 +136,7 @@ fn cmd_render_document_view(
     output_path: Option<PathBuf>,
 ) -> Result<String> {
     match with_store(&ctx, |store| {
-        Ok(render_document_view(RenderDocumentViewOptions {
+        Ok(render_composition(RenderCompositionOptions {
             store,
             view_id: &view_id,
             format: format.as_deref(),
@@ -161,15 +161,15 @@ fn cmd_render_document_view(
                 })?;
             }
             output::serialize(
-                "render document-view",
-                RenderDocumentViewPayload {
+                "render composition",
+                RenderCompositionPayload {
                     rendered: result.rendered,
                     diagnostics: result.diagnostics,
                     projection,
                 },
             )
         }
-        Err(e) => Ok(output::err("render document-view", vec![e.to_string()])),
+        Err(e) => Ok(output::err("render composition", vec![e.to_string()])),
     }
 }
 

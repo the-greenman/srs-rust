@@ -33,7 +33,7 @@ pub fn default_empty_string(raw: &mut serde_json::Value, key: &str) {
 
 /// Deserialize a raw JSON value into `T`, attaching the JSON path to errors.
 ///
-/// `what` names the expected shape in the message (e.g. `"DocumentView"`).
+/// `what` names the expected shape in the message (e.g. `"Composition"`).
 pub fn from_value_with_path<T: DeserializeOwned>(
     raw: serde_json::Value,
     what: &str,
@@ -114,7 +114,7 @@ mod create_normalization_tests {
     use crate::store::memory::MemoryStore;
     use serde_json::json;
 
-    fn minimal_document_view() -> serde_json::Value {
+    fn minimal_composition() -> serde_json::Value {
         json!({
             "namespace": "com.test",
             "name": "test-doc-view",
@@ -130,38 +130,34 @@ mod create_normalization_tests {
     }
 
     #[test]
-    fn document_view_create_defaults_created_at_and_description() {
+    fn composition_create_defaults_created_at_and_description() {
         let store = MemoryStore::default();
-        let result = crate::view_service::create_document_view_normalized(
-            &store,
-            minimal_document_view(),
-            None,
-        )
-        .expect("create without createdAt should succeed");
-        assert!(!result.document_view.created_at.is_empty());
-        assert_eq!(result.document_view.description, "");
-        assert!(!result.document_view.id.is_empty());
+        let result =
+            crate::view_service::create_composition_normalized(&store, minimal_composition(), None)
+                .expect("create without createdAt should succeed");
+        assert!(!result.composition.created_at.is_empty());
+        assert_eq!(result.composition.description, "");
+        assert!(!result.composition.id.is_empty());
     }
 
     #[test]
-    fn document_view_create_honours_explicit_created_at() {
+    fn composition_create_honours_explicit_created_at() {
         let store = MemoryStore::default();
-        let mut raw = minimal_document_view();
+        let mut raw = minimal_composition();
         raw["createdAt"] = json!("2020-05-05T00:00:00Z");
         raw["description"] = json!("explicit");
-        let result =
-            crate::view_service::create_document_view_normalized(&store, raw, None).unwrap();
-        assert_eq!(result.document_view.created_at, "2020-05-05T00:00:00Z");
-        assert_eq!(result.document_view.description, "explicit");
+        let result = crate::view_service::create_composition_normalized(&store, raw, None).unwrap();
+        assert_eq!(result.composition.created_at, "2020-05-05T00:00:00Z");
+        assert_eq!(result.composition.description, "explicit");
     }
 
     #[test]
-    fn document_view_create_parse_error_names_json_path() {
+    fn composition_create_parse_error_names_json_path() {
         let store = MemoryStore::default();
-        let mut raw = minimal_document_view();
+        let mut raw = minimal_composition();
         // Wrong section shape: missing `order`.
         raw["sections"] = json!([{ "sectionId": "s1" }]);
-        let err = match crate::view_service::create_document_view_normalized(&store, raw, None) {
+        let err = match crate::view_service::create_composition_normalized(&store, raw, None) {
             Err(e) => e.to_string(),
             Ok(_) => panic!("create with malformed section should fail"),
         };

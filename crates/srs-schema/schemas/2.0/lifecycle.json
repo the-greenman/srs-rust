@@ -19,6 +19,7 @@
     "name": { "type": "string" },
     "states": {
       "type": "array",
+      "minItems": 1,
       "items": { "$ref": "#/$defs/LifecycleState" }
     },
     "transitions": {
@@ -86,15 +87,10 @@
       "description": "RFC-022 relational state: a record may only be in this state if a relation satisfying this obligation exists.",
       "properties": {
         "relationType": {
-          "description": "Relation type(s) that satisfy the obligation (any-of when an array). No implicit default.",
-          "oneOf": [
-            { "type": "string", "minLength": 1 },
-            {
-              "type": "array",
-              "minItems": 1,
-              "items": { "type": "string", "minLength": 1 }
-            }
-          ]
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "description": "Relation type(s) that satisfy the obligation (any-of). RFC-032 Change F normalized this declaration form from string|string[] to a list (length ≥ 1); the single-string form is removed."
         },
         "direction": {
           "type": "string",

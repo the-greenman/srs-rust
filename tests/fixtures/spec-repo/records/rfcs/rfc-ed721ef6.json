@@ -5,12 +5,12 @@
   "typeNamespace": "com.semanticops.spec",
   "typeName": "rfc",
   "fieldValues": {
-    "title": "RFC-025: Governance Package — Primary-Export DocumentView and Seed Root Container",
+    "title": "RFC-025: Governance Package — Primary-Export Composition and Seed Root Container",
     "rfc_number": "025",
     "author": "the-greenman",
-    "affected_components": "Governance-package DocumentView + seed root container. No canonical spec record/schema artifact (downstream package only).\n\n<!-- srs-integration:v1\ntooling-only\n-->",
+    "affected_components": "Governance-package Composition + seed root container. No canonical spec record/schema artifact (downstream package only).\n\n<!-- srs-integration:v1\ntooling-only\n-->",
     "proposal_artifact_path": "rfcs/rfc-025-governance-primary-export-documentview.md",
-    "content": "Adds a `governance-document` DocumentView to the `com.mudemocracy.governance` package and fixes the empty-governance seed to ship a conforming root container plus a `renderedPresentations` default. Introduces no new spec types or schema fields. Full text: rfcs/rfc-025-governance-primary-export-documentview.md."
+    "content": "Adds a `governance-document` Composition to the `com.mudemocracy.governance` package and fixes the empty-governance seed to ship a conforming root container plus a `renderedPresentations` default. Introduces no new spec types or schema fields. Full text: rfcs/rfc-025-governance-primary-export-documentview.md."
   },
   "lifecycleState": "accepted",
   "tags": [

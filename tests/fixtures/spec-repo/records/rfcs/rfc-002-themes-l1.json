@@ -9,7 +9,7 @@
     "rfc_number": "002",
     "affected_components": "<!-- srs-integration:v1\next:themes-l1\nschema:theme.json\nschema:package-manifest.json\nschema:package-bundle.json\n-->",
     "proposal_artifact_path": "rfcs/rfc-002.md",
-    "content": "Defines the `ext:themes-l1` extension, attaching a non-destructive `Theme` (assets, element/page templates, stylesheet, CSS-class injection) to a `DocumentView`, with graceful degradation for implementations that do not support it. Full text: rfcs/rfc-002.md."
+    "content": "Defines the `ext:themes-l1` extension, attaching a non-destructive `Theme` (assets, element/page templates, stylesheet, CSS-class injection) to a `Composition`, with graceful degradation for implementations that do not support it. Full text: rfcs/rfc-002.md."
   },
   "lifecycleState": "accepted",
   "tags": [

@@ -74,23 +74,9 @@
       "type": "boolean",
       "description": "When true, a relation from an instance to itself is invalid."
     },
-    "allowedSourceTypes": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "description": "Allowed semanticObjectType values for the source instance. Absent means any type is permitted."
-    },
-    "allowedTargetTypes": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "description": "Allowed semanticObjectType values for the target instance. Absent means any type is permitted."
-    },
-    "requireSameSemanticObjectType": {
+    "requireSameType": {
       "type": "boolean",
-      "description": "When true, source and target must have the same semanticObjectType."
+      "description": "When true, source and target must resolve to the same bound Type. srs-rust#910: re-keys the retired requireSameSemanticObjectType onto the Type system (owner ruling on #383, srs#372/#524, rfc-decision-c8704763). allowedSourceTypes/allowedTargetTypes retired with no successor — both were keyed on the same retired semanticObjectType string and could never fire against a schema-conforming Record/Note."
     },
     "status": {
       "type": "string",

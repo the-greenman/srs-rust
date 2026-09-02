@@ -1,8 +1,8 @@
 use crate::attachment_service::{
-    resolve_document_view_attachments, ResolveDocumentViewAttachmentsInput,
+    resolve_composition_attachments, ResolveCompositionAttachmentsInput,
 };
 use crate::error::RepositoryError;
-use crate::render_service::{render_document_view, RenderDocumentViewOptions};
+use crate::render_service::{render_composition, RenderCompositionOptions};
 use crate::store::RepositoryStore;
 use std::collections::HashSet;
 use std::io::{Seek, Write};
@@ -25,7 +25,7 @@ pub fn export_record_bundle(
     input: ExportBundleInput,
     writer: impl Write + Seek,
 ) -> Result<ExportBundleMetadata, RepositoryError> {
-    let render_result = render_document_view(RenderDocumentViewOptions {
+    let render_result = render_composition(RenderCompositionOptions {
         store,
         view_id: &input.view_id,
         format: input.format.as_deref(),
@@ -34,9 +34,9 @@ pub fn export_record_bundle(
         instance_id_filter: Some(&input.instance_id),
     })?;
 
-    let attach_result = resolve_document_view_attachments(
+    let attach_result = resolve_composition_attachments(
         store,
-        ResolveDocumentViewAttachmentsInput {
+        ResolveCompositionAttachmentsInput {
             instance_ids: vec![input.instance_id.clone()],
         },
     )?;
@@ -112,16 +112,16 @@ mod tests {
     use crate::manifest::Manifest;
     use crate::package::Package;
     use crate::store::memory::MemoryStore;
-    use srs_core::types::view::{DocumentSection, DocumentView, EmptyBehavior, SectionSource};
+    use srs_core::types::view::{Composition, DocumentSection, EmptyBehavior, SectionSource};
     use std::io::Cursor;
     use std::path::PathBuf;
     use zip::ZipArchive;
 
-    /// Build a minimal Package with a DocumentView for export tests.
+    /// Build a minimal Package with a Composition for export tests.
     /// Uses a TypeQuery section with a non-existent semantic type — produces an
     /// empty rendered output (section hidden per EmptyBehavior::Hide) without erroring.
     fn minimal_package_with_view(view_id: &str) -> Package {
-        let doc_view = DocumentView {
+        let doc_view = Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -142,7 +142,7 @@ mod tests {
                 description: None,
                 order: 0,
                 source: SectionSource::TypeQuery {
-                    semantic_object_type: "test/placeholder".to_string(),
+                    type_key: "test/placeholder".to_string(),
                     lifecycle_state: None,
                     container_ids: None,
                     lifecycle_states: None,
@@ -175,12 +175,12 @@ mod tests {
             record_types: vec![],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![doc_view],
+            compositions: vec![doc_view],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         }
@@ -420,7 +420,7 @@ mod tests {
 
     /// Build a canonical MemoryStore for golden-fixture comparison.
     ///
-    /// Uses a DocumentView with a static preamble (no `{{...}}` template variables)
+    /// Uses a Composition with a static preamble (no `{{...}}` template variables)
     /// and a TypeQuery section pointing to a non-existent semantic type with
     /// `emptyBehavior: hide`. The rendered `decision.md` contains exactly the
     /// preamble text — a single static heading — making the ZIP output byte-stable
@@ -433,7 +433,7 @@ mod tests {
             ..Manifest::default()
         };
 
-        let doc_view = DocumentView {
+        let doc_view = Composition {
             schema: None,
             ai_guidance: None,
             lineage: None,
@@ -457,7 +457,7 @@ mod tests {
                 order: 0,
                 source: SectionSource::TypeQuery {
                     // Non-existent type — section always empty, hidden per EmptyBehavior::Hide.
-                    semantic_object_type: "com.example.golden/does-not-exist".to_string(),
+                    type_key: "com.example.golden/does-not-exist".to_string(),
                     lifecycle_state: None,
                     container_ids: None,
                     lifecycle_states: None,
@@ -490,12 +490,12 @@ mod tests {
             record_types: vec![],
             relation_type_definitions: vec![],
             views: vec![],
-            document_views: vec![doc_view],
+            compositions: vec![doc_view],
             themes: vec![],
             blueprints: vec![],
             protocols: vec![],
             root: std::path::PathBuf::from("/memory"),
-            dependency_refs: vec![],
+            package_dependencies: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
         };

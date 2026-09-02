@@ -1013,7 +1013,7 @@ fn cmd_attachment_list(repo: &str, explain: bool, json: bool) -> Result<()> {
 /// `containerScope: explicit` (row 1b) — all four views, not three: `decision-log`
 /// is `type-query` on both sides and reads as untouched, but the published
 /// `containerScope: repository` form carries no `containerIds`, so
-/// `rebind_document_views_to_scaffold` leaves it unbound. Never hand-edit the
+/// `rebind_compositions_to_scaffold` leaves it unbound. Never hand-edit the
 /// asset: a change outside the inventory is out of contract. The one edit made
 /// under it is row 4's repair (#850) — `externallinks` had lost
 /// `fieldType.cardinality: "list"` at vendor time, so it installed single-valued
@@ -1024,8 +1024,8 @@ fn cmd_attachment_list(repo: &str, explain: bool, json: bool) -> Result<()> {
 /// 1.1.0 seeds are themselves `srsj: "2"`, `dataModelRevision: 2` and on the
 /// `fieldType` carrier — so what remains is the repairs above, which is why a
 /// bare `cp` of the published artifact is not a re-vendor while the fork stands:
-/// it reverts all three and breaks `repo_create_document_views_bind_to_scaffolded_containers`
-/// and `governance_scaffold_service::scaffold_rebinds_document_views_to_created_containers`.
+/// it reverts all three and breaks `repo_create_compositions_bind_to_scaffolded_containers`
+/// and `governance_scaffold_service::scaffold_rebinds_compositions_to_created_containers`.
 ///
 /// Once Governance Epic 15 (muDemocracy.org#136) republishes a package needing
 /// no repair, re-vendor byte-for-byte from its seed artifact:
@@ -1102,7 +1102,7 @@ fn cmd_export_decision(
         run_srs(&["record", "get", id], repo, true, false)?;
         run_srs(
             &[
-                "document-view",
+                "composition",
                 "list",
                 "--namespace",
                 "governance",
@@ -1143,7 +1143,7 @@ fn cmd_export_decision(
 
     let view_payload = run_srs(
         &[
-            "document-view",
+            "composition",
             "list",
             "--namespace",
             "governance",
@@ -1154,7 +1154,7 @@ fn cmd_export_decision(
         false,
         false,
     )?;
-    let view_id = view_payload["documentViews"]
+    let view_id = view_payload["compositions"]
         .as_array()
         .and_then(|a| a.first())
         .and_then(|v| v["id"].as_str())
@@ -1198,13 +1198,13 @@ fn cmd_export_decision(
 mod tests {
     use super::GOVERNANCE_SEED;
 
-    /// The vendored seed's decision-log DocumentView must carry the canonical authored
+    /// The vendored seed's decision-log Composition must carry the canonical authored
     /// default-hidden states (the whole point of #298 — regenerate the derived copy).
     #[test]
     fn seed_decision_log_view_is_type_query_with_excludes() {
         let seed: serde_json::Value =
             serde_json::from_str(GOVERNANCE_SEED).expect("embedded seed parses");
-        let view = &seed["data"]["package/document-views/decision-log-b5c8d124.json"];
+        let view = &seed["data"]["package/compositions/decision-log-b5c8d124.json"];
         assert!(!view.is_null(), "decision-log view present in seed");
         let source = &view["sections"][0]["source"];
         assert_eq!(

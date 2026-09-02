@@ -4,7 +4,7 @@
   "fieldValues": {
     "invariant_number": "36",
     "title": "Every TypeRef.typeId referenced in any Blueprint.rootTypes[],…",
-    "normative_statement": "Every `TypeRef.typeId` referenced in any `Blueprint.rootTypes[]`, `Blueprint.requiredTypes[]`, or in any `RelationSpec.sourceType` or `RelationSpec.targetType` within `Blueprint.structure[]`, for each Blueprint in `Package.blueprints[]`, must appear in `Package.dependencyRefs` with `definitionType: \"type\"`. If `mode === \"bundled\"`, each such Type must be present in `Package.types[]`.",
+    "normative_statement": "Every `TypeRef.typeId` referenced in any `Blueprint.rootTypes[]`, `Blueprint.requiredTypes[]`, or in any `RelationSpec.sourceType` or `RelationSpec.targetType` within `Blueprint.structure[]`, for each Blueprint in `Package.blueprints[]`, must appear in `Package.packageDependencies` with `definitionType: \"type\"`. If `mode === \"bundled\"`, each such Type must be present in `Package.types[]`.",
     "applies_to": "ext:blueprint — Distribution"
   },
   "instanceId": "e1000036-0000-4000-a000-000000000036",

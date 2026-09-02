@@ -15,7 +15,7 @@ use crate::protocol_service::create_protocol;
 use crate::store::memory::MemoryStore;
 use crate::store::RepositoryStore;
 use crate::theme_service::create_theme;
-use crate::view_service::{create_document_view, create_view};
+use crate::view_service::{create_composition, create_view};
 use srs_core::types::blueprint::{Blueprint, TypeRef};
 use srs_core::types::field::{AiGuidance, Field, FieldType};
 use srs_core::types::lifecycle::{Lifecycle, LifecycleState, LifecycleTransition};
@@ -23,7 +23,7 @@ use srs_core::types::protocol::Protocol;
 use srs_core::types::record_type::RecordType;
 use srs_core::types::relation_type_definition::{RelationTypeCategory, RelationTypeDefinition};
 use srs_core::types::theme::Theme;
-use srs_core::types::view::{DocumentSection, DocumentView, FieldView, SectionSource, View};
+use srs_core::types::view::{Composition, DocumentSection, FieldView, SectionSource, View};
 
 const BOUNDARY: &str = "packages/governance";
 
@@ -63,7 +63,6 @@ fn make_field(id: &str, name: &str) -> Field {
 
 fn make_type(id: &str, name: &str) -> RecordType {
     RecordType {
-        extra: Default::default(),
         schema: None,
         ai_guidance: None,
         tags: None,
@@ -118,8 +117,8 @@ fn make_view(name: &str) -> View {
     }
 }
 
-fn make_document_view(name: &str) -> DocumentView {
-    DocumentView {
+fn make_composition(name: &str) -> Composition {
+    Composition {
         schema: None,
         ai_guidance: None,
         lineage: None,
@@ -237,9 +236,7 @@ fn make_relation_type(id: &str, key: &str) -> RelationTypeDefinition {
         canonical_direction: None,
         inverse_type: None,
         irreflexive: None,
-        allowed_source_types: None,
-        allowed_target_types: None,
-        require_same_semantic_object_type: None,
+        require_same_type: None,
         updated_at: None,
         meta: None,
     }
@@ -345,8 +342,8 @@ fn all_definition_creates_accept_packages_prefixed_boundary() {
     create_view(&store, make_view("gov-view"), sel.clone()).unwrap();
     assert_in_boundary(&store, "views", "views");
 
-    create_document_view(&store, make_document_view("gov-doc-view"), sel.clone()).unwrap();
-    assert_in_boundary(&store, "document-views", "documentViews");
+    create_composition(&store, make_composition("gov-doc-view"), sel.clone()).unwrap();
+    assert_in_boundary(&store, "compositions", "compositions");
 
     create_theme(&store, make_theme("gov-theme"), sel.clone()).unwrap();
     assert_in_boundary(&store, "themes", "themes");
@@ -392,7 +389,7 @@ fn all_definition_creates_reject_path_traversal_selector() {
     )
     .is_err());
     assert!(create_view(&store, make_view("evil-view"), evil.clone()).is_err());
-    assert!(create_document_view(&store, make_document_view("evil-dv"), evil.clone()).is_err());
+    assert!(create_composition(&store, make_composition("evil-dv"), evil.clone()).is_err());
     assert!(create_theme(&store, make_theme("evil-theme"), evil.clone()).is_err());
     assert!(create_blueprint(&store, make_blueprint("evil-bp"), evil.clone()).is_err());
     assert!(create_protocol(

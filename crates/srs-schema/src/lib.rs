@@ -5,8 +5,7 @@ use thiserror::Error;
 
 pub const BLUEPRINT_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/blueprint.json";
 pub const CONTAINER_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/container.json";
-pub const DOCUMENT_VIEW_SCHEMA_ID: &str =
-    "https://srs.semanticops.com/schema/2.0/document-view.json";
+pub const COMPOSITION_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/composition.json";
 pub const DOCUMENT_VIEW_OUTPUT_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/document-view-output.json";
 pub const FIELD_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/field.json";
@@ -37,7 +36,7 @@ pub const VIEW_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/view.js
 pub const ALL_SCHEMA_IDS: &[&str] = &[
     BLUEPRINT_SCHEMA_ID,
     CONTAINER_SCHEMA_ID,
-    DOCUMENT_VIEW_SCHEMA_ID,
+    COMPOSITION_SCHEMA_ID,
     DOCUMENT_VIEW_OUTPUT_SCHEMA_ID,
     FIELD_SCHEMA_ID,
     MANIFEST_SCHEMA_ID,
@@ -67,10 +66,7 @@ macro_rules! include_schema {
 static SCHEMA_SOURCES: &[(&str, &str)] = &[
     (BLUEPRINT_SCHEMA_ID, include_schema!("blueprint.json")),
     (CONTAINER_SCHEMA_ID, include_schema!("container.json")),
-    (
-        DOCUMENT_VIEW_SCHEMA_ID,
-        include_schema!("document-view.json"),
-    ),
+    (COMPOSITION_SCHEMA_ID, include_schema!("composition.json")),
     (
         DOCUMENT_VIEW_OUTPUT_SCHEMA_ID,
         include_schema!("document-view-output.json"),

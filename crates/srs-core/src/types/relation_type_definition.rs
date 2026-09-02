@@ -37,15 +37,15 @@ pub struct RelationTypeDefinition {
     /// When true, a relation from an instance to itself is invalid (E3).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub irreflexive: Option<bool>,
-    /// Allowed `semanticObjectType` values for the source instance (E4).
+    /// When true, source and target must resolve to the same bound Type (E4).
+    /// srs-rust#910: the semanticObjectType collapse (srs#372/#383/#524,
+    /// `rfc-decision-c8704763`) re-keys the retired `requireSameSemanticObjectType`
+    /// onto the Type system itself. `allowedSourceTypes`/`allowedTargetTypes`
+    /// retired with no successor — both were keyed on the same retired
+    /// semanticObjectType string and, per #372, could never fire against a
+    /// schema-conforming Record/Note (neither declares that property).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub allowed_source_types: Option<Vec<String>>,
-    /// Allowed `semanticObjectType` values for the target instance (E4).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub allowed_target_types: Option<Vec<String>>,
-    /// When true, source and target must share the same `semanticObjectType` (E4).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub require_same_semantic_object_type: Option<bool>,
+    pub require_same_type: Option<bool>,
     /// Lifecycle status. Absent means active.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<RelationTypeStatus>,
@@ -153,9 +153,7 @@ mod tests {
             canonical_direction: Some("source comes before target".to_string()),
             inverse_type: Some("follows".to_string()),
             irreflexive: Some(true),
-            allowed_source_types: None,
-            allowed_target_types: None,
-            require_same_semantic_object_type: None,
+            require_same_type: None,
             status: None,
             updated_at: None,
             meta: None,
