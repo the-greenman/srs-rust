@@ -5,7 +5,6 @@
   "name": "type-filter-view",
   "version": 1,
   "description": "Composition with typeFilter restricting container-subset to section.text records only.",
-  "format": "markdown",
   "sections": [
     {
       "sectionId": "filtered-body",
@@ -14,11 +13,16 @@
       "source": {
         "type": "container-subset",
         "containerId": "00000000-0000-4000-8000-000000003500",
-        "typeFilter": ["fixture.rfc008/section.text"]
+        "typeFilter": [
+          "fixture.rfc008/section.text"
+        ]
       },
       "titleFieldId": "00000000-0000-4000-8000-000000003501",
       "emptyBehavior": "hide"
     }
   ],
-  "createdAt": "2026-01-01T00:00:00Z"
+  "createdAt": "2026-01-01T00:00:00Z",
+  "exportConfig": {
+    "format": "markdown"
+  }
 }

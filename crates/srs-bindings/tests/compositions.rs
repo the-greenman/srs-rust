@@ -65,7 +65,7 @@ fn bound_view_srsj() -> String {
                         "emptyBehavior": "hide"
                     }
                 ],
-                "format": "markdown",
+                "exportConfig": {"format": "markdown"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "containers/22222222-2222-4222-8222-222222222222.json": {

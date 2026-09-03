@@ -5,20 +5,25 @@
   "name": "labeled-field-view",
   "version": 1,
   "description": "Composition that verifies renderViewId uses FieldView displayLabel values.",
-  "format": "markdown",
   "sections": [
     {
       "sectionId": "items",
       "title": "Items",
       "order": 0,
       "source": {
-        "type": "type-query",
-        "typeKey": "fixture.repeatable/repeatable-item"
+        "type": "discovery-query",
+        "query": {
+          "typeNamespace": "fixture.repeatable",
+          "typeName": "repeatable-item"
+        }
       },
       "renderViewId": "00000000-0000-4000-8000-000000000985",
       "titleFieldId": "00000000-0000-4000-8000-000000000901",
       "emptyBehavior": "hide"
     }
   ],
-  "createdAt": "2026-01-01T00:00:00Z"
+  "createdAt": "2026-01-01T00:00:00Z",
+  "exportConfig": {
+    "format": "markdown"
+  }
 }

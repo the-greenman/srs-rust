@@ -29,7 +29,6 @@
     "compositions/deep-offset-view.json",
     "compositions/title-field-view.json",
     "compositions/labeled-field-view.json",
-    "compositions/bad-semantic-type-view.json",
     "compositions/themed-composition.json",
     "compositions/missing-theme-view.json",
     "compositions/json-hidden-field-view.json",

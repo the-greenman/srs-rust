@@ -7,7 +7,7 @@
       "title": "Empty Governance Document"
     },
     "createdAt": "2026-01-01T00:00:00Z",
-    "dataModelRevision": 6,
+    "dataModelRevision": 7,
     "description": "An empty governance document: the canonical MuDemocracy governance package installed with zero records, ready for a clerk to capture their first decision.",
     "meta": {},
     "namespace": "com.mudemocracy.governance",
@@ -84,7 +84,6 @@
       "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Renders the Articles of Association together with the current role holders.",
-      "format": "markdown",
       "id": "78b11038-e5d8-4269-9982-fe5c459802b2",
       "name": "articles-and-roles",
       "namespace": "governance",
@@ -98,8 +97,12 @@
           },
           "sectionId": "articles",
           "source": {
-            "containerId": "f7562aa3-98c7-44be-b4c5-5474df6441f2",
-            "type": "container-subset"
+            "type": "discovery-query",
+            "query": {
+              "typeNamespace": "governance",
+              "typeName": "article"
+            },
+            "containerScope": "repository"
           },
           "title": "Articles of Association",
           "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
@@ -109,20 +112,26 @@
           "order": 1,
           "sectionId": "roles",
           "source": {
-            "containerId": "b30db206-e9a7-4588-a9aa-53451aacd243",
-            "type": "container-subset"
+            "type": "discovery-query",
+            "query": {
+              "typeNamespace": "governance",
+              "typeName": "role"
+            },
+            "containerScope": "repository"
           },
           "title": "Roles",
           "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
         }
       ],
-      "version": 1
+      "version": 1,
+      "exportConfig": {
+        "format": "markdown"
+      }
     },
     "package/compositions/decision-deliberation-5a3ce87e.json": {
       "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Full deliberation view — shows all fields including question, context, friction, alternatives, requirements, statement, rationale, next steps, owner, revisit, and status.",
-      "format": "markdown",
       "id": "5a3ce87e-8340-4d91-a140-ab56b57f704f",
       "name": "decision-deliberation",
       "namespace": "governance",
@@ -132,20 +141,26 @@
           "order": 0,
           "sectionId": "decisions",
           "source": {
-            "containerId": "138e2fac-6a8a-4a06-9511-5aefd99ceae9",
-            "type": "container-subset"
+            "type": "discovery-query",
+            "query": {
+              "typeNamespace": "governance",
+              "typeName": "decision"
+            },
+            "containerScope": "repository"
           },
           "title": "Decisions",
           "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
         }
       ],
-      "version": 1
+      "version": 1,
+      "exportConfig": {
+        "format": "markdown"
+      }
     },
     "package/compositions/decision-log-b5c8d124.json": {
       "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Decision log view — compact summary showing only decision statement, alternatives considered, rationale, and revisit trigger.",
-      "format": "markdown",
       "id": "b5c8d124-2084-4a6b-a231-425e800e1e55",
       "name": "decision-log",
       "namespace": "governance",
@@ -162,29 +177,31 @@
           "renderViewId": "faebd240-83c4-4bc8-a383-8335f841a234",
           "sectionId": "decisions",
           "source": {
-            "containerIds": [
-              "138e2fac-6a8a-4a06-9511-5aefd99ceae9"
-            ],
-            "containerScope": "explicit",
-            "excludeLifecycleStates": [
-              "superseded",
-              "closed",
-              "abandoned"
-            ],
-            "typeKey": "governance/decision",
-            "type": "type-query"
+            "type": "discovery-query",
+            "query": {
+              "typeNamespace": "governance",
+              "typeName": "decision",
+              "excludeLifecycleStates": [
+                "superseded",
+                "closed",
+                "abandoned"
+              ]
+            },
+            "containerScope": "repository"
           },
           "title": "Decision Log",
           "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
         }
       ],
-      "version": 1
+      "version": 1,
+      "exportConfig": {
+        "format": "markdown"
+      }
     },
     "package/compositions/governance-document-732a982b.json": {
       "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
       "createdAt": "2026-07-06T00:00:00Z",
       "description": "Renders the complete governance corpus — articles of association, roles, and decision log — as a single whole-document export.",
-      "format": "markdown",
       "id": "732a982b-3765-4f22-90e0-e456463bac54",
       "name": "governance-document",
       "namespace": "governance",
@@ -198,8 +215,12 @@
           },
           "sectionId": "articles",
           "source": {
-            "containerId": "f7562aa3-98c7-44be-b4c5-5474df6441f2",
-            "type": "container-subset"
+            "type": "discovery-query",
+            "query": {
+              "typeNamespace": "governance",
+              "typeName": "article"
+            },
+            "containerScope": "repository"
           },
           "title": "Articles of Association",
           "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
@@ -209,8 +230,12 @@
           "order": 1,
           "sectionId": "roles",
           "source": {
-            "containerId": "b30db206-e9a7-4588-a9aa-53451aacd243",
-            "type": "container-subset"
+            "type": "discovery-query",
+            "query": {
+              "typeNamespace": "governance",
+              "typeName": "role"
+            },
+            "containerScope": "repository"
           },
           "title": "Roles",
           "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
@@ -220,14 +245,21 @@
           "order": 2,
           "sectionId": "decisions",
           "source": {
-            "containerId": "138e2fac-6a8a-4a06-9511-5aefd99ceae9",
-            "type": "container-subset"
+            "type": "discovery-query",
+            "query": {
+              "typeNamespace": "governance",
+              "typeName": "decision"
+            },
+            "containerScope": "repository"
           },
           "title": "Decision Log",
           "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
         }
       ],
-      "version": 1
+      "version": 1,
+      "exportConfig": {
+        "format": "markdown"
+      }
     },
     "package/fields/alternativesconsidered-636ce948.json": {
       "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
@@ -717,7 +749,9 @@
           "key": "superseded",
           "label": "Superseded",
           "requiresRelation": {
-            "relationType": ["supersedes"]
+            "relationType": [
+              "supersedes"
+            ]
           }
         },
         {

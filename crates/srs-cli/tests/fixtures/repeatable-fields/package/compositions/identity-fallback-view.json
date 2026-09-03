@@ -5,18 +5,23 @@
   "name": "identity-fallback-view",
   "version": 1,
   "description": "View with no titleFieldId; heading should fall back to identityFieldId (Rule [N+37])",
-  "format": "markdown",
   "sections": [
     {
       "sectionId": "items",
       "title": "Items",
       "order": 0,
       "source": {
-        "type": "type-query",
-        "typeKey": "fixture.repeatable/identity-item"
+        "type": "discovery-query",
+        "query": {
+          "typeNamespace": "fixture.repeatable",
+          "typeName": "identity-item"
+        }
       },
       "emptyBehavior": "hide"
     }
   ],
-  "createdAt": "2026-01-01T00:00:00Z"
+  "createdAt": "2026-01-01T00:00:00Z",
+  "exportConfig": {
+    "format": "markdown"
+  }
 }

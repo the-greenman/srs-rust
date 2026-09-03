@@ -26,42 +26,15 @@ use crate::record_store::{self, RecordListFilter};
 use crate::store::RepositoryStore;
 use crate::text_projection::{self, FieldTextIndex, TextSegment};
 use serde::{Deserialize, Serialize};
+use srs_core::types::record::Record;
 use std::collections::HashSet;
 
-/// A conjunction of structured predicates plus an optional content-match floor.
-/// Mirrors `DiscoveryQuery` in `docs/schema/2.0/discovery.json`. Unspecified
-/// predicates are wildcards.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiscoveryQuery {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub type_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub type_namespace: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub type_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub container_id: Option<String>,
-    /// AND-conjunction: the instance's tags must contain ALL specified values.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tag: Vec<String>,
-    /// Exact match on `Record.lifecycleState` (case-sensitive).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub lifecycle_state: Option<String>,
-    /// Exclude instances whose `lifecycleState` matches any listed value (RFC-011
-    /// parity; applied after `lifecycle_state`). An empty list excludes nothing —
-    /// the "show all" override for an authored default-hidden set.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub exclude_lifecycle_states: Vec<String>,
-    /// Instance tier filter (0=Note, 2=Record — Tier 1/TypedRecord is retired,
-    /// srs#448/rfc-decision-53635966, srs-rust#888). Unspecified matches all
-    /// tiers.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tier: Option<u8>,
-    /// Free-text recall-floor predicate over the Text Projection.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub content_match: Option<String>,
-}
+/// The canonical query shape now lives in `srs-core` (`srs_core::types::discovery`)
+/// so it can be the one type [`crate::render_service`]'s `SectionSource::DiscoveryQuery`
+/// consumes too (srs#525 / srs-rust#924 — "one query engine", not a divergent
+/// re-implementation). Re-exported here so existing `discovery_service::DiscoveryQuery`
+/// call sites (CLI `find`, MCP, bindings) are unaffected.
+pub use srs_core::types::discovery::DiscoveryQuery;
 
 /// Deterministic result: hits in stable order, total, and non-fatal diagnostics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,7 +102,8 @@ pub fn find(
     let tier2_only_predicate = query.type_id.is_some()
         || query.type_namespace.is_some()
         || query.type_name.is_some()
-        || query.lifecycle_state.is_some();
+        || query.lifecycle_state.is_some()
+        || !query.lifecycle_states.is_empty();
 
     if !tier2_only_predicate && (query.tier.is_none() || query.tier == Some(0)) {
         hits.extend(find_tier0(store, &query, needle.as_deref())?);
@@ -151,6 +125,64 @@ fn tags_match(query_tags: &[String], instance_tags: &[String]) -> bool {
     query_tags
         .iter()
         .all(|t| instance_tags.iter().any(|it| it == t))
+}
+
+/// Applies every structured (non-content-match) `DiscoveryQuery` predicate to
+/// one Tier-2 Record: `typeId`, `tag`, `lifecycleState` (exact),
+/// `lifecycleStates` (OR-inclusion), `excludeLifecycleStates` (exclusion).
+/// `typeNamespace`/`typeName`/`containerId`/the first `tag` are expected to
+/// already be pushed down via [`RecordListFilter`] by the caller — this
+/// re-applies `tag` in full (the pushdown only uses the first element as an
+/// optimization) plus the remaining predicates that filter never covers.
+///
+/// The **one** place these axes are evaluated (srs#525 / srs-rust#924's "one
+/// query engine" collapse) — consumed by both [`find_tier2`] and
+/// [`crate::render_service`]'s `SectionSource::DiscoveryQuery` section
+/// resolution, so a Composition section no longer re-implements them.
+pub(crate) fn record_matches_structured_predicates(
+    record: &Record,
+    query: &DiscoveryQuery,
+) -> bool {
+    if let Some(type_id) = &query.type_id {
+        if &record.type_id != type_id {
+            return false;
+        }
+    }
+
+    if !tags_match(&query.tag, record.tags.as_deref().unwrap_or(&[])) {
+        return false;
+    }
+
+    if let Some(state) = &query.lifecycle_state {
+        if record.lifecycle_state.as_deref() != Some(state.as_str()) {
+            return false;
+        }
+    }
+
+    // Inclusion axis (RFC-012 Rev 11): only records whose lifecycleState
+    // matches any listed value. Records with no lifecycleState are excluded
+    // when this predicate is present and non-empty.
+    if !query.lifecycle_states.is_empty() {
+        let matches = record
+            .lifecycle_state
+            .as_deref()
+            .is_some_and(|s| query.lifecycle_states.iter().any(|v| v == s));
+        if !matches {
+            return false;
+        }
+    }
+
+    // Exclusion axis: drop records whose lifecycleState is in the hidden set.
+    // Records without a lifecycleState are never excluded by this axis.
+    if !query.exclude_lifecycle_states.is_empty() {
+        if let Some(state) = record.lifecycle_state.as_deref() {
+            if query.exclude_lifecycle_states.iter().any(|s| s == state) {
+                return false;
+            }
+        }
+    }
+
+    true
 }
 
 /// Run the content-match recall floor over a projected segment stream: the first
@@ -209,30 +241,8 @@ fn find_tier2(
 
     let mut hits = Vec::new();
     for record in &records {
-        if let Some(type_id) = &query.type_id {
-            if &record.type_id != type_id {
-                continue;
-            }
-        }
-
-        if !tags_match(&query.tag, record.tags.as_deref().unwrap_or(&[])) {
+        if !record_matches_structured_predicates(record, query) {
             continue;
-        }
-
-        if let Some(state) = &query.lifecycle_state {
-            if record.lifecycle_state.as_deref() != Some(state.as_str()) {
-                continue;
-            }
-        }
-
-        // Exclusion axis: drop records whose lifecycleState is in the hidden set.
-        // Records without a lifecycleState are never excluded by this axis.
-        if !query.exclude_lifecycle_states.is_empty() {
-            if let Some(state) = record.lifecycle_state.as_deref() {
-                if query.exclude_lifecycle_states.iter().any(|s| s == state) {
-                    continue;
-                }
-            }
         }
 
         let (matched_fields, snippet) = match needle {
@@ -329,7 +339,7 @@ mod tests {
     use crate::store::RepositoryStore;
     use srs_core::types::field::{AiGuidance, Field, FieldType};
     use srs_core::types::note::{Note, NoteSection};
-    use srs_core::types::record::{FieldValues, Record};
+    use srs_core::types::record::FieldValues;
     use std::path::PathBuf;
 
     const TITLE: &str = "00000000-0000-4000-8000-00000000f001";

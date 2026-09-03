@@ -1684,6 +1684,10 @@ pub struct FindArgs {
     /// Exact match on Record.lifecycleState (requires ext:lifecycle)
     #[arg(long = "lifecycle-state")]
     pub lifecycle_state: Option<String>,
+    /// Inclusive multi-value lifecycleState filter (repeatable; OR semantics —
+    /// RFC-012 Rev 11). Independent of --lifecycle-state; do not combine the two.
+    #[arg(long = "lifecycle-states", action = clap::ArgAction::Append)]
+    pub lifecycle_states: Vec<String>,
     /// Exclude records whose lifecycleState matches this value (repeatable; applied after --lifecycle-state)
     #[arg(long = "exclude-lifecycle-state", action = clap::ArgAction::Append)]
     pub exclude_lifecycle_state: Vec<String>,

@@ -112,13 +112,15 @@ mod tests {
     use crate::manifest::Manifest;
     use crate::package::Package;
     use crate::store::memory::MemoryStore;
-    use srs_core::types::view::{Composition, DocumentSection, EmptyBehavior, SectionSource};
+    use srs_core::types::view::{
+        Composition, DocumentSection, EmptyBehavior, ExportConfig, SectionSource,
+    };
     use std::io::Cursor;
     use std::path::PathBuf;
     use zip::ZipArchive;
 
     /// Build a minimal Package with a Composition for export tests.
-    /// Uses a TypeQuery section with a non-existent semantic type — produces an
+    /// Uses a DiscoveryQuery section with a non-existent type — produces an
     /// empty rendered output (section hidden per EmptyBehavior::Hide) without erroring.
     fn minimal_package_with_view(view_id: &str) -> Package {
         let doc_view = Composition {
@@ -141,12 +143,13 @@ mod tests {
                 title: None,
                 description: None,
                 order: 0,
-                source: SectionSource::TypeQuery {
-                    type_key: "test/placeholder".to_string(),
-                    lifecycle_state: None,
+                source: SectionSource::DiscoveryQuery {
+                    query: srs_core::types::discovery::DiscoveryQuery {
+                        type_namespace: Some("test".to_string()),
+                        type_name: Some("placeholder".to_string()),
+                        ..Default::default()
+                    },
                     container_ids: None,
-                    lifecycle_states: None,
-                    exclude_lifecycle_states: None,
                     container_scope: None,
                 },
                 render_view_id: None,
@@ -158,8 +161,11 @@ mod tests {
                 relations_presentation: None,
             }],
             navigation_links: None,
-            preamble: None,
-            format: Some("markdown".to_string()),
+            export_config: Some(ExportConfig {
+                format: Some("markdown".to_string()),
+                preamble: None,
+                omit_empty_fields: None,
+            }),
             depth_offset: None,
             theme_ref: None,
             theme_variants: None,
@@ -421,7 +427,7 @@ mod tests {
     /// Build a canonical MemoryStore for golden-fixture comparison.
     ///
     /// Uses a Composition with a static preamble (no `{{...}}` template variables)
-    /// and a TypeQuery section pointing to a non-existent semantic type with
+    /// and a DiscoveryQuery section pointing to a non-existent type with
     /// `emptyBehavior: hide`. The rendered `decision.md` contains exactly the
     /// preamble text — a single static heading — making the ZIP output byte-stable
     /// across any number of runs without any timestamp pinning.
@@ -447,21 +453,20 @@ mod tests {
             description: "Golden export test view".to_string(),
             container_type: None,
             root_type_refs: None,
-            // Static preamble — no {{template}} variables — rendered output is byte-stable.
-            preamble: Some("# Golden Export Bundle".to_string()),
             sections: vec![DocumentSection {
                 composite_renderers: None,
                 section_id: "content".to_string(),
                 title: None,
                 description: None,
                 order: 0,
-                source: SectionSource::TypeQuery {
+                source: SectionSource::DiscoveryQuery {
                     // Non-existent type — section always empty, hidden per EmptyBehavior::Hide.
-                    type_key: "com.example.golden/does-not-exist".to_string(),
-                    lifecycle_state: None,
+                    query: srs_core::types::discovery::DiscoveryQuery {
+                        type_namespace: Some("com.example.golden".to_string()),
+                        type_name: Some("does-not-exist".to_string()),
+                        ..Default::default()
+                    },
                     container_ids: None,
-                    lifecycle_states: None,
-                    exclude_lifecycle_states: None,
                     container_scope: None,
                 },
                 render_view_id: None,
@@ -473,7 +478,12 @@ mod tests {
                 relations_presentation: None,
             }],
             navigation_links: None,
-            format: Some("markdown".to_string()),
+            // Static preamble — no {{template}} variables — rendered output is byte-stable.
+            export_config: Some(ExportConfig {
+                format: Some("markdown".to_string()),
+                preamble: Some("# Golden Export Bundle".to_string()),
+                omit_empty_fields: None,
+            }),
             depth_offset: None,
             theme_ref: None,
             theme_variants: None,

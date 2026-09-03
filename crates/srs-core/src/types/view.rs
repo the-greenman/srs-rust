@@ -239,24 +239,28 @@ pub enum ContainerScope {
 pub enum SectionSource {
     #[serde(rename_all = "camelCase")]
     FixedInstances { instance_ids: Vec<String> },
+    /// RFC-012/RFC-011 collapse (srs#525, srs-rust#924): a section names its
+    /// selection via the one structured query mechanism
+    /// ([`crate::types::discovery::DiscoveryQuery`], ext:discovery) and adds
+    /// container-scope arrangement directives on top. Replaces the retired
+    /// `type-query` variant one-for-one (srs-rust#910's `TypeQuery`, itself
+    /// renamed from the dead E4 `semanticObjectType`) — zero-compat cutover,
+    /// no alias: SectionSource no longer re-implements discovery axes
+    /// divergently (`typeNamespace`/`typeName` replace `typeKey`;
+    /// `lifecycleState`/`lifecycleStates`/`excludeLifecycleStates` move onto
+    /// `query`).
     #[serde(rename_all = "camelCase")]
-    TypeQuery {
-        /// KEYED `namespace/name` (version-independent) resolved against the
-        /// effective package set — the same convention as `ContainerSubset.type_filter`
-        /// and `DocumentSection.type_dispatch`. srs-rust#910: renamed from the
-        /// retired `semanticObjectType` (owner ruling on #383, srs#372/#481/#524,
-        /// `rfc-decision-c8704763`) — the resolution behind this field was already
-        /// real Type-keyed selection (`list_records_by_type(namespace, name)`),
-        /// never the dead E4 `semanticObjectType` string; only the name was wrong.
-        type_key: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        lifecycle_state: Option<String>,
+    DiscoveryQuery {
+        query: crate::types::discovery::DiscoveryQuery,
+        /// Container-scope arrangement, not selection — layered on top of
+        /// `query` (srs#525). Which containers bound the candidate set; see
+        /// `container_scope`.
         #[serde(skip_serializing_if = "Option::is_none")]
         container_ids: Option<Vec<String>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        lifecycle_states: Option<Vec<String>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        exclude_lifecycle_states: Option<Vec<String>>,
+        /// RFC-011 [N+27]/I-144 (unchanged by the srs#525 collapse — remains a
+        /// SectionSource-level arrangement directive, not a DiscoveryQuery
+        /// predicate, because `DiscoveryQuery.container_id` is single-valued
+        /// and non-traversing).
         #[serde(skip_serializing_if = "Option::is_none")]
         container_scope: Option<ContainerScope>,
     },
@@ -459,10 +463,13 @@ pub struct Composition {
     pub sections: Vec<DocumentSection>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub navigation_links: Option<Vec<NavigationLink>>,
+    /// The shared render-output configuration shape (ext:views-l1), also
+    /// carried by `View` (srs#525 ExportConfig unification): `format`/`preamble`
+    /// here govern this Composition's document-level rendering. Replaces the
+    /// former top-level `preamble`/`format` fields one-for-one — zero-compat
+    /// cutover, no alias.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub preamble: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub format: Option<String>,
+    pub export_config: Option<ExportConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub depth_offset: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -594,12 +601,14 @@ mod tests {
                 title: Some("Specification".to_string()),
                 description: Some("full spec".to_string()),
                 order: 0,
-                source: SectionSource::TypeQuery {
-                    type_key: "com.semanticops.srs/meta.section".to_string(),
-                    lifecycle_state: Some("active".to_string()),
+                source: SectionSource::DiscoveryQuery {
+                    query: crate::types::discovery::DiscoveryQuery {
+                        type_namespace: Some("com.semanticops.srs".to_string()),
+                        type_name: Some("meta.section".to_string()),
+                        lifecycle_state: Some("active".to_string()),
+                        ..Default::default()
+                    },
                     container_ids: Some(vec!["c1".to_string()]),
-                    lifecycle_states: None,
-                    exclude_lifecycle_states: None,
                     container_scope: None,
                 },
                 render_view_id: Some("view-1".to_string()),
@@ -621,8 +630,13 @@ mod tests {
                 label: Some("next".to_string()),
                 bidirectional: Some(false),
             }]),
-            preamble: Some("{{heading-1-open}}{{container-title}}{{heading-1-close}}".to_string()),
-            format: Some("markdown".to_string()),
+            export_config: Some(ExportConfig {
+                preamble: Some(
+                    "{{heading-1-open}}{{container-title}}{{heading-1-close}}".to_string(),
+                ),
+                format: Some("markdown".to_string()),
+                omit_empty_fields: None,
+            }),
             depth_offset: Some(1),
             theme_ref: Some(ThemeReference {
                 mode: ThemeMode::Bundled,
@@ -658,32 +672,62 @@ mod tests {
         );
     }
 
+    /// srs#525 ExportConfig unification, zero-compat cutover: the retired
+    /// top-level `format`/`preamble` Composition properties must be rejected
+    /// outright, never silently tolerated or coerced onto `exportConfig`.
     #[test]
-    fn section_source_type_query_deserialises() {
-        let json = r#"{"type":"type-query","typeKey":"com.example/decision"}"#;
+    fn composition_rejects_retired_top_level_format_and_preamble() {
+        let json = r#"{
+            "id": "dv-1", "namespace": "com.test", "name": "dv", "version": 1,
+            "description": "desc", "sections": [], "createdAt": "2026-01-01T00:00:00Z",
+            "format": "markdown"
+        }"#;
+        assert!(
+            serde_json::from_str::<Composition>(json).is_err(),
+            "a top-level format property must be rejected, not silently tolerated"
+        );
+
+        let json = r#"{
+            "id": "dv-1", "namespace": "com.test", "name": "dv", "version": 1,
+            "description": "desc", "sections": [], "createdAt": "2026-01-01T00:00:00Z",
+            "preamble": "hello"
+        }"#;
+        assert!(
+            serde_json::from_str::<Composition>(json).is_err(),
+            "a top-level preamble property must be rejected, not silently tolerated"
+        );
+    }
+
+    #[test]
+    fn section_source_discovery_query_deserialises() {
+        let json = r#"{"type":"discovery-query","query":{"typeNamespace":"com.example","typeName":"decision"}}"#;
         let parsed: SectionSource = serde_json::from_str(json).unwrap();
         assert_eq!(
             parsed,
-            SectionSource::TypeQuery {
-                type_key: "com.example/decision".to_string(),
-                lifecycle_state: None,
+            SectionSource::DiscoveryQuery {
+                query: crate::types::discovery::DiscoveryQuery {
+                    type_namespace: Some("com.example".to_string()),
+                    type_name: Some("decision".to_string()),
+                    ..Default::default()
+                },
                 container_ids: None,
-                lifecycle_states: None,
-                exclude_lifecycle_states: None,
                 container_scope: None,
             }
         );
     }
 
     #[test]
-    fn section_source_type_query_new_fields_round_trip() {
-        // All three new fields present — should round-trip correctly.
-        let source = SectionSource::TypeQuery {
-            type_key: "com.example/decision".to_string(),
-            lifecycle_state: None,
-            container_ids: None,
-            lifecycle_states: Some(vec!["active".to_string(), "draft".to_string()]),
-            exclude_lifecycle_states: Some(vec!["superseded".to_string()]),
+    fn section_source_discovery_query_arrangement_fields_round_trip() {
+        // containerIds/containerScope present — should round-trip correctly.
+        let source = SectionSource::DiscoveryQuery {
+            query: crate::types::discovery::DiscoveryQuery {
+                type_namespace: Some("com.example".to_string()),
+                type_name: Some("decision".to_string()),
+                lifecycle_states: vec!["active".to_string(), "draft".to_string()],
+                exclude_lifecycle_states: vec!["superseded".to_string()],
+                ..Default::default()
+            },
+            container_ids: Some(vec!["c1".to_string()]),
             container_scope: Some(ContainerScope::Repository),
         };
         let json = serde_json::to_string(&source).unwrap();
@@ -708,14 +752,15 @@ mod tests {
     }
 
     #[test]
-    fn section_source_type_query_new_fields_absent_round_trip() {
-        // When new fields are absent, they must not appear in serialised JSON and must deserialise to None.
-        let source = SectionSource::TypeQuery {
-            type_key: "com.example/decision".to_string(),
-            lifecycle_state: None,
+    fn section_source_discovery_query_arrangement_fields_absent_round_trip() {
+        // When arrangement fields are absent, they must not appear in serialised JSON.
+        let source = SectionSource::DiscoveryQuery {
+            query: crate::types::discovery::DiscoveryQuery {
+                type_namespace: Some("com.example".to_string()),
+                type_name: Some("decision".to_string()),
+                ..Default::default()
+            },
             container_ids: None,
-            lifecycle_states: None,
-            exclude_lifecycle_states: None,
             container_scope: None,
         };
         let json = serde_json::to_string(&source).unwrap();
@@ -724,15 +769,22 @@ mod tests {
             "absent lifecycleStates must not appear in JSON: {json}"
         );
         assert!(
-            !json.contains("excludeLifecycleStates"),
-            "absent excludeLifecycleStates must not appear in JSON: {json}"
-        );
-        assert!(
             !json.contains("containerScope"),
             "absent containerScope must not appear in JSON: {json}"
         );
         let parsed: SectionSource = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, source);
+    }
+
+    /// srs#525 zero-compat cutover: the retired `type-query` shape must be
+    /// rejected outright, never silently tolerated or coerced.
+    #[test]
+    fn section_source_rejects_retired_type_query_shape() {
+        let json = r#"{"type":"type-query","typeKey":"com.example/decision"}"#;
+        assert!(
+            serde_json::from_str::<SectionSource>(json).is_err(),
+            "the retired type-query shape must be rejected, not silently tolerated"
+        );
     }
 
     #[test]

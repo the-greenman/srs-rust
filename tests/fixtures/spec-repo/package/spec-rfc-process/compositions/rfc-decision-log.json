@@ -5,18 +5,23 @@
   "name": "rfc-decision-log",
   "version": 1,
   "description": "Renders structured decisions made through the SRS RFC process as an ongoing public decision log.",
-  "format": "markdown",
   "sections": [
     {
       "sectionId": "rfc-decisions",
       "title": "RFC decision log",
       "order": 0,
       "source": {
-        "type": "type-query",
-        "typeKey": "com.semanticops.spec/rfc-decision"
+        "type": "discovery-query",
+        "query": {
+          "typeNamespace": "com.semanticops.spec",
+          "typeName": "rfc-decision"
+        }
       },
       "emptyBehavior": "hide"
     }
   ],
-  "createdAt": "2026-08-02T00:00:00Z"
+  "createdAt": "2026-08-02T00:00:00Z",
+  "exportConfig": {
+    "format": "markdown"
+  }
 }

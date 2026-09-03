@@ -73,7 +73,6 @@
       "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Renders the Articles of Association together with the current role holders.",
-      "format": "markdown",
       "id": "78b11038-e5d8-4269-9982-fe5c459802b2",
       "name": "articles-and-roles",
       "namespace": "governance",
@@ -105,13 +104,15 @@
           "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
         }
       ],
-      "version": 1
+      "version": 1,
+      "exportConfig": {
+        "format": "markdown"
+      }
     },
     "package/compositions/decision-deliberation-5a3ce87e.json": {
       "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Full deliberation view — shows all fields including question, context, friction, alternatives, requirements, statement, rationale, next steps, owner, revisit, and status.",
-      "format": "markdown",
       "id": "5a3ce87e-8340-4d91-a140-ab56b57f704f",
       "name": "decision-deliberation",
       "namespace": "governance",
@@ -128,13 +129,15 @@
           "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
         }
       ],
-      "version": 1
+      "version": 1,
+      "exportConfig": {
+        "format": "markdown"
+      }
     },
     "package/compositions/decision-log-b5c8d124.json": {
       "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
       "createdAt": "2026-05-31T00:00:00Z",
       "description": "Decision log view — compact summary showing only decision statement, alternatives considered, rationale, and revisit trigger.",
-      "format": "markdown",
       "id": "b5c8d124-2084-4a6b-a231-425e800e1e55",
       "name": "decision-log",
       "namespace": "governance",
@@ -152,7 +155,10 @@
           "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
         }
       ],
-      "version": 1
+      "version": 1,
+      "exportConfig": {
+        "format": "markdown"
+      }
     },
     "package/fields/alternativesconsidered-636ce948.json": {
       "$schema": "https://srs.semanticops.com/schema/2.0/field.json",

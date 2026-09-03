@@ -5,7 +5,6 @@
   "name": "type-dispatch-view",
   "version": 1,
   "description": "Composition with typeDispatch routing each type to its own L1 view.",
-  "format": "markdown",
   "sections": [
     {
       "sectionId": "dispatched-body",
@@ -23,5 +22,8 @@
       "emptyBehavior": "hide"
     }
   ],
-  "createdAt": "2026-01-01T00:00:00Z"
+  "createdAt": "2026-01-01T00:00:00Z",
+  "exportConfig": {
+    "format": "markdown"
+  }
 }

@@ -101,7 +101,7 @@ fn fixture_srsj() -> String {
                         "emptyBehavior": "hide"
                     }
                 ],
-                "format": "markdown",
+                "exportConfig": {"format": "markdown"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "containers/22222222-2222-4222-8222-222222222222.json": {
@@ -178,7 +178,7 @@ fn resolve_container_view_returns_root_members_and_columns() {
     );
 }
 
-/// Fixture that uses a TypeQuery section source with `excludeLifecycleStates: ["superseded"]`
+/// Fixture that uses a DiscoveryQuery section source with `excludeLifecycleStates: ["superseded"]`
 /// and includes a member whose `lifecycleState` is "superseded". Used to verify that
 /// `isVisibleByDefault: false` survives the full service→serde path.
 fn fixture_srsj_with_excluded_states() -> String {
@@ -244,16 +244,19 @@ fn fixture_srsj_with_excluded_states() -> String {
                         "title": "Body",
                         "order": 0,
                         "source": {
-                            "type": "type-query",
-                            "typeKey": "com.test/decision",
-                            "containerIds": [CONTAINER_ID],
-                            "excludeLifecycleStates": ["superseded", "abandoned"]
+                            "type": "discovery-query",
+                            "query": {
+                                "typeNamespace": "com.test",
+                                "typeName": "decision",
+                                "excludeLifecycleStates": ["superseded", "abandoned"]
+                            },
+                            "containerIds": [CONTAINER_ID]
                         },
                         "renderViewId": VIEW_ID,
                         "emptyBehavior": "hide"
                     }
                 ],
-                "format": "markdown",
+                "exportConfig": {"format": "markdown"},
                 "createdAt": "2026-01-01T00:00:00Z"
             },
             "containers/22222222-2222-4222-8222-222222222222.json": {
@@ -294,7 +297,7 @@ fn fixture_srsj_with_excluded_states() -> String {
     .to_string()
 }
 
-/// TypeQuery section with `excludeLifecycleStates: ["superseded"]` → the superseded member gets
+/// DiscoveryQuery section with `excludeLifecycleStates: ["superseded"]` → the superseded member gets
 /// `isVisibleByDefault: false` in the serialised output (the field the WASM binding delivers to JS).
 #[test]
 fn resolve_container_view_is_visible_by_default_false_serialised() {

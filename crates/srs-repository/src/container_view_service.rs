@@ -100,7 +100,7 @@ pub struct ContainerView {
     pub columns: Vec<ColumnSpec>,
     /// Authored default-hidden lifecycle states for this container's list, read from the
     /// **same** governing `DocumentSection` that drives `columns` (ADR-018 precedence). Empty
-    /// unless that section is a `SectionSource::TypeQuery` declaring `excludeLifecycleStates`.
+    /// unless that section is a `SectionSource::DiscoveryQuery` declaring `excludeLifecycleStates`.
     /// Clients forward these to `find` (`--exclude-lifecycle-state`) for the default-hidden
     /// list, dropping them for a "show all" toggle — see ADR-020. Clients MUST NOT re-derive
     /// them from the Composition source.
@@ -114,7 +114,7 @@ pub struct ContainerView {
 /// Column source follows the precedence in
 /// [ADR-018](../../docs/adr/018-container-view-column-source-precedence.md), via
 /// [`select_governing_section`]: the section whose `source` targets this container
-/// (`ContainerSubset { container_id }` or `TypeQuery { container_ids }`) and has a
+/// (`ContainerSubset { container_id }` or `DiscoveryQuery { container_ids }`) and has a
 /// `render_view_id` wins; otherwise the first section by `order` with a `render_view_id`;
 /// otherwise the column spec is empty. The same governing section also supplies the authored
 /// `exclude_lifecycle_states` ([ADR-020](../../docs/adr/020-resolve-view-authored-list-defaults.md)).
@@ -437,15 +437,15 @@ fn resolve_columns(
 
 /// Pick the View UUID that drives the columns (ADR-018 precedence).
 /// True when `source` explicitly targets `container_id` — either a `ContainerSubset` of this
-/// container or a `TypeQuery` whose `container_ids` includes it. The canonical decision-log
-/// section is now a `TypeQuery`, so the ADR-018 "targets this container" test (step 1) covers
+/// container or a `DiscoveryQuery` whose `container_ids` includes it. The canonical decision-log
+/// section is now a `DiscoveryQuery`, so the ADR-018 "targets this container" test (step 1) covers
 /// both source shapes.
 fn source_targets_container(source: &SectionSource, container_id: &str) -> bool {
     match source {
         SectionSource::ContainerSubset {
             container_id: cid, ..
         } => cid == container_id,
-        SectionSource::TypeQuery {
+        SectionSource::DiscoveryQuery {
             container_ids: Some(ids),
             ..
         } => ids.iter().any(|c| c == container_id),
@@ -458,7 +458,7 @@ fn source_targets_container(source: &SectionSource, container_id: &str) -> bool 
 /// `render_view_id`; (2) otherwise the first section by `order` with a `render_view_id`;
 /// (3) otherwise `None`. Both the column View (`render_view_id`) and the authored
 /// `excludeLifecycleStates` (ADR-020) derive from this one selection. Tie-break: if both a
-/// `ContainerSubset` and a `TypeQuery` target the container, the lower-`order` one wins (the
+/// `ContainerSubset` and a `DiscoveryQuery` target the container, the lower-`order` one wins (the
 /// sort below is stable; sections are visited in `order` ascending).
 fn select_governing_section<'a>(
     dv: &'a Composition,
@@ -479,13 +479,10 @@ fn select_governing_section<'a>(
 }
 
 /// Authored default-hidden lifecycle states declared on the governing section's source
-/// (ADR-020). Empty for any non-`TypeQuery` source or an absent list.
+/// (ADR-020). Empty for any non-`DiscoveryQuery` source or an absent list.
 fn section_exclude_lifecycle_states(section: &DocumentSection) -> Vec<String> {
     match &section.source {
-        SectionSource::TypeQuery {
-            exclude_lifecycle_states: Some(states),
-            ..
-        } => states.clone(),
+        SectionSource::DiscoveryQuery { query, .. } => query.exclude_lifecycle_states.clone(),
         _ => Vec::new(),
     }
 }
@@ -631,8 +628,7 @@ mod tests {
             }]),
             sections,
             navigation_links: None,
-            preamble: None,
-            format: None,
+            export_config: None,
             depth_offset: None,
             theme_ref: None,
             theme_variants: None,
@@ -1378,17 +1374,20 @@ mod tests {
         );
     }
 
-    /// A `type-query` source targeting this container (the canonical decision-log shape) is
-    /// recognised by `select_governing_section`, drives columns, and surfaces its authored
-    /// `excludeLifecycleStates` on the payload (ADR-020).
+    /// A `discovery-query` source targeting this container (the canonical decision-log
+    /// shape) is recognised by `select_governing_section`, drives columns, and surfaces
+    /// its authored `excludeLifecycleStates` on the payload (ADR-020).
     fn type_query_source(exclude: Option<Vec<&str>>) -> SectionSource {
-        SectionSource::TypeQuery {
-            type_key: "com.test/decision".to_string(),
-            lifecycle_state: None,
+        SectionSource::DiscoveryQuery {
+            query: srs_core::types::discovery::DiscoveryQuery {
+                type_namespace: Some("com.test".to_string()),
+                type_name: Some("decision".to_string()),
+                exclude_lifecycle_states: exclude
+                    .map(|v| v.into_iter().map(|s| s.to_string()).collect())
+                    .unwrap_or_default(),
+                ..Default::default()
+            },
             container_ids: Some(vec![CONTAINER_ID.to_string()]),
-            lifecycle_states: None,
-            exclude_lifecycle_states: exclude
-                .map(|v| v.into_iter().map(|s| s.to_string()).collect()),
             container_scope: None,
         }
     }

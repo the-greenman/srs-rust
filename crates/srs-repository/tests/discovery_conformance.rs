@@ -169,17 +169,7 @@ fn ext_discovery_fixture_scenarios() {
 
     let mut failures: Vec<(String, String)> = Vec::new();
     for scenario in &file.scenarios {
-        let query = DiscoveryQuery {
-            type_id: scenario.query.type_id.clone(),
-            type_namespace: scenario.query.type_namespace.clone(),
-            type_name: scenario.query.type_name.clone(),
-            container_id: scenario.query.container_id.clone(),
-            tag: scenario.query.tag.clone(),
-            lifecycle_state: scenario.query.lifecycle_state.clone(),
-            exclude_lifecycle_states: scenario.query.exclude_lifecycle_states.clone(),
-            tier: scenario.query.tier,
-            content_match: scenario.query.content_match.clone(),
-        };
+        let query = scenario.query.clone();
 
         let result = find(&store, query)
             .unwrap_or_else(|e| panic!("scenario '{}': find() failed: {e}", scenario.name));

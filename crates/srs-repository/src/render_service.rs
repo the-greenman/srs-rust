@@ -1,7 +1,10 @@
 use crate::container_service::list_members;
+use crate::discovery_service::record_matches_structured_predicates;
 use crate::error::RepositoryError;
 use crate::package::Package;
-use crate::record_store::{get_instance_by_id, list_records_by_type, LoadedInstance};
+use crate::record_store::{
+    get_instance_by_id, list_records_filtered, LoadedInstance, RecordListFilter,
+};
 use crate::relation_graph;
 use crate::relation_service::load_relations;
 use crate::store::RepositoryStore;
@@ -22,7 +25,7 @@ pub struct RenderCompositionOptions<'a> {
     pub view_id: &'a str,
     pub format: Option<&'a str>,
     pub theme_variant: Option<&'a str>,
-    /// When set, TypeQuery sections are filtered to members of this container.
+    /// When set, DiscoveryQuery sections are filtered to members of this container.
     /// Takes precedence over any container_ids declared in the view definition.
     pub container_id: Option<&'a str>,
     /// When set, ContainerSubset sections are filtered to the single instance with this ID,
@@ -199,9 +202,12 @@ pub fn render_composition(
     let mut diagnostics = Vec::new();
     let container_title = resolve_container_title(opts.store, &dv, &manifest, opts.container_id);
     let relations = load_relations(opts.store)?;
-    let format = opts
-        .format
-        .unwrap_or(dv.format.as_deref().unwrap_or("markdown"));
+    let dv_export_config = dv.export_config.as_ref();
+    let format = opts.format.unwrap_or(
+        dv_export_config
+            .and_then(|ec| ec.format.as_deref())
+            .unwrap_or("markdown"),
+    );
     let depth_offset = dv.depth_offset.unwrap_or(0);
     if depth_offset > 4 {
         diagnostics.push(format!(
@@ -241,7 +247,7 @@ pub fn render_composition(
     };
 
     let mut rendered = String::new();
-    if let Some(preamble) = &dv.preamble {
+    if let Some(preamble) = dv_export_config.and_then(|ec| ec.preamble.as_ref()) {
         rendered.push_str(&substitute_vars(preamble, &ctx, None, false));
         rendered.push_str("\n\n");
     } else {
@@ -341,8 +347,9 @@ fn project_composition_json(
     }
 
     let doc_preamble = dv
-        .preamble
+        .export_config
         .as_ref()
+        .and_then(|ec| ec.preamble.as_ref())
         .map(|p| substitute_vars_json_blanked(p, container_title, manifest));
 
     let mut sections = dv.sections.clone();
@@ -445,7 +452,7 @@ fn project_section_json(
         // Sort by precedes chain for any source that doesn't have authored ordering.
         // FixedInstances sections declare an explicit instance_ids order that must be
         // preserved — applying precedes-chain sorting would override the author's intent.
-        // ContainerSubset, TypeQuery, and RelationQuery all benefit from precedes ordering.
+        // ContainerSubset, DiscoveryQuery, and RelationQuery all benefit from precedes ordering.
         records = relation_graph::sort_by_precedes_chain(records, relations);
     }
 
@@ -1528,7 +1535,7 @@ fn render_section(
         // Sort by precedes chain for any source that doesn't have authored ordering.
         // FixedInstances sections declare an explicit instance_ids order that must be
         // preserved — applying precedes-chain sorting would override the author's intent.
-        // ContainerSubset, TypeQuery, and RelationQuery all benefit from precedes ordering.
+        // ContainerSubset, DiscoveryQuery, and RelationQuery all benefit from precedes ordering.
         records = relation_graph::sort_by_precedes_chain(records, relations);
     }
 
@@ -1670,22 +1677,25 @@ fn resolve_section_instances(
             }
             Ok(records)
         }
-        SectionSource::TypeQuery {
-            type_key,
+        SectionSource::DiscoveryQuery {
+            query,
             container_ids,
-            lifecycle_state,
-            lifecycle_states,
-            exclude_lifecycle_states,
             container_scope,
         } => {
-            let Some((namespace, name)) = type_key.split_once('/') else {
-                diagnostics.push(format!(
-                    "[N] TypeQuery typeKey '{}' has no namespace separator '/' — expected 'namespace/name' format",
-                    type_key
-                ));
-                return Ok(Vec::new());
-            };
-            let mut records = list_records_by_type(store, namespace, name)?;
+            // Push type ns/name, container, and the first tag down into the store
+            // query (same pushdown discovery_service::find_tier2 uses), then apply
+            // the remaining structured predicates via the shared, one-engine
+            // matcher — consume, don't clone (srs#525 / srs-rust#924).
+            let mut records = list_records_filtered(
+                store,
+                RecordListFilter {
+                    type_namespace: query.type_namespace.clone(),
+                    type_name: query.type_name.clone(),
+                    container_id: query.container_id.clone(),
+                    tag: query.tag.first().cloned(),
+                },
+            )?;
+            records.retain(|r| record_matches_structured_predicates(r, query));
 
             // ── Container scoping (RFC-011 [N+27]) ───────────────────────────────────
             let scope = container_scope
@@ -1744,52 +1754,22 @@ fn resolve_section_instances(
                 }
             }
 
-            // ── Lifecycle filtering (RFC-011 [N+25], [N+26]) ─────────────────────────
-            // lifecycleStates takes precedence over the back-compat singular lifecycle_state.
-            let include_states = lifecycle_states.as_ref().filter(|v| !v.is_empty());
-            let has_include = include_states.is_some();
-            let backcompat_state = if !has_include {
-                lifecycle_state.as_deref()
-            } else {
-                None
-            };
-
-            if has_include || backcompat_state.is_some() {
-                // Inclusion filter: only records whose lifecycle_state matches any listed value.
-                // Records with no lifecycle_state are excluded.
-                records.retain(|r| {
-                    r.lifecycle_state
-                        .as_deref()
-                        .map(|s| {
-                            if let Some(inc) = include_states {
-                                inc.iter().any(|v| v == s)
-                            } else {
-                                backcompat_state == Some(s)
-                            }
-                        })
-                        .unwrap_or(false)
-                });
-            }
-
-            if let Some(exclude) = exclude_lifecycle_states {
-                if !exclude.is_empty() {
-                    // Exclusion filter applied after inclusion. Records with no lifecycle_state
-                    // are NOT excluded by this step.
-                    records.retain(|r| {
-                        r.lifecycle_state
-                            .as_deref()
-                            .map(|s| !exclude.iter().any(|ex| ex == s))
-                            .unwrap_or(true)
-                    });
-                }
-            }
+            // Lifecycle filtering (lifecycleState/lifecycleStates/excludeLifecycleStates)
+            // already applied above via record_matches_structured_predicates — the one
+            // query engine (srs#525 / srs-rust#924), not a re-implementation here.
 
             let result: Vec<LoadedInstance> =
                 records.into_iter().map(LoadedInstance::Record).collect();
             if result.is_empty() {
+                let query_desc = match (&query.type_namespace, &query.type_name) {
+                    (Some(ns), Some(name)) => format!("{ns}/{name}"),
+                    (Some(ns), None) => ns.clone(),
+                    (None, Some(name)) => name.clone(),
+                    (None, None) => "*".to_string(),
+                };
                 diagnostics.push(format!(
-                    "[section:{}] type-query '{}' matched 0 records",
-                    section.section_id, type_key
+                    "[section:{}] discovery-query '{}' matched 0 records",
+                    section.section_id, query_desc
                 ));
             }
             Ok(result)
@@ -3304,6 +3284,7 @@ mod tests {
     use super::*;
     use crate::store::FileStore;
     use srs_core::types::record::FieldValues;
+    use srs_core::types::view::ExportConfig;
 
     fn srs_spec_repo() -> std::path::PathBuf {
         if let Ok(p) = std::env::var("SRS_SPEC_REPO") {
@@ -3680,40 +3661,6 @@ mod tests {
             result.rendered.contains("## Items"),
             "expected section to keep rendering, got: {}",
             result.rendered
-        );
-    }
-
-    #[test]
-    fn type_key_missing_slash_emits_diagnostic() {
-        let repo_root = repeatable_fixture_root();
-        let store = FileStore::new(&repo_root);
-        let result = render_composition(RenderCompositionOptions {
-            store: &store,
-            view_id: "00000000-0000-4000-8000-000000000984",
-            format: None,
-            theme_variant: None,
-            container_id: None,
-            instance_id_filter: None,
-        })
-        .expect("render should succeed without error");
-        assert!(
-            result
-                .diagnostics
-                .iter()
-                .any(|d| d.contains("no namespace separator")),
-            "expected 'no namespace separator' diagnostic, got: {:?}",
-            result.diagnostics
-        );
-        // Section renders empty — no content beyond the document heading
-        let lines_with_content: Vec<&str> = result
-            .rendered
-            .lines()
-            .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
-            .collect();
-        assert!(
-            lines_with_content.is_empty(),
-            "expected empty section output, got: {:?}",
-            lines_with_content
         );
     }
 
@@ -4479,8 +4426,11 @@ mod tests {
                 relations_presentation: None,
             }],
             navigation_links: None,
-            preamble: None,
-            format: Some("markdown".to_string()),
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some("markdown".to_string()),
+                omit_empty_fields: None,
+            }),
             depth_offset: None,
             theme_ref: None,
             theme_variants: None,
@@ -4831,8 +4781,11 @@ mod tests {
                 relations_presentation: None,
             }],
             navigation_links: None,
-            preamble: None,
-            format: Some("markdown".to_string()),
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some("markdown".to_string()),
+                omit_empty_fields: None,
+            }),
             depth_offset: None,
             theme_ref: None,
             theme_variants: None,
@@ -5391,7 +5344,7 @@ mod tests {
         assert!(out.contains("width:70%"), "got: {out}");
     }
 
-    /// Build a MemoryStore with one type + TypeQuery doc_view for composite renderer tests.
+    /// Build a MemoryStore with one type + DiscoveryQuery doc_view for composite renderer tests.
     /// Creates a record pre-loaded with the given group entry and returns (store, record_id).
     /// Build a MemoryStore for the RFC-036 composite table tests, re-based onto
     /// the RFC-039 carrier: the Type carries an inline-composite list Field
@@ -5599,12 +5552,13 @@ mod tests {
                 title: None,
                 description: None,
                 order: 0,
-                source: SectionSource::TypeQuery {
-                    type_key: "com.test/table-record".to_string(),
-                    lifecycle_state: None,
+                source: SectionSource::DiscoveryQuery {
+                    query: srs_core::types::discovery::DiscoveryQuery {
+                        type_namespace: Some("com.test".to_string()),
+                        type_name: Some("table-record".to_string()),
+                        ..Default::default()
+                    },
                     container_ids: None,
-                    lifecycle_states: None,
-                    exclude_lifecycle_states: None,
                     container_scope: None,
                 },
                 render_view_id: Some("v-table".to_string()),
@@ -5616,8 +5570,11 @@ mod tests {
                 relations_presentation: None,
             }],
             navigation_links: None,
-            preamble: None,
-            format: Some(format.to_string()),
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some(format.to_string()),
+                omit_empty_fields: None,
+            }),
             depth_offset: None,
             theme_ref: theme
                 .as_ref()
@@ -5972,8 +5929,11 @@ mod tests {
                 relations_presentation: None,
             }],
             navigation_links: None,
-            preamble: None,
-            format: Some("markdown".to_string()),
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some("markdown".to_string()),
+                omit_empty_fields: None,
+            }),
             depth_offset: None,
             theme_ref: None,
             theme_variants: None,
@@ -6316,7 +6276,6 @@ mod tests {
             version: 1,
             description: "Auto-select test view".to_string(),
             container_type: None,
-            preamble: None,
             root_type_refs: None,
             sections: vec![DocumentSection {
                 composite_renderers: None,
@@ -6327,12 +6286,13 @@ mod tests {
                 title_field_id: None,
                 render_view_id: None,
                 type_dispatch: None,
-                source: SectionSource::TypeQuery {
-                    type_key: "com.test/section".to_string(),
-                    lifecycle_state: None,
+                source: SectionSource::DiscoveryQuery {
+                    query: srs_core::types::discovery::DiscoveryQuery {
+                        type_namespace: Some("com.test".to_string()),
+                        type_name: Some("section".to_string()),
+                        ..Default::default()
+                    },
                     container_ids: None,
-                    lifecycle_states: None,
-                    exclude_lifecycle_states: None,
                     container_scope: None,
                 },
                 ordering: None,
@@ -6352,7 +6312,11 @@ mod tests {
             } else {
                 Some(extra_variants)
             },
-            format: Some("markdown".to_string()),
+            export_config: Some(ExportConfig {
+                format: Some("markdown".to_string()),
+                preamble: None,
+                omit_empty_fields: None,
+            }),
             depth_offset: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
@@ -6965,8 +6929,11 @@ mod tests {
                 relations_presentation: None,
             }],
             navigation_links: None,
-            preamble: None,
-            format: Some("markdown".to_string()),
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some("markdown".to_string()),
+                omit_empty_fields: None,
+            }),
             depth_offset: None,
             theme_ref: None,
             theme_variants: None,
@@ -7379,12 +7346,16 @@ mod tests {
                 title: None,
                 description: None,
                 order: 0,
-                source: SectionSource::TypeQuery {
-                    type_key: "com.test/decision".to_string(),
-                    lifecycle_state,
+                source: SectionSource::DiscoveryQuery {
+                    query: srs_core::types::discovery::DiscoveryQuery {
+                        type_namespace: Some("com.test".to_string()),
+                        type_name: Some("decision".to_string()),
+                        lifecycle_state,
+                        lifecycle_states: lifecycle_states.unwrap_or_default(),
+                        exclude_lifecycle_states: exclude_lifecycle_states.unwrap_or_default(),
+                        ..Default::default()
+                    },
                     container_ids,
-                    lifecycle_states,
-                    exclude_lifecycle_states,
                     container_scope,
                 },
                 render_view_id: None,
@@ -7396,8 +7367,11 @@ mod tests {
                 relations_presentation: None,
             }],
             navigation_links: None,
-            preamble: Some("Test".to_string()),
-            format: Some("markdown".to_string()),
+            export_config: Some(ExportConfig {
+                preamble: Some("Test".to_string()),
+                format: Some("markdown".to_string()),
+                omit_empty_fields: None,
+            }),
             depth_offset: None,
             theme_ref: None,
             theme_variants: None,
@@ -7741,7 +7715,7 @@ mod tests {
 
     #[test]
     fn render_rfc011_cross_store_roundtrip() {
-        // Same TypeQuery with lifecycle filter returns the same instance IDs from MemoryStore
+        // Same DiscoveryQuery with lifecycle filter returns the same instance IDs from MemoryStore
         // and from a FileStore backed by a serialised copy of the same data.
         use crate::store::FileStore;
 
@@ -7858,10 +7832,17 @@ mod tests {
     }
 
     #[test]
-    fn render_type_query_lifecycle_states_precedence_over_lifecycle_state() {
-        // When both lifecycle_state and lifecycle_states are set, lifecycle_states wins.
-        // lifecycle_state: "draft" would include the draft record;
-        // lifecycle_states: ["active"] must override it and include only the active record.
+    fn render_discovery_query_lifecycle_state_and_lifecycle_states_conjoin() {
+        // srs#525 / srs-rust#924 collapse: DiscoveryQuery has no bespoke
+        // precedence between lifecycleState and lifecycleStates (unlike the
+        // retired SectionSource.type-query) — every predicate is a plain
+        // conjunction ("matches iff it satisfies all specified predicates").
+        // Setting lifecycle_state: "draft" AND lifecycle_states: ["active"] on
+        // one query is documented as not meant to be combined (discovery.json);
+        // the engine does not special-case it — it is simply an
+        // unsatisfiable AND (no record can equal "draft" while also being in
+        // ["active"]), so the result is empty, not the old "last one wins"
+        // behavior.
         let dv = rfc011_dv(
             "dv-precedence",
             Some(vec!["active".to_string()]),
@@ -7884,10 +7865,10 @@ mod tests {
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
-        assert_eq!(
-            ids,
-            vec!["r-active"],
-            "lifecycle_states must take precedence over lifecycle_state: {ids:?}"
+        assert!(
+            ids.is_empty(),
+            "combining lifecycle_state and lifecycle_states is an unsatisfiable AND, not a \
+             precedence override: {ids:?}"
         );
     }
 
@@ -7988,7 +7969,7 @@ mod tests {
 
     #[test]
     fn type_query_zero_records_emits_diagnostic_markdown() {
-        // #697: a TypeQuery that matches 0 records must emit a warning diagnostic.
+        // #697: a DiscoveryQuery that matches 0 records must emit a warning diagnostic.
         // The section output is still empty (emptyBehavior hide / default).
         let dv = rfc011_dv("dv-zero", None, None, None, None, None);
         let store = make_rfc011_store(dv, &[]); // no records of com.test/decision
@@ -8003,7 +7984,7 @@ mod tests {
         .unwrap();
         assert!(
             result.diagnostics.iter().any(|d| d.contains("[section:s1]")
-                && d.contains("type-query")
+                && d.contains("discovery-query")
                 && d.contains("com.test/decision")
                 && d.contains("matched 0 records")),
             "expected zero-records diagnostic; got: {:?}",
@@ -8033,7 +8014,7 @@ mod tests {
         .unwrap();
         assert!(
             result.diagnostics.iter().any(|d| d.contains("[section:s1]")
-                && d.contains("type-query")
+                && d.contains("discovery-query")
                 && d.contains("com.test/decision")
                 && d.contains("matched 0 records")),
             "expected zero-records diagnostic on JSON path; got: {:?}",
@@ -8074,12 +8055,13 @@ mod tests {
                 title: Some("Hidden Section".to_string()),
                 description: None,
                 order: 0,
-                source: SectionSource::TypeQuery {
-                    type_key: "com.test/decision".to_string(),
-                    lifecycle_state: None,
+                source: SectionSource::DiscoveryQuery {
+                    query: srs_core::types::discovery::DiscoveryQuery {
+                        type_namespace: Some("com.test".to_string()),
+                        type_name: Some("decision".to_string()),
+                        ..Default::default()
+                    },
                     container_ids: None,
-                    lifecycle_states: None,
-                    exclude_lifecycle_states: None,
                     container_scope: None,
                 },
                 render_view_id: None,
@@ -8091,8 +8073,11 @@ mod tests {
                 relations_presentation: None,
             }],
             navigation_links: None,
-            preamble: None,
-            format: Some("markdown".to_string()),
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some("markdown".to_string()),
+                omit_empty_fields: None,
+            }),
             depth_offset: None,
             theme_ref: None,
             theme_variants: None,
@@ -8114,7 +8099,7 @@ mod tests {
                 .diagnostics
                 .iter()
                 .any(|d| d.contains("[section:s-hide]")
-                    && d.contains("type-query")
+                    && d.contains("discovery-query")
                     && d.contains("matched 0 records")),
             "emptyBehavior:hide must not suppress the diagnostic; got: {:?}",
             result.diagnostics
@@ -8128,7 +8113,7 @@ mod tests {
 
     #[test]
     fn type_query_nonzero_records_no_spurious_diagnostic() {
-        // Confirm the zero-records diagnostic is absent when the TypeQuery has matches.
+        // Confirm the zero-records diagnostic is absent when the DiscoveryQuery has matches.
         let dv = rfc011_dv("dv-nonzero", None, None, None, None, None);
         let store = make_rfc011_store(dv, &[("r1", None)]); // one record of com.test/decision
         let result = render_composition(RenderCompositionOptions {
@@ -8145,7 +8130,7 @@ mod tests {
                 .diagnostics
                 .iter()
                 .any(|d| d.contains("matched 0 records")),
-            "no zero-records diagnostic expected when TypeQuery has matches; got: {:?}",
+            "no zero-records diagnostic expected when DiscoveryQuery has matches; got: {:?}",
             result.diagnostics
         );
     }
@@ -8312,13 +8297,17 @@ mod tests {
             title: Some("Items".to_string()),
             description: None,
             order: 0,
-            source: SectionSource::TypeQuery {
-                type_key: sot.to_string(),
-                lifecycle_state: None,
-                container_ids: None,
-                lifecycle_states: None,
-                exclude_lifecycle_states: None,
-                container_scope: None,
+            source: {
+                let (ns, name) = sot.split_once('/').expect("test type key is 'ns/name'");
+                SectionSource::DiscoveryQuery {
+                    query: srs_core::types::discovery::DiscoveryQuery {
+                        type_namespace: Some(ns.to_string()),
+                        type_name: Some(name.to_string()),
+                        ..Default::default()
+                    },
+                    container_ids: None,
+                    container_scope: None,
+                }
             },
             render_view_id: None,
             type_dispatch: None,
@@ -8345,8 +8334,11 @@ mod tests {
             root_type_refs: None,
             sections: vec![section],
             navigation_links: None,
-            preamble: None,
-            format: Some(format.to_string()),
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some(format.to_string()),
+                omit_empty_fields: None,
+            }),
             depth_offset: None,
             theme_ref: None,
             theme_variants: None,
@@ -8524,7 +8516,7 @@ mod tests {
     fn identity_field_id_fallback_filestore_roundtrip() {
         let repo_root = render_identity_fixture_root();
         let store = FileStore::new(&repo_root);
-        // identity-fallback-view: TypeQuery for fixture.render/identity-item, no titleFieldId
+        // identity-fallback-view: DiscoveryQuery for fixture.render/identity-item, no titleFieldId
         // identity-item type has identityFieldId → heading field
         // The identity record's heading = "identity heading value"
         let result = render_composition(RenderCompositionOptions {
@@ -8630,8 +8622,7 @@ mod tests {
             root_type_refs: None,
             sections: vec![],
             navigation_links: None,
-            preamble: None,
-            format: None,
+            export_config: None,
             depth_offset: None,
             theme_ref: None,
             theme_variants: None,
@@ -8944,8 +8935,11 @@ mod tests {
                 ),
             ],
             navigation_links: None,
-            preamble: None,
-            format: Some("markdown".to_string()),
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some("markdown".to_string()),
+                omit_empty_fields: None,
+            }),
             depth_offset: None,
             theme_ref: None,
             theme_variants: None,
@@ -9140,8 +9134,11 @@ mod tests {
                 None,
             )],
             navigation_links: None,
-            preamble: None,
-            format: Some("markdown".to_string()),
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some("markdown".to_string()),
+                omit_empty_fields: None,
+            }),
             depth_offset: None,
             theme_ref: None,
             theme_variants: None,
@@ -9342,19 +9339,20 @@ mod tests {
                     empty_behavior: Some(EmptyBehavior::Hide),
                     relations_presentation: None,
                 },
-                // TypeQuery section: proves typed records still render (no regression)
+                // DiscoveryQuery section: proves typed records still render (no regression)
                 DocumentSection {
                     composite_renderers: None,
                     section_id: "typed-sec".to_string(),
                     title: Some("Items".to_string()),
                     description: None,
                     order: 1,
-                    source: SectionSource::TypeQuery {
-                        type_key: "com.test/item".to_string(),
-                        lifecycle_state: None,
+                    source: SectionSource::DiscoveryQuery {
+                        query: srs_core::types::discovery::DiscoveryQuery {
+                            type_namespace: Some("com.test".to_string()),
+                            type_name: Some("item".to_string()),
+                            ..Default::default()
+                        },
                         container_ids: None,
-                        lifecycle_states: None,
-                        exclude_lifecycle_states: None,
                         container_scope: None,
                     },
                     render_view_id: None,
@@ -9367,8 +9365,11 @@ mod tests {
                 },
             ],
             navigation_links: None,
-            preamble: None,
-            format: Some("markdown".to_string()),
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some("markdown".to_string()),
+                omit_empty_fields: None,
+            }),
             depth_offset: None,
             theme_ref: None,
             theme_variants: None,
@@ -9442,7 +9443,7 @@ mod tests {
         );
         assert!(
             result.rendered.contains("Typed Item"),
-            "typed record must still render via TypeQuery section; got:\n{}",
+            "typed record must still render via DiscoveryQuery section; got:\n{}",
             result.rendered
         );
         assert!(
@@ -9510,8 +9511,11 @@ mod tests {
                 relations_presentation: None,
             }],
             navigation_links: None,
-            preamble: None,
-            format: Some("markdown".to_string()),
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some("markdown".to_string()),
+                omit_empty_fields: None,
+            }),
             depth_offset: None,
             theme_ref: None,
             theme_variants: None,
@@ -10518,8 +10522,11 @@ mod tests {
                 },
             }],
             navigation_links: None,
-            preamble: None,
-            format: Some("json".to_string()),
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some("json".to_string()),
+                omit_empty_fields: None,
+            }),
             depth_offset: None,
             theme_ref: None,
             theme_variants: None,
@@ -10771,8 +10778,11 @@ mod tests {
                 }),
             }],
             navigation_links: None,
-            preamble: None,
-            format: Some("json".to_string()),
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some("json".to_string()),
+                omit_empty_fields: None,
+            }),
             depth_offset: None,
             theme_ref: None,
             theme_variants: None,
@@ -11348,7 +11358,7 @@ mod tests {
         );
     }
 
-    /// A MemoryStore with one two-field type and a TypeQuery doc view, for the
+    /// A MemoryStore with one two-field type and a DiscoveryQuery doc view, for the
     /// RFC-037 rules that live at the emission site rather than in the row
     /// primitive: empty-value omission, placeholder gating, and row separation
     /// as actually emitted.
@@ -11441,12 +11451,13 @@ mod tests {
                 title: None,
                 description: None,
                 order: 0,
-                source: SectionSource::TypeQuery {
-                    type_key: "com.test/row-record".to_string(),
-                    lifecycle_state: None,
+                source: SectionSource::DiscoveryQuery {
+                    query: srs_core::types::discovery::DiscoveryQuery {
+                        type_namespace: Some("com.test".to_string()),
+                        type_name: Some("row-record".to_string()),
+                        ..Default::default()
+                    },
                     container_ids: None,
-                    lifecycle_states: None,
-                    exclude_lifecycle_states: None,
                     container_scope: None,
                 },
                 render_view_id: l1_view.then(|| "v-row-l1".to_string()),
@@ -11458,8 +11469,11 @@ mod tests {
                 relations_presentation: None,
             }],
             navigation_links: None,
-            preamble: None,
-            format: Some(format.to_string()),
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some(format.to_string()),
+                omit_empty_fields: None,
+            }),
             depth_offset: None,
             theme_ref: None,
             theme_variants: None,

@@ -67,7 +67,19 @@ is_missing_allowlisted() {
 # also exists (unlike the whole-file EXTRA/MISSING pairs above). Retired:
 # srs#523/#524 merged and the next sync-schemas-from-spec.sh run picked up the
 # renamed canonical content — the mirror and spec are byte-identical again.
-DECLARED_CONTENT_DRIFT_ALLOWLIST=()
+#
+# srs-rust#924 (srs#525, binary-first choreography): composition.json/
+# discovery.json/manifest.json/view.json synced ahead of the spec from the
+# unmerged feat/525-sectionsource-discoveryquery branch — the SectionSource ->
+# DiscoveryQuery collapse and the ExportConfig unification. Expires at srs#525's
+# merge, when the next sync-schemas-from-spec.sh run picks up the same bytes
+# from the canonical spec and the mirror and spec are byte-identical again.
+DECLARED_CONTENT_DRIFT_ALLOWLIST=(
+    "composition.json"
+    "discovery.json"
+    "manifest.json"
+    "view.json"
+)
 is_content_drift_allowlisted() {
     local needle="$1"
     for entry in "${DECLARED_CONTENT_DRIFT_ALLOWLIST[@]}"; do

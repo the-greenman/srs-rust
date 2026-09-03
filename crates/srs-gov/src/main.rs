@@ -1200,20 +1200,22 @@ mod tests {
 
     /// The vendored seed's decision-log Composition must carry the canonical authored
     /// default-hidden states (the whole point of #298 — regenerate the derived copy).
+    /// srs#525 / srs-rust#924: the section's source is now a discovery-query (was
+    /// type-query, itself the successor of the stale container-subset).
     #[test]
-    fn seed_decision_log_view_is_type_query_with_excludes() {
+    fn seed_decision_log_view_is_discovery_query_with_excludes() {
         let seed: serde_json::Value =
             serde_json::from_str(GOVERNANCE_SEED).expect("embedded seed parses");
         let view = &seed["data"]["package/compositions/decision-log-b5c8d124.json"];
         assert!(!view.is_null(), "decision-log view present in seed");
         let source = &view["sections"][0]["source"];
         assert_eq!(
-            source["type"], "type-query",
-            "decision-log section must be a type-query (was the stale container-subset)"
+            source["type"], "discovery-query",
+            "decision-log section must be a discovery-query (was the stale type-query)"
         );
-        let excludes: Vec<&str> = source["excludeLifecycleStates"]
+        let excludes: Vec<&str> = source["query"]["excludeLifecycleStates"]
             .as_array()
-            .expect("excludeLifecycleStates array")
+            .expect("query.excludeLifecycleStates array")
             .iter()
             .map(|v| v.as_str().unwrap())
             .collect();
