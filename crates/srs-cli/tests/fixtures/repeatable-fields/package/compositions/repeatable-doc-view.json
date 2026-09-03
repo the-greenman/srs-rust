@@ -5,18 +5,23 @@
   "name": "repeatable-doc-view",
   "version": 1,
   "description": "Renders repeatable-item records",
-  "format": "markdown",
   "sections": [
     {
       "sectionId": "items",
       "title": "Items",
       "order": 0,
       "source": {
-        "type": "type-query",
-        "typeKey": "fixture.repeatable/repeatable-item"
+        "type": "discovery-query",
+        "query": {
+          "typeNamespace": "fixture.repeatable",
+          "typeName": "repeatable-item"
+        }
       },
       "emptyBehavior": "hide"
     }
   ],
-  "createdAt": "2026-01-01T00:00:00Z"
+  "createdAt": "2026-01-01T00:00:00Z",
+  "exportConfig": {
+    "format": "markdown"
+  }
 }

@@ -3561,7 +3561,7 @@ fn create_temp_repo_with_protocol_package() -> TempDir {
         serde_json::to_string_pretty(&serde_json::json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
-            "dataModelRevision": 6,
+            "dataModelRevision": 7,
             "repositoryId": "00000000-0000-4000-8000-000000009900",
             "title": "Protocol Test Repo",
             "container": {
@@ -7077,7 +7077,7 @@ fn repo_migrations_lists_the_registered_migrations() {
     let migrations = result["payload"]["migrations"]
         .as_array()
         .expect("migrations must be an array");
-    assert_eq!(migrations.len(), 11, "expected exactly eleven migrations");
+    assert_eq!(migrations.len(), 12, "expected exactly twelve migrations");
 
     let ids: Vec<&str> = migrations
         .iter()
@@ -7094,6 +7094,7 @@ fn repo_migrations_lists_the_registered_migrations() {
             "tier1-removal",
             "substrate-properties-to-meta",
             "composition-cutover",
+            "discovery-query-cutover",
             "migrate-identity",
             "repo-upgrade",
             "rfc038-storage"
@@ -7138,6 +7139,8 @@ fn repo_migrations_lists_the_registered_migrations() {
     assert_eq!(status("metamodel-v1-1-0", "needed"), true);
     assert_eq!(status("tier1-removal", "needed"), true);
     assert_eq!(status("substrate-properties-to-meta", "needed"), true);
+    assert_eq!(status("composition-cutover", "needed"), true);
+    assert_eq!(status("discovery-query-cutover", "needed"), true);
     assert_eq!(status("rfc038-storage", "alreadyApplied"), true);
     assert_eq!(status("migrate-identity", "notApplicable"), true);
     assert_eq!(status("repo-upgrade", "alreadyApplied"), true);
@@ -7360,8 +7363,9 @@ fn repo_apply_migration_field_type_rewrites_a_legacy_field_end_to_end() {
     // ...and after completing the ladder to the current revision
     // (rfc039-carrier is migration #2, metamodel-v1-1-0 is migration #3,
     // tier1-removal is migration #4, substrate-properties-to-meta is
-    // migration #5, composition-cutover is migration #6, rfc038-storage is
-    // the placement transform), the repository validates clean.
+    // migration #5, composition-cutover is migration #6,
+    // discovery-query-cutover is migration #7, rfc038-storage is the
+    // placement transform), the repository validates clean.
     let carrier = run_srs_in_dir(repo, &["repo", "apply-migration", "--id", "rfc039-carrier"]);
     assert_eq!(carrier["ok"], true, "expected ok: {carrier:?}");
     let metamodel = run_srs_in_dir(
@@ -7391,6 +7395,14 @@ fn repo_apply_migration_field_type_rewrites_a_legacy_field_end_to_end() {
     assert_eq!(
         composition_cutover["ok"], true,
         "expected ok: {composition_cutover:?}"
+    );
+    let discovery_query_cutover = run_srs_in_dir(
+        repo,
+        &["repo", "apply-migration", "--id", "discovery-query-cutover"],
+    );
+    assert_eq!(
+        discovery_query_cutover["ok"], true,
+        "expected ok: {discovery_query_cutover:?}"
     );
     let storage = run_srs_in_dir(repo, &["repo", "apply-migration", "--id", "rfc038-storage"]);
     assert_eq!(storage["ok"], true, "expected ok: {storage:?}");

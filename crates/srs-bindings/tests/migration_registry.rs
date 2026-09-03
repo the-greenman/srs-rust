@@ -51,7 +51,7 @@ fn available_migrations_lists_the_registered_migrations_with_status() {
     let migrations =
         migration_registry_service::list_migrations(&store).expect("list_migrations must succeed");
 
-    assert_eq!(migrations.len(), 11, "expected exactly eleven migrations");
+    assert_eq!(migrations.len(), 12, "expected exactly twelve migrations");
     assert_eq!(migrations[0].id, "graduated-at-cleanup");
     assert_eq!(migrations[1].id, "revisions-sidecar-cleanup");
     assert_eq!(migrations[2].id, "field-type");
@@ -60,18 +60,19 @@ fn available_migrations_lists_the_registered_migrations_with_status() {
     assert_eq!(migrations[5].id, "tier1-removal");
     assert_eq!(migrations[6].id, "substrate-properties-to-meta");
     assert_eq!(migrations[7].id, "composition-cutover");
-    assert_eq!(migrations[8].id, "migrate-identity");
-    assert_eq!(migrations[9].id, "repo-upgrade");
-    assert_eq!(migrations[10].id, "rfc038-storage");
+    assert_eq!(migrations[8].id, "discovery-query-cutover");
+    assert_eq!(migrations[9].id, "migrate-identity");
+    assert_eq!(migrations[10].id, "repo-upgrade");
+    assert_eq!(migrations[11].id, "rfc038-storage");
 
     // No legacy graduatedAt Notes → graduated-at-cleanup AlreadyApplied; no
     // .revisions.json sidecars → revisions-sidecar-cleanup AlreadyApplied;
     // unstamped manifest → field-type, rfc039-carrier, metamodel-v1-1-0,
-    // tier1-removal, substrate-properties-to-meta, and composition-cutover
-    // are all Needed; no container → migrate-identity is NotApplicable; no
-    // instances → repo-upgrade is AlreadyApplied; the manifest still carries
-    // `instanceIndex` → rfc038-storage is Needed (truthful status; its apply
-    // refuses until srs-rust#828).
+    // tier1-removal, substrate-properties-to-meta, composition-cutover, and
+    // discovery-query-cutover are all Needed; no container → migrate-identity
+    // is NotApplicable; no instances → repo-upgrade is AlreadyApplied; the
+    // manifest still carries `instanceIndex` → rfc038-storage is Needed
+    // (truthful status; its apply refuses until srs-rust#828).
     assert_eq!(migrations[0].status, MigrationStatus::AlreadyApplied);
     assert_eq!(migrations[1].status, MigrationStatus::AlreadyApplied);
     assert_eq!(migrations[2].status, MigrationStatus::Needed);
@@ -80,9 +81,10 @@ fn available_migrations_lists_the_registered_migrations_with_status() {
     assert_eq!(migrations[5].status, MigrationStatus::Needed);
     assert_eq!(migrations[6].status, MigrationStatus::Needed);
     assert_eq!(migrations[7].status, MigrationStatus::Needed);
-    assert_eq!(migrations[8].status, MigrationStatus::NotApplicable);
-    assert_eq!(migrations[9].status, MigrationStatus::AlreadyApplied);
-    assert_eq!(migrations[10].status, MigrationStatus::Needed);
+    assert_eq!(migrations[8].status, MigrationStatus::Needed);
+    assert_eq!(migrations[9].status, MigrationStatus::NotApplicable);
+    assert_eq!(migrations[10].status, MigrationStatus::AlreadyApplied);
+    assert_eq!(migrations[11].status, MigrationStatus::Needed);
 
     // Result serialises in camelCase for to_js.
     let json = serde_json::to_value(&migrations[0]).expect("must serialise");

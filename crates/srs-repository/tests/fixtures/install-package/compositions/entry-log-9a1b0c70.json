@@ -1,7 +1,6 @@
 {
   "createdAt": "2026-01-01T00:00:00Z",
   "description": "Entry log document view. Ships a gallery container UUID that will dangle in a fresh install (degrades at render, warns at validate).",
-  "format": "markdown",
   "id": "9a1b0c70-0007-4aaa-8bbb-000000008001",
   "name": "entry-log",
   "namespace": "com.example.install",
@@ -12,14 +11,22 @@
       "renderViewId": "9a1b0c60-0006-4aaa-8bbb-000000007001",
       "sectionId": "entries",
       "source": {
-        "containerIds": ["9a1b0c99-dead-4aaa-8bbb-00000000e001"],
+        "containerIds": [
+          "9a1b0c99-dead-4aaa-8bbb-00000000e001"
+        ],
         "containerScope": "explicit",
-        "typeKey": "com.example.install/entry",
-        "type": "type-query"
+        "type": "discovery-query",
+        "query": {
+          "typeNamespace": "com.example.install",
+          "typeName": "entry"
+        }
       },
       "title": "Entries",
       "titleFieldId": "9a1b0c2d-0001-4aaa-8bbb-00000000f001"
     }
   ],
-  "version": 1
+  "version": 1,
+  "exportConfig": {
+    "format": "markdown"
+  }
 }

@@ -74,13 +74,9 @@
       },
       "description": "Assembly-time cross-section reading aids. Do not appear in the Relation graph."
     },
-    "preamble": {
-      "type": "string",
-      "description": "Template string rendered before all sections. Standard variables: {{container-title}}, {{date}}, {{container-id}}, {{heading-1}}, {{heading-2}}. When absent and format is 'markdown', 'html', or 'adoc', implementations MUST render a document title heading at level 1 + depthOffset."
-    },
-    "format": {
-      "type": "string",
-      "description": "Output format for all section rendering. Portable values: 'markdown', 'adoc', 'html', 'text'. Governs all section rendering; ExportConfig.format on a referenced L1 View is ignored. When absent, output format is implementation-defined."
+    "exportConfig": {
+      "$ref": "#/$defs/ExportConfig",
+      "description": "The shared render-output configuration shape (ext:views-l1), also carried by View. format/preamble here govern this Composition's document-level rendering (all section rendering, the document title/preamble). When a section dispatches per-record rendering to an L1 View (renderViewId/typeDispatch), that View's own exportConfig continues to govern its own render context (per-record preamble, omitEmptyFields) -- a different render context, not an override of this one (srs#525: one shape, two attachment points, no precedence semantics between them)."
     },
     "depthOffset": {
       "type": "integer",
@@ -165,7 +161,7 @@
         "titleFieldId": {
           "type": "string",
           "format": "uuid",
-          "description": "The fieldId whose value provides the per-record heading within this section. RFC-032 Rev-7 [N+1]: the Field must be effective-single (fieldType.cardinality absent/single \u2014 the sole cardinality mechanism since the #242 Phase-B cutover removed FieldAssignment.repeatable, RFC-039 [R7]), datatype string, valueDomain absent/open, and format absent/plain/markdown. Closed-domain, URI/UUID/email, non-string, list, and composite Fields are ineligible. When a record's type does not carry the designated field, implementations MUST omit the per-record heading for that record (this is not a render failure), enabling heterogeneous sections (e.g. container-subset). Enforced at render time."
+          "description": "The fieldId whose value provides the per-record heading within this section. RFC-032 Rev-7 [N+1]: the Field must be effective-single (fieldType.cardinality absent/single — the sole cardinality mechanism since the #242 Phase-B cutover removed FieldAssignment.repeatable, RFC-039 [R7]), datatype string, valueDomain absent/open, and format absent/plain/markdown. Closed-domain, URI/UUID/email, non-string, list, and composite Fields are ineligible. When a record's type does not carry the designated field, implementations MUST omit the per-record heading for that record (this is not a render failure), enabling heterogeneous sections (e.g. container-subset). Enforced at render time."
         },
         "ordering": {
           "type": "object",
@@ -275,41 +271,26 @@
           "type": "object",
           "required": [
             "type",
-            "typeKey"
+            "query"
           ],
           "additionalProperties": false,
+          "description": "RFC-012/RFC-011 collapse (srs#525): a section names its selection via the one structured query mechanism (DiscoveryQuery, ext:discovery) and adds container-scope arrangement directives on top. Replaces the retired type-query variant (srs-rust#910, owner ruling on #383, srs#372/#481/#524/#525, rfc-decision-c8704763, rfc-decision-cce3c00e) — SectionSource no longer re-implements discovery axes divergently.",
           "properties": {
             "type": {
               "type": "string",
-              "const": "type-query"
+              "const": "discovery-query"
             },
-            "typeKey": {
-              "type": "string",
-              "description": "KEYED namespace/name (version-independent), resolved against the effective package set (srs-rust#910, owner ruling on #383, srs#372/#481/#524, rfc-decision-c8704763). Renamed from the retired semanticObjectType."
-            },
-            "lifecycleState": {
-              "type": "string"
+            "query": {
+              "$ref": "#/$defs/DiscoveryQuery",
+              "description": "The selection predicate (ext:discovery). typeNamespace + typeName together replace the retired typeKey (namespace/name) axis; lifecycleState/lifecycleStates/excludeLifecycleStates replace SectionSource.type-query's own copies of the same axes (RFC-011 Changes A/B, now governed by RFC-012 — I-142/I-143)."
             },
             "containerIds": {
               "type": "array",
               "items": {
                 "type": "string",
                 "format": "uuid"
-              }
-            },
-            "lifecycleStates": {
-              "type": "array",
-              "items": {
-                "type": "string"
               },
-              "description": "RFC-011 [N+25]. When non-empty, restricts to Records whose lifecycleState matches any listed value (OR semantics). Records with no lifecycleState are excluded. When absent or empty, all lifecycle states are included."
-            },
-            "excludeLifecycleStates": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "description": "RFC-011 [N+26]. When non-empty, excludes Records whose lifecycleState matches any value in the list. Applied after lifecycleStates. Records with no lifecycleState are NOT excluded by this filter."
+              "description": "Container-scope arrangement, not selection — layered on top of query per srs#525. Which containers bound the candidate set; see containerScope."
             },
             "containerScope": {
               "type": "string",
@@ -318,7 +299,7 @@
                 "repository",
                 "subtree"
               ],
-              "description": "RFC-011 [N+27]. Controls which containers are queried. 'explicit' (default): scope to containerIds[]. 'repository': all containers, ignores containerIds and any cli container override. 'subtree': traverse contains-relations from listed containers (v1: falls back to explicit with diagnostic when containerIds absent)."
+              "description": "RFC-011 [N+27]/I-144 (unchanged by the srs#525 collapse — remains a SectionSource-level arrangement directive, not a DiscoveryQuery predicate, because DiscoveryQuery.containerId is single-valued and non-traversing). Controls which containers are queried. 'explicit' (default): scope to containerIds[]. 'repository': all containers, ignores containerIds and any cli container override. 'subtree': traverse contains-relations from listed containers (v1: falls back to explicit with diagnostic when containerIds absent)."
             }
           }
         },
@@ -351,6 +332,67 @@
           }
         }
       ]
+    },
+    "DiscoveryQuery": {
+      "type": "object",
+      "description": "A conjunction of zero or more structured filter predicates. An instance matches if and only if it satisfies all predicates whose values are specified (unspecified predicates are wildcards).",
+      "additionalProperties": false,
+      "properties": {
+        "typeId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Exact match on Record.typeId. Only Tier 2 Records carry typeId; Tier 0 instances do not match this predicate."
+        },
+        "typeNamespace": {
+          "type": "string",
+          "description": "Exact match on Record.typeNamespace. Independent predicate; can be combined with typeId."
+        },
+        "typeName": {
+          "type": "string",
+          "description": "Exact match on Record.typeName. Independent predicate; can be combined with typeId."
+        },
+        "containerId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Instance is a member of this container per RFC-009 I-66: (1) instanceId in Container.rootInstanceIds[], OR (2) instanceId in Container.memberInstanceIds[], OR (3) reachable via transitive contains Relation traversal from any rootInstanceIds[] entry."
+        },
+        "tag": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "AND-conjunction: the instance's tags array must contain ALL of the specified values. RFC-006 vocabulary resolution is applied before comparison when a Vocabulary is declared."
+        },
+        "lifecycleState": {
+          "type": "string",
+          "description": "Exact match on Record.lifecycleState (case-sensitive). Requires ext:lifecycle. Instances without a lifecycleState field do not match."
+        },
+        "lifecycleStates": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "RFC-012 Rev 11 (srs#525) — inclusive multi-value lifecycle filter, OR semantics: matches an instance whose Record.lifecycleState equals ANY listed value. An instance with no lifecycleState does not match when this predicate is present and non-empty. Independent of the exact-match lifecycleState predicate above (do not combine the two on one query). Formerly SectionSource.type-query's own lifecycleStates axis (RFC-011 Change A, I-142); carried forward here as the SectionSource → DiscoveryQuery collapse's one query mechanism (srs#525). Requires ext:lifecycle; instances without ext:lifecycle declared MUST ignore this predicate."
+        },
+        "excludeLifecycleStates": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Exclusion filter (parity with the former RFC-011 type-query axis of the same name, now retired in its favor — srs#525): an instance whose Record.lifecycleState matches ANY listed value is excluded. Applied after lifecycleState/lifecycleStates. Lets an authored view declare default-hidden states (e.g. superseded, closed) while a client offers a runtime show-all override by passing an empty list. Requires ext:lifecycle; instances with no lifecycleState are never excluded by this axis."
+        },
+        "tier": {
+          "enum": [
+            0,
+            2
+          ],
+          "description": "Instance tier filter. 0 = Note, 2 = Record. Tier 1 (TypedRecord) was removed (rfc-decision-53635966); the gap in numbering is retained deliberately for reference stability."
+        },
+        "contentMatch": {
+          "type": "string",
+          "description": "Free-text recall-floor predicate. The implementation MUST include every instance whose Text Projection contains at least one segment whose normalized text contains the normalized form of this string as a substring (NFC + Unicode simple lowercasing)."
+        }
+      }
     },
     "NavigationLink": {
       "type": "object",
@@ -459,7 +501,10 @@
     "ExactTypeRef": {
       "$comment": "Canonical source: field.json $defs.ExactTypeRef. Kept byte-identical here rather than a cross-file $ref because scripts/lib/json-schema-lite.mjs (the validate-all package/record validator) only resolves local '#/...' refs — see RFC-009 I-78, rfc-decision-c8704763 (ExactTypeRef collapsed to one shared definition).",
       "type": "object",
-      "required": ["typeId", "typeVersion"],
+      "required": [
+        "typeId",
+        "typeVersion"
+      ],
       "additionalProperties": false,
       "description": "RFC-009 I-78. A version-exact reference to a Type in the Package (PINNED, rfc-decision-c8704763). Both typeId and typeVersion are required. The pre-RFC-009 version-optional Protocol TypeRef this once contrasted with is retired — Protocol.outputType is now a bare-UUID LINEAGE reference (typeVersion dropped; version-optional hybrids are forbidden).",
       "properties": {
@@ -472,6 +517,25 @@
           "type": "integer",
           "minimum": 1,
           "description": "Version of the Type this ref targets (required — version-exact anchor validated against the Package)."
+        }
+      }
+    },
+    "ExportConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Configuration for rendering a Record through this View as an exportable document.",
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "Target output format. Portable values: 'markdown', 'adoc', 'html', 'text'. Governs this View's own render context: standalone rendering when the View is used outside any Composition, and per-record rendering when a Composition section dispatches to this View (renderViewId/typeDispatch) -- but a dispatching Composition's document-level format comes from that Composition's own exportConfig.format, not from here (srs#525: one shape, two attachment points, no precedence between them)."
+        },
+        "preamble": {
+          "type": "string",
+          "description": "Template string rendered before field values. Standard variables: {{instance-id}}, {{date}}, {{status}}, {{namespace}}, {{name}}. In section rendering context, {{heading-3}} is also available (resolves to heading level 3 + depthOffset)."
+        },
+        "omitEmptyFields": {
+          "type": "boolean",
+          "description": "Default: false. When true, fields with no value are omitted from output."
         }
       }
     }

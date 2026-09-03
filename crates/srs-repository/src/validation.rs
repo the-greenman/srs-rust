@@ -1611,8 +1611,9 @@ pub fn validate_repository(
                             container_id,
                             ..
                         } => vec![container_id.as_str()],
-                        srs_core::types::view::SectionSource::TypeQuery {
-                            container_ids, ..
+                        srs_core::types::view::SectionSource::DiscoveryQuery {
+                            container_ids,
+                            ..
                         } => container_ids
                             .as_deref()
                             .unwrap_or(&[])
@@ -1979,7 +1980,7 @@ fn validate_cross_field_rule_configuration(
 /// this is the validation plane, surfacing the misconfiguration rather than letting
 /// it disappear silently into a missing heading.
 ///
-/// `TypeQuery.typeKey` and `ContainerSubset.typeFilter` declare their
+/// `DiscoveryQuery.query.typeNamespace`/`typeName` and `ContainerSubset.typeFilter` declare their
 /// candidate Types statically. `FixedInstances` and `RelationQuery` declare none —
 /// their members are only known by resolving actual instances, exactly as the
 /// render plane's `resolve_section_instances` does — so this reads those instances
@@ -2032,14 +2033,26 @@ fn validate_title_field_id_eligibility(
 
             let candidate_types: Vec<&srs_core::types::record_type::RecordType> =
                 match &section.source {
-                    SectionSource::TypeQuery { type_key, .. } => match type_key.split_once('/') {
-                        Some((namespace, name)) => pkg
-                            .record_types()
-                            .iter()
-                            .filter(|t| t.namespace == namespace && t.name == name)
-                            .collect(),
-                        None => Vec::new(),
-                    },
+                    SectionSource::DiscoveryQuery { query, .. } => {
+                        match (&query.type_namespace, &query.type_name) {
+                            (Some(namespace), Some(name)) => pkg
+                                .record_types()
+                                .iter()
+                                .filter(|t| &t.namespace == namespace && &t.name == name)
+                                .collect(),
+                            (Some(namespace), None) => pkg
+                                .record_types()
+                                .iter()
+                                .filter(|t| &t.namespace == namespace)
+                                .collect(),
+                            (None, Some(name)) => pkg
+                                .record_types()
+                                .iter()
+                                .filter(|t| &t.name == name)
+                                .collect(),
+                            (None, None) => Vec::new(),
+                        }
+                    }
                     SectionSource::ContainerSubset {
                         type_filter: Some(keys),
                         ..
@@ -2450,7 +2463,7 @@ mod tests {
         json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
-            "dataModelRevision": 6,
+            "dataModelRevision": 7,
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Test Repo",
             "container": {
@@ -4261,7 +4274,7 @@ mod tests {
                 "sections": [{
                     "sectionId": "s1",
                     "order": 0,
-                    "source": {"type": "type-query", "typeKey": "com.test/nonexistent"}
+                    "source": {"type": "discovery-query", "query": {"typeNamespace": "com.test", "typeName": "nonexistent"}}
                 }],
                 "createdAt": "2026-01-01T00:00:00Z"
             }),
@@ -4359,8 +4372,8 @@ mod tests {
                     "sectionId": "s1",
                     "order": 0,
                     "source": {
-                        "type": "type-query",
-                        "typeKey": "com.test/test-type"
+                        "type": "discovery-query",
+                        "query": {"typeNamespace": "com.test", "typeName": "test-type"}
                     },
                     "titleFieldId": "00000000-0000-4000-8000-0000000000f1"
                 }],
@@ -4455,8 +4468,8 @@ mod tests {
                     "sectionId": "s1",
                     "order": 0,
                     "source": {
-                        "type": "type-query",
-                        "typeKey": "com.test/test-type"
+                        "type": "discovery-query",
+                        "query": {"typeNamespace": "com.test", "typeName": "test-type"}
                     },
                     "titleFieldId": "00000000-0000-4000-8000-0000000000f1"
                 }],
@@ -5565,7 +5578,7 @@ mod tests {
             &json!({
                 "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
                 "srsVersion": "2.0",
-                "dataModelRevision": 6,
+                "dataModelRevision": 7,
                 "repositoryId": "00000000-0000-4000-8000-000000000700",
                 "title": "Rev-3 Metamodel Test Repo",
                 "container": {
@@ -5707,9 +5720,9 @@ mod tests {
             rt.validation_rules
         );
 
-        // No revision diagnostic: dataModelRevision 6 is exactly what this
-        // build supports (bumped 5 -> 6 for srs-rust#910's Composition
-        // rename / semanticObjectType collapse / packageDependencies fold).
+        // No revision diagnostic: dataModelRevision 7 is exactly what this
+        // build supports (bumped 6 -> 7 for srs-rust#924's SectionSource ->
+        // DiscoveryQuery collapse / ExportConfig unification).
         let report = validate_repository(&store).unwrap();
         assert!(
             !report
@@ -5781,13 +5794,13 @@ mod tests {
     fn rev5_manifest_loads_with_no_revision_diagnostic() {
         // Historical name (kept per this file's convention of tracking the
         // fixture number forward across revision bumps rather than renaming
-        // the test): the manifest is stamped at the CURRENT revision, 6 as of
-        // srs-rust#910 (was 5 before the Composition rename / semanticObjectType
-        // collapse / packageDependencies fold).
+        // the test): the manifest is stamped at the CURRENT revision, 7 as of
+        // srs-rust#924 (was 6 before the SectionSource -> DiscoveryQuery
+        // collapse / ExportConfig unification).
         let store = manifest_store(json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
-            "dataModelRevision": 6,
+            "dataModelRevision": 7,
             "repositoryId": "00000000-0000-4000-8000-000000000901",
             "title": "Rev-5 Test Repo",
             "container": {
@@ -9495,7 +9508,7 @@ mod tests {
             "sections": [{
                 "sectionId": "s1",
                 "order": 0,
-                "source": {"type": "type-query", "typeKey": "com.test/nonexistent"},
+                "source": {"type": "discovery-query", "query": {"typeNamespace": "com.test", "typeName": "nonexistent"}},
                 "relationsPresentation": { "include": include_entries }
             }],
             "createdAt": "2026-01-01T00:00:00Z"

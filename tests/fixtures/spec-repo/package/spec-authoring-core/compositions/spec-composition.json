@@ -10,8 +10,11 @@
       "title": "Specification",
       "order": 0,
       "source": {
-        "type": "type-query",
-        "typeKey": "com.semanticops.spec/section"
+        "type": "discovery-query",
+        "query": {
+          "typeNamespace": "com.semanticops.spec",
+          "typeName": "section"
+        }
       },
       "typeDispatch": {
         "com.semanticops.spec/table": "77f51737-191c-4229-ac24-3ae28dfc946c"
@@ -20,7 +23,9 @@
       "emptyBehavior": "hide"
     }
   ],
-  "format": "markdown",
   "createdAt": "2026-05-27T00:00:00Z",
-  "$schema": "https://srs.semanticops.com/schema/2.0/composition.json"
+  "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
+  "exportConfig": {
+    "format": "markdown"
+  }
 }

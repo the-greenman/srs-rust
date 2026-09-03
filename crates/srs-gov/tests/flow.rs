@@ -800,8 +800,12 @@ fn repo_create_compositions_bind_to_scaffolded_containers() {
         "fresh repo-create must not ship dangling composition container refs: {dangling:?}"
     );
 
-    // 2. articles-and-roles cannot bind in the release-1 (decision-log-only) shape
-    //    and must be removed from the install.
+    // 2. srs#525 / srs-rust#924: every governance-package composition now selects
+    //    by discovery-query with containerScope: "repository" — no containerIds
+    //    at all, so there is no dangling container reference left to force
+    //    articles-and-roles's removal (the old srs#163 rebind scenario this test
+    //    originally covered no longer applies to the current canonical package).
+    //    articles-and-roles survives a fresh install unchanged.
     let list = srs_json(&repo.path, &["composition", "list"], None);
     let names: Vec<&str> = list["payload"]["compositions"]
         .as_array()
@@ -810,8 +814,8 @@ fn repo_create_compositions_bind_to_scaffolded_containers() {
         .filter_map(|dv| dv["name"].as_str())
         .collect();
     assert!(
-        !names.contains(&"articles-and-roles"),
-        "articles-and-roles must be trimmed from a fresh install, got {names:?}"
+        names.contains(&"articles-and-roles"),
+        "articles-and-roles must survive a fresh install (no dangling container reference to force its removal), got {names:?}"
     );
 
     // 3. All three surviving views render ok and include real decision-log content

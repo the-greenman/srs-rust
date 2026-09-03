@@ -158,6 +158,10 @@ pub struct FindToolInput {
     #[serde(default)]
     pub tag: Vec<String>,
     pub lifecycle_state: Option<String>,
+    /// Inclusive multi-value lifecycleState filter (OR semantics — RFC-012 Rev 11).
+    /// Independent of lifecycleState; do not combine the two.
+    #[serde(default)]
+    pub lifecycle_states: Vec<String>,
     #[serde(default)]
     pub exclude_lifecycle_states: Vec<String>,
     /// Instance tier (0=Note, 2=Record — Tier 1/TypedRecord is retired,
@@ -176,6 +180,7 @@ impl From<FindToolInput> for DiscoveryQuery {
             container_id: input.container_id,
             tag: input.tag,
             lifecycle_state: input.lifecycle_state,
+            lifecycle_states: input.lifecycle_states,
             exclude_lifecycle_states: input.exclude_lifecycle_states,
             tier: input.tier,
             content_match: input.content_match,
@@ -823,6 +828,7 @@ mod tests {
             container_id: Some("cid".into()),
             tag: vec!["a".into(), "b".into()],
             lifecycle_state: Some("active".into()),
+            lifecycle_states: vec!["active".into(), "draft".into()],
             exclude_lifecycle_states: vec!["superseded".into()],
             tier: Some(2),
             content_match: Some("text".into()),
@@ -834,6 +840,10 @@ mod tests {
         assert_eq!(q.container_id.as_deref(), Some("cid"));
         assert_eq!(q.tag, vec!["a".to_string(), "b".to_string()]);
         assert_eq!(q.lifecycle_state.as_deref(), Some("active"));
+        assert_eq!(
+            q.lifecycle_states,
+            vec!["active".to_string(), "draft".to_string()]
+        );
         assert_eq!(q.exclude_lifecycle_states, vec!["superseded".to_string()]);
         assert_eq!(q.tier, Some(2));
         assert_eq!(q.content_match.as_deref(), Some("text"));

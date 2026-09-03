@@ -310,6 +310,40 @@ static MIGRATIONS: &[MigrationDefinition] = &[
         },
     },
     MigrationDefinition {
+        id: "discovery-query-cutover",
+        title: "Adopt the SectionSource DiscoveryQuery collapse and ExportConfig unification",
+        description: "Renames every Composition section's type-query source to discovery-query \
+                       (typeKey splits into query.typeNamespace/typeName; lifecycleState/ \
+                       lifecycleStates/excludeLifecycleStates fold onto query; containerIds/ \
+                       containerScope arrangement is unchanged), moves every Composition's \
+                       top-level format/preamble onto exportConfig (the same shape View already \
+                       carries), and stamps dataModelRevision: 7. This is data-model migration #7 \
+                       (revision 6 -> 7), per srs-rust#924 (srs#525, rfc-decision-cce3c00e, \
+                       rfc-decision-9ee14517). Unlike #3/#4 this is a real content transform: \
+                       neither rename carries a serde alias, so an un-migrated rev-6 document \
+                       fails the checked catalog outright rather than loading through a tolerant \
+                       path — this migration reads and writes the raw file tree directly, the \
+                       sole sanctioned reader of the old shapes. Requires the composition-cutover \
+                       migration (#6) first.",
+        status_fn: |store| {
+            if crate::field_type_migration_service::discovery_query_cutover_migration_needed(
+                store,
+            )? {
+                Ok(MigrationStatus::Needed)
+            } else {
+                Ok(MigrationStatus::AlreadyApplied)
+            }
+        },
+        apply_fn: |store| {
+            let result = crate::discovery_query_cutover_migration_service::migrate_discovery_query_cutover(store)?;
+            serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!(
+                    "failed to serialize discovery-query-cutover migration result: {e}"
+                ),
+            })
+        },
+    },
+    MigrationDefinition {
         id: "migrate-identity",
         title: "Graduate identity to purpose record",
         description: "Converts a Tier-0 note identity (or a container with no identity \
@@ -563,7 +597,7 @@ mod tests {
     fn list_migrations_returns_every_entry_for_store_with_no_identity_note() {
         let store = make_store_with_container_no_identity();
         let migrations = list_migrations(&store).unwrap();
-        assert_eq!(migrations.len(), 11);
+        assert_eq!(migrations.len(), 12);
         assert_eq!(migrations[0].id, "graduated-at-cleanup");
         assert_eq!(migrations[1].id, "revisions-sidecar-cleanup");
         assert_eq!(migrations[2].id, "field-type");
@@ -572,9 +606,10 @@ mod tests {
         assert_eq!(migrations[5].id, "tier1-removal");
         assert_eq!(migrations[6].id, "substrate-properties-to-meta");
         assert_eq!(migrations[7].id, "composition-cutover");
-        assert_eq!(migrations[8].id, "migrate-identity");
-        assert_eq!(migrations[9].id, "repo-upgrade");
-        assert_eq!(migrations[10].id, "rfc038-storage");
+        assert_eq!(migrations[8].id, "discovery-query-cutover");
+        assert_eq!(migrations[9].id, "migrate-identity");
+        assert_eq!(migrations[10].id, "repo-upgrade");
+        assert_eq!(migrations[11].id, "rfc038-storage");
         // No legacy graduatedAt Notes → AlreadyApplied
         assert_eq!(migrations[0].status, MigrationStatus::AlreadyApplied);
         // No .revisions.json sidecars → AlreadyApplied
@@ -591,12 +626,14 @@ mod tests {
         assert_eq!(migrations[6].status, MigrationStatus::Needed);
         // Revision < 6 → composition-cutover Needed
         assert_eq!(migrations[7].status, MigrationStatus::Needed);
-        // Container exists but identity_instance_id is None → migrate-identity Needed
+        // Revision < 7 → discovery-query-cutover Needed
         assert_eq!(migrations[8].status, MigrationStatus::Needed);
+        // Container exists but identity_instance_id is None → migrate-identity Needed
+        assert_eq!(migrations[9].status, MigrationStatus::Needed);
         // Zero instances → all paths canonical → AlreadyApplied
-        assert_eq!(migrations[9].status, MigrationStatus::AlreadyApplied);
+        assert_eq!(migrations[10].status, MigrationStatus::AlreadyApplied);
         // MemoryStore is not a file tree — there is no storage layout to place.
-        assert_eq!(migrations[10].status, MigrationStatus::NotApplicable);
+        assert_eq!(migrations[11].status, MigrationStatus::NotApplicable);
     }
 
     fn indexed_srsj_store() -> crate::store::FileStore {

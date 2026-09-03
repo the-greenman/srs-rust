@@ -263,8 +263,9 @@ pub fn scaffold_governance_repo(
 }
 
 /// The `namespace/name` key of the record type held by the Decision Log container.
-/// A TypeQuery section over this type re-binds to the scaffold's decision-log container.
-const DECISION_TYPE_KEY: &str = "governance/decision";
+/// A DiscoveryQuery section over this type re-binds to the scaffold's decision-log container.
+const DECISION_TYPE_NAMESPACE: &str = "governance";
+const DECISION_TYPE_NAME: &str = "decision";
 
 /// The stable `sectionId` the canonical governance package uses for decision-log
 /// sections across all of its document views (`decision-log`, `decision-deliberation`,
@@ -281,8 +282,8 @@ fn container_exists(store: &dyn RepositoryStore, id: &str) -> bool {
 /// the canonical package (srs#163).
 ///
 /// Matching is by role, not by UUID:
-/// - a section is a *decision* section when its TypeQuery targets
-///   [`DECISION_TYPE_KEY`] or its `sectionId` is [`DECISIONS_SECTION_ID`]; dangling
+/// - a section is a *decision* section when its DiscoveryQuery targets
+///   the `governance/decision` type or its `sectionId` is [`DECISIONS_SECTION_ID`]; dangling
 ///   container references in such sections are re-bound to the freshly created
 ///   Decision Log container;
 /// - sections whose dangling references have no scaffold-time counterpart (Articles /
@@ -311,8 +312,9 @@ fn rebind_compositions_to_scaffold(
             let is_decision_section = section.section_id == DECISIONS_SECTION_ID
                 || matches!(
                     &section.source,
-                    SectionSource::TypeQuery { type_key, .. }
-                        if type_key == DECISION_TYPE_KEY
+                    SectionSource::DiscoveryQuery { query, .. }
+                        if query.type_namespace.as_deref() == Some(DECISION_TYPE_NAMESPACE)
+                            && query.type_name.as_deref() == Some(DECISION_TYPE_NAME)
                 );
 
             let keep = match &mut section.source {
@@ -328,7 +330,7 @@ fn rebind_compositions_to_scaffold(
                         false
                     }
                 }
-                SectionSource::TypeQuery { container_ids, .. } => match container_ids {
+                SectionSource::DiscoveryQuery { container_ids, .. } => match container_ids {
                     Some(ids) if ids.iter().any(|id| !container_exists(store, id)) => {
                         let mut resolved: Vec<String> = ids
                             .iter()
@@ -491,11 +493,19 @@ mod tests {
     }
 
     #[test]
-    fn scaffold_rebinds_compositions_to_created_containers() {
-        // srs#163: the canonical package ships document views referencing gallery
-        // container UUIDs. After scaffold, every remaining container reference must
-        // resolve, decision sections must point at the scaffold's decision-log
-        // container, and views with no bindable section are removed.
+    fn scaffold_leaves_discovery_query_compositions_untouched() {
+        // srs#163's original scenario (canonical package shipping document views
+        // that reference gallery container UUIDs needing post-scaffold rebinding)
+        // no longer applies to the current canonical package: srs#525's
+        // SectionSource -> DiscoveryQuery collapse re-authored every one of the
+        // governance package's compositions onto `containerScope: "repository"`
+        // with no `containerIds` at all — type + repository-wide selection needs
+        // no container to exist first, so there is nothing left to dangle or
+        // rebind. This test is the regression check for that: scaffold must
+        // leave every composition exactly as shipped (nothing removed, nothing
+        // rebound), and the rebind step's dangling-reference repair (still real
+        // code, for any composition that *does* carry container_ids/containerId)
+        // must remain a correct no-op here.
         let store = load_seed_store();
         let result = scaffold_governance_repo(
             &store,
@@ -506,63 +516,22 @@ mod tests {
         )
         .expect("scaffold succeeds");
 
-        let views = crate::view_service::list_compositions(&store).unwrap();
-        let dl = &result.decision_log_container_id;
-
-        // articles-and-roles has no bindable section in the release-1 shape → removed.
         assert!(
-            !views.iter().any(|v| v.name == "articles-and-roles"),
-            "articles-and-roles view must be removed from a fresh install"
+            result.removed_composition_ids.is_empty(),
+            "no composition should be removed: {:?}",
+            result.removed_composition_ids
         );
-        assert_eq!(
-            result.removed_composition_ids,
-            vec!["78b11038-e5d8-4269-9982-fe5c459802b2".to_string()],
-            "removed set is exactly the articles-and-roles view"
+        assert!(
+            result.rebound_composition_ids.is_empty(),
+            "no composition should need rebinding: {:?}",
+            result.rebound_composition_ids
         );
 
-        // decision-log (type-query): explicit containerIds re-bound to the created container.
-        let decision_log = views
-            .iter()
-            .find(|v| v.name == "decision-log")
-            .expect("decision-log view present");
-        match &decision_log.sections[0].source {
-            SectionSource::TypeQuery { container_ids, .. } => {
-                assert_eq!(
-                    container_ids.as_deref(),
-                    Some(std::slice::from_ref(dl)),
-                    "decision-log type-query must target the scaffold's decision-log container"
-                );
-            }
-            other => panic!("decision-log section must stay a type-query, got {other:?}"),
-        }
-
-        // decision-deliberation (container-subset): re-bound to the created container.
-        let deliberation = views
-            .iter()
-            .find(|v| v.name == "decision-deliberation")
-            .expect("decision-deliberation view present");
-        match &deliberation.sections[0].source {
-            SectionSource::ContainerSubset { container_id, .. } => assert_eq!(container_id, dl),
-            other => panic!("deliberation section must stay a container-subset, got {other:?}"),
-        }
-
-        // governance-document: articles + roles sections trimmed, decisions re-bound.
-        let gov_doc = views
-            .iter()
-            .find(|v| v.name == "governance-document")
-            .expect("governance-document view present");
-        assert_eq!(
-            gov_doc.sections.len(),
-            1,
-            "articles/roles sections must be trimmed in the release-1 shape"
+        let views = crate::view_service::list_compositions(&store).unwrap();
+        assert!(
+            views.iter().any(|v| v.name == "articles-and-roles"),
+            "articles-and-roles view must survive (no dangling container reference to force its removal)"
         );
-        assert_eq!(gov_doc.sections[0].section_id, "decisions");
-        match &gov_doc.sections[0].source {
-            SectionSource::ContainerSubset { container_id, .. } => assert_eq!(container_id, dl),
-            other => {
-                panic!("gov-doc decisions section must stay a container-subset, got {other:?}")
-            }
-        }
 
         // Every surviving container reference resolves — no dangling refs remain.
         for view in &views {
@@ -571,7 +540,7 @@ mod tests {
                     SectionSource::ContainerSubset { container_id, .. } => {
                         vec![container_id.as_str()]
                     }
-                    SectionSource::TypeQuery { container_ids, .. } => container_ids
+                    SectionSource::DiscoveryQuery { container_ids, .. } => container_ids
                         .as_deref()
                         .unwrap_or(&[])
                         .iter()
@@ -590,17 +559,6 @@ mod tests {
                 }
             }
         }
-
-        // The three surviving views are reported as rebound.
-        let mut rebound = result.rebound_composition_ids.clone();
-        rebound.sort();
-        let mut expected = vec![
-            "5a3ce87e-8340-4d91-a140-ab56b57f704f".to_string(), // decision-deliberation
-            "732a982b-3765-4f22-90e0-e456463bac54".to_string(), // governance-document
-            "b5c8d124-2084-4a6b-a231-425e800e1e55".to_string(), // decision-log
-        ];
-        expected.sort();
-        assert_eq!(rebound, expected);
     }
 
     #[test]
