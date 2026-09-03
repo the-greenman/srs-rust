@@ -30,18 +30,12 @@ DRIFT=0
 #
 # revisions.json's entry is retired (srs-rust#866): rfc-decision-2a1e1590's
 # code-removal call is now made — the write path, the mirror, and this
-# tolerance are all clean-cut together. Empty for now; the next entry follows
-# the same per-item pattern when its issue makes the same call.
-DECLARED_EXTRA_ALLOWLIST=(
-    # srs-rust#910: the DocumentView -> Composition rename (rfc-decision-92d2da05)
-    # lands here first per the binary-first choreography (CLAUDE.md "Gates and
-    # choreography" — support lands + releases before the spec PR merges). Our
-    # mirror already carries composition.json; the canonical srs spec schema
-    # still ships document-view.json until srs#523 merges. Remove this entry
-    # when srs#523 merges and the next sync-schemas-from-spec.sh run picks up
-    # the renamed canonical file.
-    "composition.json"
-)
+# tolerance are all clean-cut together. composition.json's entry is retired
+# (srs-rust#910): srs#523 merged, and the next sync-schemas-from-spec.sh run
+# picked up the renamed canonical file — the mirror and spec now carry the
+# same composition.json bytes. Empty for now; the next entry follows the
+# same per-item pattern when its issue makes the same call.
+DECLARED_EXTRA_ALLOWLIST=()
 is_allowlisted() {
     local needle="$1"
     for entry in "${DECLARED_EXTRA_ALLOWLIST[@]}"; do
@@ -52,12 +46,11 @@ is_allowlisted() {
 
 # Declared transitional allowlist for the reverse direction: a file the
 # canonical spec still ships that our mirror has already renamed away from
-# (same srs-rust#910 rename, same expiry — srs#523 merging). Symmetric to
-# DECLARED_EXTRA_ALLOWLIST; add an entry here only when the mirror renames a
-# schema ahead of the spec's own rename landing.
-DECLARED_MISSING_ALLOWLIST=(
-    "document-view.json"
-)
+# (same srs-rust#910 rename). Retired: srs#523 merged, document-view.json is
+# gone from the canonical spec too. Symmetric to DECLARED_EXTRA_ALLOWLIST; add
+# an entry here only when the mirror renames a schema ahead of the spec's own
+# rename landing.
+DECLARED_MISSING_ALLOWLIST=()
 is_missing_allowlisted() {
     local needle="$1"
     for entry in "${DECLARED_MISSING_ALLOWLIST[@]}"; do
@@ -71,20 +64,10 @@ is_missing_allowlisted() {
 # ratified rename (srs-rust#910: the Composition rename, rfc-decision-92d2da05,
 # and the semanticObjectType collapse, owner ruling on #383/rfc-decision-
 # c8704763) — every entry here is prose or a key rename inside a file that
-# also exists (unlike the whole-file EXTRA/MISSING pairs above). Same expiry
-# as those: remove each entry when srs#523/#524 merge and the next
-# sync-schemas-from-spec.sh run picks up the renamed canonical content.
-DECLARED_CONTENT_DRIFT_ALLOWLIST=(
-    "blueprint.json"              # prose: DocumentView -> Composition
-    "document-view-output.json"   # documentViewId -> compositionId
-    "manifest.json"                # renderedPresentations[].viewId -> compositionId
-    "package-bundle.json"          # documentViews -> compositions
-    "package-manifest.json"        # documentViews -> compositions; dependencyRefs -> packageDependencies (srs-rust#873 fold)
-    "relation-type.json"           # semanticObjectType collapse: requireSameType; allowedSourceTypes/allowedTargetTypes dropped
-    "theme.json"                   # prose: DocumentView -> Composition
-    "type.json"                    # semanticObjectType property removed
-    "view.json"                    # prose: DocumentView -> Composition / semanticObjectType -> Type-key
-)
+# also exists (unlike the whole-file EXTRA/MISSING pairs above). Retired:
+# srs#523/#524 merged and the next sync-schemas-from-spec.sh run picked up the
+# renamed canonical content — the mirror and spec are byte-identical again.
+DECLARED_CONTENT_DRIFT_ALLOWLIST=()
 is_content_drift_allowlisted() {
     local needle="$1"
     for entry in "${DECLARED_CONTENT_DRIFT_ALLOWLIST[@]}"; do
