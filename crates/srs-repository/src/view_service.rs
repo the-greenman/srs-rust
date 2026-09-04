@@ -421,6 +421,30 @@ pub fn compositions_for_container(
     Ok(matched)
 }
 
+/// Same matching as [`compositions_for_container`], projected to [`CompositionSummary`]
+/// for callers that only need listing metadata (not `sections`) — mirrors how
+/// [`list_compositions_summary`] sits alongside the full-`Composition`-returning
+/// [`list_compositions`]. `source_package` is not resolved here (no provenance lookup
+/// scoped to a single container id today); always `None`.
+pub fn compositions_for_container_summary(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+) -> Result<Vec<CompositionSummary>, RepositoryError> {
+    Ok(compositions_for_container(store, container_id)?
+        .into_iter()
+        .map(|dv| CompositionSummary {
+            id: dv.id,
+            namespace: dv.namespace,
+            name: dv.name,
+            version: dv.version,
+            description: dv.description,
+            container_type: dv.container_type,
+            root_type_refs: dv.root_type_refs,
+            source_package: None,
+        })
+        .collect())
+}
+
 // ── View CRUD ─────────────────────────────────────────────────────────────────
 
 /// Create a View from a raw JSON value with normalized defaults (issue #511).
@@ -1435,6 +1459,53 @@ mod tests {
             result[0].root_type_refs.as_ref().unwrap()[0].type_id,
             type_id
         );
+    }
+
+    #[test]
+    fn compositions_for_container_summary_projects_matching_view() {
+        use crate::container_service;
+        use srs_core::types::container::Container;
+
+        let type_id = "00000000-0000-4000-8000-00000000aaaa";
+        let type_version = 1u32;
+        let instance_id = "11111111-1111-4111-8111-111111111111";
+        let container_id = "550e8400-e29b-41d4-a716-446655440000";
+
+        let store = make_store_with_dv_and_instance(
+            type_id,
+            type_version,
+            instance_id,
+            "records/inst.json",
+        );
+
+        let container = Container {
+            container_id: container_id.to_string(),
+            title: "Test Container".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: None,
+            anchor_instance_id: None,
+            root_instance_ids: Some(vec![instance_id.to_string()]),
+            member_instance_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::BTreeMap::new(),
+        };
+        container_service::create_container(&store, container).unwrap();
+
+        let full = compositions_for_container(&store, container_id).unwrap();
+        let summary = compositions_for_container_summary(&store, container_id).unwrap();
+
+        assert_eq!(summary.len(), 1, "expected exactly one matching summary");
+        assert_eq!(summary[0].id, full[0].id);
+        assert_eq!(summary[0].namespace, full[0].namespace);
+        assert_eq!(summary[0].name, full[0].name);
+        assert_eq!(summary[0].root_type_refs, full[0].root_type_refs);
+        assert_eq!(summary[0].source_package, None);
     }
 
     #[test]
