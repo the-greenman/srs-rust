@@ -62,7 +62,15 @@ is_allowlisted() {
 # gone from the canonical spec too. Symmetric to DECLARED_EXTRA_ALLOWLIST; add
 # an entry here only when the mirror renames a schema ahead of the spec's own
 # rename landing.
-DECLARED_MISSING_ALLOWLIST=()
+#
+# srsj-envelope.json (srs-rust#937): srs#546 (srs#534) authored this new
+# canonical schema with zero closure exclusions, but it has no srs-rust
+# counterpart yet — no rename/witness conflict like field.json/protocol.json
+# below, just an undecided registry question (does srs-schema need a
+# SRSJ_ENVELOPE_SCHEMA_ID entry, does any Rust code need to validate against
+# it, or does it stay Node-tooling-only). Remove this entry once #937 lands
+# the mirror sync (and registry wiring, if any) together.
+DECLARED_MISSING_ALLOWLIST=("srsj-envelope.json")
 is_missing_allowlisted() {
     local needle="$1"
     for entry in "${DECLARED_MISSING_ALLOWLIST[@]}"; do
@@ -83,10 +91,26 @@ is_missing_allowlisted() {
 # srs-rust#924's entry is retired: srs#525 merged (PR #540, commit 781ffb9),
 # and the next sync-schemas-from-spec.sh run picked up the same
 # composition.json/discovery.json/manifest.json/view.json bytes from the
-# canonical spec — the mirror and spec are byte-identical again. Empty for
-# now; the next entry follows the same per-item pattern when its issue makes
-# the same call.
-DECLARED_CONTENT_DRIFT_ALLOWLIST=()
+# canonical spec — the mirror and spec are byte-identical again.
+#
+# field.json (srs-rust#932): srs#534/#546 widened the frozen bootstrap seed's
+# FieldType shape (valueRange gains "ref", allowedValues.items.type widens to
+# ["string","integer"]) so the metamodel's own new Field shapes can validate.
+# The srs-rust binary's compiled-in srs-schema copy predates this — a plain
+# re-sync would accept spec bytes that srs-core's own FieldType validation
+# (R2/R3/R9 equivalents) doesn't yet permit, silently widening what the
+# runtime accepts beyond what it actually implements. #932 tracks landing
+# both together (schema mirror + validator extension).
+#
+# protocol.json (srs-rust#930): srs#379 ruled Protocol's identity/structural
+# properties unprefixed (id/namespace/name/... replacing protocolId/
+# protocolNamespace/protocolName/...), retiring the interim protocol-prefixed
+# shape #297/#378 shipped to match the implementation of the day. A plain
+# re-sync would desync the schema from srs-core's actual Protocol struct,
+# protocol_service.rs, the CLI payload, and every real fixture/corpus witness
+# still using the prefixed shape — #930 is the reference-implementation
+# rename (Rust structs, CLI, fixtures) this mirror bump must land alongside.
+DECLARED_CONTENT_DRIFT_ALLOWLIST=("field.json" "protocol.json")
 is_content_drift_allowlisted() {
     local needle="$1"
     for entry in "${DECLARED_CONTENT_DRIFT_ALLOWLIST[@]}"; do

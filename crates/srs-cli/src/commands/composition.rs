@@ -7,9 +7,9 @@ use crate::payload::{
 use anyhow::Result;
 use srs_core::types::view::Composition;
 use srs_repository::view_service::{
-    compositions_for_container, create_composition_normalized, delete_composition,
+    compositions_for_container_summary, create_composition_normalized, delete_composition,
     get_composition_by_id, list_compositions_summary, update_composition, CompositionListFilter,
-    CompositionSummary, CreateCompositionResult, DeleteCompositionResult, GetCompositionResult,
+    CreateCompositionResult, DeleteCompositionResult, GetCompositionResult,
 };
 
 pub fn dispatch(ctx: CliContext, cmd: CompositionCommand) -> Result<String> {
@@ -58,7 +58,7 @@ fn cmd_composition_get(ctx: CliContext, id: String) -> Result<String> {
         }
         GetCompositionResult::NotFound => Ok(output::err(
             "composition get",
-            vec![format!("document view not found: {id}")],
+            vec![format!("composition not found: {id}")],
         )),
     }
 }
@@ -99,30 +99,15 @@ fn cmd_composition_delete(ctx: CliContext, id: String) -> Result<String> {
 
 fn cmd_composition_list_for_container(ctx: CliContext, container_id: String) -> Result<String> {
     match with_store(&ctx, |store| {
-        Ok(compositions_for_container(store, &container_id)?)
+        Ok(compositions_for_container_summary(store, &container_id)?)
     }) {
-        Ok(views) => {
-            let compositions: Vec<CompositionSummary> = views
-                .into_iter()
-                .map(|dv| CompositionSummary {
-                    id: dv.id,
-                    namespace: dv.namespace,
-                    name: dv.name,
-                    version: dv.version,
-                    description: dv.description,
-                    container_type: dv.container_type,
-                    root_type_refs: dv.root_type_refs,
-                    source_package: None,
-                })
-                .collect();
-            output::serialize(
-                "composition list-for-container",
-                CompositionsForContainerPayload {
-                    container_id,
-                    compositions,
-                },
-            )
-        }
+        Ok(compositions) => output::serialize(
+            "composition list-for-container",
+            CompositionsForContainerPayload {
+                container_id,
+                compositions,
+            },
+        ),
         Err(e) => Ok(output::err(
             "composition list-for-container",
             vec![e.to_string()],
