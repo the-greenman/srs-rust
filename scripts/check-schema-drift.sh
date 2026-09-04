@@ -33,9 +33,21 @@ DRIFT=0
 # tolerance are all clean-cut together. composition.json's entry is retired
 # (srs-rust#910): srs#523 merged, and the next sync-schemas-from-spec.sh run
 # picked up the renamed canonical file — the mirror and spec now carry the
-# same composition.json bytes. Empty for now; the next entry follows the
-# same per-item pattern when its issue makes the same call.
-DECLARED_EXTRA_ALLOWLIST=()
+# same composition.json bytes.
+#
+# relations-collection.json (srs-rust#929): srs#527 deleted this schema from
+# the canonical spec outright ("dead shape with no successor" — RFC-038 moved
+# relations to one-file-per-relation under relations/). But srs-rust's RFC-038
+# [R11]-exempt legacy migration surface (relation_service.rs's
+# load_relations_collection/schema_validate_relation, gated on
+# store.rfc038_exempt()) still reads and schema-validates real
+# dataModelRevision < 2 repositories' relations-collection.json files during
+# migration — code that is still live, not dead. The schema stays as a
+# permanently-retained legacy validator until that migration surface itself
+# is retired (the same full-removal call already made for Tier-1/TypedRecord
+# in #913 and ext:federation in #912) — not something a mirror-sync should
+# ever silently decide.
+DECLARED_EXTRA_ALLOWLIST=("relations-collection.json")
 is_allowlisted() {
     local needle="$1"
     for entry in "${DECLARED_EXTRA_ALLOWLIST[@]}"; do
