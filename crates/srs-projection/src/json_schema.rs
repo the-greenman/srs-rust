@@ -34,7 +34,9 @@
 
 use serde::{Serialize, Serializer};
 use serde_json::json;
-use srs_core::types::field::{Datatype, Field, FieldType, RefMode, StringFormat, ValueDomain};
+use srs_core::types::field::{
+    AllowedValue, Datatype, Field, FieldType, MapValueRange, RefMode, StringFormat, ValueDomain,
+};
 use srs_core::types::record_type::{
     CrossFieldRule, CrossFieldRuleKind, FieldAssignment, RecordType,
 };
@@ -154,7 +156,7 @@ pub struct SchemaNode {
     )]
     pub maximum: Option<serde_json::Number>,
     #[serde(rename = "enum", skip_serializing_if = "Option::is_none")]
-    pub enumeration: Option<Vec<String>>,
+    pub enumeration: Option<Vec<AllowedValue>>,
     #[serde(rename = "x-srs-range-type", skip_serializing_if = "Option::is_none")]
     pub range_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -976,16 +978,19 @@ fn emit_body(
     })
 }
 
-/// Render one Field's `fieldType`. For an inline `ref`, the range's `$def` is
-/// ensured first (pre-order DFS); a `reference` ref emits the id shape and
-/// contributes no `$def`.
+/// Render one Field's `fieldType`. For an inline `ref` — or a `map` with
+/// `valueRange: ref` (srs#534's "map-of-`$ref`" capability, the same
+/// range-resolution contract) — the range's `$def` is ensured first (pre-order
+/// DFS); a `reference` mode emits the id shape and contributes no `$def`.
 fn render_node(
     ctx: &ProjectionContext<'_>,
     field: &Field,
     defs: &mut OrderedMap<ObjectBody>,
 ) -> Result<SchemaNode, ProjectionError> {
     let ft = &field.field_type;
-    if ft.datatype == Datatype::Ref {
+    let uses_range_type = ft.datatype == Datatype::Ref
+        || (ft.datatype == Datatype::Map && ft.value_range == Some(MapValueRange::Ref));
+    if uses_range_type {
         let range = ft
             .range_type
             .as_ref()
@@ -1040,6 +1045,27 @@ struct RangeParts<'a> {
     def_key: &'a str,
 }
 
+/// The target node for a `ref`-shaped range — shared by the top-level
+/// `datatype: ref` case and the `map`-of-`ref` value case (srs#534), which
+/// carry the identical `mode: inline | reference` contract.
+fn ref_target_node(mode: RefMode, parts: &RangeParts<'_>) -> SchemaNode {
+    match mode {
+        RefMode::Reference => SchemaNode {
+            ty: Some("string"),
+            format: Some("uuid"),
+            range_type: Some(format!(
+                "{}/{}@{}",
+                parts.namespace, parts.name, parts.version
+            )),
+            ..SchemaNode::default()
+        },
+        RefMode::Inline => SchemaNode {
+            reference: Some(format!("#/$defs/{}", parts.def_key)),
+            ..SchemaNode::default()
+        },
+    }
+}
+
 /// RFC-032 Change G — a `fieldType` → a JSON Schema fragment.
 ///
 /// The Rust twin of `scripts/lib/rfc-032-fieldtype.mjs::projectField`, row for
@@ -1049,27 +1075,21 @@ fn project_field(ft: &FieldType, range: Option<&RangeParts<'_>>) -> SchemaNode {
     let core = match ft.datatype {
         Datatype::Ref => {
             let parts = range.expect("a ref node is only rendered with a resolved range");
-            match ft.effective_mode() {
-                RefMode::Reference => SchemaNode {
-                    ty: Some("string"),
-                    format: Some("uuid"),
-                    range_type: Some(format!(
-                        "{}/{}@{}",
-                        parts.namespace, parts.name, parts.version
-                    )),
-                    ..SchemaNode::default()
-                },
-                RefMode::Inline => SchemaNode {
-                    reference: Some(format!("#/$defs/{}", parts.def_key)),
-                    ..SchemaNode::default()
-                },
-            }
+            ref_target_node(ft.effective_mode(), parts)
         }
         Datatype::Map => SchemaNode {
             ty: Some("object"),
             additional_properties: Some(match ft.value_range {
-                Some(srs_core::types::field::MapValueRange::Open) | None => {
-                    AdditionalProperties::Bool(true)
+                Some(MapValueRange::Open) | None => AdditionalProperties::Bool(true),
+                // srs#534 — map-of-`$ref`: the same range contract as the
+                // top-level `ref` datatype, keyed by string instead.
+                Some(MapValueRange::Ref) => {
+                    let parts =
+                        range.expect("a map-of-ref node is only rendered with a resolved range");
+                    AdditionalProperties::Schema(Box::new(ref_target_node(
+                        ft.effective_mode(),
+                        parts,
+                    )))
                 }
                 Some(scalar) => AdditionalProperties::Schema(Box::new(project_scalar(
                     &FieldType::new(map_value_datatype(scalar)),
@@ -1105,6 +1125,10 @@ fn map_value_datatype(range: srs_core::types::field::MapValueRange) -> Datatype 
         M::Boolean => Datatype::Boolean,
         M::Date => Datatype::Date,
         M::DateTime => Datatype::DateTime,
+        // `project_field`'s `Datatype::Map` arm handles `MapValueRange::Ref`
+        // itself (a `$ref`/id-shape, not a scalar) before ever reaching this
+        // function — see `ref_target_node`.
+        M::Ref => unreachable!("map-of-ref is projected directly, never via map_value_datatype"),
     }
 }
 
@@ -1172,6 +1196,16 @@ fn project_scalar(ft: &FieldType) -> SchemaNode {
             // keys is approximated: the v1 emitter handles inline
             // `allowedValues` only, and an unresolved reference projects to an
             // empty enum rather than silently dropping the constraint.
+            enumeration: Some(ft.allowed_values.clone().unwrap_or_default()),
+            ..SchemaNode::default()
+        };
+    } else if ft.datatype == Datatype::Integer && ft.effective_value_domain() == ValueDomain::Closed
+    {
+        // srs#534 — "untyped integer enum": a **bare** `{enum:[...]}` with no
+        // `type` keyword (valid JSON Schema — the enum alone fully
+        // constrains the value), deliberately distinct from the string+closed
+        // row above, which keeps `type: "string"`.
+        node = SchemaNode {
             enumeration: Some(ft.allowed_values.clone().unwrap_or_default()),
             ..SchemaNode::default()
         };

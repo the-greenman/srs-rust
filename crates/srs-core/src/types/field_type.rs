@@ -111,7 +111,9 @@ pub enum RefMode {
 }
 
 /// RFC-032 R9 — the value datatype of a `map`, or `open` for a true extension
-/// bag. Composite value ranges are out of scope.
+/// bag. `Ref` (srs#534) is the one composite value range: the map's values are
+/// nested objects (or id-shapes, per `mode`) conforming to `rangeType` — the
+/// same range-resolution contract `datatype: ref` uses at the top level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum MapValueRange {
@@ -122,6 +124,41 @@ pub enum MapValueRange {
     Date,
     DateTime,
     Open,
+    Ref,
+}
+
+/// RFC-032 R3 / srs#534 — one entry of an inline closed vocabulary.
+///
+/// A `string` field's `allowedValues` are strings; the "untyped integer enum"
+/// capability (`valueDomain: closed` on `datatype: integer`) admits bare
+/// integers instead. `#[serde(untagged)]` matches the wire shape exactly: a
+/// JSON array mixing string and number literals, never a `{"kind": ...}`
+/// wrapper (structured over serialised — no field mixes both in practice, but
+/// nothing here enforces that; R3 doesn't either, matching
+/// `rfc-032-fieldtype.mjs`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AllowedValue {
+    String(String),
+    Integer(i64),
+}
+
+impl From<String> for AllowedValue {
+    fn from(s: String) -> Self {
+        AllowedValue::String(s)
+    }
+}
+
+impl From<&str> for AllowedValue {
+    fn from(s: &str) -> Self {
+        AllowedValue::String(s.to_string())
+    }
+}
+
+impl From<i64> for AllowedValue {
+    fn from(n: i64) -> Self {
+        AllowedValue::Integer(n)
+    }
 }
 
 /// RFC-009 I-78 — a version-exact reference to a Type in the Package. Both
@@ -184,7 +221,7 @@ pub struct FieldType {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value_domain: Option<ValueDomain>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub allowed_values: Option<Vec<String>>,
+    pub allowed_values: Option<Vec<AllowedValue>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vocabulary_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -276,7 +313,12 @@ impl FieldType {
     {
         let mut ft = Self::new(Datatype::String);
         ft.value_domain = Some(ValueDomain::Closed);
-        ft.allowed_values = Some(values.into_iter().map(Into::into).collect());
+        ft.allowed_values = Some(
+            values
+                .into_iter()
+                .map(|v| AllowedValue::String(v.into()))
+                .collect(),
+        );
         ft
     }
 
@@ -288,6 +330,20 @@ impl FieldType {
     {
         let mut ft = Self::select(values);
         ft.cardinality = Some(Cardinality::List);
+        ft
+    }
+
+    /// A closed-domain single integer over an inline enum — RFC-032/srs#534's
+    /// "untyped integer enum" capability. Projects to a bare `{enum:[...]}`
+    /// with no `type` keyword, deliberately distinct from [`FieldType::select`]'s
+    /// `{type:"string", enum:[...]}` shape.
+    pub fn closed_integer<I>(values: I) -> Self
+    where
+        I: IntoIterator<Item = i64>,
+    {
+        let mut ft = Self::new(Datatype::Integer);
+        ft.value_domain = Some(ValueDomain::Closed);
+        ft.allowed_values = Some(values.into_iter().map(AllowedValue::Integer).collect());
         ft
     }
 
@@ -332,6 +388,27 @@ impl FieldType {
     /// A `ref` carrying the target instance id rather than a nested object.
     pub fn instance_ref(range: ExactTypeRef) -> Self {
         let mut ft = Self::new(Datatype::Ref);
+        ft.range_type = Some(range);
+        ft.mode = Some(RefMode::Reference);
+        ft
+    }
+
+    /// A `map` whose values are inline objects conforming to `rangeType` —
+    /// srs#534's "map-of-`$ref`" capability. Same range contract as
+    /// [`FieldType::inline_ref`], keyed by string rather than singular.
+    pub fn map_of_ref(range: ExactTypeRef) -> Self {
+        let mut ft = Self::new(Datatype::Map);
+        ft.value_range = Some(MapValueRange::Ref);
+        ft.range_type = Some(range);
+        ft.mode = Some(RefMode::Inline);
+        ft
+    }
+
+    /// A `map` whose values are target instance ids rather than nested
+    /// objects — the `mode: reference` twin of [`FieldType::map_of_ref`].
+    pub fn map_of_ref_ids(range: ExactTypeRef) -> Self {
+        let mut ft = Self::new(Datatype::Map);
+        ft.value_range = Some(MapValueRange::Ref);
         ft.range_type = Some(range);
         ft.mode = Some(RefMode::Reference);
         ft
@@ -497,7 +574,7 @@ impl FieldType {
     }
 
     /// The inline closed vocabulary, when this field declares one.
-    pub fn allowed_values(&self) -> Option<&[String]> {
+    pub fn allowed_values(&self) -> Option<&[AllowedValue]> {
         self.allowed_values.as_deref()
     }
 
@@ -568,12 +645,17 @@ impl FieldType {
             v.push(FieldTypeViolation { rule, message });
         };
 
-        // R2 — `ref` requires rangeType; rangeType/mode forbidden otherwise.
-        if self.datatype == Datatype::Ref {
+        // R2 — `ref` (or `map` with valueRange == ref, srs#534) requires
+        // rangeType; rangeType/mode forbidden otherwise.
+        let uses_range_type = self.datatype == Datatype::Ref
+            || (self.datatype == Datatype::Map && self.value_range == Some(MapValueRange::Ref));
+        if uses_range_type {
             if self.range_type.is_none() {
                 push(
                     "R2",
-                    "datatype ref requires rangeType as a valid ExactTypeRef".to_string(),
+                    "datatype ref (or map with valueRange == ref) requires rangeType as a valid \
+                     ExactTypeRef"
+                        .to_string(),
                 );
             } else if let Some(rt) = &self.range_type {
                 if rt.type_version < 1 {
@@ -587,24 +669,30 @@ impl FieldType {
             if self.range_type.is_some() {
                 push(
                     "R2",
-                    "rangeType is only permitted when datatype == ref".to_string(),
+                    "rangeType is only permitted when datatype == ref, or datatype == map with \
+                     valueRange == ref"
+                        .to_string(),
                 );
             }
             if self.mode.is_some() {
                 push(
                     "R2",
-                    "mode is only permitted when datatype == ref".to_string(),
+                    "mode is only permitted when datatype == ref, or datatype == map with \
+                     valueRange == ref"
+                        .to_string(),
                 );
             }
         }
 
-        // R3 — valueDomain only for string; closed ⇒ exactly one source set.
+        // R3 — valueDomain only for string/integer (srs#534 adds integer);
+        // closed ⇒ exactly one source set.
         match self.value_domain {
             Some(domain) => {
-                if self.datatype != Datatype::String {
+                if !matches!(self.datatype, Datatype::String | Datatype::Integer) {
                     push(
                         "R3",
-                        "valueDomain is meaningful only for datatype == string".to_string(),
+                        "valueDomain is meaningful only for datatype == string or integer"
+                            .to_string(),
                     );
                 }
                 if domain == ValueDomain::Closed {
@@ -824,7 +912,9 @@ impl FieldType {
         if ft.value_domain == Some(ValueDomain::Closed) {
             match (&facets.allowed_values, &facets.vocabulary_ref) {
                 (Some(values), _) if !values.is_empty() => {
-                    ft.allowed_values = Some(values.clone());
+                    // Legacy (pre-RFC-032) allowedValues were string-only.
+                    ft.allowed_values =
+                        Some(values.iter().cloned().map(AllowedValue::String).collect());
                 }
                 (_, Some(reference)) if !reference.is_empty() => {
                     ft.vocabulary_ref = Some(reference.clone());
@@ -886,12 +976,14 @@ fn apply_legacy_validation_rule(ft: &mut FieldType, rule: &LegacyValidationRule)
         "enum" => {
             ft.value_domain = Some(ValueDomain::Closed);
             if let Some(serde_json::Value::Array(items)) = rule.value.as_ref() {
+                // Legacy (pre-RFC-032) validationRules enum values were
+                // always strings.
                 ft.allowed_values = Some(
                     items
                         .iter()
                         .map(|i| match i {
-                            serde_json::Value::String(s) => s.clone(),
-                            other => other.to_string(),
+                            serde_json::Value::String(s) => AllowedValue::String(s.clone()),
+                            other => AllowedValue::String(other.to_string()),
                         })
                         .collect(),
                 );
@@ -1179,6 +1271,43 @@ mod tests {
         assert!(stray.validate().iter().any(|v| v.rule == "R2"));
     }
 
+    /// srs#534 — the "map-of-`$ref`" capability: `datatype: map` with
+    /// `valueRange: ref` shares the `ref` datatype's rangeType/mode contract.
+    /// Red-then-green: a bare map+ref is R2-non-conformant (no rangeType);
+    /// adding rangeType makes it conformant; the same `rangeType` is still
+    /// forbidden for a plain map with a scalar valueRange.
+    #[test]
+    fn r2_map_of_ref_shares_the_ref_range_contract() {
+        let mut bare_map_ref = FieldType::new(Datatype::Map);
+        bare_map_ref.value_range = Some(MapValueRange::Ref);
+        assert!(
+            bare_map_ref.validate().iter().any(|v| v.rule == "R2"),
+            "map+ref with no rangeType must be rejected before the fix"
+        );
+
+        let range = ExactTypeRef {
+            type_id: "4c000001-0000-4000-a000-000000000001".to_string(),
+            type_version: 1,
+        };
+        let with_mode = FieldType::map_of_ref_ids(range.clone());
+        assert!(
+            with_mode.validate().is_empty(),
+            "map+ref+rangeType+mode must validate: {:?}",
+            with_mode.validate()
+        );
+        let inline = FieldType::map_of_ref(range);
+        assert!(inline.validate().is_empty(), "{:?}", inline.validate());
+
+        // rangeType stays forbidden for a plain scalar-valued map.
+        let mut scalar_map = FieldType::new(Datatype::Map);
+        scalar_map.value_range = Some(MapValueRange::String);
+        scalar_map.range_type = Some(ExactTypeRef {
+            type_id: "4c000001-0000-4000-a000-000000000001".to_string(),
+            type_version: 1,
+        });
+        assert!(scalar_map.validate().iter().any(|v| v.rule == "R2"));
+    }
+
     #[test]
     fn r3_closed_domain_requires_exactly_one_source_set() {
         let mut both = FieldType::select(["a"]);
@@ -1190,12 +1319,36 @@ mod tests {
         assert!(neither.validate().iter().any(|v| v.rule == "R3"));
 
         let mut orphan_values = FieldType::string();
-        orphan_values.allowed_values = Some(vec!["a".to_string()]);
+        orphan_values.allowed_values = Some(vec![AllowedValue::String("a".to_string())]);
         assert!(orphan_values.validate().iter().any(|v| v.rule == "R3"));
 
         let mut non_string = FieldType::number();
         non_string.value_domain = Some(ValueDomain::Open);
         assert!(non_string.validate().iter().any(|v| v.rule == "R3"));
+    }
+
+    /// srs#534 — the "untyped integer enum" capability: `valueDomain: closed`
+    /// now also applies to `datatype: integer`. Red-then-green: before the
+    /// fix, any non-string closed domain (including integer) was R3-flagged;
+    /// after, `FieldType::closed_integer` validates cleanly, while a `number`
+    /// (a different scalar datatype, deliberately not extended) still isn't.
+    #[test]
+    fn r3_integer_closed_domain_is_permitted() {
+        let closed_integer = FieldType::closed_integer([0, 2]);
+        assert!(
+            closed_integer.validate().is_empty(),
+            "{:?}",
+            closed_integer.validate()
+        );
+        assert_eq!(
+            closed_integer.allowed_values(),
+            Some([AllowedValue::Integer(0), AllowedValue::Integer(2)].as_slice())
+        );
+
+        let mut non_extended = FieldType::number();
+        non_extended.value_domain = Some(ValueDomain::Closed);
+        non_extended.allowed_values = Some(vec![AllowedValue::Integer(1)]);
+        assert!(non_extended.validate().iter().any(|v| v.rule == "R3"));
     }
 
     #[test]
@@ -1237,6 +1390,13 @@ mod tests {
         let mut ok = FieldType::new(Datatype::Map);
         ok.value_range = Some(MapValueRange::Open);
         assert!(ok.validate().is_empty());
+
+        // srs#534 — "ref" is a valid map valueRange too (R9), given rangeType.
+        let ok_ref = FieldType::map_of_ref(ExactTypeRef {
+            type_id: "4c000001-0000-4000-a000-000000000001".to_string(),
+            type_version: 1,
+        });
+        assert!(ok_ref.validate().is_empty(), "{:?}", ok_ref.validate());
 
         let mut stray = FieldType::string();
         stray.value_range = Some(MapValueRange::String);

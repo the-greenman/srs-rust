@@ -172,7 +172,10 @@
         "allowedValues": {
           "type": "array",
           "items": {
-            "type": "string"
+            "type": [
+              "string",
+              "integer"
+            ]
           },
           "title": "Allowed Values"
         },
@@ -218,7 +221,8 @@
             "boolean",
             "date",
             "date-time",
-            "open"
+            "open",
+            "ref"
           ],
           "title": "Value Range"
         }

@@ -31,7 +31,12 @@ pub const SRSJ_VERSION: &str = "2";
 /// The manifest's path once materialised into the tree.
 const MANIFEST_KEY: &str = "manifest.json";
 
+// `deny_unknown_fields` (srs-rust#937): `srsj-envelope.json`'s
+// `additionalProperties: false` at the envelope's top level, enforced here
+// directly rather than by running the registered schema on every decode —
+// see `srs_schema::SRSJ_ENVELOPE_SCHEMA_ID`'s doc comment.
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SrsjEnvelope {
     srsj: String,
     manifest: serde_json::Value,
@@ -400,6 +405,16 @@ mod tests {
         assert_eq!(manifest["namespace"], "com.example.test");
     }
 
+    /// srs-rust#937 — `srsj-envelope.json`'s `additionalProperties: false` at
+    /// the envelope's top level, enforced by `deny_unknown_fields` rather
+    /// than by running the schema on every decode.
+    #[test]
+    fn a_stray_top_level_envelope_key_is_refused() {
+        let mut doc: serde_json::Value = serde_json::from_str(&minimal_srsj("2")).unwrap();
+        doc["version"] = serde_json::json!("2");
+        assert!(tree_from_srsj(&doc.to_string()).is_err());
+    }
+
     #[test]
     fn r19_refuses_a_shadow_manifest_key() {
         let mut doc: serde_json::Value = serde_json::from_str(&minimal_srsj("2")).unwrap();
@@ -446,6 +461,50 @@ mod tests {
         assert!(
             doc["data"].get("manifest.json").is_none(),
             "the manifest lives in the envelope, never in data"
+        );
+    }
+
+    /// srs-rust#937 — `srsj-envelope.json` is registered in `srs-schema`
+    /// (mirror synced, `ALL_SCHEMA_IDS` entry, compiled validator) even
+    /// though this codec doesn't call it on the hot decode/encode path (see
+    /// the registry-only justification on `SRSJ_ENVELOPE_SCHEMA_ID`). This
+    /// proves the registration actually works: a real `.srsj` document,
+    /// produced by this module's own projection, validates cleanly against
+    /// the envelope schema through the registry — and a malformed one (an
+    /// unrecognised `srsj` version, matching this codec's own [R20] refusal)
+    /// is rejected before the fix and by the schema on its own after.
+    #[test]
+    fn a_real_srsj_document_validates_against_the_envelope_schema_through_the_registry() {
+        let reg = srs_schema::SchemaRegistry::global();
+        // `minimal_srsj`'s manifest is deliberately bare — enough for this
+        // codec's own [R19]/[R20] checks, not `manifest.json`'s full
+        // `required` set (that's the downstream repo-load path's job). The
+        // envelope schema's nested `Manifest` $def does check the full set,
+        // so this fixture supplies it directly rather than widening the
+        // shared `minimal_srsj` helper every other test here also uses.
+        let mut doc: serde_json::Value = serde_json::from_str(&minimal_srsj("2")).unwrap();
+        doc["manifest"]["$schema"] =
+            serde_json::json!("https://srs.semanticops.com/schema/2.0/manifest.json");
+        doc["manifest"]["title"] = serde_json::json!("Test Repo");
+        doc["manifest"]["createdAt"] = serde_json::json!("2026-01-01T00:00:00Z");
+        doc["manifest"]["container"] = serde_json::json!({
+            "containerId": "00000000-0000-4000-8000-00000000cccc",
+            "title": "Test Repo",
+        });
+        let store = open_srsj(&doc.to_string()).unwrap();
+        let doc_text = to_srsj_string(&store).unwrap();
+        let doc: serde_json::Value = serde_json::from_str(&doc_text).unwrap();
+
+        reg.validate_by_id(srs_schema::SRSJ_ENVELOPE_SCHEMA_ID, &doc)
+            .expect("a real, freshly-projected .srsj document must validate against the envelope schema");
+
+        // Red case: a document missing `data` entirely (schema `required`).
+        let mut incomplete = doc.clone();
+        incomplete.as_object_mut().unwrap().remove("data");
+        assert!(
+            reg.validate_by_id(srs_schema::SRSJ_ENVELOPE_SCHEMA_ID, &incomplete)
+                .is_err(),
+            "a document missing the required `data` key must be rejected"
         );
     }
 

@@ -1,0 +1,429 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/srsj-envelope.json",
+  "title": "SRS .srsj Repository Archive Envelope",
+  "description": "RFC-038/RFC-039 — the {srsj, manifest, data} bundle envelope for a .srsj repository archive: a single JSON object carrying an archive-format version-gate string, the archived repository's Manifest, and the flattened file-tree payload. Recorded as owed-and-absent by both RFC-038 and RFC-039; authored here per the #522 ledger's ownership assignment (srs#272 comment 5497040159), executed at srs#534. Does NOT apply to a bare package-bundle.json artifact (e.g. core-bundle.srsj), which carries no srsj/manifest/data envelope at all.",
+  "type": "object",
+  "required": [
+    "srsj",
+    "manifest",
+    "data"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "srsj": {
+      "type": "string",
+      "description": "The archive format's version-gate string ([R24]). A conforming reader MUST reject an unrecognised value rather than silently proceeding."
+    },
+    "manifest": {
+      "$ref": "#/$defs/Manifest",
+      "description": "The archived repository's Manifest. $defs.Manifest below is manifest.json's own committed shape, copied in locally (not a cross-file $ref by $id) so a self-contained validator can check it without cross-file $ref resolution; manifest.json remains the normative source."
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Flat map keyed by each file's relative path within the repository tree (e.g. 'records/tier-2/decision-9054911c.json') to that file's parsed JSON content."
+    }
+  },
+  "$defs": {
+    "Manifest": {
+      "type": "object",
+      "required": [
+        "$schema",
+        "srsVersion",
+        "repositoryId",
+        "title",
+        "container",
+        "createdAt"
+      ],
+      "additionalProperties": false,
+      "description": "Root file for a SRS ext:repository: the repository identity and entry point. Membership is the tree (RFC-038 [R1]) — the manifest carries no index. This schema is the post-cutover (dataModelRevision >= 2) shape (RFC-038 Rev 11): the retired instanceIndex/containerIndex/sourceDocumentIndex/relationsChecksums/relationsPath properties and their $defs are dropped entirely (denied unconditionally by additionalProperties: false), matching [R21] — a conforming reader MUST reject dataModelRevision <= 1 data outright rather than partially validate it, so this schema never needs to admit those properties conditionally. Every repository must have exactly one manifest.json at its root.",
+      "properties": {
+        "$schema": {
+          "type": "string",
+          "const": "https://srs.semanticops.com/schema/2.0/manifest.json"
+        },
+        "srsVersion": {
+          "type": "string",
+          "description": "SRS spec version this repository conforms to, e.g. '2.0' or '2.0-draft'."
+        },
+        "dataModelRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "RFC-033 / #265 — monotonic integer generation stamp for operational (2.0.x -> 2.0.y) data-model migrations within the srsVersion line. Absent means revision 0 (pre-stamp, for gating). RFC-032 (valueType -> fieldType) is migration #1, toRevision 1. srs#448 (Tier 1/TypedRecord removed; graduatedAt dropped from note.json — rfc-decision-53635966) is the migration toRevision 4; a reader encountering a typed-record.json-schema instance MUST reject it naming that decision, never silently skip or coerce it. srs#433 (the substrate escape bag properties -> meta on Term/RelationTypeDefinition/LifecycleState/LifecycleTransition — rfc-decision-6fc7e142, rfc-decision-628cf6c4) is the migration toRevision 5; a reader encountering a stored properties key on one of those substrate entries MUST reject it naming that decision, never silently skip or coerce it. srs#523/#524 (DocumentView renamed to Composition, document-view.json -> composition.json; semanticObjectType collapsed onto the Type-keyed typeKey axis on SectionSource.type-query — rfc-decision-92d2da05, rfc-decision-c8704763) is the migration toRevision 6; a reader encountering a stored document-view.json-schema instance, or a semanticObjectType key on SectionSource, MUST reject it naming those decisions, never silently skip or coerce it. srs#525 (SectionSource.type-query retired in favor of discovery-query consuming the one DiscoveryQuery mechanism (ext:discovery) plus containerIds/containerScope arrangement; Composition and View unified onto one shared ExportConfig shape at two attachment points, Composition's own inline format/preamble retired in its favor — rfc-decision-cce3c00e, rfc-decision-9ee14517) is the migration toRevision 7; a reader encountering a stored SectionSource.type-query variant, a SectionSource.typeKey property, or a Composition with top-level format/preamble properties, MUST reject it naming srs#525, never silently skip or coerce it. Not dotted semver; carries no backward-compat promise."
+        },
+        "repositoryId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID for this repository. Never changes on copy or export."
+        },
+        "namespace": {
+          "type": "string",
+          "description": "Reverse-DNS namespace for this repository, e.g. 'com.semanticops.srs'."
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "declaredExtensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "SRS extensions this repository conforms to, e.g. ['ext:lifecycle', 'ext:views-l1', 'ext:views-l2']."
+        },
+        "container": {
+          "$ref": "#/$defs/Container",
+          "description": "Embedded Container record. Canonical source of truth for this repository's identity."
+        },
+        "packageRef": {
+          "$ref": "#/$defs/PackageRef",
+          "description": "Reference to the SRS Package that supplies field and type definitions (single package)."
+        },
+        "packageRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PackageRef"
+          },
+          "description": "References to one or more SRS Packages that supply field and type definitions. Use instead of packageRef for multi-package and multi-version repositories (see RFC-014 Change C)."
+        },
+        "upstreamPackage": {
+          "$ref": "#/$defs/UpstreamPackage",
+          "description": "RFC-014 (ext:import-tracking). Top-level normative provenance stamp for a repository initialised from an upstream Package. Records the package identity, version, and install time. MUST be written at the top level (not inside meta) by conformant tools (R7). On read, tools MUST prefer this field and fall back to meta.upstreamPackage for pre-RFC-014 repositories (R9)."
+        },
+        "sourceDocumentsPath": {
+          "type": "string",
+          "description": "Relative path from manifest.json to the source-documents/ directory."
+        },
+        "changelogPath": {
+          "type": "string",
+          "deprecated": true,
+          "description": "DEPRECATED (rfc-decision-2a1e1590, 2026-08-21): ext:changelog and its ChangelogCollection schema are removed under the dormancy rule (zero corpus use). Readers accept this property on existing manifests during the migration window; writers must not emit it."
+        },
+        "aiGuidance": {
+          "type": "object",
+          "description": "Comprehension guidance for AI agents reading this repository.",
+          "additionalProperties": false,
+          "properties": {
+            "summary": {
+              "type": "string"
+            },
+            "suggestedEntryPoints": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "navigationHints": {
+              "type": "string"
+            }
+          }
+        },
+        "meta": {
+          "type": "object",
+          "description": "Implementation-local key-value pairs. Common keys: 'sourceOfTruth', 'renderedExports'. Cross-system keys should be namespaced. Note: upstreamPackage was previously accepted here; see manifest.upstreamPackage (RFC-014). Since meta permits additional properties, existing manifests remain schema-valid but conformant tools MUST NOT write meta.upstreamPackage.",
+          "properties": {
+            "upstreamPackage": {
+              "$ref": "#/$defs/UpstreamPackage",
+              "deprecated": true,
+              "description": "DEPRECATED by RFC-014. Use the top-level 'upstreamPackage' field instead. Accepted as a read fallback during the transition window; implementations MUST write only the top-level field going forward."
+            }
+          }
+        },
+        "renderedPresentations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RenderedPresentation"
+          },
+          "description": "RFC-015 [N+31]. Declared presentations for this repository. A conformant viewer selects the first entry with isDefault:true as the default; when none carry isDefault, the first entry is the default. When absent or empty, viewer falls back to implementation-defined selection."
+        },
+        "slice": {
+          "$ref": "#/$defs/Slice",
+          "description": "ext:slices (RFC-026). Present when this archive is a partial export (slice) of a source repository."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "Container": {
+      "type": "object",
+      "required": [
+        "containerId",
+        "title"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "containerId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID for this Container. Must not appear in Relation.sourceInstanceId or targetInstanceId."
+        },
+        "namespace": {
+          "type": "string",
+          "description": "Optional namespace grouping."
+        },
+        "name": {
+          "type": "string",
+          "description": "Optional machine-readable name within the namespace."
+        },
+        "title": {
+          "type": "string",
+          "description": "Human-readable label for this Container."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional description of the Container's purpose."
+        },
+        "containerType": {
+          "type": "string",
+          "deprecated": true,
+          "description": "Soft-deprecated hint (RFC-009). When rootInstanceIds is present, SHOULD equal the resolved root Type's name field (bare name, not namespace/name). A mismatch is diagnostic-only; the Container remains valid. See RFC-009 I-64."
+        },
+        "rootInstanceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "description": "Top-level instances this Container was created to hold. Implementations may derive nested members by traversing contains Relations from these roots."
+        },
+        "memberInstanceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "description": "Explicit membership list for all instances in scope. When present, allows membership queries without graph traversal."
+        },
+        "identityInstanceId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "RFC-013 / RFC-029. The instance id of the record that is this Container's identity / purpose statement. On the root container (manifest.container), names the repository's identity record. Reassignable; when present MUST equal a member id in rootInstanceIds or memberInstanceIds (RFC-013 I-81). RFC-029 additionally requires that on the root container (manifest.container), this MUST reference a Tier-2 Record of type com.semanticops.core/purpose (RFC-029 I-87); for non-root containers this type constraint does not apply. See RFC-013 I-81, RFC-029 R5."
+        },
+        "anchorInstanceId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "RFC-009 (amended by srs#446). The instance id of the record whose Type (typeId + typeVersion) is this Container's typing anchor — the type RFC-009 rootTypeRefs matching (I-63) and RFC-010 three-way-merge conflict detection resolve against. Declared, never positional (rfc-decision-cce3c00e, cell Containment: 'declaration over location'). When present, MUST equal a member id in rootInstanceIds or memberInstanceIds (I-145). When absent — a repository authored before srs#446 — implementations MUST fall back to treating rootInstanceIds[0] (the first entry) as the typing anchor; this positional fallback is transitional and is withdrawn at the Continuity flip (rfc-decision-cce3c00e axis 2-8, the first full public release), after which anchorInstanceId is required wherever a typing anchor is needed. rootInstanceIds/memberInstanceIds carry no other positional significance (RFC-013 [R5])."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Vocabulary-backed topic labels (RFC-009 + RFC-006). When a Vocabulary in the package declares Terms for a tag key, tags MUST resolve per RFC-006 vocabulary resolution rules. Free-string tags are valid when no Vocabulary governs the key."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "meta": {
+          "type": "object",
+          "description": "Implementation-local metadata. Cross-system keys should be namespaced."
+        }
+      }
+    },
+    "PackageRef": {
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "local",
+            "remote"
+          ],
+          "description": "LOCATOR (rfc-decision-c8704763; renamed from 'external', converging on the mode-discriminated shape ThemeReference already uses). 'local': definitions live in the repository under package/. 'remote': definitions are expected pre-installed in the consumer's registry."
+        },
+        "path": {
+          "type": "string",
+          "description": "Relative path to the package directory or package.json (local mode)."
+        },
+        "packageId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID of the package. For remote mode: identifies the upstream package (required per R4a, tool-behavioral, not JSON Schema enforced). For local mode: optional; when set, allows same-logical-package identity check without reading the package manifest file."
+        },
+        "packageName": {
+          "type": "string",
+          "description": "Human-readable name of the package (any mode, optional)."
+        },
+        "packageVersion": {
+          "type": "string",
+          "description": "Semver of the package (both local and remote modes). SHOULD be set when the version is known)."
+        }
+      }
+    },
+    "RenderedPresentation": {
+      "type": "object",
+      "required": [
+        "compositionId"
+      ],
+      "additionalProperties": false,
+      "description": "RFC-015 [N+31]. A declared presentation of this repository: a Composition that a conformant viewer should offer as a rendered entry point.",
+      "properties": {
+        "compositionId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID of the Composition (Composition.id) constituting this presentation. Must resolve to a Composition in the active package(s). Resolution conflict across packages is a validation error. srs-rust#910: renamed from viewId (rfc-decision-92d2da05); unconsumed by srs-rust today (srs-rust#567)."
+        },
+        "isDefault": {
+          "type": "boolean",
+          "description": "When true, this is the presentation a viewer opens by default. First isDefault:true entry wins when multiple are present."
+        },
+        "format": {
+          "type": "string",
+          "description": "Output format hint for render tooling (e.g. 'markdown', 'html'). Informational only; does not affect viewer selection."
+        },
+        "outputPath": {
+          "type": "string",
+          "description": "Relative path hint for rendered export scripts. Informational only; does not affect viewer selection."
+        }
+      }
+    },
+    "UpstreamPackage": {
+      "type": "object",
+      "description": "RFC-014 (ext:import-tracking). Normative provenance stamp recording the upstream Package a repository was initialised from. Set at repository creation time; updated when the upstream Package is upgraded.",
+      "required": [
+        "packageId",
+        "namespace",
+        "name",
+        "version",
+        "installedAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "packageId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID of the upstream Package this repository was created from. Never changes across upgrades."
+        },
+        "namespace": {
+          "type": "string",
+          "description": "Reverse-DNS namespace of the upstream Package, e.g. 'com.mudemocracy.governance'."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the upstream Package, e.g. 'governance'."
+        },
+        "version": {
+          "type": "string",
+          "description": "Semver of the upstream Package recorded at install/upgrade time, e.g. '1.0.0'."
+        },
+        "installedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this upstream Package version was installed into the repository."
+        }
+      }
+    },
+    "Slice": {
+      "type": "object",
+      "required": [
+        "origin",
+        "spec",
+        "exportedAt"
+      ],
+      "additionalProperties": false,
+      "description": "ext:slices (RFC-026). Present when this archive is a partial export (slice) of a source repository.",
+      "properties": {
+        "origin": {
+          "type": "object",
+          "required": [
+            "repositoryId"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "repositoryId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "repositoryId of the source repository this slice was exported from."
+            }
+          }
+        },
+        "spec": {
+          "$ref": "#/$defs/SliceSpec"
+        },
+        "exportedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this slice was produced."
+        },
+        "externalRelationRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SliceExternalRef"
+          },
+          "description": "Relations cut at export because exactly one endpoint fell outside the closure. Provenance only — not a validation error (RFC-026 R8). Relations where both endpoints are outside the closure are omitted entirely."
+        }
+      }
+    },
+    "SliceSpec": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "description": "Identifies the closure rule and boundary that scoped this slice.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "container"
+          ],
+          "description": "Closure rule. 'container' = container-membership closure (records, relations, definitions, and source documents reachable from a container). Package export is not a slice: a package's definitions are distributed as a package-bundle.json (RFC-003), not as a slice type."
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The boundary UUID: a containerId present in the source repository's container set (tree-authoritative enumeration, RFC-038 [R1]; the manifest's containerIndex is retired, RFC-038 [R2])."
+        }
+      }
+    },
+    "SliceExternalRef": {
+      "type": "object",
+      "required": [
+        "relationId",
+        "sourceInstanceId",
+        "targetInstanceId",
+        "relationType"
+      ],
+      "additionalProperties": false,
+      "description": "A relation cut at export time because exactly one endpoint was outside the closure. The relationType field is a provenance copy and is NOT subject to RFC-005 definition-lookup in the slice archive (RFC-026 R15).",
+      "properties": {
+        "relationId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID of the original relation. Preserved for future reintegration (RFC-026 Open Question 1)."
+        },
+        "sourceInstanceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "targetInstanceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "relationType": {
+          "type": "string",
+          "description": "The relationType of the cut relation. Canonical types: contains, depends-on, supersedes, refines, derived-from, evidences, precedes. Custom types use namespace/name format. NOT subject to RFC-005 definition-lookup in the slice archive."
+        }
+      }
+    }
+  }
+}

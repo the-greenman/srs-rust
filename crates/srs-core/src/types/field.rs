@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 pub use crate::types::field_type::{
-    Cardinality, Datatype, ExactTypeRef, FieldType, FieldTypeConstraints, FieldTypeViolation,
-    LegacyContentFormat, LegacyFieldFacets, LegacyValidationRule, LegacyValueType, MapValueRange,
-    RefMode, StringFormat, ValueDomain,
+    AllowedValue, Cardinality, Datatype, ExactTypeRef, FieldType, FieldTypeConstraints,
+    FieldTypeViolation, LegacyContentFormat, LegacyFieldFacets, LegacyValidationRule,
+    LegacyValueType, MapValueRange, RefMode, StringFormat, ValueDomain,
 };
 
 /// AI-facing guidance for a Field: what it captures, how to extract or
@@ -195,7 +195,7 @@ impl Field {
     }
 
     /// The inline closed vocabulary, when this field declares one.
-    pub fn allowed_values(&self) -> Option<&[String]> {
+    pub fn allowed_values(&self) -> Option<&[AllowedValue]> {
         self.field_type.allowed_values()
     }
 
@@ -253,7 +253,13 @@ mod tests {
         assert_eq!(parsed.datatype(), Datatype::String);
         assert_eq!(
             parsed.allowed_values(),
-            Some(["a".to_string(), "b".to_string()].as_slice())
+            Some(
+                [
+                    AllowedValue::String("a".to_string()),
+                    AllowedValue::String("b".to_string())
+                ]
+                .as_slice()
+            )
         );
     }
 
@@ -461,6 +467,13 @@ mod tests {
                 type_id: "4c000007-0000-4000-a000-000000000007".to_string(),
                 type_version: 1,
             }),
+            // srs#534/#932 — the "untyped integer enum" capability. (The
+            // sibling "map-of-$ref" capability is exercised separately below,
+            // in `map_of_ref_is_semantically_valid_pending_a_spec_side_fix` —
+            // it satisfies `FieldType::validate()` but the frozen
+            // `field.json` seed's own `allOf` was never widened for it; see
+            // that test.)
+            FieldType::closed_integer([0, 2]),
         ];
         for shape in shapes {
             let field = Field {
@@ -484,6 +497,72 @@ mod tests {
             let value = serde_json::to_value(&field).unwrap();
             reg.validate_by_id(srs_schema::FIELD_SCHEMA_ID, &value)
                 .unwrap_or_else(|e| panic!("{shape:?} must pass field.json: {e}"));
+        }
+    }
+
+    /// srs#534/#932 — the "map-of-`$ref`" capability satisfies RFC-032
+    /// conformance (`FieldType::validate()`, the R2/R9 twin of
+    /// `rfc-032-fieldtype.mjs::validateFieldType`) but **cannot yet be
+    /// authored as a real Field definition**: the frozen
+    /// `docs/schema/2.0/field.json` seed's own `$defs.FieldType.allOf` first
+    /// branch still reads `if datatype == "ref" { require rangeType } else
+    /// { forbid rangeType, mode }` — srs#534/PR#546 widened `valueRange`'s
+    /// enum and `allowedValues.items.type`, but never touched this branch to
+    /// also permit `datatype == "map" && valueRange == "ref"`. Confirmed by
+    /// running the same shape through the mirrored schema below: it fails
+    /// with exactly the `anyOf` clause this comment names.
+    ///
+    /// This is a pre-existing gap in the *canonical spec's own* frozen seed,
+    /// not something the mirror can fix by hand-editing ahead of a spec
+    /// release (`srs-rust/CLAUDE.md`'s mirror-sync rule) — filed upstream as
+    /// a follow-up. Until it lands, `srs record create`/`srs field create`
+    /// against a real repository will reject a map-of-`$ref` Field at the
+    /// schema-validation step even though it is RFC-032-conformant; only the
+    /// in-memory `FieldType::validate()` path (this test's first half) sees
+    /// the truth.
+    #[test]
+    fn map_of_ref_is_semantically_valid_pending_a_spec_side_seed_fix() {
+        let range = ExactTypeRef {
+            type_id: "4c000007-0000-4000-a000-000000000007".to_string(),
+            type_version: 1,
+        };
+        for shape in [
+            FieldType::map_of_ref(range.clone()),
+            FieldType::map_of_ref_ids(range),
+        ] {
+            assert!(
+                shape.validate().is_empty(),
+                "{shape:?} must satisfy RFC-032 conformance (R2/R9): {:?}",
+                shape.validate()
+            );
+
+            let field = Field {
+                description: "d".to_string(),
+                ai_guidance: Some(AiGuidance {
+                    purpose: "p".to_string(),
+                    ..Default::default()
+                }),
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+                ..Field::new(
+                    "00000000-0000-4000-8000-000000000010",
+                    "test",
+                    "f",
+                    shape.clone(),
+                )
+            };
+            let value = serde_json::to_value(&field).unwrap();
+            let reg = srs_schema::SchemaRegistry::global();
+            let err = reg
+                .validate_by_id(srs_schema::FIELD_SCHEMA_ID, &value)
+                .expect_err(
+                    "if this starts passing, the spec-side seed fix has landed — \
+                     move this shape back into `every_field_type_shape_passes_the_schema_contract` \
+                     and delete this test",
+                );
+            assert!(
+                err.to_string().contains("anyOf"),
+                "expected the known rangeType/mode allOf gap, got a different error: {err}"
+            );
         }
     }
 }

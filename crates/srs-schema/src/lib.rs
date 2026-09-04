@@ -26,6 +26,28 @@ pub const RELATIONS_COLLECTION_SCHEMA_ID: &str =
 // sidecar mechanism from the spec; srs-rust#866 clean-cut the mirror.
 pub const SOURCE_DOCUMENT_META_SCHEMA_ID: &str =
     "https://srs.semanticops.com/schema/2.0/source-document-meta.json";
+/// RFC-038/RFC-039's owed `{srsj, manifest, data}` archive envelope shape
+/// (srs#534/#546, srs-rust#937).
+///
+/// **Registry-only** — no runtime code path validates a `.srsj` document
+/// against this schema. `srs_repository::srsj`'s codec already enforces the
+/// two load-bearing parts more precisely than a generic JSON Schema pass
+/// could: the `srsj` version-gate string is checked by hand against exactly
+/// `"2"` ([R20], stricter than this schema's bare `{type:"string"}`, which
+/// cannot express "reject an unrecognised value"), and `manifest` is
+/// validated against [`MANIFEST_SCHEMA_ID`] once materialised into the tree
+/// (the normal repository-load path every caller already goes through — see
+/// `srs_repository::validation::validate_repository`). The one guarantee this
+/// schema would add over that — rejecting a stray top-level envelope key
+/// (`additionalProperties: false`) — `SrsjEnvelope` gets far more cheaply via
+/// `#[serde(deny_unknown_fields)]` than by compiling and running a JSON
+/// Schema validator on every `.srsj` open. Registered here (mirror synced,
+/// `ALL_SCHEMA_IDS` entry, compiled validator) so `validate_by_id`/
+/// `schema_source` work for any future or external consumer, matching how
+/// every other schema in this registry is exposed — just not hard-wired into
+/// the hot decode/encode path with no concrete need for it yet.
+pub const SRSJ_ENVELOPE_SCHEMA_ID: &str =
+    "https://srs.semanticops.com/schema/2.0/srsj-envelope.json";
 pub const THEME_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/theme.json";
 pub const TERM_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/term.json";
 pub const VOCABULARY_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/vocabulary.json";
@@ -49,6 +71,7 @@ pub const ALL_SCHEMA_IDS: &[&str] = &[
     RELATION_TYPE_SCHEMA_ID,
     RELATIONS_COLLECTION_SCHEMA_ID,
     SOURCE_DOCUMENT_META_SCHEMA_ID,
+    SRSJ_ENVELOPE_SCHEMA_ID,
     TERM_SCHEMA_ID,
     VOCABULARY_SCHEMA_ID,
     LIFECYCLE_SCHEMA_ID,
@@ -96,6 +119,10 @@ static SCHEMA_SOURCES: &[(&str, &str)] = &[
     (
         SOURCE_DOCUMENT_META_SCHEMA_ID,
         include_schema!("source-document-meta.json"),
+    ),
+    (
+        SRSJ_ENVELOPE_SCHEMA_ID,
+        include_schema!("srsj-envelope.json"),
     ),
     (TERM_SCHEMA_ID, include_schema!("term.json")),
     (VOCABULARY_SCHEMA_ID, include_schema!("vocabulary.json")),
@@ -219,10 +246,11 @@ mod tests {
     #[test]
     fn registry_builds_and_has_all_schema_ids() {
         let reg = SchemaRegistry::global();
-        // 21: typed-record.json removed (Tier-1 retirement, srs#448/srs-rust#888),
+        // 22: typed-record.json removed (Tier-1 retirement, srs#448/srs-rust#888),
         // federation-{events,registry}.json removed (srs-rust#878/#912), and
-        // revisions.json removed (rfc-decision-2a1e1590, srs-rust#866).
-        assert_eq!(reg.schema_ids().len(), 21);
+        // revisions.json removed (rfc-decision-2a1e1590, srs-rust#866);
+        // srsj-envelope.json added (srs#534/#546, srs-rust#937).
+        assert_eq!(reg.schema_ids().len(), 22);
         for id in ALL_SCHEMA_IDS {
             assert!(reg.schema_ids().contains(id), "missing: {id}");
         }
