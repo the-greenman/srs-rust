@@ -1,4 +1,5 @@
 {
+  "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
   "createdAt": "2026-01-01T00:00:00Z",
   "description": "Entry log document view. Ships a gallery container UUID that will dangle in a fresh install (degrades at render, warns at validate).",
   "id": "9a1b0c70-0007-4aaa-8bbb-000000008001",
