@@ -1409,7 +1409,7 @@ pub enum ProtocolCommand {
     },
     /// Update a protocol definition (full replace; reads JSON from stdin)
     Update {
-        /// Protocol ID (protocolId)
+        /// Protocol ID (Protocol.id)
         id: String,
     },
     /// Delete a protocol definition
@@ -1419,7 +1419,7 @@ pub enum ProtocolCommand {
     },
     /// Find the first protocol whose target type matches the given type ID
     FindByTargetType {
-        /// Type ID to match against protocolTargetType
+        /// Type ID to match against Protocol.targetType
         #[arg(long, name = "type-id")]
         type_id: String,
     },

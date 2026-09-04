@@ -1,12 +1,14 @@
 {
-  "protocolCreatedAt": "2026-01-01T00:00:00Z",
-  "protocolDescription": "Single-stage protocol for capturing an entry.",
-  "protocolId": "9a1b0c90-0009-4aaa-8bbb-00000000a001",
-  "protocolName": "entry",
-  "protocolNamespace": "com.example.install",
-  "protocolStages": [
+  "createdAt": "2026-01-01T00:00:00Z",
+  "description": "Single-stage protocol for capturing an entry.",
+  "id": "9a1b0c90-0009-4aaa-8bbb-00000000a001",
+  "name": "entry",
+  "namespace": "com.example.install",
+  "stages": [
     {
-      "aiGuidance": "Capture the entry title and body.",
+      "aiGuidance": {
+        "purpose": "Capture the entry title and body."
+      },
       "completionCriteria": "Title and body are filled in.",
       "contributesTo": [
         {
@@ -23,6 +25,6 @@
       "stageId": "9a1b0c91-0009-4aaa-8bbb-00000000a002"
     }
   ],
-  "protocolTargetType": "com.example.install/entry",
-  "protocolVersion": 1
+  "targetType": "com.example.install/entry",
+  "version": 1
 }

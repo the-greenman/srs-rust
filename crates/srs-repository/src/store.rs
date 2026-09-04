@@ -1323,7 +1323,7 @@ impl RepositoryStore for FileStore {
                 blueprint_sources.insert(lb.blueprint.id.clone(), package_dir.clone());
             }
             for lp in &protocols {
-                protocol_sources.insert(lp.protocol.protocol_id.clone(), package_dir.clone());
+                protocol_sources.insert(lp.protocol.id.clone(), package_dir.clone());
             }
 
             for pkg_ref in pkg_refs {
@@ -1469,23 +1469,23 @@ impl RepositoryStore for FileStore {
                     }
                 }
                 for mut lp in sub_protocols {
-                    if let Some(first_path) = protocol_sources.get(&lp.protocol.protocol_id) {
+                    if let Some(first_path) = protocol_sources.get(&lp.protocol.id) {
                         let existing = protocols
                             .iter()
-                            .find(|p| p.protocol.protocol_id == lp.protocol.protocol_id)
+                            .find(|p| p.protocol.id == lp.protocol.id)
                             .unwrap();
-                        if existing.protocol.protocol_name != lp.protocol.protocol_name {
+                        if existing.protocol.name != lp.protocol.name {
                             return Err(RepositoryError::PackageRefConflict {
                                 path: rel_path.to_string(),
                                 kind: "protocol".to_string(),
-                                id: lp.protocol.protocol_id.clone(),
+                                id: lp.protocol.id.clone(),
                                 first_path: first_path.clone(),
                                 second_path: sub_dir.clone(),
                             });
                         }
                     } else {
                         lp.source_package = Some(rel_path.to_string());
-                        protocol_sources.insert(lp.protocol.protocol_id.clone(), sub_dir.clone());
+                        protocol_sources.insert(lp.protocol.id.clone(), sub_dir.clone());
                         protocols.push(lp);
                     }
                 }
@@ -2942,11 +2942,7 @@ pub mod memory {
                                     path: std::path::PathBuf::from(&full),
                                     source,
                                 })?;
-                                if !pkg
-                                    .protocols
-                                    .iter()
-                                    .any(|p| p.protocol.protocol_id == proto.protocol_id)
-                                {
+                                if !pkg.protocols.iter().any(|p| p.protocol.id == proto.id) {
                                     pkg.protocols.push(crate::package::LoadedProtocol {
                                         protocol: proto,
                                         raw: raw.clone(),

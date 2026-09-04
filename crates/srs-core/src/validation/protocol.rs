@@ -15,13 +15,13 @@ pub fn validate_protocol(protocol: &Protocol) -> ProtocolValidationResult {
 
     // Build stage lookup
     let stage_map: HashMap<String, &ProtocolStage> = protocol
-        .protocol_stages
+        .stages
         .iter()
         .map(|s| (s.stage_id.clone(), s))
         .collect();
 
     // Check all dependsOn references exist
-    for stage in &protocol.protocol_stages {
+    for stage in &protocol.stages {
         for dep_id in &stage.depends_on {
             if !stage_map.contains_key(dep_id) {
                 diagnostics.push(ProtocolDiagnostic {
@@ -36,7 +36,7 @@ pub fn validate_protocol(protocol: &Protocol) -> ProtocolValidationResult {
     }
 
     // Check self-dependency
-    for stage in &protocol.protocol_stages {
+    for stage in &protocol.stages {
         if stage.depends_on.contains(&stage.stage_id) {
             diagnostics.push(ProtocolDiagnostic {
                 message: format!("Stage '{}' has self-dependency", stage.stage_id),
@@ -46,7 +46,7 @@ pub fn validate_protocol(protocol: &Protocol) -> ProtocolValidationResult {
     }
 
     // Check for cycles using DFS
-    if let Some(cycle) = detect_cycle(&protocol.protocol_stages) {
+    if let Some(cycle) = detect_cycle(&protocol.stages) {
         diagnostics.push(ProtocolDiagnostic {
             message: format!("Dependency cycle detected: {}", cycle.join(" -> ")),
             severity: ProtocolDiagnosticSeverity::Error,
@@ -55,7 +55,7 @@ pub fn validate_protocol(protocol: &Protocol) -> ProtocolValidationResult {
 
     // Check order consistency with dependsOn partial order
     // If A depends on B, then order(A) should be > order(B)
-    for stage in &protocol.protocol_stages {
+    for stage in &protocol.stages {
         for dep_id in &stage.depends_on {
             if let Some(dep_stage) = stage_map.get(dep_id) {
                 if stage.order <= dep_stage.order {

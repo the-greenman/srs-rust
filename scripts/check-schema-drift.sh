@@ -102,15 +102,11 @@ is_missing_allowlisted() {
 # runtime accepts beyond what it actually implements. #932 tracks landing
 # both together (schema mirror + validator extension).
 #
-# protocol.json (srs-rust#930): srs#379 ruled Protocol's identity/structural
-# properties unprefixed (id/namespace/name/... replacing protocolId/
-# protocolNamespace/protocolName/...), retiring the interim protocol-prefixed
-# shape #297/#378 shipped to match the implementation of the day. A plain
-# re-sync would desync the schema from srs-core's actual Protocol struct,
-# protocol_service.rs, the CLI payload, and every real fixture/corpus witness
-# still using the prefixed shape — #930 is the reference-implementation
-# rename (Rust structs, CLI, fixtures) this mirror bump must land alongside.
-DECLARED_CONTENT_DRIFT_ALLOWLIST=("field.json" "protocol.json")
+# protocol.json's entry is retired: srs-rust#930 landed the reference-
+# implementation rename (Rust structs, catalog.rs, CLI/MCP payload call
+# sites, fixtures) alongside this mirror bump, so the mirror and
+# srs-core's actual Protocol/ProtocolStage shape are byte-identical again.
+DECLARED_CONTENT_DRIFT_ALLOWLIST=("field.json")
 is_content_drift_allowlisted() {
     local needle="$1"
     for entry in "${DECLARED_CONTENT_DRIFT_ALLOWLIST[@]}"; do

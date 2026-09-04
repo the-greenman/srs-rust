@@ -1151,12 +1151,7 @@ fn write_local_import_records(
                 continue;
             }
             let namespace = value["namespace"].as_str().unwrap_or("").to_string();
-            let name = match def_type {
-                DefinitionType::Protocol => {
-                    value["protocolName"].as_str().unwrap_or("").to_string()
-                }
-                _ => value["name"].as_str().unwrap_or("").to_string(),
-            };
+            let name = value["name"].as_str().unwrap_or("").to_string();
             let version = value["version"].as_u64().map(|v| v as u32).unwrap_or(0);
 
             let record = ImportRecord {
@@ -1284,18 +1279,12 @@ pub fn list_package_imports(
                 if record.mode != ImportMode::UpstreamTracked {
                     continue;
                 }
-                // Protocols store their id under "protocolId"; all others use "id".
-                let id_field = if record.definition_type == DefinitionType::Protocol {
-                    "protocolId"
-                } else {
-                    "id"
-                };
                 // Find the relative path whose JSON id matches this record.
                 let def_path = tracked_paths.iter().find(|path| {
                     store
                         .load_instance_json(&format!("{boundary_path}/{path}"))
                         .ok()
-                        .and_then(|v| v[id_field].as_str().map(str::to_string))
+                        .and_then(|v| v["id"].as_str().map(str::to_string))
                         .as_deref()
                         == Some(record.definition_id.as_str())
                 });

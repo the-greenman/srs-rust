@@ -779,7 +779,7 @@ impl SrsRepository {
         to_js(&summaries)
     }
 
-    /// Get a protocol's stored definition JSON by its `protocolId`.
+    /// Get a protocol's stored definition JSON by its `id`.
     /// Returns the full protocol definition as a JS value, or `null` if not found.
     pub fn get_protocol_by_id(&self, id: &str) -> Result<JsValue, JsValue> {
         match protocol_service::get_protocol_by_id(&self.store, id).map_err(js_err)? {
@@ -788,7 +788,7 @@ impl SrsRepository {
         }
     }
 
-    /// Find the first protocol whose `protocolTargetType` matches `target_type_id`.
+    /// Find the first protocol whose `targetType` matches `target_type_id`.
     /// Returns `{ protocolId, protocolName, stages, diagnostics }` as a JS value,
     /// or `null` if no protocol targets that type.
     pub fn find_protocol_by_target_type(&self, target_type_id: &str) -> Result<JsValue, JsValue> {
