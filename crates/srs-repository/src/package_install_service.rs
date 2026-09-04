@@ -573,8 +573,9 @@ pub struct InstallPackageResult {
     pub namespace: String,
     pub name: String,
     pub version: String,
-    /// When the boundary's provenance stamp says the package was installed.
-    /// Preserved across re-runs (idempotent installs keep the original stamp).
+    /// When this boundary's install-records summary was first generated.
+    /// Preserved across re-runs (idempotent installs keep the original stamp;
+    /// srs-rust#933 — no longer stamped onto the boundary's package.json).
     pub installed_at: String,
     /// Total definitions written into the boundary by this run.
     pub installed: usize,
@@ -771,31 +772,31 @@ pub fn install_package_bundle(
         }
     }
 
-    // ── Phase 4: provenance stamp ────────────────────────────────────────────
-    // Record the upstream package identity + installedAt on the boundary's
-    // package.json (`upstreamPackage`, matching the manifest-level convention
-    // stamped by init_new_repository for seeded governance repos). Minimal
-    // provenance per #245/#246 / srs#107 — not the full ImportRecord machinery.
-    let pkg_json_key = format!("{boundary_path}/package.json");
-    let mut boundary_pkg_json = store.load_instance_json(&pkg_json_key)?;
-    let installed_at = boundary_pkg_json["upstreamPackage"]["installedAt"]
-        .as_str()
-        .map(str::to_string)
+    // ── Phase 4: installed_at (idempotent across re-runs) ────────────────────
+    // No provenance is stamped onto the boundary's package.json: RFC-014's
+    // `upstreamPackage` is a repository-manifest field (singular, whole-repo
+    // scope), and `package-manifest.json` (`additionalProperties: false`) has
+    // no such property — writing it there produced a boundary package.json
+    // that failed its own schema (srs-rust#933), cascading to a fatal
+    // catalog-load error for every installed sub-package. Owner ruling
+    // (the-greenman/srs#373 / srs-rust#824, 2026-08-11): retire the boundary
+    // stamp — it duplicated `manifest.packageRefs[]` — rather than widen the
+    // schema. Per-boundary `installedAt` has no spec home and is deliberately
+    // deferred (srs#374); reuse the already-persisted, already-idempotent
+    // `.srs-import/import-records.json` timestamp instead of inventing a
+    // second channel (Phase 5 only rewrites it when something new installed).
+    let import_summary_path = format!("{boundary_path}/.srs-import/import-records.json");
+    let installed_at = store
+        .load_instance_json(&import_summary_path)
+        .ok()
+        .and_then(|v| v["generatedAt"].as_str().map(str::to_string))
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
-    boundary_pkg_json["upstreamPackage"] = serde_json::json!({
-        "packageId": bundle.id,
-        "namespace": bundle.namespace,
-        "name": bundle.name,
-        "version": bundle.version,
-        "installedAt": installed_at,
-    });
-    store.save_instance_json(&pkg_json_key, &boundary_pkg_json)?;
 
     // ── Phase 5: import records + reference copies ───────────────────────────
     // Only written when something was actually installed (re-runs preserve the
     // existing ImportSummary because every definition is skipped-identical).
     // Per ADR-030: import-record writes are best-effort; a failure here does not
-    // affect the definitions already committed in Phases 1–4.
+    // affect the definitions already committed in Phases 1–3.
     if installed_total > 0 {
         let _ = (|| -> Result<(), RepositoryError> {
             let import_prefix = format!("{boundary_path}/.srs-import");
@@ -1018,17 +1019,22 @@ mod tests {
         assert_eq!(boundary.id, "ext-pkg-0001");
         assert_eq!(boundary.field_paths.len(), 2);
 
-        // Provenance stamp on the boundary package.json.
+        // The written boundary package.json must validate against its own
+        // schema (srs-rust#933 red-then-green): no `upstreamPackage` stamp
+        // (forbidden by `additionalProperties: false`), and every required
+        // property (`$schema`, `title`, `description`, `status`, `createdAt`,
+        // ...) present.
         let pkg_json =
             crate::store::RepositoryStore::load_instance_json(&store, "packages/ext/package.json")
                 .unwrap();
-        assert_eq!(
-            pkg_json["upstreamPackage"]["packageId"].as_str(),
-            Some("ext-pkg-0001")
+        assert!(
+            pkg_json.get("upstreamPackage").is_none(),
+            "upstreamPackage must not be stamped onto a boundary package.json \
+             (owner ruling srs#373 / srs-rust#824): {pkg_json:?}"
         );
-        assert!(pkg_json["upstreamPackage"]["installedAt"]
-            .as_str()
-            .is_some());
+        srs_schema::SchemaRegistry::global()
+            .validate_by_id(srs_schema::PACKAGE_MANIFEST_SCHEMA_ID, &pkg_json)
+            .expect("installed boundary package.json must validate against package-manifest.json");
     }
 
     #[test]

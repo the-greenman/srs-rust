@@ -1,4 +1,5 @@
 {
+  "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
   "category": "sequence",
   "createdAt": "2026-01-01T00:00:00Z",
   "description": "Source comes before target in a sequence.",
@@ -6,6 +7,6 @@
   "irreflexive": true,
   "label": "Precedes",
   "namespace": "com.example.install",
-  "relationType": "precedes",
+  "key": "precedes",
   "version": 1
 }
