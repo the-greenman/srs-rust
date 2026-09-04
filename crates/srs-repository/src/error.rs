@@ -204,7 +204,7 @@ pub enum RepositoryError {
         source: srs_core::error::CoreError,
     },
 
-    #[error("document view not found: {view_id}")]
+    #[error("composition not found: {view_id}")]
     CompositionNotFound { view_id: String },
 
     #[error("view not found: {view_id}")]
@@ -225,7 +225,7 @@ pub enum RepositoryError {
     #[error("invalid package selector: {message}")]
     InvalidPackageSelector { message: String },
 
-    #[error("document view not found: {composition_id}")]
+    #[error("composition not found: {composition_id}")]
     CompositionNotFoundById { composition_id: String },
 
     #[error("package ref path '{path}' is outside the repository root")]
