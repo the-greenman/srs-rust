@@ -399,7 +399,10 @@ impl From<ProtocolStage> for BriefStageResult {
             question: stage.question,
             completion_criteria: stage.completion_criteria,
             contributes_to: stage.contributes_to,
-            ai_guidance: stage.ai_guidance,
+            ai_guidance: stage
+                .ai_guidance
+                .as_ref()
+                .map(|g| serde_json::to_value(g).unwrap_or_default()),
             output_type: stage.output_type,
         }
     }
@@ -697,7 +700,7 @@ mod tests {
             "question": "What is the main topic?",
             "completionCriteria": "Topic identified.",
             "contributesTo": [{"fieldId": "field-aaa"}],
-            "aiGuidance": "Focus on primary subjects."
+            "aiGuidance": {"purpose": "Focus on primary subjects."}
         });
         let stage: ProtocolStage = serde_json::from_value(v).unwrap();
         let brief = BriefStageResult::from(stage);
@@ -968,13 +971,13 @@ mod tests {
             &store,
             ImportProtocolInput {
                 raw: serde_json::json!({
-                    "protocolId": "proto-001",
-                    "protocolNamespace": "test.ns",
-                    "protocolName": "Article Protocol",
-                    "protocolVersion": 1,
-                    "protocolTargetType": "type-111",
-                    "protocolCreatedAt": "2026-01-01T00:00:00Z",
-                    "protocolStages": [{
+                    "id": "proto-001",
+                    "namespace": "test.ns",
+                    "name": "Article Protocol",
+                    "version": 1,
+                    "targetType": "type-111",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "stages": [{
                         "stageId": "s1",
                         "name": "Gather",
                         "order": 1,
@@ -1075,13 +1078,13 @@ mod tests {
             &store,
             ImportProtocolInput {
                 raw: serde_json::json!({
-                    "protocolId": "proto-002",
-                    "protocolNamespace": "test.ns",
-                    "protocolName": "Validation Protocol",
-                    "protocolVersion": 1,
-                    "protocolTargetType": "type-111",
-                    "protocolCreatedAt": "2026-01-01T00:00:00Z",
-                    "protocolStages": [{
+                    "id": "proto-002",
+                    "namespace": "test.ns",
+                    "name": "Validation Protocol",
+                    "version": 1,
+                    "targetType": "type-111",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "stages": [{
                         "stageId": "s1",
                         "name": "Gather",
                         "order": 1,
@@ -1164,13 +1167,13 @@ mod tests {
             &store,
             ImportProtocolInput {
                 raw: serde_json::json!({
-                    "protocolId": "proto-003",
-                    "protocolNamespace": "test.ns",
-                    "protocolName": "TypeId Validation Protocol",
-                    "protocolVersion": 1,
-                    "protocolTargetType": "type-111",
-                    "protocolCreatedAt": "2026-01-01T00:00:00Z",
-                    "protocolStages": [{
+                    "id": "proto-003",
+                    "namespace": "test.ns",
+                    "name": "TypeId Validation Protocol",
+                    "version": 1,
+                    "targetType": "type-111",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "stages": [{
                         "stageId": "s1",
                         "name": "Gather",
                         "order": 1,
@@ -1255,13 +1258,13 @@ mod tests {
             &store,
             ImportProtocolInput {
                 raw: serde_json::json!({
-                    "protocolId": "proto-004",
-                    "protocolNamespace": "test.ns",
-                    "protocolName": "Valid TypeId Protocol",
-                    "protocolVersion": 1,
-                    "protocolTargetType": "type-111",
-                    "protocolCreatedAt": "2026-01-01T00:00:00Z",
-                    "protocolStages": [{
+                    "id": "proto-004",
+                    "namespace": "test.ns",
+                    "name": "Valid TypeId Protocol",
+                    "version": 1,
+                    "targetType": "type-111",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "stages": [{
                         "stageId": "s1",
                         "name": "Gather",
                         "order": 1,

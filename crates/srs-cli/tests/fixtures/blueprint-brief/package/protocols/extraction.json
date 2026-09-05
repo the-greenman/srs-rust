@@ -1,12 +1,12 @@
 {
-  "protocolId": "brief-fixture-proto-1",
-  "protocolNamespace": "fixture.brief",
-  "protocolName": "extraction",
-  "protocolVersion": 1,
-  "protocolDescription": "Fixture protocol for testing contributesTo.typeId resolution in blueprint brief.",
-  "protocolTargetType": "00000000-0000-4000-8000-000000004611",
-  "protocolCreatedAt": "2026-01-01T00:00:00Z",
-  "protocolStages": [
+  "id": "brief-fixture-proto-1",
+  "namespace": "fixture.brief",
+  "name": "extraction",
+  "version": 1,
+  "description": "Fixture protocol for testing contributesTo.typeId resolution in blueprint brief.",
+  "targetType": "00000000-0000-4000-8000-000000004611",
+  "createdAt": "2026-01-01T00:00:00Z",
+  "stages": [
     {
       "stageId": "s1",
       "name": "Gather",
@@ -17,7 +17,7 @@
       "contributesTo": [
         {"fieldId": "00000000-0000-4000-8000-000000004601"}
       ],
-      "aiGuidance": "Look for the main topic."
+      "aiGuidance": {"purpose": "Look for the main topic."}
     },
     {
       "stageId": "s2",
@@ -32,7 +32,7 @@
           "typeId": "00000000-0000-4000-8000-000000004611"
         }
       ],
-      "aiGuidance": "Extract field values."
+      "aiGuidance": {"purpose": "Extract field values."}
     },
     {
       "stageId": "s3",
@@ -47,7 +47,7 @@
           "typeId": "00000000-0000-0000-0000-000000000000"
         }
       ],
-      "aiGuidance": "Assign a category."
+      "aiGuidance": {"purpose": "Assign a category."}
     }
   ]
 }

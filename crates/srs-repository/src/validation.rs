@@ -631,6 +631,25 @@ pub fn validate_repository(
                     Ok(record) => {
                         let rt_opt = package.resolve_type(&record.type_id, record.type_version);
 
+                        if rt_opt.is_none() {
+                            // [R13]/SRS038-R13-DANGLING-REFERENCE family: a Record's
+                            // typeId is the authority (Record→Type edge) and, like a
+                            // relation endpoint or container member, must resolve — a
+                            // typeId@typeVersion resolving to nothing is the degenerate
+                            // case that otherwise drops the record out of all
+                            // type-level checking below with zero diagnostics
+                            // (srs-rust#854).
+                            diagnostics.push(ValidationDiagnostic {
+                                severity: DiagnosticSeverity::Error,
+                                relative_path: rel_path.clone(),
+                                schema_id: None,
+                                message: format!(
+                                    "SRS038-R13-DANGLING-REFERENCE: record '{}' typeId '{}'@{} resolves to nothing in the definition set",
+                                    record.instance_id, record.type_id, record.type_version
+                                ),
+                            });
+                        }
+
                         if let Some(record_type) = rt_opt {
                             match package.resolved_effective_fields(record_type) {
                                 Ok(effective_fields) => {
@@ -2892,6 +2911,46 @@ mod tests {
             tag_diags.is_empty(),
             "expected no tag diagnostics without vocab, got: {:?}",
             tag_diags
+        );
+    }
+
+    #[test]
+    fn record_with_unresolvable_type_id_produces_dangling_reference_error() {
+        // srs-rust#854: a Tier-2 Record whose typeId resolves to nothing in the
+        // package must fail validate, not silently drop out of type-level
+        // checking.
+        let temp = TempDir::new().unwrap();
+        let record_id = "00000000-0000-4000-8000-000000000002";
+        let dangling_type_id = "00000000-0000-4000-8000-00000000dead";
+
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &minimal_package_json(None, None),
+        );
+        write_json(
+            temp.path(),
+            "records/my-record.json",
+            &minimal_record_json(record_id, dangling_type_id, None),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let err = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error
+                && d.message.contains("SRS038-R13-DANGLING-REFERENCE")
+                && d.message.contains(dangling_type_id)
+        });
+        assert!(
+            err.is_some(),
+            "expected a dangling-reference error naming the unresolvable typeId, got: {:?}",
+            report.diagnostics
+        );
+        assert!(
+            !report.is_ok(),
+            "repo with an unresolvable typeId must not validate as ok"
         );
     }
 
@@ -6848,13 +6907,13 @@ mod tests {
     fn minimal_protocol_json(id: &str, with_cycle: bool) -> Value {
         if with_cycle {
             json!({
-                "protocolId": id,
-                "protocolNamespace": "com.test",
-                "protocolName": "test-protocol",
-                "protocolVersion": 1,
-                "protocolTargetType": "00000000-0000-4000-8000-000000000040",
-                "protocolCreatedAt": "2026-01-01T00:00:00Z",
-                "protocolStages": [
+                "id": id,
+                "namespace": "com.test",
+                "name": "test-protocol",
+                "version": 1,
+                "targetType": "00000000-0000-4000-8000-000000000040",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "stages": [
                     {
                         "stageId": "stage-a",
                         "name": "Stage A",
@@ -6871,13 +6930,13 @@ mod tests {
             })
         } else {
             json!({
-                "protocolId": id,
-                "protocolNamespace": "com.test",
-                "protocolName": "test-protocol",
-                "protocolVersion": 1,
-                "protocolTargetType": "00000000-0000-4000-8000-000000000040",
-                "protocolCreatedAt": "2026-01-01T00:00:00Z",
-                "protocolStages": [
+                "id": id,
+                "namespace": "com.test",
+                "name": "test-protocol",
+                "version": 1,
+                "targetType": "00000000-0000-4000-8000-000000000040",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "stages": [
                     {
                         "stageId": "stage-a",
                         "name": "Stage A",

@@ -1080,16 +1080,11 @@ impl Builder<'_> {
             );
             return;
         }
-        let id_prop = if kind == CatalogKind::Protocol {
-            "protocolId"
-        } else {
-            "id"
-        };
-        let Some(id) = value.get(id_prop).and_then(|v| v.as_str()) else {
+        let Some(id) = value.get("id").and_then(|v| v.as_str()) else {
             self.error(
                 codes::CANDIDATE_MALFORMED,
                 vec![path.to_string()],
-                format!("definition object has no '{id_prop}' identifier"),
+                "definition object has no 'id' identifier".to_string(),
             );
             return;
         };

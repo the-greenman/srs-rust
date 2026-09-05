@@ -15,7 +15,7 @@
 //! Protocols are **Package definitions**, exactly parallel to Blueprints (see
 //! [`crate::blueprint_service`]). Each Protocol is a JSON file under `package/protocols/`
 //! whose relative path is registered in the boundary's `package.json` `protocols[]` array.
-//! Protocols are identified by `protocolId`. They are **not** instance Records — this is what
+//! Protocols are identified by `id`. They are **not** instance Records — this is what
 //! the spec mandates (subsection 05-1-5-1, Invariant 037) and what makes a Protocol satisfy
 //! both `protocol validate` and `repo validate` (the-greenman/srs-rust#169).
 //!
@@ -123,19 +123,16 @@ fn protocol_from_value(value: &serde_json::Value) -> Result<Protocol, Repository
 fn check_protocol(protocol: &Protocol) -> Result<(), RepositoryError> {
     let mut messages: Vec<String> = vec![];
 
-    if protocol.protocol_version < 1 {
+    if protocol.version < 1 {
+        messages.push(format!("version must be >= 1, got {}", protocol.version));
+    }
+    if chrono::DateTime::parse_from_rfc3339(&protocol.created_at).is_err() {
         messages.push(format!(
-            "protocolVersion must be >= 1, got {}",
-            protocol.protocol_version
+            "createdAt must be a valid RFC 3339 datetime, got '{}'",
+            protocol.created_at
         ));
     }
-    if chrono::DateTime::parse_from_rfc3339(&protocol.protocol_created_at).is_err() {
-        messages.push(format!(
-            "protocolCreatedAt must be a valid RFC 3339 datetime, got '{}'",
-            protocol.protocol_created_at
-        ));
-    }
-    for stage in &protocol.protocol_stages {
+    for stage in &protocol.stages {
         messages.extend(srs_core::validation::protocol::validate_protocol_stage(
             stage,
         ));
@@ -162,7 +159,7 @@ fn check_protocol(protocol: &Protocol) -> Result<(), RepositoryError> {
 }
 
 /// Locate the full repo-root-relative path (and owning boundary) for a protocol by its
-/// `protocolId`, scanning each boundary's `package.json` `protocols[]` array.
+/// `id`, scanning each boundary's `package.json` `protocols[]` array.
 fn find_protocol_path(
     store: &dyn RepositoryStore,
     id: &str,
@@ -179,7 +176,7 @@ fn find_protocol_path(
             if let Some(rel) = entry.as_str() {
                 let full = format!("{prefix}/{rel}");
                 if let Ok(val) = store.load_instance_json(&full) {
-                    if val["protocolId"].as_str() == Some(id) {
+                    if val["id"].as_str() == Some(id) {
                         return Ok(Some((full, boundary.selector.clone())));
                     }
                 }
@@ -202,18 +199,18 @@ pub fn list_protocols(
         .protocols
         .into_iter()
         .map(|lp| ProtocolSummary {
-            protocol_id: lp.protocol.protocol_id.clone(),
-            protocol_namespace: lp.protocol.protocol_namespace.clone(),
-            protocol_name: lp.protocol.protocol_name.clone(),
-            protocol_version: lp.protocol.protocol_version,
-            stage_count: lp.protocol.protocol_stages.len(),
+            protocol_id: lp.protocol.id.clone(),
+            protocol_namespace: lp.protocol.namespace.clone(),
+            protocol_name: lp.protocol.name.clone(),
+            protocol_version: lp.protocol.version,
+            stage_count: lp.protocol.stages.len(),
             source_package: lp.source_package,
         })
         .collect();
     Ok(summaries)
 }
 
-/// Get a protocol's stored definition JSON by its `protocolId`.
+/// Get a protocol's stored definition JSON by its `id`.
 pub fn get_protocol_by_id(
     store: &dyn RepositoryStore,
     id: &str,
@@ -222,7 +219,7 @@ pub fn get_protocol_by_id(
     match package
         .protocols
         .into_iter()
-        .find(|lp| lp.protocol.protocol_id == id)
+        .find(|lp| lp.protocol.id == id)
     {
         Some(lp) => Ok(GetProtocolResult::Found(lp.raw)),
         None => Ok(GetProtocolResult::NotFound),
@@ -246,7 +243,7 @@ pub fn list_protocol_stages(
     match get_protocol_by_id(store, id)? {
         GetProtocolResult::Found(val) => {
             let proto = protocol_from_value(&val)?;
-            let mut stages = proto.protocol_stages;
+            let mut stages = proto.stages;
             stages.sort_by_key(|s| s.order);
             Ok(stages)
         }
@@ -277,7 +274,7 @@ pub fn validate_protocol_definition(
                 })
                 .collect();
             Ok(ValidateProtocolResult {
-                protocol_id: proto.protocol_id,
+                protocol_id: proto.id,
                 valid: validation.valid,
                 diagnostics,
             })
@@ -288,7 +285,7 @@ pub fn validate_protocol_definition(
     }
 }
 
-/// Find the first protocol whose `protocolTargetType` matches `target_type_id`.
+/// Find the first protocol whose `targetType` matches `target_type_id`.
 ///
 /// Returns `None` when no protocol targets that type.
 pub fn find_protocol_by_target_type(
@@ -297,13 +294,13 @@ pub fn find_protocol_by_target_type(
 ) -> Result<Option<FindProtocolByTargetTypeResult>, RepositoryError> {
     let package = store.load_package()?;
     for lp in package.protocols {
-        if lp.protocol.protocol_target_type != target_type_id {
+        if lp.protocol.target_type != target_type_id {
             continue;
         }
-        let stages = lp.protocol.protocol_stages.clone();
+        let stages = lp.protocol.stages.clone();
         return Ok(Some(FindProtocolByTargetTypeResult {
-            protocol_id: lp.protocol.protocol_id,
-            protocol_name: lp.protocol.protocol_name,
+            protocol_id: lp.protocol.id,
+            protocol_name: lp.protocol.name,
             stages,
             diagnostics: vec![],
         }));
@@ -329,7 +326,7 @@ pub fn create_protocol(
 
     // Normalize server-stampable boilerplate (issue #511): default the creation
     // timestamp when the caller omits it. Explicit values win.
-    crate::input_normalization::default_created_at(&mut value, "protocolCreatedAt");
+    crate::input_normalization::default_created_at(&mut value, "createdAt");
 
     let protocol = protocol_from_value(&value)?;
     check_protocol(&protocol)?;
@@ -337,10 +334,10 @@ pub fn create_protocol(
     let boundary_path = selector.as_deref().unwrap_or("package");
     store.ensure_instance_dir(&format!("{boundary_path}/{PROTOCOLS_DIR}"))?;
 
-    let id_prefix = &protocol.protocol_id[..protocol.protocol_id.len().min(8)];
+    let id_prefix = &protocol.id[..protocol.id.len().min(8)];
     let rel_filename = format!(
         "{PROTOCOLS_DIR}/{}-{}.json",
-        slugify(&protocol.protocol_name),
+        slugify(&protocol.name),
         id_prefix
     );
     let full_path = format!("{boundary_path}/{rel_filename}");
@@ -367,7 +364,7 @@ pub fn create_protocol(
 /// Import a Protocol definition from a JSON payload.
 ///
 /// Accepts either a bare Protocol object or `{ "protocol": { ... } }`. The payload must use the
-/// canonical camelCase keys (`protocolId`, `protocolStages`, …) — the same shape `export` emits.
+/// canonical camelCase keys (`id`, `stages`, …) — the same shape `export` emits.
 pub fn import_protocol(
     store: &dyn RepositoryStore,
     input: ImportProtocolInput,
@@ -379,7 +376,7 @@ pub fn import_protocol(
 
 /// Update an existing Protocol definition (full replace) from its JSON value.
 ///
-/// Preserves the original `protocolCreatedAt` from the stored value.
+/// Preserves the original `createdAt` from the stored value.
 pub fn update_protocol(
     store: &dyn RepositoryStore,
     id: &str,
@@ -392,11 +389,9 @@ pub fn update_protocol(
 
     // Preserve the original createdAt.
     let stored = store.load_instance_json(&path)?;
-    if let (Some(created), Some(obj)) =
-        (stored["protocolCreatedAt"].as_str(), value.as_object_mut())
-    {
+    if let (Some(created), Some(obj)) = (stored["createdAt"].as_str(), value.as_object_mut()) {
         obj.insert(
-            "protocolCreatedAt".to_string(),
+            "createdAt".to_string(),
             serde_json::Value::String(created.to_string()),
         );
     }
@@ -408,7 +403,7 @@ pub fn update_protocol(
     Ok(UpdateProtocolResult { protocol: value })
 }
 
-/// Delete a Protocol by `protocolId`.
+/// Delete a Protocol by `id`.
 ///
 /// Removes the entry from `package.json` first, then deletes the file.
 pub fn delete_protocol(
@@ -474,15 +469,15 @@ mod tests {
     fn make_protocol(id: &str, target_type: &str, name: &str) -> LoadedProtocol {
         let protocol = Protocol {
             schema: None,
-            protocol_id: id.to_string(),
-            protocol_namespace: "com.test".to_string(),
-            protocol_name: name.to_string(),
-            protocol_version: 1,
-            protocol_description: None,
-            protocol_target_type: target_type.to_string(),
-            protocol_stages: vec![],
-            protocol_tags: None,
-            protocol_created_at: "2026-01-01T00:00:00Z".to_string(),
+            id: id.to_string(),
+            namespace: "com.test".to_string(),
+            name: name.to_string(),
+            version: 1,
+            description: None,
+            target_type: target_type.to_string(),
+            stages: vec![],
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
         };
         let raw = serde_json::to_value(&protocol).unwrap();
         LoadedProtocol {
@@ -517,7 +512,7 @@ mod tests {
             MemoryStore::empty().with_protocol(make_protocol("proto-001", "type-a", "Alpha"));
         match get_protocol_by_id(&store, "proto-001").unwrap() {
             GetProtocolResult::Found(val) => {
-                assert_eq!(val["protocolId"].as_str(), Some("proto-001"));
+                assert_eq!(val["id"].as_str(), Some("proto-001"));
             }
             GetProtocolResult::NotFound => panic!("expected Found"),
         }
@@ -588,13 +583,13 @@ mod roundtrip_tests {
 
     fn proto_json(id: &str, target_type: &str, name: &str) -> serde_json::Value {
         serde_json::json!({
-            "protocolId": id,
-            "protocolNamespace": "com.test",
-            "protocolName": name,
-            "protocolVersion": 1,
-            "protocolTargetType": target_type,
-            "protocolCreatedAt": "2026-01-01T00:00:00Z",
-            "protocolStages": [{
+            "id": id,
+            "namespace": "com.test",
+            "name": name,
+            "version": 1,
+            "targetType": target_type,
+            "createdAt": "2026-01-01T00:00:00Z",
+            "stages": [{
                 "stageId": "s1",
                 "name": "Gather",
                 "order": 1,
@@ -626,7 +621,7 @@ mod roundtrip_tests {
         // get_protocol_by_id reads compiled model
         match get_protocol_by_id(&store, "proto-rt-001").unwrap() {
             GetProtocolResult::Found(val) => {
-                assert_eq!(val["protocolId"].as_str(), Some("proto-rt-001"));
+                assert_eq!(val["id"].as_str(), Some("proto-rt-001"));
             }
             GetProtocolResult::NotFound => panic!("expected Found"),
         }

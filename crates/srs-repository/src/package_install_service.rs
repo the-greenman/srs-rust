@@ -31,10 +31,9 @@
 //!
 //! "Same key" follows how each definition kind's identity works in this codebase:
 //! `namespace/name@version` for fields, types, views, document views, themes,
-//! blueprints, lifecycles, and vocabularies; the `key` string for relation types
-//! (the loader hard-errors on same-key/different-content relation types, so
-//! duplicating those would break `load_package`); and
-//! `protocolNamespace/protocolName@protocolVersion` for protocols.
+//! blueprints, lifecycles, vocabularies, and protocols; and the `key` string for
+//! relation types (the loader hard-errors on same-key/different-content relation
+//! types, so duplicating those would break `load_package`).
 
 use serde::de::Error as SerdeDeError;
 use std::collections::{HashMap, HashSet};
@@ -368,13 +367,9 @@ fn validate_source_definition(
 // Definition identity
 // ---------------------------------------------------------------------------
 
-/// Stable UUID identity of a definition (`protocolId` for protocols, `id` otherwise).
-fn definition_id(kind: DefinitionKind, value: &serde_json::Value) -> Option<String> {
-    let key = match kind {
-        DefinitionKind::Protocol => "protocolId",
-        _ => "id",
-    };
-    value[key]
+/// Stable UUID identity of a definition (the `id` property, on every kind).
+fn definition_id(_kind: DefinitionKind, value: &serde_json::Value) -> Option<String> {
+    value["id"]
         .as_str()
         .map(str::to_string)
         .filter(|s| !s.trim().is_empty())
@@ -387,11 +382,6 @@ fn definition_key(kind: DefinitionKind, value: &serde_json::Value) -> Option<Str
             .as_str()
             .or_else(|| value["relationType"].as_str())
             .map(str::to_string),
-        DefinitionKind::Protocol => {
-            let ns = value["protocolNamespace"].as_str()?;
-            let name = value["protocolName"].as_str()?;
-            Some(format!("{ns}/{name}@{}", value["protocolVersion"]))
-        }
         _ => {
             let ns = value["namespace"].as_str()?;
             let name = value["name"].as_str()?;
@@ -417,29 +407,21 @@ fn to_definition_type(kind: DefinitionKind) -> Option<DefinitionType> {
 }
 
 /// Extract the namespace string from a definition JSON.
-fn definition_namespace(kind: DefinitionKind, value: &serde_json::Value) -> Option<String> {
-    match kind {
-        DefinitionKind::Protocol => value["protocolNamespace"].as_str().map(str::to_string),
-        _ => value["namespace"].as_str().map(str::to_string),
-    }
+fn definition_namespace(_kind: DefinitionKind, value: &serde_json::Value) -> Option<String> {
+    value["namespace"].as_str().map(str::to_string)
 }
 
 /// Extract the logical name from a definition JSON.
 fn definition_name(kind: DefinitionKind, value: &serde_json::Value) -> Option<String> {
     match kind {
-        DefinitionKind::Protocol => value["protocolName"].as_str().map(str::to_string),
         DefinitionKind::RelationType => value["key"].as_str().map(str::to_string),
         _ => value["name"].as_str().map(str::to_string),
     }
 }
 
 /// Extract the version as u32 from a definition JSON (defaults to 1 if absent).
-fn definition_version(kind: DefinitionKind, value: &serde_json::Value) -> u32 {
-    let v = match kind {
-        DefinitionKind::Protocol => &value["protocolVersion"],
-        _ => &value["version"],
-    };
-    v.as_u64().unwrap_or(1) as u32
+fn definition_version(_kind: DefinitionKind, value: &serde_json::Value) -> u32 {
+    value["version"].as_u64().unwrap_or(1) as u32
 }
 
 /// Index of definitions already present in the target repository.

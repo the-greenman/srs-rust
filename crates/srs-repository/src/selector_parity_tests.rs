@@ -207,15 +207,15 @@ fn make_blueprint(name: &str) -> Blueprint {
 fn make_protocol_value(id: &str, name: &str) -> serde_json::Value {
     serde_json::to_value(Protocol {
         schema: None,
-        protocol_id: id.to_string(),
-        protocol_namespace: "com.test".to_string(),
-        protocol_name: name.to_string(),
-        protocol_version: 1,
-        protocol_description: None,
-        protocol_target_type: "type-a".to_string(),
-        protocol_stages: vec![],
-        protocol_tags: None,
-        protocol_created_at: "2026-01-01T00:00:00Z".to_string(),
+        id: id.to_string(),
+        namespace: "com.test".to_string(),
+        name: name.to_string(),
+        version: 1,
+        description: None,
+        target_type: "type-a".to_string(),
+        stages: vec![],
+        tags: None,
+        created_at: "2026-01-01T00:00:00Z".to_string(),
     })
     .unwrap()
 }

@@ -374,7 +374,7 @@ fn declared_protocol_definition_classifies_by_shape() {
     write(
         root,
         "pkg/protocols/entry.json",
-        r#"{"protocolId": "9a1b0c90-0009-4aaa-8bbb-00000000a001"}"#,
+        r#"{"id": "9a1b0c90-0009-4aaa-8bbb-00000000a001"}"#,
     );
     let cat = catalog::build(&FileStore::new(root)).unwrap();
     assert_eq!(

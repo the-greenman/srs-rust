@@ -147,10 +147,7 @@ fn install_into_empty_repo_installs_everything() {
         .blueprints
         .iter()
         .any(|b| b.blueprint.name == "entry-log"));
-    assert!(package
-        .protocols
-        .iter()
-        .any(|p| p.protocol.protocol_name == "entry"));
+    assert!(package.protocols.iter().any(|p| p.protocol.name == "entry"));
     assert!(package
         .lifecycles
         .iter()
