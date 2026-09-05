@@ -2648,14 +2648,15 @@ mod tests {
     /// upgrade itself must now refuse, not silently carry the sidecar along.
     #[test]
     fn upgrade_refuses_while_a_stray_revisions_sidecar_remains() {
-        use crate::revision_service::sidecar_path_for;
-
         let store = MemoryStore::uninitialized();
         store.initialize_repository(&make_upgrade_input()).unwrap();
 
         let id = "aabbccdd-1234-5678-90ab-cdef01234567";
         let old_path = "records/tier-2/old-name.json";
-        let old_sidecar = sidecar_path_for(old_path);
+        // `revision_service::sidecar_path_for` was removed with the dead
+        // revisions read surface (srs-rust#917); this is its former
+        // `<stem>.revisions.json` rule, inlined for the fixture path.
+        let old_sidecar = "records/tier-2/old-name.revisions.json".to_string();
 
         let value = tier2_record_value(id, "com.example/my-type");
         inject_non_canonical_instance(&store, id, 2, old_path, value);
