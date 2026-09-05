@@ -7,15 +7,13 @@
 //! The wasm-pack build proves the binding methods compile and are exported.
 
 use srs_repository::context_query_service::{
-    get_field_context, get_record_context, get_revision_trace, FieldContextQuery,
-    RecordContextQuery, RevisionTraceQuery,
+    get_field_context, get_record_context, FieldContextQuery, RecordContextQuery,
 };
 use srs_repository::FileStore;
 
 const FIELD_TITLE: &str = "aaaa0001-0000-4000-8000-000000000001";
 const TYPE_ID: &str = "bbbb0001-0000-4000-8000-000000000001";
 const RECORD_ID: &str = "cccc0001-0000-4000-8000-000000000001";
-const REVISION_ID: &str = "dddd0001-0000-4000-8000-000000000001";
 
 fn fixture_store() -> FileStore {
     let srsj = serde_json::json!({
@@ -85,11 +83,8 @@ fn fixture_store() -> FileStore {
     srs_repository::srsj::open_srsj(&srsj).expect("fixture srsj must load")
 }
 
-/// No `.revisions.json` sidecar can exist in a loadable repository any more
-/// (rfc-decision-2a1e1590, srs-rust#866) — `revisions` is always empty now;
-/// this only exercises current-value assembly.
 #[test]
-fn context_field_returns_current_value_with_no_revision_history() {
+fn context_field_returns_current_value() {
     let store = fixture_store();
     let result = get_field_context(
         &store,
@@ -103,10 +98,6 @@ fn context_field_returns_current_value_with_no_revision_history() {
     assert_eq!(result.record_id, RECORD_ID);
     assert_eq!(result.field_id, FIELD_TITLE);
     assert_eq!(result.field_name, Some("title".to_string()));
-    assert!(
-        result.revisions.is_empty(),
-        "no revision mechanism remains to populate this"
-    );
 }
 
 #[test]
@@ -128,29 +119,6 @@ fn context_record_returns_type_and_fields() {
         result.field_values.get("title"),
         Some(&serde_json::json!("First Decision"))
     );
-}
-
-/// No repository can carry a `.revisions.json` sidecar any more
-/// (rfc-decision-2a1e1590, srs-rust#866 — catalog.rs no longer tolerates
-/// one), so no revision id is ever traceable: this must fail clean with
-/// `NotFound`, never invent or silently return an empty trace.
-#[test]
-fn context_revision_trace_not_found_when_no_revisions_exist() {
-    let store = fixture_store();
-    let err = get_revision_trace(
-        &store,
-        RevisionTraceQuery {
-            record_id: RECORD_ID.to_string(),
-            field_id: FIELD_TITLE.to_string(),
-            revision_id: REVISION_ID.to_string(),
-        },
-    )
-    .expect_err("no revision mechanism remains — this must not succeed");
-
-    assert!(matches!(
-        err,
-        srs_repository::error::RepositoryError::NotFound { .. }
-    ));
 }
 
 #[test]

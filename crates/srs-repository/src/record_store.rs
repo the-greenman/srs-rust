@@ -25,7 +25,6 @@ use crate::index::InstanceQuery;
 use crate::package_service::{get_type_by_name, GetTypeResult};
 use crate::record_label;
 use crate::relation_service;
-use crate::revision_service;
 use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::{new_instance_id, slugify_instance_name};
 use serde::{Deserialize, Serialize};
@@ -33,7 +32,6 @@ use srs_core::types::lifecycle::{RelationDirection, RequiresRelation};
 use srs_core::types::record::{FieldValues, Record};
 use srs_core::types::relation::Relation;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
-use srs_core::types::revision::Revision;
 use srs_core::types::source_reference::SourceReference;
 use srs_core::validation::lifecycle::validate_type_lifecycle_v9;
 use srs_core::validation::record::{validate_record, validate_record_all, validate_type_lifecycle};
@@ -1643,46 +1641,6 @@ fn state_reachable_from_initial(
         }
     }
     false
-}
-
-/// List revisions for a record, optionally filtered by field_id.
-///
-/// Returns revisions in append order (oldest first).
-pub fn list_record_revisions(
-    store: &dyn RepositoryStore,
-    instance_id: &str,
-    field_id: Option<&str>,
-    limit: Option<usize>,
-    offset: Option<usize>,
-) -> Result<Vec<Revision>, RepositoryError> {
-    let path = store
-        .catalog()?
-        .instances
-        .iter()
-        .find(|e| e.id == instance_id && e.tier == Some(2))
-        .and_then(|e| e.locator.clone())
-        .ok_or_else(|| RepositoryError::NotFound {
-            path: std::path::PathBuf::from("records"),
-        })?;
-    revision_service::list(store, &path, instance_id, field_id, limit, offset)
-}
-
-/// Get a single revision by its revision_id, scoped to a specific record.
-pub fn get_record_revision(
-    store: &dyn RepositoryStore,
-    instance_id: &str,
-    revision_id: &str,
-) -> Result<Option<Revision>, RepositoryError> {
-    let path = store
-        .catalog()?
-        .instances
-        .iter()
-        .find(|e| e.id == instance_id && e.tier == Some(2))
-        .and_then(|e| e.locator.clone())
-        .ok_or_else(|| RepositoryError::NotFound {
-            path: std::path::PathBuf::from("records"),
-        })?;
-    revision_service::get(store, &path, instance_id, revision_id)
 }
 
 /// Result of `add_record_tag`.

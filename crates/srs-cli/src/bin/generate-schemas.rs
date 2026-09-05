@@ -47,8 +47,6 @@ fn main() {
     write_schema!("record-delete", DeletedPayload);
     write_schema!("record-transition", RecordTransitionPayload);
     write_schema!("record-successor", RecordSuccessorPayload);
-    write_schema!("record-revision-list", RevisionListPayload);
-    write_schema!("record-revision-get", RevisionPayload);
     write_schema!("record-tag-add", RecordTagAddPayload);
     write_schema!("record-tag-remove", RecordTagAddPayload);
     write_schema!("record-tag-list", RecordTagListPayload);
@@ -257,7 +255,6 @@ fn main() {
     // Context query payloads (ext:addressability)
     write_schema!("context-field", ContextFieldPayload);
     write_schema!("context-record", ContextRecordPayload);
-    write_schema!("context-revision", ContextRevisionTracePayload);
 
     // Archive payloads (ADR-033, ADR-036)
     write_schema!("archive-pack", ArchivePackPayload);

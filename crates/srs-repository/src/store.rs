@@ -2454,11 +2454,10 @@ pub mod memory {
         DeleteInstanceFile,
         /// Fail the next `delete_instance_file` call **for this exact path**.
         ///
-        /// `revision_service::delete_sidecar` routes through `delete_instance_file`
-        /// too, so an operation that deletes both a sidecar and a record file
-        /// cannot target either one with the path-blind variant above — the
-        /// one-shot fault fires on whichever comes first and is consumed there
-        /// (srs-rust#839).
+        /// Some operations delete more than one file in sequence (e.g. a
+        /// record plus a sidecar), so a caller targeting one specific path
+        /// cannot use the path-blind variant above — the one-shot fault fires
+        /// on whichever comes first and is consumed there (srs-rust#839).
         DeleteInstanceFileAt(String),
         /// Fail the next `load_package` call.
         LoadPackage,

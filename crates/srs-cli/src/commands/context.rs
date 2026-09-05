@@ -1,15 +1,13 @@
 use crate::commands::{with_store, CliContext};
 use crate::output;
-use crate::payload::{ContextFieldPayload, ContextRecordPayload, ContextRevisionTracePayload};
+use crate::payload::{ContextFieldPayload, ContextRecordPayload};
 use anyhow::Result;
 use clap::Subcommand;
-use srs_repository::context_query_service::{
-    self, FieldContextQuery, RecordContextQuery, RevisionTraceQuery,
-};
+use srs_repository::context_query_service::{self, FieldContextQuery, RecordContextQuery};
 
 #[derive(Subcommand)]
 pub enum ContextCommand {
-    /// Assemble context for a single field: current value, revision history, aiGuidance
+    /// Assemble context for a single field: current value, aiGuidance
     Field {
         /// Record instance ID
         record_id: String,
@@ -21,15 +19,6 @@ pub enum ContextCommand {
         /// Record instance ID
         record_id: String,
     },
-    /// Trace a revision: value, source refs, and prior revision chain
-    Revision {
-        /// Record instance ID
-        record_id: String,
-        /// Field ID
-        field_id: String,
-        /// Revision ID to trace
-        revision_id: String,
-    },
 }
 
 pub fn dispatch(ctx: CliContext, cmd: ContextCommand) -> Result<String> {
@@ -39,11 +28,6 @@ pub fn dispatch(ctx: CliContext, cmd: ContextCommand) -> Result<String> {
             field_id,
         } => cmd_context_field(ctx, record_id, field_id),
         ContextCommand::Record { record_id } => cmd_context_record(ctx, record_id),
-        ContextCommand::Revision {
-            record_id,
-            field_id,
-            revision_id,
-        } => cmd_context_revision(ctx, record_id, field_id, revision_id),
     }
 }
 
@@ -66,7 +50,6 @@ fn cmd_context_field(ctx: CliContext, record_id: String, field_id: String) -> Re
                     field_namespace: result.field_namespace,
                     ai_guidance: result.ai_guidance,
                     current_value: result.current_value,
-                    revisions: result.revisions,
                     tagged_chunks: result.tagged_chunks,
                 },
             ),
@@ -99,36 +82,6 @@ fn cmd_context_record(ctx: CliContext, record_id: String) -> Result<String> {
                 },
             ),
             Err(e) => Ok(output::err("context record", vec![e.to_string()])),
-        },
-    )
-}
-
-fn cmd_context_revision(
-    ctx: CliContext,
-    record_id: String,
-    field_id: String,
-    revision_id: String,
-) -> Result<String> {
-    with_store(
-        &ctx,
-        |store| match context_query_service::get_revision_trace(
-            store,
-            RevisionTraceQuery {
-                record_id: record_id.clone(),
-                field_id: field_id.clone(),
-                revision_id: revision_id.clone(),
-            },
-        ) {
-            Ok(result) => output::serialize(
-                "context revision",
-                ContextRevisionTracePayload {
-                    record_id: result.record_id,
-                    field_id: result.field_id,
-                    revision: result.revision,
-                    prior_chain: result.prior_chain,
-                },
-            ),
-            Err(e) => Ok(output::err("context revision", vec![e.to_string()])),
         },
     )
 }
