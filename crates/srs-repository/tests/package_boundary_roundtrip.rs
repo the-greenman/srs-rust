@@ -27,6 +27,20 @@
 //! kind's id *set* (not just a duplicate-free count) survives the round trip
 //! unchanged — the exact assertion that must fail red against the pre-#941
 //! snapshot shape and pass green once `protocols` is carried through it.
+//!
+//! srs-rust#946/#947 close a sibling gap in the same struct: it carried every
+//! *definition* kind (fields, types, ... protocols) but nothing of the
+//! boundary's own `package.json` scalar metadata. `import_package_boundary`
+//! hardcoded `title` <- `name`, `description` <- `""`, `status` <- `"active"`,
+//! `createdAt` <- a fixed placeholder, and silently dropped
+//! `packageDependencies` entirely (found rebuilding `com.mudemocracy.governance`
+//! 1.2.1 via `repo copy` — srs#553/#947 — and by PR #945's sweep — #946).
+//! `assert_boundary_metadata_identical` below reads the boundary's own
+//! `package.json` before and after and asserts `title`/`description`/`status`/
+//! `createdAt`/`updatedAt`/`dataModelRevision`/`packageDependencies` are
+//! byte-identical — the fixture's primary and sub-package boundaries both
+//! carry distinct, non-default values for every one of those keys, so a
+//! hardcoded-default reconstruction cannot accidentally pass.
 
 use srs_repository::catalog;
 use srs_repository::field_type_migration_service::CURRENT_DATA_MODEL_REVISION;
@@ -73,10 +87,22 @@ fn current_revision_source_with_subpackage() -> FileStore {
                     "namespace": "com.semanticops.roundtrip",
                     "name": "primary",
                     "version": "1.0.0",
-                    "title": "Primary Package",
-                    "description": "Primary boundary — owns exactly one field.",
-                    "status": "active",
-                    "createdAt": "2026-01-01T00:00:00Z",
+                    "title": "Primary Package Display Title",
+                    "description": "A substantial multi-sentence description of the primary \
+                                     boundary, distinct from its machine name — the exact \
+                                     shape srs#553's governance-seed rebuild found downgraded \
+                                     to the bare package name and an empty string.",
+                    "status": "deprecated",
+                    "createdAt": "2025-03-14T09:26:00Z",
+                    "updatedAt": "2025-11-02T18:00:00Z",
+                    "dataModelRevision": CURRENT_DATA_MODEL_REVISION,
+                    "packageDependencies": [
+                        {
+                            "namespace": "com.semanticops.roundtrip.external",
+                            "name": "external-dep",
+                            "version": "3.2.1",
+                        },
+                    ],
                     "fields": ["fields/primary.json"],
                     "types": [],
                     "protocols": ["protocols/decision.json"],
@@ -110,11 +136,19 @@ fn current_revision_source_with_subpackage() -> FileStore {
                     "namespace": "com.semanticops.roundtrip.sub",
                     "name": "sub",
                     "version": "1.0.0",
-                    "title": "Sub Package",
+                    "title": "Sub Package Display Title",
                     "description": "Sub-package boundary — owns exactly one field, distinct \
-                                     from the primary's.",
-                    "status": "active",
-                    "createdAt": "2026-01-01T00:00:00Z",
+                                     from the primary's, with its own distinct display title \
+                                     and description.",
+                    "status": "draft",
+                    "createdAt": "2025-06-01T12:00:00Z",
+                    "packageDependencies": [
+                        {
+                            "namespace": "com.semanticops.roundtrip.sub.external",
+                            "name": "sub-external-dep",
+                            "version": "0.9.0",
+                        },
+                    ],
                     "fields": ["fields/sub.json"],
                     "types": [],
                 },
@@ -163,6 +197,53 @@ fn assert_one_home_per_definition(store: &dyn RepositoryStore) {
     assert!(
         !primary_fields.iter().any(|p| p.contains("sub")),
         "the sub-package's field must not have been flattened into the primary boundary: {primary_fields:?}"
+    );
+}
+
+/// The package.json scalar/passthrough properties srs-rust#946/#947 fixed —
+/// everything in the schema besides identity (id/namespace/name/version,
+/// asserted separately by `definition_id_sets`/`assert_one_home_per_definition`)
+/// and the definition-file path arrays (which are legitimately recomputed by
+/// every import, never expected to stay byte-identical).
+const BOUNDARY_METADATA_KEYS: &[&str] = &[
+    "title",
+    "description",
+    "status",
+    "createdAt",
+    "updatedAt",
+    "dataModelRevision",
+    "packageDependencies",
+];
+
+fn extract_boundary_metadata(
+    pkg_json: &serde_json::Value,
+) -> BTreeMap<&'static str, serde_json::Value> {
+    BOUNDARY_METADATA_KEYS
+        .iter()
+        .filter_map(|&key| pkg_json.get(key).map(|v| (key, v.clone())))
+        .collect()
+}
+
+/// Asserts a package boundary's own `package.json` scalar metadata — `title`,
+/// `description`, `status`, `createdAt`, `updatedAt`, `dataModelRevision`,
+/// `packageDependencies` — is byte-identical between `before` (the source's
+/// on-disk package.json) and `after` (the same boundary's package.json post
+/// round-trip). Red against pre-#946/#947 code: `import_package_boundary`
+/// hardcoded `title`<-name, `description`<-"", `status`<-"active",
+/// `createdAt`<-a fixed placeholder, and never wrote `packageDependencies`,
+/// `updatedAt`, or `dataModelRevision` at all.
+fn assert_boundary_metadata_identical(
+    before: &serde_json::Value,
+    after: &serde_json::Value,
+    label: &str,
+) {
+    let before_meta = extract_boundary_metadata(before);
+    let after_meta = extract_boundary_metadata(after);
+    assert_eq!(
+        before_meta, after_meta,
+        "{label}: package.json metadata changed across the round trip \
+         (title/description/status/createdAt/updatedAt/dataModelRevision/packageDependencies \
+         must survive verbatim) — before={before_meta:?} after={after_meta:?}"
     );
 }
 
@@ -247,6 +328,32 @@ fn repo_copy_round_trip_preserves_package_boundaries_at_current_revision() {
         1,
         "fixture must declare exactly one protocol"
     );
+    let source_primary_pkg = source.load_instance_json("package/package.json").unwrap();
+    let source_sub_pkg = source
+        .load_instance_json("package/sub/package.json")
+        .unwrap();
+    // Sanity: the fixture itself must actually carry non-default values for
+    // every metadata key under test, or a hardcoded-default reconstruction
+    // could accidentally satisfy the equality assertions below.
+    let source_primary_meta = extract_boundary_metadata(&source_primary_pkg);
+    for key in BOUNDARY_METADATA_KEYS {
+        assert!(
+            source_primary_meta.contains_key(key),
+            "fixture's primary package.json must declare '{key}' for this test to be meaningful"
+        );
+    }
+    assert_ne!(
+        source_primary_meta["title"],
+        serde_json::json!("primary"),
+        "fixture title must differ from the package name (else a name-as-title \
+         bug would go undetected)"
+    );
+    assert_ne!(
+        source_primary_meta["description"],
+        serde_json::json!(""),
+        "fixture description must be non-empty (else an empty-string-default bug \
+         would go undetected)"
+    );
 
     // file -> .srsj (export): the exact step srs#256 found broken.
     let exported = srs_repository::tree_session::new_tree_session();
@@ -257,6 +364,18 @@ fn repo_copy_round_trip_preserves_package_boundaries_at_current_revision() {
         &before,
         &definition_id_sets(&exported),
         "export (file -> .srsj)",
+    );
+    assert_boundary_metadata_identical(
+        &source_primary_pkg,
+        &exported.load_instance_json("package/package.json").unwrap(),
+        "export (file -> .srsj), primary boundary",
+    );
+    assert_boundary_metadata_identical(
+        &source_sub_pkg,
+        &exported
+            .load_instance_json("package/sub/package.json")
+            .unwrap(),
+        "export (file -> .srsj), sub-package boundary",
     );
 
     // .srsj -> file (reimport): srs#256 saw this fail with 446
@@ -269,6 +388,20 @@ fn repo_copy_round_trip_preserves_package_boundaries_at_current_revision() {
         &before,
         &definition_id_sets(&reimported),
         "reimport (.srsj -> file)",
+    );
+    assert_boundary_metadata_identical(
+        &source_primary_pkg,
+        &reimported
+            .load_instance_json("package/package.json")
+            .unwrap(),
+        "reimport (.srsj -> file), primary boundary",
+    );
+    assert_boundary_metadata_identical(
+        &source_sub_pkg,
+        &reimported
+            .load_instance_json("package/sub/package.json")
+            .unwrap(),
+        "reimport (.srsj -> file), sub-package boundary",
     );
 
     // Both definitions must still be present exactly once each, under their
