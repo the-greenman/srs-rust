@@ -1,3 +1,4 @@
+use crate::types::field::AiGuidance;
 use serde::{Deserialize, Serialize};
 
 /// A reference to a Field within a Type, per ext:protocol FieldRef definition.
@@ -29,8 +30,13 @@ pub struct ProtocolStage {
     pub completion_criteria: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contributes_to: Option<Vec<FieldRef>>,
+    /// Extraction guidance for an AI assistant working this stage. The closed,
+    /// structured [`AiGuidance`] object used everywhere else in the model —
+    /// no plain-string alternative (rfc-decision-a270e98a, srs#379: structured
+    /// over serialised; `Field.aiGuidance` is core/typed/always with no string
+    /// escape hatch, and `ProtocolStage` gets none either).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ai_guidance: Option<serde_json::Value>,
+    pub ai_guidance: Option<AiGuidance>,
     /// srs#487/#868: a bare-UUID LINEAGE reference (rfc-decision-c8704763) — `typeVersion`
     /// dropped, the pre-RFC-009 version-optional `TypeRef` object form retired.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,6 +49,13 @@ pub struct ProtocolStage {
 /// `package/protocols/`), exactly parallel to [`crate::types::blueprint::Blueprint`].
 /// Per the spec (subsection 05-1-5-1, Invariant 037) Protocols are definitions, not
 /// instance Records.
+///
+/// Identity/structural property names are UNPREFIXED (`id`, `namespace`, `name`,
+/// `version`, `description`, `targetType`, `stages`, `tags`, `createdAt`), matching
+/// every other package-declared definition entity — Type, Field, Vocabulary,
+/// Lifecycle, RelationTypeDefinition, Theme, Blueprint all reuse the shared
+/// identity shape unprefixed. The interim `protocol`-prefixed shape (#297/#378)
+/// is retired (rfc-decision-a270e98a, srs#379; srs-rust#930).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Protocol {
@@ -50,17 +63,19 @@ pub struct Protocol {
     /// preserved so a loaded-then-written definition keeps it.
     #[serde(rename = "$schema", default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
-    pub protocol_id: String,
-    pub protocol_namespace: String,
-    pub protocol_name: String,
-    pub protocol_version: i32,
+    pub id: String,
+    pub namespace: String,
+    pub name: String,
+    pub version: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub protocol_description: Option<String>,
-    pub protocol_target_type: String,
-    pub protocol_stages: Vec<ProtocolStage>,
+    pub description: Option<String>,
+    /// A LINEAGE reference (bare Type UUID, or `""`; rfc-decision-c8704763) —
+    /// value shape unchanged by the rfc-decision-a270e98a rename, property name only.
+    pub target_type: String,
+    pub stages: Vec<ProtocolStage>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub protocol_tags: Option<Vec<String>>,
-    pub protocol_created_at: String,
+    pub tags: Option<Vec<String>>,
+    pub created_at: String,
 }
 
 /// Protocol validation diagnostic

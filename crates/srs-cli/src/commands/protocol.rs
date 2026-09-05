@@ -118,7 +118,7 @@ fn cmd_protocol_stages(ctx: CliContext, id: String) -> Result<String> {
                     })
                     .collect()
             }),
-            ai_guidance: s.ai_guidance,
+            ai_guidance: s.ai_guidance.and_then(|g| serde_json::to_value(g).ok()),
             output_type: s.output_type,
         })
         .collect();
@@ -261,7 +261,7 @@ fn cmd_protocol_find_by_target_type(ctx: CliContext, type_id: String) -> Result<
                             })
                             .collect()
                     }),
-                    ai_guidance: s.ai_guidance,
+                    ai_guidance: s.ai_guidance.and_then(|g| serde_json::to_value(g).ok()),
                     output_type: s.output_type,
                 })
                 .collect();

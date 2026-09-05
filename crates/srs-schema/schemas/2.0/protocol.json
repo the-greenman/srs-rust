@@ -2,16 +2,16 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://srs.semanticops.com/schema/2.0/protocol.json",
   "title": "SRS Protocol Definition (ext:protocol)",
-  "description": "An epistemically ordered process for building quality Records through structured conversation or facilitation. A Protocol is a package definition — declared in package-manifest.json's `protocols` array and stored under the package's `protocols/` subtree — not an instance Record. RFC-038 [R8] classifies a declared definition against the schema for its declared kind; this file is that schema, owed by RFC-038's Schema-changes table and landed by the #297 cutover. Property names carry the `protocol` prefix, which is the shape the corpus, the CLI and the reference implementation all use.",
+  "description": "An epistemically ordered process for building quality Records through structured conversation or facilitation. A Protocol is a package definition — declared in package-manifest.json's `protocols` array and stored under the package's `protocols/` subtree — not an instance Record. RFC-038 [R8] classifies a declared definition against the schema for its declared kind; this file is that schema, owed by RFC-038's Schema-changes table and landed by the #297 cutover. Property names are unprefixed (`id`, `stages`, ...), matching every other package-declared definition entity (Type, Field, Vocabulary, Lifecycle, RelationTypeDefinition, Theme, Blueprint) — ruled by rfc-decision (srs#379) over the interim `protocol`-prefixed shape #297/#378 landed to match the implementation of the day. The implementation-side rename (Rust structs, CLI, one still-vendored example corpus) is a tracked srs-rust follow-up; this file already reflects the ruled target shape.",
   "type": "object",
   "required": [
-    "protocolId",
-    "protocolNamespace",
-    "protocolName",
-    "protocolVersion",
-    "protocolTargetType",
-    "protocolStages",
-    "protocolCreatedAt"
+    "id",
+    "namespace",
+    "name",
+    "version",
+    "targetType",
+    "stages",
+    "createdAt"
   ],
   "additionalProperties": false,
   "properties": {
@@ -20,49 +20,49 @@
       "const": "https://srs.semanticops.com/schema/2.0/protocol.json",
       "description": "Optional schema declaration. When present it must name this schema — a Protocol is classified by the package manifest's `protocols` array, so the declaration is confirmation, not the classifier."
     },
-    "protocolId": {
+    "id": {
       "type": "string",
       "format": "uuid",
       "description": "Stable UUID identity for this Protocol definition. Globally stable across copy and import."
     },
-    "protocolNamespace": {
+    "namespace": {
       "type": "string",
       "description": "The namespace this Protocol belongs to. Canonical form is namespace/name@version."
     },
-    "protocolName": {
+    "name": {
       "type": "string",
       "description": "snake_case or kebab-case name, unique within the namespace."
     },
-    "protocolVersion": {
+    "version": {
       "type": "integer",
       "minimum": 1,
       "description": "Monotonically increasing version within this UUID lineage. Starts at 1. Changing namespace or name requires a new UUID."
     },
-    "protocolDescription": {
+    "description": {
       "type": "string",
       "description": "What this Protocol is for and when to run it."
     },
-    "protocolTargetType": {
+    "targetType": {
       "oneOf": [
         { "type": "string", "format": "uuid" },
         { "type": "string", "const": "" }
       ],
       "description": "The Record type this Protocol converges on — a LINEAGE reference (bare Type UUID; rfc-decision-c8704763). The canonical namespace/name@version form is DISPLAY-only and is never stored here. Loose exploratory Protocols whose output is input context for a tighter Protocol may carry an empty string."
     },
-    "protocolStages": {
+    "stages": {
       "type": "array",
       "description": "The stages, in declaration order. Execution sequence is determined by dependsOn resolution, not by array position; `order` is the declared composition order of the stages — structure, not presentation; it provides the render default (Invariant 31).",
       "items": {
         "$ref": "#/$defs/ProtocolStage"
       }
     },
-    "protocolTags": {
+    "tags": {
       "type": "array",
       "items": {
         "type": "string"
       }
     },
-    "protocolCreatedAt": {
+    "createdAt": {
       "type": "string",
       "format": "date-time"
     }
@@ -84,7 +84,7 @@
         },
         "name": {
           "type": "string",
-          "description": "Short human-readable stage name."
+          "description": "Short human-readable stage name (e.g. \"Background\", \"Key requirements\") — not the definitional snake_case name every other entity's `name` property carries."
         },
         "order": {
           "type": "integer",
@@ -123,15 +123,8 @@
           "description": "Present when this stage produces its own intermediate Record. A LINEAGE reference (bare Type UUID; rfc-decision-c8704763) — the effective package set resolves it. Previously the version-optional TypeRef object; typeVersion is dropped (version-optional hybrids are forbidden)."
         },
         "aiGuidance": {
-          "description": "Extraction guidance for an AI assistant working this stage. A plain string, or the structured AiGuidance object used elsewhere in the model.",
-          "oneOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "object"
-            }
-          ]
+          "$ref": "#/$defs/AiGuidance",
+          "description": "Extraction guidance for an AI assistant working this stage. The closed, structured AiGuidance object used everywhere else in the model — not a plain string (rfc-decision, srs#379: structured over serialised; Field.aiGuidance is core/typed/always with no string escape hatch, and ProtocolStage gets none either)."
         }
       }
     },
@@ -151,6 +144,50 @@
           "type": "string",
           "format": "uuid",
           "description": "Which Type this Field appears in, when the same fieldId appears in several."
+        }
+      }
+    },
+    "AiGuidance": {
+      "$comment": "Canonical source: field.json $defs.com.semanticops.srs__ai-guidance__v1. Kept byte-identical here rather than a cross-file $ref because scripts/lib/json-schema-lite.mjs (the validate-all package/record validator) only resolves local '#/...' refs — same precedent as blueprint.json's ExactTypeRef copy.",
+      "type": "object",
+      "required": [
+        "purpose"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "purpose": {
+          "type": "string"
+        },
+        "extraction": {
+          "type": "string"
+        },
+        "negativeGuidance": {
+          "type": "string",
+          "title": "Negative Guidance"
+        },
+        "examples": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AiGuidanceExample"
+          }
+        }
+      }
+    },
+    "AiGuidanceExample": {
+      "type": "object",
+      "required": [
+        "output"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "input": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
         }
       }
     }

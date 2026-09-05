@@ -263,7 +263,6 @@ pub fn export_repository_snapshot_with_options(
         })
         .unwrap_or_default();
 
-    let mut package_boundaries: Vec<Option<String>> = vec![None];
     let refs: Vec<RawPackageRef> = match manifest.extra.get("packageRefs") {
         None => Vec::new(),
         Some(v) => {
@@ -272,16 +271,24 @@ pub fn export_repository_snapshot_with_options(
             })?
         }
     };
-    package_boundaries.extend(
-        refs.into_iter()
-            .filter(|r| r.mode == "local")
-            .map(|r| Some(r.path)),
-    );
 
+    // Sub-packages first, so the primary boundary (below) can be exported
+    // with their ids subtracted (srs-rust#934) — never the reverse.
     let mut packages = Vec::new();
-    for boundary in package_boundaries {
-        packages.push(export_package_boundary(source, boundary)?);
+    for path in refs
+        .into_iter()
+        .filter(|r| r.mode == "local")
+        .map(|r| r.path)
+    {
+        packages.push(export_package_boundary(
+            source,
+            Some(path),
+            &SubPackageIds::default(),
+        )?);
     }
+    let sub_ids = SubPackageIds::from_boundaries(&packages);
+    let primary = export_package_boundary(source, None, &sub_ids)?;
+    packages.insert(0, primary);
 
     // Collect source documents (RFC-017; ADR-031). RFC-038 [R25]: resolved via
     // sidecar discovery — the catalog's source-document set — not
@@ -602,11 +609,67 @@ pub fn copy_repository(
     import_repository_snapshot(target, &snapshot)
 }
 
+/// Ids already claimed by a sub-package boundary — subtracted from the merged
+/// primary-boundary view in `export_package_boundary` so a definition that
+/// lives in (and is exported from) a sub-package is never *also* re-declared
+/// under the primary (srs-rust#934). Built by the caller from the
+/// already-exported `Some(path)` boundaries before the `None` (primary) one
+/// is exported.
+#[derive(Default)]
+struct SubPackageIds {
+    fields: std::collections::HashSet<String>,
+    record_types: std::collections::HashSet<String>,
+    relation_type_definitions: std::collections::HashSet<String>,
+    views: std::collections::HashSet<String>,
+    compositions: std::collections::HashSet<String>,
+    blueprints: std::collections::HashSet<String>,
+    themes: std::collections::HashSet<String>,
+    vocabularies: std::collections::HashSet<String>,
+    lifecycles: std::collections::HashSet<String>,
+}
+
+impl SubPackageIds {
+    fn from_boundaries(boundaries: &[PackageBoundarySnapshot]) -> Self {
+        let mut ids = Self::default();
+        for b in boundaries {
+            ids.fields.extend(b.fields.iter().map(|f| f.id.clone()));
+            ids.record_types
+                .extend(b.record_types.iter().map(|t| t.id.clone()));
+            ids.relation_type_definitions
+                .extend(b.relation_type_definitions.iter().map(|t| t.id.clone()));
+            ids.views.extend(b.views.iter().map(|v| v.id.clone()));
+            ids.compositions
+                .extend(b.compositions.iter().map(|c| c.id.clone()));
+            ids.blueprints
+                .extend(b.blueprints.iter().map(|bp| bp.id.clone()));
+            ids.themes.extend(b.themes.iter().map(|t| t.id.clone()));
+            ids.vocabularies
+                .extend(b.vocabularies.iter().map(|v| v.id.clone()));
+            ids.lifecycles
+                .extend(b.lifecycles.iter().map(|l| l.id.clone()));
+        }
+        ids
+    }
+}
+
 fn export_package_boundary(
     source: &dyn RepositoryStore,
     boundary_path: Option<String>,
+    sub_ids: &SubPackageIds,
 ) -> Result<PackageBoundarySnapshot, RepositoryError> {
     if boundary_path.is_none() {
+        // `RepositoryStore::load_package()` intentionally merges every
+        // `manifest.packageRefs` sub-package (plus core-injected built-ins,
+        // e.g. `MemoryStore`'s in-memory-only fixtures) into one resolved
+        // view for validation/type-resolution consumers — that merge is
+        // exactly right for those consumers, but re-exporting it verbatim
+        // as "the primary boundary" duplicated every sub-package's own
+        // definitions under the primary too (srs-rust#934): each definition
+        // must keep its one on-disk package-root home. Subtract anything
+        // already claimed by a sub-package boundary (computed by the caller
+        // from that boundary's own `export_package_boundary` result) —
+        // whatever is left is the primary's own content plus any
+        // core-injected definitions no sub-package claimed.
         let pkg = source.load_package()?;
         return Ok(PackageBoundarySnapshot {
             boundary_path: None,
@@ -616,15 +679,52 @@ fn export_package_boundary(
                 name: pkg.name,
                 version: pkg.version,
             },
-            fields: pkg.fields,
-            record_types: pkg.record_types,
-            relation_type_definitions: pkg.relation_type_definitions,
-            views: pkg.views,
-            compositions: pkg.compositions,
-            blueprints: pkg.blueprints.into_iter().map(|lb| lb.blueprint).collect(),
-            themes: pkg.themes,
-            vocabularies: pkg.vocabularies,
-            lifecycles: pkg.lifecycles,
+            fields: pkg
+                .fields
+                .into_iter()
+                .filter(|f| !sub_ids.fields.contains(&f.id))
+                .collect(),
+            record_types: pkg
+                .record_types
+                .into_iter()
+                .filter(|t| !sub_ids.record_types.contains(&t.id))
+                .collect(),
+            relation_type_definitions: pkg
+                .relation_type_definitions
+                .into_iter()
+                .filter(|t| !sub_ids.relation_type_definitions.contains(&t.id))
+                .collect(),
+            views: pkg
+                .views
+                .into_iter()
+                .filter(|v| !sub_ids.views.contains(&v.id))
+                .collect(),
+            compositions: pkg
+                .compositions
+                .into_iter()
+                .filter(|c| !sub_ids.compositions.contains(&c.id))
+                .collect(),
+            blueprints: pkg
+                .blueprints
+                .into_iter()
+                .map(|lb| lb.blueprint)
+                .filter(|bp| !sub_ids.blueprints.contains(&bp.id))
+                .collect(),
+            themes: pkg
+                .themes
+                .into_iter()
+                .filter(|t| !sub_ids.themes.contains(&t.id))
+                .collect(),
+            vocabularies: pkg
+                .vocabularies
+                .into_iter()
+                .filter(|v| !sub_ids.vocabularies.contains(&v.id))
+                .collect(),
+            lifecycles: pkg
+                .lifecycles
+                .into_iter()
+                .filter(|l| !sub_ids.lifecycles.contains(&l.id))
+                .collect(),
         });
     }
 

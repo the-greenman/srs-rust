@@ -6907,13 +6907,13 @@ mod tests {
     fn minimal_protocol_json(id: &str, with_cycle: bool) -> Value {
         if with_cycle {
             json!({
-                "protocolId": id,
-                "protocolNamespace": "com.test",
-                "protocolName": "test-protocol",
-                "protocolVersion": 1,
-                "protocolTargetType": "00000000-0000-4000-8000-000000000040",
-                "protocolCreatedAt": "2026-01-01T00:00:00Z",
-                "protocolStages": [
+                "id": id,
+                "namespace": "com.test",
+                "name": "test-protocol",
+                "version": 1,
+                "targetType": "00000000-0000-4000-8000-000000000040",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "stages": [
                     {
                         "stageId": "stage-a",
                         "name": "Stage A",
@@ -6930,13 +6930,13 @@ mod tests {
             })
         } else {
             json!({
-                "protocolId": id,
-                "protocolNamespace": "com.test",
-                "protocolName": "test-protocol",
-                "protocolVersion": 1,
-                "protocolTargetType": "00000000-0000-4000-8000-000000000040",
-                "protocolCreatedAt": "2026-01-01T00:00:00Z",
-                "protocolStages": [
+                "id": id,
+                "namespace": "com.test",
+                "name": "test-protocol",
+                "version": 1,
+                "targetType": "00000000-0000-4000-8000-000000000040",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "stages": [
                     {
                         "stageId": "stage-a",
                         "name": "Stage A",
