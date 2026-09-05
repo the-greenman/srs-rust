@@ -1723,15 +1723,19 @@ pub fn validate_repository(
                     continue;
                 };
                 let container_id = container.container_id.clone();
-                let (Some(ctype), Some(roots)) =
-                    (&container.container_type, &container.root_instance_ids)
+                let Some(ctype) = &container.container_type else {
+                    continue;
+                };
+                // Route through the sanctioned typing-anchor resolution (srs#446/I-145)
+                // instead of reading `rootInstanceIds.first()` directly, so this hint
+                // agrees with what `view_service::document_views_for_container` (and
+                // every other typing-anchor consumer) actually resolves against for a
+                // container that declares an explicit `anchorInstanceId` — srs-rust#908.
+                let Some(anchor) = crate::container_service::typing_anchor_instance_id(&container)
                 else {
                     continue;
                 };
-                let Some(first_root) = roots.first() else {
-                    continue;
-                };
-                let Some(path) = id_to_path.get(first_root) else {
+                let Some(path) = id_to_path.get(&anchor) else {
                     continue;
                 };
                 let Ok(val) = store.load_instance_json(path) else {
@@ -5273,6 +5277,233 @@ mod tests {
                 .iter()
                 .any(|d| d.message.contains("I-64") && d.severity == DiagnosticSeverity::Warning),
             "expected an I-64 warning, got {:?}",
+            report.diagnostics
+        );
+    }
+
+    /// srs-rust#908: I-64 must check the declared `anchorInstanceId`'s type,
+    /// not `rootInstanceIds[0]`'s, when the two disagree — matching what
+    /// `view_service::document_views_for_container` (and every other
+    /// typing-anchor consumer, srs#446/I-145) actually resolves against.
+    /// Sets up a container whose `anchorInstanceId` names a record matching
+    /// `containerType`, but whose `rootInstanceIds[0]` is a *different*
+    /// record of a mismatching type — the old `roots.first()` read would have
+    /// fired a false-positive I-64 warning here.
+    #[test]
+    fn validate_i64_checks_the_declared_anchor_not_the_positional_root() {
+        let temp = TempDir::new().unwrap();
+        let guide_type_id = "00000000-0000-4000-8000-000000000abc";
+        let other_type_id = "00000000-0000-4000-8000-000000000abd";
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "00000000-0000-4000-8000-000000000010",
+                "namespace": "com.test",
+                "name": "test-package",
+                "title": "Test Package",
+                "description": "test package",
+                "status": "active",
+                "version": "1.0.0",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [],
+                "types": ["types/guide.json", "types/other.json"],
+                "views": [],
+                "compositions": []
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/types/guide.json",
+            &json!({
+                "id": guide_type_id,
+                "namespace": "com.test",
+                "name": "guide",
+                "version": 1,
+                "description": "guide type",
+                "fields": [],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/types/other.json",
+            &json!({
+                "id": other_type_id,
+                "namespace": "com.test",
+                "name": "other",
+                "version": 1,
+                "description": "other type",
+                "fields": [],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let anchor_record = crate::record_store::create_record(
+            &store,
+            guide_type_id,
+            1,
+            srs_core::types::record::FieldValues::new(),
+            None,
+            None,
+        )
+        .unwrap();
+        let positional_root_record = crate::record_store::create_record(
+            &store,
+            other_type_id,
+            1,
+            srs_core::types::record::FieldValues::new(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        // containerType matches the ANCHOR's type ("guide"), but rootInstanceIds[0]
+        // is the mismatching "other" record — the old positional read would fire
+        // I-64 here; the fix must not.
+        let container = srs_core::types::container::Container {
+            container_id: "00000000-0000-4000-8000-0000000000c4".to_string(),
+            title: "Anchored guide container".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: Some("guide".to_string()),
+            identity_instance_id: None,
+            anchor_instance_id: Some(anchor_record.instance_id.clone()),
+            root_instance_ids: Some(vec![
+                positional_root_record.instance_id.clone(),
+                anchor_record.instance_id.clone(),
+            ]),
+            member_instance_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::BTreeMap::new(),
+        };
+        crate::container_service::create_container(&store, container).unwrap();
+
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            !report
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("I-64")),
+            "I-64 must check the declared anchor's type, not rootInstanceIds[0]'s: {:?}",
+            report.diagnostics
+        );
+    }
+
+    /// The inverse of the above: `rootInstanceIds[0]` matches `containerType`,
+    /// but the declared `anchorInstanceId` (a different record) does not — the
+    /// old positional read would have silently passed; the fix must warn,
+    /// because the anchor is what actually gets used for typing (srs#446/I-145).
+    #[test]
+    fn validate_i64_flags_mismatch_against_anchor_even_when_positional_root_matches() {
+        let temp = TempDir::new().unwrap();
+        let guide_type_id = "00000000-0000-4000-8000-000000000abe";
+        let other_type_id = "00000000-0000-4000-8000-000000000abf";
+        write_json(temp.path(), "manifest.json", &minimal_manifest(json!([])));
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "00000000-0000-4000-8000-000000000010",
+                "namespace": "com.test",
+                "name": "test-package",
+                "title": "Test Package",
+                "description": "test package",
+                "status": "active",
+                "version": "1.0.0",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [],
+                "types": ["types/guide.json", "types/other.json"],
+                "views": [],
+                "compositions": []
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/types/guide.json",
+            &json!({
+                "id": guide_type_id,
+                "namespace": "com.test",
+                "name": "guide",
+                "version": 1,
+                "description": "guide type",
+                "fields": [],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/types/other.json",
+            &json!({
+                "id": other_type_id,
+                "namespace": "com.test",
+                "name": "other",
+                "version": 1,
+                "description": "other type",
+                "fields": [],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let positional_root_record = crate::record_store::create_record(
+            &store,
+            guide_type_id,
+            1,
+            srs_core::types::record::FieldValues::new(),
+            None,
+            None,
+        )
+        .unwrap();
+        let anchor_record = crate::record_store::create_record(
+            &store,
+            other_type_id,
+            1,
+            srs_core::types::record::FieldValues::new(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let container = srs_core::types::container::Container {
+            container_id: "00000000-0000-4000-8000-0000000000c5".to_string(),
+            title: "Anchor-mismatch container".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: Some("guide".to_string()),
+            identity_instance_id: None,
+            anchor_instance_id: Some(anchor_record.instance_id.clone()),
+            root_instance_ids: Some(vec![
+                positional_root_record.instance_id.clone(),
+                anchor_record.instance_id.clone(),
+            ]),
+            member_instance_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::BTreeMap::new(),
+        };
+        crate::container_service::create_container(&store, container).unwrap();
+
+        let report = validate_repository(&store).unwrap();
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("I-64") && d.severity == DiagnosticSeverity::Warning),
+            "expected an I-64 warning against the anchor's type ('other'), got: {:?}",
             report.diagnostics
         );
     }
