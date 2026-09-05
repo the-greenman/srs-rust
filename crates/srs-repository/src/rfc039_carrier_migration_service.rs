@@ -282,11 +282,104 @@ fn migrate_definitions(
     // inherited fields. Runs after ALL roots so cross-package bases resolve.
     resolve_inheritance(&mut types, &raw_types)?;
 
+    // srs-rust#816: re-pin Blueprint/Composition ExactTypeRefs whose
+    // (typeId, typeVersion) was bumped by Change E.2 above. Runs after ALL
+    // roots so a Composition/Blueprint in one package root can re-pin a
+    // Type minted in another. Definition-space only — Record/Note field
+    // values are re-pinned separately in `migrate_tier2`.
+    repin_type_ref_carriers(store, &package_roots, &version_bumps)?;
+
     Ok(DefinitionIndex {
         fields,
         types,
         version_bumps,
     })
+}
+
+/// srs-rust#816: walk every package root's `compositions[]` and
+/// `blueprints[]` definitions and rewrite any `ExactTypeRef`-shaped
+/// `{typeId, typeVersion}` object whose pair is a key in `version_bumps` —
+/// `Composition.rootTypeRefs`, and `Blueprint.rootTypes` /
+/// `Blueprint.structure[].sourceType` / `Blueprint.structure[].targetType` /
+/// `Blueprint.requiredTypes`. A stale pin otherwise survives the migration
+/// and a post-cutover engine cannot resolve it (live effect: srs-rust#816).
+fn repin_type_ref_carriers(
+    store: &dyn RepositoryStore,
+    package_roots: &[String],
+    version_bumps: &HashMap<(String, u64), u64>,
+) -> Result<(), RepositoryError> {
+    if version_bumps.is_empty() {
+        return Ok(());
+    }
+    for root in package_roots {
+        let Ok(pkg_json) = store.load_instance_json(&format!("{root}/package.json")) else {
+            continue;
+        };
+
+        for rel in list_of_strings(&pkg_json, "compositions") {
+            let path = format!("{root}/{rel}");
+            let Ok(mut doc) = store.load_instance_json(&path) else {
+                continue;
+            };
+            let mut changed = false;
+            if let Some(refs) = doc.get_mut("rootTypeRefs").and_then(|v| v.as_array_mut()) {
+                for r in refs.iter_mut() {
+                    changed |= repin_exact_type_ref(r, version_bumps);
+                }
+            }
+            if changed {
+                store.save_instance_json(&path, &doc)?;
+            }
+        }
+
+        for rel in list_of_strings(&pkg_json, "blueprints") {
+            let path = format!("{root}/{rel}");
+            let Ok(mut doc) = store.load_instance_json(&path) else {
+                continue;
+            };
+            let mut changed = false;
+            for key in ["rootTypes", "requiredTypes"] {
+                if let Some(refs) = doc.get_mut(key).and_then(|v| v.as_array_mut()) {
+                    for r in refs.iter_mut() {
+                        changed |= repin_exact_type_ref(r, version_bumps);
+                    }
+                }
+            }
+            if let Some(structure) = doc.get_mut("structure").and_then(|v| v.as_array_mut()) {
+                for spec in structure.iter_mut() {
+                    for key in ["sourceType", "targetType"] {
+                        if let Some(r) = spec.get_mut(key) {
+                            changed |= repin_exact_type_ref(r, version_bumps);
+                        }
+                    }
+                }
+            }
+            if changed {
+                store.save_instance_json(&path, &doc)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Rewrite one `{typeId, typeVersion}` object's `typeVersion` in place if the
+/// pair is a bumped key. Returns whether it changed. Shared shape for
+/// `ExactTypeRef` (Composition) and the (structurally identical, RFC-009 I-78)
+/// blueprint-side references.
+fn repin_exact_type_ref(r: &mut Value, version_bumps: &HashMap<(String, u64), u64>) -> bool {
+    let Some(type_id) = r.get("typeId").and_then(|v| v.as_str()).map(str::to_string) else {
+        return false;
+    };
+    let Some(old_version) = r.get("typeVersion").and_then(|v| v.as_u64()) else {
+        return false;
+    };
+    match version_bumps.get(&(type_id, old_version)) {
+        Some(&new_version) => {
+            r["typeVersion"] = Value::from(new_version);
+            true
+        }
+        None => false,
+    }
 }
 
 /// Mirror of `Package::effective_fields` (Inv 39–42) over the migration's raw
@@ -1237,6 +1330,10 @@ mod tests {
         /// Legacy pairs and nested group-entry pairs are stored in reverse
         /// assignment order ([R18] — encounter order must not leak through).
         reversed_pairs: bool,
+        /// A Composition and a Blueprint each pin `T_ITEM@1` (the Type that
+        /// Change E.2's FieldGroup minting bumps to version 2) via
+        /// ExactTypeRef — srs-rust#816.
+        pin_stale_type_refs: bool,
     }
 
     /// A revision-1 repository: legacy pair-array `fieldValues`, a dual-written
@@ -1369,7 +1466,9 @@ mod tests {
                         "fields/role.json", "fields/aliases.json"
                     ],
                     "types": ["types/item.json", "types/plain.json"],
-                    "views": [], "compositions": []
+                    "views": [],
+                    "compositions": if knobs.pin_stale_type_refs { vec!["compositions/dv.json"] } else { vec![] },
+                    "blueprints": if knobs.pin_stale_type_refs { vec!["blueprints/bp.json"] } else { vec![] }
                 },
                 "package/fields/title.json": field(F_TITLE, "title", json!({"datatype": "string"})),
                 "package/fields/labels.json":
@@ -1380,7 +1479,40 @@ mod tests {
                 "package/fields/aliases.json":
                     field(F_ALIASES, "aliases", json!({"datatype": "string", "cardinality": "list"})),
                 "package/types/item.json": item_type,
-                "package/types/plain.json": plain_type
+                "package/types/plain.json": plain_type,
+                "package/compositions/dv.json": if knobs.pin_stale_type_refs {
+                    json!({
+                        "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
+                        "id": "dd000001-0000-4000-d000-000000000001",
+                        "namespace": "com.test", "name": "dv", "version": 1,
+                        "description": "test composition",
+                        "rootTypeRefs": [{"typeId": T_ITEM, "typeVersion": 1}],
+                        "sections": [{
+                            "sectionId": "s1", "order": 0,
+                            "source": {"type": "discovery-query", "query": {"typeNamespace": "com.test", "typeName": "item"}}
+                        }],
+                        "createdAt": "2026-01-01T00:00:00Z"
+                    })
+                } else {
+                    json!(null)
+                },
+                "package/blueprints/bp.json": if knobs.pin_stale_type_refs {
+                    json!({
+                        "id": "dd000002-0000-4000-d000-000000000002",
+                        "namespace": "com.test", "name": "bp", "version": 1,
+                        "description": "test blueprint",
+                        "rootTypes": [{"typeId": T_ITEM, "typeVersion": 1}],
+                        "structure": [{
+                            "relationType": "contains",
+                            "sourceType": {"typeId": T_ITEM, "typeVersion": 1},
+                            "targetType": {"typeId": T_PLAIN, "typeVersion": 1}
+                        }],
+                        "requiredTypes": [{"typeId": T_ITEM, "typeVersion": 1}],
+                        "createdAt": "2026-01-01T00:00:00Z"
+                    })
+                } else {
+                    json!(null)
+                }
             }
         })
         .to_string()
@@ -1465,6 +1597,56 @@ mod tests {
             json!("bob")
         );
         assert!(record.get("groupValues").is_none());
+    }
+
+    #[test]
+    fn composition_and_blueprint_type_refs_repinned_after_version_bump() {
+        // srs-rust#816: T_ITEM bumps 1 -> 2 (Change E.2, same fixture as
+        // field_group_minted_as_composite_with_version_bump). A Composition's
+        // rootTypeRefs and a Blueprint's rootTypes/structure/requiredTypes each
+        // pin T_ITEM@1 — the migration must re-pin them to @2. T_PLAIN never
+        // bumps, so its pin in the same Blueprint's structure must survive
+        // untouched.
+        let store = crate::srsj::open_srsj(&fixture_srsj(&FixtureKnobs {
+            pin_stale_type_refs: true,
+            ..Default::default()
+        }))
+        .unwrap()
+        .with_rfc038_exemption();
+        migrate_carrier(&store).expect("migration must succeed");
+
+        let dv = store
+            .load_instance_json("package/compositions/dv.json")
+            .unwrap();
+        assert_eq!(
+            dv["rootTypeRefs"][0]["typeVersion"],
+            json!(2),
+            "Composition.rootTypeRefs must re-pin to the bumped version: {dv}"
+        );
+
+        let bp = store
+            .load_instance_json("package/blueprints/bp.json")
+            .unwrap();
+        assert_eq!(
+            bp["rootTypes"][0]["typeVersion"],
+            json!(2),
+            "Blueprint.rootTypes must re-pin to the bumped version: {bp}"
+        );
+        assert_eq!(
+            bp["structure"][0]["sourceType"]["typeVersion"],
+            json!(2),
+            "Blueprint.structure[].sourceType must re-pin: {bp}"
+        );
+        assert_eq!(
+            bp["structure"][0]["targetType"]["typeVersion"],
+            json!(1),
+            "Blueprint.structure[].targetType pins T_PLAIN, which never bumps — must stay: {bp}"
+        );
+        assert_eq!(
+            bp["requiredTypes"][0]["typeVersion"],
+            json!(2),
+            "Blueprint.requiredTypes must re-pin: {bp}"
+        );
     }
 
     #[test]
