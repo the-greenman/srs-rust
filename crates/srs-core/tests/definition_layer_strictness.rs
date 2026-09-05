@@ -88,11 +88,11 @@ fn definition_types_reject_unknown_keys() {
     rejects_unknown_key::<Protocol>(
         "Protocol",
         serde_json::json!({
-            "protocolId": "00000000-0000-4000-8000-000000000007",
-            "protocolNamespace": "com.test", "protocolName": "p",
-            "protocolVersion": 1, "protocolTargetType": "com.test/x",
-            "protocolStages": [],
-            "protocolCreatedAt": "2026-01-01T00:00:00Z"
+            "id": "00000000-0000-4000-8000-000000000007",
+            "namespace": "com.test", "name": "p",
+            "version": 1, "targetType": "com.test/x",
+            "stages": [],
+            "createdAt": "2026-01-01T00:00:00Z"
         }),
     );
 }

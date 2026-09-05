@@ -278,18 +278,18 @@ mod create_normalization_tests {
     fn protocol_create_defaults_created_at() {
         let store = MemoryStore::default();
         let raw = json!({
-            "protocolId": "22222222-2222-4222-8222-222222222222",
-            "protocolNamespace": "com.test",
-            "protocolName": "test-protocol",
-            "protocolVersion": 1,
-            "protocolTargetType": "com.test/thing",
-            "protocolStages": []
+            "id": "22222222-2222-4222-8222-222222222222",
+            "namespace": "com.test",
+            "name": "test-protocol",
+            "version": 1,
+            "targetType": "com.test/thing",
+            "stages": []
         });
         let result = crate::protocol_service::create_protocol(&store, raw, None)
-            .expect("protocol create without protocolCreatedAt should succeed");
-        let created = result.protocol["protocolCreatedAt"]
+            .expect("protocol create without createdAt should succeed");
+        let created = result.protocol["createdAt"]
             .as_str()
-            .expect("protocolCreatedAt should be stamped on the stored value");
+            .expect("createdAt should be stamped on the stored value");
         assert!(!created.is_empty());
     }
 
@@ -297,17 +297,17 @@ mod create_normalization_tests {
     fn protocol_create_honours_explicit_created_at() {
         let store = MemoryStore::default();
         let raw = json!({
-            "protocolId": "33333333-3333-4333-8333-333333333333",
-            "protocolNamespace": "com.test",
-            "protocolName": "test-protocol-2",
-            "protocolVersion": 1,
-            "protocolTargetType": "com.test/thing",
-            "protocolStages": [],
-            "protocolCreatedAt": "2021-01-01T00:00:00Z"
+            "id": "33333333-3333-4333-8333-333333333333",
+            "namespace": "com.test",
+            "name": "test-protocol-2",
+            "version": 1,
+            "targetType": "com.test/thing",
+            "stages": [],
+            "createdAt": "2021-01-01T00:00:00Z"
         });
         let result = crate::protocol_service::create_protocol(&store, raw, None).unwrap();
         assert_eq!(
-            result.protocol["protocolCreatedAt"].as_str(),
+            result.protocol["createdAt"].as_str(),
             Some("2021-01-01T00:00:00Z")
         );
     }

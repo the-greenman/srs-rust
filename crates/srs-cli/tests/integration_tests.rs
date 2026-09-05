@@ -3547,7 +3547,7 @@ fn extension_get_returns_extension_by_id() {
 //
 // Protocols are Package definitions (`Package.protocols[]`, files under `package/protocols/`),
 // not instance Records — per the spec (subsection 05-1-5-1, Invariant 037) and the conformance
-// fix for the-greenman/srs-rust#169. They are identified by `protocolId`; importing one does NOT
+// fix for the-greenman/srs-rust#169. They are identified by `id`; importing one does NOT
 // require a `meta.protocol` Type and does NOT create an instance Record.
 
 /// Create a temp repo with a minimal, valid empty package. No `meta.protocol` Type is needed —
@@ -3600,16 +3600,16 @@ fn create_temp_repo_with_protocol_package() -> TempDir {
 /// Canonical minimal protocol JSON for use with `srs protocol import`.
 fn minimal_protocol_json(id: &str, name: &str) -> String {
     serde_json::to_string(&serde_json::json!({
-        "protocolId": id,
-        "protocolNamespace": "com.test",
-        "protocolName": name,
-        "protocolVersion": 1,
-        "protocolTargetType": "meta.extension",
-        "protocolStages": [
+        "id": id,
+        "namespace": "com.test",
+        "name": name,
+        "version": 1,
+        "targetType": "meta.extension",
+        "stages": [
             {"stageId": "s1", "name": "Draft", "order": 1, "dependsOn": []},
             {"stageId": "s2", "name": "Review", "order": 2, "dependsOn": ["s1"]}
         ],
-        "protocolCreatedAt": "2026-05-29T00:00:00Z"
+        "createdAt": "2026-05-29T00:00:00Z"
     }))
     .unwrap()
 }
@@ -3646,10 +3646,7 @@ fn protocol_get_returns_protocol_by_id() {
         "get failed: {:?}",
         result["diagnostics"]
     );
-    assert_eq!(
-        result["payload"]["protocol"]["protocolId"],
-        "com.test/get-test@1"
-    );
+    assert_eq!(result["payload"]["protocol"]["id"], "com.test/get-test@1");
 }
 
 /// The core regression for #169: a Protocol stored as a Package definition satisfies BOTH
@@ -3679,17 +3676,17 @@ fn protocol_and_repo_validate_both_pass() {
 fn protocol_stages_returns_ordered_stages() {
     let temp = create_temp_repo_with_protocol_package();
     let stdin = serde_json::to_string(&serde_json::json!({
-        "protocolId": "com.test/staged@1",
-        "protocolNamespace": "com.test",
-        "protocolName": "staged",
-        "protocolVersion": 1,
-        "protocolTargetType": "meta.extension",
-        "protocolStages": [
+        "id": "com.test/staged@1",
+        "namespace": "com.test",
+        "name": "staged",
+        "version": 1,
+        "targetType": "meta.extension",
+        "stages": [
             {"stageId": "s3", "name": "Published", "order": 3, "dependsOn": ["s2"]},
             {"stageId": "s1", "name": "Draft", "order": 1, "dependsOn": []},
             {"stageId": "s2", "name": "Review", "order": 2, "dependsOn": ["s1"]}
         ],
-        "protocolCreatedAt": "2026-05-29T00:00:00Z"
+        "createdAt": "2026-05-29T00:00:00Z"
     }))
     .unwrap();
     let import = run_srs_stdin_in_dir(temp.path(), &["protocol", "import"], &stdin);
@@ -3711,14 +3708,14 @@ fn protocol_stages_returns_ordered_stages() {
 #[test]
 fn protocol_import_rejects_missing_required_field() {
     let temp = create_temp_repo_with_protocol_package();
-    // omit protocolTargetType
+    // omit targetType
     let bad = serde_json::to_string(&serde_json::json!({
-        "protocolId": "com.test/x@1",
-        "protocolNamespace": "com.test",
-        "protocolName": "x",
-        "protocolVersion": 1,
-        "protocolStages": [],
-        "protocolCreatedAt": "2026-05-29T00:00:00Z"
+        "id": "com.test/x@1",
+        "namespace": "com.test",
+        "name": "x",
+        "version": 1,
+        "stages": [],
+        "createdAt": "2026-05-29T00:00:00Z"
     }))
     .unwrap();
     let (_ok, result) = run_srs_stdin_any_status_in_dir(temp.path(), &["protocol", "import"], &bad);
@@ -3732,13 +3729,13 @@ fn protocol_import_rejects_missing_required_field() {
 fn protocol_import_rejects_invalid_version() {
     let temp = create_temp_repo_with_protocol_package();
     let bad = serde_json::to_string(&serde_json::json!({
-        "protocolId": "com.test/x@1",
-        "protocolNamespace": "com.test",
-        "protocolName": "x",
-        "protocolVersion": 0,
-        "protocolTargetType": "meta.extension",
-        "protocolStages": [],
-        "protocolCreatedAt": "2026-05-29T00:00:00Z"
+        "id": "com.test/x@1",
+        "namespace": "com.test",
+        "name": "x",
+        "version": 0,
+        "targetType": "meta.extension",
+        "stages": [],
+        "createdAt": "2026-05-29T00:00:00Z"
     }))
     .unwrap();
     let (_ok, result) = run_srs_stdin_any_status_in_dir(temp.path(), &["protocol", "import"], &bad);
@@ -3749,13 +3746,13 @@ fn protocol_import_rejects_invalid_version() {
 fn protocol_import_rejects_malformed_created_at() {
     let temp = create_temp_repo_with_protocol_package();
     let bad = serde_json::to_string(&serde_json::json!({
-        "protocolId": "com.test/x@1",
-        "protocolNamespace": "com.test",
-        "protocolName": "x",
-        "protocolVersion": 1,
-        "protocolTargetType": "meta.extension",
-        "protocolStages": [],
-        "protocolCreatedAt": "not-a-date"
+        "id": "com.test/x@1",
+        "namespace": "com.test",
+        "name": "x",
+        "version": 1,
+        "targetType": "meta.extension",
+        "stages": [],
+        "createdAt": "not-a-date"
     }))
     .unwrap();
     let (_ok, result) = run_srs_stdin_any_status_in_dir(temp.path(), &["protocol", "import"], &bad);
@@ -3766,15 +3763,15 @@ fn protocol_import_rejects_malformed_created_at() {
 fn protocol_import_rejects_stage_with_bad_depends_on() {
     let temp = create_temp_repo_with_protocol_package();
     let bad = serde_json::to_string(&serde_json::json!({
-        "protocolId": "com.test/x@1",
-        "protocolNamespace": "com.test",
-        "protocolName": "x",
-        "protocolVersion": 1,
-        "protocolTargetType": "meta.extension",
-        "protocolStages": [
+        "id": "com.test/x@1",
+        "namespace": "com.test",
+        "name": "x",
+        "version": 1,
+        "targetType": "meta.extension",
+        "stages": [
             {"stageId": "s1", "name": "A", "order": 1, "dependsOn": ["nonexistent"]}
         ],
-        "protocolCreatedAt": "2026-05-29T00:00:00Z"
+        "createdAt": "2026-05-29T00:00:00Z"
     }))
     .unwrap();
     let (_ok, result) = run_srs_stdin_any_status_in_dir(temp.path(), &["protocol", "import"], &bad);
@@ -3788,16 +3785,16 @@ fn protocol_export_import_roundtrip() {
 
     // Import into source repo, including a stage field beyond the ProtocolStage struct.
     let stdin = serde_json::to_string(&serde_json::json!({
-        "protocolId": "com.test/roundtrip@1",
-        "protocolNamespace": "com.test",
-        "protocolName": "roundtrip",
-        "protocolVersion": 1,
-        "protocolTargetType": "meta.extension",
-        "protocolStages": [
+        "id": "com.test/roundtrip@1",
+        "namespace": "com.test",
+        "name": "roundtrip",
+        "version": 1,
+        "targetType": "meta.extension",
+        "stages": [
             {"stageId": "a", "name": "Alpha", "order": 1, "dependsOn": [], "question": "Q?"},
             {"stageId": "b", "name": "Beta", "order": 2, "dependsOn": ["a"]}
         ],
-        "protocolCreatedAt": "2026-05-29T00:00:00Z"
+        "createdAt": "2026-05-29T00:00:00Z"
     }))
     .unwrap();
     let import1 = run_srs_stdin_in_dir(src.path(), &["protocol", "import"], &stdin);
@@ -3812,7 +3809,7 @@ fn protocol_export_import_roundtrip() {
         "export should not contain instanceId"
     );
     // Extra stage fields survive the round-trip (raw definition is stored verbatim).
-    assert_eq!(exported["protocolStages"][0]["question"], "Q?");
+    assert_eq!(exported["stages"][0]["question"], "Q?");
 
     // Import exported JSON into destination repo.
     let export_str = serde_json::to_string(exported).unwrap();
@@ -3824,10 +3821,7 @@ fn protocol_export_import_roundtrip() {
     );
 
     let got = run_srs_in_dir(dst.path(), &["protocol", "get", "com.test/roundtrip@1"]);
-    assert_eq!(
-        got["payload"]["protocol"]["protocolId"],
-        "com.test/roundtrip@1"
-    );
+    assert_eq!(got["payload"]["protocol"]["id"], "com.test/roundtrip@1");
     let stages = run_srs_in_dir(dst.path(), &["protocol", "stages", "com.test/roundtrip@1"]);
     let s = stages["payload"]["stages"].as_array().unwrap();
     assert_eq!(s.len(), 2);
@@ -3846,15 +3840,15 @@ fn protocol_update_replaces_definition() {
 
     // Update is a full replace — send a complete, valid protocol with a new single stage.
     let update = serde_json::to_string(&serde_json::json!({
-        "protocolId": "com.test/upd@1",
-        "protocolNamespace": "com.test",
-        "protocolName": "upd",
-        "protocolVersion": 1,
-        "protocolTargetType": "meta.extension",
-        "protocolStages": [
+        "id": "com.test/upd@1",
+        "namespace": "com.test",
+        "name": "upd",
+        "version": 1,
+        "targetType": "meta.extension",
+        "stages": [
             {"stageId": "x", "name": "Only", "order": 1, "dependsOn": []}
         ],
-        "protocolCreatedAt": "2026-05-29T00:00:00Z"
+        "createdAt": "2026-05-29T00:00:00Z"
     }))
     .unwrap();
     let result = run_srs_stdin_in_dir(
@@ -3881,15 +3875,15 @@ fn protocol_update_preserves_created_at() {
     // Full replace that changes the mutable target type and tries a different createdAt.
     // createdAt is always preserved from the stored definition.
     let update = serde_json::to_string(&serde_json::json!({
-        "protocolId": "com.test/identity@1",
-        "protocolNamespace": "com.test",
-        "protocolName": "identity",
-        "protocolVersion": 1,
-        "protocolTargetType": "meta.note",
-        "protocolStages": [
+        "id": "com.test/identity@1",
+        "namespace": "com.test",
+        "name": "identity",
+        "version": 1,
+        "targetType": "meta.note",
+        "stages": [
             {"stageId": "s1", "name": "Draft", "order": 1, "dependsOn": []}
         ],
-        "protocolCreatedAt": "1970-01-01T00:00:00Z"
+        "createdAt": "1970-01-01T00:00:00Z"
     }))
     .unwrap();
     let result = run_srs_stdin_in_dir(
@@ -3901,11 +3895,11 @@ fn protocol_update_preserves_created_at() {
 
     let got = run_srs_in_dir(temp.path(), &["protocol", "get", "com.test/identity@1"]);
     let p = &got["payload"]["protocol"];
-    assert_eq!(p["protocolId"], "com.test/identity@1");
+    assert_eq!(p["id"], "com.test/identity@1");
     // createdAt preserved despite the update payload trying to change it.
-    assert_eq!(p["protocolCreatedAt"], "2026-05-29T00:00:00Z");
+    assert_eq!(p["createdAt"], "2026-05-29T00:00:00Z");
     // The mutable field is updated.
-    assert_eq!(p["protocolTargetType"], "meta.note");
+    assert_eq!(p["targetType"], "meta.note");
 }
 
 #[test]
@@ -3916,15 +3910,15 @@ fn protocol_update_persists_and_repo_stays_valid() {
     assert_eq!(import["ok"], true);
 
     let update = serde_json::to_string(&serde_json::json!({
-        "protocolId": "com.test/cons@1",
-        "protocolNamespace": "com.test",
-        "protocolName": "cons",
-        "protocolVersion": 1,
-        "protocolTargetType": "meta.record",
-        "protocolStages": [
+        "id": "com.test/cons@1",
+        "namespace": "com.test",
+        "name": "cons",
+        "version": 1,
+        "targetType": "meta.record",
+        "stages": [
             {"stageId": "s1", "name": "Draft", "order": 1, "dependsOn": []}
         ],
-        "protocolCreatedAt": "2026-05-29T00:00:00Z"
+        "createdAt": "2026-05-29T00:00:00Z"
     }))
     .unwrap();
     run_srs_stdin_in_dir(
@@ -3934,10 +3928,7 @@ fn protocol_update_persists_and_repo_stays_valid() {
     );
 
     let proto = run_srs_in_dir(temp.path(), &["protocol", "get", "com.test/cons@1"]);
-    assert_eq!(
-        proto["payload"]["protocol"]["protocolTargetType"],
-        "meta.record"
-    );
+    assert_eq!(proto["payload"]["protocol"]["targetType"], "meta.record");
 
     // The protocol is a package definition, not an instance Record.
     let rec_list = run_srs_in_dir(temp.path(), &["record", "list"]);
