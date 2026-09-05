@@ -3031,7 +3031,11 @@ fn record_delete_removes_file_and_manifest_entry() {
     let temp = create_temp_repo();
     let package_dir = temp.path().join("package");
     std::fs::create_dir_all(package_dir.join("types")).unwrap();
-    std::fs::create_dir_all(package_dir.join("records")).unwrap();
+    // RFC-038 Revision 12 (srs#296, srs PR #538, srs-rust#920): a package root
+    // no longer anchors a nested `records/` as an instance root — the record
+    // below is written under the repository root's `records/tier-2/` instance
+    // root instead.
+    std::fs::create_dir_all(temp.path().join("records/tier-2")).unwrap();
 
     let record_type = serde_json::json!({
         "id": "type-test-001",
@@ -3054,7 +3058,9 @@ fn record_delete_removes_file_and_manifest_entry() {
     write_json(&package_dir.join("package.json"), package_json);
 
     let record_id = "cccccccc-cccc-cccc-8ccc-cccccccccccc";
-    let record_path = package_dir.join(format!("records/{}.json", record_id));
+    let record_path = temp
+        .path()
+        .join(format!("records/tier-2/{}.json", record_id));
     let record = serde_json::json!({
         "instanceId": record_id,
         "typeId": "type-test-001",
@@ -3437,111 +3443,14 @@ fn relation_delete_removes_relation() {
         .exists());
 }
 
-// --- Phase 4: Extension command group ---
-
-#[test]
-fn extension_list_returns_extensions() {
-    let temp = create_temp_repo();
-
-    // Create package with extension type
-    let package_dir = temp.path().join("package");
-    std::fs::create_dir_all(&package_dir).unwrap();
-    std::fs::create_dir_all(package_dir.join("records")).unwrap();
-
-    // RFC-038: package-manifest.json's `types` array holds paths, not inline
-    // definitions — write the type as its own file.
-    let package_json = serde_json::json!({
-        "id": "test-pkg",
-        "namespace": "com.test",
-        "name": "test",
-        "version": "1.0.0",
-        "fields": [],
-        "types": ["types/extension.json"]
-    });
-    write_json(&package_dir.join("package.json"), package_json);
-    write_json(
-        &package_dir.join("types/extension.json"),
-        serde_json::json!({
-            "id": "ext-type",
-            "namespace": "meta",
-            "name": "extension",
-            "version": 1,
-            "description": "Extension type",
-            "fields": []
-        }),
-    );
-
-    // Create an extension record
-    // RFC-038: an extension record is a Tier-2 Record — record.json shape.
-    let ext_record = serde_json::json!({
-        "instanceId": "e0000001-0000-4000-8000-000000000001",
-        "typeId": "ext-type",
-        "typeVersion": 1,
-        "typeNamespace": "meta",
-        "typeName": "extension",
-        "fieldValues": {
-            "extension-id": "com.test/test-extension@1",
-            "title": "Test Extension"
-        }
-    });
-    write_json(&package_dir.join("records/ext-001.json"), ext_record);
-
-    let result = run_srs_in_dir(temp.path(), &["extension", "list"]);
-    assert_eq!(
-        result["ok"], true,
-        "extension list should succeed: {:?}",
-        result["diagnostics"]
-    );
-    let extensions = result["payload"]["extensions"].as_array().unwrap();
-    assert_eq!(extensions.len(), 1);
-}
-
-#[test]
-fn extension_get_returns_extension_by_id() {
-    let temp = create_temp_repo();
-
-    let package_dir = temp.path().join("package");
-    std::fs::create_dir_all(&package_dir).unwrap();
-    std::fs::create_dir_all(package_dir.join("records")).unwrap();
-
-    let package_json = serde_json::json!({
-        "id": "test-pkg",
-        "namespace": "com.test",
-        "name": "test",
-        "version": "1.0.0",
-        "fields": [],
-        "types": []
-    });
-    write_json(&package_dir.join("package.json"), package_json);
-
-    // RFC-038: an extension record is a Tier-2 Record — record.json shape.
-    let ext_record = serde_json::json!({
-        "instanceId": "e0000002-0000-4000-8000-000000000002",
-        "typeId": "ext-type",
-        "typeVersion": 1,
-        "typeNamespace": "meta",
-        "typeName": "extension",
-        "fieldValues": {
-            "extension-id": "com.test/another@1",
-            "title": "Another Extension"
-        }
-    });
-    write_json(&package_dir.join("records/ext-002.json"), ext_record);
-
-    let result = run_srs_in_dir(
-        temp.path(),
-        &["extension", "get", "e0000002-0000-4000-8000-000000000002"],
-    );
-    assert_eq!(
-        result["ok"], true,
-        "extension get should succeed: {:?}",
-        result["diagnostics"]
-    );
-    assert_eq!(
-        result["payload"]["extension"]["instanceId"],
-        "e0000002-0000-4000-8000-000000000002"
-    );
-}
+// Phase 4's Extension command group (`srs extension {list,get,create,update,delete}`,
+// `package/records` as its storage location) was removed — RFC-038 Revision 12
+// (srs#296, srs PR #538) retired [R3]'s package-root instance-anchor branch on
+// an owner ruling (2026-09-02): packages carry definitions, never a nested
+// instance root. `RecordTier::Extension` and this CLI family went with it
+// (srs-rust#920). Return trigger (verbatim, from the amended revision
+// history): "a package needing to ship records rather than slices or seeds
+// re-opens this with the use case."
 
 // --- Phase 4: Protocol command group ---
 //

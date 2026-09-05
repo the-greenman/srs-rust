@@ -38,7 +38,6 @@ use srs_repository::{
     container_service::ContainerSummary,
     container_view_service::ContainerView,
     discovery_service::DiscoveryResult,
-    extension_service::ExtensionSummary,
     protocol_run_service::RunSummary,
     record_store::{
         AllowedLifecycleTransitionsResult, LifecycleTransitionOption, ListRecordTagsResult,
@@ -796,22 +795,6 @@ pub struct TypeSchemaPayload {
     /// Dynamic shape; emitted opaquely (see ADR-011 for the dynamic-value convention).
     #[schemars(with = "serde_json::Value")]
     pub schema: serde_json::Value,
-}
-
-// ── Extension payloads ────────────────────────────────────────────────────────
-
-#[derive(Debug, Serialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ExtensionListPayload {
-    #[schemars(with = "Vec<serde_json::Value>")]
-    pub extensions: Vec<ExtensionSummary>,
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ExtensionPayload {
-    #[schemars(with = "serde_json::Value")]
-    pub extension: Record,
 }
 
 // ── Protocol payloads ─────────────────────────────────────────────────────────

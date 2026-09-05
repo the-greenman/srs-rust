@@ -40,16 +40,19 @@ pub enum RecordTier {
     /// (Tier 1 / TypedRecord was retired — srs#448/rfc-decision-53635966,
     /// srs-rust#888 — `records/tier-1` is no longer written or read.)
     Tier2,
-    /// Extension/package records — maps to `package/records`
-    Extension,
 }
 
 impl RecordTier {
+    // RecordTier::Extension (`package/records`) was removed: RFC-038 Revision
+    // 12 (srs#296, srs PR #538) retired [R3]'s package-root instance-anchor
+    // branch on an owner ruling (2026-09-02) — packages carry definitions,
+    // never a nested instance root. Return trigger (verbatim, from the
+    // amended revision history): "a package needing to ship records rather
+    // than slices or seeds re-opens this with the use case."
     fn dir(self) -> &'static str {
         match self {
             RecordTier::Note => "records/notes",
             RecordTier::Tier2 => "records/tier-2",
-            RecordTier::Extension => "package/records",
         }
     }
 }
@@ -5086,10 +5089,6 @@ mod tests {
         let store = MemoryStore::empty();
         assert_eq!(store.record_tier_dir(RecordTier::Note), "records/notes");
         assert_eq!(store.record_tier_dir(RecordTier::Tier2), "records/tier-2");
-        assert_eq!(
-            store.record_tier_dir(RecordTier::Extension),
-            "package/records"
-        );
     }
 
     // --- FailPoint smoke tests ---

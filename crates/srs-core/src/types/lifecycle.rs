@@ -22,24 +22,6 @@ impl std::fmt::Display for RelationDirection {
     }
 }
 
-/// One relation type or an any-of list (RFC-022 `requiresRelation.relationType`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum RelationTypeSpec {
-    One(String),
-    Many(Vec<String>),
-}
-
-impl RelationTypeSpec {
-    /// The declared type(s) in declaration order.
-    pub fn types(&self) -> Vec<&str> {
-        match self {
-            RelationTypeSpec::One(t) => vec![t.as_str()],
-            RelationTypeSpec::Many(ts) => ts.iter().map(String::as_str).collect(),
-        }
-    }
-}
-
 /// RFC-022 relational-state obligation: a record may only *be* in a state
 /// declaring this unless a satisfying relation exists (`state ⇒ relation`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,8 +31,14 @@ pub struct RequiresRelation {
     /// round trip keeps it (enforcement itself is srs-rust#566).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enforcement: Option<String>,
-    /// Relation type(s) that satisfy the obligation (any-of). No implicit default.
-    pub relation_type: RelationTypeSpec,
+    /// Relation type(s) that satisfy the obligation (any-of), in declaration
+    /// order. No implicit default. List-only (RFC-032 Change F / srs#535):
+    /// the schema normalized `relationType` from `string|string[]` to a
+    /// list of length ≥ 1 — the single-bare-string form is removed, zero
+    /// compat (srs-rust#918). A pre-normalization repository still carrying
+    /// the bare-string form fails to load (no migration covers this shape;
+    /// none existed before this change either).
+    pub relation_type: Vec<String>,
     /// Defaults to `incoming` when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub direction: Option<RelationDirection>,
