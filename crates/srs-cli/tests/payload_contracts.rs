@@ -115,16 +115,6 @@ fn record_successor() {
 }
 
 #[test]
-fn record_revision_list() {
-    check::<RevisionListPayload>("record-revision-list");
-}
-
-#[test]
-fn record_revision_get() {
-    check::<RevisionPayload>("record-revision-get");
-}
-
-#[test]
 fn record_tag_add() {
     check::<RecordTagAddPayload>("record-tag-add");
 }

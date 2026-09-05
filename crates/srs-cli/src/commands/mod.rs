@@ -1208,9 +1208,6 @@ pub enum RecordCommand {
         #[arg(long)]
         id: String,
     },
-    /// Revision management commands (ext:addressability)
-    #[command(subcommand)]
-    Revision(RecordRevisionCommand),
     /// Tag management commands for tier-2 records
     #[command(subcommand)]
     Tag(RecordTagCommand),
@@ -1234,34 +1231,6 @@ pub enum RecordTagCommand {
     },
     /// List all distinct tags used across tier-2 records, with record counts
     List,
-}
-
-#[derive(Subcommand)]
-pub enum RecordRevisionCommand {
-    /// List revisions for a record instance
-    List {
-        /// Record instance ID
-        #[arg(long)]
-        id: String,
-        /// Optional field ID filter
-        #[arg(long = "field-id")]
-        field_id: Option<String>,
-        /// Maximum number of revisions to return
-        #[arg(long)]
-        limit: Option<usize>,
-        /// Number of revisions to skip (pagination)
-        #[arg(long)]
-        offset: Option<usize>,
-    },
-    /// Get a single revision by revision ID
-    Get {
-        /// Record instance ID
-        #[arg(long)]
-        id: String,
-        /// Revision ID
-        #[arg(long = "revision-id")]
-        revision_id: String,
-    },
 }
 
 #[derive(Subcommand)]

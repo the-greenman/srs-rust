@@ -1527,23 +1527,6 @@ pub struct RepoSetRootContainerPayload {
     pub member_instance_ids: Vec<String>,
 }
 
-// ── Revision payloads ─────────────────────────────────────────────────────────
-
-#[derive(Debug, Serialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct RevisionListPayload {
-    pub instance_id: String,
-    #[schemars(with = "Vec<serde_json::Value>")]
-    pub revisions: Vec<srs_core::types::revision::Revision>,
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct RevisionPayload {
-    #[schemars(with = "serde_json::Value")]
-    pub revision: srs_core::types::revision::Revision,
-}
-
 // ── Package payloads ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -2043,8 +2026,6 @@ pub struct ContextFieldPayload {
     pub field_namespace: Option<String>,
     pub ai_guidance: Option<serde_json::Value>,
     pub current_value: Option<serde_json::Value>,
-    #[schemars(with = "Vec<serde_json::Value>")]
-    pub revisions: Vec<srs_core::types::revision::Revision>,
     pub tagged_chunks: Vec<serde_json::Value>,
 }
 
@@ -2063,17 +2044,6 @@ pub struct ContextRecordPayload {
     pub relations: Vec<srs_repository::relation_service::RelationSummary>,
     pub tagged_chunks: Vec<serde_json::Value>,
     pub protocol_run_history: Vec<serde_json::Value>,
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ContextRevisionTracePayload {
-    pub record_id: String,
-    pub field_id: String,
-    #[schemars(with = "serde_json::Value")]
-    pub revision: srs_core::types::revision::Revision,
-    #[schemars(with = "Vec<serde_json::Value>")]
-    pub prior_chain: Vec<srs_core::types::revision::Revision>,
 }
 
 // ── Attachment payloads ───────────────────────────────────────────────────────

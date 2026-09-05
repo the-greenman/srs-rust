@@ -1385,26 +1385,28 @@ srs registry list --path /tmp/nonexistent-registry.json --pretty
 
 ## S27 — Retrieve addressability context for a decision field and its revision chain (`srs context`, ext:addressability, #251)
 
-**RETIRED (rfc-decision-2a1e1590, srs-rust#866, 2026-09-02).** The per-field
-Revision sidecar mechanism this scenario exercises is retired from the spec —
-zero corpus consumers, a `RevisionAgent` PascalCase wire-format leak, no
-implementation exercising the return-trigger chain. `record transition` no
-longer writes `.revisions.json`, and `catalog.rs` no longer tolerates one on
-disk: any repository still carrying one now fails to load entirely ([R24]).
-The `srs context field`/`record`/`revision` CLI surface and its service
-functions are left in place (not this issue's scope), but `revisions` is now
-always empty and `srs context revision` always returns `not found` — this
-scenario's steps below cannot be reproduced as written and are kept only as
-the historical verification record. The gallery fixture this scenario points
-at (`../srs/docs/spec/examples/gallery-project-v2`) still carries 3 stray
+**RETIRED (rfc-decision-2a1e1590, srs-rust#866, 2026-09-02; read surface removed
+srs-rust#917, 2026-09-05).** The per-field Revision sidecar mechanism this
+scenario exercises is retired from the spec — zero corpus consumers, a
+`RevisionAgent` PascalCase wire-format leak, no implementation exercising the
+return-trigger chain. `record transition` no longer writes
+`.revisions.json`, and `catalog.rs` no longer tolerates one on disk: any
+repository still carrying one now fails to load entirely ([R24]). #866 left
+the now-permanently-dead read surface in place pending its own removal; #917
+completed that: `srs record revision` and `srs context revision` no longer
+exist, `context field`'s payload no longer carries a `revisions` field, and
+`revision_service` is gone. This scenario's steps below describe a mechanism
+that no longer exists in this binary at all and are kept only as the
+historical verification record. The gallery fixture this scenario points at
+(`../srs/docs/spec/examples/gallery-project-v2`) still carries 3 stray
 `.revisions.json` sidecars as of this writing; loading it will fatal-error
 until the srs-side cleanup migration referenced from srs-rust#866 runs there.
 
 **Intention.** *"An AI agent is being asked to evaluate and improve a governance decision. Before prompting the model, I want to give it the current field value, the field's extraction guidance, and the full revision history — so it knows what has been decided, why it was framed that way, and how the wording evolved through the lifecycle."*
 
-**Capabilities exercised.** ext:addressability detection; `srs context field` assembling current value + revision history + `aiGuidance` in a single call; `srs context record` assembling all field values + outbound relations + display label; `srs context revision` tracing a specific revision's prior chain to show the complete evolution.
+**Capabilities exercised (historical — revision-tracing removed srs-rust#917).** ext:addressability detection; `srs context field` assembling current value + revision history + `aiGuidance` in a single call; `srs context record` assembling all field values + outbound relations + display label; `srs context revision` tracing a specific revision's prior chain to show the complete evolution.
 
-**CLI surface.** `srs context field`, `srs context record`, `srs context revision`.
+**CLI surface (historical — `revision` subcommands removed srs-rust#917).** `srs context field`, `srs context record`, ~~`srs context revision`~~.
 
 **Prerequisite.** A repository that has at least one Tier-2 record with a `.revisions.json` sidecar. The gallery example (`../srs/docs/spec/examples/gallery-project-v2`) serves as the reference; revisions are created by `record transition` calls (S4). Confirm addressability is active: `srs repo extensions list --repo <path>` should include `"ext:addressability"`.
 
@@ -3069,7 +3071,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
 | `registry` (ext:registry — `registry list`, `registry get`) | S25; WASM free functions (`parse_registry`, `list_registry_entries`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#244) |
 | `federation` (ext:federation) | _removed — srs decision 4f1e12e5 + owner disposition srs-rust#878 (2026-09-01); return is committed, see the spec roadmap's federation entry; S26 retired with it_ |
-| `context` (ext:addressability — `context field`, `context record`, `context revision`) | S27; WASM bindings (`context_field`, `context_record`, `context_revision` on `SrsRepository`) verified via native integration tests in `crates/srs-bindings/tests/context_query.rs` (#251) |
+| `context` (ext:addressability — `context field`, `context record`) | S27 (historical — `context revision`/revision-tracing removed srs-rust#917); WASM bindings (`context_field`, `context_record` on `SrsRepository`) verified via native integration tests in `crates/srs-bindings/tests/context_query.rs` (#251) |
 | `package` | CLI: covered implicitly by field/type creation in S2; **`srs package install`/`srs package import`/`srs package imports`** end-to-end in S29 (#246); WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 | `attachment list` | S31 |
 | `attachment add` | S32 |

@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 
 use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
@@ -19,14 +18,6 @@ pub struct RecordContextQuery {
     pub record_id: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RevisionTraceQuery {
-    pub record_id: String,
-    pub field_id: String,
-    pub revision_id: String,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FieldContextResult {
@@ -37,7 +28,6 @@ pub struct FieldContextResult {
     /// None when field not in package, or when field.ai_guidance.purpose is empty
     pub ai_guidance: Option<serde_json::Value>,
     pub current_value: Option<serde_json::Value>,
-    pub revisions: Vec<srs_core::types::revision::Revision>,
     /// Always empty; placeholder for tagged-chunk storage (#252)
     pub tagged_chunks: Vec<serde_json::Value>,
 }
@@ -60,16 +50,7 @@ pub struct RecordContextResult {
     pub protocol_run_history: Vec<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RevisionTraceResult {
-    pub record_id: String,
-    pub field_id: String,
-    pub revision: srs_core::types::revision::Revision,
-    pub prior_chain: Vec<srs_core::types::revision::Revision>,
-}
-
-/// Assemble field context: current value, revision history, and aiGuidance from package.
+/// Assemble field context: current value and aiGuidance from package.
 pub fn get_field_context(
     store: &dyn RepositoryStore,
     query: FieldContextQuery,
@@ -91,14 +72,6 @@ pub fn get_field_context(
         .and_then(|name| record.value(name))
         .cloned()
         .filter(|v| !v.is_null());
-
-    let revisions = record_store::list_record_revisions(
-        store,
-        &query.record_id,
-        Some(&query.field_id),
-        None,
-        None,
-    )?;
 
     let (field_name, field_namespace, ai_guidance) =
         match package_service::get_field_by_id(store, &query.field_id)? {
@@ -124,7 +97,6 @@ pub fn get_field_context(
         field_namespace,
         ai_guidance,
         current_value,
-        revisions,
         tagged_chunks: vec![],
     })
 }
@@ -171,74 +143,17 @@ pub fn get_record_context(
     })
 }
 
-/// Trace a revision: return the target revision and its prior chain (oldest-first).
-///
-/// Builds the prior chain by following `prior_revision_id` links. A HashSet guards
-/// against cycles so a malformed sidecar cannot loop forever.
-pub fn get_revision_trace(
-    store: &dyn RepositoryStore,
-    query: RevisionTraceQuery,
-) -> Result<RevisionTraceResult, RepositoryError> {
-    let all_revisions = record_store::list_record_revisions(
-        store,
-        &query.record_id,
-        Some(&query.field_id),
-        None,
-        None,
-    )?;
-
-    let target = all_revisions
-        .iter()
-        .find(|r| r.revision_id == query.revision_id)
-        .cloned()
-        .ok_or_else(|| RepositoryError::NotFound {
-            path: std::path::PathBuf::from(&query.revision_id),
-        })?;
-
-    let index: HashMap<&str, &srs_core::types::revision::Revision> = all_revisions
-        .iter()
-        .map(|r| (r.revision_id.as_str(), r))
-        .collect();
-
-    let mut chain = vec![];
-    let mut seen: HashSet<String> = HashSet::new();
-    // Seed with target so a lasso-shaped chain (ancestor → target) is detected immediately.
-    seen.insert(target.revision_id.clone());
-    let mut current_prior = target.prior_revision_id.clone();
-    while let Some(ref prior_id) = current_prior {
-        if !seen.insert(prior_id.clone()) {
-            break;
-        }
-        match index.get(prior_id.as_str()) {
-            Some(rev) => {
-                chain.push((*rev).clone());
-                current_prior = rev.prior_revision_id.clone();
-            }
-            None => break,
-        }
-    }
-    chain.reverse(); // oldest-first
-
-    Ok(RevisionTraceResult {
-        record_id: query.record_id,
-        field_id: query.field_id,
-        revision: target,
-        prior_chain: chain,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::manifest::Manifest;
     use crate::package::Package;
+    use crate::record_store;
     use crate::store::memory::MemoryStore;
-    use crate::{record_store, revision_service};
     use serde_json::json;
     use srs_core::types::field::{AiGuidance, Field, FieldType};
     use srs_core::types::record::FieldValues;
     use srs_core::types::record_type::{FieldAssignment, RecordType};
-    use srs_core::types::revision::{Revision, RevisionAgent};
     use std::path::PathBuf;
 
     fn make_store() -> MemoryStore {
@@ -324,22 +239,8 @@ mod tests {
         fv
     }
 
-    fn make_revision(id: &str, record_id: &str, field_id: &str, prior: Option<&str>) -> Revision {
-        Revision {
-            revision_id: id.to_string(),
-            record_id: record_id.to_string(),
-            field_id: field_id.to_string(),
-            value: json!("v"),
-            prior_revision_id: prior.map(|s| s.to_string()),
-            agent: RevisionAgent::Human,
-            provenance: None,
-            source_refs: None,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-        }
-    }
-
     #[test]
-    fn field_context_no_revisions() {
+    fn field_context_current_value() {
         let store = make_store();
         let fv = make_field_values("test-name", json!("Alice"));
         let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
@@ -355,64 +256,7 @@ mod tests {
 
         assert_eq!(result.record_id, rec.instance_id);
         assert_eq!(result.field_id, "field-name-001");
-        assert!(result.revisions.is_empty());
         assert_eq!(result.current_value, Some(json!("Alice")));
-    }
-
-    /// rfc-decision-2a1e1590 / srs-rust#866: `.revisions.json` is no longer a
-    /// recognised sidecar (`catalog.rs`) — writing one (`revision_service::append`
-    /// still exists as a raw file primitive; nothing in production calls it any
-    /// more) now poisons the checked catalog for the *whole* repository ([R24]).
-    /// This is why `get_field_context`/`get_revision_trace` can never surface a
-    /// revision again in practice: replaces the former
-    /// `field_context_filters_by_field_id` / `revision_trace_prior_chain` /
-    /// `field_context_cross_store_roundtrip` tests, which asserted the
-    /// now-impossible combination of "a sidecar exists" and "the repository
-    /// still loads".
-    #[test]
-    fn appending_a_revision_now_makes_the_record_unloadable() {
-        let store = make_store();
-        let fv = make_field_values("test-name", json!("Bob"));
-        let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
-        let path = store
-            .catalog()
-            .unwrap()
-            .instances
-            .iter()
-            .find(|e| e.id == rec.instance_id)
-            .unwrap()
-            .locator
-            .clone()
-            .unwrap();
-
-        revision_service::append(
-            &store,
-            &path,
-            make_revision("rev-a1", &rec.instance_id, "field-name-001", None),
-        )
-        .unwrap();
-
-        assert!(matches!(
-            store.catalog().unwrap_err(),
-            RepositoryError::CatalogLoad { .. }
-        ));
-        assert!(get_field_context(
-            &store,
-            FieldContextQuery {
-                record_id: rec.instance_id.clone(),
-                field_id: "field-name-001".to_string(),
-            },
-        )
-        .is_err());
-        assert!(get_revision_trace(
-            &store,
-            RevisionTraceQuery {
-                record_id: rec.instance_id,
-                field_id: "field-name-001".to_string(),
-                revision_id: "rev-a1".to_string(),
-            },
-        )
-        .is_err());
     }
 
     #[test]
@@ -673,24 +517,6 @@ mod tests {
         assert_eq!(result.relations.len(), 1);
         assert_eq!(result.relations[0].source_id, src.instance_id);
         assert_eq!(result.relations[0].target_id, tgt.instance_id);
-    }
-
-    #[test]
-    fn revision_trace_not_found() {
-        let store = make_store();
-        let fv = make_field_values("test-name", json!("Grace"));
-        let rec = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
-
-        let err = get_revision_trace(
-            &store,
-            RevisionTraceQuery {
-                record_id: rec.instance_id,
-                field_id: "field-name-001".to_string(),
-                revision_id: "rev-nonexistent".to_string(),
-            },
-        )
-        .unwrap_err();
-        assert!(matches!(err, RepositoryError::NotFound { .. }));
     }
 
     #[test]
