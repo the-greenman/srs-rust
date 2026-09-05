@@ -887,6 +887,11 @@ pub enum LifecycleCommand {
         #[arg(long)]
         package: Option<String>,
     },
+    /// Update an existing lifecycle (reads full Lifecycle JSON from stdin, RFC-028)
+    Update {
+        /// Lifecycle UUID id — must match the `id` field in the stdin body
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]

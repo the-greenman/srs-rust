@@ -222,6 +222,7 @@ fn main() {
     write_schema!("lifecycle-list", LifecycleListPayload);
     write_schema!("lifecycle-get", LifecycleGetPayload);
     write_schema!("lifecycle-create", LifecycleCreatePayload);
+    write_schema!("lifecycle-update", LifecycleUpdatePayload);
 
     // Term payloads (RFC-006)
     write_schema!("term-list", TermListPayload);

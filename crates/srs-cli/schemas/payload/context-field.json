@@ -5,7 +5,6 @@
   "required": [
     "fieldId",
     "recordId",
-    "revisions",
     "taggedChunks"
   ],
   "properties": {
@@ -28,10 +27,6 @@
     },
     "recordId": {
       "type": "string"
-    },
-    "revisions": {
-      "type": "array",
-      "items": true
     },
     "taggedChunks": {
       "type": "array",

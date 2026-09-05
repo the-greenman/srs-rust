@@ -1613,6 +1613,13 @@ mod tests {
             ) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
+            fn update_lifecycle_file(
+                &self,
+                _: &str,
+                _: &srs_core::types::lifecycle::Lifecycle,
+            ) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
             fn ensure_lifecycles_dir(&self, _: &str) -> Result<(), RepositoryError> {
                 unimplemented!()
             }
