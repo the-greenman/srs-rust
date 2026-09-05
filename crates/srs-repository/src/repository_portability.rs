@@ -13,6 +13,7 @@ use srs_core::types::blueprint::Blueprint;
 use srs_core::types::container::{Container, ContainerIndexEntry};
 use srs_core::types::field::Field;
 use srs_core::types::lifecycle::Lifecycle;
+use srs_core::types::protocol::Protocol;
 use srs_core::types::record_type::RecordType;
 use srs_core::types::relation::Relation;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
@@ -58,6 +59,12 @@ pub struct PackageBoundarySnapshot {
     pub vocabularies: Vec<Vocabulary>,
     #[serde(default)]
     pub lifecycles: Vec<Lifecycle>,
+    /// srs-rust#941: Protocol definitions (ext:protocol) — omitted from every prior
+    /// revision of this struct, so `repo copy`/`.srsj` export silently dropped them
+    /// with a `{"ok":true}` false-green. `#[serde(default)]` keeps a pre-#941
+    /// snapshot loadable (it simply carries none).
+    #[serde(default)]
+    pub protocols: Vec<Protocol>,
 }
 
 /// In-flight snapshot of a single source document: sidecar metadata + optional binary blob.
@@ -163,6 +170,8 @@ struct RawPackageMetadata {
     vocabularies: Vec<String>,
     #[serde(default)]
     lifecycles: Vec<String>,
+    #[serde(default)]
+    protocols: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -626,6 +635,7 @@ struct SubPackageIds {
     themes: std::collections::HashSet<String>,
     vocabularies: std::collections::HashSet<String>,
     lifecycles: std::collections::HashSet<String>,
+    protocols: std::collections::HashSet<String>,
 }
 
 impl SubPackageIds {
@@ -647,6 +657,8 @@ impl SubPackageIds {
                 .extend(b.vocabularies.iter().map(|v| v.id.clone()));
             ids.lifecycles
                 .extend(b.lifecycles.iter().map(|l| l.id.clone()));
+            ids.protocols
+                .extend(b.protocols.iter().map(|p| p.id.clone()));
         }
         ids
     }
@@ -725,6 +737,12 @@ fn export_package_boundary(
                 .into_iter()
                 .filter(|l| !sub_ids.lifecycles.contains(&l.id))
                 .collect(),
+            protocols: pkg
+                .protocols
+                .into_iter()
+                .map(|lp| lp.protocol)
+                .filter(|p| !sub_ids.protocols.contains(&p.id))
+                .collect(),
         });
     }
 
@@ -785,6 +803,11 @@ fn export_package_boundary(
         .iter()
         .map(|p| load_typed_json::<Lifecycle>(source, &package_prefix, p))
         .collect::<Result<Vec<_>, _>>()?;
+    let protocols = metadata
+        .protocols
+        .iter()
+        .map(|p| load_typed_json::<Protocol>(source, &package_prefix, p))
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(PackageBoundarySnapshot {
         boundary_path,
@@ -803,6 +826,7 @@ fn export_package_boundary(
         themes,
         vocabularies,
         lifecycles,
+        protocols,
     })
 }
 
@@ -971,6 +995,23 @@ fn import_package_boundary(
         lifecycle_paths.push(path);
     }
 
+    let mut protocol_paths = Vec::new();
+    for protocol in &package.protocols {
+        let path = format!(
+            "protocols/{}-{}.json",
+            slugify(&protocol.name),
+            id_prefix(&protocol.id)?
+        );
+        write_repo_json(
+            target,
+            &base_prefix,
+            &path,
+            protocol,
+            Some(srs_schema::PROTOCOL_SCHEMA_ID),
+        )?;
+        protocol_paths.push(path);
+    }
+
     let package_json = serde_json::json!({
         "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
         "id": package.metadata.id,
@@ -989,7 +1030,8 @@ fn import_package_boundary(
         "blueprints": blueprint_paths,
         "themes": theme_paths,
         "vocabularies": vocabulary_paths,
-        "lifecycles": lifecycle_paths
+        "lifecycles": lifecycle_paths,
+        "protocols": protocol_paths
     });
     target.save_instance_json(&format!("{base_prefix}/package.json"), &package_json)?;
     Ok(())
@@ -1682,6 +1724,7 @@ mod tests {
             themes: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
+            protocols: vec![],
         });
 
         let temp = TempDir::new().unwrap();

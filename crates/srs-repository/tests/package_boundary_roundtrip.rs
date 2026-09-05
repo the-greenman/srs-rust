@@ -16,15 +16,28 @@
 //! whatever `CURRENT_DATA_MODEL_REVISION` currently is, so this test does not
 //! go stale the next time a data-model migration lands (unlike the one-shot
 //! srs#256 audit it replaces).
+//!
+//! srs-rust#941 strengthens this further: `PackageBoundarySnapshot` (the
+//! struct `export_package_boundary`/`import_package_boundary` route every
+//! definition kind through) had no `protocols` field at all, so a Protocol
+//! definition vanished across `repo copy` with a `{"ok":true}` false-green —
+//! `assert_no_duplicate_ids`/`assert_one_home_per_definition` above only ever
+//! checked for *extra* copies, never for silent loss. The fixture below adds
+//! one Protocol, and `assert_definitions_identical` asserts every definition
+//! kind's id *set* (not just a duplicate-free count) survives the round trip
+//! unchanged — the exact assertion that must fail red against the pre-#941
+//! snapshot shape and pass green once `protocols` is carried through it.
 
 use srs_repository::catalog;
 use srs_repository::field_type_migration_service::CURRENT_DATA_MODEL_REVISION;
 use srs_repository::repository_portability::copy_repository;
 use srs_repository::srsj::open_srsj;
 use srs_repository::store::{FileStore, RepositoryStore};
+use std::collections::{BTreeMap, BTreeSet};
 
 const SUB_FIELD_ID: &str = "00000000-0000-4000-8000-0000000000f1";
 const PRIMARY_FIELD_ID: &str = "00000000-0000-4000-8000-0000000000f0";
+const PROTOCOL_ID: &str = "00000000-0000-4000-8000-0000000000f2";
 
 /// A minimal repository at `CURRENT_DATA_MODEL_REVISION` with two package
 /// boundaries: the implicit primary (`package/package.json`) and one
@@ -66,6 +79,19 @@ fn current_revision_source_with_subpackage() -> FileStore {
                     "createdAt": "2026-01-01T00:00:00Z",
                     "fields": ["fields/primary.json"],
                     "types": [],
+                    "protocols": ["protocols/decision.json"],
+                },
+                "package/protocols/decision.json": {
+                    "$schema": srs_schema::PROTOCOL_SCHEMA_ID,
+                    "id": PROTOCOL_ID,
+                    "namespace": "com.semanticops.roundtrip",
+                    "name": "decision_protocol",
+                    "version": 1,
+                    "targetType": "00000000-0000-4000-8000-0000000000f3",
+                    "stages": [
+                        { "stageId": "s1", "name": "Draft", "order": 1 },
+                    ],
+                    "createdAt": "2026-01-01T00:00:00Z",
                 },
                 "package/fields/primary.json": {
                     "$schema": srs_schema::FIELD_SCHEMA_ID,
@@ -140,16 +166,98 @@ fn assert_one_home_per_definition(store: &dyn RepositoryStore) {
     );
 }
 
+/// Every definition kind `Package` carries, mapped to its set of ids. Used to assert
+/// a `copy_repository` round trip preserves not just "no duplicates" (a drop and a
+/// duplicate can otherwise cancel out in a bare count) but full identity: the exact
+/// same ids, per kind, before and after (srs-rust#941).
+fn definition_id_sets(store: &dyn RepositoryStore) -> BTreeMap<&'static str, BTreeSet<String>> {
+    let pkg = store.load_package().expect("load_package must succeed");
+    BTreeMap::from([
+        ("fields", pkg.fields.iter().map(|f| f.id.clone()).collect()),
+        (
+            "record_types",
+            pkg.record_types.iter().map(|t| t.id.clone()).collect(),
+        ),
+        (
+            "relation_type_definitions",
+            pkg.relation_type_definitions
+                .iter()
+                .map(|t| t.id.clone())
+                .collect(),
+        ),
+        ("views", pkg.views.iter().map(|v| v.id.clone()).collect()),
+        (
+            "compositions",
+            pkg.compositions.iter().map(|c| c.id.clone()).collect(),
+        ),
+        (
+            "blueprints",
+            pkg.blueprints
+                .iter()
+                .map(|lb| lb.blueprint.id.clone())
+                .collect(),
+        ),
+        ("themes", pkg.themes.iter().map(|t| t.id.clone()).collect()),
+        (
+            "vocabularies",
+            pkg.vocabularies.iter().map(|v| v.id.clone()).collect(),
+        ),
+        (
+            "lifecycles",
+            pkg.lifecycles.iter().map(|l| l.id.clone()).collect(),
+        ),
+        (
+            "protocols",
+            pkg.protocols
+                .iter()
+                .map(|lp| lp.protocol.id.clone())
+                .collect(),
+        ),
+    ])
+}
+
+/// Asserts `after` carries, per definition kind, the identical set of ids as `before`
+/// — same count AND same members, never merely "nothing extra" (that only catches
+/// duplication, srs-rust#934's failure mode) or "nothing duplicated" (that only
+/// catches inflation, not loss — srs-rust#941's failure mode: `protocols` had no
+/// field in `PackageBoundarySnapshot` at all, so every protocol vanished silently).
+fn assert_definitions_identical(
+    before: &BTreeMap<&'static str, BTreeSet<String>>,
+    after: &BTreeMap<&'static str, BTreeSet<String>>,
+    label: &str,
+) {
+    for (kind, before_ids) in before {
+        let after_ids = after.get(kind).cloned().unwrap_or_default();
+        assert_eq!(
+            before_ids, &after_ids,
+            "{label}: '{kind}' definition set changed across the round trip — \
+             before={before_ids:?} after={after_ids:?} (a definition was silently \
+             dropped, replaced, or duplicated)"
+        );
+    }
+}
+
 #[test]
 fn repo_copy_round_trip_preserves_package_boundaries_at_current_revision() {
     let source = current_revision_source_with_subpackage();
     assert_no_duplicate_ids(&source, "source");
+    let before = definition_id_sets(&source);
+    assert_eq!(
+        before["protocols"].len(),
+        1,
+        "fixture must declare exactly one protocol"
+    );
 
     // file -> .srsj (export): the exact step srs#256 found broken.
     let exported = srs_repository::tree_session::new_tree_session();
     copy_repository(&source, &exported).expect("export must succeed");
     assert_one_home_per_definition(&exported);
     assert_no_duplicate_ids(&exported, "exported");
+    assert_definitions_identical(
+        &before,
+        &definition_id_sets(&exported),
+        "export (file -> .srsj)",
+    );
 
     // .srsj -> file (reimport): srs#256 saw this fail with 446
     // SRS038-R12-DUPLICATE-ID diagnostics; the catalog must now load clean.
@@ -157,6 +265,11 @@ fn repo_copy_round_trip_preserves_package_boundaries_at_current_revision() {
     copy_repository(&exported, &reimported).expect("reimport must succeed");
     assert_one_home_per_definition(&reimported);
     assert_no_duplicate_ids(&reimported, "reimported");
+    assert_definitions_identical(
+        &before,
+        &definition_id_sets(&reimported),
+        "reimport (.srsj -> file)",
+    );
 
     // Both definitions must still be present exactly once each, under their
     // own boundary — not merely "no duplicates" but "nothing lost" either.
