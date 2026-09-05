@@ -172,7 +172,10 @@
         "allowedValues": {
           "type": "array",
           "items": {
-            "type": "string"
+            "type": [
+              "string",
+              "integer"
+            ]
           },
           "title": "Allowed Values"
         },
@@ -218,7 +221,8 @@
             "boolean",
             "date",
             "date-time",
-            "open"
+            "open",
+            "ref"
           ],
           "title": "Value Range"
         }
@@ -226,13 +230,31 @@
       "allOf": [
         {
           "if": {
-            "properties": {
-              "datatype": {
-                "const": "ref"
+            "anyOf": [
+              {
+                "properties": {
+                  "datatype": {
+                    "const": "ref"
+                  }
+                },
+                "required": [
+                  "datatype"
+                ]
+              },
+              {
+                "properties": {
+                  "datatype": {
+                    "const": "map"
+                  },
+                  "valueRange": {
+                    "const": "ref"
+                  }
+                },
+                "required": [
+                  "datatype",
+                  "valueRange"
+                ]
               }
-            },
-            "required": [
-              "datatype"
             ]
           },
           "then": {

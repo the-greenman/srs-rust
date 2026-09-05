@@ -63,14 +63,11 @@ is_allowlisted() {
 # an entry here only when the mirror renames a schema ahead of the spec's own
 # rename landing.
 #
-# srsj-envelope.json (srs-rust#937): srs#546 (srs#534) authored this new
-# canonical schema with zero closure exclusions, but it has no srs-rust
-# counterpart yet — no rename/witness conflict like field.json/protocol.json
-# below, just an undecided registry question (does srs-schema need a
-# SRSJ_ENVELOPE_SCHEMA_ID entry, does any Rust code need to validate against
-# it, or does it stay Node-tooling-only). Remove this entry once #937 lands
-# the mirror sync (and registry wiring, if any) together.
-DECLARED_MISSING_ALLOWLIST=("srsj-envelope.json")
+# srsj-envelope.json's entry is retired (srs-rust#937): the file is now
+# mirrored and registered in srs-schema (SRSJ_ENVELOPE_SCHEMA_ID,
+# registry-only — see that constant's doc comment for why no runtime code
+# path validates a `.srsj` document against it).
+DECLARED_MISSING_ALLOWLIST=()
 is_missing_allowlisted() {
     local needle="$1"
     for entry in "${DECLARED_MISSING_ALLOWLIST[@]}"; do
@@ -93,20 +90,20 @@ is_missing_allowlisted() {
 # composition.json/discovery.json/manifest.json/view.json bytes from the
 # canonical spec — the mirror and spec are byte-identical again.
 #
-# field.json (srs-rust#932): srs#534/#546 widened the frozen bootstrap seed's
-# FieldType shape (valueRange gains "ref", allowedValues.items.type widens to
-# ["string","integer"]) so the metamodel's own new Field shapes can validate.
-# The srs-rust binary's compiled-in srs-schema copy predates this — a plain
-# re-sync would accept spec bytes that srs-core's own FieldType validation
-# (R2/R3/R9 equivalents) doesn't yet permit, silently widening what the
-# runtime accepts beyond what it actually implements. #932 tracks landing
-# both together (schema mirror + validator extension).
+# field.json's entry is retired (srs-rust#932): the mirror is synced (widened
+# valueRange enum + allowedValues.items.type) and srs-core's FieldType
+# validation (R2/R3/R9) now implements both new capabilities. The frozen
+# seed's own `$defs.FieldType.allOf` gap this surfaced (rangeType wasn't
+# permitted for the map-of-ref shape) was filed upstream as srs#551 and fixed
+# there (PR #555, re-synced here) — the map-of-ref shapes now live in
+# `every_field_type_shape_passes_the_schema_contract` alongside every other
+# FieldType shape, not a separate pending test.
 #
 # protocol.json's entry is retired: srs-rust#930 landed the reference-
 # implementation rename (Rust structs, catalog.rs, CLI/MCP payload call
 # sites, fixtures) alongside this mirror bump, so the mirror and
 # srs-core's actual Protocol/ProtocolStage shape are byte-identical again.
-DECLARED_CONTENT_DRIFT_ALLOWLIST=("field.json")
+DECLARED_CONTENT_DRIFT_ALLOWLIST=()
 is_content_drift_allowlisted() {
     local needle="$1"
     for entry in "${DECLARED_CONTENT_DRIFT_ALLOWLIST[@]}"; do

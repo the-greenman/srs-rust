@@ -195,7 +195,7 @@ pub(crate) fn parse_legacy_value_type(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use srs_core::types::field::{Cardinality, Datatype, StringFormat, ValueDomain};
+    use srs_core::types::field::{AllowedValue, Cardinality, Datatype, StringFormat, ValueDomain};
     use std::path::Path;
 
     fn parse(json: serde_json::Value) -> Result<Field, RepositoryError> {
@@ -231,7 +231,13 @@ mod tests {
         assert_eq!(field.field_type.value_domain, Some(ValueDomain::Closed));
         assert_eq!(
             field.field_type.allowed_values(),
-            Some(["a".to_string(), "b".to_string()].as_slice())
+            Some(
+                [
+                    AllowedValue::String("a".to_string()),
+                    AllowedValue::String("b".to_string())
+                ]
+                .as_slice()
+            )
         );
         assert!(field.field_type.validate().is_empty());
     }
