@@ -583,6 +583,7 @@ mod tests {
             themes: vec![],
             vocabularies: vec![],
             lifecycles: vec![],
+            protocols: vec![],
         }
     }
 
