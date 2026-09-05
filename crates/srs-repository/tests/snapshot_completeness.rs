@@ -500,11 +500,17 @@ fn json_payloads_survive_the_codec_byte_for_byte() {
     }
 }
 
-/// Instance roots are anchored per package root ([R3]), so a sub-package's
-/// `records/` is a reserved location too — and unclassifiable objects under it
-/// must be swept like the top-level ones.
+/// RFC-038 Revision 12 (srs#296, srs PR #538) retired [R3]'s package-root
+/// instance-anchor branch (srs-rust#920): a sub-package's `records/` is no
+/// longer an instance root at all — a local package root stays reserved for
+/// definitions only ([R5]). This is no longer a distinct "instance root
+/// under a sub-package" case; it is the same generic-content-under-a-package-
+/// root sweep exercised by `pack_carries_an_undeclared_package_root` and
+/// `pack_carries_objects_the_catalog_cannot_classify` — kept as its own test
+/// because a nested (non-root) package's content must be swept too, not only
+/// the top-level package's.
 #[test]
-fn pack_sweeps_instance_roots_under_a_sub_package() {
+fn pack_sweeps_undeclared_content_under_a_sub_package() {
     let src_tmp = tempfile::tempdir().unwrap();
     six_set_repository(src_tmp.path());
     write(
@@ -537,7 +543,7 @@ fn pack_sweeps_instance_roots_under_a_sub_package() {
         .collect();
     assert!(
         names.contains(&"pkgs/sub/records/tier-2/broken.json".to_string()),
-        "a sub-package's instance root must be swept too: {names:?}"
+        "undeclared content under a sub-package must be swept too: {names:?}"
     );
 }
 

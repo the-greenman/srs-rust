@@ -472,17 +472,10 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
     pkg_candidates.sort_by_key(|p| (p.split('/').count(), p.as_str().to_string()));
 
     let mut package_roots: Vec<String> = Vec::new();
-    let mut instance_roots: BTreeSet<String> = root_instance_roots.clone();
     // Declared definition path → (kind, schema id, owning package root).
     let mut declared_defs: BTreeMap<String, (CatalogKind, &'static str)> = BTreeMap::new();
 
     for pkg_path in pkg_candidates {
-        // A package root nested inside a reserved instance root must not
-        // anchor further roots ([R3]) — its package.json falls under the
-        // instance-root candidate policy instead.
-        if under_any(pkg_path, &instance_roots) {
-            continue;
-        }
         let root = pkg_path
             .strip_suffix("package.json")
             .unwrap_or("")
@@ -510,13 +503,16 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
             .validate_by_id(srs_schema::PACKAGE_MANIFEST_SCHEMA_ID, &value)
         {
             Ok(()) => {
-                // Conforming SRS package manifest: a presence-keyed anchor.
-                for name in INSTANCE_ROOT_NAMES {
-                    let candidate = join(&root, name);
-                    if dir_exists(&file_set, &candidate) {
-                        instance_roots.insert(candidate);
-                    }
-                }
+                // RFC-038 Revision 12 (srs#296, srs PR #538) retires [R3]'s
+                // package-root instance-anchor branch on an owner ruling
+                // (2026-09-02): "packages should be semantic not content" —
+                // a conforming local package manifest no longer anchors a
+                // nested `records`/`notes`/`typed-records` directory as an
+                // instance root. Content distribution is a slice (RFC-026)
+                // or a seed, never a nested instance root under a package.
+                // Return trigger (verbatim, from the amended revision
+                // history): "a package needing to ship records rather than
+                // slices or seeds re-opens this with the use case."
                 for (array_key, kind, schema) in DEFINITION_ARRAYS {
                     if let Some(paths) = value.get(*array_key).and_then(|v| v.as_array()) {
                         for p in paths.iter().filter_map(|v| v.as_str()) {
@@ -553,7 +549,7 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
         }
         if under(path, &sd_path) {
             b.classify_source_document_candidate(path, &file_set);
-        } else if under_any(path, &instance_roots) {
+        } else if under_any(path, &root_instance_roots) {
             if path.ends_with(".json") {
                 // No recognised sidecar suffix remains (see the
                 // `SIDECAR_SUFFIX` doc comment above) — every `.json` file

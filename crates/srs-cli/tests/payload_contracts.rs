@@ -286,23 +286,6 @@ fn schema_generate() {
     check::<SchemaGeneratePayload>("schema-generate");
 }
 
-// ── Extension ─────────────────────────────────────────────────────────────────
-
-#[test]
-fn extension_list() {
-    check::<ExtensionListPayload>("extension-list");
-}
-
-#[test]
-fn extension_get() {
-    check::<ExtensionPayload>("extension-get");
-}
-
-#[test]
-fn extension_delete() {
-    check::<DeletedPayload>("extension-delete");
-}
-
 // ── Protocol ──────────────────────────────────────────────────────────────────
 
 #[test]

@@ -20,7 +20,6 @@ pub mod discovery_service;
 pub mod doctor_service;
 pub mod error;
 pub mod export_service;
-pub mod extension_service;
 pub(crate) mod field_json;
 #[cfg(test)]
 mod field_json_parity_tests;
