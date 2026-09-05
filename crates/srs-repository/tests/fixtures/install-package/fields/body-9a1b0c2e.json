@@ -8,5 +8,8 @@
   "fieldType": {
     "datatype": "string",
     "format": "plain"
+  },
+  "aiGuidance": {
+    "purpose": "Main free-text body of the entry."
   }
 }

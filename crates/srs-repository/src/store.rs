@@ -1946,11 +1946,22 @@ impl RepositoryStore for FileStore {
             None => "package/package.json".to_string(),
             Some(path) => vfs_join(path, "package.json"),
         };
-        // Load existing or create a skeleton
+        // Load existing or create a skeleton. The skeleton must satisfy every
+        // required property of package-manifest.json (srs-rust#933: a boundary
+        // package.json missing `$schema`/`title`/`description`/`status`/
+        // `createdAt` failed its own schema, cascading to a fatal catalog-load
+        // error for every installed sub-package) — mirrors the primary
+        // package's skeleton (`initialize_repository`, above) so there is one
+        // conformant shape for both the primary and sub-package writers.
         let mut pkg_json = if self.vfs.is_file(&pkg_json_rel) {
             self.read_json(&pkg_json_rel)?
         } else {
             serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "title": boundary.name,
+                "description": "",
+                "status": "active",
+                "createdAt": chrono::Utc::now().to_rfc3339(),
                 "fields": [],
                 "types": [],
                 "relationTypes": [],
@@ -3560,11 +3571,17 @@ pub mod memory {
             });
             drop(boundaries);
             // Seed the sub-package's package.json in data so memory_store_sync_pkg_json
-            // can update its arrays and find_view_path can read from it.
+            // can update its arrays and find_view_path can read from it. Must satisfy
+            // every required property of package-manifest.json (srs-rust#933) — mirrors
+            // FileStore's skeleton (`save_package_boundary_metadata`, above) so both
+            // stores produce the same conformant shape (ADR-010 cross-store parity).
             let data_key = format!("{path}/package.json");
             self.data.borrow_mut().entry(data_key).or_insert_with(|| {
                 serde_json::json!({
+                    "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
                     "id": "", "namespace": "", "name": "", "version": "",
+                    "title": "", "description": "", "status": "active",
+                    "createdAt": chrono::Utc::now().to_rfc3339(),
                     "fields": [], "types": [], "relationTypes": [],
                     "views": [], "compositions": [], "blueprints": []
                 })

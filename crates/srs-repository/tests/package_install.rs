@@ -88,7 +88,6 @@ const FIXTURE_DEFINITION_COUNT: usize = 9;
 // ── (a) install into an empty repo ──────────────────────────────────────────
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3 KNOWN GAP: RFC-014 install writes upstreamPackage provenance into the boundary package.json, but package-manifest.json (additionalProperties: false) denies it — every installed sub-package is fatally catalog-invalid under RFC-038. Spec-level conflict, owner decision needed (schema mirrors are read-only)."]
 fn install_into_empty_repo_installs_everything() {
     let (_temp, store) = fresh_file_repo();
     let result = install_package(&store, install_input()).expect("install succeeds");
@@ -165,22 +164,23 @@ fn install_into_empty_repo_installs_everything() {
         Some("packages/install-fixture")
     );
 
-    // Upstream provenance stamp on the boundary package.json.
+    // The boundary's own package.json carries the installed package's identity
+    // directly (id/namespace/name/version — no separate `upstreamPackage`
+    // stamp: srs-rust#933 / owner ruling srs#373 retired that channel as a
+    // parallel implementation of `manifest.packageRefs[]`, forbidden anyway by
+    // package-manifest.json's `additionalProperties: false`).
     let pkg_json = store
         .load_instance_json("packages/install-fixture/package.json")
         .unwrap();
+    assert!(pkg_json.get("upstreamPackage").is_none());
     assert_eq!(
-        pkg_json["upstreamPackage"]["packageId"].as_str(),
+        pkg_json["id"].as_str(),
         Some("9a1b0c2d-1111-4aaa-8bbb-000000000001")
     );
-    assert_eq!(
-        pkg_json["upstreamPackage"]["version"].as_str(),
-        Some("1.0.0")
-    );
-    assert_eq!(
-        pkg_json["upstreamPackage"]["installedAt"].as_str(),
-        Some(result.installed_at.as_str())
-    );
+    assert_eq!(pkg_json["version"].as_str(), Some("1.0.0"));
+    srs_schema::SchemaRegistry::global()
+        .validate_by_id(srs_schema::PACKAGE_MANIFEST_SCHEMA_ID, &pkg_json)
+        .expect("installed boundary package.json must validate against package-manifest.json");
 
     // Repo validates with zero errors (dangling-container warnings are expected —
     // the fixture document view ships a gallery container UUID by design).
@@ -253,7 +253,6 @@ fn install_skips_identical_uuid_definitions() {
 // ── (c) same-key / different-UUID → conflict, not duplicate ─────────────────
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3 KNOWN GAP: RFC-014 install writes upstreamPackage provenance into the boundary package.json, but package-manifest.json (additionalProperties: false) denies it — every installed sub-package is fatally catalog-invalid under RFC-038. Spec-level conflict, owner decision needed (schema mirrors are read-only)."]
 fn install_flags_same_key_different_uuid_relation_type_as_conflict() {
     let (_temp, store) = fresh_file_repo();
 
@@ -312,7 +311,6 @@ fn strict_install_fails_on_conflict_without_writing() {
 // ── (d) re-run → idempotent ──────────────────────────────────────────────────
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3 KNOWN GAP: RFC-014 install writes upstreamPackage provenance into the boundary package.json, but package-manifest.json (additionalProperties: false) denies it — every installed sub-package is fatally catalog-invalid under RFC-038. Spec-level conflict, owner decision needed (schema mirrors are read-only)."]
 fn rerun_install_skips_everything_and_keeps_provenance() {
     let (_temp, store) = fresh_file_repo();
     let first = install_package(&store, install_input()).expect("first install");
@@ -340,7 +338,6 @@ fn rerun_install_skips_everything_and_keeps_provenance() {
 // ── Cross-store roundtrip: FileStore install → srsj → re-parse → validate ───
 
 #[test]
-#[ignore = "srs-rust#783 Phase 3 KNOWN GAP: RFC-014 install writes upstreamPackage provenance into the boundary package.json, but package-manifest.json (additionalProperties: false) denies it — every installed sub-package is fatally catalog-invalid under RFC-038. Spec-level conflict, owner decision needed (schema mirrors are read-only)."]
 fn json_store_install_survives_srsj_roundtrip() {
     let store = srs_repository::new_tree_session();
     store.initialize_repository(&init_input()).expect("init");
