@@ -69,7 +69,7 @@ pub fn validate_field_v3(field: &Field) -> Vec<FieldDiagnostic> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::field::{Datatype, FieldType};
+    use crate::types::field::{AllowedValue, Datatype, FieldType};
 
     fn make_field(field_type: FieldType) -> Field {
         Field::new("f-1", "com.test", "test_field", field_type)
@@ -79,7 +79,7 @@ mod tests {
         let mut ft = FieldType::string();
         ft.value_domain = Some(ValueDomain::Closed);
         if allowed {
-            ft.allowed_values = Some(vec!["a".to_string()]);
+            ft.allowed_values = Some(vec![AllowedValue::String("a".to_string())]);
         }
         if vocab_ref {
             ft.vocabulary_ref = Some("vocab-id@1".to_string());

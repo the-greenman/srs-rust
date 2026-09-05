@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 pub use crate::types::field_type::{
-    Cardinality, Datatype, ExactTypeRef, FieldType, FieldTypeConstraints, FieldTypeViolation,
-    LegacyContentFormat, LegacyFieldFacets, LegacyValidationRule, LegacyValueType, MapValueRange,
-    RefMode, StringFormat, ValueDomain,
+    AllowedValue, Cardinality, Datatype, ExactTypeRef, FieldType, FieldTypeConstraints,
+    FieldTypeViolation, LegacyContentFormat, LegacyFieldFacets, LegacyValidationRule,
+    LegacyValueType, MapValueRange, RefMode, StringFormat, ValueDomain,
 };
 
 /// AI-facing guidance for a Field: what it captures, how to extract or
@@ -195,7 +195,7 @@ impl Field {
     }
 
     /// The inline closed vocabulary, when this field declares one.
-    pub fn allowed_values(&self) -> Option<&[String]> {
+    pub fn allowed_values(&self) -> Option<&[AllowedValue]> {
         self.field_type.allowed_values()
     }
 
@@ -253,7 +253,13 @@ mod tests {
         assert_eq!(parsed.datatype(), Datatype::String);
         assert_eq!(
             parsed.allowed_values(),
-            Some(["a".to_string(), "b".to_string()].as_slice())
+            Some(
+                [
+                    AllowedValue::String("a".to_string()),
+                    AllowedValue::String("b".to_string())
+                ]
+                .as_slice()
+            )
         );
     }
 
@@ -458,6 +464,21 @@ mod tests {
                 type_version: 1,
             }),
             FieldType::instance_ref(ExactTypeRef {
+                type_id: "4c000007-0000-4000-a000-000000000007".to_string(),
+                type_version: 1,
+            }),
+            // srs#534/#932 — the "untyped integer enum" capability.
+            FieldType::closed_integer([0, 2]),
+            // srs#534/#551/#932 — the "map-of-`$ref`" capability. Moved in
+            // from the now-deleted `map_of_ref_is_semantically_valid_pending_
+            // a_spec_side_seed_fix`: srs#551/PR#555 widened field.json's
+            // `$defs.FieldType.allOf` to permit `rangeType`/`mode` for
+            // `datatype: map` + `valueRange: ref`, not just `datatype: ref`.
+            FieldType::map_of_ref(ExactTypeRef {
+                type_id: "4c000007-0000-4000-a000-000000000007".to_string(),
+                type_version: 1,
+            }),
+            FieldType::map_of_ref_ids(ExactTypeRef {
                 type_id: "4c000007-0000-4000-a000-000000000007".to_string(),
                 type_version: 1,
             }),
