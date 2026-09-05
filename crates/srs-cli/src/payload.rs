@@ -683,6 +683,14 @@ pub struct LifecycleCreatePayload {
     pub lifecycle: Lifecycle,
 }
 
+/// Payload for `lifecycle update` (RFC-028 [R6]).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LifecycleUpdatePayload {
+    #[schemars(with = "serde_json::Value")]
+    pub lifecycle: Lifecycle,
+}
+
 // ── Term payloads (RFC-006) ───────────────────────────────────────────────────
 
 /// Payload for `term list`.

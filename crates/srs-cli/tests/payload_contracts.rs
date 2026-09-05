@@ -566,6 +566,11 @@ fn lifecycle_create() {
     check::<LifecycleCreatePayload>("lifecycle-create");
 }
 
+#[test]
+fn lifecycle_update() {
+    check::<LifecycleUpdatePayload>("lifecycle-update");
+}
+
 // ── Term (RFC-006) ────────────────────────────────────────────────────────────
 
 #[test]

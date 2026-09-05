@@ -319,6 +319,11 @@ pub trait RepositoryStore {
         relative_path: &str,
         lifecycle: &Lifecycle,
     ) -> Result<(), RepositoryError>;
+    fn update_lifecycle_file(
+        &self,
+        relative_path: &str,
+        lifecycle: &Lifecycle,
+    ) -> Result<(), RepositoryError>;
     fn ensure_lifecycles_dir(&self, relative_dir: &str) -> Result<(), RepositoryError>;
 
     // --- Instances (Notes, Records) ---
@@ -1776,6 +1781,14 @@ impl RepositoryStore for FileStore {
             source: e,
         })?;
         self.write_json(relative_path, &value)
+    }
+
+    fn update_lifecycle_file(
+        &self,
+        relative_path: &str,
+        lifecycle: &Lifecycle,
+    ) -> Result<(), RepositoryError> {
+        self.save_lifecycle(relative_path, lifecycle)
     }
 
     fn ensure_lifecycles_dir(&self, relative_dir: &str) -> Result<(), RepositoryError> {
@@ -3236,6 +3249,17 @@ pub mod memory {
                 pkg.lifecycles.push(lifecycle.clone());
             }
             Ok(())
+        }
+
+        fn update_lifecycle_file(
+            &self,
+            relative_path: &str,
+            lifecycle: &Lifecycle,
+        ) -> Result<(), RepositoryError> {
+            if !self.data.borrow().contains_key(relative_path) {
+                return Err(not_found(relative_path));
+            }
+            self.save_lifecycle(relative_path, lifecycle)
         }
 
         fn ensure_lifecycles_dir(&self, _relative_dir: &str) -> Result<(), RepositoryError> {

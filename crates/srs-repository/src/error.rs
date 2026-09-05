@@ -24,6 +24,18 @@ pub enum RepositoryError {
     #[error("field not found: {field_id}")]
     FieldNotFound { field_id: String },
 
+    #[error("lifecycle not found: {id}")]
+    LifecycleNotFound { id: String },
+
+    #[error("lifecycle id in body ({body_id}) does not match argument ({argument_id})")]
+    LifecycleIdMismatch {
+        argument_id: String,
+        body_id: String,
+    },
+
+    #[error("lifecycle validation failed: {}", violations.join("; "))]
+    LifecycleValidation { violations: Vec<String> },
+
     #[error("failed to load record at {path:?}: {source}")]
     RecordLoad {
         path: PathBuf,
@@ -457,6 +469,24 @@ impl PartialEq for RepositoryError {
             (
                 RepositoryError::FieldNotFound { field_id: a },
                 RepositoryError::FieldNotFound { field_id: b },
+            ) => a == b,
+            (
+                RepositoryError::LifecycleNotFound { id: a },
+                RepositoryError::LifecycleNotFound { id: b },
+            ) => a == b,
+            (
+                RepositoryError::LifecycleIdMismatch {
+                    argument_id: aa,
+                    body_id: ab,
+                },
+                RepositoryError::LifecycleIdMismatch {
+                    argument_id: ba,
+                    body_id: bb,
+                },
+            ) => aa == ba && ab == bb,
+            (
+                RepositoryError::LifecycleValidation { violations: a },
+                RepositoryError::LifecycleValidation { violations: b },
             ) => a == b,
             (
                 RepositoryError::RecordLoad { path: a, source: _ },
