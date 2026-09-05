@@ -230,13 +230,31 @@
       "allOf": [
         {
           "if": {
-            "properties": {
-              "datatype": {
-                "const": "ref"
+            "anyOf": [
+              {
+                "properties": {
+                  "datatype": {
+                    "const": "ref"
+                  }
+                },
+                "required": [
+                  "datatype"
+                ]
+              },
+              {
+                "properties": {
+                  "datatype": {
+                    "const": "map"
+                  },
+                  "valueRange": {
+                    "const": "ref"
+                  }
+                },
+                "required": [
+                  "datatype",
+                  "valueRange"
+                ]
               }
-            },
-            "required": [
-              "datatype"
             ]
           },
           "then": {

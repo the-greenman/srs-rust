@@ -92,11 +92,12 @@ is_missing_allowlisted() {
 #
 # field.json's entry is retired (srs-rust#932): the mirror is synced (widened
 # valueRange enum + allowedValues.items.type) and srs-core's FieldType
-# validation (R2/R3/R9) now implements both new capabilities. (The frozen
-# seed's own `$defs.FieldType.allOf` was never widened, upstream, to permit
-# `rangeType` for the map-of-ref shape — a spec-side gap, not a mirror-sync
-# one; see `map_of_ref_is_semantically_valid_pending_a_spec_side_seed_fix` in
-# `crates/srs-core/src/types/field.rs` and the filed spec-side follow-up.)
+# validation (R2/R3/R9) now implements both new capabilities. The frozen
+# seed's own `$defs.FieldType.allOf` gap this surfaced (rangeType wasn't
+# permitted for the map-of-ref shape) was filed upstream as srs#551 and fixed
+# there (PR #555, re-synced here) — the map-of-ref shapes now live in
+# `every_field_type_shape_passes_the_schema_contract` alongside every other
+# FieldType shape, not a separate pending test.
 #
 # protocol.json's entry is retired: srs-rust#930 landed the reference-
 # implementation rename (Rust structs, catalog.rs, CLI/MCP payload call

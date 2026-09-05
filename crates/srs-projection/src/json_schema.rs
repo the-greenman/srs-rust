@@ -449,8 +449,14 @@ const DEF_DESCRIPTION_SUPPRESSED: &[&str] = &[
 /// seed's `field.json` `$defs.FieldType.allOf` byte-for-byte.
 fn field_type_envelope() -> Vec<serde_json::Value> {
     vec![
+        // srs#551/PR#555 — widened to also permit rangeType/mode for
+        // datatype: map + valueRange: ref (the map-of-$ref capability,
+        // srs#534), matching rfc-032-fieldtype.mjs's usesRangeType test.
         json!({
-            "if": {"properties": {"datatype": {"const": "ref"}}, "required": ["datatype"]},
+            "if": {"anyOf": [
+                {"properties": {"datatype": {"const": "ref"}}, "required": ["datatype"]},
+                {"properties": {"datatype": {"const": "map"}, "valueRange": {"const": "ref"}}, "required": ["datatype", "valueRange"]}
+            ]},
             "then": {"required": ["rangeType"]},
             "else": {"not": {"anyOf": [{"required": ["rangeType"]}, {"required": ["mode"]}]}}
         }),
