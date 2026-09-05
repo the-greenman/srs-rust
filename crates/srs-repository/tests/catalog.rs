@@ -486,15 +486,19 @@ fn npm_package_json_is_ignored_not_an_error() {
     assert!(store.catalog().is_ok());
 }
 
+/// RFC-038 Revision 12 (srs#296, srs PR #538) retired [R3]'s package-root
+/// instance-anchor branch (srs-rust#920): a conforming package manifest no
+/// longer anchors a `records`/`notes`/`typed-records` directory beneath it as
+/// an instance root — a record-shaped file placed there is not silently
+/// classified as an instance any more. It is not an error either: an
+/// undeclared file under a package root that is not a declared definition
+/// path is ordinary, unvalidated application content ([R10]).
 #[test]
-fn nested_records_under_package_root_classified_as_instances_by_content() {
+fn nested_records_under_package_root_is_no_longer_anchored() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
     write(root, "manifest.json", MINIMAL_MANIFEST);
     write(root, "pkg/package.json", &srs_package_json());
-    // Record-shaped object under <package>/records/notes/: tier comes from
-    // content ([R6]), never from the directory name — and the nested instance
-    // root takes precedence over the package root ([R5]/[R8]).
     write(
         root,
         "pkg/records/notes/actually-a-record.json",
@@ -502,9 +506,11 @@ fn nested_records_under_package_root_classified_as_instances_by_content() {
     );
     let cat = catalog::build(&FileStore::new(root)).unwrap();
     assert!(cat.diagnostics.is_empty(), "{:?}", cat.diagnostics);
-    assert_eq!(cat.instances.len(), 1);
-    assert_eq!(cat.instances[0].kind, CatalogKind::Record);
-    assert_eq!(cat.instances[0].tier, Some(2));
+    assert!(
+        cat.instances.is_empty(),
+        "a package root must not anchor a nested records/ as an instance root any more: {:?}",
+        cat.instances
+    );
 }
 
 #[test]

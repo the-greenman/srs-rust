@@ -1,6 +1,8 @@
 # ADR-005: Extension Definition Records Are Generic Tier 2 Records
 
-- **Status:** accepted
+- **Status:** accepted (the `srs extension` CLI family this ADR designed was
+  removed 2026-09-05 — see the Update note below; the Tier-2-Record modeling
+  decision for `meta.extension` itself is unaffected)
 - **Date:** 2026-05-29
 - **Supersedes:** —
 - **Superseded by:** —
@@ -39,6 +41,8 @@ The `srs repo extensions enable/disable` commands operate only on the `declaredE
 - `srs extension list` immediately works against any repo that has the `com.semanticops.srs` package.
 - Consistent with ADR-002: generic record operations for spec-defined types that are not universally queried primitives.
 - `srs-core/src/extensions/mod.rs` can be removed, eliminating a misleading empty stub. **Update (ADR-028, 2026-07-12):** The "may be removed" note no longer applies — `extensions/mod.rs` is now the module root for extension data-file types. See [ADR-028](028-extension-catalog-types-in-srs-core.md).
+
+**Update (srs-rust#920, 2026-09-05):** The `srs extension {list,get,create,update,delete}` CLI family this ADR designed, and its `RecordTier::Extension` → `package/records` storage location, are removed. RFC-038 Revision 12 (srs#296, srs PR #538) retired [R3]'s package-root instance-anchor branch on an owner ruling (2026-09-02, verbatim): *"lets retire this. at the moment packages should be semantic not content. We have other proposed ways to distribute content as slices."* `package/records` is no longer a reserved instance root a package can anchor, so this CLI family's default write location names a location class that no longer exists. `srs/srs`'s own `com.semanticops.spec/extension` records already live at `records/extensions/`, not `package/records` — nothing in the flagship repository depended on this command family. Return trigger (verbatim, from the amended RFC-038 revision history): "a package needing to ship records rather than slices or seeds re-opens this with the use case." This does not reopen the Tier-2-Record modeling decision above — `meta.extension` records remain generic Tier 2 Records; only their CLI convenience commands and dedicated storage tier are gone. `repo extensions enable/disable` (the `declaredExtensions[]` manifest commands) are unaffected.
 
 **Negative / trade-offs:**
 - Extension field access is via `fieldValues` lookup, not typed struct fields. Code that needs extension data must know field IDs or resolve by field name from the package.
