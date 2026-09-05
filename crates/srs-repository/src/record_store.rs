@@ -1199,12 +1199,7 @@ pub fn transition_record_lifecycle(
             });
         }
         (Some(req), fulfillment) => {
-            let declared: Vec<String> = req
-                .relation_type
-                .types()
-                .iter()
-                .map(|t| t.to_string())
-                .collect();
+            let declared: Vec<String> = req.relation_type.clone();
             let direction = req.effective_direction();
             match fulfillment {
                 None => {
@@ -1584,12 +1579,7 @@ pub fn create_record_successor(
     if let Some(explicit_state) = input.lifecycle_state {
         if successor.lifecycle_state.as_deref() != Some(explicit_state.as_str()) {
             if let Some(req) = &requires_for_explicit {
-                let declared: Vec<String> = req
-                    .relation_type
-                    .types()
-                    .iter()
-                    .map(|t| t.to_string())
-                    .collect();
+                let declared: Vec<String> = req.relation_type.clone();
                 let direction = req.effective_direction();
                 if !relation_obligation_satisfied(
                     store,
@@ -4195,7 +4185,7 @@ mod tests {
         use crate::package::Package;
         use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::lifecycle::{
-            Lifecycle, LifecycleState, LifecycleTransition, RelationTypeSpec, RequiresRelation,
+            Lifecycle, LifecycleState, LifecycleTransition, RequiresRelation,
         };
         use srs_core::types::record_type::{FieldAssignment, RecordType};
         use srs_core::types::relation_type_definition::{
@@ -4256,10 +4246,10 @@ mod tests {
         superseded.is_final = Some(true);
         superseded.requires_relation = Some(RequiresRelation {
             enforcement: None,
-            // Array form: the canonical lifecycle.json schema now requires it
-            // (RFC-032 Change F removed the single-string form) — synced
-            // 2026-09-02, unrelated to srs-rust#910's own changes.
-            relation_type: RelationTypeSpec::Many(vec!["supersedes".to_string()]),
+            // List form: the canonical lifecycle.json schema requires it
+            // (RFC-032 Change F removed the single-string form; the Rust
+            // type went list-only with it — srs-rust#918).
+            relation_type: vec!["supersedes".to_string()],
             direction: None, // incoming by default
         });
         let mut closed = state("closed");
@@ -4611,7 +4601,7 @@ mod tests {
             .requires_relation
             .as_ref()
             .expect("supersede target must expose requiresRelation");
-        assert_eq!(req.relation_type.types(), vec!["supersedes"]);
+        assert_eq!(req.relation_type, vec!["supersedes".to_string()]);
         let close = result
             .transitions
             .iter()

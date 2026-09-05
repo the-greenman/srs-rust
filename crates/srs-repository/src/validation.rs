@@ -762,7 +762,7 @@ pub fn validate_repository(
                                             );
                                         }
                                         if let Some(Some(rels)) = &relations_for_rfc022 {
-                                            let declared = req.relation_type.types();
+                                            let declared = &req.relation_type;
                                             let direction = req.effective_direction();
                                             let satisfied = rels.iter().any(|r| {
                                                 let anchored = match direction {
@@ -773,10 +773,7 @@ pub fn validate_repository(
                                                         r.source_id == record.instance_id
                                                     }
                                                 };
-                                                anchored
-                                                    && declared
-                                                        .iter()
-                                                        .any(|t| r.relation_type == *t)
+                                                anchored && declared.contains(&r.relation_type)
                                             });
                                             if !satisfied {
                                                 diagnostics.push(ValidationDiagnostic {
@@ -4118,7 +4115,9 @@ mod tests {
             "states": [
                 {"key": "draft", "isInitial": true},
                 {"key": "superseded", "isFinal": true,
-                 "requiresRelation": {"relationType": "supersedes"}}
+                 // List-only (RFC-032 Change F / srs#535, srs-rust#918): the
+                 // bare-string form is removed, zero-compat.
+                 "requiresRelation": {"relationType": ["supersedes"]}}
             ],
             "transitions": [{"name": "supersede", "from": "draft", "to": "superseded"}],
             "initialState": "draft"
