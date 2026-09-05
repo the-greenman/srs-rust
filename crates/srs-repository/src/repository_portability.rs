@@ -65,6 +65,20 @@ pub struct PackageBoundarySnapshot {
     /// snapshot loadable (it simply carries none).
     #[serde(default)]
     pub protocols: Vec<Protocol>,
+    /// srs-rust#946/#947: the source boundary's on-disk `package.json`, verbatim.
+    /// `PrimaryPackageMetadata` above only carries id/namespace/name/version (the
+    /// fields `initialize_repository` needs at create time) — every other
+    /// package-manifest.json property (`title`, `description`, `status`,
+    /// `createdAt`, `updatedAt`, `dataModelRevision`, `packageDependencies`, and
+    /// any future addition) rode on nothing and was silently reconstructed from
+    /// hardcoded defaults on import. This raw copy is the passthrough base
+    /// `import_package_boundary` starts from; only the path arrays (which must
+    /// be recomputed against the target's own filenames) are overwritten.
+    /// `None` only when the source has no file-backed `package/package.json`
+    /// to read (e.g. some in-memory fixtures) — import then falls back to the
+    /// same defaults as before, not a regression.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_package_json: Option<serde_json::Value>,
 }
 
 /// In-flight snapshot of a single source document: sidecar metadata + optional binary blob.
@@ -683,6 +697,12 @@ fn export_package_boundary(
         // whatever is left is the primary's own content plus any
         // core-injected definitions no sub-package claimed.
         let pkg = source.load_package()?;
+        // Best-effort: the primary package.json is normally file-backed even for
+        // MemoryStore fixtures, but some in-memory test sources never wrote one at
+        // all (they construct `Package` fields programmatically) — `.ok()` treats
+        // that as "no raw metadata to carry", the same fallback behavior import
+        // already had before this fix, not a new failure mode.
+        let raw_package_json = source.load_instance_json("package/package.json").ok();
         return Ok(PackageBoundarySnapshot {
             boundary_path: None,
             metadata: PrimaryPackageMetadata {
@@ -743,6 +763,7 @@ fn export_package_boundary(
                 .map(|lp| lp.protocol)
                 .filter(|p| !sub_ids.protocols.contains(&p.id))
                 .collect(),
+            raw_package_json,
         });
     }
 
@@ -752,6 +773,7 @@ fn export_package_boundary(
     };
     let package_json_path = format!("{package_prefix}/package.json");
     let package_json = source.load_instance_json(&package_json_path)?;
+    let raw_package_json = Some(package_json.clone());
     let metadata: RawPackageMetadata =
         serde_json::from_value(package_json).map_err(|source| RepositoryError::PackageLoad {
             path: std::path::PathBuf::from(&package_json_path),
@@ -827,6 +849,7 @@ fn export_package_boundary(
         vocabularies,
         lifecycles,
         protocols,
+        raw_package_json,
     })
 }
 
@@ -1012,28 +1035,70 @@ fn import_package_boundary(
         protocol_paths.push(path);
     }
 
-    let package_json = serde_json::json!({
-        "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
-        "id": package.metadata.id,
-        "namespace": package.metadata.namespace,
-        "name": package.metadata.name,
-        "version": package.metadata.version,
-        "title": package.metadata.name,
-        "description": "",
-        "status": "active",
-        "createdAt": "2026-01-01T00:00:00Z",
-        "fields": field_paths,
-        "types": type_paths,
-        "relationTypes": relation_type_paths,
-        "views": view_paths,
-        "compositions": doc_view_paths,
-        "blueprints": blueprint_paths,
-        "themes": theme_paths,
-        "vocabularies": vocabulary_paths,
-        "lifecycles": lifecycle_paths,
-        "protocols": protocol_paths
-    });
-    target.save_instance_json(&format!("{base_prefix}/package.json"), &package_json)?;
+    // srs-rust#946/#947: start from the source's own package.json (when captured)
+    // so every scalar/passthrough property — title, description, status,
+    // createdAt, updatedAt, dataModelRevision, packageDependencies, and anything
+    // else a future schema revision adds — survives the round trip untouched.
+    // Only the identity fields and the path arrays are authoritatively
+    // recomputed below: identity is restated from `package.metadata` (the
+    // source of truth for id/namespace/name/version), and every path array must
+    // reflect *this* import's own freshly written filenames, never the source's.
+    let mut package_json = match &package.raw_package_json {
+        Some(serde_json::Value::Object(map)) => map.clone(),
+        _ => serde_json::Map::new(),
+    };
+    package_json.insert(
+        "$schema".to_string(),
+        serde_json::json!("https://srs.semanticops.com/schema/2.0/package-manifest.json"),
+    );
+    package_json.insert("id".to_string(), serde_json::json!(package.metadata.id));
+    package_json.insert(
+        "namespace".to_string(),
+        serde_json::json!(package.metadata.namespace),
+    );
+    package_json.insert("name".to_string(), serde_json::json!(package.metadata.name));
+    package_json.insert(
+        "version".to_string(),
+        serde_json::json!(package.metadata.version),
+    );
+    // Fallback defaults only when no raw source was captured at all (no
+    // regression from pre-fix behavior in that case) — never overwrite a
+    // value the raw passthrough already supplied.
+    package_json
+        .entry("title")
+        .or_insert_with(|| serde_json::json!(package.metadata.name));
+    package_json
+        .entry("description")
+        .or_insert_with(|| serde_json::json!(""));
+    package_json
+        .entry("status")
+        .or_insert_with(|| serde_json::json!("active"));
+    package_json
+        .entry("createdAt")
+        .or_insert_with(|| serde_json::json!("2026-01-01T00:00:00Z"));
+    package_json.insert("fields".to_string(), serde_json::json!(field_paths));
+    package_json.insert("types".to_string(), serde_json::json!(type_paths));
+    package_json.insert(
+        "relationTypes".to_string(),
+        serde_json::json!(relation_type_paths),
+    );
+    package_json.insert("views".to_string(), serde_json::json!(view_paths));
+    package_json.insert(
+        "compositions".to_string(),
+        serde_json::json!(doc_view_paths),
+    );
+    package_json.insert("blueprints".to_string(), serde_json::json!(blueprint_paths));
+    package_json.insert("themes".to_string(), serde_json::json!(theme_paths));
+    package_json.insert(
+        "vocabularies".to_string(),
+        serde_json::json!(vocabulary_paths),
+    );
+    package_json.insert("lifecycles".to_string(), serde_json::json!(lifecycle_paths));
+    package_json.insert("protocols".to_string(), serde_json::json!(protocol_paths));
+    target.save_instance_json(
+        &format!("{base_prefix}/package.json"),
+        &serde_json::Value::Object(package_json),
+    )?;
     Ok(())
 }
 
@@ -1725,6 +1790,7 @@ mod tests {
             vocabularies: vec![],
             lifecycles: vec![],
             protocols: vec![],
+            raw_package_json: None,
         });
 
         let temp = TempDir::new().unwrap();

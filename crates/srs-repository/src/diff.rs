@@ -584,6 +584,7 @@ mod tests {
             vocabularies: vec![],
             lifecycles: vec![],
             protocols: vec![],
+            raw_package_json: None,
         }
     }
 
