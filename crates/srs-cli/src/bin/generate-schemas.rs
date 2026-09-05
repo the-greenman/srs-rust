@@ -108,13 +108,6 @@ fn main() {
     write_schema!("type-json-schema", TypeJsonSchemaPayload);
     write_schema!("schema-generate", SchemaGeneratePayload);
 
-    // Extension payloads
-    write_schema!("extension-list", ExtensionListPayload);
-    write_schema!("extension-get", ExtensionPayload);
-    write_schema!("extension-create", ExtensionPayload);
-    write_schema!("extension-update", ExtensionPayload);
-    write_schema!("extension-delete", DeletedPayload);
-
     // Protocol payloads
     write_schema!("protocol-list", ProtocolListPayload);
     write_schema!("protocol-get", ProtocolPayload);
