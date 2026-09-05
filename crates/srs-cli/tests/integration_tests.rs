@@ -3031,7 +3031,11 @@ fn record_delete_removes_file_and_manifest_entry() {
     let temp = create_temp_repo();
     let package_dir = temp.path().join("package");
     std::fs::create_dir_all(package_dir.join("types")).unwrap();
-    std::fs::create_dir_all(package_dir.join("records")).unwrap();
+    // RFC-038 Revision 12 (srs#296, srs PR #538, srs-rust#920): a package root
+    // no longer anchors a nested `records/` as an instance root — the record
+    // below is written under the repository root's `records/tier-2/` instance
+    // root instead.
+    std::fs::create_dir_all(temp.path().join("records/tier-2")).unwrap();
 
     let record_type = serde_json::json!({
         "id": "type-test-001",
@@ -3054,7 +3058,9 @@ fn record_delete_removes_file_and_manifest_entry() {
     write_json(&package_dir.join("package.json"), package_json);
 
     let record_id = "cccccccc-cccc-cccc-8ccc-cccccccccccc";
-    let record_path = package_dir.join(format!("records/{}.json", record_id));
+    let record_path = temp
+        .path()
+        .join(format!("records/tier-2/{}.json", record_id));
     let record = serde_json::json!({
         "instanceId": record_id,
         "typeId": "type-test-001",
@@ -3437,111 +3443,14 @@ fn relation_delete_removes_relation() {
         .exists());
 }
 
-// --- Phase 4: Extension command group ---
-
-#[test]
-fn extension_list_returns_extensions() {
-    let temp = create_temp_repo();
-
-    // Create package with extension type
-    let package_dir = temp.path().join("package");
-    std::fs::create_dir_all(&package_dir).unwrap();
-    std::fs::create_dir_all(package_dir.join("records")).unwrap();
-
-    // RFC-038: package-manifest.json's `types` array holds paths, not inline
-    // definitions — write the type as its own file.
-    let package_json = serde_json::json!({
-        "id": "test-pkg",
-        "namespace": "com.test",
-        "name": "test",
-        "version": "1.0.0",
-        "fields": [],
-        "types": ["types/extension.json"]
-    });
-    write_json(&package_dir.join("package.json"), package_json);
-    write_json(
-        &package_dir.join("types/extension.json"),
-        serde_json::json!({
-            "id": "ext-type",
-            "namespace": "meta",
-            "name": "extension",
-            "version": 1,
-            "description": "Extension type",
-            "fields": []
-        }),
-    );
-
-    // Create an extension record
-    // RFC-038: an extension record is a Tier-2 Record — record.json shape.
-    let ext_record = serde_json::json!({
-        "instanceId": "e0000001-0000-4000-8000-000000000001",
-        "typeId": "ext-type",
-        "typeVersion": 1,
-        "typeNamespace": "meta",
-        "typeName": "extension",
-        "fieldValues": {
-            "extension-id": "com.test/test-extension@1",
-            "title": "Test Extension"
-        }
-    });
-    write_json(&package_dir.join("records/ext-001.json"), ext_record);
-
-    let result = run_srs_in_dir(temp.path(), &["extension", "list"]);
-    assert_eq!(
-        result["ok"], true,
-        "extension list should succeed: {:?}",
-        result["diagnostics"]
-    );
-    let extensions = result["payload"]["extensions"].as_array().unwrap();
-    assert_eq!(extensions.len(), 1);
-}
-
-#[test]
-fn extension_get_returns_extension_by_id() {
-    let temp = create_temp_repo();
-
-    let package_dir = temp.path().join("package");
-    std::fs::create_dir_all(&package_dir).unwrap();
-    std::fs::create_dir_all(package_dir.join("records")).unwrap();
-
-    let package_json = serde_json::json!({
-        "id": "test-pkg",
-        "namespace": "com.test",
-        "name": "test",
-        "version": "1.0.0",
-        "fields": [],
-        "types": []
-    });
-    write_json(&package_dir.join("package.json"), package_json);
-
-    // RFC-038: an extension record is a Tier-2 Record — record.json shape.
-    let ext_record = serde_json::json!({
-        "instanceId": "e0000002-0000-4000-8000-000000000002",
-        "typeId": "ext-type",
-        "typeVersion": 1,
-        "typeNamespace": "meta",
-        "typeName": "extension",
-        "fieldValues": {
-            "extension-id": "com.test/another@1",
-            "title": "Another Extension"
-        }
-    });
-    write_json(&package_dir.join("records/ext-002.json"), ext_record);
-
-    let result = run_srs_in_dir(
-        temp.path(),
-        &["extension", "get", "e0000002-0000-4000-8000-000000000002"],
-    );
-    assert_eq!(
-        result["ok"], true,
-        "extension get should succeed: {:?}",
-        result["diagnostics"]
-    );
-    assert_eq!(
-        result["payload"]["extension"]["instanceId"],
-        "e0000002-0000-4000-8000-000000000002"
-    );
-}
+// Phase 4's Extension command group (`srs extension {list,get,create,update,delete}`,
+// `package/records` as its storage location) was removed — RFC-038 Revision 12
+// (srs#296, srs PR #538) retired [R3]'s package-root instance-anchor branch on
+// an owner ruling (2026-09-02): packages carry definitions, never a nested
+// instance root. `RecordTier::Extension` and this CLI family went with it
+// (srs-rust#920). Return trigger (verbatim, from the amended revision
+// history): "a package needing to ship records rather than slices or seeds
+// re-opens this with the use case."
 
 // --- Phase 4: Protocol command group ---
 //
@@ -6862,6 +6771,137 @@ fn lifecycle_get_returns_not_found_for_unknown_id() {
     assert_eq!(
         result["payload"]["id"],
         "00000000-0000-4000-8000-deadbeef0002"
+    );
+}
+
+/// RFC-028 end-to-end: create, fetch, edit, send back via `lifecycle update`
+/// — the exact fetch-edit-send pattern `srs-usage.md` documents.
+#[test]
+fn lifecycle_update_replaces_definition_full_replace() {
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "lc-update-repo");
+
+    let lifecycle_json = serde_json::json!({
+        "version": 1,
+        "namespace": "com.test",
+        "name": "governance_lifecycle",
+        "states": [
+            {"id": "s-draft", "version": 1, "namespace": "com.test", "key": "draft", "isInitial": true},
+            {"id": "s-ratified", "version": 1, "namespace": "com.test", "key": "ratified", "isFinal": true}
+        ],
+        "transitions": [
+            {"id": "t-ratify", "name": "ratify", "from": "draft", "to": "ratified"}
+        ],
+        "initialState": "draft"
+    });
+    let created =
+        run_srs_stdin_in_dir(&repo, &["lifecycle", "create"], &lifecycle_json.to_string());
+    assert_eq!(created["ok"], true, "lifecycle create failed: {created:?}");
+    let id = created["payload"]["lifecycle"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // 1. Fetch and extract bare Lifecycle JSON (the documented pattern).
+    let fetched = run_srs_in_dir(&repo, &["lifecycle", "get", &id]);
+    assert_eq!(fetched["payload"]["result"], "found");
+    let mut body = fetched["payload"]["lifecycle"].clone();
+
+    // 2. Edit: add a new terminal state and its transition, bump version.
+    body["version"] = serde_json::json!(2);
+    body["states"].as_array_mut().unwrap().push(serde_json::json!(
+        {"id": "s-abandoned", "version": 1, "namespace": "com.test", "key": "abandoned", "isFinal": true}
+    ));
+    body["transitions"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!(
+            {"id": "t-abandon", "name": "abandon", "from": "draft", "to": "abandoned"}
+        ));
+
+    // 3. Send the full updated JSON back.
+    let updated = run_srs_stdin_in_dir(&repo, &["lifecycle", "update", &id], &body.to_string());
+    assert_eq!(updated["ok"], true, "lifecycle update failed: {updated:?}");
+    assert_eq!(updated["command"], "lifecycle update");
+    assert_eq!(updated["payload"]["lifecycle"]["version"], 2);
+    assert_eq!(
+        updated["payload"]["lifecycle"]["states"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+
+    // Full-replace is durable — a fresh `get` sees it too.
+    let refetched = run_srs_in_dir(&repo, &["lifecycle", "get", &id]);
+    assert_eq!(refetched["payload"]["lifecycle"]["version"], 2);
+}
+
+#[test]
+fn lifecycle_update_rejects_body_id_mismatching_argument() {
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "lc-update-mismatch");
+
+    let lifecycle_json = serde_json::json!({
+        "version": 1,
+        "namespace": "com.test",
+        "name": "simple_lifecycle",
+        "states": [{"id": "s-draft", "version": 1, "namespace": "com.test", "key": "draft", "isInitial": true}],
+        "transitions": [],
+        "initialState": "draft"
+    });
+    let created =
+        run_srs_stdin_in_dir(&repo, &["lifecycle", "create"], &lifecycle_json.to_string());
+    assert_eq!(created["ok"], true);
+    let id = created["payload"]["lifecycle"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let mut body = created["payload"]["lifecycle"].clone();
+    body["id"] = serde_json::json!("00000000-0000-4000-8000-deadbeef00ff");
+
+    let result = run_srs_stdin_in_dir(&repo, &["lifecycle", "update", &id], &body.to_string());
+    assert_eq!(result["ok"], false);
+    assert!(
+        result["diagnostics"][0]
+            .as_str()
+            .unwrap()
+            .contains("does not match argument"),
+        "expected an id-mismatch diagnostic, got: {result:?}"
+    );
+}
+
+#[test]
+fn lifecycle_update_returns_not_found_for_unknown_id() {
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "lc-update-notfound");
+
+    let body = serde_json::json!({
+        "id": "00000000-0000-4000-8000-deadbeef0003",
+        "version": 1,
+        "namespace": "com.test",
+        "name": "ghost_lifecycle",
+        "states": [{"id": "s-draft", "version": 1, "namespace": "com.test", "key": "draft", "isInitial": true}],
+        "transitions": [],
+        "initialState": "draft"
+    });
+    let result = run_srs_stdin_in_dir(
+        &repo,
+        &[
+            "lifecycle",
+            "update",
+            "00000000-0000-4000-8000-deadbeef0003",
+        ],
+        &body.to_string(),
+    );
+    assert_eq!(result["ok"], false);
+    assert!(
+        result["diagnostics"][0]
+            .as_str()
+            .unwrap()
+            .contains("lifecycle not found"),
+        "expected a not-found diagnostic, got: {result:?}"
     );
 }
 

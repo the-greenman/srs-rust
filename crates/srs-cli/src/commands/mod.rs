@@ -4,7 +4,6 @@ pub mod blueprint;
 pub mod composition;
 pub mod container;
 pub mod context;
-pub mod extension;
 pub mod field;
 pub mod find;
 pub mod lifecycle;
@@ -327,9 +326,6 @@ pub enum Commands {
     /// Relation commands
     #[command(subcommand)]
     Relation(RelationCommand),
-    /// Extension definition commands
-    #[command(subcommand)]
-    Extension(ExtensionCommand),
     /// Protocol definition commands
     #[command(subcommand)]
     Protocol(ProtocolCommand),
@@ -891,6 +887,11 @@ pub enum LifecycleCommand {
         #[arg(long)]
         package: Option<String>,
     },
+    /// Update an existing lifecycle (reads full Lifecycle JSON from stdin, RFC-028)
+    Update {
+        /// Lifecycle UUID id — must match the `id` field in the stdin body
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1271,46 +1272,6 @@ pub enum RelationCommand {
     /// Delete a relation by ID
     Delete {
         /// Relation ID
-        id: String,
-        /// Deprecated: JSON output is now the default (no-op)
-        #[arg(long, hide = true)]
-        json: bool,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum ExtensionCommand {
-    /// List extension definitions
-    List {
-        /// Deprecated: JSON output is now the default (no-op)
-        #[arg(long, hide = true)]
-        json: bool,
-    },
-    /// Get an extension definition by ID
-    Get {
-        /// Extension instance ID
-        id: String,
-        /// Deprecated: JSON output is now the default (no-op)
-        #[arg(long, hide = true)]
-        json: bool,
-    },
-    /// Create a new extension definition (reads JSON from stdin)
-    Create {
-        /// Deprecated: JSON output is now the default (no-op)
-        #[arg(long, hide = true)]
-        json: bool,
-    },
-    /// Update an extension definition (reads JSON from stdin)
-    Update {
-        /// Extension instance ID
-        id: String,
-        /// Deprecated: JSON output is now the default (no-op)
-        #[arg(long, hide = true)]
-        json: bool,
-    },
-    /// Delete an extension definition
-    Delete {
-        /// Extension instance ID
         id: String,
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
@@ -1744,7 +1705,6 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Type(type_cmd) => record_type::dispatch(ctx, type_cmd),
         Commands::Record(record_cmd) => record::dispatch(ctx, record_cmd),
         Commands::Relation(relation_cmd) => relation::dispatch(ctx, relation_cmd),
-        Commands::Extension(ext_cmd) => extension::dispatch(ctx, ext_cmd),
         Commands::Protocol(proto_cmd) => protocol::dispatch(ctx, proto_cmd),
         Commands::Blueprint(bp_cmd) => blueprint::dispatch(ctx, bp_cmd),
         Commands::Container(cmd) => container::dispatch(ctx, cmd),

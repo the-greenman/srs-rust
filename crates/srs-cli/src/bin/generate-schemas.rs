@@ -108,13 +108,6 @@ fn main() {
     write_schema!("type-json-schema", TypeJsonSchemaPayload);
     write_schema!("schema-generate", SchemaGeneratePayload);
 
-    // Extension payloads
-    write_schema!("extension-list", ExtensionListPayload);
-    write_schema!("extension-get", ExtensionPayload);
-    write_schema!("extension-create", ExtensionPayload);
-    write_schema!("extension-update", ExtensionPayload);
-    write_schema!("extension-delete", DeletedPayload);
-
     // Protocol payloads
     write_schema!("protocol-list", ProtocolListPayload);
     write_schema!("protocol-get", ProtocolPayload);
@@ -229,6 +222,7 @@ fn main() {
     write_schema!("lifecycle-list", LifecycleListPayload);
     write_schema!("lifecycle-get", LifecycleGetPayload);
     write_schema!("lifecycle-create", LifecycleCreatePayload);
+    write_schema!("lifecycle-update", LifecycleUpdatePayload);
 
     // Term payloads (RFC-006)
     write_schema!("term-list", TermListPayload);

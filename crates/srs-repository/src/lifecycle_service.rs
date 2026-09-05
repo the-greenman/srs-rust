@@ -3,6 +3,7 @@ use crate::package_types::{validate_package_selector, DefinitionKind, PackageSel
 use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
 use srs_core::types::lifecycle::Lifecycle;
+use srs_core::validation::lifecycle::validate_lifecycle;
 
 pub fn list_lifecycles(store: &dyn RepositoryStore) -> Result<Vec<Lifecycle>, RepositoryError> {
     match store.load_package() {
@@ -82,9 +83,129 @@ pub fn create_lifecycle(
     Ok(CreateLifecycleResult { lifecycle })
 }
 
+/// Result of `update_lifecycle`.
+#[derive(Debug)]
+pub struct UpdateLifecycleResult {
+    pub lifecycle: Lifecycle,
+}
+
+/// Update an existing Lifecycle from a raw JSON value (RFC-028).
+///
+/// Applies the same `createdAt`/`id` boilerplate defaulting as
+/// [`create_lifecycle_normalized`] before typed deserialization, then
+/// delegates to [`update_lifecycle`].
+pub fn update_lifecycle_normalized(
+    store: &dyn RepositoryStore,
+    id: &str,
+    mut raw: serde_json::Value,
+) -> Result<UpdateLifecycleResult, RepositoryError> {
+    crate::input_normalization::default_created_at(&mut raw, "createdAt");
+    crate::input_normalization::default_empty_string(&mut raw, "id");
+    let lifecycle = crate::input_normalization::from_value_with_path(raw, "Lifecycle")?;
+    update_lifecycle(store, id, lifecycle)
+}
+
+/// Update an existing Lifecycle in place (RFC-028: `srs lifecycle update`).
+///
+/// Full-replace, not a merge (RFC-028 [R7]): the stored definition after this
+/// call is exactly `lifecycle`. The caller owns `version` — it is stored
+/// as-is, never auto-incremented (RFC-028 Rationale).
+///
+/// Validates, in order:
+/// - [R3] `lifecycle.id` MUST equal `id`.
+/// - [R4] a Lifecycle with `id` MUST already exist in the package.
+/// - [R2a] every `LifecycleState` MUST supply `id`, `version` (>= 1), and
+///   `namespace` — the RFC-006 VocabularyEntry substrate contract, which the
+///   JSON schema does not mark `required` (schema validity alone is not
+///   sufficient).
+/// - [R5] RFC-006 V9 lifecycle invariants (initial-state uniqueness and
+///   activeness, transition state references, final-state/duplicate-id
+///   checks — [`validate_lifecycle`]), plus the `initialState` field itself
+///   naming the `key` of that one initial state (not checked by
+///   `validate_lifecycle`, which only checks the `states[]` side).
+///
+/// R2a and R5 violations are collected and returned together as
+/// [`RepositoryError::LifecycleValidation`] so a caller sees every violation
+/// in one round trip, not one-at-a-time.
+pub fn update_lifecycle(
+    store: &dyn RepositoryStore,
+    id: &str,
+    lifecycle: Lifecycle,
+) -> Result<UpdateLifecycleResult, RepositoryError> {
+    // R3
+    if lifecycle.id != id {
+        return Err(RepositoryError::LifecycleIdMismatch {
+            argument_id: id.to_string(),
+            body_id: lifecycle.id.clone(),
+        });
+    }
+
+    // R4
+    let (relative_path, _owner) = find_lifecycle_path(store, id)?
+        .ok_or_else(|| RepositoryError::LifecycleNotFound { id: id.to_string() })?;
+
+    // R2a: substrate contract on each state (RFC-006 VocabularyEntry).
+    let mut violations: Vec<String> = Vec::new();
+    for state in &lifecycle.states {
+        if state.id.as_deref().unwrap_or("").trim().is_empty() {
+            violations.push(format!(
+                "state '{}' is missing required substrate field 'id'",
+                state.key
+            ));
+        }
+        match state.version {
+            Some(v) if v >= 1 => {}
+            _ => violations.push(format!(
+                "state '{}' is missing required substrate field 'version' (integer >= 1)",
+                state.key
+            )),
+        }
+        if state.namespace.as_deref().unwrap_or("").trim().is_empty() {
+            violations.push(format!(
+                "state '{}' is missing required substrate field 'namespace'",
+                state.key
+            ));
+        }
+    }
+
+    // R5: initialState must name the key of the (exactly one) isInitial state.
+    // validate_lifecycle checks the states[] side (exactly one isInitial,
+    // effectively active); this checks the initialState field agrees with it.
+    let initial_by_flag = lifecycle.states.iter().find(|s| s.is_initial == Some(true));
+    match initial_by_flag {
+        Some(s) if s.key == lifecycle.initial_state => {}
+        Some(s) => violations.push(format!(
+            "initialState '{}' does not match the isInitial state's key '{}'",
+            lifecycle.initial_state, s.key
+        )),
+        None => {
+            // validate_lifecycle already reports V9NoInitialState/V9MultipleInitialStates
+            // for the states[] side; nothing to add here beyond that.
+        }
+    }
+
+    // R5: remaining RFC-006 V9 invariants.
+    for diag in validate_lifecycle(&lifecycle) {
+        violations.push(diag.message);
+    }
+
+    if !violations.is_empty() {
+        return Err(RepositoryError::LifecycleValidation { violations });
+    }
+
+    store.update_lifecycle_file(&relative_path, &lifecycle)?;
+    Ok(UpdateLifecycleResult { lifecycle })
+}
+
 /// Find the repo-root-relative path and owner for a standalone Lifecycle by
-/// its ID (mirrors `package_service::find_type_path`). `None` when the
-/// Lifecycle is not owned by this repository (e.g. embedded core package).
+/// its ID. `None` when the Lifecycle is not owned by this repository (e.g.
+/// embedded core package).
+///
+/// `PackageBoundary` only carries `field_paths`/`type_paths`/`blueprint_paths`/
+/// `protocol_paths` — Lifecycle (like View, Composition, RelationType,
+/// Vocabulary) is resolved by scanning the owner's `package.json` `lifecycles`
+/// array directly (mirrors `view_service::find_view_path`/`find_composition_path`),
+/// not `PackageBoundary.lifecycle_paths`, which `MemoryStore` never populates.
 pub(crate) fn find_lifecycle_path(
     store: &dyn RepositoryStore,
     id: &str,
@@ -94,13 +215,19 @@ pub(crate) fn find_lifecycle_path(
         Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
         Err(e) => return Err(e),
     };
-    let boundary = store.load_package_boundary(&owner)?;
     let prefix = owner.as_deref().unwrap_or("package");
-    for rel_path in &boundary.lifecycle_paths {
-        let full = format!("{prefix}/{rel_path}");
-        if let Ok(val) = store.load_instance_json(&full) {
-            if val["id"].as_str() == Some(id) {
-                return Ok(Some((full, owner)));
+    let pkg_json = store.load_instance_json(&format!("{prefix}/package.json"))?;
+    let paths = pkg_json["lifecycles"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    for entry in &paths {
+        if let Some(rel) = entry.as_str() {
+            let full = format!("{prefix}/{rel}");
+            if let Ok(val) = store.load_instance_json(&full) {
+                if val["id"].as_str() == Some(id) {
+                    return Ok(Some((full, owner)));
+                }
             }
         }
     }
@@ -309,5 +436,191 @@ mod tests {
         assert_eq!(parsed.states[0].key, "draft");
         assert_eq!(parsed.transitions[0].name, "publish");
         assert_eq!(parsed.initial_state, "draft");
+    }
+
+    // --- update_lifecycle (RFC-028, srs-rust#919) ---
+
+    /// A lifecycle whose states carry the full RFC-006 VocabularyEntry
+    /// substrate ([R2a]: `id`, `version`, `namespace`) — what a real
+    /// `lifecycle update` caller sends, unlike `make_lifecycle()`'s
+    /// intentionally-sparse states (which exist to test `create_lifecycle`'s
+    /// own boilerplate, not R2a).
+    fn make_substrate_lifecycle(id: &str) -> Lifecycle {
+        let mut lc = make_lifecycle();
+        lc.id = id.to_string();
+        for (i, state) in lc.states.iter_mut().enumerate() {
+            state.id = Some(format!("state-{i}"));
+            state.version = Some(1);
+            state.namespace = Some("com.test".to_string());
+        }
+        lc
+    }
+
+    #[test]
+    fn update_lifecycle_replaces_definition_in_place() {
+        let store = MemoryStore::default();
+        let created = create_lifecycle(&store, make_substrate_lifecycle(""), None).unwrap();
+        let id = created.lifecycle.id.clone();
+
+        let mut updated = created.lifecycle.clone();
+        updated.version = 2;
+        updated.description = Some("added an abandoned state".to_string());
+
+        let result = update_lifecycle(&store, &id, updated).unwrap();
+        assert_eq!(result.lifecycle.version, 2);
+        assert_eq!(
+            result.lifecycle.description.as_deref(),
+            Some("added an abandoned state")
+        );
+
+        // Full-replace is visible through get/list too — not just the return value.
+        let fetched = get_lifecycle_by_id(&store, &id).unwrap().unwrap();
+        assert_eq!(fetched.version, 2);
+        let listed = list_lifecycles(&store).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].version, 2);
+    }
+
+    #[test]
+    fn update_lifecycle_rejects_id_mismatch() {
+        let store = MemoryStore::default();
+        let created = create_lifecycle(&store, make_substrate_lifecycle(""), None).unwrap();
+
+        let mut body = created.lifecycle.clone();
+        body.id = "a-different-id".to_string();
+
+        let err = update_lifecycle(&store, &created.lifecycle.id, body).unwrap_err();
+        assert!(matches!(err, RepositoryError::LifecycleIdMismatch { .. }));
+    }
+
+    #[test]
+    fn update_lifecycle_rejects_unknown_id() {
+        let store = MemoryStore::default();
+        let body = make_substrate_lifecycle("00000000-0000-0000-0000-000000000000");
+
+        let err =
+            update_lifecycle(&store, "00000000-0000-0000-0000-000000000000", body).unwrap_err();
+        assert!(matches!(err, RepositoryError::LifecycleNotFound { .. }));
+    }
+
+    #[test]
+    fn update_lifecycle_rejects_state_missing_substrate_fields() {
+        let store = MemoryStore::default();
+        let created = create_lifecycle(&store, make_substrate_lifecycle(""), None).unwrap();
+
+        let mut body = created.lifecycle.clone();
+        body.states[0].version = None; // strip R2a substrate field
+
+        let err = update_lifecycle(&store, &body.id.clone(), body).unwrap_err();
+        match err {
+            RepositoryError::LifecycleValidation { violations } => {
+                assert!(
+                    violations.iter().any(|v| v.contains("version")),
+                    "expected a 'version' substrate violation, got: {violations:?}"
+                );
+            }
+            other => panic!("expected LifecycleValidation, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn update_lifecycle_rejects_initial_state_mismatch() {
+        let store = MemoryStore::default();
+        let created = create_lifecycle(&store, make_substrate_lifecycle(""), None).unwrap();
+
+        let mut body = created.lifecycle.clone();
+        body.initial_state = "active".to_string(); // "draft" is still the isInitial state
+
+        let err = update_lifecycle(&store, &body.id.clone(), body).unwrap_err();
+        match err {
+            RepositoryError::LifecycleValidation { violations } => {
+                assert!(
+                    violations.iter().any(|v| v.contains("initialState")),
+                    "expected an initialState mismatch violation, got: {violations:?}"
+                );
+            }
+            other => panic!("expected LifecycleValidation, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn update_lifecycle_rejects_v9_violations() {
+        let store = MemoryStore::default();
+        let created = create_lifecycle(&store, make_substrate_lifecycle(""), None).unwrap();
+
+        let mut body = created.lifecycle.clone();
+        // Transition references an unknown state key (V9c).
+        body.transitions[0].to = "nonexistent".to_string();
+
+        let err = update_lifecycle(&store, &body.id.clone(), body).unwrap_err();
+        match err {
+            RepositoryError::LifecycleValidation { violations } => {
+                assert!(
+                    violations.iter().any(|v| v.contains("nonexistent")),
+                    "expected a V9 unknown-transition-state violation, got: {violations:?}"
+                );
+            }
+            other => panic!("expected LifecycleValidation, got: {other:?}"),
+        }
+    }
+
+    /// Cross-store coverage (storage-boundary rule): `find_lifecycle_path`
+    /// resolves via a package.json array scan, not `PackageBoundary
+    /// .lifecycle_paths` — prove it also works against `FileStore`, not just
+    /// the in-memory fast path.
+    #[test]
+    fn update_lifecycle_in_file_store_replaces_definition_on_disk() {
+        use crate::store::FileStore;
+
+        let temp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path().join(".srs")).unwrap();
+        std::fs::write(
+            temp.path().join("manifest.json"),
+            r#"{"dataModelRevision":2}"#,
+        )
+        .unwrap();
+        std::fs::create_dir_all(temp.path().join("package")).unwrap();
+        std::fs::write(
+            temp.path().join("package/package.json"),
+            serde_json::json!({
+                "id": "pkg",
+                "namespace": "com.test",
+                "name": "test",
+                "version": "1.0.0",
+                "fields": [],
+                "types": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let store = FileStore::new(temp.path());
+
+        let created = create_lifecycle(&store, make_substrate_lifecycle(""), None).unwrap();
+        let id = created.lifecycle.id.clone();
+
+        let mut updated = created.lifecycle.clone();
+        updated.version = 2;
+
+        let result = update_lifecycle(&store, &id, updated).unwrap();
+        assert_eq!(result.lifecycle.version, 2);
+
+        let fetched = get_lifecycle_by_id(&store, &id).unwrap().unwrap();
+        assert_eq!(
+            fetched.version, 2,
+            "the file on disk must reflect the update"
+        );
+    }
+
+    #[test]
+    fn update_lifecycle_normalized_defaults_id_and_created_at_then_still_requires_match() {
+        let store = MemoryStore::default();
+        let created = create_lifecycle(&store, make_substrate_lifecycle(""), None).unwrap();
+        let id = created.lifecycle.id.clone();
+
+        let mut raw = serde_json::to_value(&created.lifecycle).unwrap();
+        raw["version"] = serde_json::json!(2);
+
+        let result = update_lifecycle_normalized(&store, &id, raw).unwrap();
+        assert_eq!(result.lifecycle.version, 2);
     }
 }
