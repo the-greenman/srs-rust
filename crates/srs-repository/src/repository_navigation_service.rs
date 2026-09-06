@@ -26,6 +26,12 @@ pub struct NavigationNode {
     pub display_label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub section_container_id: Option<String>,
+    /// The part-of tree below this node: `contains` targets, ordered by the
+    /// `precedes` chain among siblings (rfc-decision-0750c62f consequence 3 —
+    /// navigation below the root container follows the part-of tree, not the
+    /// container tree). Empty for a leaf, and omitted from the payload.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<NavigationNode>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,8 +47,19 @@ pub struct RepositoryNavigation {
     pub diagnostics: Vec<String>,
 }
 
+/// Navigation with the part-of tree expanded to its full depth.
 pub fn repository_navigation(
     store: &dyn RepositoryStore,
+) -> Result<RepositoryNavigation, RepositoryError> {
+    repository_navigation_with_depth(store, None)
+}
+
+/// `max_depth` bounds the `contains` descent below each section: `Some(0)` is the
+/// pre-#573 flat section list, `None` is unlimited. Cycles are pruned by
+/// `tree_service`, which owns the one traversal.
+pub fn repository_navigation_with_depth(
+    store: &dyn RepositoryStore,
+    max_depth: Option<u32>,
 ) -> Result<RepositoryNavigation, RepositoryError> {
     let manifest = store.load_manifest()?;
     let Some(container_ref) = &manifest.container else {
@@ -199,7 +216,38 @@ pub fn repository_navigation(
     let (ordered, ordering_diagnostics) =
         relation_graph::sort_by_precedes_chain_diagnosed(section_members, &relations);
     diagnostics.extend(ordering_diagnostics);
-    let sections = ordered.into_iter().map(|m| m.node).collect();
+    let mut sections: Vec<NavigationNode> = ordered.into_iter().map(|m| m.node).collect();
+
+    // rfc-decision-0750c62f consequence 3: below the root container, navigation is the
+    // part-of tree. One traversal, one home — `tree_service` already walks `contains`
+    // with sibling `precedes` ordering, a depth bound and cycle pruning.
+    if max_depth != Some(0) && !sections.is_empty() {
+        let tree = crate::tree_service::build_tree(
+            store,
+            crate::tree_service::TreeOptions {
+                root_ids: Some(sections.iter().map(|s| s.instance_id.clone()).collect()),
+                max_depth,
+                ..Default::default()
+            },
+        )?;
+        diagnostics.extend(tree.diagnostics);
+        let mut by_id: HashMap<String, Vec<NavigationNode>> = tree
+            .roots
+            .into_iter()
+            .map(|root| {
+                (
+                    root.instance_id,
+                    root.children
+                        .into_iter()
+                        .map(|c| node_for_tree_node(c, &section_containers))
+                        .collect(),
+                )
+            })
+            .collect();
+        for section in &mut sections {
+            section.children = by_id.remove(&section.instance_id).unwrap_or_default();
+        }
+    }
 
     Ok(RepositoryNavigation {
         root_container_id: container_ref.container_id.clone(),
@@ -240,6 +288,29 @@ fn node_for_record(
         type_name: record.type_name.clone(),
         display_label: display_label(record, identity_field_index, field_name_index),
         section_container_id,
+        children: Vec::new(),
+    }
+}
+
+/// A `contains`-tree node in navigation shape. A Tier-0 note never appears here:
+/// `tree_service` walks Tier-2 records and diagnoses anything else.
+fn node_for_tree_node(
+    node: crate::tree_service::TreeNode,
+    section_containers: &HashMap<String, String>,
+) -> NavigationNode {
+    NavigationNode {
+        section_container_id: section_containers.get(&node.instance_id).cloned(),
+        children: node
+            .children
+            .into_iter()
+            .map(|c| node_for_tree_node(c, section_containers))
+            .collect(),
+        instance_id: node.instance_id,
+        type_id: node.type_id,
+        type_version: node.type_version,
+        type_namespace: node.type_namespace,
+        type_name: node.type_name,
+        display_label: node.label,
     }
 }
 
@@ -251,7 +322,7 @@ fn display_label(
     record_label::record_display_label(record, identity_field_index, field_name_index)
 }
 
-fn section_containers_by_root(
+pub(crate) fn section_containers_by_root(
     store: &dyn RepositoryStore,
 ) -> Result<HashMap<String, String>, RepositoryError> {
     let containers = container_service::list_containers(store, &ContainerListFilter::default())?;
@@ -1048,5 +1119,187 @@ mod tests {
             "00000000-0000-4000-8000-00000000f200"
         );
         assert!(nav.diagnostics.is_empty());
+    }
+
+    fn add_relation(store: &MemoryStore, relation_type: &str, source: &str, target: &str) {
+        crate::store::write_relations_standalone_for_test(
+            store,
+            &serde_json::json!({ "relations": [{
+                "relationId": format!(
+                    "dddddddd-{}-4000-8000-{}",
+                    &source[source.len() - 4..],
+                    &target[target.len() - 12..]
+                ),
+                "relationType": relation_type,
+                "sourceInstanceId": source,
+                "targetInstanceId": target,
+                "createdAt": "2026-01-01T00:00:00Z"
+            }]}),
+        );
+    }
+
+    /// `nav_store()` plus a two-level `contains` tree under the Articles section
+    /// (a200), with `precedes` putting the later-created child first.
+    fn nav_store_with_part_of_tree() -> MemoryStore {
+        let store = nav_store();
+        let store = add_record(
+            store,
+            record(
+                "00000000-0000-4000-8000-00000000a210",
+                "Article One",
+                "2026-01-04T00:00:00Z",
+            ),
+            "records/article-one.json",
+        );
+        let store = add_record(
+            store,
+            record(
+                "00000000-0000-4000-8000-00000000a220",
+                "Article Two",
+                "2026-01-05T00:00:00Z",
+            ),
+            "records/article-two.json",
+        );
+        let store = add_record(
+            store,
+            record(
+                "00000000-0000-4000-8000-00000000a221",
+                "Clause 2.1",
+                "2026-01-06T00:00:00Z",
+            ),
+            "records/clause-two-one.json",
+        );
+        add_relation(
+            &store,
+            "contains",
+            "00000000-0000-4000-8000-00000000a200",
+            "00000000-0000-4000-8000-00000000a210",
+        );
+        add_relation(
+            &store,
+            "contains",
+            "00000000-0000-4000-8000-00000000a200",
+            "00000000-0000-4000-8000-00000000a220",
+        );
+        add_relation(
+            &store,
+            "contains",
+            "00000000-0000-4000-8000-00000000a220",
+            "00000000-0000-4000-8000-00000000a221",
+        );
+        // a220 before a210, against createdAt order — proves the sibling order is
+        // the `precedes` chain and not the timestamp fallback.
+        add_relation(
+            &store,
+            "precedes",
+            "00000000-0000-4000-8000-00000000a220",
+            "00000000-0000-4000-8000-00000000a210",
+        );
+        store
+    }
+
+    /// rfc-decision-0750c62f consequence 3: below the root container, navigation
+    /// descends the part-of tree, siblings in `precedes` order, at full depth.
+    #[test]
+    fn navigation_descends_the_contains_tree_below_each_section() {
+        let store = nav_store_with_part_of_tree();
+        let nav = super::repository_navigation(&store).unwrap();
+
+        let articles = nav
+            .sections
+            .iter()
+            .find(|s| s.instance_id.ends_with("a200"))
+            .expect("Articles section");
+        let labels: Vec<&str> = articles
+            .children
+            .iter()
+            .map(|c| c.display_label.as_str())
+            .collect();
+        assert_eq!(labels, vec!["Article Two", "Article One"]);
+        assert_eq!(
+            articles.children[0]
+                .children
+                .iter()
+                .map(|c| c.display_label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Clause 2.1"],
+            "the descent is recursive, not one extra level"
+        );
+        assert_eq!(articles.children[0].type_name, "section");
+
+        let decision_log = nav
+            .sections
+            .iter()
+            .find(|s| s.instance_id.ends_with("a300"))
+            .expect("Decision Log section");
+        assert!(decision_log.children.is_empty(), "a leaf stays a leaf");
+    }
+
+    /// The container is a named scope over the one tree, not a second tree: the
+    /// descent hook rides every node, at any depth.
+    #[test]
+    fn navigation_children_carry_the_section_container_hook() {
+        let store = nav_store_with_part_of_tree();
+        // b000 roots a200, which is now a child-bearing section; scope a220 too.
+        container_service::create_container(
+            &store,
+            srs_core::types::container::Container {
+                container_id: "00000000-0000-4000-8000-00000000c000".to_string(),
+                title: "Article Two".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                anchor_instance_id: None,
+                member_instance_ids: None,
+                root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a220".to_string()]),
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .unwrap();
+
+        let nav = super::repository_navigation(&store).unwrap();
+        let articles = nav
+            .sections
+            .iter()
+            .find(|s| s.instance_id.ends_with("a200"))
+            .expect("Articles section");
+        assert_eq!(
+            articles.children[0].section_container_id.as_deref(),
+            Some("00000000-0000-4000-8000-00000000c000")
+        );
+        assert!(articles.children[1].section_container_id.is_none());
+    }
+
+    /// `Some(0)` is the pre-#573 flat list — the escape hatch for a consumer that
+    /// depends on the old shape.
+    #[test]
+    fn navigation_depth_zero_is_the_flat_section_list() {
+        let store = nav_store_with_part_of_tree();
+        let nav = super::repository_navigation_with_depth(&store, Some(0)).unwrap();
+        assert!(nav.sections.iter().all(|s| s.children.is_empty()));
+        // The wire shape every adapter (CLI payload, MCP resource, WASM) serves:
+        // `children` is camelCase and absent, not null, when empty.
+        let flat = serde_json::to_string(&nav).unwrap();
+        assert!(!flat.contains("children"), "{flat}");
+        let deep = serde_json::to_string(&super::repository_navigation(&store).unwrap()).unwrap();
+        assert!(deep.contains("\"children\":["), "{deep}");
+
+        let one = super::repository_navigation_with_depth(&store, Some(1)).unwrap();
+        let articles = one
+            .sections
+            .iter()
+            .find(|s| s.instance_id.ends_with("a200"))
+            .expect("Articles section");
+        assert_eq!(articles.children.len(), 2);
+        assert!(
+            articles.children[0].children.is_empty(),
+            "depth 1 stops one level below the section"
+        );
     }
 }
