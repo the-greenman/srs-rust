@@ -8,6 +8,9 @@
 //! `srs://<repositoryId>/type/<typeId>`
 //! `srs://<repositoryId>/protocol`
 //! `srs://<repositoryId>/protocol/<protocolId>`
+//! `srs://<repositoryId>/tree`
+//! `srs://<repositoryId>/tree/<instanceId>`
+//! `srs://<repositoryId>/agent-index`
 //!
 //! srs-rust#910: the `view` path segment renamed to `composition`
 //! (`rfc-decision-92d2da05`) — no alias, per the standing zero-backwards-
@@ -32,6 +35,12 @@ pub enum SrsUri {
     ProtocolList,
     /// One Protocol definition with its stages in `order` (srs-rust#955).
     Protocol(String),
+    /// Recursive `contains` tree from auto-detected roots (srs-rust#949).
+    Tree,
+    /// Recursive `contains` tree rooted at one instance (srs-rust#949).
+    TreeFrom(String),
+    /// The agent orientation index (srs-rust#949).
+    AgentIndex,
 }
 
 /// Failure to parse an `srs://` URI.
@@ -65,6 +74,8 @@ pub fn parse(uri: &str, repository_id: &str) -> Result<SrsUri, UriError> {
             "map" => Ok(SrsUri::Map),
             "navigation" => Ok(SrsUri::Navigation),
             "protocol" => Ok(SrsUri::ProtocolList),
+            "tree" => Ok(SrsUri::Tree),
+            "agent-index" => Ok(SrsUri::AgentIndex),
             other => Err(UriError(format!("unknown resource kind '{other}'"))),
         },
         Some((kind, id)) if !id.is_empty() && !id.contains('/') => match kind {
@@ -73,6 +84,7 @@ pub fn parse(uri: &str, repository_id: &str) -> Result<SrsUri, UriError> {
             "composition" => Ok(SrsUri::Composition(id.to_string())),
             "type" => Ok(SrsUri::Type(id.to_string())),
             "protocol" => Ok(SrsUri::Protocol(id.to_string())),
+            "tree" => Ok(SrsUri::TreeFrom(id.to_string())),
             other => Err(UriError(format!("unknown resource kind '{other}'"))),
         },
         Some(_) => Err(UriError(format!("malformed resource path in '{uri}'"))),
@@ -90,12 +102,20 @@ pub fn format(kind: &SrsUri, repository_id: &str) -> String {
         SrsUri::Type(id) => format!("{SCHEME}{repository_id}/type/{id}"),
         SrsUri::ProtocolList => format!("{SCHEME}{repository_id}/protocol"),
         SrsUri::Protocol(id) => format!("{SCHEME}{repository_id}/protocol/{id}"),
+        SrsUri::Tree => format!("{SCHEME}{repository_id}/tree"),
+        SrsUri::TreeFrom(id) => format!("{SCHEME}{repository_id}/tree/{id}"),
+        SrsUri::AgentIndex => format!("{SCHEME}{repository_id}/agent-index"),
     }
 }
 
 /// RFC 6570 template for record resources.
 pub fn record_template(repository_id: &str) -> String {
     format!("{SCHEME}{repository_id}/record/{{instanceId}}")
+}
+
+/// RFC 6570 template for subtree resources.
+pub fn tree_template(repository_id: &str) -> String {
+    format!("{SCHEME}{repository_id}/tree/{{instanceId}}")
 }
 
 /// RFC 6570 template for type-schema resources.
@@ -125,6 +145,9 @@ mod tests {
             SrsUri::Type("jkl".into()),
             SrsUri::ProtocolList,
             SrsUri::Protocol("mno".into()),
+            SrsUri::Tree,
+            SrsUri::TreeFrom("mno".into()),
+            SrsUri::AgentIndex,
         ];
         for kind in kinds {
             let uri = format(&kind, REPO);
@@ -140,6 +163,8 @@ mod tests {
         assert!(parse(&format!("srs://{REPO}/record/"), REPO).is_err());
         assert!(parse(&format!("srs://{REPO}/type/"), REPO).is_err());
         assert!(parse(&format!("srs://{REPO}/protocol/"), REPO).is_err());
+        assert!(parse(&format!("srs://{REPO}/tree/"), REPO).is_err());
+        assert!(parse(&format!("srs://{REPO}/agent-index/x"), REPO).is_err());
         assert!(parse(&format!("srs://{REPO}/record/a/b"), REPO).is_err());
         assert!(parse(&format!("srs://{REPO}"), REPO).is_err());
     }
