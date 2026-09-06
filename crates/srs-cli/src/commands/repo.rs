@@ -1,5 +1,6 @@
 use crate::commands::{
-    with_migration_store, with_store, CliContext, RepoCommand, RepoExtensionsCommand, StoreBackend,
+    with_migration_store, with_store, CliContext, RepoCommand, RepoExtensionsCommand,
+    RepoPresentationCommand, StoreBackend,
 };
 use crate::output;
 use crate::payload::{
@@ -11,7 +12,9 @@ use crate::payload::{
     RepoDiffRelationRemoved, RepoDiffRelations, RepoDiffSummary, RepoDoctorPayload,
     RepoExtensionsConformancePayload, RepoExtensionsMutatePayload, RepoExtensionsPayload,
     RepoInitNewPayload, RepoMapPayload, RepoMigrateIdentityPayload, RepoMigrationsPayload,
-    RepoNavigationPayload, RepoSetRootContainerPayload, RepoUpgradePayload, RepoValidatePayload,
+    RepoNavigationPayload, RepoPresentationEntry, RepoPresentationMutatePayload,
+    RepoPresentationsPayload, RepoSetRootContainerPayload, RepoUpgradePayload,
+    RepoValidatePayload,
 };
 use anyhow::{Context, Result};
 use srs_repository::agent_index_service::build_agent_index;
@@ -19,8 +22,10 @@ use srs_repository::analysis::build_repo_map;
 use srs_repository::diff::diff_repositories;
 use srs_repository::doctor_service::{self, DoctorInput};
 use srs_repository::manifest_service::{
-    add_declared_extension, declared_extensions_conformance, list_declared_extensions,
-    remove_declared_extension, set_manifest_root_container, SetManifestRootContainerInput,
+    add_declared_extension, add_rendered_presentation, declared_extensions_conformance,
+    list_declared_extensions, list_rendered_presentations, remove_declared_extension,
+    remove_rendered_presentation, set_manifest_root_container, AddRenderedPresentationInput,
+    RenderedPresentation, SetManifestRootContainerInput,
 };
 use srs_repository::migrate_identity_service;
 use srs_repository::migration_registry_service;
@@ -81,6 +86,7 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
         } => cmd_repo_diff(ctx, from, to, from_store, to_store),
         RepoCommand::Validate { json: _ } => cmd_repo_validate(ctx),
         RepoCommand::Extensions(ext_cmd) => cmd_repo_extensions_dispatch(ctx, ext_cmd),
+        RepoCommand::Presentation(pres_cmd) => cmd_repo_presentation_dispatch(ctx, pres_cmd),
         RepoCommand::InitNew {
             repository_id,
             namespace,
@@ -276,6 +282,79 @@ fn cmd_repo_extensions_disable(ctx: CliContext, extension_id: String) -> Result<
         RepoExtensionsMutatePayload {
             extension_id,
             extensions,
+        },
+    )
+}
+
+fn presentation_entries(presentations: Vec<RenderedPresentation>) -> Vec<RepoPresentationEntry> {
+    presentations
+        .into_iter()
+        .map(|p| RepoPresentationEntry {
+            composition_id: p.composition_id,
+            format: p.format,
+            output_path: p.output_path,
+            is_default: p.is_default,
+        })
+        .collect()
+}
+
+fn cmd_repo_presentation_dispatch(ctx: CliContext, cmd: RepoPresentationCommand) -> Result<String> {
+    match cmd {
+        RepoPresentationCommand::List => cmd_repo_presentation_list(ctx),
+        RepoPresentationCommand::Add {
+            composition_id,
+            output_path,
+            render_format,
+            default,
+        } => cmd_repo_presentation_add(ctx, composition_id, output_path, render_format, default),
+        RepoPresentationCommand::Remove { composition_id } => {
+            cmd_repo_presentation_remove(ctx, composition_id)
+        }
+    }
+}
+
+fn cmd_repo_presentation_list(ctx: CliContext) -> Result<String> {
+    let presentations = with_store(&ctx, |store| Ok(list_rendered_presentations(store)?))?;
+    output::serialize(
+        "repo presentation list",
+        RepoPresentationsPayload {
+            presentations: presentation_entries(presentations),
+        },
+    )
+}
+
+fn cmd_repo_presentation_add(
+    ctx: CliContext,
+    composition_id: String,
+    output_path: String,
+    format: Option<String>,
+    default: bool,
+) -> Result<String> {
+    let input = AddRenderedPresentationInput {
+        composition_id: composition_id.clone(),
+        output_path,
+        format,
+        is_default: default.then_some(true),
+    };
+    let presentations = with_store(&ctx, |store| Ok(add_rendered_presentation(store, input)?))?;
+    output::serialize(
+        "repo presentation add",
+        RepoPresentationMutatePayload {
+            composition_id,
+            presentations: presentation_entries(presentations),
+        },
+    )
+}
+
+fn cmd_repo_presentation_remove(ctx: CliContext, composition_id: String) -> Result<String> {
+    let presentations = with_store(&ctx, |store| {
+        Ok(remove_rendered_presentation(store, &composition_id)?)
+    })?;
+    output::serialize(
+        "repo presentation remove",
+        RepoPresentationMutatePayload {
+            composition_id,
+            presentations: presentation_entries(presentations),
         },
     )
 }
