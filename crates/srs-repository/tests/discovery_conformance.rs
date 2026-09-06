@@ -99,29 +99,72 @@ fn project_instance_text(
     }
 }
 
-/// Root of the `conformance/discovery` fixture in the sibling `srs` spec repo. Walks up from
-/// `CARGO_MANIFEST_DIR` looking for a `srs/conformance/discovery` sibling at each level — a fixed
-/// `../../../srs` relative path (as `tests/core_bundle_drift.rs` uses) resolves to the wrong place
-/// when this crate is built from a worktree under `.worktrees/`, where the checkout sits one
-/// level deeper than in a normal clone.
-fn conformance_dir() -> PathBuf {
+/// Root of the `conformance/discovery` fixture in the `srs` spec repo, or `None` when it is
+/// not available.
+///
+/// Prefer `SRS_SPEC_DIR` (CI, and any local run — point it at a fresh `origin/master` checkout,
+/// never a long-lived sibling). The walk-up fallback below is srs-rust#874's exact false-green
+/// trap (srs-rust#922): walking up from `CARGO_MANIFEST_DIR` looking for *any* directory named
+/// `srs` with a `conformance/discovery` subtree — a fixed `../../../srs` relative path (as
+/// `tests/core_bundle_drift.rs` used) resolves to the wrong place when this crate is built from a
+/// worktree under `.worktrees/`, where the checkout sits one level deeper than in a normal clone
+/// — can land on a stale local checkout sitting on an unrelated branch (srs-rust#921's Parks
+/// note: a stale sibling on a pre-Tier-1-removal branch was found this way). So the fallback is
+/// loud, not quiet: it panics rather than silently trusting a sibling whose fixture may be stale.
+fn conformance_dir() -> Option<PathBuf> {
+    if let Ok(dir) = std::env::var("SRS_SPEC_DIR") {
+        let p = PathBuf::from(dir).join("conformance/discovery");
+        if p.join("scenarios.json").exists() {
+            return Some(p);
+        }
+        return None; // an explicit but unusable SRS_SPEC_DIR: skip, don't silently fall through
+    }
     let mut dir = Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf();
     loop {
-        let candidate = dir.join("srs/conformance/discovery");
+        let sibling = dir.join("srs");
+        let candidate = sibling.join("conformance/discovery");
         if candidate.join("scenarios.json").exists() {
-            return candidate;
+            if let Ok(out) = std::process::Command::new("git")
+                .args([
+                    "-C",
+                    sibling.to_str().unwrap_or("."),
+                    "rev-parse",
+                    "--abbrev-ref",
+                    "HEAD",
+                ])
+                .output()
+            {
+                if out.status.success() {
+                    let branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    if branch != "master" {
+                        panic!(
+                            "srs sibling checkout at {} is on branch '{branch}', not master — its \
+                             conformance/discovery fixture may be stale (srs-rust#874's exact \
+                             false-green trap, srs-rust#922: a stale sibling on an unrelated \
+                             branch was previously found this way — see srs-rust#921's Parks \
+                             note). Set SRS_SPEC_DIR to a fresh `origin/master` checkout instead.",
+                            sibling.display()
+                        );
+                    }
+                }
+                // else: not a git checkout (e.g. an extracted archive) — nothing to verify, proceed.
+            }
+            return Some(candidate);
         }
         match dir.parent() {
             Some(p) if p != dir => dir = p.to_path_buf(),
             _ => break,
         }
     }
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../srs/conformance/discovery")
+    None
 }
 
 #[test]
 fn ext_discovery_fixture_scenarios() {
-    let dir = conformance_dir();
+    let Some(dir) = conformance_dir() else {
+        println!("Skipping: srs/conformance/discovery fixture not found (isolated checkout)");
+        return;
+    };
     let scenarios_path = dir.join("scenarios.json");
     let fixture_repo = dir.join("fixture-repo");
     if !scenarios_path.exists() || !fixture_repo.join("manifest.json").exists() {

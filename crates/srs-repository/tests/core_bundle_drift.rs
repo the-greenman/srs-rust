@@ -36,11 +36,54 @@ fn core_bundle_matches_committed_sha256() {
     );
 
     // Also check against the canonical srs/ spec repo if present.
-    let canonical = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../srs/packages/com.semanticops.core/1.0.0/core-bundle.srsj");
-    if !canonical.exists() {
-        return;
-    }
+    //
+    // Prefer `SRS_SPEC_DIR` (a fresh `origin/master` checkout — srs-rust#874).
+    // The fixed-relative-sibling fallback below is the same false-green trap
+    // srs-rust#922 hardened in `discovery_conformance.rs`: a long-lived local
+    // sibling can sit on a stale, non-master branch and be silently trusted
+    // here, so treat it the same way — loud, not quiet.
+    let canonical = match std::env::var("SRS_SPEC_DIR") {
+        Ok(dir) => {
+            let p = std::path::PathBuf::from(dir)
+                .join("packages/com.semanticops.core/1.0.0/core-bundle.srsj");
+            if !p.exists() {
+                return; // explicit but unusable SRS_SPEC_DIR: skip, don't silently fall through
+            }
+            p
+        }
+        Err(_) => {
+            let sibling = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../srs");
+            let p = sibling.join("packages/com.semanticops.core/1.0.0/core-bundle.srsj");
+            if !p.exists() {
+                return;
+            }
+            if let Ok(out) = std::process::Command::new("git")
+                .args([
+                    "-C",
+                    sibling.to_str().unwrap_or("."),
+                    "rev-parse",
+                    "--abbrev-ref",
+                    "HEAD",
+                ])
+                .output()
+            {
+                if out.status.success() {
+                    let branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    if branch != "master" {
+                        panic!(
+                            "srs sibling checkout at {} is on branch '{branch}', not master — its \
+                             core-bundle.srsj may be stale (srs-rust#874's exact false-green trap, \
+                             srs-rust#922). Set SRS_SPEC_DIR to a fresh `origin/master` checkout \
+                             instead.",
+                            sibling.display()
+                        );
+                    }
+                }
+                // else: not a git checkout (e.g. an extracted archive) — nothing to verify, proceed.
+            }
+            p
+        }
+    };
     let canonical_content = std::fs::read_to_string(&canonical).unwrap();
     let embedded_str = std::str::from_utf8(embedded).expect("core-bundle.srsj is valid UTF-8");
 
