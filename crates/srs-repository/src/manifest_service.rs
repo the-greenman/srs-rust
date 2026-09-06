@@ -2,6 +2,7 @@ use crate::error::RepositoryError;
 use crate::record_store::list_all_records;
 use crate::relation_service::{list_relations, ListRelationsFilter};
 use crate::store::RepositoryStore;
+use crate::view_service::{get_composition_by_id, GetCompositionResult};
 use crate::writer::write_manifest;
 use serde_json::json;
 
@@ -460,6 +461,186 @@ pub fn set_manifest_root_container(
         title,
         member_instance_ids,
     })
+}
+
+/// A declared presentation entry in `manifest.renderedPresentations` (RFC-015 [N+31]).
+///
+/// `compositionId` is the only field the schema requires; `format`/`outputPath`/`isDefault`
+/// are informational hints per the schema, but `outputPath` is required by this service's
+/// `add` input because the entire point of this write path is making a Composition
+/// publishable (srs-rust#961) — `scripts/lib/view-exports.mjs` in the spec repo already
+/// requires it to be a non-empty string on every entry it reads.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenderedPresentation {
+    pub composition_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_default: Option<bool>,
+}
+
+fn read_rendered_presentations(manifest: &crate::manifest::Manifest) -> Vec<RenderedPresentation> {
+    manifest
+        .extra
+        .get("renderedPresentations")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| {
+                    let composition_id = v.get("compositionId").and_then(|c| c.as_str())?;
+                    Some(RenderedPresentation {
+                        composition_id: composition_id.to_string(),
+                        format: v.get("format").and_then(|f| f.as_str()).map(str::to_string),
+                        output_path: v
+                            .get("outputPath")
+                            .and_then(|p| p.as_str())
+                            .map(str::to_string),
+                        is_default: v.get("isDefault").and_then(|d| d.as_bool()),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn write_rendered_presentations(
+    store: &dyn RepositoryStore,
+    manifest: &mut crate::manifest::Manifest,
+    presentations: &[RenderedPresentation],
+) -> Result<(), RepositoryError> {
+    if presentations.is_empty() {
+        manifest.extra.remove("renderedPresentations");
+    } else {
+        let json_presentations: Vec<serde_json::Value> = presentations
+            .iter()
+            .map(|p| {
+                let mut obj = serde_json::Map::new();
+                obj.insert("compositionId".to_string(), json!(p.composition_id));
+                if let Some(format) = &p.format {
+                    obj.insert("format".to_string(), json!(format));
+                }
+                if let Some(output_path) = &p.output_path {
+                    obj.insert("outputPath".to_string(), json!(output_path));
+                }
+                if let Some(is_default) = p.is_default {
+                    obj.insert("isDefault".to_string(), json!(is_default));
+                }
+                serde_json::Value::Object(obj)
+            })
+            .collect();
+        manifest.extra.insert(
+            "renderedPresentations".to_string(),
+            json!(json_presentations),
+        );
+    }
+    write_manifest(store, manifest)
+}
+
+/// List declared presentations from `manifest.renderedPresentations`.
+pub fn list_rendered_presentations(
+    store: &dyn RepositoryStore,
+) -> Result<Vec<RenderedPresentation>, RepositoryError> {
+    let manifest = store.load_manifest()?;
+    Ok(read_rendered_presentations(&manifest))
+}
+
+/// Input for `add_rendered_presentation`
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddRenderedPresentationInput {
+    pub composition_id: String,
+    pub output_path: String,
+    pub format: Option<String>,
+    pub is_default: Option<bool>,
+}
+
+/// Declare a Composition as a rendered presentation (RFC-015 [N+31]).
+///
+/// Validates that `compositionId` resolves to a Composition in the active package(s)
+/// (the same resolution `view_service::get_composition_by_id` uses, including its
+/// across-package-conflict error) and that `outputPath` is not already claimed by a
+/// *different* composition's declared presentation. Idempotent when the exact
+/// `compositionId` is already declared — mirrors `add_package_ref`/`add_declared_extension`.
+pub fn add_rendered_presentation(
+    store: &dyn RepositoryStore,
+    input: AddRenderedPresentationInput,
+) -> Result<Vec<RenderedPresentation>, RepositoryError> {
+    if input.composition_id.is_empty() {
+        return Err(RepositoryError::InvalidInput {
+            message: "composition_id must not be empty".to_string(),
+        });
+    }
+    if input.output_path.is_empty() {
+        return Err(RepositoryError::InvalidInput {
+            message: "output_path must not be empty".to_string(),
+        });
+    }
+
+    match get_composition_by_id(store, &input.composition_id)? {
+        GetCompositionResult::Found(_) => {}
+        GetCompositionResult::NotFound => {
+            return Err(RepositoryError::CompositionNotFoundById {
+                composition_id: input.composition_id,
+            });
+        }
+    }
+
+    let mut manifest = store.load_manifest()?;
+    let mut presentations = read_rendered_presentations(&manifest);
+
+    if presentations
+        .iter()
+        .any(|p| p.composition_id == input.composition_id)
+    {
+        return Ok(presentations);
+    }
+
+    if let Some(conflict) = presentations
+        .iter()
+        .find(|p| p.output_path.as_deref() == Some(input.output_path.as_str()))
+    {
+        return Err(RepositoryError::InvalidInput {
+            message: format!(
+                "output path '{}' is already claimed by declared presentation '{}'",
+                input.output_path, conflict.composition_id
+            ),
+        });
+    }
+
+    presentations.push(RenderedPresentation {
+        composition_id: input.composition_id,
+        format: input.format,
+        output_path: Some(input.output_path),
+        is_default: input.is_default,
+    });
+
+    write_rendered_presentations(store, &mut manifest, &presentations)?;
+
+    Ok(presentations)
+}
+
+/// Remove a declared presentation from `manifest.renderedPresentations` by `compositionId`.
+/// No-op (returns the unchanged list) when no entry declares that composition.
+pub fn remove_rendered_presentation(
+    store: &dyn RepositoryStore,
+    composition_id: &str,
+) -> Result<Vec<RenderedPresentation>, RepositoryError> {
+    let mut manifest = store.load_manifest()?;
+    let mut presentations = read_rendered_presentations(&manifest);
+
+    let was_present = presentations
+        .iter()
+        .any(|p| p.composition_id == composition_id);
+
+    if was_present {
+        presentations.retain(|p| p.composition_id != composition_id);
+        write_rendered_presentations(store, &mut manifest, &presentations)?;
+    }
+
+    Ok(presentations)
 }
 
 #[cfg(test)]
@@ -1188,5 +1369,257 @@ mod tests {
             report.declared.is_empty(),
             "no extensions declared in manifest"
         );
+    }
+
+    // ── renderedPresentations (srs-rust#961) ─────────────────────────────────
+    //
+    // FileStore is used throughout rather than MemoryStore: `get_composition_by_id`
+    // (via `view_service::create_composition`/`load_package`) requires a resolvable
+    // Composition, and MemoryStore's `load_package` only supplements write-then-read
+    // for protocols (store.rs), not compositions — a pre-existing test-double gap
+    // orthogonal to this unit, not something to special-case around here.
+
+    fn setup_presentation_repo() -> (TempDir, crate::FileStore) {
+        let temp = TempDir::new().unwrap();
+        std::fs::write(
+            temp.path().join("manifest.json"),
+            r#"{"srsVersion":"2.0-draft","repositoryId":"test-repo","dataModelRevision":2}"#,
+        )
+        .unwrap();
+        create_package_dir(&temp, "package");
+        let store = crate::FileStore::new(temp.path());
+        (temp, store)
+    }
+
+    fn make_composition(store: &crate::FileStore, name: &str) -> String {
+        use srs_core::types::view::{Composition, DocumentSection, SectionSource};
+
+        let composition = Composition {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
+            composite_renderers: None,
+            id: String::new(),
+            namespace: "com.test".to_string(),
+            name: name.to_string(),
+            version: 1,
+            description: "test composition".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![DocumentSection {
+                composite_renderers: None,
+                section_id: "s1".to_string(),
+                title: None,
+                description: None,
+                order: 0,
+                source: SectionSource::FixedInstances {
+                    instance_ids: vec![],
+                },
+                render_view_id: None,
+                type_dispatch: None,
+                title_field_id: None,
+                ordering: None,
+                required: None,
+                empty_behavior: None,
+                relations_presentation: None,
+            }],
+            navigation_links: None,
+            export_config: None,
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        crate::view_service::create_composition(store, composition, None)
+            .unwrap()
+            .composition
+            .id
+    }
+
+    #[test]
+    fn list_rendered_presentations_empty_when_none() {
+        let store = make_store();
+        assert!(list_rendered_presentations(&store).unwrap().is_empty());
+    }
+
+    #[test]
+    fn add_rendered_presentation_rejects_unresolvable_composition() {
+        let (_temp, store) = setup_presentation_repo();
+        let result = add_rendered_presentation(
+            &store,
+            AddRenderedPresentationInput {
+                composition_id: "not-a-real-composition".to_string(),
+                output_path: "../docs/out.md".to_string(),
+                format: Some("markdown".to_string()),
+                is_default: None,
+            },
+        );
+        assert!(
+            matches!(result, Err(RepositoryError::CompositionNotFoundById { .. })),
+            "expected CompositionNotFoundById, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn add_rendered_presentation_rejects_empty_output_path() {
+        let (_temp, store) = setup_presentation_repo();
+        let composition_id = make_composition(&store, "doc-a");
+        let result = add_rendered_presentation(
+            &store,
+            AddRenderedPresentationInput {
+                composition_id,
+                output_path: String::new(),
+                format: None,
+                is_default: None,
+            },
+        );
+        assert!(matches!(result, Err(RepositoryError::InvalidInput { .. })));
+    }
+
+    #[test]
+    fn add_rendered_presentation_writes_and_lists() {
+        let (_temp, store) = setup_presentation_repo();
+        let composition_id = make_composition(&store, "doc-a");
+
+        let presentations = add_rendered_presentation(
+            &store,
+            AddRenderedPresentationInput {
+                composition_id: composition_id.clone(),
+                output_path: "../docs/spec/doc-a.md".to_string(),
+                format: Some("markdown".to_string()),
+                is_default: Some(true),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(presentations.len(), 1);
+        assert_eq!(presentations[0].composition_id, composition_id);
+        assert_eq!(
+            presentations[0].output_path.as_deref(),
+            Some("../docs/spec/doc-a.md")
+        );
+        assert_eq!(presentations[0].format.as_deref(), Some("markdown"));
+        assert_eq!(presentations[0].is_default, Some(true));
+
+        let listed = list_rendered_presentations(&store).unwrap();
+        assert_eq!(listed, presentations);
+
+        let manifest = store.load_manifest().unwrap();
+        let raw = manifest.extra["renderedPresentations"].as_array().unwrap();
+        assert_eq!(raw.len(), 1);
+        assert_eq!(
+            raw[0]["compositionId"].as_str(),
+            Some(composition_id.as_str())
+        );
+        assert_eq!(raw[0]["outputPath"].as_str(), Some("../docs/spec/doc-a.md"));
+    }
+
+    #[test]
+    fn add_rendered_presentation_is_idempotent_for_same_composition() {
+        let (_temp, store) = setup_presentation_repo();
+        let composition_id = make_composition(&store, "doc-a");
+        let input = || AddRenderedPresentationInput {
+            composition_id: composition_id.clone(),
+            output_path: "../docs/spec/doc-a.md".to_string(),
+            format: Some("markdown".to_string()),
+            is_default: None,
+        };
+
+        add_rendered_presentation(&store, input()).unwrap();
+        let second = add_rendered_presentation(&store, input()).unwrap();
+        assert_eq!(second.len(), 1, "re-adding the same composition is a no-op");
+    }
+
+    #[test]
+    fn add_rendered_presentation_rejects_output_path_claimed_by_another_composition() {
+        let (_temp, store) = setup_presentation_repo();
+        let composition_a = make_composition(&store, "doc-a");
+        let composition_b = make_composition(&store, "doc-b");
+
+        add_rendered_presentation(
+            &store,
+            AddRenderedPresentationInput {
+                composition_id: composition_a,
+                output_path: "../docs/spec/shared.md".to_string(),
+                format: None,
+                is_default: None,
+            },
+        )
+        .unwrap();
+
+        let result = add_rendered_presentation(
+            &store,
+            AddRenderedPresentationInput {
+                composition_id: composition_b,
+                output_path: "../docs/spec/shared.md".to_string(),
+                format: None,
+                is_default: None,
+            },
+        );
+        assert!(
+            matches!(result, Err(RepositoryError::InvalidInput { .. })),
+            "expected the claimed output path to be rejected, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn remove_rendered_presentation_removes_existing() {
+        let (_temp, store) = setup_presentation_repo();
+        let composition_id = make_composition(&store, "doc-a");
+        add_rendered_presentation(
+            &store,
+            AddRenderedPresentationInput {
+                composition_id: composition_id.clone(),
+                output_path: "../docs/spec/doc-a.md".to_string(),
+                format: None,
+                is_default: None,
+            },
+        )
+        .unwrap();
+
+        let remaining = remove_rendered_presentation(&store, &composition_id).unwrap();
+        assert!(remaining.is_empty());
+
+        let manifest = store.load_manifest().unwrap();
+        assert!(!manifest.extra.contains_key("renderedPresentations"));
+    }
+
+    #[test]
+    fn remove_rendered_presentation_noop_when_not_present() {
+        let store = make_store();
+        let remaining = remove_rendered_presentation(&store, "not-declared").unwrap();
+        assert!(remaining.is_empty());
+    }
+
+    #[test]
+    fn rendered_presentations_roundtrip_through_json() {
+        let (_temp, store) = setup_presentation_repo();
+        let composition_id = make_composition(&store, "doc-a");
+        add_rendered_presentation(
+            &store,
+            AddRenderedPresentationInput {
+                composition_id: composition_id.clone(),
+                output_path: "../docs/spec/doc-a.md".to_string(),
+                format: Some("markdown".to_string()),
+                is_default: Some(true),
+            },
+        )
+        .unwrap();
+
+        let manifest = store.load_manifest().unwrap();
+        let json = serde_json::to_string(&manifest).unwrap();
+        let reparsed: crate::manifest::Manifest = serde_json::from_str(&json).unwrap();
+        let reparsed_presentations = read_rendered_presentations(&reparsed);
+
+        assert_eq!(reparsed_presentations.len(), 1);
+        assert_eq!(reparsed_presentations[0].composition_id, composition_id);
+        assert_eq!(
+            reparsed_presentations[0].output_path.as_deref(),
+            Some("../docs/spec/doc-a.md")
+        );
+        assert_eq!(reparsed_presentations[0].is_default, Some(true));
     }
 }

@@ -693,6 +693,9 @@ pub enum RepoCommand {
     /// Extension management commands
     #[command(subcommand)]
     Extensions(RepoExtensionsCommand),
+    /// Declared-presentation management (manifest.renderedPresentations, RFC-015 [N+31])
+    #[command(subcommand)]
+    Presentation(RepoPresentationCommand),
     /// Re-stamp a seed .srsj with a new repository identity.
     /// Modifies the file at --repo in place. Requires the seed to carry meta.upstreamPackage.
     #[command(name = "init-new")]
@@ -763,6 +766,35 @@ pub enum RepoExtensionsCommand {
     },
     /// Report declared vs supported vs content-detected extension conformance
     Conformance,
+}
+
+#[derive(Subcommand)]
+pub enum RepoPresentationCommand {
+    /// List declared presentations
+    List,
+    /// Declare a Composition as a rendered presentation. Validates that the composition
+    /// resolves and that --output-path is not already claimed by another composition's
+    /// declared presentation. Idempotent when this exact composition is already declared.
+    Add {
+        #[arg(long = "composition-id")]
+        composition_id: String,
+        /// Path hint for rendered export scripts (e.g. "../docs/spec/doc.md")
+        #[arg(long = "output-path")]
+        output_path: String,
+        /// Output format hint (e.g. "markdown", "html"). Informational only.
+        /// Named --render-format (not --format) to avoid colliding with the
+        /// global --format output-mode flag.
+        #[arg(long = "render-format")]
+        render_format: Option<String>,
+        /// Mark this presentation as the viewer's default selection
+        #[arg(long)]
+        default: bool,
+    },
+    /// Remove a declared presentation by composition id. No-op if not declared.
+    Remove {
+        #[arg(long = "composition-id")]
+        composition_id: String,
+    },
 }
 
 #[derive(Subcommand)]

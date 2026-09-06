@@ -459,6 +459,21 @@ fn repo_set_root_container() {
 }
 
 #[test]
+fn repo_presentation_list() {
+    check::<RepoPresentationsPayload>("repo-presentation-list");
+}
+
+#[test]
+fn repo_presentation_add() {
+    check::<RepoPresentationMutatePayload>("repo-presentation-add");
+}
+
+#[test]
+fn repo_presentation_remove() {
+    check::<RepoPresentationMutatePayload>("repo-presentation-remove");
+}
+
+#[test]
 fn repo_upgrade() {
     check::<RepoUpgradePayload>("repo-upgrade");
 }
