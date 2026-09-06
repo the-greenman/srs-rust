@@ -299,7 +299,7 @@
                 "repository",
                 "subtree"
               ],
-              "description": "RFC-011 [N+27]/I-144 (unchanged by the srs#525 collapse — remains a SectionSource-level arrangement directive, not a DiscoveryQuery predicate, because DiscoveryQuery.containerId is single-valued and non-traversing). Controls which containers are queried. 'explicit' (default): scope to containerIds[]. 'repository': all containers, ignores containerIds and any cli container override. 'subtree': traverse contains-relations from listed containers (v1: falls back to explicit with diagnostic when containerIds absent)."
+              "description": "RFC-011 [N+27]/I-144 (unchanged by the srs#525 collapse — remains a SectionSource-level arrangement directive, not a DiscoveryQuery predicate, because DiscoveryQuery.containerId is single-valued and takes one container's effective membership). Controls which containers are queried, using RFC-034's one scoping vocabulary ([R8]). 'explicit' (default): direct(C) of each listed container — its own members, no nested subtree. 'repository': all containers, ignores containerIds and any cli container override. 'subtree': effective(C) — the recursive closure over childContainerIds of each listed container; follows declared child edges only, never contains Relations (v1: falls back to explicit with diagnostic when containerIds absent)."
             }
           }
         },
@@ -354,7 +354,7 @@
         "containerId": {
           "type": "string",
           "format": "uuid",
-          "description": "Instance is a member of this container per RFC-009 I-66: (1) instanceId in Container.rootInstanceIds[], OR (2) instanceId in Container.memberInstanceIds[], OR (3) reachable via transitive contains Relation traversal from any rootInstanceIds[] entry."
+          "description": "Instance is a member of this container: instanceId ∈ effective(C), the recursive closure over the Container's declared rootInstanceIds, memberInstanceIds and childContainerIds (RFC-034 [R8]; I-118). Membership is declared — a contains Relation never contributes (RFC-034 [R4]); this replaces the pre-RFC-034 three-condition rule that included transitive contains traversal."
         },
         "tag": {
           "type": "array",
