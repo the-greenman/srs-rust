@@ -1,0 +1,113 @@
+# Polls the latest srs schema release on a schedule (owner decision 2026-09-06, srs-rust#914:
+# poll, don't dispatch — no cross-repo token to create, rotate or watch expire). Runs the ONE sync
+# mechanism this repo has (scripts/sync-schemas-from-spec.sh — srs-rust#874) against the latest
+# release asset and, only if the mirror actually changed, opens a PR. No change → no PR, silent
+# success. Latency is at most one schedule interval; the generated PR is owner-merged anyway, so
+# that latency is invisible in practice.
+#
+# This workflow never reimplements the sync logic; it only invokes the script and reacts to its
+# result (carried-context-84ea8058 — a mechanism with two homes is obeyed from the stale one, so
+# the sync script stays the single home).
+#
+# The generated PR carries `gate:owner-merge`, not `gate:auto-merge`: this workflow's own code is
+# non-normative CI choreography, but a schema mirror diff is reviewed content per srs-rust#914's
+# own instruction, matching every prior manual schema-sync PR (#903, #905, #915, #926, ...).
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# Runs are sequential; never let two race on the same branch/PR.
+concurrency:
+  group: schema-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync schema mirror + open PR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the canonical sync script
+        id: sync
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          scripts/sync-schemas-from-spec.sh | tee /tmp/sync-output.txt
+          source_line="$(grep '^Source: ' /tmp/sync-output.txt || true)"
+          # "Source: release asset the-greenman/srs@<tag>" — the tag names the branch and the PR.
+          # srs's release tags are "schemas-build.<run_number>" (srs/.github/workflows/release.yml),
+          # not "vX.Y.Z" — do not require a "v" prefix here, or this never matches a real tag.
+          tag="$(printf '%s' "${source_line}" | sed -n 's/.*@\([^ ]*\)$/\1/p')"
+          {
+            echo "source_line<<SYNC_SOURCE_EOF"
+            echo "${source_line}"
+            echo "SYNC_SOURCE_EOF"
+            echo "tag=${tag}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check whether the mirror changed
+        id: diff
+        run: |
+          if git diff --quiet -- crates/srs-schema/schemas/2.0/; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No schema drift — mirror already matches the release. Nothing to do."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git --no-pager diff --stat -- crates/srs-schema/schemas/2.0/
+          fi
+
+      - name: Open the sync PR
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.sync.outputs.tag }}
+          SYNC_SOURCE: ${{ steps.sync.outputs.source_line }}
+        run: |
+          set -euo pipefail
+          branch="chore/schema-sync-${RELEASE_TAG:-run-${GITHUB_RUN_ID}}"
+
+          if git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
+            echo "Branch ${branch} already exists on origin — a PR is already open for this release. Skipping."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${branch}"
+          git add crates/srs-schema/schemas/2.0/
+          git commit -m "chore(schema): sync schemas from spec (${RELEASE_TAG:-latest release})"
+          git push -u origin "${branch}"
+
+          body="$(cat <<EOF
+          Automated schema mirror sync: the scheduled poll found the latest srs schema release
+          differs from the mirror.
+
+          **Release:** \`${RELEASE_TAG:-unknown}\`
+          **Resolved by the sync script:** ${SYNC_SOURCE:-(not captured)}
+
+          This PR only runs \`scripts/sync-schemas-from-spec.sh\` (the sole sync mechanism,
+          srs-rust#874) and commits its output verbatim — no hand edits, no reimplementation.
+
+          **Mode:** clear. **Cell:** ♒ Conformance (one way over many — this PR's own generation
+          is CI choreography reusing the one sync mechanism, not a second one). **Door:**
+          non-normative (mirror sync only; no schema authorship or conformance-rule change).
+
+          Labelled \`gate:owner-merge\`: the mechanism that produced this PR is non-normative, but
+          its payload is a schema content diff, which — like every prior schema-sync PR
+          (#903, #905, #915, #926) — is reviewed before merge, not auto-merged.
+
+          Refs #914
+          EOF
+          )"
+
+          gh pr create \
+            --title "chore(schema): sync schemas from spec (${RELEASE_TAG:-latest release})" \
+            --body "${body}" \
+            --label "gate:owner-merge"
