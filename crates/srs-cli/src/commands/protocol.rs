@@ -66,6 +66,7 @@ fn cmd_protocol_list(ctx: CliContext) -> Result<String> {
             namespace: p.protocol_namespace,
             name: p.protocol_name,
             version: p.protocol_version,
+            target_type: p.target_type,
             stage_count: p.stage_count,
             source_package: p.source_package,
         })

@@ -10,6 +10,7 @@ use srs_mcp::SrsMcpServer;
 use srs_repository::analysis::build_repo_map;
 use srs_repository::container_view_service::{resolve_container_view, ResolveContainerViewInput};
 use srs_repository::package_service::{create_field_normalized, create_type_normalized};
+use srs_repository::protocol_service::{create_protocol, list_protocol_stages, list_protocols};
 use srs_repository::record_store::get_record_by_id;
 use srs_repository::render_service::{render_composition, RenderCompositionOptions};
 use srs_repository::repository_lifecycle::{
@@ -29,6 +30,7 @@ struct Fixture {
     view_id: String,
     container_id: String,
     type_id: String,
+    protocol_id: String,
 }
 
 fn make_fixture() -> Fixture {
@@ -119,6 +121,26 @@ fn make_fixture() -> Fixture {
     )
     .unwrap();
 
+    // One Protocol targeting that type, with a dependsOn chain authored out
+    // of order so the definition resource's stage sort is observable (#955).
+    let protocol_id = uuid::Uuid::new_v4().to_string();
+    create_protocol(
+        &store,
+        serde_json::json!({
+            "id": protocol_id,
+            "namespace": "com.example.mcptest",
+            "name": "decision-walk",
+            "version": 1,
+            "targetType": type_id,
+            "stages": [
+                { "stageId": "s2", "name": "Decide", "order": 2, "dependsOn": ["s1"] },
+                { "stageId": "s1", "name": "Frame", "order": 1, "dependsOn": [] }
+            ]
+        }),
+        None,
+    )
+    .unwrap();
+
     let manifest = srs_repository::store::RepositoryStore::load_manifest(&store).unwrap();
     let container_id = manifest.container.as_ref().unwrap().container_id.clone();
 
@@ -129,6 +151,7 @@ fn make_fixture() -> Fixture {
         view_id,
         container_id,
         type_id,
+        protocol_id,
     }
 }
 
@@ -180,10 +203,19 @@ async fn list_resources_enumerates_containers_and_views() {
         .await
         .unwrap()
         .resource_templates;
-    assert_eq!(templates.len(), 2);
+    assert_eq!(templates.len(), 3);
     let tmpl_uris: Vec<&str> = templates.iter().map(|t| t.uri_template.as_str()).collect();
     assert!(tmpl_uris.contains(&format!("srs://{}/record/{{instanceId}}", fx.repo_id).as_str()));
     assert!(tmpl_uris.contains(&format!("srs://{}/type/{{typeId}}", fx.repo_id).as_str()));
+    assert!(tmpl_uris.contains(&format!("srs://{}/protocol/{{protocolId}}", fx.repo_id).as_str()));
+
+    // Protocols: one list resource plus one concrete resource per definition.
+    assert!(uris.contains(&format!("srs://{}/protocol", fx.repo_id).as_str()));
+    let proto = listed
+        .iter()
+        .find(|r| r.uri.ends_with(&fx.protocol_id))
+        .unwrap();
+    assert_eq!(proto.name, "com.example.mcptest/decision-walk");
 
     client.cancel().await.unwrap();
 }
@@ -390,6 +422,50 @@ async fn read_type_schema_matches_service_output() {
         msg.to_lowercase().contains("not found") || msg.contains(&missing),
         "expected TypeNotFound surface, got: {msg}"
     );
+
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn read_protocol_list_and_definition_match_service_output() {
+    let fx = make_fixture();
+    let client = connect(&fx).await;
+    let store = store_for(&fx);
+
+    let (mime, text) = read_text(&client, format!("srs://{}/protocol", fx.repo_id)).await;
+    assert_eq!(mime.as_deref(), Some("application/json"));
+    let listed: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        listed["protocols"],
+        serde_json::to_value(list_protocols(&store).unwrap()).unwrap()
+    );
+    assert_eq!(listed["protocols"][0]["targetType"], fx.type_id);
+    assert_eq!(listed["protocols"][0]["stageCount"], 2);
+
+    let (_, text) = read_text(
+        &client,
+        format!("srs://{}/protocol/{}", fx.repo_id, fx.protocol_id),
+    )
+    .await;
+    let def: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(def["protocol"]["id"], fx.protocol_id);
+    assert_eq!(
+        def["stages"],
+        serde_json::to_value(list_protocol_stages(&store, &fx.protocol_id).unwrap()).unwrap()
+    );
+    // Stored out of order; served in `order` so dependsOn resolves forward.
+    assert_eq!(def["stages"][0]["stageId"], "s1");
+    assert_eq!(def["stages"][1]["dependsOn"][0], "s1");
+
+    let err = client
+        .read_resource(ReadResourceRequestParams::new(format!(
+            "srs://{}/protocol/{}",
+            fx.repo_id,
+            uuid::Uuid::new_v4()
+        )))
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("resource not found"), "got: {err}");
 
     client.cancel().await.unwrap();
 }

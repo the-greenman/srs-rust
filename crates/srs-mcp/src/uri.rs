@@ -6,6 +6,8 @@
 //! `srs://<repositoryId>/container/<containerId>`
 //! `srs://<repositoryId>/composition/<compositionId>`
 //! `srs://<repositoryId>/type/<typeId>`
+//! `srs://<repositoryId>/protocol`
+//! `srs://<repositoryId>/protocol/<protocolId>`
 //!
 //! srs-rust#910: the `view` path segment renamed to `composition`
 //! (`rfc-decision-92d2da05`) — no alias, per the standing zero-backwards-
@@ -26,6 +28,10 @@ pub enum SrsUri {
     Container(String),
     Composition(String),
     Type(String),
+    /// All installed Protocol definitions (srs-rust#955).
+    ProtocolList,
+    /// One Protocol definition with its stages in `order` (srs-rust#955).
+    Protocol(String),
 }
 
 /// Failure to parse an `srs://` URI.
@@ -58,6 +64,7 @@ pub fn parse(uri: &str, repository_id: &str) -> Result<SrsUri, UriError> {
         None => match path {
             "map" => Ok(SrsUri::Map),
             "navigation" => Ok(SrsUri::Navigation),
+            "protocol" => Ok(SrsUri::ProtocolList),
             other => Err(UriError(format!("unknown resource kind '{other}'"))),
         },
         Some((kind, id)) if !id.is_empty() && !id.contains('/') => match kind {
@@ -65,6 +72,7 @@ pub fn parse(uri: &str, repository_id: &str) -> Result<SrsUri, UriError> {
             "container" => Ok(SrsUri::Container(id.to_string())),
             "composition" => Ok(SrsUri::Composition(id.to_string())),
             "type" => Ok(SrsUri::Type(id.to_string())),
+            "protocol" => Ok(SrsUri::Protocol(id.to_string())),
             other => Err(UriError(format!("unknown resource kind '{other}'"))),
         },
         Some(_) => Err(UriError(format!("malformed resource path in '{uri}'"))),
@@ -80,6 +88,8 @@ pub fn format(kind: &SrsUri, repository_id: &str) -> String {
         SrsUri::Container(id) => format!("{SCHEME}{repository_id}/container/{id}"),
         SrsUri::Composition(id) => format!("{SCHEME}{repository_id}/composition/{id}"),
         SrsUri::Type(id) => format!("{SCHEME}{repository_id}/type/{id}"),
+        SrsUri::ProtocolList => format!("{SCHEME}{repository_id}/protocol"),
+        SrsUri::Protocol(id) => format!("{SCHEME}{repository_id}/protocol/{id}"),
     }
 }
 
@@ -91,6 +101,11 @@ pub fn record_template(repository_id: &str) -> String {
 /// RFC 6570 template for type-schema resources.
 pub fn type_template(repository_id: &str) -> String {
     format!("{SCHEME}{repository_id}/type/{{typeId}}")
+}
+
+/// RFC 6570 template for protocol-definition resources.
+pub fn protocol_template(repository_id: &str) -> String {
+    format!("{SCHEME}{repository_id}/protocol/{{protocolId}}")
 }
 
 #[cfg(test)]
@@ -108,6 +123,8 @@ mod tests {
             SrsUri::Container("def".into()),
             SrsUri::Composition("ghi".into()),
             SrsUri::Type("jkl".into()),
+            SrsUri::ProtocolList,
+            SrsUri::Protocol("mno".into()),
         ];
         for kind in kinds {
             let uri = format(&kind, REPO);
@@ -122,6 +139,7 @@ mod tests {
         assert!(parse(&format!("srs://{REPO}/unknown"), REPO).is_err());
         assert!(parse(&format!("srs://{REPO}/record/"), REPO).is_err());
         assert!(parse(&format!("srs://{REPO}/type/"), REPO).is_err());
+        assert!(parse(&format!("srs://{REPO}/protocol/"), REPO).is_err());
         assert!(parse(&format!("srs://{REPO}/record/a/b"), REPO).is_err());
         assert!(parse(&format!("srs://{REPO}"), REPO).is_err());
     }
