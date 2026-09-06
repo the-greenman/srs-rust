@@ -27,8 +27,12 @@ existing SRS identifier (see ADR-037 §6).
 **Tools**: `repo_validate`, `find`, `record_create`, `record_update`,
 `record_transition`, `record_allowed_transitions`, `record_successor`,
 `relation_create`, `note_create`, `note_graduate`, `container_member_add`,
-`container_member_remove`, `type_schema` — the validated write workflows plus
-discovery.
+`container_member_remove`, `type_schema`, `protocol_run_create`,
+`protocol_run_advance`, `protocol_run_get`, `protocol_run_list`,
+`protocol_run_complete`, `protocol_run_abandon` — the validated write
+workflows plus discovery. The protocol run tools mirror the CLI's `srs
+protocol run` verbs (#977 — follow-up to #955's read-only protocol
+resources).
 Read a type's schema (`type_schema` or the `type/{typeId}` resource) before
 authoring: each property's `x-srs-field-id` is the UUID `record_create`
 needs. Rejected writes return
