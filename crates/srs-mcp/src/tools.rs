@@ -233,6 +233,10 @@ pub struct RecordCreateToolInput {
     pub tags: Option<Vec<String>>,
     /// Add the new record to this container atomically.
     pub container_id: Option<String>,
+    /// Optional initial lifecycle state, overriding the effective Lifecycle's
+    /// `initialState` — must be reachable from it via declared transitions
+    /// (srs-rust#960). Mirrors `record_successor`'s `lifecycleState`.
+    pub lifecycle_state: Option<String>,
 }
 
 impl From<RecordCreateToolInput> for CreateRecordInput {
@@ -241,6 +245,7 @@ impl From<RecordCreateToolInput> for CreateRecordInput {
             field_values: FieldValues(input.field_values),
             field_meta: field_meta_map(input.field_meta),
             tags: input.tags,
+            lifecycle_state: input.lifecycle_state,
         }
     }
 }
@@ -557,6 +562,7 @@ impl From<NoteGraduateToolInput> for GraduateNoteInput {
                 field_values: FieldValues(input.field_values),
                 field_meta: field_meta_map(input.field_meta),
                 tags: input.tags,
+                lifecycle_state: None,
             },
         }
     }
@@ -875,6 +881,7 @@ mod tests {
             ),
             tags: Some(vec!["t".into()]),
             container_id: Some("c".into()),
+            lifecycle_state: Some("proposed".into()),
         };
         assert_eq!(rec.type_filter, "ns/nm");
         assert_eq!(rec.type_version, Some(3));
@@ -894,6 +901,7 @@ mod tests {
             Some(vec![serde_json::json!({"kind": "url"})])
         );
         assert_eq!(ci.tags, Some(vec!["t".to_string()]));
+        assert_eq!(ci.lifecycle_state.as_deref(), Some("proposed"));
 
         // RelationCreate → Relation
         let rel = RelationCreateToolInput {
