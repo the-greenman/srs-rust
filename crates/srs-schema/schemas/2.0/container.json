@@ -40,12 +40,18 @@
     "rootInstanceIds": {
       "type": "array",
       "items": { "type": "string", "format": "uuid" },
-      "description": "Top-level instances this Container was created to hold. Implementations may derive nested members by traversing contains Relations from these roots."
+      "description": "Top-level instances this Container was created to hold — the instances that anchor the scope. Part of the Container's direct membership (RFC-034 [R1]: direct(C) = rootInstanceIds ∪ memberInstanceIds). Carries no order and does not opt into any Relation traversal: a contains Relation never adds a member (RFC-034 [R4], superseding the pre-RFC-034 'may derive nested members by traversing contains Relations' rule)."
     },
     "memberInstanceIds": {
       "type": "array",
       "items": { "type": "string", "format": "uuid" },
-      "description": "Explicit membership list for all instances in scope. When present, allows membership queries without graph traversal."
+      "description": "Additional explicit members of this scope. Part of the Container's direct membership (RFC-034 [R1]). An omitted memberInstanceIds means the Container has no additional direct members — it does not opt into Relation traversal (RFC-034 Change A). Nested scopes are declared through childContainerIds, not listed here."
+    },
+    "childContainerIds": {
+      "type": "array",
+      "items": { "type": "string", "format": "uuid" },
+      "uniqueItems": true,
+      "description": "RFC-034 Change B. Container IDs of directly nested child scopes — the one place a Container references another Container. Nesting is declared here, never inferred from membership overlap ([R2]). Effective membership is the recursive, deduplicated closure over this edge ([R3]); every entry MUST resolve to an existing, distinct Container and the graph MUST be acyclic ([R7]). Holds containerIds, not instance ids: never valid in rootInstanceIds, memberInstanceIds, or a Relation endpoint (I-20). Order carries no meaning."
     },
     "identityInstanceId": {
       "type": "string",
