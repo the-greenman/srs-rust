@@ -44,6 +44,7 @@ fn cmd_field_list(
             namespace: s.namespace,
             name: s.name,
             version: s.version,
+            field_type: s.field_type,
             source_package: s.source_package,
         })
         .collect();

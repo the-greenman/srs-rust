@@ -5825,6 +5825,81 @@ fn field_list_includes_source_package() {
     );
 }
 
+/// srs-rust#958: `field list` must surface `fieldType` — omitting it forced a
+/// `field get` per field to resolve a field set's datatype/cardinality.
+#[test]
+fn field_list_includes_field_type() {
+    let temp = create_temp_repo_with_package();
+    let field = minimal_field_json("00000000-0000-0000-0000-primary00004", "typed-field");
+    run_srs_stdin_in_dir(temp.path(), &["field", "create"], &field);
+
+    let result = run_srs_in_dir(temp.path(), &["field", "list"]);
+    assert_eq!(result["ok"], true);
+
+    let fields = result["payload"]["fields"].as_array().unwrap();
+    let typed = fields
+        .iter()
+        .find(|f| f["name"] == "typed-field")
+        .expect("typed-field not found in list");
+    assert_eq!(
+        typed["fieldType"]["datatype"], "string",
+        "field list entry must carry fieldType whole: {:?}",
+        typed
+    );
+}
+
+/// srs-rust#958: `type list` must surface `identityFieldId` and `lifecycleRef`
+/// — both are correct on disk and returned by `type get`, but omitting them
+/// from the list step forced a `type get` per type to tell whether a type
+/// declares an identity field (the single most common authoring defect the
+/// discovery ladder should catch early).
+#[test]
+fn type_list_includes_identity_field_id_and_lifecycle_ref() {
+    let temp = create_temp_repo_with_package();
+
+    let field_id = "00000000-0000-0000-0000-primary00005";
+    let field = minimal_field_json(field_id, "identity-field");
+    run_srs_stdin_in_dir(temp.path(), &["field", "create"], &field);
+
+    let type_id = "00000000-0000-4000-8000-000000000958";
+    let record_type = serde_json::json!({
+        "id": type_id,
+        "namespace": "com.test",
+        "name": "identity-type",
+        "version": 1,
+        "description": "A type with an identity field",
+        "fields": [
+            { "fieldId": field_id, "order": 0, "required": true }
+        ],
+        "identityFieldId": field_id
+    });
+    let created = run_srs_stdin_in_dir(
+        temp.path(),
+        &["type", "create"],
+        &record_type.to_string(),
+    );
+    assert_eq!(created["ok"], true, "type create failed: {:?}", created);
+
+    let result = run_srs_in_dir(temp.path(), &["type", "list"]);
+    assert_eq!(result["ok"], true);
+
+    let types = result["payload"]["types"].as_array().unwrap();
+    let listed = types
+        .iter()
+        .find(|t| t["name"] == "identity-type")
+        .expect("identity-type not found in list");
+    assert_eq!(
+        listed["identityFieldId"], field_id,
+        "type list entry must carry identityFieldId: {:?}",
+        listed
+    );
+    assert!(
+        listed.get("lifecycleRef").is_none() || listed["lifecycleRef"].is_null(),
+        "type list entry with no bound lifecycle should omit or null lifecycleRef: {:?}",
+        listed
+    );
+}
+
 #[test]
 fn field_create_in_sub_package_file_lands_under_sub_path() {
     // Verifies the standard package/sub boundary: file lands in the correct directory
@@ -6093,6 +6168,114 @@ fn type_schema_emits_draft07_for_record_field_values() {
     // order recoverable: x-srs-order is 1-based position in effective field list
     assert_eq!(schema["properties"]["title"]["x-srs-order"], 1);
     assert_eq!(schema["properties"]["status"]["x-srs-order"], 2);
+}
+
+/// srs-rust#958: `type schema` ignored `editorHint` entirely, so a prose
+/// `valueType: "text"` field always projected `x-srs-widget: "textarea"` even
+/// when the field was explicitly authored `editorHint: "singleline"` to
+/// override that default. Also proves the positive case: a bare `string`
+/// field (no format-based default) still picks up `x-srs-widget: "textarea"`
+/// when the author explicitly asks for it via `editorHint: "textarea"`.
+#[test]
+fn type_schema_honors_editor_hint_override() {
+    let temp = TempDir::new().unwrap();
+    let repo = temp.path().join("schema-editor-hint.srsj");
+    let repo_str = repo.to_str().unwrap();
+
+    let created = run_srs_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            repo_str,
+            "repo",
+            "create",
+            "--repository-id",
+            "repo-editor-hint",
+            "--namespace",
+            "com.semanticops.editorhint",
+            "--package-id",
+            "pkg-editor-hint",
+            "--package-name",
+            "primary",
+        ],
+    );
+    assert_eq!(created["ok"], true);
+
+    let singleline_field_id = "00000000-0000-4000-8000-000000009581";
+    let textarea_field_id = "00000000-0000-4000-8000-000000009582";
+    let type_id = "00000000-0000-4000-8000-000000009583";
+
+    for field in [
+        serde_json::json!({
+            "id": singleline_field_id,
+            "namespace": "com.semanticops.editorhint",
+            "name": "singleline_override",
+            "version": 1,
+            "aiGuidance": {"purpose": "a prose field explicitly forced single-line"},
+            "valueType": "text",
+            "editorHint": "singleline"
+        }),
+        serde_json::json!({
+            "id": textarea_field_id,
+            "namespace": "com.semanticops.editorhint",
+            "name": "textarea_override",
+            "version": 1,
+            "aiGuidance": {"purpose": "a bare string field explicitly forced multi-line"},
+            "valueType": "string",
+            "editorHint": "textarea"
+        }),
+    ] {
+        let result = run_srs_stdin_in_dir(
+            temp.path(),
+            &["--repo", repo_str, "field", "create"],
+            &field.to_string(),
+        );
+        assert_eq!(result["ok"], true, "field create failed: {:?}", result);
+    }
+
+    let record_type = serde_json::json!({
+        "id": type_id,
+        "namespace": "com.semanticops.editorhint",
+        "name": "editor-hint-demo",
+        "version": 1,
+        "description": "A type exercising editorHint overrides",
+        "fields": [
+            { "fieldId": singleline_field_id, "order": 0, "required": false },
+            { "fieldId": textarea_field_id, "order": 1, "required": false }
+        ],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    let type_created = run_srs_stdin_in_dir(
+        temp.path(),
+        &["--repo", repo_str, "type", "create"],
+        &record_type.to_string(),
+    );
+    assert_eq!(
+        type_created["ok"], true,
+        "type create failed: {:?}",
+        type_created
+    );
+
+    let result = run_srs_in_dir(temp.path(), &["--repo", repo_str, "type", "schema", type_id]);
+    assert_eq!(result["ok"], true, "type schema failed: {:?}", result);
+    let schema = &result["payload"]["schema"];
+
+    // `text` (StringFormat::Plain) defaults to textarea, but the authored
+    // `editorHint: "singleline"` overrides that default away.
+    assert!(
+        schema["properties"]["singleline_override"]
+            .get("x-srs-widget")
+            .is_none(),
+        "editorHint: singleline must suppress the textarea default: {:?}",
+        schema["properties"]["singleline_override"]
+    );
+    // A bare `string` has no format-based default, but the authored
+    // `editorHint: "textarea"` still applies.
+    assert_eq!(
+        schema["properties"]["textarea_override"]["x-srs-widget"], "textarea",
+        "editorHint: textarea must be honored even with no format-based default: {:?}",
+        schema["properties"]["textarea_override"]
+    );
 }
 
 #[test]

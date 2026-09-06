@@ -53,6 +53,8 @@ fn cmd_type_list(
             name: s.name,
             version: s.version,
             field_count: s.field_count,
+            identity_field_id: s.identity_field_id,
+            lifecycle_ref: s.lifecycle_ref,
             source_package: s.source_package,
         })
         .collect();

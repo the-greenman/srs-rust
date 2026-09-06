@@ -15,7 +15,7 @@ use crate::package_service::GetTypeResult;
 use crate::package_service::{get_type_by_id, get_type_by_id_latest};
 use crate::store::RepositoryStore;
 use serde_json::{json, Map, Value};
-use srs_core::types::field::{Datatype, Field, RefMode, StringFormat};
+use srs_core::types::field::{Datatype, EditorHint, Field, RefMode, StringFormat};
 use srs_core::types::record_type::FieldAssignment;
 
 /// Input contract for [`type_schema`].
@@ -130,6 +130,7 @@ fn field_to_property(
     // `multiselect` case used to be special-cased.
     let mut value_shape = Map::new();
     insert_value_shape(&mut value_shape, field, package, visiting, diagnostics);
+    apply_editor_hint_widget(&mut value_shape, field);
     if field.is_list() {
         prop.insert("type".into(), json!("array"));
         prop.insert("items".into(), Value::Object(value_shape));
@@ -197,6 +198,30 @@ fn field_to_property(
     }
 
     Value::Object(prop)
+}
+
+/// Applies the Field's authored `editorHint` as an explicit override of the
+/// widget `insert_value_shape`'s format-based default would otherwise pick.
+///
+/// `editorHint` is presentation-only and independent of `fieldType`
+/// (`field.rs`'s own doc comment on `EditorHint`), so without this override an
+/// authored `editorHint: "singleline"` was silently discarded and every prose
+/// `StringFormat` (`plain`/`markdown`) still projected `x-srs-widget:
+/// "textarea"` regardless (srs-rust#958).
+fn apply_editor_hint_widget(target: &mut Map<String, Value>, field: &Field) {
+    match field.editor_hint {
+        None => {}
+        // Explicitly authored as a single-line control: the format-based
+        // default (if any) does not apply.
+        Some(EditorHint::Singleline) => {
+            target.remove("x-srs-widget");
+        }
+        Some(hint) => {
+            if let Ok(Value::String(widget)) = serde_json::to_value(hint) {
+                target.insert("x-srs-widget".into(), Value::String(widget));
+            }
+        }
+    }
 }
 
 /// Insert the single-value shape a field's `fieldType` projects to, ignoring

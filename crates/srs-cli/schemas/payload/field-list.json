@@ -15,15 +15,19 @@
   },
   "definitions": {
     "FieldListEntry": {
-      "description": "A single entry in a field list — the subset of `FieldSummary` exposed by the CLI. (Omits `valueType` and `description` which were never in the prior output.)",
+      "description": "A single entry in a field list — the subset of `FieldSummary` exposed by the CLI. (Omits `description`, which was never in the prior output. Carries `fieldType` — the RFC-032 successor of `valueType` — so the discovery ladder's list step can resolve a field set without a `field get` per field; srs-rust#958.)",
       "type": "object",
       "required": [
+        "fieldType",
         "id",
         "name",
         "namespace",
         "version"
       ],
       "properties": {
+        "fieldType": {
+          "description": "`schemars` cannot derive through `srs-core` (which must not depend on it), so the payload schema types this as an object; its shape is `$defs/FieldType` in `field.json` (same convention as `BriefField`)."
+        },
         "id": {
           "type": "string"
         },
