@@ -20,6 +20,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write
 
 # Runs are sequential; never let two race on the same branch/PR.
 concurrency:
@@ -32,6 +33,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check out the existing sync PR's branch, if one is open
+        id: target
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          branch_prefix="chore/schema-sync-"
+          # A schema-sync PR stays open across release polls until the owner reviews it, so
+          # guard on any open PR carrying this branch prefix, not on this poll's own release
+          # tag — a tag-only guard let one poll open a duplicate PR per release while an
+          # earlier one was still awaiting review (#979).
+          existing_branch="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&per_page=100" \
+            --jq '[.[] | select(.head.ref | startswith("'"${branch_prefix}"'"))][0].head.ref // empty')"
+          echo "existing_branch=${existing_branch}" >> "$GITHUB_OUTPUT"
+          if [ -n "${existing_branch}" ]; then
+            echo "Open sync PR already exists on ${existing_branch} — syncing onto it instead of opening a new one."
+            git fetch origin "${existing_branch}"
+            git checkout -B "${existing_branch}" "origin/${existing_branch}"
+          fi
 
       - name: Run the canonical sync script
         id: sync
@@ -63,27 +84,35 @@ jobs:
             git --no-pager diff --stat -- crates/srs-schema/schemas/2.0/
           fi
 
-      - name: Open the sync PR
+      - name: Open or update the sync PR
         if: steps.diff.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.sync.outputs.tag }}
           SYNC_SOURCE: ${{ steps.sync.outputs.source_line }}
+          EXISTING_BRANCH: ${{ steps.target.outputs.existing_branch }}
         run: |
           set -euo pipefail
-          branch="chore/schema-sync-${RELEASE_TAG:-run-${GITHUB_RUN_ID}}"
-
-          if git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
-            echo "Branch ${branch} already exists on origin — a PR is already open for this release. Skipping."
-            exit 0
-          fi
+          branch="${EXISTING_BRANCH:-chore/schema-sync-${RELEASE_TAG:-run-${GITHUB_RUN_ID}}}"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -b "${branch}"
+          if [ -z "${EXISTING_BRANCH}" ]; then
+            git checkout -b "${branch}"
+          fi
           git add crates/srs-schema/schemas/2.0/
           git commit -m "chore(schema): sync schemas from spec (${RELEASE_TAG:-latest release})"
           git push -u origin "${branch}"
+
+          # A PR opened (or a branch pushed) with the Actions token never triggers the
+          # `pull_request`/`push` workflows that carry the required checks (#979), so
+          # dispatch them directly against the branch we just pushed.
+          gh workflow run ci.yml --ref "${branch}"
+
+          if [ -n "${EXISTING_BRANCH}" ]; then
+            echo "Pushed new release content to existing sync PR branch ${branch}."
+            exit 0
+          fi
 
           body="$(cat <<EOF
           Automated schema mirror sync: the scheduled poll found the latest srs schema release
