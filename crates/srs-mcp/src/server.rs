@@ -55,7 +55,12 @@ fn release_generation_description() -> String {
 /// ladder in `srs-usage.md`: orient first, then read, then write, then validate.
 const INSTRUCTIONS: &str = "This server exposes one SRS (Semantic Record System) repository. \
 Orient before writing: read srs://<repositoryId>/map for counts and package info, and \
-srs://<repositoryId>/navigation for the document structure. Read individual records via the \
+srs://<repositoryId>/navigation for the document structure. srs://<repositoryId>/agent-index is \
+the one-page AI orientation index (identity, counts, types, sections, entry points). \
+srs://<repositoryId>/tree is the recursive contains-tree from every root, and \
+srs://<repositoryId>/tree/{instanceId} the subtree under one instance — descend from a \
+navigation section or container member by its instanceId; container members also carry \
+sectionContainerId when they root a sub-container. Read individual records via the \
 srs://<repositoryId>/record/{instanceId} resource template, containers via \
 srs://<repositoryId>/container/<containerId>, and rendered document views via \
 srs://<repositoryId>/view/<compositionId>. Type schemas live at \

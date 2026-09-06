@@ -11,6 +11,7 @@ use rmcp::model::{
 };
 use rmcp::ErrorData as McpError;
 use serde::Serialize;
+use srs_repository::agent_index_service::build_agent_index;
 use srs_repository::analysis::build_repo_map;
 use srs_repository::container_service::{list_containers, ContainerListFilter};
 use srs_repository::container_view_service::{resolve_container_view, ResolveContainerViewInput};
@@ -22,6 +23,7 @@ use srs_repository::protocol_service::{
 use srs_repository::record_store::get_record_by_id;
 use srs_repository::render_service::{render_composition, RenderCompositionOptions};
 use srs_repository::repository_navigation_service::repository_navigation;
+use srs_repository::tree_service::{build_tree, TreeOptions};
 use srs_repository::type_schema_service::{type_schema, TypeSchemaInput};
 use srs_repository::view_service::{list_compositions_summary, CompositionListFilter};
 
@@ -58,6 +60,21 @@ pub(crate) fn list_resources(server: &SrsMcpServer) -> Result<ListResourcesResul
             .with_description(
                 "The repository's identity record and ordered navigation sections \
                  (root container structure).",
+            )
+            .with_mime_type(MIME_JSON),
+        Resource::new(uri::format(&SrsUri::Tree, repo_id), "tree")
+            .with_title("Repository tree")
+            .with_description(
+                "Recursive `contains` tree from every auto-detected root (records not \
+                 targeted by a contains edge), with depth and cycle pruning — the same \
+                 result as `srs tree`. Subtrees: srs://<repositoryId>/tree/{instanceId}.",
+            )
+            .with_mime_type(MIME_JSON),
+        Resource::new(uri::format(&SrsUri::AgentIndex, repo_id), "agent-index")
+            .with_title("Agent index")
+            .with_description(
+                "AI orientation index: repository identity, counts, installed types, \
+                 top-level sections and suggested entry points — same as `srs repo agent-index`.",
             )
             .with_mime_type(MIME_JSON),
     ];
@@ -149,7 +166,14 @@ pub(crate) fn list_resource_templates(server: &SrsMcpServer) -> ListResourceTemp
                  sorted by order — the dependsOn walk an agent follows.",
             )
             .with_mime_type(MIME_JSON);
-    ListResourceTemplatesResult::with_all_items(vec![template, type_tmpl, protocol_tmpl])
+    let tree_tmpl = ResourceTemplate::new(uri::tree_template(server.repository_id()), "tree")
+        .with_title("Subtree by root instance id")
+        .with_description(
+            "Recursive `contains` tree rooted at one instance — descend from any \
+             navigation section or container member by its instanceId.",
+        )
+        .with_mime_type(MIME_JSON);
+    ListResourceTemplatesResult::with_all_items(vec![template, type_tmpl, protocol_tmpl, tree_tmpl])
 }
 
 pub(crate) fn read_resource(
@@ -168,6 +192,25 @@ pub(crate) fn read_resource(
         SrsUri::Navigation => {
             let nav = repository_navigation(&store).map_err(service_err)?;
             json_text(&nav, raw_uri)?
+        }
+        SrsUri::Tree => {
+            let tree = build_tree(&store, TreeOptions::default()).map_err(service_err)?;
+            json_text(&tree, raw_uri)?
+        }
+        SrsUri::TreeFrom(id) => {
+            let tree = build_tree(
+                &store,
+                TreeOptions {
+                    root_ids: Some(vec![id]),
+                    ..TreeOptions::default()
+                },
+            )
+            .map_err(service_err)?;
+            json_text(&tree, raw_uri)?
+        }
+        SrsUri::AgentIndex => {
+            let index = build_agent_index(&store).map_err(service_err)?;
+            json_text(&index, raw_uri)?
         }
         SrsUri::Record(id) => match get_record_by_id(&store, &id).map_err(service_err)? {
             // `Ok(None)` is not a service error, so there is no service message
