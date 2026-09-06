@@ -13,8 +13,7 @@ use crate::payload::{
     RepoExtensionsConformancePayload, RepoExtensionsMutatePayload, RepoExtensionsPayload,
     RepoInitNewPayload, RepoMapPayload, RepoMigrateIdentityPayload, RepoMigrationsPayload,
     RepoNavigationPayload, RepoPresentationEntry, RepoPresentationMutatePayload,
-    RepoPresentationsPayload, RepoSetRootContainerPayload, RepoUpgradePayload,
-    RepoValidatePayload,
+    RepoPresentationsPayload, RepoSetRootContainerPayload, RepoUpgradePayload, RepoValidatePayload,
 };
 use anyhow::{Context, Result};
 use srs_repository::agent_index_service::build_agent_index;

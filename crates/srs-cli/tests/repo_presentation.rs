@@ -1,10 +1,10 @@
+use srs_core::types::view::{Composition, DocumentSection, SectionSource};
 use srs_repository::manifest_service::{
     add_rendered_presentation, list_rendered_presentations, remove_rendered_presentation,
     AddRenderedPresentationInput,
 };
 use srs_repository::view_service::create_composition;
 use srs_repository::FileStore;
-use srs_core::types::view::{Composition, DocumentSection, SectionSource};
 use tempfile::TempDir;
 
 fn create_minimal_repo_with_package(dir: &std::path::Path) {
@@ -70,7 +70,10 @@ fn create_test_composition(store: &FileStore, name: &str) -> String {
         tags: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
     };
-    create_composition(store, composition, None).unwrap().composition.id
+    create_composition(store, composition, None)
+        .unwrap()
+        .composition
+        .id
 }
 
 #[test]

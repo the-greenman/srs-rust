@@ -531,9 +531,10 @@ fn write_rendered_presentations(
                 serde_json::Value::Object(obj)
             })
             .collect();
-        manifest
-            .extra
-            .insert("renderedPresentations".to_string(), json!(json_presentations));
+        manifest.extra.insert(
+            "renderedPresentations".to_string(),
+            json!(json_presentations),
+        );
     }
     write_manifest(store, manifest)
 }
