@@ -1549,6 +1549,28 @@ pub struct RepoSetRootContainerPayload {
     pub member_instance_ids: Vec<String>,
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoPresentationEntry {
+    pub composition_id: String,
+    pub format: Option<String>,
+    pub output_path: Option<String>,
+    pub is_default: Option<bool>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoPresentationsPayload {
+    pub presentations: Vec<RepoPresentationEntry>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoPresentationMutatePayload {
+    pub composition_id: String,
+    pub presentations: Vec<RepoPresentationEntry>,
+}
+
 // ── Package payloads ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]

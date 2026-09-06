@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RepoPresentationsPayload",
+  "type": "object",
+  "required": [
+    "presentations"
+  ],
+  "properties": {
+    "presentations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RepoPresentationEntry"
+      }
+    }
+  },
+  "definitions": {
+    "RepoPresentationEntry": {
+      "type": "object",
+      "required": [
+        "compositionId"
+      ],
+      "properties": {
+        "compositionId": {
+          "type": "string"
+        },
+        "format": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "isDefault": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "outputPath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}
