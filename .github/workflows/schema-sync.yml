@@ -1,28 +1,29 @@
-name: Schema Sync (dispatch)
-
-# Fired by srs's release.yml via a repository_dispatch event (spec-schemas-released) whenever a
-# new schemas-2.0.tar.gz release is published there. Runs the ONE sync mechanism this repo has
-# (scripts/sync-schemas-from-spec.sh — srs-rust#874) against the release asset and, only if the
-# mirror actually changed, opens a PR. No change → no PR, silent success. See srs-rust#914.
+# Polls the latest srs schema release on a schedule (owner decision 2026-09-06, srs-rust#914:
+# poll, don't dispatch — no cross-repo token to create, rotate or watch expire). Runs the ONE sync
+# mechanism this repo has (scripts/sync-schemas-from-spec.sh — srs-rust#874) against the latest
+# release asset and, only if the mirror actually changed, opens a PR. No change → no PR, silent
+# success. Latency is at most one schedule interval; the generated PR is owner-merged anyway, so
+# that latency is invisible in practice.
 #
 # This workflow never reimplements the sync logic; it only invokes the script and reacts to its
-# result (carried-context-84ea8058 — a protocol/mechanism with two homes is obeyed from the stale
-# one, so the sync script stays the single home).
+# result (carried-context-84ea8058 — a mechanism with two homes is obeyed from the stale one, so
+# the sync script stays the single home).
 #
 # The generated PR carries `gate:owner-merge`, not `gate:auto-merge`: this workflow's own code is
 # non-normative CI choreography, but a schema mirror diff is reviewed content per srs-rust#914's
 # own instruction, matching every prior manual schema-sync PR (#903, #905, #915, #926, ...).
 on:
-  repository_dispatch:
-    types: [spec-schemas-released]
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
   pull-requests: write
 
-# Dispatches should be rare and sequential; never let two runs race on the same branch/PR.
+# Runs are sequential; never let two race on the same branch/PR.
 concurrency:
-  group: schema-sync-dispatch
+  group: schema-sync
   cancel-in-progress: false
 
 jobs:
@@ -40,10 +41,13 @@ jobs:
           set -euo pipefail
           scripts/sync-schemas-from-spec.sh | tee /tmp/sync-output.txt
           source_line="$(grep '^Source: ' /tmp/sync-output.txt || true)"
+          # "Source: release asset the-greenman/srs@<tag>" — the tag names the branch and the PR.
+          tag="$(printf '%s' "${source_line}" | sed -n 's/.*@\(v[^ ]*\)$/\1/p')"
           {
             echo "source_line<<SYNC_SOURCE_EOF"
             echo "${source_line}"
             echo "SYNC_SOURCE_EOF"
+            echo "tag=${tag}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Check whether the mirror changed
@@ -61,15 +65,14 @@ jobs:
         if: steps.diff.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DISPATCH_TAG: ${{ github.event.client_payload.tag }}
-          DISPATCH_SHA: ${{ github.event.client_payload.sha }}
+          RELEASE_TAG: ${{ steps.sync.outputs.tag }}
           SYNC_SOURCE: ${{ steps.sync.outputs.source_line }}
         run: |
           set -euo pipefail
-          branch="chore/schema-sync-${DISPATCH_TAG:-dispatch-${GITHUB_RUN_ID}}"
+          branch="chore/schema-sync-${RELEASE_TAG:-run-${GITHUB_RUN_ID}}"
 
           if git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
-            echo "Branch ${branch} already exists on origin — a PR is presumably already open for this release. Skipping."
+            echo "Branch ${branch} already exists on origin — a PR is already open for this release. Skipping."
             exit 0
           fi
 
@@ -77,14 +80,14 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "${branch}"
           git add crates/srs-schema/schemas/2.0/
-          git commit -m "chore(schema): sync schemas from spec (${DISPATCH_TAG:-unknown release})"
+          git commit -m "chore(schema): sync schemas from spec (${RELEASE_TAG:-latest release})"
           git push -u origin "${branch}"
 
           body="$(cat <<EOF
-          Automated schema mirror sync, dispatched by srs's \`release.yml\` on publishing a new
-          schema release.
+          Automated schema mirror sync: the scheduled poll found the latest srs schema release
+          differs from the mirror.
 
-          **Dispatched release:** \`${DISPATCH_TAG:-unknown}\` (commit \`${DISPATCH_SHA:-unknown}\`)
+          **Release:** \`${RELEASE_TAG:-unknown}\`
           **Resolved by the sync script:** ${SYNC_SOURCE:-(not captured)}
 
           This PR only runs \`scripts/sync-schemas-from-spec.sh\` (the sole sync mechanism,
@@ -103,6 +106,6 @@ jobs:
           )"
 
           gh pr create \
-            --title "chore(schema): sync schemas from spec (${DISPATCH_TAG:-unknown release})" \
+            --title "chore(schema): sync schemas from spec (${RELEASE_TAG:-latest release})" \
             --body "${body}" \
             --label "gate:owner-merge"

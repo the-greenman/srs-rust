@@ -107,9 +107,9 @@ Migrate a local copy with `srs repo apply-migration --id rfc039-carrier` (after
 
 **One sync source (srs-rust#874):** `sync-schemas-from-spec.sh` defaults to the `srs` release asset (`schemas-2.0.tar.gz`) — no local-sibling auto-discovery. `--local <path>` (or the equivalent `$SRS_SPEC_DIR`) opts into a checkout explicitly, and is refused unless that checkout's HEAD is an ancestor of (or equal to) its own `origin/master` — a diverged or foreign branch (the exact false-green trap this fixes: a long-lived sibling sitting on a docs/RFC branch, silently mirrored with a green exit code) is rejected outright. The script always prints the resolved source (release tag, or local commit + ancestor relationship). `srs-vscode`'s copy of the script has the tracking issue srs-vscode#105 to port the same fix.
 
-**Automated for srs-rust (srs-rust#914):** every `srs` release fires a `repository_dispatch` (`spec-schemas-released`) that `.github/workflows/schema-sync-dispatch.yml` catches — it runs this same script and opens a `gate:owner-merge` PR only if the mirror actually changed; no change means silent success, no PR. This automates the srs-rust half only; `srs-vscode` still needs the manual step below until it grows the same workflow.
+**Automated for srs-rust (srs-rust#914):** `.github/workflows/schema-sync.yml` polls the latest `srs` schema release every six hours (and on manual dispatch) — it runs this same script and opens a `gate:owner-merge` PR only if the mirror actually changed; no change means silent success, no PR. Polling was chosen over a cross-repo dispatch so no token exists to create, rotate or expire. This automates the srs-rust half only; `srs-vscode` still needs the manual step below until it grows the same workflow.
 
-When schemas change in `srs/docs/schema/2.0/` (e.g. after a spec RFC merges into `srs`) and you are not waiting for the automated PR (or are syncing `srs-vscode`, which the dispatch does not cover):
+When schemas change in `srs/docs/schema/2.0/` (e.g. after a spec RFC merges into `srs`) and you are not waiting for the automated PR (or are syncing `srs-vscode`, which the poll does not cover):
 
 ```bash
 # From srs-rust/
