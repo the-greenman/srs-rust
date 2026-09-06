@@ -85,6 +85,8 @@ pub struct ProtocolSummary {
     pub protocol_namespace: String,
     pub protocol_name: String,
     pub protocol_version: i32,
+    /// The Protocol's `targetType` lineage reference (bare Type UUID, or `""`).
+    pub target_type: String,
     pub stage_count: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_package: Option<String>,
@@ -203,6 +205,7 @@ pub fn list_protocols(
             protocol_namespace: lp.protocol.namespace.clone(),
             protocol_name: lp.protocol.name.clone(),
             protocol_version: lp.protocol.version,
+            target_type: lp.protocol.target_type.clone(),
             stage_count: lp.protocol.stages.len(),
             source_package: lp.source_package,
         })

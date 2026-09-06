@@ -16,6 +16,9 @@ use srs_repository::container_service::{list_containers, ContainerListFilter};
 use srs_repository::container_view_service::{resolve_container_view, ResolveContainerViewInput};
 use srs_repository::error::RepositoryError;
 use srs_repository::package_service::{list_types_filtered, TypeListFilter};
+use srs_repository::protocol_service::{
+    get_protocol_by_id, list_protocol_stages, list_protocols, GetProtocolResult,
+};
 use srs_repository::record_store::get_record_by_id;
 use srs_repository::render_service::{render_composition, RenderCompositionOptions};
 use srs_repository::repository_navigation_service::repository_navigation;
@@ -86,6 +89,27 @@ pub(crate) fn list_resources(server: &SrsMcpServer) -> Result<ListResourcesResul
         );
     }
 
+    resources.push(
+        Resource::new(uri::format(&SrsUri::ProtocolList, repo_id), "protocol")
+            .with_title("Installed protocols")
+            .with_description(
+                "Every installed Protocol definition: id, namespace/name@version, targetType, \
+                 stageCount. Read one via srs://<repositoryId>/protocol/{protocolId}.",
+            )
+            .with_mime_type(MIME_JSON),
+    );
+
+    for p in list_protocols(&store).map_err(service_err)? {
+        resources.push(
+            Resource::new(
+                uri::format(&SrsUri::Protocol(p.protocol_id), repo_id),
+                format!("{}/{}", p.protocol_namespace, p.protocol_name),
+            )
+            .with_description("Protocol definition with its stages in dependsOn order.")
+            .with_mime_type(MIME_JSON),
+        );
+    }
+
     for t in list_types_filtered(&store, TypeListFilter::default()).map_err(service_err)? {
         resources.push(
             Resource::new(
@@ -117,7 +141,15 @@ pub(crate) fn list_resource_templates(server: &SrsMcpServer) -> ListResourceTemp
              — read before record_create on an unfamiliar type.",
         )
         .with_mime_type(MIME_JSON);
-    ListResourceTemplatesResult::with_all_items(vec![template, type_tmpl])
+    let protocol_tmpl =
+        ResourceTemplate::new(uri::protocol_template(server.repository_id()), "protocol")
+            .with_title("Protocol definition by protocol id")
+            .with_description(
+                "A Protocol definition (same shape as `srs protocol get`) plus its stages \
+                 sorted by order — the dependsOn walk an agent follows.",
+            )
+            .with_mime_type(MIME_JSON);
+    ListResourceTemplatesResult::with_all_items(vec![template, type_tmpl, protocol_tmpl])
 }
 
 pub(crate) fn read_resource(
@@ -184,6 +216,27 @@ pub(crate) fn read_resource(
             .map_err(service_err)?;
             json_text(&result, raw_uri)?
         }
+        SrsUri::ProtocolList => {
+            let protocols = list_protocols(&store).map_err(service_err)?;
+            json_text(&serde_json::json!({ "protocols": protocols }), raw_uri)?
+        }
+        // Mirrors `srs protocol get` + `srs protocol stages` in one read: the
+        // stored definition verbatim, plus the stages sorted by `order`.
+        SrsUri::Protocol(id) => match get_protocol_by_id(&store, &id).map_err(service_err)? {
+            GetProtocolResult::NotFound => {
+                return Err(McpError::resource_not_found(
+                    format!("resource not found: {raw_uri}"),
+                    None,
+                ))
+            }
+            GetProtocolResult::Found(protocol) => {
+                let stages = list_protocol_stages(&store, &id).map_err(service_err)?;
+                json_text(
+                    &serde_json::json!({ "protocol": protocol, "stages": stages }),
+                    raw_uri,
+                )?
+            }
+        },
     };
 
     Ok(ReadResourceResult::new(vec![contents]))

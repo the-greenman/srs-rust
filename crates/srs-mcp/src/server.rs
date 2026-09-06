@@ -61,7 +61,9 @@ srs://<repositoryId>/container/<containerId>, and rendered document views via \
 srs://<repositoryId>/view/<compositionId>. Type schemas live at \
 srs://<repositoryId>/type/{typeId} (also via the type_schema tool): read one before \
 authoring records of an unfamiliar type — its properties are keyed by Field.name (the \
-same keys record_create fieldValues uses, RFC-039) and carry aiGuidance. Use the find tool for structured discovery \
+same keys record_create fieldValues uses, RFC-039) and carry aiGuidance. Protocols (staged \
+processes) live at srs://<repositoryId>/protocol (list) and \
+srs://<repositoryId>/protocol/{protocolId} (definition plus stages in order). Use the find tool for structured discovery \
 (type, tag, lifecycle, tier, container, content match). Writes are validated: record_create, \
 relation_create, and note_create enforce the repository's type and relation contracts and \
 return diagnostics on rejection. Run repo_validate after a write batch and check its \

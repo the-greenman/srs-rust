@@ -22,6 +22,7 @@
         "namespace",
         "protocolId",
         "stageCount",
+        "targetType",
         "version"
       ],
       "properties": {
@@ -44,6 +45,9 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0.0
+        },
+        "targetType": {
+          "type": "string"
         },
         "version": {
           "type": "integer",

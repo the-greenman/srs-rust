@@ -108,6 +108,7 @@ pub struct ProtocolListEntry {
     pub namespace: String,
     pub name: String,
     pub version: i32,
+    pub target_type: String,
     pub stage_count: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_package: Option<String>,
