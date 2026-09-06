@@ -42,7 +42,9 @@ jobs:
           scripts/sync-schemas-from-spec.sh | tee /tmp/sync-output.txt
           source_line="$(grep '^Source: ' /tmp/sync-output.txt || true)"
           # "Source: release asset the-greenman/srs@<tag>" — the tag names the branch and the PR.
-          tag="$(printf '%s' "${source_line}" | sed -n 's/.*@\(v[^ ]*\)$/\1/p')"
+          # srs's release tags are "schemas-build.<run_number>" (srs/.github/workflows/release.yml),
+          # not "vX.Y.Z" — do not require a "v" prefix here, or this never matches a real tag.
+          tag="$(printf '%s' "${source_line}" | sed -n 's/.*@\([^ ]*\)$/\1/p')"
           {
             echo "source_line<<SYNC_SOURCE_EOF"
             echo "${source_line}"
