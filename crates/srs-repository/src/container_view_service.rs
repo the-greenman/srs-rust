@@ -731,6 +731,7 @@ mod tests {
             } else {
                 Some(members.into_iter().map(|s| s.to_string()).collect())
             },
+            child_container_ids: None,
             tags: None,
             created_at: None,
             updated_at: None,

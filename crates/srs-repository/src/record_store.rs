@@ -5404,6 +5404,7 @@ mod tests {
             anchor_instance_id: None,
             root_instance_ids: None,
             member_instance_ids: None,
+            child_container_ids: None,
             tags: None,
             created_at: None,
             updated_at: None,
@@ -5653,6 +5654,69 @@ mod tests {
         assert!(
             members.contains(&result.record.instance_id),
             "record must be a member of the container in the file store copy"
+        );
+    }
+
+    /// RFC-034 Change D bullet 2 / [R8]: `RecordListFilter.container_id`
+    /// (RFC-012 `DiscoveryQuery.containerId`) matches `effective(C)` — a
+    /// record that is a member only of a declared *child* container, reached
+    /// through `childContainerIds`, must still be found.
+    #[test]
+    fn list_records_filtered_by_container_id_descends_into_declared_children() {
+        use crate::container_service;
+
+        let store = make_store_with_package();
+        let child_id = make_container_in_store(&store);
+
+        let result = create_record_in_context(
+            &store,
+            "com.test/test-type",
+            None,
+            CreateRecordInput {
+                field_meta: None,
+                field_values: fvs(vec![("test-name", json!("Nested"))]),
+                tags: None,
+            },
+            Some(child_id.clone()),
+            None,
+        )
+        .expect("create_record_in_context should succeed");
+
+        let parent = srs_core::types::container::Container {
+            container_id: "550e8400-e29b-41d4-a716-446655440002".to_string(),
+            title: "Parent".to_string(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: None,
+            anchor_instance_id: None,
+            root_instance_ids: None,
+            member_instance_ids: None,
+            child_container_ids: Some(vec![child_id]),
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: std::collections::BTreeMap::new(),
+        };
+        let parent_id = container_service::create_container(&store, parent)
+            .expect("parent container created")
+            .container_id;
+
+        let filtered = list_records_filtered(
+            &store,
+            RecordListFilter {
+                container_id: Some(parent_id),
+                ..Default::default()
+            },
+        )
+        .expect("list_records_filtered should succeed");
+        assert!(
+            filtered
+                .iter()
+                .any(|r| r.instance_id == result.record.instance_id),
+            "a record nested under a declared childContainerIds edge must be found via the parent's containerId filter"
         );
     }
 

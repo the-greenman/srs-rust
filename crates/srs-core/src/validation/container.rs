@@ -44,6 +44,30 @@ pub fn validate_container(container: &Container) -> Result<(), CoreError> {
             .flatten()
             .map(String::as_str),
     )?;
+    reject_blank_ids(
+        "childContainerIds",
+        container
+            .child_container_ids
+            .iter()
+            .flatten()
+            .map(String::as_str),
+    )?;
+    // RFC-034 [R7]: a Container is never its own child. The rest of [R7] (every
+    // entry resolves to an existing, distinct Container; the whole graph is
+    // acyclic) needs the catalog of other Containers, which this pure,
+    // I/O-free function does not have — that half is
+    // `container_service::require_valid_child_containers`'s job.
+    if container
+        .child_container_ids
+        .iter()
+        .flatten()
+        .any(|id| id == &container.container_id)
+    {
+        return Err(CoreError::InvalidFieldValue {
+            key: "childContainerIds".to_string(),
+            reason: "a Container must not declare itself as its own child".to_string(),
+        });
+    }
     Ok(())
 }
 
@@ -77,6 +101,7 @@ mod tests {
             anchor_instance_id: None,
             root_instance_ids: None,
             member_instance_ids: None,
+            child_container_ids: None,
             tags: None,
             created_at: None,
             updated_at: None,
@@ -160,6 +185,26 @@ mod tests {
         let mut c = minimal();
         c.anchor_instance_id = Some(String::new());
         assert_eq!(validate_container(&c), blank("anchorInstanceId"));
+    }
+
+    #[test]
+    fn validate_container_blank_child_container_id_fails() {
+        let mut c = minimal();
+        c.child_container_ids = Some(vec![String::new()]);
+        assert_eq!(validate_container(&c), blank("childContainerIds"));
+    }
+
+    #[test]
+    fn validate_container_self_referential_child_fails() {
+        let mut c = minimal();
+        c.child_container_ids = Some(vec![c.container_id.clone()]);
+        assert_eq!(
+            validate_container(&c),
+            Err(CoreError::InvalidFieldValue {
+                key: "childContainerIds".to_string(),
+                reason: "a Container must not declare itself as its own child".to_string()
+            })
+        );
     }
 
     #[test]
