@@ -5,6 +5,7 @@ use crate::record_store::{get_instance_by_id, get_record_by_id, LoadedInstance};
 use crate::relation_graph;
 use crate::relation_service::load_relations;
 use crate::store::RepositoryStore;
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
 pub struct TreeOptions {
@@ -33,6 +34,8 @@ impl Default for TreeOptions {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TreeNode {
     pub instance_id: String,
     pub label: String,
@@ -47,6 +50,8 @@ pub struct TreeNode {
     pub cycle_pruned: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TreeResult {
     pub roots: Vec<TreeNode>,
     pub diagnostics: Vec<String>,

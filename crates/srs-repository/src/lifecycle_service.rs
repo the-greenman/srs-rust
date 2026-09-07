@@ -67,6 +67,22 @@ pub fn create_lifecycle(
     if lifecycle.created_at.trim().is_empty() {
         lifecycle.created_at = chrono::Utc::now().to_rfc3339();
     }
+    // RFC-006 substrate contract: a standalone Lifecycle's states and
+    // transitions are VocabularyEntry-like and must carry a stable `id`
+    // (srs-rust#957). The schema marks it optional (inline lifecycle blocks
+    // don't need one), so a caller that omits it is accepted verbatim
+    // unless minted here, exactly as record/relation creation already mint
+    // their own identities.
+    for state in &mut lifecycle.states {
+        if state.id.as_deref().unwrap_or("").trim().is_empty() {
+            state.id = Some(new_instance_id());
+        }
+    }
+    for transition in &mut lifecycle.transitions {
+        if transition.id.as_deref().unwrap_or("").trim().is_empty() {
+            transition.id = Some(new_instance_id());
+        }
+    }
 
     let boundary_path = selector.as_deref().unwrap_or("package");
     let slug = lifecycle
@@ -322,6 +338,53 @@ mod tests {
 
         let found = get_lifecycle_by_id(&store, &result.lifecycle.id).unwrap();
         assert!(found.is_some());
+    }
+
+    /// srs-rust#957: `create_lifecycle` must mint an id for any state or
+    /// transition that lacks one — without it, `update_lifecycle`'s R2a
+    /// substrate check has nothing to preserve and rejects the very
+    /// definition `create_lifecycle` just wrote.
+    #[test]
+    fn create_lifecycle_mints_missing_state_and_transition_ids() {
+        let store = MemoryStore::default();
+        let mut lc = make_lifecycle();
+        // Sparse states/transitions, as a CLI caller would send them:
+        // substrate version/namespace present, but no id (the shape #957
+        // reports — `srs lifecycle create` accepts this verbatim today).
+        for state in &mut lc.states {
+            state.id = None;
+            state.version = Some(1);
+            state.namespace = Some("com.test".to_string());
+        }
+        for transition in &mut lc.transitions {
+            transition.id = None;
+        }
+
+        let created = create_lifecycle(&store, lc, None).unwrap();
+
+        assert!(
+            created
+                .lifecycle
+                .states
+                .iter()
+                .all(|s| s.id.as_deref().is_some_and(|id| !id.trim().is_empty())),
+            "create_lifecycle must mint an id for every state lacking one"
+        );
+        assert!(
+            created
+                .lifecycle
+                .transitions
+                .iter()
+                .all(|t| t.id.as_deref().is_some_and(|id| !id.trim().is_empty())),
+            "create_lifecycle must mint an id for every transition lacking one"
+        );
+
+        // The minted ids are exactly what update_lifecycle's R2a check needs
+        // to preserve — round-trip a version bump through update to prove it.
+        let mut updated = created.lifecycle.clone();
+        updated.version = 2;
+        let result = update_lifecycle(&store, &created.lifecycle.id, updated).unwrap();
+        assert_eq!(result.lifecycle.version, 2);
     }
 
     #[test]

@@ -19,6 +19,7 @@ use crate::container_service;
 use crate::error::RepositoryError;
 use crate::record_label;
 use crate::record_store;
+use crate::repository_navigation_service;
 use crate::store::RepositoryStore;
 use crate::view_service::{self, GetCompositionResult, GetViewResult};
 use serde::{Deserialize, Serialize};
@@ -81,6 +82,12 @@ pub struct ResolvedMember {
     /// for non-Tier-2 members.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub record: Option<Record>,
+    /// Descent hook (srs-rust#949): the container this member roots, when it
+    /// roots one — same key as `NavigationNode.sectionContainerId`, so an agent
+    /// can descend container → member → sub-container without listing every
+    /// container. Absent (not `null`) when the member roots nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section_container_id: Option<String>,
 }
 
 /// The structured container view: root + ordered members + column spec.
@@ -214,7 +221,7 @@ pub fn resolve_container_view(
         .unwrap_or_default();
 
     // Resolve the root (first root_instance_id, if any).
-    let root = match container
+    let mut root = match container
         .root_instance_ids
         .as_ref()
         .and_then(|ids| ids.first())
@@ -250,6 +257,12 @@ pub fn resolve_container_view(
         )? {
             members.push(m);
         }
+    }
+
+    // Descent hook: stamp the sub-container each member roots (srs-rust#949).
+    let section_containers = repository_navigation_service::section_containers_by_root(store)?;
+    for m in members.iter_mut().chain(root.iter_mut()) {
+        m.section_container_id = section_containers.get(&m.instance_id).cloned();
     }
 
     Ok(ContainerView {
@@ -296,6 +309,7 @@ fn resolve_member(
                 display_label,
                 is_visible_by_default: true,
                 record: None,
+                section_container_id: None,
             }))
         }
         Some(2) => match record_store::get_record_by_id(store, id)? {
@@ -315,6 +329,7 @@ fn resolve_member(
                     display_label,
                     is_visible_by_default,
                     record: Some(record),
+                    section_container_id: None,
                 }))
             }
             None => {
@@ -731,6 +746,7 @@ mod tests {
             } else {
                 Some(members.into_iter().map(|s| s.to_string()).collect())
             },
+            child_container_ids: None,
             tags: None,
             created_at: None,
             updated_at: None,

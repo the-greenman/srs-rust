@@ -27,10 +27,9 @@ use crate::store::RepositoryStore;
 use crate::writer::{new_instance_id, write_manifest};
 use serde::{Deserialize, Serialize};
 use srs_core::types::container::Container;
-use srs_core::types::relation::Relation;
 use srs_core::validation::container::validate_container;
 use srs_schema::{SchemaRegistry, CONTAINER_SCHEMA_ID};
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,6 +54,7 @@ pub struct ContainerPatch {
     pub anchor_instance_id: Option<String>,
     pub root_instance_ids: Option<Vec<String>>,
     pub member_instance_ids: Option<Vec<String>>,
+    pub child_container_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,15 +89,6 @@ pub fn list_containers(
         }
     }
 
-    // Loaded once, only when the member filter is in play: I-66 condition 3 is a
-    // relation traversal, and re-reading the relations file per container would
-    // turn a list into an O(n) file scan.
-    let membership_relations: Vec<Relation> = if filter.member_instance_id.is_some() {
-        crate::relation_service::load_relations(store)?
-    } else {
-        Vec::new()
-    };
-
     let mut summaries = Vec::new();
     for (container_id, _title) in summaries_raw {
         let (container, _) = load_container_with_embed_fallback(store, &container_id)?;
@@ -107,8 +98,9 @@ pub fn list_containers(
             }
         }
         if let Some(ref member_filter) = filter.member_instance_id {
-            // I-66 membership, not a second two-condition reading of it.
-            if !member_ids(&container, &membership_relations)
+            // RFC-034 [R5]: the same effective(C) every other membership
+            // consumer uses, not a second reading of it.
+            if !effective_member_ids(store, &container)?
                 .iter()
                 .any(|id| id == member_filter)
             {
@@ -171,6 +163,11 @@ pub fn create_container(
         .map_err(|source| RepositoryError::ContainerValidation { source })?;
 
     require_resolvable_instances(store, declared_membership(&container))?;
+    require_valid_child_containers(
+        store,
+        &container.container_id,
+        container.child_container_ids.as_deref().unwrap_or(&[]),
+    )?;
 
     store.save_container(&container)?;
     Ok(container)
@@ -382,6 +379,11 @@ pub fn update_container(
         v.dedup();
         container.member_instance_ids = if v.is_empty() { None } else { Some(v) };
     }
+    if let Some(mut v) = patch.child_container_ids {
+        v.sort();
+        v.dedup();
+        container.child_container_ids = if v.is_empty() { None } else { Some(v) };
+    }
 
     // Schema validation at service boundary (after patch application)
     let raw = serde_json::to_value(&container).map_err(|e| RepositoryError::Serialize {
@@ -399,6 +401,11 @@ pub fn update_container(
         .map_err(|source| RepositoryError::ContainerValidation { source })?;
 
     require_resolvable_instances(store, declared_membership(&container))?;
+    require_valid_child_containers(
+        store,
+        &container.container_id,
+        container.child_container_ids.as_deref().unwrap_or(&[]),
+    )?;
 
     save_container_syncing_embed(store, &container, is_embed_only, true)?;
     Ok(container)
@@ -441,26 +448,16 @@ pub fn typing_anchor_instance_id(container: &Container) -> Option<String> {
         .or_else(|| container.root_instance_ids.as_ref()?.first().cloned())
 }
 
-/// The **one** membership operation (I-66, I-118) — the union of all three
-/// conditions: `rootInstanceIds` ∪ `memberInstanceIds` ∪ everything reachable by
-/// transitive `contains` traversal from `rootInstanceIds`. Every consumer that
-/// asks "is this a member" routes through here (`find --container`, `container
-/// resolve-view`, the MCP container resource, `containers_for_instance`).
+/// RFC-034 [R1]: a Container's **direct membership** — `rootInstanceIds` ∪
+/// `memberInstanceIds`, in declared order, deduplicated. No traversal of any
+/// kind: a `contains` Relation never adds a member (RFC-034 [R4]), and nesting
+/// only ever follows a declared `childContainerIds` edge (see
+/// [`effective_member_ids`]), never membership-array overlap ([R2]).
 ///
-/// `doctor_service`'s reachability check reads `memberInstanceIds` /
-/// `rootInstanceIds` / `identityInstanceId` directly and deliberately does not
-/// route through this: it answers a different question — "does any container
-/// *declare* a reference to this id", the [R13] dangling-reference question —
-/// for which a traversal-reachable instance is not a reference at all.
-///
-/// Pure so `list_containers` can filter a whole index against one relation load.
-///
-/// Order is `rootInstanceIds` in declared order, then `memberInstanceIds`, then
-/// the traversal in breadth-first order with each node's outgoing `contains`
-/// edges taken in the canonical `(createdAt, targetInstanceId)` tiebreak — a
-/// total order, so the result is identical however the relations file is
-/// ordered (RFC-038 [R14]). The visited set makes a `contains` cycle terminate.
-fn member_ids(container: &Container, relations: &[Relation]) -> Vec<String> {
+/// This is RFC-011 `containerScope: "explicit"`'s own scope (`direct(C)`) —
+/// the shallow half; `"subtree"` and every other membership consumer wants
+/// [`effective_member_ids`] instead.
+fn direct_member_ids(container: &Container) -> Vec<String> {
     let mut combined: Vec<String> = Vec::new();
     let mut seen: HashSet<&str> = HashSet::new();
     for id in container
@@ -473,53 +470,148 @@ fn member_ids(container: &Container, relations: &[Relation]) -> Vec<String> {
             combined.push(id.clone());
         }
     }
-
-    // I-66 condition 3: transitive `contains` from the roots (not from
-    // `memberInstanceIds` — the spec anchors the traversal on roots alone).
-    //
-    // `traversed` is deliberately separate from `seen`: a node can already be
-    // in the output (a root, or a declared member that a root also contains)
-    // and still need walking, or everything it in turn contains is lost.
-    let mut traversed: HashSet<&str> = HashSet::new();
-    let mut frontier: VecDeque<&str> = VecDeque::new();
-    for id in container.root_instance_ids.iter().flatten() {
-        if traversed.insert(id.as_str()) {
-            frontier.push_back(id.as_str());
-        }
-    }
-    while let Some(source) = frontier.pop_front() {
-        let mut children: Vec<&Relation> = relations
-            .iter()
-            .filter(|r| r.relation_type == "contains" && r.source_instance_id == source)
-            .collect();
-        children.sort_by(|a, b| {
-            a.created_at
-                .as_deref()
-                .unwrap_or("")
-                .cmp(b.created_at.as_deref().unwrap_or(""))
-                .then_with(|| a.target_instance_id.cmp(&b.target_instance_id))
-        });
-        for rel in children {
-            let target = rel.target_instance_id.as_str();
-            if seen.insert(target) {
-                combined.push(rel.target_instance_id.clone());
-            }
-            if traversed.insert(target) {
-                frontier.push_back(target);
-            }
-        }
-    }
-
     combined
 }
 
+/// RFC-034 [R3]/Change B: a Container's **effective membership** — the least
+/// fixed point `effective(C) = direct(C) ∪ ⋃ effective(child)` for every
+/// `child` admitted through `C.childContainerIds`. The **one** membership
+/// operation every consumer that asks "is this a member" routes through
+/// (`find --container`, `container resolve-view`, the MCP container resource,
+/// `containers_for_instance`, RFC-012 `containerId` filtering).
+///
+/// Follows only the declared `childContainerIds` edge — never a `contains`
+/// Relation (RFC-034 Change C) and never membership-array overlap (RFC-034
+/// [R2]). [R7] requires every `childContainerIds` entry to resolve to an
+/// existing, distinct, acyclically-reachable Container; `require_valid_child_containers`
+/// enforces that at write time, so the `visited_containers` guard here is a
+/// defensive backstop, not the primary cycle defence.
+///
+/// [R3] states the result is unordered and duplicate-free and explicitly
+/// disclaims any ordering from either membership array or from
+/// `childContainerIds` order — insertion order (this container's own
+/// `direct(C)`, then each declared child's `effective` set in listed order)
+/// is deterministic but carries no semantic meaning; `precedes` and
+/// Composition-owned ordering are the applicable ordering mechanisms.
+///
+/// `doctor_service`'s reachability check reads `memberInstanceIds` /
+/// `rootInstanceIds` / `identityInstanceId` directly and deliberately does not
+/// route through this: it answers a different question — "does any container
+/// *declare* a reference to this id", the [R13] dangling-reference question —
+/// for which an effective-only (nested) member is not a reference at all.
+fn effective_member_ids(
+    store: &dyn RepositoryStore,
+    container: &Container,
+) -> Result<Vec<String>, RepositoryError> {
+    let mut combined = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut visited_containers: HashSet<String> = HashSet::new();
+    effective_member_ids_into(
+        store,
+        container,
+        &mut combined,
+        &mut seen,
+        &mut visited_containers,
+    )?;
+    Ok(combined)
+}
+
+fn effective_member_ids_into(
+    store: &dyn RepositoryStore,
+    container: &Container,
+    combined: &mut Vec<String>,
+    seen: &mut HashSet<String>,
+    visited_containers: &mut HashSet<String>,
+) -> Result<(), RepositoryError> {
+    if !visited_containers.insert(container.container_id.clone()) {
+        return Ok(());
+    }
+    for id in direct_member_ids(container) {
+        if seen.insert(id.clone()) {
+            combined.push(id);
+        }
+    }
+    for child_id in container.child_container_ids.iter().flatten() {
+        let (child, _) = load_container_with_embed_fallback(store, child_id)?;
+        effective_member_ids_into(store, &child, combined, seen, visited_containers)?;
+    }
+    Ok(())
+}
+
+/// RFC-034 [R7]: every `childContainerIds` entry MUST reference an existing,
+/// distinct Container, and the whole `childContainerIds` graph MUST be
+/// acyclic. Checked at write time (`create_container`/`update_container`) so a
+/// bad edit is rejected before it can leave any Container's `effective(C)`
+/// undefined ([R7]: an operation requiring `effective(C)` over a broken graph
+/// MUST fail with a diagnostic, never return a partial set).
+fn require_valid_child_containers(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    child_ids: &[String],
+) -> Result<(), RepositoryError> {
+    for child_id in child_ids {
+        if child_id == container_id {
+            return Err(RepositoryError::InvalidInput {
+                message: format!(
+                    "childContainerIds: '{child_id}' cannot be its own child (self-reference)"
+                ),
+            });
+        }
+    }
+    // Walk the declared graph reachable from the proposed children, failing on
+    // a missing target (a `containerId` that isn't a Container at all — e.g.
+    // an instance id) or a path back to `container_id` (a cycle).
+    let mut stack: Vec<String> = child_ids.to_vec();
+    let mut visited: HashSet<String> = HashSet::new();
+    while let Some(id) = stack.pop() {
+        if id == container_id {
+            return Err(RepositoryError::InvalidInput {
+                message: format!(
+                    "childContainerIds graph contains a cycle back to '{container_id}'"
+                ),
+            });
+        }
+        if !visited.insert(id.clone()) {
+            continue;
+        }
+        let (child, _) = load_container_with_embed_fallback(store, &id).map_err(|e| match e {
+            RepositoryError::ContainerNotFound { container_id } => RepositoryError::InvalidInput {
+                message: format!(
+                    "childContainerIds: '{container_id}' does not resolve to an existing Container"
+                ),
+            },
+            other => other,
+        })?;
+        for grandchild in child.child_container_ids.iter().flatten() {
+            stack.push(grandchild.clone());
+        }
+    }
+    Ok(())
+}
+
+/// Effective membership (RFC-034 [R3]) — the deep, recursive scope. Every
+/// membership-listing consumer wants this: `find --container`, `container
+/// resolve-view`, the MCP container resource, `containers_for_instance`,
+/// RFC-012 `containerId` filtering (via `list_records_filtered`). RFC-011
+/// `containerScope: "explicit"` wants [`list_direct_members`] instead.
 pub(crate) fn list_members(
     store: &dyn RepositoryStore,
     container_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
     let container = get_container(store, container_id)?;
-    let relations = crate::relation_service::load_relations(store)?;
-    Ok(member_ids(&container, &relations))
+    effective_member_ids(store, &container)
+}
+
+/// Direct membership (RFC-034 [R1]) — this container's own `rootInstanceIds`
+/// ∪ `memberInstanceIds`, with no recursion into `childContainerIds`. RFC-011
+/// `containerScope: "explicit"`'s scope; every other membership consumer
+/// wants [`list_members`] (effective) instead.
+pub(crate) fn list_direct_members(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+) -> Result<Vec<String>, RepositoryError> {
+    let container = get_container(store, container_id)?;
+    Ok(direct_member_ids(&container))
 }
 
 /// Membership writes may only name instances that actually exist.
@@ -754,10 +846,10 @@ pub(crate) fn remove_instance_from_all_containers(
             container.anchor_instance_id = None;
             changed = true;
         }
-        // Since I-66 condition 3 landed, `containers_for_instance` also returns
-        // containers that reach the instance only through `contains` traversal.
-        // Those declare nothing to remove, and [R22] does not license writing a
-        // container this delete does not actually change.
+        // RFC-034: `containers_for_instance` also returns containers that reach
+        // the instance only through a declared `childContainerIds` ancestor —
+        // those declare nothing of their own to remove, and [R22] does not
+        // license writing a container this delete does not actually change.
         if !changed {
             continue;
         }
@@ -932,6 +1024,7 @@ mod tests {
             anchor_instance_id: None,
             root_instance_ids: None,
             member_instance_ids: None,
+            child_container_ids: None,
             tags: None,
             created_at: None,
             updated_at: None,
@@ -1373,208 +1466,147 @@ mod tests {
         assert!(!report.ok);
     }
 
-    // ---- I-66 condition 3: transitive `contains` traversal (srs-rust#863) ----
+    // ---- RFC-034: declared nesting and effective membership (srs-rust#970) ----
 
-    fn contains_rel(id: &str, src: &str, tgt: &str, created_at: &str) -> Relation {
-        Relation {
-            relation_id: id.to_string(),
-            relation_type: "contains".to_string(),
-            source_instance_id: src.to_string(),
-            target_instance_id: tgt.to_string(),
-            asserted_by: None,
-            confidence: None,
-            created_at: Some(created_at.to_string()),
-            created_by: None,
-            status: None,
-            valid_from: None,
-            valid_until: None,
-            notes: None,
-            source_refs: None,
-            meta: None,
-            source_repository_id: None,
-            target_repository_id: None,
-        }
-    }
-
-    fn container_with_root(root: &str) -> Container {
-        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Doc");
-        c.root_instance_ids = Some(vec![root.to_string()]);
-        c
-    }
-
-    /// I-66 condition 3: an instance reachable only by `contains` traversal from
-    /// a root is a member. Two hops deep, so this is transitive, not one-level.
+    /// RFC-034 Testability "Direct membership": no `childContainerIds`, so
+    /// `direct(A) == effective(A)`.
     #[test]
-    fn member_ids_includes_transitive_contains_from_roots() {
-        let c = container_with_root("root");
-        let rels = vec![
-            contains_rel("r1", "root", "child", "2026-01-01T00:00:00Z"),
-            contains_rel("r2", "child", "grandchild", "2026-01-01T00:00:00Z"),
-        ];
-        assert_eq!(
-            member_ids(&c, &rels),
-            vec![
-                "root".to_string(),
-                "child".to_string(),
-                "grandchild".to_string()
-            ]
-        );
-    }
-
-    /// RFC-038 [R14]: the traversal order must not depend on the order the
-    /// relations file happens to list its edges.
-    #[test]
-    fn member_ids_traversal_is_relation_order_independent() {
-        let c = container_with_root("root");
-        let base = vec![
-            contains_rel("r1", "root", "b", "2026-01-01T00:00:00Z"),
-            contains_rel("r2", "root", "a", "2026-01-01T00:00:00Z"),
-            contains_rel("r3", "b", "c", "2026-01-01T00:00:00Z"),
-        ];
-        let expected = vec![
-            "root".to_string(),
-            "a".to_string(),
-            "b".to_string(),
-            "c".to_string(),
-        ];
-        for rotation in 0..base.len() {
-            let mut rels = base.clone();
-            rels.rotate_left(rotation);
-            assert_eq!(member_ids(&c, &rels), expected, "rotation {rotation}");
-        }
-    }
-
-    /// A `contains` cycle must terminate, not hang or duplicate.
-    #[test]
-    fn member_ids_terminates_on_contains_cycle() {
-        let c = container_with_root("root");
-        let rels = vec![
-            contains_rel("r1", "root", "a", "2026-01-01T00:00:00Z"),
-            contains_rel("r2", "a", "root", "2026-01-01T00:00:00Z"),
-        ];
-        assert_eq!(
-            member_ids(&c, &rels),
-            vec!["root".to_string(), "a".to_string()]
-        );
-    }
-
-    /// A `contains` child that is *also* a declared member must still be
-    /// walked through — otherwise everything it contains disappears. The
-    /// output dedup and the traversal visited-set are separate for this reason.
-    #[test]
-    fn member_ids_traverses_through_a_declared_member() {
-        let mut c = container_with_root("root");
-        c.member_instance_ids = Some(vec!["child".to_string()]);
-        let rels = vec![
-            contains_rel("r1", "root", "child", "2026-01-01T00:00:00Z"),
-            contains_rel("r2", "child", "grandchild", "2026-01-01T00:00:00Z"),
-        ];
-        assert_eq!(
-            member_ids(&c, &rels),
-            vec![
-                "root".to_string(),
-                "child".to_string(),
-                "grandchild".to_string()
-            ]
-        );
-    }
-
-    /// Builds a store holding `root-note` and `child-note` with
-    /// `root-note contains child-note`, plus a container rooted at `root-note`.
-    fn store_with_contains_child() -> (MemoryStore, Container) {
-        let store = MemoryStore::default();
-        for id in ["root-note", "child-note"] {
-            store
-                .save_instance_json(
-                    &format!("records/notes/{id}.json"),
-                    &serde_json::json!({"instanceId": id, "sections": []}),
-                )
-                .unwrap();
-        }
-        crate::store::write_relations_standalone_for_test(
-            &store,
-            &serde_json::json!({
-                "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
-                "relations": [{
-                    "relationId": "aaaaaaaa-0000-4000-8000-000000000001",
-                    "relationType": "contains",
-                    "sourceInstanceId": "root-note",
-                    "targetInstanceId": "child-note",
-                    "createdAt": "2026-01-01T00:00:00Z"
-                }]
-            }),
-        );
-        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Doc");
-        c.root_instance_ids = Some(vec!["root-note".to_string()]);
+    fn effective_membership_with_no_children_equals_direct() {
+        let store = make_store();
+        seed_instance(&store, "aaaaaaaa-0000-4000-8000-00000000000a");
+        seed_instance(&store, "bbbbbbbb-0000-4000-8000-00000000000b");
+        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "A");
+        c.root_instance_ids = Some(vec!["aaaaaaaa-0000-4000-8000-00000000000a".to_string()]);
+        c.member_instance_ids = Some(vec!["bbbbbbbb-0000-4000-8000-00000000000b".to_string()]);
         let created = create_container(&store, c).unwrap();
-        (store, created)
-    }
-
-    /// [R22]: the delete cascade may only write a container it actually
-    /// changes. Condition 3 makes `containers_for_instance` return containers
-    /// that merely *reach* the instance, and those declare nothing to remove —
-    /// the guard is what keeps the delete from rewriting them.
-    #[test]
-    fn delete_cascade_does_not_rewrite_a_traversal_only_container() {
-        let (store, created) = store_with_contains_child();
-        let before = get_container(&store, &created.container_id).unwrap();
-        // `child-note` is a member only by traversal.
-        assert!(is_member(&store, &created.container_id, "child-note").unwrap());
-
-        remove_instance_from_all_containers(&store, "child-note").unwrap();
-
-        let after = get_container(&store, &created.container_id).unwrap();
         assert_eq!(
-            serde_json::to_value(&before).unwrap(),
-            serde_json::to_value(&after).unwrap(),
-            "a container the delete does not change must not be written"
+            list_members(&store, &created.container_id).unwrap(),
+            vec![
+                "aaaaaaaa-0000-4000-8000-00000000000a".to_string(),
+                "bbbbbbbb-0000-4000-8000-00000000000b".to_string()
+            ]
         );
     }
 
-    /// Membership reads and membership *writes* are not symmetric, and this
-    /// pins the asymmetry rather than leaving it to be discovered.
-    ///
-    /// `remove_member` edits `memberInstanceIds`. A member that exists only
-    /// because a root `contains` it is not in that list, so removing it is a
-    /// no-op and the instance is still a member afterwards — the way to revoke
-    /// that membership is to delete the `contains` relation. Whether
-    /// `container members remove` should do that itself is a design question
-    /// raised on srs-rust#863, not something this change decides.
+    /// RFC-034 Testability "Recursive nesting": `A -> B -> C` via declared
+    /// `childContainerIds`, two hops deep, so this is transitive, not one-level.
     #[test]
-    fn remove_member_cannot_revoke_a_traversal_derived_membership() {
-        let (store, created) = store_with_contains_child();
-        remove_member(&store, &created.container_id, "child-note").unwrap();
-        assert!(
-            is_member(&store, &created.container_id, "child-note").unwrap(),
-            "still a member: the `contains` edge, not the member list, is what makes it one"
+    fn effective_membership_recurses_through_declared_children() {
+        let store = make_store();
+        seed_instance(&store, "aaaaaaaa-0000-4000-8000-00000000000a");
+        seed_instance(&store, "bbbbbbbb-0000-4000-8000-00000000000b");
+        seed_instance(&store, "cccccccc-0000-4000-8000-00000000000c");
+
+        let mut c = minimal_container("00000000-0000-4000-8000-00000000000c", "C");
+        c.root_instance_ids = Some(vec!["bbbbbbbb-0000-4000-8000-00000000000b".to_string()]);
+        c.member_instance_ids = Some(vec!["cccccccc-0000-4000-8000-00000000000c".to_string()]);
+        create_container(&store, c).unwrap();
+
+        let mut b = minimal_container("00000000-0000-4000-8000-00000000000b", "B");
+        b.root_instance_ids = Some(vec!["aaaaaaaa-0000-4000-8000-00000000000a".to_string()]);
+        b.member_instance_ids = Some(vec!["bbbbbbbb-0000-4000-8000-00000000000b".to_string()]);
+        b.child_container_ids = Some(vec!["00000000-0000-4000-8000-00000000000c".to_string()]);
+        create_container(&store, b).unwrap();
+
+        let mut a = minimal_container("00000000-0000-4000-8000-00000000000a", "A");
+        a.member_instance_ids = Some(vec!["aaaaaaaa-0000-4000-8000-00000000000a".to_string()]);
+        a.child_container_ids = Some(vec!["00000000-0000-4000-8000-00000000000b".to_string()]);
+        create_container(&store, a).unwrap();
+
+        let expected_abc = vec![
+            "aaaaaaaa-0000-4000-8000-00000000000a".to_string(),
+            "bbbbbbbb-0000-4000-8000-00000000000b".to_string(),
+            "cccccccc-0000-4000-8000-00000000000c".to_string(),
+        ];
+        assert_eq!(
+            list_members(&store, "00000000-0000-4000-8000-00000000000a").unwrap(),
+            expected_abc
+        );
+        assert_eq!(
+            list_members(&store, "00000000-0000-4000-8000-00000000000b").unwrap(),
+            expected_abc
+        );
+        assert_eq!(
+            list_members(&store, "00000000-0000-4000-8000-00000000000c").unwrap(),
+            vec![
+                "bbbbbbbb-0000-4000-8000-00000000000b".to_string(),
+                "cccccccc-0000-4000-8000-00000000000c".to_string()
+            ]
+        );
+        // Effective reverse lookup (RFC-034 Testability): containers_for_instance(c)
+        // includes every ancestor reached through the declared chain.
+        let hits = containers_for_instance(&store, "cccccccc-0000-4000-8000-00000000000c").unwrap();
+        let mut hit_ids: Vec<String> = hits.into_iter().map(|h| h.container_id).collect();
+        hit_ids.sort();
+        assert_eq!(
+            hit_ids,
+            vec![
+                "00000000-0000-4000-8000-00000000000a".to_string(),
+                "00000000-0000-4000-8000-00000000000b".to_string(),
+                "00000000-0000-4000-8000-00000000000c".to_string(),
+            ]
         );
     }
 
-    /// I-66 anchors condition 3 on `rootInstanceIds` only — a `contains` edge
-    /// out of a plain `memberInstanceIds` entry does not pull its target in.
+    /// RFC-034 Testability "Overlap is not nesting": a Container rooted at an
+    /// instance that appears in another Container's membership acquires no
+    /// relationship to it unless the edge is declared in `childContainerIds`.
     #[test]
-    fn member_ids_does_not_traverse_from_plain_members() {
-        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Doc");
-        c.member_instance_ids = Some(vec!["m".to_string()]);
-        let rels = vec![contains_rel("r1", "m", "x", "2026-01-01T00:00:00Z")];
-        assert_eq!(member_ids(&c, &rels), vec!["m".to_string()]);
+    fn effective_membership_ignores_undeclared_root_overlap() {
+        let store = make_store();
+        seed_instance(&store, "aaaaaaaa-0000-4000-8000-00000000000a");
+        seed_instance(&store, "bbbbbbbb-0000-4000-8000-00000000000b");
+        seed_instance(&store, "eeeeeeee-0000-4000-8000-00000000000e");
+
+        let mut area = minimal_container("00000000-0000-4000-8000-0000000000a1", "Area");
+        area.root_instance_ids = Some(vec!["aaaaaaaa-0000-4000-8000-00000000000a".to_string()]);
+        area.member_instance_ids = Some(vec!["bbbbbbbb-0000-4000-8000-00000000000b".to_string()]);
+        let area = create_container(&store, area).unwrap();
+
+        // `Proj` roots at `b`, a member of `Area` — but `Area` never declares
+        // `Proj` as a child, so no admission occurs.
+        let mut proj = minimal_container("00000000-0000-4000-8000-0000000000a2", "Proj");
+        proj.root_instance_ids = Some(vec!["bbbbbbbb-0000-4000-8000-00000000000b".to_string()]);
+        proj.member_instance_ids = Some(vec!["eeeeeeee-0000-4000-8000-00000000000e".to_string()]);
+        create_container(&store, proj).unwrap();
+
+        assert_eq!(
+            list_members(&store, &area.container_id).unwrap(),
+            vec![
+                "aaaaaaaa-0000-4000-8000-00000000000a".to_string(),
+                "bbbbbbbb-0000-4000-8000-00000000000b".to_string()
+            ],
+            "effective(Area) must be unchanged by the creation of an undeclared Proj"
+        );
     }
 
-    /// Only `contains` traverses; another relation type off a root is not
-    /// membership.
+    /// RFC-034 Testability "Rootless declared child": a child Container with
+    /// no roots is still admitted, and its members still contribute.
     #[test]
-    fn member_ids_ignores_non_contains_relations() {
-        let c = container_with_root("root");
-        let mut rel = contains_rel("r1", "root", "x", "2026-01-01T00:00:00Z");
-        rel.relation_type = "refines".to_string();
-        assert_eq!(member_ids(&c, &[rel]), vec!["root".to_string()]);
+    fn effective_membership_includes_rootless_declared_child() {
+        let store = make_store();
+        seed_instance(&store, "bbbbbbbb-0000-4000-8000-00000000000b");
+
+        let mut child = minimal_container("00000000-0000-4000-8000-0000000000b1", "B");
+        child.member_instance_ids = Some(vec!["bbbbbbbb-0000-4000-8000-00000000000b".to_string()]);
+        create_container(&store, child).unwrap();
+
+        let mut a = minimal_container("00000000-0000-4000-8000-0000000000a1", "A");
+        a.child_container_ids = Some(vec!["00000000-0000-4000-8000-0000000000b1".to_string()]);
+        let a = create_container(&store, a).unwrap();
+
+        assert_eq!(
+            list_members(&store, &a.container_id).unwrap(),
+            vec!["bbbbbbbb-0000-4000-8000-00000000000b".to_string()]
+        );
     }
 
-    /// The store-level surface: `list_members` (the one function every consumer
-    /// routes through — `find --container`, `container resolve-view`, the MCP
-    /// container resource) reports the `contains`-only member.
+    /// RFC-034 Change C / Testability "`contains` independence": a `contains`
+    /// Relation MUST NOT add an instance to a Container's membership, direct or
+    /// effective — this is the behavior the pre-RFC-034 I-66 condition 3
+    /// traversal implemented and RFC-034 explicitly retires.
     #[test]
-    fn list_members_includes_contains_only_member() {
+    fn effective_membership_ignores_contains_relations() {
         let store = MemoryStore::default();
         for id in ["root-note", "child-note"] {
             store
@@ -1603,26 +1635,120 @@ mod tests {
 
         assert_eq!(
             list_members(&store, &created.container_id).unwrap(),
-            vec!["root-note".to_string(), "child-note".to_string()]
+            vec!["root-note".to_string()],
+            "a contains Relation must never add a member (RFC-034 [R4])"
         );
-        assert!(is_member(&store, &created.container_id, "child-note").unwrap());
-        // I-66's own operation: the container is returned for the
-        // `contains`-only member too.
-        let hits = containers_for_instance(&store, "child-note").unwrap();
-        assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].container_id, created.container_id);
+        assert!(!is_member(&store, &created.container_id, "child-note").unwrap());
+        assert!(containers_for_instance(&store, "child-note")
+            .unwrap()
+            .is_empty());
+    }
+
+    /// RFC-034 [R8]: `containerScope: "explicit"` (`list_direct_members`) stays
+    /// shallow even when the container has admitted children; `"subtree"`
+    /// (`list_members`, effective) is the scope that descends.
+    #[test]
+    fn list_direct_members_excludes_declared_children() {
+        let store = make_store();
+        seed_instance(&store, "aaaaaaaa-0000-4000-8000-00000000000a");
+        seed_instance(&store, "bbbbbbbb-0000-4000-8000-00000000000b");
+
+        let mut child = minimal_container("00000000-0000-4000-8000-0000000000b1", "B");
+        child.root_instance_ids = Some(vec!["bbbbbbbb-0000-4000-8000-00000000000b".to_string()]);
+        create_container(&store, child).unwrap();
+
+        let mut a = minimal_container("00000000-0000-4000-8000-0000000000a1", "A");
+        a.member_instance_ids = Some(vec!["aaaaaaaa-0000-4000-8000-00000000000a".to_string()]);
+        a.child_container_ids = Some(vec!["00000000-0000-4000-8000-0000000000b1".to_string()]);
+        let a = create_container(&store, a).unwrap();
+
+        assert_eq!(
+            list_direct_members(&store, &a.container_id).unwrap(),
+            vec!["aaaaaaaa-0000-4000-8000-00000000000a".to_string()]
+        );
+        assert_eq!(
+            list_members(&store, &a.container_id).unwrap(),
+            vec![
+                "aaaaaaaa-0000-4000-8000-00000000000a".to_string(),
+                "bbbbbbbb-0000-4000-8000-00000000000b".to_string()
+            ]
+        );
+    }
+
+    /// RFC-034 [R7]: a self-referential `childContainerIds` entry is rejected.
+    #[test]
+    fn create_container_rejects_self_referential_child() {
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        let mut c = minimal_container(id, "Self");
+        c.child_container_ids = Some(vec![id.to_string()]);
+        // Caught by the core `validate_container` self-reference check
+        // (which every write already runs) before `require_valid_child_containers`
+        // (the graph-existence/acyclicity check) is ever reached.
+        assert!(matches!(
+            create_container(&store, c),
+            Err(RepositoryError::ContainerValidation { .. })
+        ));
+    }
+
+    /// RFC-034 [R7]: every `childContainerIds` entry must resolve to an
+    /// existing, distinct Container — an id that doesn't resolve to a
+    /// Container at all (e.g. an instance id) is rejected before it can leave
+    /// `effective(C)` undefined for anyone reading this container later.
+    #[test]
+    fn create_container_rejects_missing_child_target() {
+        let store = make_store();
+        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "A");
+        c.child_container_ids = Some(vec!["dddddddd-dddd-4ddd-8ddd-dddddddddddd".to_string()]);
+        assert!(matches!(
+            create_container(&store, c),
+            Err(RepositoryError::InvalidInput { .. })
+        ));
+    }
+
+    /// RFC-034 [R7]: the `childContainerIds` graph MUST be acyclic. Proves the
+    /// guard actually rejects the violation it exists to catch (Protocol
+    /// "Prove" stage) — red before the cycle, and the base graph stays valid
+    /// (green) both before the cyclic edit is attempted and after.
+    #[test]
+    fn update_container_rejects_child_cycle() {
+        let store = make_store();
+        let b_id = "550e8400-e29b-41d4-a716-446655440001";
+        create_container(&store, minimal_container(b_id, "B")).unwrap();
+        let mut a = minimal_container("550e8400-e29b-41d4-a716-446655440000", "A");
+        a.child_container_ids = Some(vec![b_id.to_string()]);
+        let a = create_container(&store, a).unwrap();
+
+        // Green before: B has no children, so no cycle exists yet.
+        assert_eq!(list_members(&store, b_id).unwrap(), Vec::<String>::new());
+
+        // Red: B -> A would close the cycle A -> B -> A.
+        let patch = ContainerPatch {
+            child_container_ids: Some(vec![a.container_id.clone()]),
+            ..ContainerPatch::default()
+        };
+        assert!(
+            matches!(
+                update_container(&store, b_id, patch),
+                Err(RepositoryError::InvalidInput { .. })
+            ),
+            "a childContainerIds cycle must be rejected, not silently accepted"
+        );
+
+        // Green after: the rejected edit must not have been persisted.
+        assert_eq!(
+            get_container(&store, b_id).unwrap().child_container_ids,
+            None
+        );
     }
 
     /// Cross-store roundtrip (memory -> file) per CLAUDE.md Storage Boundary
-    /// Rules. Same scenario as member_ids_includes_transitive_contains_from_roots
-    /// (two `contains` hops, root -> child -> grandchild) exercised at the
-    /// store-backed `list_members` entry point — `member_ids` itself is a
-    /// private pure function with no store parameter, so it isn't reachable
-    /// store-side.
+    /// Rules: declared `childContainerIds` nesting, not just flat membership,
+    /// must round-trip and recompute identically on `FileStore`.
     #[test]
-    fn list_members_includes_transitive_contains_from_roots_roundtrips_via_filestore() {
+    fn effective_membership_via_declared_children_roundtrips_via_filestore() {
         let store = MemoryStore::default();
-        for id in ["root-note", "child-note", "grandchild-note"] {
+        for id in ["root-note", "child-note"] {
             store
                 .save_instance_json(
                     &format!("records/notes/{id}.json"),
@@ -1630,31 +1756,14 @@ mod tests {
                 )
                 .unwrap();
         }
-        crate::store::write_relations_standalone_for_test(
-            &store,
-            &serde_json::json!({
-                "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
-                "relations": [
-                    {
-                        "relationId": "aaaaaaaa-0000-4000-8000-000000000001",
-                        "relationType": "contains",
-                        "sourceInstanceId": "root-note",
-                        "targetInstanceId": "child-note",
-                        "createdAt": "2026-01-01T00:00:00Z"
-                    },
-                    {
-                        "relationId": "aaaaaaaa-0000-4000-8000-000000000002",
-                        "relationType": "contains",
-                        "sourceInstanceId": "child-note",
-                        "targetInstanceId": "grandchild-note",
-                        "createdAt": "2026-01-01T00:00:00Z"
-                    }
-                ]
-            }),
-        );
-        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440002", "Doc");
-        c.root_instance_ids = Some(vec!["root-note".to_string()]);
-        let created = create_container(&store, c).unwrap();
+        let mut child = minimal_container("550e8400-e29b-41d4-a716-446655440001", "Child");
+        child.root_instance_ids = Some(vec!["child-note".to_string()]);
+        create_container(&store, child).unwrap();
+
+        let mut root = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Root");
+        root.root_instance_ids = Some(vec!["root-note".to_string()]);
+        root.child_container_ids = Some(vec!["550e8400-e29b-41d4-a716-446655440001".to_string()]);
+        let created = create_container(&store, root).unwrap();
 
         let temp = tempfile::TempDir::new().unwrap();
         let file_store = crate::FileStore::new(temp.path());
@@ -1662,11 +1771,7 @@ mod tests {
 
         assert_eq!(
             list_members(&file_store, &created.container_id).unwrap(),
-            vec![
-                "root-note".to_string(),
-                "child-note".to_string(),
-                "grandchild-note".to_string()
-            ]
+            vec!["root-note".to_string(), "child-note".to_string()]
         );
     }
 

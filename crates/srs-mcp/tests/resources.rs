@@ -7,6 +7,7 @@
 use rmcp::model::ReadResourceRequestParams;
 use rmcp::ServiceExt;
 use srs_mcp::SrsMcpServer;
+use srs_repository::agent_index_service::build_agent_index;
 use srs_repository::analysis::build_repo_map;
 use srs_repository::container_view_service::{resolve_container_view, ResolveContainerViewInput};
 use srs_repository::package_service::{create_field_normalized, create_type_normalized};
@@ -19,6 +20,7 @@ use srs_repository::repository_lifecycle::{
 };
 use srs_repository::repository_navigation_service::repository_navigation;
 use srs_repository::store::FileStore;
+use srs_repository::tree_service::{build_tree, TreeOptions};
 use srs_repository::type_schema_service::{type_schema, TypeSchemaInput};
 use srs_repository::view_service::create_composition_normalized;
 
@@ -181,6 +183,8 @@ async fn list_resources_enumerates_containers_and_views() {
 
     assert!(uris.contains(&format!("srs://{}/map", fx.repo_id).as_str()));
     assert!(uris.contains(&format!("srs://{}/navigation", fx.repo_id).as_str()));
+    assert!(uris.contains(&format!("srs://{}/tree", fx.repo_id).as_str()));
+    assert!(uris.contains(&format!("srs://{}/agent-index", fx.repo_id).as_str()));
     assert!(uris.contains(&format!("srs://{}/container/{}", fx.repo_id, fx.container_id).as_str()));
     assert!(uris.contains(&format!("srs://{}/composition/{}", fx.repo_id, fx.view_id).as_str()));
 
@@ -203,11 +207,12 @@ async fn list_resources_enumerates_containers_and_views() {
         .await
         .unwrap()
         .resource_templates;
-    assert_eq!(templates.len(), 3);
+    assert_eq!(templates.len(), 4);
     let tmpl_uris: Vec<&str> = templates.iter().map(|t| t.uri_template.as_str()).collect();
     assert!(tmpl_uris.contains(&format!("srs://{}/record/{{instanceId}}", fx.repo_id).as_str()));
     assert!(tmpl_uris.contains(&format!("srs://{}/type/{{typeId}}", fx.repo_id).as_str()));
     assert!(tmpl_uris.contains(&format!("srs://{}/protocol/{{protocolId}}", fx.repo_id).as_str()));
+    assert!(tmpl_uris.contains(&format!("srs://{}/tree/{{instanceId}}", fx.repo_id).as_str()));
 
     // Protocols: one list resource plus one concrete resource per definition.
     assert!(uris.contains(&format!("srs://{}/protocol", fx.repo_id).as_str()));
@@ -466,6 +471,87 @@ async fn read_protocol_list_and_definition_match_service_output() {
         .await
         .unwrap_err();
     assert!(err.to_string().contains("resource not found"), "got: {err}");
+
+    client.cancel().await.unwrap();
+}
+
+/// srs-rust#949: `tree`, `tree/{instanceId}` and `agent-index` serialize the
+/// service result verbatim, and a container member that roots a sub-container
+/// carries `sectionContainerId` (the descent hook).
+#[tokio::test]
+async fn read_tree_agent_index_and_descent_hook() {
+    let fx = make_fixture();
+    let store = store_for(&fx);
+
+    // A sub-container rooted at the identity record, which is itself a member
+    // of the scaffolded root container — the shape an agent descends through.
+    let sub = srs_repository::container_service::create_container(
+        &store,
+        srs_core::types::container::Container {
+            container_id: uuid::Uuid::new_v4().to_string(),
+            title: "Sub".into(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: None,
+            anchor_instance_id: None,
+            root_instance_ids: Some(vec![fx.identity_id.clone()]),
+            member_instance_ids: None,
+            child_container_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: Default::default(),
+        },
+    )
+    .unwrap();
+
+    let client = connect(&fx).await;
+
+    let (mime, text) = read_text(&client, format!("srs://{}/tree", fx.repo_id)).await;
+    assert_eq!(mime.as_deref(), Some("application/json"));
+    let expected = build_tree(&store, TreeOptions::default()).unwrap();
+    assert_eq!(text, serde_json::to_string_pretty(&expected).unwrap());
+    assert!(text.contains("\"cyclePruned\""), "camelCase keys: {text}");
+
+    let (_, sub_text) = read_text(
+        &client,
+        format!("srs://{}/tree/{}", fx.repo_id, fx.identity_id),
+    )
+    .await;
+    let expected = build_tree(
+        &store,
+        TreeOptions {
+            root_ids: Some(vec![fx.identity_id.clone()]),
+            ..TreeOptions::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(sub_text, serde_json::to_string_pretty(&expected).unwrap());
+    let parsed: serde_json::Value = serde_json::from_str(&sub_text).unwrap();
+    assert_eq!(parsed["roots"][0]["instanceId"], fx.identity_id);
+
+    let (_, idx_text) = read_text(&client, format!("srs://{}/agent-index", fx.repo_id)).await;
+    assert_eq!(
+        idx_text,
+        serde_json::to_string_pretty(&build_agent_index(&store).unwrap()).unwrap()
+    );
+
+    let (_, container_text) = read_text(
+        &client,
+        format!("srs://{}/container/{}", fx.repo_id, fx.container_id),
+    )
+    .await;
+    let view: serde_json::Value = serde_json::from_str(&container_text).unwrap();
+    let member = view["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["instanceId"] == fx.identity_id)
+        .expect("identity is a root-container member");
+    assert_eq!(member["sectionContainerId"], sub.container_id);
 
     client.cancel().await.unwrap();
 }

@@ -322,6 +322,8 @@ fn display_label(
     record_label::record_display_label(record, identity_field_index, field_name_index)
 }
 
+/// `rootInstanceId -> containerId` for every container declaring roots — the
+/// descent hook shared by navigation sections and container members (srs-rust#949).
 pub(crate) fn section_containers_by_root(
     store: &dyn RepositoryStore,
 ) -> Result<HashMap<String, String>, RepositoryError> {
@@ -470,6 +472,7 @@ mod tests {
                 anchor_instance_id: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
+                child_container_ids: None,
                 tags: None,
                 created_at: None,
                 updated_at: None,
@@ -527,6 +530,7 @@ mod tests {
                     "00000000-0000-4000-8000-00000000a200".to_string(),
                 ]),
                 root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a100".to_string()]),
+                child_container_ids: None,
                 tags: None,
                 created_at: None,
                 updated_at: None,
@@ -548,6 +552,7 @@ mod tests {
                 identity_instance_id: None,
                 anchor_instance_id: None,
                 member_instance_ids: None,
+                child_container_ids: None,
                 root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a200".to_string()]),
                 tags: None,
                 created_at: None,
@@ -570,6 +575,7 @@ mod tests {
                 identity_instance_id: None,
                 anchor_instance_id: None,
                 member_instance_ids: None,
+                child_container_ids: None,
                 root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a300".to_string()]),
                 tags: None,
                 created_at: None,
@@ -686,6 +692,7 @@ mod tests {
                     "00000000-0000-4000-8000-00000000a100".to_string(),
                     "00000000-0000-4000-8000-00000000a200".to_string(),
                 ]),
+                child_container_ids: None,
                 tags: None,
                 created_at: None,
                 updated_at: None,
@@ -776,6 +783,7 @@ mod tests {
                 anchor_instance_id: None,
                 root_instance_ids: None,
                 member_instance_ids: Some(vec![note_id.clone()]),
+                child_container_ids: None,
                 tags: None,
                 created_at: None,
                 updated_at: None,
@@ -927,6 +935,7 @@ mod tests {
                 anchor_instance_id: None,
                 member_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a200".to_string()]),
                 root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a200".to_string()]),
+                child_container_ids: None,
                 tags: None,
                 created_at: None,
                 updated_at: None,
@@ -949,6 +958,7 @@ mod tests {
                 anchor_instance_id: None,
                 member_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a300".to_string()]),
                 root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a300".to_string()]),
+                child_container_ids: None,
                 tags: None,
                 created_at: None,
                 updated_at: None,
@@ -994,6 +1004,7 @@ mod tests {
                     "00000000-0000-4000-8000-00000000e300".to_string(),
                 ]),
                 member_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000e100".to_string()]),
+                child_container_ids: None,
                 tags: None,
                 created_at: None,
                 updated_at: None,
@@ -1080,6 +1091,7 @@ mod tests {
                     "00000000-0000-4000-8000-00000000f100".to_string(),
                     "00000000-0000-4000-8000-00000000f200".to_string(),
                 ]),
+                child_container_ids: None,
                 tags: None,
                 created_at: None,
                 updated_at: None,
@@ -1253,6 +1265,7 @@ mod tests {
                 identity_instance_id: None,
                 anchor_instance_id: None,
                 member_instance_ids: None,
+                child_container_ids: None,
                 root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a220".to_string()]),
                 tags: None,
                 created_at: None,

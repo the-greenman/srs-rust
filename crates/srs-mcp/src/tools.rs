@@ -21,6 +21,9 @@ use srs_core::types::record::{FieldMeta, FieldValues};
 use srs_core::types::relation::{AssertedBy, Relation, RelationStatus};
 use srs_repository::container_service;
 use srs_repository::discovery_service::{self, DiscoveryQuery};
+use srs_repository::protocol_run_service::{
+    self, AdvanceStageInput, CreateRunInput, GetRunResult, RunListFilter, RunSummary,
+};
 use srs_repository::record_store::{
     self, CreateRecordInput, CreateRecordSuccessorInput, FulfillmentNewRecord,
     TransitionFulfillmentInput, TransitionLifecycleInput, UpdateRecordInput,
@@ -48,6 +51,13 @@ pub const TOOL_RECORD_SUCCESSOR: &str = "record_successor";
 pub const TOOL_NOTE_GRADUATE: &str = "note_graduate";
 pub const TOOL_CONTAINER_MEMBER_ADD: &str = "container_member_add";
 pub const TOOL_CONTAINER_MEMBER_REMOVE: &str = "container_member_remove";
+// Protocol run execution tools (#977 — follow-up to #955)
+pub const TOOL_PROTOCOL_RUN_CREATE: &str = "protocol_run_create";
+pub const TOOL_PROTOCOL_RUN_ADVANCE: &str = "protocol_run_advance";
+pub const TOOL_PROTOCOL_RUN_GET: &str = "protocol_run_get";
+pub const TOOL_PROTOCOL_RUN_LIST: &str = "protocol_run_list";
+pub const TOOL_PROTOCOL_RUN_COMPLETE: &str = "protocol_run_complete";
+pub const TOOL_PROTOCOL_RUN_ABANDON: &str = "protocol_run_abandon";
 
 // ── Tool descriptions — single source (srs-usage.md MCP section mirrors these) ─
 
@@ -139,6 +149,37 @@ semantic or presentation-order authority. Use a precedes relation when order is 
 For display or curation order, author a container-subset Composition's ordering.memberOrder via \
 the definition-authoring or CLI surface; MCP currently has no definition/view update tool. Returns \
 the updated memberInstanceIds list. No-op if the instance is not a member.";
+
+// Protocol run execution tool descriptions (#977 — follow-up to #955)
+
+pub const DESC_PROTOCOL_RUN_CREATE: &str = "Start a new run of an installed Protocol against a \
+container (and optionally a target record). protocolVersion must match the installed Protocol's \
+version. Supplying initialStageId opens that stage as Active immediately; omit it to create the \
+run with no stage yet active. Returns the created run, including its assigned runId.";
+
+pub const DESC_PROTOCOL_RUN_ADVANCE: &str = "Move an Active run to a new stage, appending it as \
+Active to stageStates. completeCurrent controls whether the run's currently-Active stage(s) are \
+marked Completed first (set true when the current stage is actually finished; false to hold \
+multiple stages Active at once). Only a run whose status is Active can be advanced — advancing a \
+Completed or Abandoned run is rejected. Returns the updated run.";
+
+pub const DESC_PROTOCOL_RUN_GET: &str = "Get a single protocol run by its runId, including its \
+full stageStates history and current attentionState. Returns an error if no run has that id.";
+
+pub const DESC_PROTOCOL_RUN_LIST: &str = "List protocol run summaries, optionally filtered by \
+protocolId, containerId, and/or status (one of \"Active\", \"Completed\", \"Abandoned\" — \
+AND-combined with the other filters). Omit all filters to list every run. Each summary carries \
+runId, protocolId, containerId, status, currentStageId, and startedAt; call protocol_run_get for \
+the full stageStates history.";
+
+pub const DESC_PROTOCOL_RUN_COMPLETE: &str = "Mark an Active run as Completed, and its \
+currently-Active stage(s) as Completed alongside it. Only a run whose status is Active can be \
+completed — completing an already-Completed or Abandoned run is rejected. Returns the updated \
+run.";
+
+pub const DESC_PROTOCOL_RUN_ABANDON: &str = "Mark an Active run as Abandoned. Only a run whose \
+status is Active can be abandoned — abandoning an already-Completed or Abandoned run is \
+rejected. Returns the updated run.";
 
 // ── Shadow input structs (see module docs) ────────────────────────────────────
 
@@ -233,6 +274,10 @@ pub struct RecordCreateToolInput {
     pub tags: Option<Vec<String>>,
     /// Add the new record to this container atomically.
     pub container_id: Option<String>,
+    /// Optional initial lifecycle state, overriding the effective Lifecycle's
+    /// `initialState` — must be reachable from it via declared transitions
+    /// (srs-rust#960). Mirrors `record_successor`'s `lifecycleState`.
+    pub lifecycle_state: Option<String>,
 }
 
 impl From<RecordCreateToolInput> for CreateRecordInput {
@@ -241,6 +286,7 @@ impl From<RecordCreateToolInput> for CreateRecordInput {
             field_values: FieldValues(input.field_values),
             field_meta: field_meta_map(input.field_meta),
             tags: input.tags,
+            lifecycle_state: input.lifecycle_state,
         }
     }
 }
@@ -557,6 +603,7 @@ impl From<NoteGraduateToolInput> for GraduateNoteInput {
                 field_values: FieldValues(input.field_values),
                 field_meta: field_meta_map(input.field_meta),
                 tags: input.tags,
+                lifecycle_state: None,
             },
         }
     }
@@ -579,6 +626,88 @@ pub struct ContainerMemberToolInput {
 #[serde(rename_all = "camelCase")]
 pub struct ContainerMembersToolResult {
     pub member_instance_ids: Vec<String>,
+}
+
+// ── Protocol run shadow input structs (#977) ──────────────────────────────────
+
+/// Mirrors `protocol_run_service::CreateRunInput` field-for-field.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProtocolRunCreateToolInput {
+    pub protocol_id: String,
+    pub protocol_version: i32,
+    pub container_id: String,
+    pub target_record_id: Option<String>,
+    pub initial_stage_id: Option<String>,
+}
+
+impl From<ProtocolRunCreateToolInput> for CreateRunInput {
+    fn from(input: ProtocolRunCreateToolInput) -> Self {
+        CreateRunInput {
+            protocol_id: input.protocol_id,
+            protocol_version: input.protocol_version,
+            container_id: input.container_id,
+            target_record_id: input.target_record_id,
+            initial_stage_id: input.initial_stage_id,
+        }
+    }
+}
+
+/// Mirrors `protocol_run_service::AdvanceStageInput` field-for-field.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProtocolRunAdvanceToolInput {
+    pub run_id: String,
+    pub stage_id: String,
+    pub complete_current: bool,
+}
+
+impl From<ProtocolRunAdvanceToolInput> for AdvanceStageInput {
+    fn from(input: ProtocolRunAdvanceToolInput) -> Self {
+        AdvanceStageInput {
+            run_id: input.run_id,
+            stage_id: input.stage_id,
+            complete_current: input.complete_current,
+        }
+    }
+}
+
+/// No service struct conversion needed — `run_id` is passed directly to
+/// `protocol_run_service::get_run`/`complete_run`/`abandon_run` (follows the
+/// `RecordAllowedTransitionsToolInput` pattern).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProtocolRunIdToolInput {
+    pub run_id: String,
+}
+
+/// Mirrors `protocol_run_service::RunListFilter` field-for-field.
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProtocolRunListToolInput {
+    pub protocol_id: Option<String>,
+    pub container_id: Option<String>,
+    /// "Active" | "Completed" | "Abandoned"
+    pub status: Option<String>,
+}
+
+impl From<ProtocolRunListToolInput> for RunListFilter {
+    fn from(input: ProtocolRunListToolInput) -> Self {
+        RunListFilter {
+            protocol_id: input.protocol_id,
+            container_id: input.container_id,
+            status: input.status,
+        }
+    }
+}
+
+/// Wraps the `Vec<RunSummary>` returned by `protocol_run_service::list_runs` so
+/// the MCP response is a named object (`{runs: [...]}`) rather than a bare JSON
+/// array (follows the `ContainerMembersToolResult` pattern).
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtocolRunListToolResult {
+    pub runs: Vec<RunSummary>,
 }
 
 // ── Tool listing ──────────────────────────────────────────────────────────────
@@ -654,6 +783,37 @@ pub(crate) fn list_tools() -> ListToolsResult {
             TOOL_CONTAINER_MEMBER_REMOVE,
             DESC_CONTAINER_MEMBER_REMOVE,
             input_schema::<ContainerMemberToolInput>(),
+        ),
+        // Protocol run execution tools (#977)
+        Tool::new(
+            TOOL_PROTOCOL_RUN_CREATE,
+            DESC_PROTOCOL_RUN_CREATE,
+            input_schema::<ProtocolRunCreateToolInput>(),
+        ),
+        Tool::new(
+            TOOL_PROTOCOL_RUN_ADVANCE,
+            DESC_PROTOCOL_RUN_ADVANCE,
+            input_schema::<ProtocolRunAdvanceToolInput>(),
+        ),
+        Tool::new(
+            TOOL_PROTOCOL_RUN_GET,
+            DESC_PROTOCOL_RUN_GET,
+            input_schema::<ProtocolRunIdToolInput>(),
+        ),
+        Tool::new(
+            TOOL_PROTOCOL_RUN_LIST,
+            DESC_PROTOCOL_RUN_LIST,
+            input_schema::<ProtocolRunListToolInput>(),
+        ),
+        Tool::new(
+            TOOL_PROTOCOL_RUN_COMPLETE,
+            DESC_PROTOCOL_RUN_COMPLETE,
+            input_schema::<ProtocolRunIdToolInput>(),
+        ),
+        Tool::new(
+            TOOL_PROTOCOL_RUN_ABANDON,
+            DESC_PROTOCOL_RUN_ABANDON,
+            input_schema::<ProtocolRunIdToolInput>(),
         ),
     ])
 }
@@ -805,6 +965,53 @@ pub(crate) fn call_tool(
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
+        // Protocol run execution tools (#977)
+        TOOL_PROTOCOL_RUN_CREATE => {
+            let input: ProtocolRunCreateToolInput = parse_args(arguments)?;
+            match protocol_run_service::create_run(&store, input.into()) {
+                Ok(result) => tool_ok(&result.run),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_PROTOCOL_RUN_ADVANCE => {
+            let input: ProtocolRunAdvanceToolInput = parse_args(arguments)?;
+            match protocol_run_service::advance_stage(&store, input.into()) {
+                Ok(result) => tool_ok(&result.run),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_PROTOCOL_RUN_GET => {
+            let input: ProtocolRunIdToolInput = parse_args(arguments)?;
+            match protocol_run_service::get_run(&store, &input.run_id) {
+                Ok(GetRunResult::Found(run)) => tool_ok(&*run),
+                Ok(GetRunResult::NotFound) => Ok(tool_err(format!(
+                    "Protocol run '{}' not found",
+                    input.run_id
+                ))),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_PROTOCOL_RUN_LIST => {
+            let input: ProtocolRunListToolInput = parse_args(arguments)?;
+            match protocol_run_service::list_runs(&store, input.into()) {
+                Ok(runs) => tool_ok(&ProtocolRunListToolResult { runs }),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_PROTOCOL_RUN_COMPLETE => {
+            let input: ProtocolRunIdToolInput = parse_args(arguments)?;
+            match protocol_run_service::complete_run(&store, &input.run_id) {
+                Ok(result) => tool_ok(&result.run),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_PROTOCOL_RUN_ABANDON => {
+            let input: ProtocolRunIdToolInput = parse_args(arguments)?;
+            match protocol_run_service::abandon_run(&store, &input.run_id) {
+                Ok(result) => tool_ok(&result.run),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
         other => Err(McpError::invalid_params(
             format!("unknown tool '{other}'"),
             None,
@@ -875,6 +1082,7 @@ mod tests {
             ),
             tags: Some(vec!["t".into()]),
             container_id: Some("c".into()),
+            lifecycle_state: Some("proposed".into()),
         };
         assert_eq!(rec.type_filter, "ns/nm");
         assert_eq!(rec.type_version, Some(3));
@@ -894,6 +1102,7 @@ mod tests {
             Some(vec![serde_json::json!({"kind": "url"})])
         );
         assert_eq!(ci.tags, Some(vec!["t".to_string()]));
+        assert_eq!(ci.lifecycle_state.as_deref(), Some("proposed"));
 
         // RelationCreate → Relation
         let rel = RelationCreateToolInput {
@@ -962,7 +1171,7 @@ mod tests {
     }
 
     #[test]
-    fn list_tools_advertises_all_thirteen_with_schemas() {
+    fn list_tools_advertises_all_nineteen_with_schemas() {
         let tools = list_tools().tools;
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
         assert_eq!(
@@ -981,6 +1190,12 @@ mod tests {
                 TOOL_NOTE_GRADUATE,
                 TOOL_CONTAINER_MEMBER_ADD,
                 TOOL_CONTAINER_MEMBER_REMOVE,
+                TOOL_PROTOCOL_RUN_CREATE,
+                TOOL_PROTOCOL_RUN_ADVANCE,
+                TOOL_PROTOCOL_RUN_GET,
+                TOOL_PROTOCOL_RUN_LIST,
+                TOOL_PROTOCOL_RUN_COMPLETE,
+                TOOL_PROTOCOL_RUN_ABANDON,
             ]
         );
         for tool in &tools {
@@ -1158,5 +1373,54 @@ mod tests {
         };
         assert_eq!(cm.container_id, "c1");
         assert_eq!(cm.instance_id, "i1");
+    }
+
+    /// Drift guard for the protocol run tools (#977): populate EVERY field of
+    /// each shadow input and assert the conversion carries all of them into
+    /// the service type.
+    #[test]
+    fn tool_input_conversion_protocol_run_exercises_every_field() {
+        // ProtocolRunCreateToolInput → CreateRunInput
+        let create = ProtocolRunCreateToolInput {
+            protocol_id: "proto-1".into(),
+            protocol_version: 3,
+            container_id: "cont-1".into(),
+            target_record_id: Some("rec-1".into()),
+            initial_stage_id: Some("stage-a".into()),
+        };
+        let ci: CreateRunInput = create.into();
+        assert_eq!(ci.protocol_id, "proto-1");
+        assert_eq!(ci.protocol_version, 3);
+        assert_eq!(ci.container_id, "cont-1");
+        assert_eq!(ci.target_record_id.as_deref(), Some("rec-1"));
+        assert_eq!(ci.initial_stage_id.as_deref(), Some("stage-a"));
+
+        // ProtocolRunAdvanceToolInput → AdvanceStageInput
+        let advance = ProtocolRunAdvanceToolInput {
+            run_id: "run-1".into(),
+            stage_id: "stage-b".into(),
+            complete_current: true,
+        };
+        let ai: AdvanceStageInput = advance.into();
+        assert_eq!(ai.run_id, "run-1");
+        assert_eq!(ai.stage_id, "stage-b");
+        assert!(ai.complete_current);
+
+        // ProtocolRunIdToolInput (no conversion — field passed directly)
+        let id = ProtocolRunIdToolInput {
+            run_id: "run-2".into(),
+        };
+        assert_eq!(id.run_id, "run-2");
+
+        // ProtocolRunListToolInput → RunListFilter
+        let list = ProtocolRunListToolInput {
+            protocol_id: Some("proto-2".into()),
+            container_id: Some("cont-2".into()),
+            status: Some("Active".into()),
+        };
+        let rlf: RunListFilter = list.into();
+        assert_eq!(rlf.protocol_id.as_deref(), Some("proto-2"));
+        assert_eq!(rlf.container_id.as_deref(), Some("cont-2"));
+        assert_eq!(rlf.status.as_deref(), Some("Active"));
     }
 }

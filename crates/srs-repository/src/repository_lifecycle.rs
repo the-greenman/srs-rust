@@ -67,6 +67,7 @@ pub(crate) fn default_repository_container(container_id: &str, title: &str) -> C
         anchor_instance_id: None,
         root_instance_ids: None,
         member_instance_ids: None,
+        child_container_ids: None,
         tags: None,
         created_at: None,
         updated_at: None,
@@ -146,6 +147,7 @@ fn scaffold_purpose_record(
         anchor_instance_id: None,
         root_instance_ids: None,
         member_instance_ids: None,
+        child_container_ids: None,
         tags: None,
         created_at: None,
         updated_at: None,
@@ -382,6 +384,29 @@ mod tests {
             .fields
             .iter()
             .any(|f| f.namespace == "com.semanticops.core"));
+    }
+
+    #[test]
+    fn create_repository_service_filestore_marker_survives_empty_dir_pruning() {
+        // Git does not track empty directories — a `.srs/` with zero regular
+        // files inside it would be dropped on first commit and the parent
+        // stops being detectable as an SRS repository (srs-rust#959). Assert
+        // the directory actually holds a regular file, not just that it
+        // exists as a directory in this process's temp filesystem.
+        let tmp = TempDir::new().unwrap();
+        let store = FileStore::new(tmp.path());
+        create_repository(&store, &input()).unwrap();
+
+        let marker = tmp.path().join(".srs");
+        let has_regular_file = std::fs::read_dir(&marker)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .any(|entry| entry.file_type().map(|t| t.is_file()).unwrap_or(false));
+        assert!(
+            has_regular_file,
+            ".srs/ must hold at least one regular file (CC-54) or it does not \
+             survive a git commit of the newly created repository"
+        );
     }
 
     #[test]

@@ -192,6 +192,7 @@ fn make_lifecycle_fixture() -> LifecycleFixture {
             anchor_instance_id: None,
             root_instance_ids: None,
             member_instance_ids: None,
+            child_container_ids: None,
             tags: None,
             created_at: None,
             updated_at: None,
@@ -557,6 +558,22 @@ async fn tool_call_malformed_args_invalid_params() {
     assert!(
         err.to_string().contains("unknownExtra"),
         "error should cite the bad field: {err}"
+    );
+
+    // Malformed protocol run request: required "stageId" omitted → invalid
+    // params, same drift-guard mechanism as the other deny_unknown_fields
+    // shadow structs (#977 negative coverage).
+    let err = client
+        .call_tool(
+            CallToolRequestParams::new("protocol_run_advance").with_arguments(args(
+                serde_json::json!({ "runId": "some-run", "completeCurrent": false }),
+            )),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("stageId") || err.to_string().contains("stage_id"),
+        "error should cite the missing required field: {err}"
     );
 
     // Unknown tool name → invalid params, server keeps serving.
@@ -1057,6 +1074,284 @@ async fn tool_container_member_add_then_remove() {
         .filter(|d| d["severity"] == "error")
         .collect();
     assert_eq!(errors.len(), 0, "unexpected error diagnostics: {errors:?}");
+
+    client.cancel().await.unwrap();
+}
+
+// ── Protocol run execution tools (#977 — follow-up to #955) ───────────────────
+
+#[tokio::test]
+async fn tool_protocol_run_create_then_get() {
+    let fx = make_lifecycle_fixture();
+    let client = connect(&fx.base).await;
+
+    let created = call(
+        &client,
+        "protocol_run_create",
+        serde_json::json!({
+            "protocolId": "proto-1",
+            "protocolVersion": 1,
+            "containerId": fx.container_id,
+            "initialStageId": "stage-a"
+        }),
+    )
+    .await;
+    assert_eq!(created.is_error, Some(false), "create failed: {created:?}");
+    let run = created.structured_content.as_ref().unwrap();
+    assert_eq!(run["protocolId"], "proto-1");
+    assert_eq!(run["status"], "Active");
+    assert_eq!(run["stageStates"][0]["stageId"], "stage-a");
+    let run_id = run["runId"].as_str().unwrap().to_string();
+
+    let fetched = call(
+        &client,
+        "protocol_run_get",
+        serde_json::json!({ "runId": run_id }),
+    )
+    .await;
+    assert_eq!(fetched.is_error, Some(false), "get failed: {fetched:?}");
+    assert_eq!(
+        fetched.structured_content.as_ref().unwrap()["runId"],
+        run_id
+    );
+
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn tool_protocol_run_get_unknown_id_is_tool_error() {
+    let fx = make_lifecycle_fixture();
+    let client = connect(&fx.base).await;
+
+    let result = call(
+        &client,
+        "protocol_run_get",
+        serde_json::json!({ "runId": "no-such-run" }),
+    )
+    .await;
+    assert_eq!(result.is_error, Some(true));
+    assert!(text_of(&result).contains("no-such-run"));
+
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn tool_protocol_run_advance_then_complete() {
+    let fx = make_lifecycle_fixture();
+    let client = connect(&fx.base).await;
+
+    let created = call(
+        &client,
+        "protocol_run_create",
+        serde_json::json!({
+            "protocolId": "proto-1",
+            "protocolVersion": 1,
+            "containerId": fx.container_id,
+            "initialStageId": "stage-a"
+        }),
+    )
+    .await;
+    let run_id = created.structured_content.as_ref().unwrap()["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let advanced = call(
+        &client,
+        "protocol_run_advance",
+        serde_json::json!({
+            "runId": run_id,
+            "stageId": "stage-b",
+            "completeCurrent": true
+        }),
+    )
+    .await;
+    assert_eq!(
+        advanced.is_error,
+        Some(false),
+        "advance failed: {advanced:?}"
+    );
+    let stage_states = advanced.structured_content.as_ref().unwrap()["stageStates"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(stage_states.len(), 2);
+    assert_eq!(stage_states[0]["status"], "Completed");
+    assert_eq!(stage_states[1]["stageId"], "stage-b");
+    assert_eq!(stage_states[1]["status"], "Active");
+
+    let completed = call(
+        &client,
+        "protocol_run_complete",
+        serde_json::json!({ "runId": run_id }),
+    )
+    .await;
+    assert_eq!(
+        completed.is_error,
+        Some(false),
+        "complete failed: {completed:?}"
+    );
+    assert_eq!(
+        completed.structured_content.as_ref().unwrap()["status"],
+        "Completed"
+    );
+
+    // A Completed run cannot be advanced or completed again — the
+    // service-level state-machine guard, proven red here on purpose.
+    let re_advance = call(
+        &client,
+        "protocol_run_advance",
+        serde_json::json!({ "runId": run_id, "stageId": "stage-c", "completeCurrent": false }),
+    )
+    .await;
+    assert_eq!(
+        re_advance.is_error,
+        Some(true),
+        "advancing a Completed run must be rejected"
+    );
+
+    let re_complete = call(
+        &client,
+        "protocol_run_complete",
+        serde_json::json!({ "runId": run_id }),
+    )
+    .await;
+    assert_eq!(
+        re_complete.is_error,
+        Some(true),
+        "completing an already-Completed run must be rejected"
+    );
+
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn tool_protocol_run_abandon_then_reject_reabandon() {
+    let fx = make_lifecycle_fixture();
+    let client = connect(&fx.base).await;
+
+    let created = call(
+        &client,
+        "protocol_run_create",
+        serde_json::json!({
+            "protocolId": "proto-1",
+            "protocolVersion": 1,
+            "containerId": fx.container_id
+        }),
+    )
+    .await;
+    let run_id = created.structured_content.as_ref().unwrap()["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let abandoned = call(
+        &client,
+        "protocol_run_abandon",
+        serde_json::json!({ "runId": run_id }),
+    )
+    .await;
+    assert_eq!(
+        abandoned.is_error,
+        Some(false),
+        "abandon failed: {abandoned:?}"
+    );
+    assert_eq!(
+        abandoned.structured_content.as_ref().unwrap()["status"],
+        "Abandoned"
+    );
+
+    let re_abandon = call(
+        &client,
+        "protocol_run_abandon",
+        serde_json::json!({ "runId": run_id }),
+    )
+    .await;
+    assert_eq!(
+        re_abandon.is_error,
+        Some(true),
+        "abandoning an already-Abandoned run must be rejected"
+    );
+
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn tool_protocol_run_list_filters_by_status_and_protocol() {
+    let fx = make_lifecycle_fixture();
+    let client = connect(&fx.base).await;
+
+    let active = call(
+        &client,
+        "protocol_run_create",
+        serde_json::json!({
+            "protocolId": "proto-active",
+            "protocolVersion": 1,
+            "containerId": fx.container_id
+        }),
+    )
+    .await;
+    let active_id = active.structured_content.as_ref().unwrap()["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let completed = call(
+        &client,
+        "protocol_run_create",
+        serde_json::json!({
+            "protocolId": "proto-completed",
+            "protocolVersion": 1,
+            "containerId": fx.container_id
+        }),
+    )
+    .await;
+    let completed_id = completed.structured_content.as_ref().unwrap()["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    call(
+        &client,
+        "protocol_run_complete",
+        serde_json::json!({ "runId": completed_id }),
+    )
+    .await;
+
+    let all = call(&client, "protocol_run_list", serde_json::json!({})).await;
+    assert_eq!(all.is_error, Some(false));
+    assert_eq!(
+        all.structured_content.as_ref().unwrap()["runs"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+
+    let active_only = call(
+        &client,
+        "protocol_run_list",
+        serde_json::json!({ "status": "Active" }),
+    )
+    .await;
+    let runs = active_only.structured_content.as_ref().unwrap()["runs"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0]["runId"], active_id);
+
+    let by_protocol = call(
+        &client,
+        "protocol_run_list",
+        serde_json::json!({ "protocolId": "proto-completed" }),
+    )
+    .await;
+    let runs = by_protocol.structured_content.as_ref().unwrap()["runs"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0]["runId"], completed_id);
 
     client.cancel().await.unwrap();
 }

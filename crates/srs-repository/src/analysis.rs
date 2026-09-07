@@ -848,6 +848,7 @@ mod tests {
                 description: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
+                child_container_ids: None,
                 tags: None,
                 created_at: None,
                 updated_at: None,
