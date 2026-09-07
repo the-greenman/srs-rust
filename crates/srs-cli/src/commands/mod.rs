@@ -674,7 +674,12 @@ pub enum RepoCommand {
         json: bool,
     },
     /// Resolve structural repository navigation from the root container
-    Navigation,
+    Navigation {
+        /// Bound the `contains` descent below each section (0 = sections only,
+        /// omitted = the full part-of tree)
+        #[arg(long)]
+        depth: Option<u32>,
+    },
     /// Render an llms.txt-style agent-readable index of the repository
     #[command(name = "agent-index")]
     AgentIndex,

@@ -32,7 +32,7 @@ use srs_repository::repository_lifecycle::{
     create_repository_with_intent, init_new_repository, InitNewRepositoryInput,
     InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
 };
-use srs_repository::repository_navigation_service::repository_navigation;
+use srs_repository::repository_navigation_service::repository_navigation_with_depth;
 use srs_repository::repository_portability::copy_repository;
 use srs_repository::srsj::SrsjSession;
 use srs_repository::upgrade_repository_paths;
@@ -64,7 +64,7 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
             package_namespace,
         ),
         RepoCommand::Map { json: _ } => cmd_repo_map(ctx),
-        RepoCommand::Navigation => cmd_repo_navigation(ctx),
+        RepoCommand::Navigation { depth } => cmd_repo_navigation(ctx, depth),
         RepoCommand::AgentIndex => cmd_repo_agent_index(ctx),
         RepoCommand::SetRootContainer {
             container_id,
@@ -363,8 +363,10 @@ fn cmd_repo_map(ctx: CliContext) -> Result<String> {
     output::serialize("repo map", RepoMapPayload { repo_map })
 }
 
-fn cmd_repo_navigation(ctx: CliContext) -> Result<String> {
-    let navigation = with_store(&ctx, |store| Ok(repository_navigation(store)?))?;
+fn cmd_repo_navigation(ctx: CliContext, depth: Option<u32>) -> Result<String> {
+    let navigation = with_store(&ctx, |store| {
+        Ok(repository_navigation_with_depth(store, depth)?)
+    })?;
     output::serialize("repo navigation", RepoNavigationPayload { navigation })
 }
 
