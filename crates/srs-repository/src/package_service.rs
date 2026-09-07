@@ -62,6 +62,12 @@ pub struct TypeSummary {
     pub version: u32,
     pub description: Option<String>,
     pub field_count: usize,
+    /// Correct on disk and returned by `type get`; carried here so the
+    /// discovery ladder's list step can tell whether a type has an identity
+    /// field without a `get` per type (srs-rust#958).
+    pub identity_field_id: Option<String>,
+    /// Same rationale as `identity_field_id` (srs-rust#958).
+    pub lifecycle_ref: Option<String>,
     /// Boundary path of the package that owns this type.
     /// `None` = primary package (`package/`); `Some(path)` = sub-package path.
     pub source_package: Option<String>,
@@ -293,6 +299,8 @@ fn list_types_internal(
                 Some(t.description.clone())
             },
             field_count: t.fields.len(),
+            identity_field_id: t.identity_field_id.clone(),
+            lifecycle_ref: t.lifecycle_ref.clone(),
             source_package: provenance.get(&t.id).cloned().flatten(),
         })
         .collect();

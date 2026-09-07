@@ -21,6 +21,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use srs_core::types::{
     container::Container,
+    field::FieldType,
     lifecycle::Lifecycle,
     note::Note,
     record::Record,
@@ -74,7 +75,9 @@ impl From<NoteSummary> for NoteListEntry {
 }
 
 /// A single entry in a field list — the subset of `FieldSummary` exposed by the CLI.
-/// (Omits `valueType` and `description` which were never in the prior output.)
+/// (Omits `description`, which was never in the prior output. Carries `fieldType`
+/// — the RFC-032 successor of `valueType` — so the discovery ladder's list step
+/// can resolve a field set without a `field get` per field; srs-rust#958.)
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct FieldListEntry {
@@ -82,11 +85,19 @@ pub struct FieldListEntry {
     pub namespace: String,
     pub name: String,
     pub version: u32,
+    /// `schemars` cannot derive through `srs-core` (which must not depend on
+    /// it), so the payload schema types this as an object; its shape is
+    /// `$defs/FieldType` in `field.json` (same convention as `BriefField`).
+    #[schemars(with = "serde_json::Value")]
+    pub field_type: FieldType,
     pub source_package: Option<String>,
 }
 
 /// A single entry in a type list — the subset of `TypeSummary` exposed by the CLI.
-/// (Omits `description` which was never in the prior output.)
+/// (Omits `description` which was never in the prior output. Carries
+/// `identityFieldId` and `lifecycleRef` so the discovery ladder's list step can
+/// tell whether a type has an identity field or a bound lifecycle without a
+/// `type get` per type; srs-rust#958.)
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TypeListEntry {
@@ -95,6 +106,8 @@ pub struct TypeListEntry {
     pub name: String,
     pub version: u32,
     pub field_count: usize,
+    pub identity_field_id: Option<String>,
+    pub lifecycle_ref: Option<String>,
     pub source_package: Option<String>,
 }
 
