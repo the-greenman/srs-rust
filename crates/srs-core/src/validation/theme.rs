@@ -41,7 +41,7 @@ mod tests {
         AssetDeclaration, AssetMode, AssetType, ElementTemplates, RecordWrapperOverride,
         SectionWrapperOverride, Theme,
     };
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     fn minimal_theme() -> Theme {
         Theme {
@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn validate_theme_full_theme_with_assets_passes() {
         let mut theme = minimal_theme();
-        theme.assets = Some(HashMap::from([(
+        theme.assets = Some(BTreeMap::from([(
             "logo".to_string(),
             AssetDeclaration {
                 asset_type: AssetType::Image,

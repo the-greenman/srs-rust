@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -90,7 +90,7 @@ pub struct Theme {
     pub description: String,
     pub targets: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub assets: Option<HashMap<String, AssetDeclaration>>,
+    pub assets: Option<BTreeMap<String, AssetDeclaration>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub css_class_fields: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -159,7 +159,7 @@ mod tests {
             version: 1,
             description: "Full theme".to_string(),
             targets: vec!["markdown".to_string(), "text".to_string()],
-            assets: Some(HashMap::from([(
+            assets: Some(BTreeMap::from([(
                 "logo".to_string(),
                 AssetDeclaration {
                     asset_type: AssetType::Image,
@@ -223,6 +223,70 @@ mod tests {
         assert!(
             err.to_string().contains("xCustom"),
             "the rejection must name the key: {err}"
+        );
+    }
+
+    fn minimal_theme() -> Theme {
+        Theme {
+            schema: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
+            id: "00000000-0000-4000-8000-000000000901".to_string(),
+            namespace: "fixture.theme".to_string(),
+            name: "minimal".to_string(),
+            version: 1,
+            description: "Minimal theme".to_string(),
+            targets: vec!["markdown".to_string()],
+            assets: None,
+            css_class_fields: None,
+            page_templates: None,
+            element_templates: None,
+            stylesheet: None,
+            typography: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn theme_assets_serialize_in_deterministic_key_order() {
+        // ADR-043 canonical-types discipline: a serde-serialized map must be
+        // ordered, or `preserve_order` carries per-process HashMap order into
+        // the written file and every Theme re-write is git-diff noise.
+        let keys = [
+            "zeta", "alpha", "midway", "kappa", "beta", "omega", "delta", "gamma", "sigma", "iota",
+            "theta", "lambda",
+        ];
+        let assets = keys
+            .iter()
+            .map(|k| {
+                (
+                    (*k).to_string(),
+                    AssetDeclaration {
+                        asset_type: AssetType::Image,
+                        mode: AssetMode::Inline,
+                        path: None,
+                        url: None,
+                        data: Some("Zm9v".to_string()),
+                        mime_type: Some("image/png".to_string()),
+                    },
+                )
+            })
+            .collect();
+
+        let theme = Theme {
+            assets: Some(assets),
+            ..minimal_theme()
+        };
+
+        let value = serde_json::to_value(&theme).expect("serialize");
+        let serialized: Vec<&String> = value["assets"].as_object().unwrap().keys().collect();
+        let mut sorted = keys.to_vec();
+        sorted.sort_unstable();
+        assert_eq!(
+            serialized, sorted,
+            "Theme.assets must serialize in sorted key order"
         );
     }
 }
