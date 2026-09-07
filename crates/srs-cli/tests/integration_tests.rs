@@ -5873,11 +5873,7 @@ fn type_list_includes_identity_field_id_and_lifecycle_ref() {
         ],
         "identityFieldId": field_id
     });
-    let created = run_srs_stdin_in_dir(
-        temp.path(),
-        &["type", "create"],
-        &record_type.to_string(),
-    );
+    let created = run_srs_stdin_in_dir(temp.path(), &["type", "create"], &record_type.to_string());
     assert_eq!(created["ok"], true, "type create failed: {:?}", created);
 
     let result = run_srs_in_dir(temp.path(), &["type", "list"]);
@@ -6256,7 +6252,10 @@ fn type_schema_honors_editor_hint_override() {
         type_created
     );
 
-    let result = run_srs_in_dir(temp.path(), &["--repo", repo_str, "type", "schema", type_id]);
+    let result = run_srs_in_dir(
+        temp.path(),
+        &["--repo", repo_str, "type", "schema", type_id],
+    );
     assert_eq!(result["ok"], true, "type schema failed: {:?}", result);
     let schema = &result["payload"]["schema"];
 
