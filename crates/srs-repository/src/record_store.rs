@@ -5883,6 +5883,7 @@ mod tests {
                 field_meta: None,
                 field_values: fvs(vec![("test-name", json!("Nested"))]),
                 tags: None,
+                lifecycle_state: None,
             },
             Some(child_id.clone()),
             None,

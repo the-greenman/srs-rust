@@ -574,17 +574,14 @@ fn require_valid_child_containers(
         if !visited.insert(id.clone()) {
             continue;
         }
-        let (child, _) =
-            load_container_with_embed_fallback(store, &id).map_err(|e| match e {
-                RepositoryError::ContainerNotFound { container_id } => {
-                    RepositoryError::InvalidInput {
-                        message: format!(
-                            "childContainerIds: '{container_id}' does not resolve to an existing Container"
-                        ),
-                    }
-                }
-                other => other,
-            })?;
+        let (child, _) = load_container_with_embed_fallback(store, &id).map_err(|e| match e {
+            RepositoryError::ContainerNotFound { container_id } => RepositoryError::InvalidInput {
+                message: format!(
+                    "childContainerIds: '{container_id}' does not resolve to an existing Container"
+                ),
+            },
+            other => other,
+        })?;
         for grandchild in child.child_container_ids.iter().flatten() {
             stack.push(grandchild.clone());
         }
@@ -1642,7 +1639,9 @@ mod tests {
             "a contains Relation must never add a member (RFC-034 [R4])"
         );
         assert!(!is_member(&store, &created.container_id, "child-note").unwrap());
-        assert!(containers_for_instance(&store, "child-note").unwrap().is_empty());
+        assert!(containers_for_instance(&store, "child-note")
+            .unwrap()
+            .is_empty());
     }
 
     /// RFC-034 [R8]: `containerScope: "explicit"` (`list_direct_members`) stays
