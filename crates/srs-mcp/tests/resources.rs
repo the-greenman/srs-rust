@@ -498,6 +498,7 @@ async fn read_tree_agent_index_and_descent_hook() {
             anchor_instance_id: None,
             root_instance_ids: Some(vec![fx.identity_id.clone()]),
             member_instance_ids: None,
+            child_container_ids: None,
             tags: None,
             created_at: None,
             updated_at: None,
