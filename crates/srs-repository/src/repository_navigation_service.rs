@@ -251,7 +251,9 @@ fn display_label(
     record_label::record_display_label(record, identity_field_index, field_name_index)
 }
 
-fn section_containers_by_root(
+/// `rootInstanceId -> containerId` for every container declaring roots — the
+/// descent hook shared by navigation sections and container members (srs-rust#949).
+pub(crate) fn section_containers_by_root(
     store: &dyn RepositoryStore,
 ) -> Result<HashMap<String, String>, RepositoryError> {
     let containers = container_service::list_containers(store, &ContainerListFilter::default())?;

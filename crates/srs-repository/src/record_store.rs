@@ -22,6 +22,7 @@
 use crate::container_service;
 use crate::error::RepositoryError;
 use crate::index::InstanceQuery;
+use crate::package::Package;
 use crate::package_service::{get_type_by_name, GetTypeResult};
 use crate::record_label;
 use crate::relation_service;
@@ -30,6 +31,7 @@ use crate::writer::{new_instance_id, slugify_instance_name};
 use serde::{Deserialize, Serialize};
 use srs_core::types::lifecycle::{RelationDirection, RequiresRelation};
 use srs_core::types::record::{FieldValues, Record};
+use srs_core::types::record_type::RecordType;
 use srs_core::types::relation::Relation;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::types::source_reference::SourceReference;
@@ -590,6 +592,13 @@ pub struct CreateRecordInput {
     pub field_meta: Option<indexmap::IndexMap<String, srs_core::types::record::FieldMeta>>,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
+    /// Optional initial lifecycle state, overriding the effective Lifecycle's
+    /// `initialState`. Validated the same way as
+    /// `CreateRecordSuccessorInput::lifecycle_state`: must be a defined state,
+    /// reachable from `initialState` via declared transitions (srs-rust#960) —
+    /// not a back door around ordinary transition validation.
+    #[serde(default)]
+    pub lifecycle_state: Option<String>,
 }
 
 /// Input for `update_record`.
@@ -888,7 +897,18 @@ pub fn create_record_in_context(
         }
     };
 
-    let record = create_record_at_dir(
+    // Pre-validate any explicit lifecycle-state override before writing anything
+    // (srs-rust#960) — reuses the same check `create_record_successor` applies to
+    // its own override, so both entry points reject the same illegal jumps.
+    let requires_for_explicit = match input.lifecycle_state.as_deref() {
+        Some(explicit_state) => {
+            let package = store.load_package()?;
+            validate_lifecycle_state_override(&package, &record_type, explicit_state)?
+        }
+        None => None,
+    };
+
+    let mut record = create_record_at_dir(
         store,
         &record_type.id,
         record_type.version,
@@ -897,6 +917,30 @@ pub fn create_record_in_context(
         input.tags,
         dir,
     )?;
+
+    // Apply the explicit lifecycle_state now that the record exists. A plain
+    // create has no accompanying relation (unlike create_record_successor), so a
+    // target state's requiresRelation obligation can only be satisfied by a
+    // relation asserted separately beforehand — checked the same way here.
+    if let Some(explicit_state) = input.lifecycle_state {
+        if record.lifecycle_state.as_deref() != Some(explicit_state.as_str()) {
+            if let Some(req) = &requires_for_explicit {
+                let declared = req.relation_type.clone();
+                let direction = req.effective_direction();
+                if !relation_obligation_satisfied(store, &record.instance_id, &declared, direction)?
+                {
+                    attempt_rollback_delete(store, &record.instance_id);
+                    return Err(RepositoryError::LifecycleRelationRequired {
+                        state: explicit_state,
+                        relation_types: declared,
+                        direction: direction.to_string(),
+                    });
+                }
+            }
+            record.lifecycle_state = Some(explicit_state);
+            store.save_record(&record)?;
+        }
+    }
 
     if let Some(ref cid) = container_id {
         if let Err(e) = container_service::add_member(store, cid, &record.instance_id) {
@@ -1504,29 +1548,8 @@ pub fn create_record_successor(
             })?;
         definitions = package.relation_type_definitions.clone();
         if let Some(explicit_state) = input.lifecycle_state.as_deref() {
-            let lifecycle = package.effective_lifecycle(record_type).ok_or_else(|| {
-                RepositoryError::LifecycleNotDefined {
-                    id: predecessor_id.to_string(),
-                }
-            })?;
-            let state_def = lifecycle
-                .states
-                .iter()
-                .find(|s| s.key == explicit_state)
-                .ok_or_else(|| RepositoryError::LifecycleStateNotDefined {
-                    state: explicit_state.to_string(),
-                })?;
-            if !state_reachable_from_initial(
-                lifecycle.initial_state,
-                lifecycle.transitions,
-                explicit_state,
-            ) {
-                return Err(RepositoryError::LifecycleStateUnreachable {
-                    state: explicit_state.to_string(),
-                    initial: lifecycle.initial_state.to_string(),
-                });
-            }
-            requires_for_explicit = state_def.requires_relation.clone();
+            requires_for_explicit =
+                validate_lifecycle_state_override(&package, record_type, explicit_state)?;
         }
     }
 
@@ -1606,6 +1629,46 @@ pub fn create_record_successor(
         record: successor,
         relation: rel_result.relation,
     })
+}
+
+/// Validate a caller-supplied lifecycle-state override before it is applied to a
+/// record: the state must be defined in the effective Lifecycle and reachable
+/// from `initialState` via declared transitions — never a back door around
+/// ordinary transition validation. Returns the state's `requiresRelation`
+/// obligation, if any, for the caller to enforce once the record (and any
+/// accompanying relation) exists.
+///
+/// Shared by `create_record_in_context` and `create_record_successor`
+/// (srs-rust#960): both let a caller create a record already in a non-initial
+/// state, and both must reject the same illegal jumps the same way.
+fn validate_lifecycle_state_override(
+    package: &Package,
+    record_type: &RecordType,
+    explicit_state: &str,
+) -> Result<Option<RequiresRelation>, RepositoryError> {
+    let lifecycle = package.effective_lifecycle(record_type).ok_or_else(|| {
+        RepositoryError::LifecycleNotDefined {
+            id: format!("{}/{}", record_type.namespace, record_type.name),
+        }
+    })?;
+    let state_def = lifecycle
+        .states
+        .iter()
+        .find(|s| s.key == explicit_state)
+        .ok_or_else(|| RepositoryError::LifecycleStateNotDefined {
+            state: explicit_state.to_string(),
+        })?;
+    if !state_reachable_from_initial(
+        lifecycle.initial_state,
+        lifecycle.transitions,
+        explicit_state,
+    ) {
+        return Err(RepositoryError::LifecycleStateUnreachable {
+            state: explicit_state.to_string(),
+            initial: lifecycle.initial_state.to_string(),
+        });
+    }
+    Ok(state_def.requires_relation.clone())
 }
 
 /// Is `target` reachable from `initial` via the declared transitions (BFS)?
@@ -4673,6 +4736,148 @@ mod tests {
         assert_eq!(result.record.lifecycle_state.as_deref(), Some("ratified"));
     }
 
+    // ── srs-rust#960: explicit lifecycle_state on plain `record create` ────────
+    //
+    // Mirrors the rfc022_successor_explicit_* tests above, but for
+    // `create_record_in_context` (the service behind CLI `record create`) rather
+    // than `create_record_successor`. Before this fix, a freshly created record
+    // was always stamped with the Lifecycle's `initialState`, and reaching any
+    // other state required one `record transition` call per edge — multiplying
+    // batch-authoring calls by the hop count for records whose real-world state
+    // was already known at creation time.
+
+    #[test]
+    fn record_create_explicit_state_undefined_rejected() {
+        let store = make_store_with_relational_state();
+        let err = create_record_in_context(
+            &store,
+            "com.test/decision",
+            None,
+            CreateRecordInput {
+                field_values: fvs(vec![("title", json!("Decision 1"))]),
+                field_meta: None,
+                tags: None,
+                lifecycle_state: Some("ghost".to_string()),
+            },
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::LifecycleStateNotDefined { ref state } if state == "ghost"),
+            "got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn record_create_explicit_state_unreachable_rejected() {
+        let store = make_store_with_relational_state();
+        let err = create_record_in_context(
+            &store,
+            "com.test/decision",
+            None,
+            CreateRecordInput {
+                field_values: fvs(vec![("title", json!("Decision 1"))]),
+                field_meta: None,
+                tags: None,
+                lifecycle_state: Some("unreachable-state".to_string()),
+            },
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::LifecycleStateUnreachable { ref state, .. } if state == "unreachable-state"),
+            "got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn record_create_explicit_multi_hop_reachable_state_ok() {
+        let store = make_store_with_relational_state();
+
+        // "closed" is two hops from the initial state "draft" (draft -> ratified
+        // -> closed) and carries no relation obligation. Before srs-rust#960 this
+        // required `record create` (lands on "draft") followed by two
+        // `record transition` calls; one `record create` call now lands directly
+        // on the true state.
+        let result = create_record_in_context(
+            &store,
+            "com.test/decision",
+            None,
+            CreateRecordInput {
+                field_values: fvs(vec![("title", json!("Decision 1"))]),
+                field_meta: None,
+                tags: None,
+                lifecycle_state: Some("closed".to_string()),
+            },
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(result.record.lifecycle_state.as_deref(), Some("closed"));
+    }
+
+    #[test]
+    fn record_create_explicit_multi_hop_reachable_state_roundtrips_via_filestore() {
+        // Cross-store roundtrip (memory -> file) per CLAUDE.md Storage Boundary Rules.
+        let store = make_store_with_relational_state();
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::store::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store).unwrap();
+
+        let result = create_record_in_context(
+            &file_store,
+            "com.test/decision",
+            None,
+            CreateRecordInput {
+                field_values: fvs(vec![("title", json!("Decision 1"))]),
+                field_meta: None,
+                tags: None,
+                lifecycle_state: Some("closed".to_string()),
+            },
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(result.record.lifecycle_state.as_deref(), Some("closed"));
+    }
+
+    #[test]
+    fn record_create_explicit_relational_state_without_relation_rejected() {
+        let store = make_store_with_relational_state();
+
+        // "superseded" requires an incoming `supersedes` relation (RFC-022). A
+        // plain `record create` has no accompanying relation (unlike
+        // `create_record_successor`), so this must fail the same way the
+        // retrofit transition path does, and roll back the created record.
+        let err = create_record_in_context(
+            &store,
+            "com.test/decision",
+            None,
+            CreateRecordInput {
+                field_values: fvs(vec![("title", json!("Decision 1"))]),
+                field_meta: None,
+                tags: None,
+                lifecycle_state: Some("superseded".to_string()),
+            },
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::LifecycleRelationRequired { ref state, .. } if state == "superseded"),
+            "got: {err:?}"
+        );
+
+        let catalog = store.catalog().unwrap();
+        assert!(
+            catalog.instances.is_empty(),
+            "the rejected record must be rolled back, not left orphaned: {:?}",
+            catalog.instances
+        );
+    }
+
     // ── srs-rust#880: retrofit entry for a pre-existing record ─────────────────
     //
     // Reproduces the exact repro from #880: a record created before its Type
@@ -5597,6 +5802,7 @@ mod tests {
                 field_meta: None,
                 field_values: fvs(vec![("test-name", json!("Context Success"))]),
                 tags: None,
+                lifecycle_state: None,
             },
             Some(container_id.clone()),
             None,
@@ -5633,6 +5839,7 @@ mod tests {
                 field_meta: None,
                 field_values: fvs(vec![("test-name", json!("Roundtrip Context"))]),
                 tags: None,
+                lifecycle_state: None,
             },
             Some(container_id.clone()),
             None,
