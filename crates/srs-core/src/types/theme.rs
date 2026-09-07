@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -90,7 +90,7 @@ pub struct Theme {
     pub description: String,
     pub targets: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub assets: Option<HashMap<String, AssetDeclaration>>,
+    pub assets: Option<BTreeMap<String, AssetDeclaration>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub css_class_fields: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -159,7 +159,7 @@ mod tests {
             version: 1,
             description: "Full theme".to_string(),
             targets: vec!["markdown".to_string(), "text".to_string()],
-            assets: Some(HashMap::from([(
+            assets: Some(BTreeMap::from([(
                 "logo".to_string(),
                 AssetDeclaration {
                     asset_type: AssetType::Image,
