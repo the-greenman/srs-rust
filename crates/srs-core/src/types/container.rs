@@ -33,6 +33,13 @@ pub struct Container {
     pub root_instance_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub member_instance_ids: Option<Vec<String>>,
+    /// RFC-034 Change B. Container ids of directly nested child scopes — the one
+    /// place a Container references another Container. Effective membership
+    /// (`effective(C)`) is the recursive, deduplicated closure over this edge;
+    /// every entry MUST resolve to an existing, distinct Container and the graph
+    /// MUST be acyclic (RFC-034 [R7]). Holds containerIds, not instance ids.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub child_container_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -82,6 +89,7 @@ mod tests {
             anchor_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
             root_instance_ids: Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]),
             member_instance_ids: Some(vec!["22222222-2222-4222-8222-222222222222".to_string()]),
+            child_container_ids: Some(vec!["33333333-3333-4333-8333-333333333333".to_string()]),
             tags: Some(vec!["alpha".to_string()]),
             created_at: Some("2026-01-01T00:00:00Z".to_string()),
             updated_at: Some("2026-01-02T00:00:00Z".to_string()),
@@ -107,6 +115,7 @@ mod tests {
             anchor_instance_id: None,
             root_instance_ids: None,
             member_instance_ids: None,
+            child_container_ids: None,
             tags: None,
             created_at: None,
             updated_at: None,
@@ -117,6 +126,7 @@ mod tests {
         let value = serde_json::to_value(&container).unwrap();
         assert!(value.get("namespace").is_none());
         assert!(value.get("memberInstanceIds").is_none());
+        assert!(value.get("childContainerIds").is_none());
         assert!(value.get("anchorInstanceId").is_none());
 
         let parsed: Container = serde_json::from_value(value).unwrap();
@@ -196,6 +206,7 @@ mod tests {
             anchor_instance_id: None,
             root_instance_ids: None,
             member_instance_ids: None,
+            child_container_ids: None,
             tags: None,
             created_at: Some("2026-01-01T00:00:00Z".to_string()),
             updated_at: None,

@@ -1,7 +1,7 @@
 use crate::container_service;
 use crate::error::RepositoryError;
 use crate::record_label;
-use crate::record_store::get_record_by_id;
+use crate::record_store::{get_instance_by_id, get_record_by_id, LoadedInstance};
 use crate::relation_graph;
 use crate::relation_service::load_relations;
 use crate::store::RepositoryStore;
@@ -39,6 +39,8 @@ impl Default for TreeOptions {
 pub struct TreeNode {
     pub instance_id: String,
     pub label: String,
+    pub type_id: String,
+    pub type_version: u32,
     pub type_namespace: String,
     pub type_name: String,
     pub lifecycle_state: Option<String>,
@@ -152,79 +154,133 @@ fn build_node(
     ancestors: &mut HashSet<String>,
     diagnostics: &mut Vec<String>,
 ) -> Result<Option<TreeNode>, RepositoryError> {
-    let record = match get_record_by_id(store, instance_id)? {
-        Some(r) => r,
+    // Tier-aware: a Tier-0 note is a legal member of the part-of tree (RFC-013
+    // scaffolds one as a section), and reading it through the Tier-2-only loader
+    // raised a hard `missing field typeId` parse error that took down the whole
+    // traversal — the same trap the navigation service already documents.
+    let instance = match get_instance_by_id(store, instance_id)? {
+        Some(i) => i,
         None => {
             diagnostics.push(format!(
-                "tree: instance {instance_id} not found as a Tier 2 record — skipped"
+                "tree: instance {instance_id} does not resolve — skipped"
             ));
             return Ok(None);
         }
     };
+    let (type_id, type_version, type_namespace, type_name, lifecycle_state, label) = match &instance
+    {
+        LoadedInstance::Record(record) => (
+            record.type_id.clone(),
+            record.type_version,
+            record.type_namespace.clone(),
+            record.type_name.clone(),
+            record.lifecycle_state.clone(),
+            record_label::record_display_label(record, identity_field_index, field_name_index),
+        ),
+        // A Note has no type binding, so its title is the only label there is.
+        LoadedInstance::Note(note) => (
+            String::new(),
+            0,
+            String::new(),
+            String::new(),
+            None,
+            note.title
+                .clone()
+                .unwrap_or_else(|| instance_id.to_string()),
+        ),
+    };
 
-    // Apply type filter when visiting non-root nodes.
+    // Apply type filter when visiting non-root nodes. An untyped Note never matches.
     if let Some(filter) = &options.type_filter {
-        let qualified = format!("{}/{}", record.type_namespace, record.type_name);
-        if &qualified != filter {
+        if &format!("{type_namespace}/{type_name}") != filter {
             return Ok(None);
         }
     }
 
-    let label = record_label::record_display_label(&record, identity_field_index, field_name_index);
-
     // Cycle check must precede max_depth: a node at exactly max_depth that is also
     // an ancestor is a back-edge and must be flagged cycle_pruned, not silently truncated.
-    let children = if ancestors.contains(instance_id) {
-        return Ok(Some(TreeNode {
-            instance_id: instance_id.to_string(),
-            label,
-            type_namespace: record.type_namespace,
-            type_name: record.type_name,
-            lifecycle_state: record.lifecycle_state,
-            depth,
-            children: vec![],
-            cycle_pruned: true,
-        }));
-    } else if options.max_depth.is_some_and(|max| depth >= max) {
-        vec![]
-    } else {
-        ancestors.insert(instance_id.to_string());
-        let child_records = relation_graph::children_by_relation_type(
-            instance_id,
-            &options.relation_type,
-            relations,
-            store,
-        )?;
-        let mut child_nodes = Vec::new();
-        for child in child_records {
-            if let Some(node) = build_node(
-                store,
-                &child.instance_id,
-                relations,
-                identity_field_index,
-                field_name_index,
-                options,
-                depth + 1,
-                ancestors,
-                diagnostics,
-            )? {
-                child_nodes.push(node);
-            }
-        }
-        ancestors.remove(instance_id);
-        child_nodes
-    };
-
-    Ok(Some(TreeNode {
+    let node = |children: Vec<TreeNode>, cycle_pruned: bool| TreeNode {
         instance_id: instance_id.to_string(),
         label,
-        type_namespace: record.type_namespace,
-        type_name: record.type_name,
-        lifecycle_state: record.lifecycle_state,
+        type_id,
+        type_version,
+        type_namespace,
+        type_name,
+        lifecycle_state,
         depth,
         children,
-        cycle_pruned: false,
-    }))
+        cycle_pruned,
+    };
+
+    if ancestors.contains(instance_id) {
+        return Ok(Some(node(vec![], true)));
+    }
+    if options.max_depth.is_some_and(|max| depth >= max) {
+        return Ok(Some(node(vec![], false)));
+    }
+
+    ancestors.insert(instance_id.to_string());
+    let mut child_nodes = Vec::new();
+    for child_id in child_ids(store, instance_id, &options.relation_type, relations)? {
+        if let Some(child) = build_node(
+            store,
+            &child_id,
+            relations,
+            identity_field_index,
+            field_name_index,
+            options,
+            depth + 1,
+            ancestors,
+            diagnostics,
+        )? {
+            child_nodes.push(child);
+        }
+    }
+    ancestors.remove(instance_id);
+
+    Ok(Some(node(child_nodes, false)))
+}
+
+/// Outgoing `relation_type` targets of `source_id`, ordered by the `precedes` chain
+/// among them. Resolves ids only — unlike `relation_graph::children_by_relation_type`
+/// this never parses a target as a Tier-2 record, so a Tier-0 note child is ordered
+/// and walked like any other node.
+fn child_ids(
+    store: &dyn RepositoryStore,
+    source_id: &str,
+    relation_type: &str,
+    relations: &[srs_core::types::relation::Relation],
+) -> Result<Vec<String>, RepositoryError> {
+    #[derive(Clone)]
+    struct Child {
+        id: String,
+        created_at: Option<String>,
+    }
+    impl relation_graph::PrecedesSortable for Child {
+        fn precedes_instance_id(&self) -> &str {
+            &self.id
+        }
+        fn precedes_created_at(&self) -> Option<&str> {
+            self.created_at.as_deref()
+        }
+    }
+
+    let mut children = Vec::new();
+    for rel in relations
+        .iter()
+        .filter(|r| r.relation_type == relation_type && r.source_instance_id == source_id)
+    {
+        if let Some(instance) = get_instance_by_id(store, &rel.target_instance_id)? {
+            children.push(Child {
+                id: rel.target_instance_id.clone(),
+                created_at: instance.created_at().map(str::to_string),
+            });
+        }
+    }
+    Ok(relation_graph::sort_by_precedes_chain(children, relations)
+        .into_iter()
+        .map(|c| c.id)
+        .collect())
 }
 
 #[cfg(test)]

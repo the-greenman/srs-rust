@@ -1,4 +1,4 @@
-use crate::container_service::list_members;
+use crate::container_service::{list_direct_members, list_members};
 use crate::discovery_service::record_matches_structured_predicates;
 use crate::error::RepositoryError;
 use crate::package::Package;
@@ -1652,6 +1652,26 @@ fn list_members_degraded(
     }
 }
 
+/// [`list_members_degraded`] for RFC-011 `containerScope: "explicit"` (RFC-034
+/// [R8]: `direct(C)`, not the recursive `effective(C)` closure).
+fn list_direct_members_degraded(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    section_id: &str,
+    diagnostics: &mut Vec<String>,
+) -> Result<Vec<String>, RepositoryError> {
+    match list_direct_members(store, container_id) {
+        Ok(members) => Ok(members),
+        Err(RepositoryError::ContainerNotFound { container_id }) => {
+            diagnostics.push(format!(
+                "[section:{section_id}] container not found: {container_id}; rendering section as empty"
+            ));
+            Ok(Vec::new())
+        }
+        Err(e) => Err(e),
+    }
+}
+
 fn resolve_section_instances(
     store: &dyn RepositoryStore,
     section: &DocumentSection,
@@ -1706,13 +1726,9 @@ fn resolve_section_instances(
                     // Ignore all container filtering — return all records of the type.
                 }
                 ContainerScope::Subtree => {
-                    // v1: subtree traversal requires RFC-N container hierarchy.
-                    // Fall back to explicit scope with a diagnostic.
-                    diagnostics.push(
-                        "[N+27] containerScope 'subtree' is not yet fully supported (requires RFC-N); \
-                         falling back to explicit scope".to_string(),
-                    );
-                    // cli_container_id takes precedence, matching Explicit scope behaviour.
+                    // RFC-034 [R8]: "subtree" is effective(C) — the recursive
+                    // closure over declared childContainerIds. Never a `contains`
+                    // Relation traversal (RFC-034 Change C).
                     let effective_ids: Option<Vec<String>> = cli_container_id
                         .map(|id| vec![id.to_string()])
                         .or_else(|| container_ids.clone());
@@ -1736,6 +1752,8 @@ fn resolve_section_instances(
                     }
                 }
                 ContainerScope::Explicit => {
+                    // RFC-034 [R8]: "explicit" is direct(C) — this container's own
+                    // rootInstanceIds/memberInstanceIds, no nested subtree.
                     // CLI --container takes precedence; fall back to container_ids declared in the view.
                     let effective_ids: Option<Vec<String>> = cli_container_id
                         .map(|id| vec![id.to_string()])
@@ -1743,9 +1761,12 @@ fn resolve_section_instances(
                     if let Some(ids) = effective_ids {
                         let mut member_set = HashSet::new();
                         for id in &ids {
-                            for m in
-                                list_members_degraded(store, id, &section.section_id, diagnostics)?
-                            {
+                            for m in list_direct_members_degraded(
+                                store,
+                                id,
+                                &section.section_id,
+                                diagnostics,
+                            )? {
                                 member_set.insert(m);
                             }
                         }
@@ -4499,6 +4520,7 @@ mod tests {
                 anchor_instance_id: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
+                child_container_ids: None,
                 tags: None,
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
@@ -5981,6 +6003,7 @@ mod tests {
                 anchor_instance_id: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
+                child_container_ids: None,
                 tags: None,
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
@@ -6818,6 +6841,7 @@ mod tests {
                 anchor_instance_id: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
+                child_container_ids: None,
                 tags: None,
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
@@ -7623,6 +7647,7 @@ mod tests {
                 anchor_instance_id: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
+                child_container_ids: None,
                 tags: None,
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
@@ -7646,6 +7671,7 @@ mod tests {
                 anchor_instance_id: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
+                child_container_ids: None,
                 tags: None,
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
@@ -7678,6 +7704,159 @@ mod tests {
             ids.len(),
             2,
             "both records must be present with repository scope: {ids:?}"
+        );
+    }
+
+    #[test]
+    fn render_subtree_scope_descends_into_declared_children_explicit_does_not() {
+        // RFC-034 [R8] / Testability "Scope: subtree is effective": a record
+        // that is a member only of a declared *child* container (not a direct
+        // member of the parent) is visible under containerScope: "subtree"
+        // (effective(C)) and invisible under "explicit" (direct(C)).
+        use crate::container_service;
+        use crate::manifest::Manifest;
+        use crate::package::Package;
+
+        const ENGINEERING_ID: &str = "00000000-0000-4000-8000-00000000e001";
+        const ARCHITECTURE_ID: &str = "00000000-0000-4000-8000-00000000e002";
+        const DECISION_ID: &str = "00000000-0000-4000-8000-00000000e003";
+
+        let dv_subtree = rfc011_dv(
+            "dv-subtree-scope",
+            None,
+            None,
+            Some(ContainerScope::Subtree),
+            Some(vec![ENGINEERING_ID.to_string()]),
+            None,
+        );
+        let dv_explicit = rfc011_dv(
+            "dv-explicit-scope",
+            None,
+            None,
+            Some(ContainerScope::Explicit),
+            Some(vec![ENGINEERING_ID.to_string()]),
+            None,
+        );
+        let manifest = Manifest {
+            container: None,
+            upstream_package: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "rfc034-subtree-test-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "rfc034-subtree-test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![],
+            record_types: vec![],
+            relation_type_definitions: vec![],
+            views: vec![],
+            compositions: vec![dv_subtree, dv_explicit],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            package_dependencies: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+        let record = srs_core::types::record::Record {
+            field_meta: None,
+            instance_id: DECISION_ID.to_string(),
+            type_id: "t-decision".to_string(),
+            type_version: 1,
+            type_namespace: "com.test".to_string(),
+            type_name: "decision".to_string(),
+            field_values: FieldValues::new(),
+            lifecycle_state: Some("active".to_string()),
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            extra: std::collections::BTreeMap::new(),
+        };
+        store
+            .save_instance_json(
+                &format!("records/{DECISION_ID}.json"),
+                &serde_json::to_value(&record).unwrap(),
+            )
+            .unwrap();
+
+        container_service::create_container(
+            &store,
+            srs_core::types::container::Container {
+                container_id: ARCHITECTURE_ID.to_string(),
+                title: "Architecture".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                anchor_instance_id: None,
+                root_instance_ids: None,
+                member_instance_ids: Some(vec![DECISION_ID.to_string()]),
+                child_container_ids: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .unwrap();
+        container_service::create_container(
+            &store,
+            srs_core::types::container::Container {
+                container_id: ENGINEERING_ID.to_string(),
+                title: "Engineering".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                anchor_instance_id: None,
+                root_instance_ids: None,
+                member_instance_ids: None,
+                child_container_ids: Some(vec![ARCHITECTURE_ID.to_string()]),
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .unwrap();
+
+        let subtree_result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: "dv-subtree-scope",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        let subtree_ids = rfc011_instance_ids_in_result(&subtree_result);
+        assert!(
+            subtree_ids.contains(&DECISION_ID.to_string()),
+            "subtree scope must descend into the declared child container: {subtree_ids:?}"
+        );
+
+        let explicit_result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: "dv-explicit-scope",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        let explicit_ids = rfc011_instance_ids_in_result(&explicit_result);
+        assert!(
+            !explicit_ids.contains(&DECISION_ID.to_string()),
+            "explicit scope must stay shallow (direct(C) only), not descend into children: {explicit_ids:?}"
         );
     }
 
@@ -7906,6 +8085,7 @@ mod tests {
                 anchor_instance_id: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
+                child_container_ids: None,
                 tags: None,
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
@@ -7929,6 +8109,7 @@ mod tests {
                 anchor_instance_id: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
+                child_container_ids: None,
                 tags: None,
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
@@ -8660,6 +8841,7 @@ mod tests {
             anchor_instance_id: None,
             root_instance_ids: None,
             member_instance_ids: None,
+            child_container_ids: None,
             tags: None,
             created_at: None,
             updated_at: None,
@@ -8709,6 +8891,7 @@ mod tests {
             anchor_instance_id: None,
             root_instance_ids: None,
             member_instance_ids: None,
+            child_container_ids: None,
             tags: None,
             created_at: None,
             updated_at: None,
@@ -8771,6 +8954,7 @@ mod tests {
             anchor_instance_id: None,
             root_instance_ids: None,
             member_instance_ids: None,
+            child_container_ids: None,
             tags: None,
             created_at: None,
             updated_at: None,
@@ -8987,6 +9171,7 @@ mod tests {
                 anchor_instance_id: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
+                child_container_ids: None,
                 tags: None,
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
@@ -9186,6 +9371,7 @@ mod tests {
                 anchor_instance_id: None,
                 root_instance_ids: None,
                 member_instance_ids: None,
+                child_container_ids: None,
                 tags: None,
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: None,
