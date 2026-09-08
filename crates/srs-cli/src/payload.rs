@@ -1551,6 +1551,14 @@ pub struct RepoSetRootContainerPayload {
 
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct RepoUnsetRootContainerPayload {
+    pub container_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity_instance_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct RepoPresentationEntry {
     pub composition_id: String,
     pub format: Option<String>,

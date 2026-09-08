@@ -459,6 +459,11 @@ fn repo_set_root_container() {
 }
 
 #[test]
+fn repo_unset_root_container() {
+    check::<RepoUnsetRootContainerPayload>("repo-unset-root-container");
+}
+
+#[test]
 fn repo_presentation_list() {
     check::<RepoPresentationsPayload>("repo-presentation-list");
 }

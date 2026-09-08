@@ -168,6 +168,15 @@ pub enum RepositoryError {
     #[error("container not found: {container_id}")]
     ContainerNotFound { container_id: String },
 
+    /// Owner ruling srs-rust#742 (2026-09-08): identity is a very explicit modification.
+    /// `container delete` must refuse the repository's root container (the RFC-013
+    /// `manifest.container` embed) rather than making the repository rootless as a side
+    /// effect of a generic CRUD verb — `repo unset-root-container` is the only path.
+    #[error(
+        "container '{container_id}' is the repository's root container; use `repo unset-root-container` to remove repository identity, not `container delete`"
+    )]
+    ContainerIsRepositoryRoot { container_id: String },
+
     #[error("container validation failed: {source}")]
     ContainerValidation { source: srs_core::error::CoreError },
 
@@ -593,6 +602,10 @@ impl PartialEq for RepositoryError {
             (
                 RepositoryError::ContainerNotFound { container_id: a },
                 RepositoryError::ContainerNotFound { container_id: b },
+            ) => a == b,
+            (
+                RepositoryError::ContainerIsRepositoryRoot { container_id: a },
+                RepositoryError::ContainerIsRepositoryRoot { container_id: b },
             ) => a == b,
             (
                 RepositoryError::ContainerValidation { source: sa },

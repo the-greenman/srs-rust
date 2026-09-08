@@ -186,6 +186,7 @@ fn main() {
     );
     write_schema!("repo-init-new", RepoInitNewPayload);
     write_schema!("repo-set-root-container", RepoSetRootContainerPayload);
+    write_schema!("repo-unset-root-container", RepoUnsetRootContainerPayload);
     write_schema!("repo-presentation-list", RepoPresentationsPayload);
     write_schema!("repo-presentation-add", RepoPresentationMutatePayload);
     write_schema!("repo-presentation-remove", RepoPresentationMutatePayload);
