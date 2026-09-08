@@ -391,6 +391,100 @@ mod tests {
     }
 
     #[test]
+    fn record_type_struct_matches_type_json_schema_property_set() {
+        // Exhaustive destructure (no `..`): if `RecordType` gains or loses a
+        // field, this line fails to compile until the property lists below
+        // are updated (srs-rust#777 — see srs-schema::conformance module docs).
+        let RecordType {
+            schema: _,
+            id: _,
+            namespace: _,
+            name: _,
+            version: _,
+            description: _,
+            fields: _,
+            extends_type_id: _,
+            extends_type_version: _,
+            field_order: _,
+            field_assignment_overrides: _,
+            identity_field_id: _,
+            lifecycle: _,
+            lifecycle_ref: _,
+            validation_rules: _,
+            ai_guidance: _,
+            tags: _,
+            lineage: _,
+            provenance: _,
+            created_at: _,
+        } = RecordType {
+            schema: None,
+            ai_guidance: None,
+            tags: None,
+            id: "00000000-0000-4000-8000-000000000020".to_string(),
+            namespace: "test".to_string(),
+            name: "decision".to_string(),
+            version: 1,
+            description: "A decision record type".to_string(),
+            fields: vec![],
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            lineage: None,
+            provenance: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        srs_schema::conformance::assert_property_parity(
+            srs_schema::TYPE_SCHEMA_ID,
+            None,
+            &["id", "namespace", "name", "version", "description", "fields", "createdAt"],
+            &[
+                "$schema",
+                "aiGuidance",
+                "lifecycle",
+                "lifecycleRef",
+                "tags",
+                "extendsTypeId",
+                "extendsTypeVersion",
+                "fieldOrder",
+                "fieldAssignmentOverrides",
+                "identityFieldId",
+                "validationRules",
+                "lineage",
+                "provenance",
+            ],
+        )
+        .unwrap_or_else(|report| panic!("RecordType vs type.json: {report}"));
+
+        let FieldAssignment {
+            field_id: _,
+            order: _,
+            required: _,
+            display_label: _,
+            description: _,
+        } = FieldAssignment {
+            field_id: "00000000-0000-4000-8000-000000000010".to_string(),
+            order: 0,
+            required: true,
+            display_label: None,
+            description: None,
+        };
+
+        srs_schema::conformance::assert_property_parity(
+            srs_schema::TYPE_SCHEMA_ID,
+            Some("com.semanticops.srs__field-assignment__v1"),
+            &["fieldId", "order", "required"],
+            &["displayLabel", "description"],
+        )
+        .unwrap_or_else(|report| panic!("FieldAssignment vs type.json FieldAssignment def: {report}"));
+    }
+
+    #[test]
     fn minimal_record_type_passes_schema_contract() {
         let reg = srs_schema::SchemaRegistry::global();
         let rt = RecordType {
