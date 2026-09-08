@@ -415,6 +415,21 @@ pub fn delete_container(
     store: &dyn RepositoryStore,
     container_id: &str,
 ) -> Result<String, RepositoryError> {
+    // Owner ruling srs-rust#742: the RFC-013 root container is a protected identity
+    // object. Generic `container delete` must never make a repository rootless as a
+    // side effect — `repo unset-root-container` is the only path that removes it.
+    let manifest = store.load_manifest()?;
+    if manifest
+        .container
+        .as_ref()
+        .map(|c| c.container_id.as_str())
+        == Some(container_id)
+    {
+        return Err(RepositoryError::ContainerIsRepositoryRoot {
+            container_id: container_id.to_string(),
+        });
+    }
+
     // RFC-038 Change F: the [R22] cascade analogue for containers. A containerId
     // must never appear as a Relation endpoint (spec invariant), but a legacy or
     // hand-edited repo may carry such edges — remove them with the container so
@@ -1239,6 +1254,76 @@ mod tests {
             err,
             RepositoryError::ContainerNotFound { container_id } if container_id == "missing"
         ));
+    }
+
+    // --- Owner ruling srs-rust#742: `container delete` refuses the RFC-013 root ---
+
+    #[test]
+    fn delete_container_refuses_embed_only_root() {
+        let embed_id = "aaa00000-0000-4000-8000-000000000001";
+        let store = embed_only_store(embed_id, "Root");
+        let err = delete_container(&store, embed_id).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                RepositoryError::ContainerIsRepositoryRoot { ref container_id } if container_id == embed_id
+            ),
+            "expected ContainerIsRepositoryRoot, got {err:?}"
+        );
+        // The refusal must not have deleted anything.
+        assert_eq!(get_container(&store, embed_id).unwrap().container_id, embed_id);
+    }
+
+    #[test]
+    fn delete_container_refuses_file_backed_root() {
+        // A root container whose id is *also* materialised under `containers/`
+        // (a legacy/repair-worthy shape — RFC-038 [R12] makes the two
+        // co-existing a fatal duplicate under the checked catalog, which is
+        // exactly why the guard below reads `manifest.container` directly
+        // rather than routing through it). The refusal must fire, and it
+        // must not touch the file the checked catalog can no longer load.
+        let store = make_store();
+        let created = create_container(
+            &store,
+            minimal_container("550e8400-e29b-41d4-a716-446655440000", "Root"),
+        )
+        .unwrap();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.container = Some(created.clone());
+        store.save_manifest(&manifest).unwrap();
+
+        let err = delete_container(&store, &created.container_id).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                RepositoryError::ContainerIsRepositoryRoot { ref container_id }
+                    if container_id == &created.container_id
+            ),
+            "expected ContainerIsRepositoryRoot, got {err:?}"
+        );
+        // Still resolvable via the unchecked (repair) seam — the refusal did
+        // not delete the file-backed container.
+        assert!(store
+            .load_container_unchecked(&created.container_id)
+            .is_ok());
+    }
+
+    #[test]
+    fn delete_container_still_deletes_a_non_root_container() {
+        // The root-container guard must not block deletion of an ordinary
+        // container when a *different* container is the declared root.
+        let embed_id = "aaa00000-0000-4000-8000-000000000001";
+        let store = embed_only_store(embed_id, "Root");
+        let other = create_container(
+            &store,
+            minimal_container("550e8400-e29b-41d4-a716-446655440000", "Other"),
+        )
+        .unwrap();
+
+        delete_container(&store, &other.container_id).unwrap();
+
+        let err = store.load_container(&other.container_id).unwrap_err();
+        assert!(matches!(err, RepositoryError::ContainerNotFound { .. }));
     }
 
     #[test]

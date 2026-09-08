@@ -464,6 +464,49 @@ pub fn set_manifest_root_container(
     })
 }
 
+/// Result of `unset_manifest_root_container`
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnsetManifestRootContainerResult {
+    pub container_id: String,
+    pub identity_instance_id: Option<String>,
+}
+
+/// Clear `manifest.container` (the RFC-013 root-container embed) — the **only** path
+/// that removes a repository's identity container (owner ruling, srs-rust#742).
+///
+/// `container delete` refuses the id matching `manifest.container.container_id` and
+/// points here instead: silently making a repository rootless as a side effect of a
+/// generic CRUD verb is exactly the kind of one-way, hard-to-reverse structural change
+/// that deserves its own explicit command. Reads through [`load_container_for_repair`]
+/// (the same repair-seam pattern `remove_member`/`remove_root` use, ADR-045) so the
+/// operation still works when the root's checked catalog load is fatal — this is the
+/// repair path back out of a broken root, not just the happy path.
+///
+/// Leaves the repository rootless: `repo validate` reports RFC-013 I-79
+/// (`manifest.container` absent) afterward — the expected diagnostic, not a bug.
+pub fn unset_manifest_root_container(
+    store: &dyn RepositoryStore,
+) -> Result<UnsetManifestRootContainerResult, RepositoryError> {
+    let mut manifest = store.load_manifest()?;
+    let Some(container_id) = manifest.container.as_ref().map(|c| c.container_id.clone()) else {
+        return Err(RepositoryError::InvalidInput {
+            message: "manifest.container is already absent; nothing to unset".to_string(),
+        });
+    };
+
+    let (container, _) =
+        crate::container_service::load_container_for_repair(store, &container_id)?;
+
+    manifest.container = None;
+    write_manifest(store, &manifest)?;
+
+    Ok(UnsetManifestRootContainerResult {
+        container_id: container.container_id,
+        identity_instance_id: container.identity_instance_id,
+    })
+}
+
 /// A declared presentation entry in `manifest.renderedPresentations` (RFC-015 [N+31]).
 ///
 /// `compositionId` is the only field the schema requires; `format`/`outputPath`/`isDefault`
@@ -1163,6 +1206,67 @@ mod tests {
             container.member_instance_ids.as_deref(),
             Some(&[VALID_IDENTITY_ID.to_string()][..])
         );
+    }
+
+    // ── unset_manifest_root_container (owner ruling srs-rust#742) ──────────────
+
+    #[test]
+    fn unset_manifest_root_container_clears_embed() {
+        let store = store_with_manifest_title("My Repo");
+        seed_note(&store, VALID_IDENTITY_ID);
+        set_manifest_root_container(
+            &store,
+            SetManifestRootContainerInput {
+                container_id: VALID_CONTAINER_ID.to_string(),
+                identity_instance_id: VALID_IDENTITY_ID.to_string(),
+                title: None,
+            },
+        )
+        .unwrap();
+
+        let result = unset_manifest_root_container(&store).unwrap();
+        assert_eq!(result.container_id, VALID_CONTAINER_ID);
+        assert_eq!(result.identity_instance_id.as_deref(), Some(VALID_IDENTITY_ID));
+
+        let manifest = store.load_manifest().unwrap();
+        assert!(
+            manifest.container.is_none(),
+            "manifest.container must be cleared"
+        );
+    }
+
+    #[test]
+    fn unset_manifest_root_container_errors_when_already_absent() {
+        let store = MemoryStore::default();
+        let err = unset_manifest_root_container(&store).unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidInput { .. }),
+            "expected InvalidInput when no root container is set, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn unset_manifest_root_container_is_the_only_path_that_removes_identity() {
+        // Round-trip proof for the owner ruling: after unset, `repo validate`'s
+        // I-79 diagnostic path (manifest.container absent) is the live state —
+        // exercised at the validation-module level, not duplicated here; this
+        // test only proves the manifest write itself leaves that state behind.
+        let store = store_with_manifest_title("My Repo");
+        seed_note(&store, VALID_IDENTITY_ID);
+        set_manifest_root_container(
+            &store,
+            SetManifestRootContainerInput {
+                container_id: VALID_CONTAINER_ID.to_string(),
+                identity_instance_id: VALID_IDENTITY_ID.to_string(),
+                title: None,
+            },
+        )
+        .unwrap();
+        assert!(store.load_manifest().unwrap().container.is_some());
+
+        unset_manifest_root_container(&store).unwrap();
+
+        assert!(store.load_manifest().unwrap().container.is_none());
     }
 
     // ── Conformance tests ─────────────────────────────────────────────────────

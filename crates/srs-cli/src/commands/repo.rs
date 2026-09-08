@@ -13,7 +13,8 @@ use crate::payload::{
     RepoExtensionsConformancePayload, RepoExtensionsMutatePayload, RepoExtensionsPayload,
     RepoInitNewPayload, RepoMapPayload, RepoMigrateIdentityPayload, RepoMigrationsPayload,
     RepoNavigationPayload, RepoPresentationEntry, RepoPresentationMutatePayload,
-    RepoPresentationsPayload, RepoSetRootContainerPayload, RepoUpgradePayload, RepoValidatePayload,
+    RepoPresentationsPayload, RepoSetRootContainerPayload, RepoUnsetRootContainerPayload,
+    RepoUpgradePayload, RepoValidatePayload,
 };
 use anyhow::{Context, Result};
 use srs_repository::agent_index_service::build_agent_index;
@@ -23,8 +24,8 @@ use srs_repository::doctor_service::{self, DoctorInput};
 use srs_repository::manifest_service::{
     add_declared_extension, add_rendered_presentation, declared_extensions_conformance,
     list_declared_extensions, list_rendered_presentations, remove_declared_extension,
-    remove_rendered_presentation, set_manifest_root_container, AddRenderedPresentationInput,
-    RenderedPresentation, SetManifestRootContainerInput,
+    remove_rendered_presentation, set_manifest_root_container, unset_manifest_root_container,
+    AddRenderedPresentationInput, RenderedPresentation, SetManifestRootContainerInput,
 };
 use srs_repository::migrate_identity_service;
 use srs_repository::migration_registry_service;
@@ -71,6 +72,7 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
             identity_instance_id,
             title,
         } => cmd_repo_set_root_container(ctx, container_id, identity_instance_id, title),
+        RepoCommand::UnsetRootContainer => cmd_repo_unset_root_container(ctx),
         RepoCommand::Copy {
             from,
             to,
@@ -452,6 +454,17 @@ fn cmd_repo_set_root_container(
             identity_instance_id: result.identity_instance_id,
             title: result.title,
             member_instance_ids: result.member_instance_ids,
+        },
+    )
+}
+
+fn cmd_repo_unset_root_container(ctx: CliContext) -> Result<String> {
+    let result = with_store(&ctx, |store| Ok(unset_manifest_root_container(store)?))?;
+    output::serialize(
+        "repo unset-root-container",
+        RepoUnsetRootContainerPayload {
+            container_id: result.container_id,
+            identity_instance_id: result.identity_instance_id,
         },
     )
 }

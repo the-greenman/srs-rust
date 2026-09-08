@@ -695,6 +695,11 @@ pub enum RepoCommand {
         #[arg(long = "title")]
         title: Option<String>,
     },
+    /// Clear the manifest root container embed — the only way to remove a
+    /// repository's identity container (RFC-013). Generic `container delete`
+    /// refuses the root container and points here instead.
+    #[command(name = "unset-root-container")]
+    UnsetRootContainer,
     /// Extension management commands
     #[command(subcommand)]
     Extensions(RepoExtensionsCommand),
