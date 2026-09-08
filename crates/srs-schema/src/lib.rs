@@ -3,6 +3,8 @@ use serde_json::Value;
 use std::sync::OnceLock;
 use thiserror::Error;
 
+pub mod conformance;
+
 pub const BLUEPRINT_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/blueprint.json";
 pub const CONTAINER_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/container.json";
 pub const COMPOSITION_SCHEMA_ID: &str = "https://srs.semanticops.com/schema/2.0/composition.json";

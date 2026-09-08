@@ -444,6 +444,104 @@ mod tests {
     }
 
     #[test]
+    fn field_struct_matches_field_json_schema_property_set() {
+        // Exhaustive destructure (no `..`): if `Field` gains or loses a
+        // field, this line fails to compile until the property lists below
+        // are updated — the compiler is what keeps this test from drifting
+        // the way a hand-maintained mapping table would (srs-rust#777).
+        let Field {
+            schema: _,
+            id: _,
+            namespace: _,
+            name: _,
+            version: _,
+            description: _,
+            instructions: _,
+            ai_guidance: _,
+            field_type: _,
+            editor_hint: _,
+            tags: _,
+            lineage: _,
+            provenance: _,
+            created_at: _,
+        } = sample();
+
+        srs_schema::conformance::assert_property_parity(
+            srs_schema::FIELD_SCHEMA_ID,
+            None,
+            &[
+                "id",
+                "namespace",
+                "name",
+                "version",
+                "description",
+                "aiGuidance",
+                "fieldType",
+                "createdAt",
+            ],
+            &[
+                "$schema",
+                "instructions",
+                "editorHint",
+                "tags",
+                "lineage",
+                "provenance",
+            ],
+        )
+        .unwrap_or_else(|report| panic!("Field vs field.json: {report}"));
+
+        let AiGuidance {
+            purpose: _,
+            extraction: _,
+            negative_guidance: _,
+            examples: _,
+        } = AiGuidance::default();
+
+        srs_schema::conformance::assert_property_parity(
+            srs_schema::FIELD_SCHEMA_ID,
+            Some("com.semanticops.srs__ai-guidance__v1"),
+            &["purpose"],
+            &["extraction", "negativeGuidance", "examples"],
+        )
+        .unwrap_or_else(|report| panic!("AiGuidance vs field.json AiGuidance def: {report}"));
+
+        let Lineage {
+            source_definition_id: _,
+            source_version: _,
+            forked_from_definition_id: _,
+            forked_from_version: _,
+        } = Lineage::default();
+
+        srs_schema::conformance::assert_property_parity(
+            srs_schema::FIELD_SCHEMA_ID,
+            Some("com.semanticops.srs__lineage__v1"),
+            &[],
+            &[
+                "sourceDefinitionId",
+                "sourceVersion",
+                "forkedFromDefinitionId",
+                "forkedFromVersion",
+            ],
+        )
+        .unwrap_or_else(|report| panic!("Lineage vs field.json Lineage def: {report}"));
+
+        let Provenance {
+            publisher: _,
+            source_package: _,
+            package_version: _,
+            imported_at: _,
+        } = Provenance::default();
+
+        srs_schema::conformance::assert_property_parity(
+            srs_schema::FIELD_SCHEMA_ID,
+            Some("com.semanticops.srs__provenance__v1"),
+            &[],
+            &["publisher", "sourcePackage", "packageVersion", "importedAt"],
+        )
+        .unwrap_or_else(|report| panic!("Provenance vs field.json Provenance def: {report}"));
+    }
+
+    #[test]
     fn every_field_type_shape_passes_the_schema_contract() {
         // The struct and the frozen seed must agree across the whole RFC-032
         // surface, not just the scalar happy path.
