@@ -694,14 +694,12 @@ pub fn validate_repository(
                                         .vocabularies
                                         .iter()
                                         .any(|v| v.resolve_term_by_key(tag).is_some());
-                                    if !resolved {
-                                        let severity = if any_open {
-                                            DiagnosticSeverity::Warning
-                                        } else {
-                                            DiagnosticSeverity::Error
-                                        };
+                                    // An open-mode vocabulary accepts any tag key
+                                    // (srs-usage.md) — an unresolved tag under one is
+                                    // legal data, not a diagnostic (srs-rust#702).
+                                    if !resolved && !any_open {
                                         diagnostics.push(ValidationDiagnostic {
-                                            severity,
+                                            severity: DiagnosticSeverity::Error,
                                             relative_path: rel_path.clone(),
                                             schema_id: None,
                                             message: format!(
@@ -2973,19 +2971,24 @@ mod tests {
     }
 
     #[test]
-    fn open_vocab_unresolved_tag_produces_warning() {
+    fn open_vocab_unresolved_tag_produces_no_diagnostic() {
+        // srs-rust#702: srs-usage.md states an open-mode vocabulary accepts any
+        // tag key, so an unresolved tag under one must not produce a
+        // diagnostic at all — not even a downgraded Warning.
         let temp = TempDir::new().unwrap();
         setup_repo_with_tagged_record(&temp, "open", "unknown:tag", "construct:field");
 
         let store = crate::store::FileStore::new(temp.path());
         let report = validate_repository(&store).unwrap();
-        let tag_warning = report.diagnostics.iter().find(|d| {
-            d.severity == DiagnosticSeverity::Warning && d.message.contains("does not resolve")
-        });
+        let tag_diags: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("does not resolve"))
+            .collect();
         assert!(
-            tag_warning.is_some(),
-            "expected Warning for unresolved tag in open vocab, got: {:?}",
-            report.diagnostics
+            tag_diags.is_empty(),
+            "expected no diagnostic for unresolved tag in open vocab, got: {:?}",
+            tag_diags
         );
     }
 
