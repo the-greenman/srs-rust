@@ -155,7 +155,9 @@ pub fn assert_property_parity(
     assert!(
         struct_required.is_disjoint(&struct_optional),
         "a property cannot be listed as both required and optional: {:?}",
-        struct_required.intersection(&struct_optional).collect::<Vec<_>>()
+        struct_required
+            .intersection(&struct_optional)
+            .collect::<Vec<_>>()
     );
 
     let report = PropertyParityReport {
@@ -214,14 +216,23 @@ mod tests {
             None,
             &["namespace", "name", "version", "description", "createdAt"],
             &[
-                "$schema", "id", "aiGuidance", "fieldType", "instructions", "editorHint", "tags",
-                "lineage", "provenance",
+                "$schema",
+                "id",
+                "aiGuidance",
+                "fieldType",
+                "instructions",
+                "editorHint",
+                "tags",
+                "lineage",
+                "provenance",
             ],
         )
         .unwrap_err();
         assert!(
             report.required_mismatches.contains(&"id".to_string())
-                || report.required_mismatches.contains(&"aiGuidance".to_string())
+                || report
+                    .required_mismatches
+                    .contains(&"aiGuidance".to_string())
         );
     }
 
@@ -283,10 +294,7 @@ mod tests {
             ],
         )
         .unwrap_err();
-        assert_eq!(
-            report.missing_from_struct,
-            vec!["fieldType".to_string()]
-        );
+        assert_eq!(report.missing_from_struct, vec!["fieldType".to_string()]);
     }
 
     /// srs-rust#769: before the fix, `Field::id` had `#[serde(default)]` and
@@ -301,7 +309,15 @@ mod tests {
         let report = assert_property_parity(
             crate::FIELD_SCHEMA_ID,
             None,
-            &["namespace", "name", "version", "description", "aiGuidance", "fieldType", "createdAt"],
+            &[
+                "namespace",
+                "name",
+                "version",
+                "description",
+                "aiGuidance",
+                "fieldType",
+                "createdAt",
+            ],
             &[
                 "$schema",
                 "id", // wrongly declared optional, mirroring the pre-#769 struct
@@ -333,7 +349,8 @@ mod tests {
     #[test]
     fn unknown_def_location_panics() {
         let result = std::panic::catch_unwind(|| {
-            let _ = assert_property_parity(crate::FIELD_SCHEMA_ID, Some("does-not-exist"), &[], &[]);
+            let _ =
+                assert_property_parity(crate::FIELD_SCHEMA_ID, Some("does-not-exist"), &[], &[]);
         });
         assert!(result.is_err());
     }

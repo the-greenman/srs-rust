@@ -442,7 +442,15 @@ mod tests {
         srs_schema::conformance::assert_property_parity(
             srs_schema::TYPE_SCHEMA_ID,
             None,
-            &["id", "namespace", "name", "version", "description", "fields", "createdAt"],
+            &[
+                "id",
+                "namespace",
+                "name",
+                "version",
+                "description",
+                "fields",
+                "createdAt",
+            ],
             &[
                 "$schema",
                 "aiGuidance",
@@ -481,7 +489,9 @@ mod tests {
             &["fieldId", "order", "required"],
             &["displayLabel", "description"],
         )
-        .unwrap_or_else(|report| panic!("FieldAssignment vs type.json FieldAssignment def: {report}"));
+        .unwrap_or_else(|report| {
+            panic!("FieldAssignment vs type.json FieldAssignment def: {report}")
+        });
     }
 
     #[test]

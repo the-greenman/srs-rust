@@ -536,12 +536,7 @@ mod tests {
             srs_schema::FIELD_SCHEMA_ID,
             Some("com.semanticops.srs__provenance__v1"),
             &[],
-            &[
-                "publisher",
-                "sourcePackage",
-                "packageVersion",
-                "importedAt",
-            ],
+            &["publisher", "sourcePackage", "packageVersion", "importedAt"],
         )
         .unwrap_or_else(|report| panic!("Provenance vs field.json Provenance def: {report}"));
     }
