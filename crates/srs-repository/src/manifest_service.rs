@@ -495,8 +495,7 @@ pub fn unset_manifest_root_container(
         });
     };
 
-    let (container, _) =
-        crate::container_service::load_container_for_repair(store, &container_id)?;
+    let (container, _) = crate::container_service::load_container_for_repair(store, &container_id)?;
 
     manifest.container = None;
     write_manifest(store, &manifest)?;
@@ -1226,7 +1225,10 @@ mod tests {
 
         let result = unset_manifest_root_container(&store).unwrap();
         assert_eq!(result.container_id, VALID_CONTAINER_ID);
-        assert_eq!(result.identity_instance_id.as_deref(), Some(VALID_IDENTITY_ID));
+        assert_eq!(
+            result.identity_instance_id.as_deref(),
+            Some(VALID_IDENTITY_ID)
+        );
 
         let manifest = store.load_manifest().unwrap();
         assert!(

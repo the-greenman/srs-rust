@@ -103,7 +103,10 @@ fn unset_root_container_succeeds_and_validate_reports_i79() {
 
     let report = validate_repository(&store).unwrap();
     assert!(
-        report.diagnostics.iter().any(|d| d.message.contains("I-79")),
+        report
+            .diagnostics
+            .iter()
+            .any(|d| d.message.contains("I-79")),
         "expected RFC-013 I-79 diagnostic after unset-root-container, got: {:?}",
         report.diagnostics
     );

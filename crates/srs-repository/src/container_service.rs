@@ -419,12 +419,7 @@ pub fn delete_container(
     // object. Generic `container delete` must never make a repository rootless as a
     // side effect — `repo unset-root-container` is the only path that removes it.
     let manifest = store.load_manifest()?;
-    if manifest
-        .container
-        .as_ref()
-        .map(|c| c.container_id.as_str())
-        == Some(container_id)
-    {
+    if manifest.container.as_ref().map(|c| c.container_id.as_str()) == Some(container_id) {
         return Err(RepositoryError::ContainerIsRepositoryRoot {
             container_id: container_id.to_string(),
         });
@@ -1271,7 +1266,10 @@ mod tests {
             "expected ContainerIsRepositoryRoot, got {err:?}"
         );
         // The refusal must not have deleted anything.
-        assert_eq!(get_container(&store, embed_id).unwrap().container_id, embed_id);
+        assert_eq!(
+            get_container(&store, embed_id).unwrap().container_id,
+            embed_id
+        );
     }
 
     #[test]
