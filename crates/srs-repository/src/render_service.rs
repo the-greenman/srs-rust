@@ -1844,8 +1844,33 @@ fn resolve_section_instances(
             let effective_id = cli_container_id.unwrap_or(container_id.as_str());
             let members =
                 list_members_degraded(store, effective_id, &section.section_id, diagnostics)?;
+            // A container's declared membership is the whole `contains` subtree
+            // (RFC-042 Part containers, srs#681), but `render_record_at_level` /
+            // `project_record_json` already recurse each record's own `contains`
+            // children one level at a time. Rendering every declared member here
+            // AND recursing into descendants double- (or, at depth, N-) renders
+            // everything below the top level (srs-rust container-subset render
+            // defect, srs#682/#693). Fix at the root: this section renders only
+            // the subtree ROOTS among the declared members — a member is a root
+            // unless some other member of the same set `contains` it — in
+            // precedes order; recursion renders every descendant exactly once.
+            // A member unrelated to any other member is trivially a root.
+            let member_set: HashSet<&str> = members.iter().map(String::as_str).collect();
+            let non_root_ids: HashSet<&str> = relations
+                .iter()
+                .filter(|r| {
+                    r.relation_type == "contains"
+                        && member_set.contains(r.source_instance_id.as_str())
+                        && member_set.contains(r.target_instance_id.as_str())
+                })
+                .map(|r| r.target_instance_id.as_str())
+                .collect();
+            let roots: Vec<String> = members
+                .into_iter()
+                .filter(|id| !non_root_ids.contains(id.as_str()))
+                .collect();
             let mut records = Vec::new();
-            for id in members {
+            for id in roots {
                 if let Some(instance) = get_instance_by_id(store, &id)? {
                     records.push(instance);
                 }
@@ -4629,6 +4654,305 @@ mod tests {
             !rendered.contains("Summary Table"),
             "instance_id_filter should exclude the other ContainerSubset member; got:\n{}",
             rendered
+        );
+    }
+
+    /// Reproduces the container-subset render defect (srs#682/#693): a container
+    /// whose declared membership is a 3-level `contains` subtree (root → child →
+    /// grandchild) — exactly how RFC-042's Part containers are shaped — must
+    /// render each record exactly once, in tree order, not once per section-loop
+    /// entry AND once again per ancestor's recursive `contains` descent.
+    fn make_nested_contains_store() -> (crate::store::memory::MemoryStore, String) {
+        use crate::container_service;
+        use crate::package::Package;
+        use crate::record_store::create_record;
+        use crate::relation_service;
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+        use srs_core::types::relation::Relation;
+        use srs_core::types::view::{Composition, DocumentSection, EmptyBehavior, SectionSource};
+
+        let heading_field = Field {
+            schema: None,
+            id: "f-heading".to_string(),
+            namespace: "com.test".to_string(),
+            name: "heading".to_string(),
+            version: 1,
+            field_type: FieldType::string(),
+            description: "Heading".to_string(),
+            instructions: None,
+            ai_guidance: Some(AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            }),
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let leaf_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            tags: None,
+            id: "t-leaf".to_string(),
+            namespace: "com.test".to_string(),
+            name: "leaf".to_string(),
+            version: 1,
+            description: "Nestable leaf".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "f-heading".to_string(),
+                order: 0,
+                required: true,
+                display_label: Some("Heading".to_string()),
+                description: None,
+            }],
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            lineage: None,
+            provenance: None,
+        };
+
+        let doc_view = Composition {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
+            composite_renderers: None,
+            id: "dv-nested".to_string(),
+            namespace: "com.test".to_string(),
+            name: "nested-view".to_string(),
+            version: 1,
+            description: "Nested contains-subtree container-subset view".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![DocumentSection {
+                composite_renderers: None,
+                section_id: "body".to_string(),
+                title: Some("Body".to_string()),
+                description: None,
+                order: 0,
+                source: SectionSource::ContainerSubset {
+                    container_id: "00000000-0000-4000-8000-00000000cc01".to_string(),
+                    container_type: None,
+                    type_filter: None,
+                },
+                render_view_id: None,
+                type_dispatch: None,
+                title_field_id: Some("f-heading".to_string()),
+                ordering: None,
+                required: None,
+                empty_behavior: Some(EmptyBehavior::Hide),
+                relations_presentation: None,
+            }],
+            navigation_links: None,
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some("markdown".to_string()),
+                omit_empty_fields: None,
+            }),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            container: None,
+            upstream_package: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "pkg-nested".to_string(),
+            namespace: "com.test".to_string(),
+            name: "nested-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![heading_field],
+            record_types: vec![leaf_type],
+            relation_type_definitions: vec![
+                srs_core::types::relation_type_definition::RelationTypeDefinition {
+                    schema: None,
+                    id: "00000000-0000-4000-8000-000000000rt2".to_string(),
+                    namespace: "com.test".to_string(),
+                    key: "contains".to_string(),
+                    label: "Contains".to_string(),
+                    description: "Structural containment".to_string(),
+                    category:
+                        srs_core::types::relation_type_definition::RelationTypeCategory::Composition,
+                    canonical_direction: None,
+                    irreflexive: Some(true),
+                    inverse_type: None,
+                    version: 1,
+                    created_at: "2026-01-01T00:00:00Z".to_string(),
+                    require_same_type: None,
+                    status: None,
+                    updated_at: None,
+                    meta: None,
+                },
+            ],
+            views: vec![],
+            compositions: vec![doc_view],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            package_dependencies: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        container_service::create_container(
+            &store,
+            srs_core::types::container::Container {
+                container_id: "00000000-0000-4000-8000-00000000cc01".to_string(),
+                title: "Nested Part".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: Some("part".to_string()),
+                identity_instance_id: None,
+                anchor_instance_id: None,
+                root_instance_ids: None,
+                member_instance_ids: None,
+                child_container_ids: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .unwrap();
+
+        let mut fv_root = srs_core::types::record::FieldValues::new();
+        fv_root.insert("heading", serde_json::json!("Root Heading"));
+        let root_id = create_record(&store, "t-leaf", 1, fv_root, None, None)
+            .unwrap()
+            .instance_id;
+
+        let mut fv_child = srs_core::types::record::FieldValues::new();
+        fv_child.insert("heading", serde_json::json!("Child Heading"));
+        let child_id = create_record(&store, "t-leaf", 1, fv_child, None, None)
+            .unwrap()
+            .instance_id;
+
+        let mut fv_grandchild = srs_core::types::record::FieldValues::new();
+        fv_grandchild.insert("heading", serde_json::json!("Grandchild Heading"));
+        let grandchild_id = create_record(&store, "t-leaf", 1, fv_grandchild, None, None)
+            .unwrap()
+            .instance_id;
+
+        // Declared membership is the WHOLE contains subtree (root, child, and
+        // grandchild) — exactly how RFC-042's Part containers are populated
+        // (scripts/part-container-membership.mjs in the srs spec repo).
+        for id in [&root_id, &child_id, &grandchild_id] {
+            container_service::add_member(&store, "00000000-0000-4000-8000-00000000cc01", id)
+                .unwrap();
+        }
+
+        relation_service::create_relation_auto(
+            &store,
+            Relation {
+                relation_id: String::new(),
+                relation_type: "contains".to_string(),
+                source_instance_id: root_id.clone(),
+                target_instance_id: child_id.clone(),
+                asserted_by: None,
+                confidence: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                created_by: None,
+                status: None,
+                valid_from: None,
+                valid_until: None,
+                notes: None,
+                source_refs: None,
+                meta: None,
+                source_repository_id: None,
+                target_repository_id: None,
+            },
+        )
+        .unwrap();
+        relation_service::create_relation_auto(
+            &store,
+            Relation {
+                relation_id: String::new(),
+                relation_type: "contains".to_string(),
+                source_instance_id: child_id.clone(),
+                target_instance_id: grandchild_id.clone(),
+                asserted_by: None,
+                confidence: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                created_by: None,
+                status: None,
+                valid_from: None,
+                valid_until: None,
+                notes: None,
+                source_refs: None,
+                meta: None,
+                source_repository_id: None,
+                target_repository_id: None,
+            },
+        )
+        .unwrap();
+
+        (store, "dv-nested".to_string())
+    }
+
+    #[test]
+    fn container_subset_renders_contains_subtree_members_exactly_once() {
+        let (store, view_id) = make_nested_contains_store();
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: &view_id,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+
+        let rendered = &result.rendered;
+
+        for (needle, label) in [
+            ("Root Heading", "root"),
+            ("Child Heading", "child"),
+            ("Grandchild Heading", "grandchild"),
+        ] {
+            let count = rendered.matches(needle).count();
+            assert_eq!(
+                count, 1,
+                "{label} record should render exactly once (declared container \
+                 membership is the whole contains subtree; the section loop must \
+                 render only subtree roots and let recursion render descendants), \
+                 got {count} occurrences; full render:\n{rendered}"
+            );
+        }
+
+        let root_pos = rendered
+            .find("Root Heading")
+            .expect("root heading not found");
+        let child_pos = rendered
+            .find("Child Heading")
+            .expect("child heading not found");
+        let grandchild_pos = rendered
+            .find("Grandchild Heading")
+            .expect("grandchild heading not found");
+        assert!(
+            root_pos < child_pos && child_pos < grandchild_pos,
+            "records should render in tree order (root, then child, then \
+             grandchild); got:\n{rendered}"
         );
     }
 
