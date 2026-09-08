@@ -230,7 +230,8 @@ impl SrsRepository {
     /// Graduate a Note to a typed Record in one atomic step.
     ///
     /// `input_json` is a `CreateRecordInput` JSON object
-    /// (`fieldValues`, `groupValues?`, `tags?`). Returns `{ note, record }`; a
+    /// (`fieldValues` — an object keyed by `Field.name`, RFC-039 carrier —
+    /// `fieldMeta?`, `tags?`). Returns `{ note, record }`; a
     /// `derived-from` Relation (record -> note) is asserted atomically as the
     /// sole graduation-provenance record — `note.graduatedAt` is never stamped.
     /// `container_id` is optional; when supplied, the new Record is added to
@@ -344,7 +345,7 @@ impl SrsRepository {
     ///
     /// `container_id` is the UUID of the container to add the record to.
     /// `type_id` is the UUID of the type; `type_version` is the version number.
-    /// `input_json` is a JSON object with `fieldValues` (required), `groupValues` (optional),
+    /// `input_json` is a JSON object with `fieldValues` (required), `fieldMeta` (optional),
     /// and `tags` (optional) — the same shape as `create_record`.
     ///
     /// Returns the created `Record` as a JS value.
@@ -375,7 +376,8 @@ impl SrsRepository {
     }
 
     /// Update a record. `input_json` is a JSON object with fields:
-    /// `fieldValues` (array), `groupValues` (optional), `tags` (optional),
+    /// `fieldValues` (an object keyed by `Field.name`, RFC-039 carrier),
+    /// `fieldMeta` (optional), `tags` (optional),
     /// `typeVersion` (optional u32 — omit to keep the stored version).
     /// Returns the updated `Record` as a JS value.
     pub fn update_record(&self, instance_id: &str, input_json: &str) -> Result<JsValue, JsValue> {
@@ -508,7 +510,7 @@ impl SrsRepository {
     /// Transition a record's lifecycle state with the full RFC-022 input surface.
     /// `input_json` matches the CLI `record transition` stdin contract:
     /// `{ "to"?: string, "byTransition"?: string, "fulfillment"?: {
-    ///    "newRecord"?: { "fieldValues": [...], "typeVersion"?: N },
+    ///    "newRecord"?: { "fieldValues": {...}, "typeVersion"?: N },
     ///    "existingInstanceId"?: "<uuid>", "relationType"?: "supersedes" } }`.
     /// Returns `{ "record", "warnings", "successor"?, "relation"? }` as a JS value —
     /// `successor`/`relation` are present when the transition was fulfilled.
@@ -539,7 +541,7 @@ impl SrsRepository {
     /// Create a successor record that supersedes or refines an existing record.
     /// `predecessor_id` is the instance ID of the record being superseded/refined.
     /// `input_json` is a JSON object:
-    ///   `{ "relationType": "supersedes"|"refines", "fieldValues": [...], "lifecycleState"?: "...", "typeVersion"?: N }`.
+    ///   `{ "relationType": "supersedes"|"refines", "fieldValues": {...}, "lifecycleState"?: "...", "typeVersion"?: N }`.
     /// Returns `{ "record": <Record>, "relation": <Relation> }` as a JS value.
     /// The relation runs from the successor (source) to the predecessor (target).
     pub fn create_record_successor(
@@ -577,14 +579,17 @@ impl SrsRepository {
     /// When `format == "json"`, `projection` is a `CompositionProjection` object with shape:
     /// `{ $schema, compositionId, containerId: string|null, generatedAt, containerTitle,
     ///   preamble?, sections: [{ sectionId, title?, order, records: [{ instanceId, typeId,
-    ///   typeNamespace, typeName, recordHeading?, preamble?, fields, orderedFieldKeys,
-    ///   fieldGroups?, relations? }] }] }`.
+    ///   typeVersion, typeNamespace, typeName, recordHeading?, preamble?, fields,
+    ///   orderedFieldKeys, relations?, properties? }] }] }`.
     /// `containerId` is always present in the JSON but may be `null` when the view is
     /// not scoped to a container.
     /// `records[*].relations` is present when the document view defines a `relationsPresentation`;
     /// each entry is `{ label: string, targets: [{ instanceId, displayLabel }] }`.
-    /// `records[*].fieldGroups` is present when the record type defines field groups;
-    /// each entry is `{ groupId: string, label?, entries: [{ entryId?, fields }] }`.
+    /// `records[*].properties` is present when the document view defines a `RecordPropertyView`
+    /// (RFC-041); each entry is `{ property, label, value }` — `value` is a string, or a string
+    /// array when `property` is `tags`.
+    /// `fields` carries a composite value recursively under its own key (RFC-039 [R11]) —
+    /// there is no separate `fieldGroups` projection.
     pub fn render_composition(
         &self,
         view_id: &str,
