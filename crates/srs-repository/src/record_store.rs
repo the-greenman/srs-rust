@@ -538,7 +538,7 @@ pub fn delete_record(
     match cascade_result {
         Ok(_) => store.commit_batch()?,
         Err(e) => {
-            store.abort_batch();
+            let _ = store.abort_batch();
             return Err(e);
         }
     }

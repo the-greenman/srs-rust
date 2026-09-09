@@ -641,7 +641,7 @@ pub fn delete_note(
             match write_result {
                 Ok(()) => store.commit_batch()?,
                 Err(e) => {
-                    store.abort_batch();
+                    let _ = store.abort_batch();
                     return Err(e);
                 }
             }

@@ -12,9 +12,11 @@
 //! `serde_json::Value` documents** through `RepositoryStore`'s generic-JSON
 //! methods — never `Vfs`, never typed entities (the revision-2 typed layer
 //! rejects revision-1 documents by [R9], and would silently drop the trio the
-//! transform must read). The whole run is wrapped in the ADR-021 batch seam:
-//! any abort rolls the store back, so no repository is ever half-migrated
-//! ([R13]).
+//! transform must read). The run is wrapped in the ADR-021 batch seam for
+//! symmetry with the other data-model migrations, but no shipped store
+//! honors `abort_batch`'s revert on error (srs-rust#813): a failure partway
+//! through can leave a repository with some instances migrated and some not
+//! ([R13] is enforced by the instance-count check below, not by rollback).
 //!
 //! Every schema-legal input has an explicit disposition (RFC-039 "the
 //! transform must be total"): abort rather than skip, with two logged-notice
@@ -139,8 +141,9 @@ pub fn migrate_carrier(
             Ok(r)
         }
         Err(e) => {
-            // ADR-021: an abort leaves no store half-migrated ([R13]).
-            store.abort_batch();
+            // No shipped store actually reverts here (srs-rust#813) — this
+            // is best-effort only, not the [R13] guarantee it once claimed.
+            let _ = store.abort_batch();
             Err(e)
         }
     }

@@ -276,6 +276,11 @@ pub enum RepositoryError {
     #[error("invalid snapshot data: {message}")]
     InvalidSnapshotData { message: String },
 
+    #[error(
+        "{store} cannot guarantee batch rollback: an aborted operation would leave partial writes on disk (srs-rust#813 tracks real write-staging); refusing before the first write"
+    )]
+    BatchSeamUnsupported { store: String },
+
     #[error("invalid archive: {message}")]
     InvalidArchive { message: String },
 
@@ -732,6 +737,10 @@ impl PartialEq for RepositoryError {
             (
                 RepositoryError::InvalidSnapshotData { message: a },
                 RepositoryError::InvalidSnapshotData { message: b },
+            ) => a == b,
+            (
+                RepositoryError::BatchSeamUnsupported { store: a },
+                RepositoryError::BatchSeamUnsupported { store: b },
             ) => a == b,
             (
                 RepositoryError::InvalidArchive { message: a },

@@ -174,14 +174,11 @@ pub fn migrate_storage(
                 .to_string(),
         });
     }
-    if !options.allow_non_atomic {
-        // ponytail: an unconditional refusal today because no store implements
-        // batch rollback. When srs-rust#813 lands real staging, this becomes a
-        // store capability probe and the guard starts discriminating.
+    if !options.allow_non_atomic && !store.supports_batch_rollback() {
         return Err(RepositoryError::InvalidInput {
             message:
-                "rfc038-storage rewrites files in place and no store can roll a failed run back \
-                 (srs-rust#813). Commit a clean git tree, then pass \
+                "rfc038-storage rewrites files in place and this store cannot roll a failed run \
+                 back (srs-rust#813). Commit a clean git tree, then pass \
                  `StorageMigrationOptions { allow_non_atomic: true }`; `git revert` is the rollback."
                     .to_string(),
         });
@@ -216,7 +213,7 @@ pub fn migrate_storage(
             Ok(result)
         }
         Err(e) => {
-            store.abort_batch();
+            let _ = store.abort_batch();
             Err(e)
         }
     }
