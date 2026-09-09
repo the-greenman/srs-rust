@@ -979,6 +979,7 @@ fn load_package_from_dir(
         Vec<crate::package::LoadedBlueprint>,
         Vec<crate::package::LoadedProtocol>,
         Vec<Lifecycle>,
+        Vec<Vocabulary>,
     ),
     RepositoryError,
 > {
@@ -1146,6 +1147,19 @@ fn load_package_from_dir(
         lifecycles.push(lc);
     }
 
+    let mut vocabularies: Vec<Vocabulary> = Vec::new();
+    for vocab_path in &metadata.vocabularies {
+        let rel = vfs_join(prefix, vocab_path);
+        let full_path = err_root.join(&rel);
+        let content = vfs.read_to_string(&rel)?;
+        let vocab: Vocabulary =
+            serde_json::from_str(&content).map_err(|e| RepositoryError::PackageLoad {
+                path: full_path,
+                source: e,
+            })?;
+        vocabularies.push(vocab);
+    }
+
     Ok((
         fields,
         record_types,
@@ -1155,6 +1169,7 @@ fn load_package_from_dir(
         blueprints,
         protocols,
         lifecycles,
+        vocabularies,
     ))
 }
 
@@ -1305,6 +1320,7 @@ impl RepositoryStore for FileStore {
             mut blueprints,
             mut protocols,
             mut lifecycles,
+            mut vocabularies,
         ) = load_package_from_dir(self.vfs(), "package", &self.repo_root, &mut rt_by_type)?;
 
         // Merge sub-packages from manifest packageRefs
@@ -1317,6 +1333,7 @@ impl RepositoryStore for FileStore {
             let mut theme_sources: HashMap<String, PathBuf> = HashMap::new();
             let mut blueprint_sources: HashMap<String, PathBuf> = HashMap::new();
             let mut protocol_sources: HashMap<String, PathBuf> = HashMap::new();
+            let mut vocab_sources: HashMap<String, PathBuf> = HashMap::new();
             for f in &fields {
                 field_sources.insert(f.id.clone(), package_dir.clone());
             }
@@ -1337,6 +1354,9 @@ impl RepositoryStore for FileStore {
             }
             for lp in &protocols {
                 protocol_sources.insert(lp.protocol.id.clone(), package_dir.clone());
+            }
+            for vocab in &vocabularies {
+                vocab_sources.insert(vocab.id.clone(), package_dir.clone());
             }
 
             for pkg_ref in pkg_refs {
@@ -1363,6 +1383,7 @@ impl RepositoryStore for FileStore {
                     sub_blueprints,
                     sub_protocols,
                     sub_lifecycles,
+                    sub_vocabularies,
                 ) = load_package_from_dir(self.vfs(), rel_path, &self.repo_root, &mut rt_by_type)?;
 
                 for field in sub_fields {
@@ -1508,6 +1529,26 @@ impl RepositoryStore for FileStore {
                         lifecycles.push(lc);
                     }
                 }
+                for vocab in sub_vocabularies {
+                    if let Some(first_path) = vocab_sources.get(&vocab.id) {
+                        let existing = vocabularies.iter().find(|v| v.id == vocab.id).unwrap();
+                        if existing.version != vocab.version
+                            || existing.namespace != vocab.namespace
+                            || existing.name != vocab.name
+                        {
+                            return Err(RepositoryError::PackageRefConflict {
+                                path: rel_path.to_string(),
+                                kind: "vocabulary".to_string(),
+                                id: vocab.id.clone(),
+                                first_path: first_path.clone(),
+                                second_path: sub_dir.clone(),
+                            });
+                        }
+                    } else {
+                        vocab_sources.insert(vocab.id.clone(), sub_dir.clone());
+                        vocabularies.push(vocab);
+                    }
+                }
             }
         }
 
@@ -1518,19 +1559,6 @@ impl RepositoryStore for FileStore {
         let mut relation_type_definitions: Vec<RelationTypeDefinition> =
             rt_by_type.into_values().map(|(def, _)| def).collect();
         relation_type_definitions.sort_by(|a, b| a.key.cmp(&b.key).then(a.id.cmp(&b.id)));
-
-        let mut vocabularies: Vec<Vocabulary> = Vec::new();
-        for vocab_path in &metadata.vocabularies {
-            let rel = vfs_join("package", vocab_path);
-            let full_path = package_dir.join(vocab_path);
-            let content = self.vfs.read_to_string(&rel)?;
-            let vocab: Vocabulary =
-                serde_json::from_str(&content).map_err(|e| RepositoryError::PackageLoad {
-                    path: full_path,
-                    source: e,
-                })?;
-            vocabularies.push(vocab);
-        }
 
         crate::core_package::merge_core_into_package(
             &mut fields,
