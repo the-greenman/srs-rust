@@ -11623,7 +11623,12 @@ mod tests {
     #[test]
     fn fr_037_3_rev4_fenced_code_opener_moves_to_its_own_line() {
         assert_eq!(
-            field_row("markdown", "content", "Content", &scalar("```rust\nfn f() {}\n```")),
+            field_row(
+                "markdown",
+                "content",
+                "Content",
+                &scalar("```rust\nfn f() {}\n```")
+            ),
             "**Content**:\n```rust\nfn f() {}\n```"
         );
     }
@@ -11647,7 +11652,12 @@ mod tests {
     #[test]
     fn fr_037_3_rev4_table_row_moves_to_its_own_line() {
         assert_eq!(
-            field_row("markdown", "content", "Content", &scalar("| a | b |\n|---|---|")),
+            field_row(
+                "markdown",
+                "content",
+                "Content",
+                &scalar("| a | b |\n|---|---|")
+            ),
             "**Content**:\n| a | b |\n|---|---|"
         );
     }
@@ -11655,7 +11665,12 @@ mod tests {
     #[test]
     fn fr_037_3_rev4_atx_heading_moves_to_its_own_line() {
         assert_eq!(
-            field_row("markdown", "content", "Content", &scalar("## Heading\ntext")),
+            field_row(
+                "markdown",
+                "content",
+                "Content",
+                &scalar("## Heading\ntext")
+            ),
             "**Content**:\n## Heading\ntext"
         );
     }
