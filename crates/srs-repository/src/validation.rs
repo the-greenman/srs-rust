@@ -3314,6 +3314,149 @@ mod tests {
         }
     }
 
+    // --- srs-rust#1007: promote_vocabulary / create_term must resolve a
+    // sub-package vocabulary's file path, not just its parsed contents ---
+
+    #[test]
+    fn promote_and_create_term_resolve_subpackage_vocabulary_path() {
+        let temp = TempDir::new().unwrap();
+        let field_id = "00000000-0000-4000-8000-000000000060";
+        let vocab_id = "00000000-0000-4000-8000-000000000061";
+        let type_id = "00000000-0000-4000-8000-000000000062";
+
+        // Same shape as subpackage_vocabulary_resolves_via_packagerefs above:
+        // the vocabulary lives entirely inside a packageRefs sub-package
+        // boundary (`packages/sub`), mirroring the muSrs `packages/argument/`
+        // layout that exposed srs-rust#1007 — `find_vocabulary_file_path` must
+        // search that boundary too, not just the primary `package/`.
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+                "srsVersion": "2.0",
+                "dataModelRevision": 7,
+                "repositoryId": "00000000-0000-4000-8000-000000000098",
+                "title": "Test Repo",
+                "container": {
+                    "containerId": "00000000-0000-4000-8000-000000000098",
+                    "title": "Test Repo"
+                },
+                "createdAt": "2026-01-01T00:00:00Z",
+                "packageRefs": [{"mode": "local", "path": "packages/sub"}]
+            }),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &minimal_package_json_full(&[], &[], &[], &[]),
+        );
+
+        write_json(
+            temp.path(),
+            "packages/sub/package.json",
+            &json!({
+                "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
+                "id": "00000000-0000-4000-8000-000000000063",
+                "namespace": "com.test.sub",
+                "name": "sub",
+                "version": "1.0.0",
+                "title": "sub",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": ["fields/kind.json"],
+                "types": ["types/argument.json"],
+                "views": [],
+                "vocabularies": ["vocabularies/kind-vocab.json"]
+            }),
+        );
+        write_json(
+            temp.path(),
+            "packages/sub/fields/kind.json",
+            &minimal_field_json_with_vocab_ref(field_id, "kind", Some(vocab_id)),
+        );
+        write_json(
+            temp.path(),
+            "packages/sub/vocabularies/kind-vocab.json",
+            &minimal_vocab_json(vocab_id, "open", vec![("t1", "claim"), ("t2", "evidence")]),
+        );
+        write_json(
+            temp.path(),
+            "packages/sub/types/argument.json",
+            &json!({
+                "$schema": srs_schema::TYPE_SCHEMA_ID,
+                "id": type_id,
+                "namespace": "com.test.sub",
+                "name": "argument",
+                "version": 1,
+                "description": "Test type",
+                "fields": [
+                    {"fieldId": field_id, "order": 0, "required": false}
+                ],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+
+        // promote_vocabulary must find and rewrite the file that actually
+        // lives under the sub-package boundary.
+        let result = crate::vocabulary_service::promote_vocabulary(
+            &store,
+            crate::vocabulary_service::PromoteVocabularyInput {
+                vocabulary_id: vocab_id.to_string(),
+            },
+        )
+        .unwrap_or_else(|e| panic!("promote_vocabulary failed: {e:?}"));
+        assert_eq!(
+            result.vocabulary.mode,
+            srs_core::types::vocabulary::VocabularyMode::Closed
+        );
+
+        let on_disk = std::fs::read_to_string(
+            temp.path()
+                .join("packages/sub/vocabularies/kind-vocab.json"),
+        )
+        .unwrap();
+        let on_disk: Value = serde_json::from_str(&on_disk).unwrap();
+        assert_eq!(on_disk["mode"].as_str(), Some("closed"));
+
+        // create_term must write into the same sub-package file, not
+        // "not found: vocabulary file for <id>".
+        let term_result = crate::vocabulary_service::create_term(
+            &store,
+            vocab_id,
+            srs_core::types::term::Term {
+                id: String::new(),
+                version: 1,
+                namespace: "com.test.sub".to_string(),
+                key: "rebuttal".to_string(),
+                label: None,
+                description: None,
+                aliases: None,
+                roles: None,
+                status: None,
+                meta: None,
+                created_at: None,
+                updated_at: None,
+            },
+        )
+        .unwrap_or_else(|e| panic!("create_term failed: {e:?}"));
+        assert_eq!(term_result.vocabulary.terms.len(), 3);
+
+        let on_disk = std::fs::read_to_string(
+            temp.path()
+                .join("packages/sub/vocabularies/kind-vocab.json"),
+        )
+        .unwrap();
+        let on_disk: Value = serde_json::from_str(&on_disk).unwrap();
+        let terms = on_disk["terms"].as_array().unwrap();
+        assert_eq!(terms.len(), 3);
+        assert!(terms.iter().any(|t| t["key"].as_str() == Some("rebuttal")));
+    }
+
     // --- V5: key∪alias uniqueness within vocabulary ---
 
     #[test]
