@@ -177,9 +177,20 @@ fn container_subset_renders_real_part_container_members_exactly_once() {
         .expect("spec heading field must resolve");
 
     // Every declared member's own heading-field value must appear in the
-    // render exactly once — the container's full `contains` subtree renders
-    // once each, at whatever depth `contains` recursion puts it, not once
-    // per section-loop entry AND again via an ancestor's recursion.
+    // render exactly as many times as there are DISTINCT members declaring
+    // that same heading text — the container's full `contains` subtree
+    // renders each member once each, at whatever depth `contains` recursion
+    // puts it, not once per section-loop entry AND again via an ancestor's
+    // recursion. A flat `== 1` check is unsound here: real corpus content can
+    // legitimately have two different members share a title (e.g. a legacy
+    // "Type" subsection stub and the RFC-042 "Type" concept it points readers
+    // to via `derived-from` — two distinct records, two distinct headings,
+    // same text) without either one being double-rendered. Comparing actual
+    // occurrences against the expected multiset (count of distinct member IDs
+    // per heading text) still catches genuine duplication — where a single
+    // member's own heading renders more times than the number of members that
+    // declare it — while tolerating legitimate same-titled distinct members.
+    let mut expected_counts: std::collections::HashMap<String, usize> = Default::default();
     let mut checked_any = 0;
     for id in &member_ids {
         let Some(instance) = srs_repository::record_store::get_instance_by_id(&store, id)
@@ -197,7 +208,10 @@ fn container_subset_renders_real_part_container_members_exactly_once() {
             continue;
         }
         checked_any += 1;
-        // Count only markdown HEADING lines matching this record's title, not
+        *expected_counts.entry(heading.to_string()).or_insert(0) += 1;
+    }
+    for (heading, expected) in &expected_counts {
+        // Count only markdown HEADING lines matching this heading text, not
         // arbitrary substring occurrences in body prose (a record's title may
         // legitimately appear as prose elsewhere, e.g. "...Field, Type,
         // Vocabulary and Term, record tiers..." in an unrelated description) —
@@ -209,9 +223,9 @@ fn container_subset_renders_real_part_container_members_exactly_once() {
             .filter(|line| line.starts_with('#'))
             .count();
         assert_eq!(
-            count, 1,
-            "member {id} (heading {heading:?}) should render as a heading exactly once \
-             in the container-subset section; got {count} occurrences (srs#682/#693's \
+            count, *expected,
+            "heading {heading:?} is declared by {expected} distinct container member(s) \
+             but rendered {count} times in the container-subset section (srs#682/#693's \
              defect: the section loop must render only subtree roots, letting `contains` \
              recursion render every descendant exactly once)"
         );
