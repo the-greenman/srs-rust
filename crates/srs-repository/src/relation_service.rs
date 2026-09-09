@@ -726,7 +726,7 @@ pub fn rebuild_precedes_chain(
     match write_result {
         Ok(()) => store.commit_batch()?,
         Err(e) => {
-            store.abort_batch();
+            let _ = store.abort_batch();
             return Err(e);
         }
     }
@@ -1473,6 +1473,18 @@ mod tests {
             }
             fn save_manifest(&self, _: &Manifest) -> Result<(), RepositoryError> {
                 Ok(())
+            }
+            fn begin_batch(&self) {
+                unimplemented!()
+            }
+            fn commit_batch(&self) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn abort_batch(&self) -> Result<(), RepositoryError> {
+                unimplemented!()
+            }
+            fn supports_batch_rollback(&self) -> bool {
+                unimplemented!()
             }
             fn load_package(&self) -> Result<Package, RepositoryError> {
                 unimplemented!()

@@ -287,8 +287,10 @@ fn migrate_package_root(
 /// `dataModelRevision: 6`.
 ///
 /// Requires migration #5 (`substrate-properties-to-meta`) to have run first
-/// (ladder order). Aborts rather than partially migrates (ADR-021) — a batch
-/// store rolls back on any error.
+/// (ladder order). Wrapped in the ADR-021 batch seam for symmetry with the
+/// other migrations, but no shipped store honors `abort_batch`'s revert on
+/// error (srs-rust#813) — a failure here can leave the repository partially
+/// migrated, same as any other write in this crate that fails partway.
 pub fn migrate_composition_cutover(
     store: &dyn RepositoryStore,
 ) -> Result<CompositionCutoverResult, RepositoryError> {
@@ -311,7 +313,7 @@ pub fn migrate_composition_cutover(
             Ok(result)
         }
         Err(e) => {
-            store.abort_batch();
+            let _ = store.abort_batch();
             Err(e)
         }
     }

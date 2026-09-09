@@ -435,7 +435,7 @@ pub fn import_repository_snapshot(
     match result {
         Ok(()) => target.commit_batch(),
         Err(e) => {
-            target.abort_batch();
+            let _ = target.abort_batch();
             Err(e)
         }
     }

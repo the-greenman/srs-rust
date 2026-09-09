@@ -192,26 +192,44 @@ pub trait RepositoryStore {
     fn load_manifest(&self) -> Result<Manifest, RepositoryError>;
     fn save_manifest(&self, manifest: &Manifest) -> Result<(), RepositoryError>;
 
-    // --- Batch write mode ---
+    // --- Batch write mode (ADR-021) ---
     //
-    // Optional opt-in for stores that benefit from deferred flushing during
-    // bulk operations (e.g. FileStore during import_repository_snapshot).
-    // Default implementations are no-ops so FileStore and MemoryStore require
-    // no changes. See ADR-021.
+    // Opt-in for stores that benefit from deferred flushing during bulk
+    // operations (e.g. FileStore during import_repository_snapshot). These
+    // are required methods — no default bodies — so every implementor states
+    // its own real behavior rather than inheriting one. As of srs-rust#813,
+    // no shipped store actually stages writes: `begin_batch`/`commit_batch`
+    // succeed trivially because writes land immediately, and `abort_batch`
+    // honestly refuses rather than claiming a revert it cannot perform. A
+    // caller whose correctness depends on that revert must check
+    // `supports_batch_rollback` before calling `begin_batch` and refuse up
+    // front — see `rfc039_carrier_migration_service::migrate_carrier`.
 
     /// Signal that a bulk write operation is starting. Stores that support
-    /// batch mode may defer disk writes until `commit_batch` is called.
-    fn begin_batch(&self) {}
+    /// batch mode may defer disk writes until `commit_batch` is called; a
+    /// store that does not defer writes still implements this as a no-op.
+    fn begin_batch(&self);
 
     /// Flush all deferred writes atomically. Called after a successful bulk
-    /// operation. The default no-op is correct for stores that flush eagerly.
-    fn commit_batch(&self) -> Result<(), RepositoryError> {
-        Ok(())
-    }
+    /// operation. A store that flushes eagerly (writes land as they happen)
+    /// implements this as `Ok(())` — there is nothing left to flush.
+    fn commit_batch(&self) -> Result<(), RepositoryError>;
 
-    /// Abandon deferred writes without flushing. Called when a bulk operation
-    /// fails. The on-disk state reverts to what it was before `begin_batch`.
-    fn abort_batch(&self) {}
+    /// Abandon deferred writes. Called when a bulk operation fails.
+    ///
+    /// This does **not** promise that on-disk state reverts to what it was
+    /// before `begin_batch` — only a store whose `supports_batch_rollback`
+    /// returns `true` may claim that. A store that writes eagerly (every
+    /// shipped store today) returns `Err(RepositoryError::BatchSeamUnsupported)`
+    /// here: the writes already happened and nothing is undone.
+    fn abort_batch(&self) -> Result<(), RepositoryError>;
+
+    /// Whether `abort_batch` on this store actually reverts writes made since
+    /// `begin_batch`. `false` for every store shipped today (srs-rust#813
+    /// tracks real write-staging); a caller that needs atomicity across a
+    /// multi-phase operation must check this before starting, not after a
+    /// failure — by then the writes already landed.
+    fn supports_batch_rollback(&self) -> bool;
 
     // --- Package (read) ---
 
@@ -1176,6 +1194,22 @@ fn load_package_from_dir(
 impl RepositoryStore for FileStore {
     fn rfc038_exempt(&self) -> bool {
         self.rfc038_exempt
+    }
+
+    fn begin_batch(&self) {}
+
+    fn commit_batch(&self) -> Result<(), RepositoryError> {
+        Ok(())
+    }
+
+    fn abort_batch(&self) -> Result<(), RepositoryError> {
+        Err(RepositoryError::BatchSeamUnsupported {
+            store: "FileStore".to_string(),
+        })
+    }
+
+    fn supports_batch_rollback(&self) -> bool {
+        false
     }
 
     fn repository_root(&self) -> PathBuf {
@@ -2836,6 +2870,22 @@ pub mod memory {
     impl RepositoryStore for MemoryStore {
         fn repository_root(&self) -> PathBuf {
             PathBuf::from("/memory")
+        }
+
+        fn begin_batch(&self) {}
+
+        fn commit_batch(&self) -> Result<(), RepositoryError> {
+            Ok(())
+        }
+
+        fn abort_batch(&self) -> Result<(), RepositoryError> {
+            Err(RepositoryError::BatchSeamUnsupported {
+                store: "MemoryStore".to_string(),
+            })
+        }
+
+        fn supports_batch_rollback(&self) -> bool {
+            false
         }
 
         fn repository_exists(&self) -> Result<bool, RepositoryError> {

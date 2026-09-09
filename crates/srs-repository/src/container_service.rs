@@ -318,15 +318,15 @@ fn save_container_syncing_embed(
             manifest.container = Some(container.clone());
             store.begin_batch();
             if let Err(e) = store.save_container(container) {
-                store.abort_batch();
+                let _ = store.abort_batch();
                 return Err(e);
             }
             if let Err(e) = write_manifest(store, &manifest) {
-                store.abort_batch();
+                let _ = store.abort_batch();
                 return Err(e);
             }
             if let Err(e) = store.commit_batch() {
-                store.abort_batch();
+                let _ = store.abort_batch();
                 return Err(e);
             }
             return Ok(());
@@ -435,7 +435,7 @@ pub fn delete_container(
     match write_result {
         Ok(()) => store.commit_batch()?,
         Err(e) => {
-            store.abort_batch();
+            let _ = store.abort_batch();
             return Err(e);
         }
     }

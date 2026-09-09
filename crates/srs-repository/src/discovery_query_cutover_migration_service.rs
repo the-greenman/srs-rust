@@ -218,8 +218,10 @@ fn migrate_package_root(
 /// ExportConfig unification, then stamp `dataModelRevision: 7`.
 ///
 /// Requires migration #6 (`composition-cutover`) to have run first (ladder
-/// order). Aborts rather than partially migrates (ADR-021) — a batch store
-/// rolls back on any error.
+/// order). Wrapped in the ADR-021 batch seam for symmetry with the other
+/// migrations, but no shipped store honors `abort_batch`'s revert on error
+/// (srs-rust#813) — a failure here can leave the repository partially
+/// migrated, same as any other write in this crate that fails partway.
 pub fn migrate_discovery_query_cutover(
     store: &dyn RepositoryStore,
 ) -> Result<DiscoveryQueryCutoverResult, RepositoryError> {
@@ -242,7 +244,7 @@ pub fn migrate_discovery_query_cutover(
             Ok(result)
         }
         Err(e) => {
-            store.abort_batch();
+            let _ = store.abort_batch();
             Err(e)
         }
     }

@@ -197,7 +197,7 @@ pub fn migrate_identity(
         match batch_result {
             Ok(new_id) => {
                 if let Err(e) = store.commit_batch() {
-                    store.abort_batch();
+                    let _ = store.abort_batch();
                     return Err(e);
                 }
                 return Ok(MigrateIdentityResult {
@@ -209,7 +209,7 @@ pub fn migrate_identity(
                 });
             }
             Err(e) => {
-                store.abort_batch();
+                let _ = store.abort_batch();
                 return Err(e);
             }
         }
@@ -310,7 +310,7 @@ pub fn migrate_identity(
     match batch_result {
         Ok(new_id) => {
             if let Err(e) = store.commit_batch() {
-                store.abort_batch();
+                let _ = store.abort_batch();
                 return Err(e);
             }
             Ok(MigrateIdentityResult {
@@ -322,7 +322,7 @@ pub fn migrate_identity(
             })
         }
         Err(e) => {
-            store.abort_batch();
+            let _ = store.abort_batch();
             Err(e)
         }
     }

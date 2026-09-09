@@ -23,11 +23,14 @@
 //! Separate standalone tests cover:
 //!   - Cross-store portability via `copy_repository` (ADR-008)
 //!   - ADR-007 write-ordering invariants via `FailPoint` (MemoryStore only)
-//!   - `abort_batch` rollback (FileStore only — FileStore/MemoryStore use the no-op default)
+//!   - `abort_batch`'s honest refusal (srs-rust#1015) — neither shipped store can
+//!     actually revert a batch, and both now say so via `RepositoryError::BatchSeamUnsupported`
+//!     rather than silently no-op'ing (srs-rust#813 tracks building real rollback)
 
 use srs_core::types::container::Container;
 use srs_core::types::note::Note;
 use srs_core::types::record::{FieldValues, Record};
+use srs_repository::error::RepositoryError;
 use srs_repository::index::{InstanceQuery, InstanceRef};
 use srs_repository::{
     new_tree_session,
@@ -531,14 +534,16 @@ fn copy_repository_full_chain_memory_json_file_memory() {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// FileStore-only: abort_batch rollback (ADR-021 / ADR-041 G6)
+// FileStore-only: abort_batch's honest refusal (srs-rust#1015 / #813)
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "srs-rust#813 (exposed by srs-rust#783 Phase 4): no store implements in-memory batch rollback any more. JsonStore's rollback was a re-read of its own file; retiring it left FileStore's no-op begin/abort_batch as the only implementation. The data guarantee moved to the projection boundary — a failed operation is never flushed (see repository_portability::srsj_partial_import_is_never_projected_to_the_file) — and restoring true staging is #813's scope."]
-fn batch_abort_rolls_back() {
-    // abort_batch must roll back in-memory state; data saved in the batch must
-    // not be accessible after abort (ADR-021).
+fn abort_batch_refuses_rather_than_pretending_to_roll_back() {
+    // FileStore writes land immediately, so abort_batch has nothing to
+    // revert. Pre-#1015 it silently no-op'd, letting migrate_carrier's own
+    // comment claim a rollback guarantee the store never kept (srs-rust#813,
+    // the srs#242 unit-3 incident: an aborted run left minted definitions on
+    // disk). Post-#1015 it refuses with a named error instead of a quiet lie.
     let (store, _tmp) = init_json_store();
     let note_id = "aab0f001-0001-4000-8000-aabbccddeeff";
     let note = make_note(note_id, "Aborted Note", None);
@@ -547,14 +552,22 @@ fn batch_abort_rolls_back() {
     store
         .save_note(&note)
         .expect("save_note during batch must succeed");
-    store.abort_batch();
+    let err = store
+        .abort_batch()
+        .expect_err("abort_batch must refuse rather than claim a revert it cannot perform");
+    assert!(
+        matches!(err, RepositoryError::BatchSeamUnsupported { .. }),
+        "abort_batch must report BatchSeamUnsupported, got: {err:?}"
+    );
 
+    // The write already landed on disk — abort_batch neither undoes it nor
+    // claims to; that is exactly the honesty this fix adds.
     let result = store
         .find_instance(note_id)
         .expect("find_instance must not error after abort");
     assert!(
-        result.is_none(),
-        "find_instance must return None after abort_batch — aborted writes must not be visible (ADR-021)"
+        result.is_some(),
+        "FileStore writes land immediately; abort_batch cannot revert them (srs-rust#813)"
     );
 }
 
