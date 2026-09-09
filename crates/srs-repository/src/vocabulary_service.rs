@@ -165,12 +165,25 @@ pub fn create_term(
     })
 }
 
-/// Find the repo-root-relative path for a vocabulary file by scanning the package.json index.
+/// Find the repo-root-relative path for a vocabulary file, searching the
+/// primary package AND every `manifest.packageRefs[]` local boundary
+/// (srs-rust#1007) — the same union `load_package()`/`resolve_definition_owner`
+/// already resolve reads against, so `promote_vocabulary`/`create_term` no
+/// longer disagree with `vocabulary get`/`list` about where a vocabulary lives.
 pub(crate) fn find_vocabulary_file_path(
     store: &dyn RepositoryStore,
     vocabulary_id: &str,
 ) -> Result<String, RepositoryError> {
-    let pkg_json = store.load_package_json()?;
+    let not_found = || RepositoryError::NotFound {
+        path: std::path::PathBuf::from(format!("vocabulary file for {}", vocabulary_id)),
+    };
+    let owner = store
+        .resolve_definition_owner(vocabulary_id, DefinitionKind::Vocabulary)
+        .map_err(|_| not_found())?;
+    let prefix = owner.as_deref().unwrap_or("package");
+    let pkg_json = store
+        .load_instance_json(&format!("{prefix}/package.json"))
+        .map_err(|_| not_found())?;
     let vocab_paths: Vec<String> = pkg_json["vocabularies"]
         .as_array()
         .unwrap_or(&vec![])
@@ -180,16 +193,14 @@ pub(crate) fn find_vocabulary_file_path(
     vocab_paths
         .iter()
         .find(|rel| {
-            let full = format!("package/{rel}");
+            let full = format!("{prefix}/{rel}");
             store
                 .load_instance_json(&full)
                 .map(|v| v["id"].as_str() == Some(vocabulary_id))
                 .unwrap_or(false)
         })
-        .map(|rel| format!("package/{rel}"))
-        .ok_or_else(|| RepositoryError::NotFound {
-            path: std::path::PathBuf::from(format!("vocabulary file for {}", vocabulary_id)),
-        })
+        .map(|rel| format!("{prefix}/{rel}"))
+        .ok_or_else(not_found)
 }
 
 /// Collect all tag string counts across every instance's body (RFC-038: tags
