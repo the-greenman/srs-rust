@@ -203,9 +203,83 @@ pub(crate) fn find_vocabulary_file_path(
         .ok_or_else(not_found)
 }
 
+/// Collect value counts for the values that actually **participate** in a
+/// given closed vocabulary, per V1 ("Closed-vocabulary resolution" —
+/// srs-unified.md): every `select`/`multiselect` field value whose Field's
+/// `fieldType.vocabularyRef` names this vocabulary, across every Tier-2
+/// Record's `fieldValues` (RFC-039 carrier, keyed by `Field.name`).
+///
+/// Tags are deliberately NOT scanned here (srs-rust#1006). V1 lists exactly
+/// three value kinds it applies to: `Relation.relationType`,
+/// `select`/`multiselect` field values, and `Record.lifecycleState`. Tags are
+/// V2 ("Open-vocabulary resolution") — `Note.tags`/`NoteSection.tags` need not
+/// resolve at all, and there is no spec mechanism (no `roles`/tag-role, no
+/// `tagVocabularyRef`) binding a tag key to a specific Vocabulary. A tag with
+/// no defined Term is simply unenriched, never a promotion blocker.
+fn collect_vocabulary_value_counts(
+    store: &dyn RepositoryStore,
+    vocabulary_id: &str,
+) -> Result<HashMap<String, usize>, RepositoryError> {
+    let package = store.load_package()?;
+    let field_names: Vec<&str> = package
+        .fields
+        .iter()
+        .filter(|f| f.field_type.vocabulary_ref.as_deref() == Some(vocabulary_id))
+        .map(|f| f.name.as_str())
+        .collect();
+
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    if field_names.is_empty() {
+        return Ok(counts);
+    }
+
+    let cat = store.catalog()?;
+    for entry in &cat.instances {
+        if entry.kind != crate::catalog::CatalogKind::Record {
+            continue;
+        }
+        let Some(locator) = entry.locator.as_deref() else {
+            continue;
+        };
+        let Ok(body) = store.load_instance_json(locator) else {
+            continue;
+        };
+        let Some(field_values) = body.get("fieldValues").and_then(|v| v.as_object()) else {
+            continue;
+        };
+        for name in &field_names {
+            let Some(value) = field_values.get(*name) else {
+                continue;
+            };
+            for v in field_value_as_strings(value) {
+                *counts.entry(v).or_insert(0) += 1;
+            }
+        }
+    }
+    Ok(counts)
+}
+
+/// A select value is a single string; a multiselect (or repeatable) value is
+/// an array of strings. Anything else contributes nothing to resolve against.
+fn field_value_as_strings(value: &serde_json::Value) -> Vec<String> {
+    match value {
+        serde_json::Value::String(s) => vec![s.clone()],
+        serde_json::Value::Array(items) => items
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// Collect all tag string counts across every instance's body (RFC-038: tags
 /// are catalog-derived, not a cached manifest index column).
 /// Returns a map of tag_key → usage count across all instances.
+///
+/// Used by `derive_tag_set` only — an informational, non-blocking view of tag
+/// usage against a vocabulary's terms (V2 enrichment). NOT used by
+/// `promote_vocabulary`'s V1 pre-flight (srs-rust#1006): tags are out of
+/// scope for closed-vocabulary resolution, see `collect_vocabulary_value_counts`.
 fn collect_tag_key_counts(
     store: &dyn RepositoryStore,
 ) -> Result<HashMap<String, usize>, RepositoryError> {
@@ -331,9 +405,12 @@ pub struct PromoteVocabularyResult {
 /// Promote a vocabulary from open → closed mode (V10 pre-flight).
 ///
 /// V10 rules:
-/// - Collects all in-use tag keys from manifest instance index.
-/// - Classifies each key against the vocabulary's effective terms.
-/// - Keys that `WillBeInvalid` block promotion unless:
+/// - Collects the values that actually participate in THIS vocabulary: every
+///   select/multiselect field value bound to it via `vocabularyRef`, across
+///   all Tier-2 Records (V1 scope — srs-rust#1006; tags are out of scope,
+///   see `collect_vocabulary_value_counts`).
+/// - Classifies each value against the vocabulary's effective terms.
+/// - Values that `WillBeInvalid` block promotion unless:
 ///   - The vocabulary has a `promotionWindow.until` date that has not yet passed.
 /// - If not blocked, the vocabulary's mode is set to `Closed` and saved.
 pub fn promote_vocabulary(
@@ -346,10 +423,10 @@ pub fn promote_vocabulary(
         }
     })?;
 
-    let tag_counts = collect_tag_key_counts(store)?;
+    let value_counts = collect_vocabulary_value_counts(store, &input.vocabulary_id)?;
 
-    // Classify all in-use keys
-    let will_be_invalid: Vec<String> = tag_counts
+    // Classify all in-use values
+    let will_be_invalid: Vec<String> = value_counts
         .keys()
         .filter(|key| {
             classify_key_against_vocabulary(key, &vocab) == TagSetEntryClassification::WillBeInvalid

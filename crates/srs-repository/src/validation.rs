@@ -3457,6 +3457,172 @@ mod tests {
         assert!(terms.iter().any(|t| t["key"].as_str() == Some("rebuttal")));
     }
 
+    // --- srs-rust#1006: promote_vocabulary's V10 pre-flight must scope to
+    // values that participate in THIS vocabulary (V1 — select/multiselect
+    // field values whose Field.vocabularyRef names it), never to unrelated
+    // tag keys on Tier-0 notes. Tags carry no vocabulary binding under V1/V2
+    // — see collect_vocabulary_value_counts in vocabulary_service.rs. ---
+
+    fn setup_1006_fixture(
+        temp: &TempDir,
+        vocab_id: &str,
+        field_id: &str,
+        type_id: &str,
+        record_field_value: &str,
+    ) {
+        let mut manifest = minimal_manifest(json!([]));
+        manifest["packageRefs"] = json!([{"mode": "local", "path": "extensions/subpkg"}]);
+        write_json(temp.path(), "manifest.json", &manifest);
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &minimal_package_json_full(&[], &[], &[], &[]),
+        );
+
+        // The vocabulary + the select field referencing it + the type using
+        // that field all live inside a packageRefs sub-package boundary,
+        // mirroring the muDemocracy `packages/argument/` layout that exposed
+        // this bug (build.362, promoting `source-kind`).
+        write_json(
+            temp.path(),
+            "extensions/subpkg/package.json",
+            &json!({
+                "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
+                "id": "00000000-0000-4000-8000-000000000070",
+                "namespace": "com.test.ext",
+                "name": "subpkg",
+                "version": "1.0.0",
+                "title": "subpkg",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": ["fields/kind.json"],
+                "types": ["types/argument.json"],
+                "views": [],
+                "vocabularies": ["vocabularies/kind-vocab.json"]
+            }),
+        );
+        write_json(
+            temp.path(),
+            "extensions/subpkg/fields/kind.json",
+            &minimal_field_json_with_vocab_ref(field_id, "kind", Some(vocab_id)),
+        );
+        write_json(
+            temp.path(),
+            "extensions/subpkg/vocabularies/kind-vocab.json",
+            &minimal_vocab_json(vocab_id, "open", vec![("t1", "claim"), ("t2", "evidence")]),
+        );
+        write_json(
+            temp.path(),
+            "extensions/subpkg/types/argument.json",
+            &json!({
+                "$schema": srs_schema::TYPE_SCHEMA_ID,
+                "id": type_id,
+                "namespace": "com.test.ext",
+                "name": "argument",
+                "version": 1,
+                "description": "Test type",
+                "fields": [
+                    {"fieldId": field_id, "order": 0, "required": false}
+                ],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+
+        // The record whose field value participates in the vocabulary.
+        write_json(
+            temp.path(),
+            "records/argument-1.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+                "instanceId": "00000000-0000-4000-8000-000000000071",
+                "typeId": type_id,
+                "typeVersion": 1,
+                "typeNamespace": "com.test.ext",
+                "typeName": "argument",
+                "fieldValues": {"kind": record_field_value},
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+
+        // Tier-0 notes carrying tags bound to NO vocabulary at all — must
+        // never be considered by the promote pre-flight.
+        let mut note1 = valid_note("00000000-0000-4000-8000-000000000072");
+        note1["tags"] = json!(["position"]);
+        write_json(temp.path(), "records/notes/note1.json", &note1);
+        let mut note2 = valid_note("00000000-0000-4000-8000-000000000073");
+        note2["tags"] = json!(["intent"]);
+        write_json(temp.path(), "records/notes/note2.json", &note2);
+    }
+
+    #[test]
+    fn promote_scopes_to_vocabulary_bound_field_values_not_unrelated_tags() {
+        let temp = TempDir::new().unwrap();
+        let vocab_id = "00000000-0000-4000-8000-000000000074";
+        let field_id = "00000000-0000-4000-8000-000000000075";
+        let type_id = "00000000-0000-4000-8000-000000000076";
+
+        // Record's field value ("claim") IS a term in the vocabulary — only
+        // the unrelated tags "position"/"intent" would previously have
+        // tripped the (wrongly repo-wide) tag scan.
+        setup_1006_fixture(&temp, vocab_id, field_id, type_id, "claim");
+
+        let store = crate::store::FileStore::new(temp.path());
+        let result = crate::vocabulary_service::promote_vocabulary(
+            &store,
+            crate::vocabulary_service::PromoteVocabularyInput {
+                vocabulary_id: vocab_id.to_string(),
+            },
+        );
+        assert!(
+            result.is_ok(),
+            "expected promote_vocabulary to succeed once scoped to values that \
+             actually participate in the vocabulary, got: {:?}",
+            result.err()
+        );
+        assert_eq!(
+            result.unwrap().vocabulary.mode,
+            srs_core::types::vocabulary::VocabularyMode::Closed
+        );
+    }
+
+    #[test]
+    fn promote_refused_only_for_the_vocabularys_own_unresolved_values() {
+        let temp = TempDir::new().unwrap();
+        let vocab_id = "00000000-0000-4000-8000-000000000077";
+        let field_id = "00000000-0000-4000-8000-000000000078";
+        let type_id = "00000000-0000-4000-8000-000000000079";
+
+        // Record's field value ("rebuttal") is NOT a term in the vocabulary —
+        // promotion must be refused, and unresolvableKeys must name exactly
+        // that value, never the unrelated tags "position"/"intent".
+        setup_1006_fixture(&temp, vocab_id, field_id, type_id, "rebuttal");
+
+        let store = crate::store::FileStore::new(temp.path());
+        let result = crate::vocabulary_service::promote_vocabulary(
+            &store,
+            crate::vocabulary_service::PromoteVocabularyInput {
+                vocabulary_id: vocab_id.to_string(),
+            },
+        );
+        match result {
+            Err(crate::error::RepositoryError::VocabularyPromotionBlocked {
+                unresolvable_keys,
+                ..
+            }) => {
+                assert_eq!(
+                    unresolvable_keys,
+                    vec!["rebuttal".to_string()],
+                    "expected unresolvableKeys to name only the unresolved field \
+                     value, not the unrelated tags"
+                );
+            }
+            Ok(_) => panic!("expected VocabularyPromotionBlocked, got Ok"),
+            Err(other) => panic!("expected VocabularyPromotionBlocked, got: {other:?}"),
+        }
+    }
+
     // --- V5: key∪alias uniqueness within vocabulary ---
 
     #[test]

@@ -6678,8 +6678,16 @@ fn term_get_found_after_creating_term() {
 #[test]
 fn vocabulary_promote_blocked_returns_structured_payload() {
     // Setup: a repo with a vocabulary that has one active term ("alpha"),
-    // and a note tagged with both "alpha" (resolvable) and "beta" (unresolvable).
-    // Promoting should fail with ok:false and payload.unresolvableKeys: ["beta"].
+    // referenced by a select Field bound via vocabularyRef. One Tier-2
+    // record's value for that field IS the term ("alpha", resolvable); a
+    // second record's value ("beta") is not. A Tier-0 note also carries an
+    // unrelated tag ("gamma") bound to no vocabulary at all.
+    //
+    // Promoting should fail with ok:false and payload.unresolvableKeys:
+    // ["beta"] ONLY — V1 ("Closed-vocabulary resolution") scopes the
+    // pre-flight to select/multiselect field values participating in this
+    // vocabulary; tags carry no vocabulary binding and must never appear
+    // (srs-rust#1006).
     let temp = TempDir::new().unwrap();
     let repo = create_repo_with_package(&temp, "vocab-promote-blocked");
 
@@ -6702,7 +6710,7 @@ fn vocabulary_promote_blocked_returns_structured_payload() {
         .unwrap()
         .to_string();
 
-    // Add an active term for "alpha" — this key will be resolvable
+    // Add an active term for "alpha" — this value will be resolvable
     let term_json = serde_json::json!({"version": 1, "namespace": "com.test", "key": "alpha"});
     let term_result = run_srs_stdin_in_dir(
         &repo,
@@ -6715,7 +6723,69 @@ fn vocabulary_promote_blocked_returns_structured_payload() {
         term_result
     );
 
-    // Create a note and tag it with both "alpha" (resolvable) and "beta" (no term)
+    // A select field bound to this vocabulary, and a type using it.
+    let field_json = serde_json::json!({
+        "namespace": "com.test",
+        "name": "promote-status",
+        "version": 1,
+        "aiGuidance": {"purpose": "captures the promote-status value"},
+        "valueType": "select",
+        "vocabularyRef": vocab_id
+    });
+    let field_created = run_srs_stdin_in_dir(&repo, &["field", "create"], &field_json.to_string());
+    assert_eq!(
+        field_created["ok"], true,
+        "field create failed: {:?}",
+        field_created
+    );
+    let field_id = field_created["payload"]["field"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let type_json = serde_json::json!({
+        "namespace": "com.test",
+        "name": "promote-item",
+        "version": 1,
+        "description": "Test type",
+        "fields": [{"fieldId": field_id, "order": 0, "required": false}],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    let type_created = run_srs_stdin_in_dir(&repo, &["type", "create"], &type_json.to_string());
+    assert_eq!(
+        type_created["ok"], true,
+        "type create failed: {:?}",
+        type_created
+    );
+
+    // Record whose field value resolves ("alpha").
+    let record_ok = serde_json::json!({"fieldValues": {"promote-status": "alpha"}});
+    let record_ok_result = run_srs_stdin_in_dir(
+        &repo,
+        &["record", "create", "--type", "com.test/promote-item"],
+        &record_ok.to_string(),
+    );
+    assert_eq!(
+        record_ok_result["ok"], true,
+        "record create (alpha) failed: {:?}",
+        record_ok_result
+    );
+
+    // Record whose field value does NOT resolve ("beta").
+    let record_bad = serde_json::json!({"fieldValues": {"promote-status": "beta"}});
+    let record_bad_result = run_srs_stdin_in_dir(
+        &repo,
+        &["record", "create", "--type", "com.test/promote-item"],
+        &record_bad.to_string(),
+    );
+    assert_eq!(
+        record_bad_result["ok"], true,
+        "record create (beta) failed: {:?}",
+        record_bad_result
+    );
+
+    // A note tagged with "gamma" — bound to NO vocabulary — must never be
+    // considered by the promote pre-flight.
     let note_json = serde_json::json!({"title": "test-note", "sections": [{"name": "body", "content": "test"}]});
     let note_result = run_srs_stdin_in_dir(&repo, &["note", "create"], &note_json.to_string());
     assert_eq!(
@@ -6727,22 +6797,15 @@ fn vocabulary_promote_blocked_returns_structured_payload() {
         .as_str()
         .unwrap()
         .to_string();
-
-    let tag_alpha = run_srs_in_dir(&repo, &["note", "tag", "add", &note_id, "alpha"]);
+    let tag_gamma = run_srs_in_dir(&repo, &["note", "tag", "add", &note_id, "gamma"]);
     assert_eq!(
-        tag_alpha["ok"], true,
-        "note tag add alpha failed: {:?}",
-        tag_alpha
+        tag_gamma["ok"], true,
+        "note tag add gamma failed: {:?}",
+        tag_gamma
     );
 
-    let tag_beta = run_srs_in_dir(&repo, &["note", "tag", "add", &note_id, "beta"]);
-    assert_eq!(
-        tag_beta["ok"], true,
-        "note tag add beta failed: {:?}",
-        tag_beta
-    );
-
-    // Attempt to promote — should be blocked by "beta" (no active term)
+    // Attempt to promote — should be blocked by "beta" (no active term) and
+    // ONLY "beta" — never the unrelated tag "gamma".
     let (_exit_ok, result) =
         run_srs_any_status_in_dir(&repo, &["vocabulary", "promote", &vocab_id]);
 
