@@ -121,3 +121,9 @@ The full, current implementation/conformance status lives in [`docs/roadmap/exte
 - [`docs/project-management.md`](docs/project-management.md) — the canonical issue/priority process (Project #5).
 - [`plans/`](plans/) — active implementation and phase plans.
 - [`CLAUDE.md`](CLAUDE.md) — contributor rules (crate authority, handler pattern, payload contract).
+
+## Licence
+
+The SRS Rust reference implementation and WASM bindings are released under your choice of [MIT](LICENSE-MIT) or [Apache License 2.0](LICENSE-APACHE).
+
+Contributions to this repository are made under the terms of the [Developer Certificate of Origin](CONTRIBUTING.md#developer-certificate-of-origin). By submitting a pull request, you certify that you have the right to submit that work under the Apache License 2.0 and/or MIT by signing off your commits with `git commit -s`.
