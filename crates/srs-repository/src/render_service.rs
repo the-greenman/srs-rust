@@ -1218,6 +1218,64 @@ fn format_field_row(
     }
 }
 
+/// `[FR-037-3]` (Revision 4) — whether a value's first line itself opens a
+/// block-level construct: a fenced code block's opening fence, an unordered
+/// or ordered list item, a table row, an ATX heading, a blockquote, or a
+/// thematic break. This is a property of the value's own nature, never of
+/// what a particular renderer finds difficult to emit.
+fn value_opens_block_level(value: &str) -> bool {
+    let line = value.split('\n').next().unwrap_or("");
+    is_fence_opener(line)
+        || is_atx_heading(line)
+        || line.starts_with('>')
+        || is_unordered_list_item(line)
+        || is_ordered_list_item(line)
+        || line.starts_with('|')
+        || is_thematic_break(line)
+}
+
+/// A fenced code block's opening fence: three or more `` ` `` or `~` characters.
+fn is_fence_opener(line: &str) -> bool {
+    let first = match line.chars().next() {
+        Some(c @ ('`' | '~')) => c,
+        _ => return false,
+    };
+    line.chars().take_while(|&c| c == first).count() >= 3
+}
+
+/// An ATX heading: one to six `#` characters followed by a space, or end of line.
+fn is_atx_heading(line: &str) -> bool {
+    let hashes = line.chars().take_while(|&c| c == '#').count();
+    (1..=6).contains(&hashes) && matches!(line.chars().nth(hashes), None | Some(' '))
+}
+
+/// An unordered list item: `-`, `*`, or `+` followed by a space.
+fn is_unordered_list_item(line: &str) -> bool {
+    let mut chars = line.chars();
+    matches!(chars.next(), Some('-' | '*' | '+')) && chars.next() == Some(' ')
+}
+
+/// An ordered list item: one or more digits followed by `.` or `)` and a space.
+fn is_ordered_list_item(line: &str) -> bool {
+    let digits = line.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digits == 0 {
+        return false;
+    }
+    let mut rest = line[digits..].chars();
+    matches!(rest.next(), Some('.' | ')')) && rest.next() == Some(' ')
+}
+
+/// A thematic break: a line consisting solely of three or more `-`, `*`, or
+/// `_` characters, optionally space-separated.
+fn is_thematic_break(line: &str) -> bool {
+    let stripped: String = line.chars().filter(|c| !c.is_whitespace()).collect();
+    let first = match stripped.chars().next() {
+        Some(c @ ('-' | '*' | '_')) => c,
+        _ => return false,
+    };
+    stripped.len() >= 3 && stripped.chars().all(|c| c == first)
+}
+
 /// The `markdown`, `adoc` and `text` row forms. `emphasis` wraps the label —
 /// empty for `text`, which carries no bold requirement because the Heading
 /// Hierarchy table's preamble scopes it to `markdown`, `html` and `adoc`, and
@@ -1231,7 +1289,17 @@ fn format_field_row_text(
 ) -> String {
     let label = format!("{emphasis}{label}{emphasis}");
     match value {
-        RowValue::Scalar(v) => format!("{label}: {v}"),
+        RowValue::Scalar(v) => {
+            if value_opens_block_level(v) {
+                // `[FR-037-3]` (Revision 4): the label occupies its own line
+                // with no trailing space, and the value begins on the line
+                // immediately following — opening it mid-line would not be
+                // recognised by a CommonMark parser as the construct it is.
+                format!("{label}:\n{v}")
+            } else {
+                format!("{label}: {v}")
+            }
+        }
         RowValue::Placeholder => format!("{label}: {EMPTY_PLACEHOLDER}"),
         RowValue::Entries(entries) => {
             // `[FR-037-5]`: the label occupies its own line and keeps its
@@ -11540,6 +11608,117 @@ mod tests {
                 "{format} row must separate label and value with ': '; got {row:?}"
             );
         }
+    }
+
+    #[test]
+    fn fr_037_3_rev4_inline_value_keeps_the_compact_form() {
+        // Proves the amendment is conditional: a value whose first line opens
+        // no block-level construct is unaffected by Revision 4.
+        assert_eq!(
+            field_row("markdown", "rationale", "Rationale", &scalar("because")),
+            "**Rationale**: because"
+        );
+    }
+
+    #[test]
+    fn fr_037_3_rev4_fenced_code_opener_moves_to_its_own_line() {
+        assert_eq!(
+            field_row(
+                "markdown",
+                "content",
+                "Content",
+                &scalar("```rust\nfn f() {}\n```")
+            ),
+            "**Content**:\n```rust\nfn f() {}\n```"
+        );
+    }
+
+    #[test]
+    fn fr_037_3_rev4_unordered_list_item_moves_to_its_own_line() {
+        assert_eq!(
+            field_row("markdown", "content", "Content", &scalar("- one\n- two")),
+            "**Content**:\n- one\n- two"
+        );
+    }
+
+    #[test]
+    fn fr_037_3_rev4_ordered_list_item_moves_to_its_own_line() {
+        assert_eq!(
+            field_row("markdown", "content", "Content", &scalar("1. one\n2. two")),
+            "**Content**:\n1. one\n2. two"
+        );
+    }
+
+    #[test]
+    fn fr_037_3_rev4_table_row_moves_to_its_own_line() {
+        assert_eq!(
+            field_row(
+                "markdown",
+                "content",
+                "Content",
+                &scalar("| a | b |\n|---|---|")
+            ),
+            "**Content**:\n| a | b |\n|---|---|"
+        );
+    }
+
+    #[test]
+    fn fr_037_3_rev4_atx_heading_moves_to_its_own_line() {
+        assert_eq!(
+            field_row(
+                "markdown",
+                "content",
+                "Content",
+                &scalar("## Heading\ntext")
+            ),
+            "**Content**:\n## Heading\ntext"
+        );
+    }
+
+    #[test]
+    fn fr_037_3_rev4_blockquote_moves_to_its_own_line() {
+        assert_eq!(
+            field_row("markdown", "content", "Content", &scalar("> quoted")),
+            "**Content**:\n> quoted"
+        );
+    }
+
+    #[test]
+    fn fr_037_3_rev4_thematic_break_moves_to_its_own_line() {
+        assert_eq!(
+            field_row("markdown", "content", "Content", &scalar("---\nrest")),
+            "**Content**:\n---\nrest"
+        );
+    }
+
+    #[test]
+    fn fr_037_3_rev4_no_trailing_space_after_colon_on_the_label_line() {
+        let row = field_row("markdown", "content", "Content", &scalar("- one"));
+        assert_eq!(row.lines().next().unwrap(), "**Content**:");
+    }
+
+    #[test]
+    fn fr_037_3_rev4_rule_does_not_apply_to_html() {
+        // `[FR-037-4]`'s structure already carries the value inside its own
+        // `span`; a block-opening first line is never parsed as CommonMark.
+        assert_eq!(
+            field_row("html", "content", "Content", &scalar("- one")),
+            "<div class=\"srs-field srs-fieldname-content\">\
+             <strong class=\"srs-field-label\">Content</strong>: \
+             <span class=\"srs-field-value\">- one</span></div>"
+        );
+    }
+
+    #[test]
+    fn fr_037_3_rev4_applies_uniformly_to_adoc_and_text() {
+        assert_eq!(
+            field_row("adoc", "content", "Content", &scalar("* one")),
+            "*Content*:\n* one"
+        );
+        assert_eq!(
+            field_row("text", "content", "Content", &scalar("* one")),
+            "Content:\n* one"
+        );
     }
 
     #[test]
