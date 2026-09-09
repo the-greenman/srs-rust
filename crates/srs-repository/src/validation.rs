@@ -3122,6 +3122,198 @@ mod tests {
         );
     }
 
+    // --- srs-rust#1000: sub-package vocabularies must merge into the effective package set ---
+
+    #[test]
+    fn subpackage_vocabulary_resolves_via_packagerefs() {
+        let temp = TempDir::new().unwrap();
+        let field_id = "00000000-0000-4000-8000-000000000040";
+        let vocab_id = "00000000-0000-4000-8000-000000000041";
+        let type_id = "00000000-0000-4000-8000-000000000042";
+
+        // Manifest: primary package has no vocabularies of its own; the
+        // vocabulary is declared entirely inside a packageRefs sub-package
+        // boundary, mirroring the muDemocracy `muSrs/packages/argument/` layout
+        // that exposed the bug (srs-rust#1000).
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+                "srsVersion": "2.0",
+                "dataModelRevision": 7,
+                "repositoryId": "00000000-0000-4000-8000-000000000099",
+                "title": "Test Repo",
+                "container": {
+                    "containerId": "00000000-0000-4000-8000-000000000099",
+                    "title": "Test Repo"
+                },
+                "createdAt": "2026-01-01T00:00:00Z",
+                "packageRefs": [{"mode": "local", "path": "extensions/subpkg"}]
+            }),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &minimal_package_json_full(&[], &[], &[], &[]),
+        );
+
+        // Sub-package: owns the vocabulary, the select field referencing it,
+        // and a type using that field.
+        write_json(
+            temp.path(),
+            "extensions/subpkg/package.json",
+            &json!({
+                "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
+                "id": "00000000-0000-4000-8000-000000000043",
+                "namespace": "com.test.ext",
+                "name": "subpkg",
+                "version": "1.0.0",
+                "title": "subpkg",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": ["fields/kind.json"],
+                "types": ["types/argument.json"],
+                "views": [],
+                "vocabularies": ["vocabularies/kind-vocab.json"]
+            }),
+        );
+        write_json(
+            temp.path(),
+            "extensions/subpkg/fields/kind.json",
+            &minimal_field_json_with_vocab_ref(field_id, "kind", Some(vocab_id)),
+        );
+        write_json(
+            temp.path(),
+            "extensions/subpkg/vocabularies/kind-vocab.json",
+            &minimal_vocab_json(
+                vocab_id,
+                "closed",
+                vec![("t1", "claim"), ("t2", "evidence")],
+            ),
+        );
+        write_json(
+            temp.path(),
+            "extensions/subpkg/types/argument.json",
+            &json!({
+                "$schema": srs_schema::TYPE_SCHEMA_ID,
+                "id": type_id,
+                "namespace": "com.test.ext",
+                "name": "argument",
+                "version": 1,
+                "description": "Test type",
+                "fields": [
+                    {"fieldId": field_id, "order": 0, "required": false}
+                ],
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+
+        // load_package must return the sub-package vocabulary as part of the
+        // effective package set.
+        let package = store.load_package().unwrap();
+        assert!(
+            package.vocabularies.iter().any(|v| v.id == vocab_id),
+            "expected sub-package vocabulary '{vocab_id}' to be merged into the effective package set, got: {:?}",
+            package.vocabularies.iter().map(|v| &v.id).collect::<Vec<_>>()
+        );
+
+        // repo validate must report zero V2 diagnostics — the select field's
+        // vocabularyRef resolves.
+        let report = validate_repository(&store).unwrap();
+        let v2_errors: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("V2"))
+            .collect();
+        assert!(
+            v2_errors.is_empty(),
+            "expected no V2 errors once the sub-package vocabulary resolves, got: {:?}",
+            v2_errors
+        );
+    }
+
+    #[test]
+    fn subpackage_vocabulary_conflict_with_primary_errors() {
+        let temp = TempDir::new().unwrap();
+        let vocab_id = "00000000-0000-4000-8000-000000000050";
+
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+                "srsVersion": "2.0",
+                "dataModelRevision": 7,
+                "repositoryId": "00000000-0000-4000-8000-000000000099",
+                "title": "Test Repo",
+                "container": {
+                    "containerId": "00000000-0000-4000-8000-000000000099",
+                    "title": "Test Repo"
+                },
+                "createdAt": "2026-01-01T00:00:00Z",
+                "packageRefs": [{"mode": "local", "path": "extensions/subpkg"}]
+            }),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        // Primary package declares a vocabulary with `vocab_id` under the name
+        // "primary-vocab" ...
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &minimal_package_json_full(&[], &[], &["vocabularies/v.json"], &[]),
+        );
+        write_json(
+            temp.path(),
+            "package/vocabularies/v.json",
+            &minimal_vocab_json(vocab_id, "closed", vec![]),
+        );
+
+        // ... and the sub-package boundary declares the SAME id under a
+        // different `name` — same-id/different-content must be a hard conflict,
+        // exactly like the other seven merged definition kinds.
+        write_json(
+            temp.path(),
+            "extensions/subpkg/package.json",
+            &json!({
+                "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
+                "id": "00000000-0000-4000-8000-000000000051",
+                "namespace": "com.test.ext",
+                "name": "subpkg",
+                "version": "1.0.0",
+                "title": "subpkg",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [],
+                "types": [],
+                "views": [],
+                "vocabularies": ["vocabularies/v.json"]
+            }),
+        );
+        let mut conflicting_vocab = minimal_vocab_json(vocab_id, "closed", vec![]);
+        conflicting_vocab["name"] = json!("different-name");
+        write_json(
+            temp.path(),
+            "extensions/subpkg/vocabularies/v.json",
+            &conflicting_vocab,
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let err = store.load_package().unwrap_err();
+        match err {
+            crate::error::RepositoryError::PackageRefConflict { kind, id, .. } => {
+                assert_eq!(kind, "vocabulary");
+                assert_eq!(id, vocab_id);
+            }
+            other => panic!("expected PackageRefConflict{{kind: \"vocabulary\"}}, got: {other:?}"),
+        }
+    }
+
     // --- V5: key∪alias uniqueness within vocabulary ---
 
     #[test]
