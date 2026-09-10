@@ -9652,7 +9652,9 @@ mod tests {
         })
         .expect("render should succeed");
         assert!(
-            result.rendered.contains("class=\"card-head\">Present Heading</div>"),
+            result
+                .rendered
+                .contains("class=\"card-head\">Present Heading</div>"),
             "expected the wrapper's own heading markup to carry the heading value; got: {}",
             result.rendered
         );
