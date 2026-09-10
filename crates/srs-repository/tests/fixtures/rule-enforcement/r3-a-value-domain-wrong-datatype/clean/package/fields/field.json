@@ -1,0 +1,11 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/field.json",
+  "id": "00000000-0000-4000-8000-000000000020",
+  "namespace": "com.test",
+  "name": "rule-field",
+  "version": 1,
+  "description": "Rule enforcement fixture field",
+  "aiGuidance": {"purpose": "test field"},
+  "fieldType": {"datatype": "boolean"},
+  "createdAt": "2026-01-01T00:00:00Z"
+}
