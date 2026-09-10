@@ -2950,7 +2950,12 @@ mod tests {
             }),
         );
 
-        (store, original.instance_id, successor.instance_id, relation_id)
+        (
+            store,
+            original.instance_id,
+            successor.instance_id,
+            relation_id,
+        )
     }
 
     #[test]
@@ -2983,9 +2988,11 @@ mod tests {
             store.find_instance(&original_id).unwrap().is_some(),
             "a refused delete must not remove the record"
         );
-        let relations_after =
-            relation_service::list_relations(&store, relation_service::ListRelationsFilter::default())
-                .unwrap();
+        let relations_after = relation_service::list_relations(
+            &store,
+            relation_service::ListRelationsFilter::default(),
+        )
+        .unwrap();
         assert_eq!(
             relations_after.len(),
             1,
@@ -3005,9 +3012,11 @@ mod tests {
         assert_eq!(result.cascaded_relations[0].target_id, original_id);
 
         assert!(store.find_instance(&original_id).unwrap().is_none());
-        let relations_after =
-            relation_service::list_relations(&store, relation_service::ListRelationsFilter::default())
-                .unwrap();
+        let relations_after = relation_service::list_relations(
+            &store,
+            relation_service::ListRelationsFilter::default(),
+        )
+        .unwrap();
         assert!(
             relations_after.is_empty(),
             "cascade must remove the now-dangling relation, and report having done so"

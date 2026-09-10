@@ -32,7 +32,11 @@ pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
         } => cmd_record_create(ctx, type_filter, version, dir),
         RecordCommand::Update { id, json: _ } => cmd_record_update(ctx, id),
         RecordCommand::Validate => cmd_record_validate(ctx),
-        RecordCommand::Delete { id, cascade, json: _ } => cmd_record_delete(ctx, id, cascade),
+        RecordCommand::Delete {
+            id,
+            cascade,
+            json: _,
+        } => cmd_record_delete(ctx, id, cascade),
         RecordCommand::Transition { id } => cmd_record_transition(ctx, id),
         RecordCommand::Successor { id } => cmd_record_successor(ctx, id),
         RecordCommand::AllowedTransitions { id } => cmd_record_allowed_transitions(ctx, id),
