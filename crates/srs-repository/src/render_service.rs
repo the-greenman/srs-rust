@@ -66,9 +66,9 @@ pub struct ProjectedRelationTarget {
 
 /// RFC-027 — whether a `ProjectedRelationRow` presents the record as the
 /// source (`forward`) or target (`inverse`) of its listed edges. A `Both`
-/// `PresentationDirection` entry produces one combined row under the forward
-/// label (RFC-027 §B) — that row serialises as `forward`, matching the label
-/// computation's own `Inverse` vs. everything-else split.
+/// `PresentationDirection` entry produces two rows, one per concrete
+/// direction, forward before inverse (Change C rules 3-4) — never a single
+/// collapsed row.
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProjectedRelationDirection {
@@ -2442,73 +2442,93 @@ fn collect_relation_rows(
             continue;
         }
 
-        let direction = entry
+        // RFC-027 Change C rule 3: one row per (entry, direction) with at
+        // least one edge. A `Both` entry implies two concrete directions,
+        // each with its own `seen` set and its own row — never a single
+        // merged row (rule 4: forward precedes inverse per entry).
+        let requested_direction = entry
             .directions
             .as_ref()
             .unwrap_or(&PresentationDirection::Forward);
-        let mut seen = std::collections::HashSet::new();
-        let mut target_ids: Vec<String> = Vec::new();
+        let concrete_directions: &[PresentationDirection] = match requested_direction {
+            PresentationDirection::Forward => &[PresentationDirection::Forward],
+            PresentationDirection::Inverse => &[PresentationDirection::Inverse],
+            PresentationDirection::Both => &[
+                PresentationDirection::Forward,
+                PresentationDirection::Inverse,
+            ],
+        };
 
-        if matches!(
-            direction,
-            PresentationDirection::Forward | PresentationDirection::Both
-        ) {
-            for rel in relations {
-                if rel.relation_type == entry.relation_type
-                    && rel.source_instance_id == record.instance_id
-                    && is_active_relation(rel)
-                    && seen.insert(rel.target_instance_id.clone())
-                {
-                    target_ids.push(rel.target_instance_id.clone());
+        for direction in concrete_directions {
+            let mut seen = std::collections::HashSet::new();
+            let mut target_ids: Vec<String> = Vec::new();
+
+            match direction {
+                PresentationDirection::Forward => {
+                    for rel in relations {
+                        if rel.relation_type == entry.relation_type
+                            && rel.source_instance_id == record.instance_id
+                            && is_active_relation(rel)
+                            && seen.insert(rel.target_instance_id.clone())
+                        {
+                            target_ids.push(rel.target_instance_id.clone());
+                        }
+                    }
+                }
+                PresentationDirection::Inverse => {
+                    for rel in relations {
+                        if rel.relation_type == entry.relation_type
+                            && rel.target_instance_id == record.instance_id
+                            && is_active_relation(rel)
+                            && seen.insert(rel.source_instance_id.clone())
+                        {
+                            target_ids.push(rel.source_instance_id.clone());
+                        }
+                    }
+                }
+                PresentationDirection::Both => {
+                    unreachable!("concrete_directions never contains Both — expanded above")
                 }
             }
-        }
-        if matches!(
-            direction,
-            PresentationDirection::Inverse | PresentationDirection::Both
-        ) {
-            for rel in relations {
-                if rel.relation_type == entry.relation_type
-                    && rel.target_instance_id == record.instance_id
-                    && is_active_relation(rel)
-                    && seen.insert(rel.source_instance_id.clone())
-                {
-                    target_ids.push(rel.source_instance_id.clone());
-                }
+
+            if target_ids.is_empty() {
+                continue;
             }
-        }
 
-        if target_ids.is_empty() {
-            continue;
-        }
+            let row_label = compute_relation_row_label(entry, rtd, direction);
 
-        let row_label = compute_relation_row_label(entry, rtd, direction);
+            let mut targets: Vec<ProjectedRelationTarget> = Vec::new();
+            for id in &target_ids {
+                let display_label = resolve_display_label_for_relation_target(
+                    store,
+                    id,
+                    section,
+                    package,
+                    diagnostics,
+                )?;
+                targets.push(ProjectedRelationTarget {
+                    instance_id: id.clone(),
+                    display_label,
+                });
+            }
+            targets.sort_by(|a, b| a.display_label.cmp(&b.display_label));
 
-        let mut targets: Vec<ProjectedRelationTarget> = Vec::new();
-        for id in &target_ids {
-            let display_label = resolve_display_label_for_relation_target(
-                store,
-                id,
-                section,
-                package,
-                diagnostics,
-            )?;
-            targets.push(ProjectedRelationTarget {
-                instance_id: id.clone(),
-                display_label,
+            rows.push(ProjectedRelationRow {
+                relation_type: entry.relation_type.clone(),
+                // RFC-027 Change C rules 3-4: each concrete direction gets
+                // its own row, so this is always the direction actually
+                // selected above — never a collapsed `Both`.
+                direction: match direction {
+                    PresentationDirection::Inverse => ProjectedRelationDirection::Inverse,
+                    PresentationDirection::Forward => ProjectedRelationDirection::Forward,
+                    PresentationDirection::Both => {
+                        unreachable!("concrete_directions never contains Both — expanded above")
+                    }
+                },
+                label: row_label,
+                targets,
             });
         }
-        targets.sort_by(|a, b| a.display_label.cmp(&b.display_label));
-
-        rows.push(ProjectedRelationRow {
-            relation_type: entry.relation_type.clone(),
-            direction: match direction {
-                PresentationDirection::Inverse => ProjectedRelationDirection::Inverse,
-                _ => ProjectedRelationDirection::Forward,
-            },
-            label: row_label,
-            targets,
-        });
     }
 
     Ok(rows)
@@ -2553,9 +2573,10 @@ fn compute_relation_row_label(
                         format!("{} (incoming)", humanize_relation_key(&entry.relation_type))
                     })
             }),
-        // RFC-027 §B: Both direction produces one combined row under the forward label.
-        // inverseLabel is used only for Inverse-direction rows.
-        _ => entry
+        // RFC-027 Change C rules 3-4: callers always pass a concrete Forward
+        // or Inverse direction (a `Both` entry is expanded into two rows
+        // before this is called) — this arm is the Forward label.
+        PresentationDirection::Forward => entry
             .forward_label
             .clone()
             .or_else(|| {
@@ -2566,6 +2587,9 @@ fn compute_relation_row_label(
                 }
             })
             .unwrap_or_else(|| humanize_relation_key(&entry.relation_type)),
+        PresentationDirection::Both => {
+            unreachable!("collect_relation_rows never passes Both — expanded into Forward/Inverse")
+        }
     }
 }
 
