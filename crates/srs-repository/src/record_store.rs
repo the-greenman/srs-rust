@@ -378,6 +378,15 @@ pub fn update_record(
         None => record.field_meta,
     };
 
+    // Envelope extras (`meta`, …): a key sent in the update replaces (or adds)
+    // its stored value; a key not sent is left untouched — same preserve-if-
+    // absent convention as `fieldMeta`/`tags` above, applied per key since
+    // `extra` is an open-ended bag rather than a single value (srs-rust#1031:
+    // this used to unconditionally keep the stored `extra`, silently dropping
+    // whatever the caller sent).
+    let mut updated_extra = record.extra;
+    updated_extra.extend(input.extra);
+
     let effective_fields = package.resolved_effective_fields(record_type)?;
     let updated_record = Record {
         instance_id: record.instance_id,
@@ -391,7 +400,7 @@ pub fn update_record(
         tags: updated_tags,
         created_at: record.created_at,
         updated_at: Some(chrono::Utc::now().to_rfc3339()),
-        extra: record.extra,
+        extra: updated_extra,
     };
 
     validate_record(&updated_record, record_type, &effective_fields, &package).map_err(|e| {
@@ -626,6 +635,11 @@ pub struct CreateRecordInput {
     /// not a back door around ordinary transition validation.
     #[serde(default)]
     pub lifecycle_state: Option<String>,
+    /// Envelope extras (`meta`, …) — carried straight onto `Record.extra`
+    /// (srs-rust#1031). Absent keys stay absent; nothing here is validated or
+    /// interpreted by this struct.
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 /// Input for `update_record`.
@@ -648,6 +662,12 @@ pub struct UpdateRecordInput {
     pub tags: Option<Vec<String>>,
     #[serde(default)]
     pub type_version: Option<u32>,
+    /// Envelope extras (`meta`, …) — merged key-by-key onto the stored
+    /// `Record.extra` (srs-rust#1031): a key present here replaces its stored
+    /// value (or adds it); a key not sent is left untouched, matching the
+    /// preserve-if-absent convention `fieldMeta`/`tags` already use.
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 /// Self-contained input for `validate_record_input` (no-write preflight).
@@ -945,6 +965,7 @@ pub fn create_record_in_context(
         None => None,
     };
 
+    let extra = input.extra;
     let mut record = create_record_at_dir(
         store,
         &record_type.id,
@@ -954,6 +975,13 @@ pub fn create_record_in_context(
         input.tags,
         dir,
     )?;
+
+    // Envelope extras (`meta`, …) are not part of `create_record_at_dir`'s
+    // positional surface — apply and persist them here (srs-rust#1031).
+    if !extra.is_empty() {
+        record.extra = extra;
+        store.save_record(&record)?;
+    }
 
     // Apply the explicit lifecycle_state now that the record exists. A plain
     // create has no accompanying relation (unlike create_record_successor), so a
@@ -1156,6 +1184,10 @@ pub struct CreateRecordSuccessorInput {
     pub lifecycle_state: Option<String>,
     /// Optional type version override (defaults to same as predecessor).
     pub type_version: Option<u32>,
+    /// Envelope extras (`meta`, …) — carried onto the new successor's
+    /// `Record.extra` (srs-rust#1031), e.g. `meta.derivedFrom`.
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 /// Result for create_record_successor.
@@ -1595,6 +1627,7 @@ pub fn create_record_successor(
     }
 
     // Create the successor record (lifecycle_state auto-set from Type.initialState).
+    let extra = input.extra;
     let mut successor = create_record_at_dir(
         store,
         &predecessor.type_id,
@@ -1604,6 +1637,14 @@ pub fn create_record_successor(
         None,
         store.record_tier_dir(RecordTier::Tier2),
     )?;
+
+    // Envelope extras (`meta`, …) are not part of `create_record_at_dir`'s
+    // positional surface — apply and persist them here (srs-rust#1031), e.g.
+    // `meta.derivedFrom` recording the predecessor's id.
+    if !extra.is_empty() {
+        successor.extra = extra;
+        store.save_record(&successor)?;
+    }
 
     // Create the relation: successor → predecessor.
     // Use create_relation directly with the definitions already loaded above — avoids a
@@ -2732,6 +2773,7 @@ mod tests {
                 field_values: updated_values,
                 tags: None,
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -2753,6 +2795,7 @@ mod tests {
                 field_values: invalid_values,
                 tags: None,
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             }
         )
         .is_err());
@@ -3371,6 +3414,7 @@ mod tests {
                 field_values: fvs(vec![("title", json!("Updated Item"))]),
                 lifecycle_state: None,
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -3400,6 +3444,7 @@ mod tests {
                 field_values: fvs(vec![("title", json!("Should Fail"))]),
                 lifecycle_state: None,
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         );
 
@@ -3581,6 +3626,7 @@ mod tests {
                 field_values: fvs(vec![("title", json!("Retired Type"))]),
                 lifecycle_state: None,
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         );
 
@@ -3611,6 +3657,7 @@ mod tests {
                 field_values: fvs(vec![("title", json!("Deprecated Type"))]),
                 lifecycle_state: None,
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         );
 
@@ -3641,6 +3688,7 @@ mod tests {
                 field_values: fvs(vec![("title", json!("Tombstone Type"))]),
                 lifecycle_state: None,
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         );
 
@@ -3711,6 +3759,7 @@ mod tests {
                 field_values: fvs(vec![("title", json!("Conflict Type"))]),
                 lifecycle_state: None,
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         );
 
@@ -3756,6 +3805,7 @@ mod tests {
                 field_values: fvs(vec![("title", json!("Next Version"))]),
                 lifecycle_state: None,
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -3839,6 +3889,7 @@ mod tests {
                 field_meta: Some(meta_for("test-name", "ai")),
                 tags: None,
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .expect("update");
@@ -3875,6 +3926,7 @@ mod tests {
                 field_values: new_fv,
                 tags: None,
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .expect("update");
@@ -3884,6 +3936,156 @@ mod tests {
         assert!(
             loaded.field_meta.is_some(),
             "fieldMeta preserved when not supplied"
+        );
+    }
+
+    // srs-rust#1031: `record update` previously returned `ok: true` while
+    // silently dropping a top-level `meta` object — `UpdateRecordInput` had no
+    // `extra`/flatten catch-all, so serde ignored the unknown key. These three
+    // tests are the red-test-first repro: they failed against the pre-fix
+    // struct/service (no `extra` field to carry `meta` through at all) and
+    // pass now that `UpdateRecordInput`, `CreateRecordInput` and
+    // `CreateRecordSuccessorInput` all carry it onto `Record.extra`.
+    #[test]
+    fn update_record_persists_meta_round_trip() {
+        let store = make_store_with_package();
+        let fv = fvs(vec![("test-name", json!("Initial"))]);
+        let record = create_record(&store, "type-test-001", 1, fv, None, None).expect("create");
+        let id = record.instance_id.clone();
+
+        let mut extra = std::collections::BTreeMap::new();
+        extra.insert("meta".to_string(), json!({"derivedFrom": "predecessor-id"}));
+        update_record(
+            &store,
+            &id,
+            UpdateRecordInput {
+                field_values: fvs(vec![("test-name", json!("Initial"))]),
+                field_meta: None,
+                tags: None,
+                type_version: None,
+                extra,
+            },
+        )
+        .expect("update");
+
+        let loaded = get_record_by_id(&store, &id).unwrap().unwrap();
+        assert_eq!(
+            loaded.extra.get("meta"),
+            Some(&json!({"derivedFrom": "predecessor-id"})),
+            "meta must be persisted by record update, not silently dropped"
+        );
+    }
+
+    #[test]
+    fn update_record_without_extra_preserves_stored_meta() {
+        let store = make_store_with_package();
+        let fv = fvs(vec![("test-name", json!("Initial"))]);
+        let record = create_record(&store, "type-test-001", 1, fv, None, None).expect("create");
+        let id = record.instance_id.clone();
+
+        let mut extra = std::collections::BTreeMap::new();
+        extra.insert("meta".to_string(), json!({"derivedFrom": "original"}));
+        update_record(
+            &store,
+            &id,
+            UpdateRecordInput {
+                field_values: fvs(vec![("test-name", json!("Initial"))]),
+                field_meta: None,
+                tags: None,
+                type_version: None,
+                extra,
+            },
+        )
+        .expect("first update sets meta");
+
+        // Second update sends no `extra` at all — stored meta must survive
+        // (same preserve-if-absent convention as fieldMeta/tags).
+        update_record(
+            &store,
+            &id,
+            UpdateRecordInput {
+                field_values: fvs(vec![("test-name", json!("Changed again"))]),
+                field_meta: None,
+                tags: None,
+                type_version: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .expect("second update");
+
+        let loaded = get_record_by_id(&store, &id).unwrap().unwrap();
+        assert_eq!(loaded.value("test-name"), Some(&json!("Changed again")));
+        assert_eq!(
+            loaded.extra.get("meta"),
+            Some(&json!({"derivedFrom": "original"})),
+            "meta preserved when the update omits extra entirely"
+        );
+    }
+
+    #[test]
+    fn create_record_in_context_persists_meta_round_trip() {
+        let store = make_store_with_package();
+        let mut extra = std::collections::BTreeMap::new();
+        extra.insert("meta".to_string(), json!({"source": "import"}));
+
+        let result = create_record_in_context(
+            &store,
+            "com.test/test-type",
+            None,
+            CreateRecordInput {
+                field_values: fvs(vec![("test-name", json!("Created"))]),
+                field_meta: None,
+                tags: None,
+                lifecycle_state: None,
+                extra,
+            },
+            None,
+            None,
+        )
+        .expect("create");
+
+        let loaded = get_record_by_id(&store, &result.record.instance_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            loaded.extra.get("meta"),
+            Some(&json!({"source": "import"})),
+            "meta must be persisted by record create, not silently dropped"
+        );
+    }
+
+    #[test]
+    fn create_record_successor_persists_meta_round_trip() {
+        let store = make_store_with_package();
+        let fv = fvs(vec![("test-name", json!("Predecessor"))]);
+        let predecessor =
+            create_record(&store, "type-test-001", 1, fv, None, None).expect("create");
+
+        let mut extra = std::collections::BTreeMap::new();
+        extra.insert(
+            "meta".to_string(),
+            json!({"derivedFrom": predecessor.instance_id.clone()}),
+        );
+        let result = create_record_successor(
+            &store,
+            &predecessor.instance_id,
+            CreateRecordSuccessorInput {
+                relation_type: "supersedes".to_string(),
+                field_values: fvs(vec![("test-name", json!("Successor"))]),
+                lifecycle_state: None,
+                type_version: None,
+                extra,
+            },
+        )
+        .expect("create successor");
+
+        let loaded = get_record_by_id(&store, &result.record.instance_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            loaded.extra.get("meta"),
+            Some(&json!({"derivedFrom": predecessor.instance_id})),
+            "meta must be persisted by record successor, not silently dropped"
         );
     }
 
@@ -3983,6 +4185,7 @@ mod tests {
                 field_values: new_fv,
                 tags: None,
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .expect("update");
@@ -4123,6 +4326,7 @@ mod tests {
                 field_values: fv,
                 tags: None,
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .expect("update");
@@ -4148,6 +4352,7 @@ mod tests {
                 field_values: fv,
                 tags: Some(vec![]),
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .expect("update");
@@ -4180,6 +4385,7 @@ mod tests {
                 field_values: fv,
                 tags: Some(vec!["new-tag-1".to_string(), "new-tag-2".to_string()]),
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .expect("update");
@@ -4677,6 +4883,7 @@ mod tests {
                 field_values: fvs(vec![("title", json!("Decision 1 v2"))]),
                 lifecycle_state: None,
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -4873,6 +5080,7 @@ mod tests {
                 field_values: FieldValues::new(),
                 lifecycle_state: Some("ghost".to_string()),
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap_err();
@@ -4894,6 +5102,7 @@ mod tests {
                 field_values: FieldValues::new(),
                 lifecycle_state: Some("unreachable-state".to_string()),
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap_err();
@@ -4915,6 +5124,7 @@ mod tests {
                 field_values: fvs(vec![("title", json!("Decision 1 v2"))]),
                 lifecycle_state: Some("ratified".to_string()),
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap();
@@ -4943,6 +5153,7 @@ mod tests {
                 field_meta: None,
                 tags: None,
                 lifecycle_state: Some("ghost".to_string()),
+                extra: std::collections::BTreeMap::new(),
             },
             None,
             None,
@@ -4966,6 +5177,7 @@ mod tests {
                 field_meta: None,
                 tags: None,
                 lifecycle_state: Some("unreachable-state".to_string()),
+                extra: std::collections::BTreeMap::new(),
             },
             None,
             None,
@@ -4995,6 +5207,7 @@ mod tests {
                 field_meta: None,
                 tags: None,
                 lifecycle_state: Some("closed".to_string()),
+                extra: std::collections::BTreeMap::new(),
             },
             None,
             None,
@@ -5020,6 +5233,7 @@ mod tests {
                 field_meta: None,
                 tags: None,
                 lifecycle_state: Some("closed".to_string()),
+                extra: std::collections::BTreeMap::new(),
             },
             None,
             None,
@@ -5045,6 +5259,7 @@ mod tests {
                 field_meta: None,
                 tags: None,
                 lifecycle_state: Some("superseded".to_string()),
+                extra: std::collections::BTreeMap::new(),
             },
             None,
             None,
@@ -5257,6 +5472,7 @@ mod tests {
                 field_values: fvs(vec![("title", json!("Decision 1 v2"))]),
                 lifecycle_state: Some("superseded".to_string()),
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .unwrap_err();
@@ -5462,6 +5678,7 @@ mod tests {
                 field_values: new_fv,
                 tags: None,
                 type_version: Some(2),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .expect("migration to v2 should succeed");
@@ -5500,6 +5717,7 @@ mod tests {
                 field_values: new_fv,
                 tags: None,
                 type_version: None,
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .expect("update without type_version should preserve stored version");
@@ -5533,6 +5751,7 @@ mod tests {
                 field_values: new_fv,
                 tags: None,
                 type_version: Some(99),
+                extra: std::collections::BTreeMap::new(),
             },
         );
 
@@ -5561,6 +5780,7 @@ mod tests {
                 field_values: new_fv,
                 tags: None,
                 type_version: Some(2),
+                extra: std::collections::BTreeMap::new(),
             },
         )
         .expect("migration to v2 should succeed");
@@ -5988,6 +6208,7 @@ mod tests {
                 field_values: fvs(vec![("test-name", json!("Context Success"))]),
                 tags: None,
                 lifecycle_state: None,
+                extra: std::collections::BTreeMap::new(),
             },
             Some(container_id.clone()),
             None,
@@ -6025,6 +6246,7 @@ mod tests {
                 field_values: fvs(vec![("test-name", json!("Roundtrip Context"))]),
                 tags: None,
                 lifecycle_state: None,
+                extra: std::collections::BTreeMap::new(),
             },
             Some(container_id.clone()),
             None,
@@ -6069,6 +6291,7 @@ mod tests {
                 field_values: fvs(vec![("test-name", json!("Nested"))]),
                 tags: None,
                 lifecycle_state: None,
+                extra: std::collections::BTreeMap::new(),
             },
             Some(child_id.clone()),
             None,
@@ -6326,6 +6549,7 @@ mod tests {
                 type_version: None,
                 field_values: fvs(vec![("trigger", json!("active"))]),
                 tags: None,
+                extra: std::collections::BTreeMap::new(),
             },
         );
         assert!(
