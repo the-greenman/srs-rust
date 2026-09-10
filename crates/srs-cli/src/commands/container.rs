@@ -96,7 +96,13 @@ fn cmd_update(ctx: CliContext, container_id: String) -> Result<String> {
     match with_store(&ctx, |store| {
         Ok(update_container(store, &container_id, patch)?)
     }) {
-        Ok(container) => output::serialize("container update", ContainerPayload { container }),
+        Ok(result) => output::serialize_with_diagnostics(
+            "container update",
+            ContainerPayload {
+                container: result.container,
+            },
+            result.diagnostics,
+        ),
         Err(e) => Ok(output::err("container update", vec![e.to_string()])),
     }
 }
