@@ -3167,8 +3167,30 @@ pub mod memory {
         }
 
         fn delete_relation_type_file(&self, relative_path: &str) -> Result<(), RepositoryError> {
-            let key = format!("package/{relative_path}");
-            self.data.borrow_mut().remove(&key);
+            // `relative_path` already carries its "package/..." (or sub-package
+            // boundary) prefix, matching how `save_relation_type_definition` keys
+            // `self.data` (it inserts `relative_path` as given, no added prefix).
+            // The previous `format!("package/{relative_path}")` here double-prefixed
+            // the key, so `remove` silently missed every entry and a "deleted"
+            // relation type stayed in `self.data` forever under MemoryStore.
+            let deleted_id = self
+                .data
+                .borrow()
+                .get(relative_path)
+                .and_then(|v| v.get("id"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            self.data.borrow_mut().remove(relative_path);
+            // Keep self.package in sync so load_package() reflects the deletion,
+            // mirroring save_relation_type_definition's sync on the write side —
+            // otherwise a post-delete load_package() still resolves the deleted
+            // definition's key through it.
+            if let Some(id) = deleted_id {
+                self.package
+                    .borrow_mut()
+                    .relation_type_definitions
+                    .retain(|rt| rt.id != id);
+            }
             Ok(())
         }
 

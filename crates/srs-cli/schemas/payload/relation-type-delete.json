@@ -7,6 +7,13 @@
     "id"
   ],
   "properties": {
+    "diagnostics": {
+      "description": "Notes, e.g., when the deleted definition's key remains resolvable through another installed definition or the embedded core package (srs-rust#995).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "id": {
       "type": "string"
     }

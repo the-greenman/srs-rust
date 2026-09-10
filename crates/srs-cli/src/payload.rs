@@ -536,6 +536,10 @@ pub struct RelationTypePayload {
 #[serde(rename_all = "camelCase")]
 pub struct RelationTypeDeletePayload {
     pub id: String,
+    /// Notes, e.g., when the deleted definition's key remains resolvable through
+    /// another installed definition or the embedded core package (srs-rust#995).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<String>,
 }
 
 // ── Container payloads ────────────────────────────────────────────────────────
