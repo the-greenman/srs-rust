@@ -705,6 +705,15 @@ impl FieldType {
                                 .to_string(),
                         );
                     }
+                } else if self.allowed_values.as_ref().is_some_and(|a| !a.is_empty())
+                    || self.vocabulary_ref.as_ref().is_some_and(|s| !s.is_empty())
+                {
+                    push(
+                        "R3",
+                        "allowedValues/vocabularyRef require valueDomain == closed (valueDomain \
+                         is explicitly 'open')"
+                            .to_string(),
+                    );
                 }
             }
             None => {
@@ -1325,6 +1334,33 @@ mod tests {
         let mut non_string = FieldType::number();
         non_string.value_domain = Some(ValueDomain::Open);
         assert!(non_string.validate().iter().any(|v| v.rule == "R3"));
+    }
+
+    /// RFC-032 [R3] / srs-rust#1003: an explicit `valueDomain: open` field MUST NOT
+    /// also carry `allowedValues` or `vocabularyRef` — a binding source only makes
+    /// sense against a closed domain. Before this test/fix, only the *absent*
+    /// `valueDomain` case (the `None` arm below `r3_closed_domain_requires_exactly_one_source_set`)
+    /// was rejected; `Some(Open)` with a binding validated clean.
+    #[test]
+    fn r3_open_domain_with_binding_is_rejected() {
+        let mut open_with_values = FieldType::string();
+        open_with_values.value_domain = Some(ValueDomain::Open);
+        open_with_values.allowed_values = Some(vec![AllowedValue::String("a".to_string())]);
+        assert!(open_with_values.validate().iter().any(|v| v.rule == "R3"));
+
+        let mut open_with_ref = FieldType::string();
+        open_with_ref.value_domain = Some(ValueDomain::Open);
+        open_with_ref.vocabulary_ref = Some("com.test/v@1".to_string());
+        assert!(open_with_ref.validate().iter().any(|v| v.rule == "R3"));
+
+        // Sanity: valueDomain: open with no binding stays clean.
+        let mut plain_open = FieldType::string();
+        plain_open.value_domain = Some(ValueDomain::Open);
+        assert!(
+            plain_open.validate().is_empty(),
+            "{:?}",
+            plain_open.validate()
+        );
     }
 
     /// srs#534 — the "untyped integer enum" capability: `valueDomain: closed`
