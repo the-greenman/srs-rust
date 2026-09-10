@@ -2502,9 +2502,6 @@ fn collect_relation_rows(
 
         rows.push(ProjectedRelationRow {
             relation_type: entry.relation_type.clone(),
-            // RFC-027 §B: a `Both` entry combines into one row under the
-            // forward label — this mirrors `compute_relation_row_label`'s own
-            // `Inverse` vs. everything-else split so the two never disagree.
             direction: match direction {
                 PresentationDirection::Inverse => ProjectedRelationDirection::Inverse,
                 _ => ProjectedRelationDirection::Forward,
@@ -5037,6 +5034,20 @@ mod tests {
     fn make_lifecycle_status_store(
         view_field_views: Vec<srs_core::types::view::ViewRow>,
     ) -> (crate::store::memory::MemoryStore, String, String) {
+        make_lifecycle_status_store_with_relations(view_field_views, vec![], None)
+    }
+
+    /// Same fixture as `make_lifecycle_status_store`, with an optional
+    /// `relationsPresentation` on section `s1` and the RTDs it needs — used
+    /// to strengthen the schema-conformance test with a real relation row
+    /// (srs-rust#1013).
+    fn make_lifecycle_status_store_with_relations(
+        view_field_views: Vec<srs_core::types::view::ViewRow>,
+        relation_type_definitions: Vec<
+            srs_core::types::relation_type_definition::RelationTypeDefinition,
+        >,
+        relations_presentation: Option<srs_core::types::view::RelationsPresentation>,
+    ) -> (crate::store::memory::MemoryStore, String, String) {
         use crate::package::Package;
         use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::lifecycle::{Lifecycle, LifecycleState, LifecycleTransition};
@@ -5192,7 +5203,7 @@ mod tests {
                 ordering: None,
                 required: None,
                 empty_behavior: None,
-                relations_presentation: None,
+                relations_presentation,
             }],
             navigation_links: None,
             export_config: Some(ExportConfig {
@@ -5221,7 +5232,7 @@ mod tests {
             version: "1.0.0".to_string(),
             fields: vec![title_field],
             record_types: vec![rfc_type],
-            relation_type_definitions: vec![],
+            relation_type_definitions,
             views: vec![view],
             compositions: vec![doc_view],
             themes: vec![],
@@ -5467,33 +5478,81 @@ mod tests {
         );
     }
 
-    /// srs-rust#817: a rendered JSON projection carrying a relation row
-    /// (relationType/direction), a typeVersion, and a property row must
-    /// validate cleanly against the canonical `document-view-output.json`
-    /// (`additionalProperties: false`) — the conformance fixture the issue
-    /// asked for, pinning all three so this cannot silently re-drift.
+    /// srs-rust#817 / srs-rust#1013: a rendered JSON projection carrying a
+    /// relation row (relationType/direction), a typeVersion, and a property
+    /// row must validate cleanly against the canonical
+    /// `document-view-output.json` (`additionalProperties: false`) — the
+    /// conformance fixture the issue asked for, pinning all three so this
+    /// cannot silently re-drift. Schema validation alone accepts either
+    /// `direction` enum value, so an explicit assertion of the *correct*
+    /// value is added on top (srs-rust#1013) — without it this test would
+    /// have stayed green through the Change C rules 3-4 defect.
     #[test]
     fn json_projection_validates_against_canonical_schema() {
         use srs_core::types::view::{FieldView, RecordProperty, RecordPropertyView, ViewRow};
 
-        let (store, _record_id, view_id) = make_lifecycle_status_store(vec![
-            ViewRow::Field(FieldView {
-                display_hint: None,
-                editor_hint_override: None,
-                composite_renderer: None,
-                field_id: "f-title".to_string(),
-                order: 0,
-                required: None,
-                visible: None,
-                display_label: None,
-            }),
-            ViewRow::RecordProperty(RecordPropertyView {
-                property: RecordProperty::LifecycleState,
-                order: 1,
-                display_label: None,
-                visible: None,
-            }),
-        ]);
+        let rtd = test_rtd("links-to", "Links To", None, false);
+        let rp = srs_core::types::view::RelationsPresentation {
+            include: vec![srs_core::types::view::RelationPresentationEntry {
+                relation_type: "links-to".to_string(),
+                directions: None,
+                forward_label: None,
+                inverse_label: None,
+            }],
+            label: None,
+        };
+        let (store, record_id, view_id) = make_lifecycle_status_store_with_relations(
+            vec![
+                ViewRow::Field(FieldView {
+                    display_hint: None,
+                    editor_hint_override: None,
+                    composite_renderer: None,
+                    field_id: "f-title".to_string(),
+                    order: 0,
+                    required: None,
+                    visible: None,
+                    display_label: None,
+                }),
+                ViewRow::RecordProperty(RecordPropertyView {
+                    property: RecordProperty::LifecycleState,
+                    order: 1,
+                    display_label: None,
+                    visible: None,
+                }),
+            ],
+            vec![rtd],
+            Some(rp),
+        );
+
+        let target_id = "00000000-0000-4000-8000-0000000000f2".to_string();
+        let mut fv = srs_core::types::record::FieldValues::new();
+        fv.insert("title", serde_json::json!("Target"));
+        store
+            .save_record(&srs_core::types::record::Record {
+                instance_id: target_id.clone(),
+                type_id: "t-rfc".to_string(),
+                type_version: 1,
+                type_namespace: "com.test".to_string(),
+                type_name: "rfc".to_string(),
+                field_values: fv,
+                field_meta: None,
+                lifecycle_state: Some("accepted".to_string()),
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: Some("2026-01-01T00:00:00Z".to_string()),
+                extra: std::collections::BTreeMap::new(),
+            })
+            .unwrap();
+        let coll = serde_json::json!({
+            "relations": [serde_json::to_value(test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000a1",
+                "links-to",
+                &record_id,
+                &target_id,
+            ))
+            .unwrap()]
+        });
+        crate::store::write_relations_standalone_for_test(&store, &coll);
 
         let result = render_composition(RenderCompositionOptions {
             store: &store,
@@ -5508,6 +5567,18 @@ mod tests {
         let proj = result
             .projection
             .expect("json format must produce a projection");
+        let rec = &proj.sections[0].records[0];
+        let relations = rec
+            .relations
+            .as_ref()
+            .expect("relations must populate for a default-direction entry with an edge");
+        assert_eq!(relations.len(), 1);
+        assert!(
+            matches!(relations[0].direction, ProjectedRelationDirection::Forward),
+            "a default-direction (forward) entry must serialise as forward, not just \
+             *an* enum value the schema happens to accept"
+        );
+
         let value = serde_json::to_value(&proj).expect("projection must serialise to JSON");
         srs_schema::SchemaRegistry::global()
             .validate_by_id(srs_schema::DOCUMENT_VIEW_OUTPUT_SCHEMA_ID, &value)
@@ -10503,6 +10574,14 @@ mod tests {
         assert!(diag.is_empty(), "unexpected diagnostics: {diag:?}");
     }
 
+    /// srs-rust#1013 — RFC-027 Change C rule 3 ("one row per (entry,
+    /// direction) with at least one edge") and rule 4 ("per entry, the
+    /// forward row precedes the inverse row"). This test previously asserted
+    /// the defect it now guards against: it accepted a single row merging
+    /// both the forward target and the inverse source under one `Links To`
+    /// label. It is rewritten, not repaired, to assert the two separate rows
+    /// Change C requires — forward first, inverse second, each under its own
+    /// (correct) label.
     #[test]
     fn relations_block_both_directions() {
         let store = make_rp_store(
@@ -10553,9 +10632,26 @@ mod tests {
             &store, &section, &record, &relations, &package, "markdown", &mut diag,
         )
         .unwrap();
-        assert!(out.contains("rec-fwd"), "forward target not in: {out}");
-        assert!(out.contains("rec-inv"), "inverse source not in: {out}");
         assert!(diag.is_empty(), "unexpected diagnostics: {diag:?}");
+
+        // Two distinct rows — no single row merging both targets (the defect
+        // this test used to encode).
+        let forward_row = "**Links To**: rec-fwd";
+        let inverse_row = "**Links to (incoming)**: rec-inv";
+        assert!(
+            !out.contains("rec-fwd, rec-inv") && !out.contains("rec-inv, rec-fwd"),
+            "forward and inverse targets must not be merged into one row: {out}"
+        );
+        let forward_pos = out
+            .find(forward_row)
+            .unwrap_or_else(|| panic!("forward row {forward_row:?} not in: {out}"));
+        let inverse_pos = out
+            .find(inverse_row)
+            .unwrap_or_else(|| panic!("inverse row {inverse_row:?} not in: {out}"));
+        assert!(
+            forward_pos < inverse_pos,
+            "forward row must precede inverse row (Change C rule 4): {out}"
+        );
     }
 
     #[test]
@@ -11245,6 +11341,139 @@ mod tests {
         assert!(
             matches!(relations[0].direction, ProjectedRelationDirection::Inverse),
             "an Inverse-direction entry must serialise as inverse"
+        );
+    }
+
+    /// srs-rust#1013 — the coverage hole: no JSON test exercised a
+    /// `Both`-direction entry before this fix, which is exactly how the
+    /// RFC-027 Change C rules 3-4 defect (a single collapsed `forward` row)
+    /// shipped. Asserts two rows, forward then inverse, each with its own
+    /// direction and label.
+    #[test]
+    fn json_projection_both_entry_emits_forward_and_inverse_rows() {
+        let store = make_rp_doc_store(
+            vec![test_rtd("links-to", "Links To", Some("linked-from"), false)],
+            "rec-src",
+            vec![RelationPresentationEntry {
+                relation_type: "links-to".to_string(),
+                directions: Some(PresentationDirection::Both),
+                forward_label: None,
+                inverse_label: None,
+            }],
+            &[
+                test_rel(
+                    "eeeeeeee-0000-4000-8000-0000000000a1",
+                    "links-to",
+                    "rec-src",
+                    "rec-fwd",
+                ),
+                test_rel(
+                    "eeeeeeee-0000-4000-8000-0000000000a2",
+                    "links-to",
+                    "rec-inv",
+                    "rec-src",
+                ),
+            ],
+        );
+        add_rp_record(&store, "rec-fwd", None);
+        add_rp_record(&store, "rec-inv", None);
+
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: "dv-rp-test",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        let proj = result.projection.unwrap();
+        let rec = &proj.sections[0].records[0];
+        let relations = rec.relations.as_ref().expect("relations must populate");
+        assert_eq!(
+            relations.len(),
+            2,
+            "a Both entry must emit two rows, not one collapsed row: {relations:?}"
+        );
+        assert!(
+            matches!(relations[0].direction, ProjectedRelationDirection::Forward),
+            "forward row must come first (Change C rule 4)"
+        );
+        assert_eq!(relations[0].label, "Links To");
+        assert_eq!(relations[0].targets[0].instance_id, "rec-fwd");
+        assert!(
+            matches!(relations[1].direction, ProjectedRelationDirection::Inverse),
+            "inverse row must come second (Change C rule 4)"
+        );
+        assert_eq!(relations[1].label, "Linked from");
+        assert_eq!(relations[1].targets[0].instance_id, "rec-inv");
+    }
+
+    /// srs-rust#1013 — the shared-`seen` bug: a genuine mutual pair (A links
+    /// to B AND B links to A, same relationType) must not lose one side to a
+    /// `seen` set shared across forward and inverse. Each direction now gets
+    /// its own `seen` set.
+    #[test]
+    fn both_entry_preserves_mutual_pair_of_same_type() {
+        let store = make_rp_doc_store(
+            vec![test_rtd("links-to", "Links To", Some("linked-from"), false)],
+            "rec-a",
+            vec![RelationPresentationEntry {
+                relation_type: "links-to".to_string(),
+                directions: Some(PresentationDirection::Both),
+                forward_label: None,
+                inverse_label: None,
+            }],
+            &[
+                test_rel(
+                    "eeeeeeee-0000-4000-8000-0000000000a1",
+                    "links-to",
+                    "rec-a",
+                    "rec-b",
+                ),
+                test_rel(
+                    "eeeeeeee-0000-4000-8000-0000000000a2",
+                    "links-to",
+                    "rec-b",
+                    "rec-a",
+                ),
+            ],
+        );
+        add_rp_record(&store, "rec-b", None);
+
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: "dv-rp-test",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        let proj = result.projection.unwrap();
+        let rec = &proj.sections[0].records[0];
+        let relations = rec.relations.as_ref().expect("relations must populate");
+        assert_eq!(
+            relations.len(),
+            2,
+            "expected both A's forward row and A's inverse row: {relations:?}"
+        );
+        assert!(matches!(
+            relations[0].direction,
+            ProjectedRelationDirection::Forward
+        ));
+        assert_eq!(
+            relations[0].targets[0].instance_id, "rec-b",
+            "A's forward row must list B"
+        );
+        assert!(matches!(
+            relations[1].direction,
+            ProjectedRelationDirection::Inverse
+        ));
+        assert_eq!(
+            relations[1].targets[0].instance_id, "rec-b",
+            "A's inverse row must also list B — a seen-set shared across \
+             directions must not swallow this side of the mutual pair"
         );
     }
 
