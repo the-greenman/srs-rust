@@ -2318,14 +2318,18 @@ mod tests {
         assert_eq!(remaining.len(), 1);
         let package = store.load_package().unwrap();
         assert_eq!(
-            package.resolve_relation_type("precedes").map(|rt| rt.id.as_str()),
-            Some(crate::core_package::core_package()
-                .relation_types
-                .iter()
-                .find(|rt| rt.key == "precedes")
-                .unwrap()
-                .id
-                .as_str())
+            package
+                .resolve_relation_type("precedes")
+                .map(|rt| rt.id.as_str()),
+            Some(
+                crate::core_package::core_package()
+                    .relation_types
+                    .iter()
+                    .find(|rt| rt.key == "precedes")
+                    .unwrap()
+                    .id
+                    .as_str()
+            )
         );
     }
 
@@ -2388,7 +2392,9 @@ mod tests {
         assert_eq!(remaining.len(), 1);
         let package = store.load_package().unwrap();
         assert_eq!(
-            package.resolve_relation_type("shared-key").map(|rt| rt.id.as_str()),
+            package
+                .resolve_relation_type("shared-key")
+                .map(|rt| rt.id.as_str()),
             Some("bbb2-shared-key-def")
         );
 
