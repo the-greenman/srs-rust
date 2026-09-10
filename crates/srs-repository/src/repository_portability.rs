@@ -1862,18 +1862,10 @@ mod tests {
             relation_type: "contains".to_string(),
             source_instance_id: "44444444-4444-4444-8444-444444444444".to_string(),
             target_instance_id: "11111111-1111-4111-8111-111111111111".to_string(),
-            asserted_by: None,
-            confidence: None,
             created_at: None,
-            created_by: None,
-            status: None,
-            valid_from: None,
-            valid_until: None,
             notes: None,
             source_refs: None,
             meta: None,
-            source_repository_id: None,
-            target_repository_id: None,
         });
 
         let temp = TempDir::new().unwrap();

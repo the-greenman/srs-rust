@@ -338,18 +338,10 @@ mod tests {
             relation_type: rel_type.to_string(),
             source_instance_id: src.to_string(),
             target_instance_id: tgt.to_string(),
-            asserted_by: None,
-            confidence: None,
             created_at: Some("2026-05-29T00:00:00Z".to_string()),
-            created_by: None,
-            status: None,
-            valid_from: None,
-            valid_until: None,
             notes: None,
             source_refs: None,
             meta: None,
-            source_repository_id: None,
-            target_repository_id: None,
         }
     }
 

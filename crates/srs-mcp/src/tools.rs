@@ -18,7 +18,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use srs_core::types::note::{Note, NoteSection};
 use srs_core::types::record::{FieldMeta, FieldValues};
-use srs_core::types::relation::{AssertedBy, Relation, RelationStatus};
+use srs_core::types::relation::Relation;
 use srs_repository::container_service;
 use srs_repository::discovery_service::{self, DiscoveryQuery};
 use srs_repository::protocol_run_service::{
@@ -304,51 +304,14 @@ impl From<RecordCreateToolInput> for CreateRecordInput {
     }
 }
 
-/// Provenance agent ("human" | "ai" | "imported") — mirrors `AssertedBy`.
-#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum AssertedByInput {
-    Human,
-    Ai,
-    Imported,
-}
-
-impl From<AssertedByInput> for AssertedBy {
-    fn from(input: AssertedByInput) -> Self {
-        match input {
-            AssertedByInput::Human => AssertedBy::Human,
-            AssertedByInput::Ai => AssertedBy::Ai,
-            AssertedByInput::Imported => AssertedBy::Imported,
-        }
-    }
-}
-
-/// Relation status — mirrors `RelationStatus`.
-#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum RelationStatusInput {
-    Proposed,
-    Active,
-    Rejected,
-    Superseded,
-}
-
-impl From<RelationStatusInput> for RelationStatus {
-    fn from(input: RelationStatusInput) -> Self {
-        match input {
-            RelationStatusInput::Proposed => RelationStatus::Proposed,
-            RelationStatusInput::Active => RelationStatus::Active,
-            RelationStatusInput::Rejected => RelationStatus::Rejected,
-            RelationStatusInput::Superseded => RelationStatus::Superseded,
-        }
-    }
-}
-
 /// Mirrors the authoring surface of `srs_core::types::relation::Relation`.
 ///
-/// First-cut narrowing (tracked in srs-rust#680): `sourceRefs` and the
-/// federation fields (`sourceRepositoryId`/`targetRepositoryId`) are not
-/// exposed — they belong to the sourceRef-authoring / federation waves.
+/// First-cut narrowing (tracked in srs-rust#680): `sourceRefs` is not
+/// exposed — it belongs to the sourceRef-authoring wave. `assertedBy`,
+/// `confidence`, `createdBy`, `status`, `validFrom`, `validUntil`,
+/// `sourceRepositoryId`, and `targetRepositoryId` are not exposed either —
+/// srs#441 removed them from the canonical schema and `Relation` no longer
+/// has fields for them (srs-rust#1022).
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RelationCreateToolInput {
@@ -357,13 +320,7 @@ pub struct RelationCreateToolInput {
     pub relation_type: String,
     pub source_instance_id: String,
     pub target_instance_id: String,
-    pub asserted_by: Option<AssertedByInput>,
-    pub confidence: Option<f64>,
     pub created_at: Option<String>,
-    pub created_by: Option<String>,
-    pub status: Option<RelationStatusInput>,
-    pub valid_from: Option<String>,
-    pub valid_until: Option<String>,
     pub notes: Option<String>,
     pub meta: Option<Value>,
 }
@@ -375,18 +332,10 @@ impl From<RelationCreateToolInput> for Relation {
             relation_type: input.relation_type,
             source_instance_id: input.source_instance_id,
             target_instance_id: input.target_instance_id,
-            asserted_by: input.asserted_by.map(Into::into),
-            confidence: input.confidence,
             created_at: input.created_at,
-            created_by: input.created_by,
-            status: input.status.map(Into::into),
-            valid_from: input.valid_from,
-            valid_until: input.valid_until,
             notes: input.notes,
             source_refs: None,
             meta: input.meta,
-            source_repository_id: None,
-            target_repository_id: None,
         }
     }
 }
@@ -1138,13 +1087,7 @@ mod tests {
             relation_type: "depends-on".into(),
             source_instance_id: "s".into(),
             target_instance_id: "t".into(),
-            asserted_by: Some(AssertedByInput::Ai),
-            confidence: Some(0.9),
             created_at: Some("now".into()),
-            created_by: Some("me".into()),
-            status: Some(RelationStatusInput::Active),
-            valid_from: Some("vf".into()),
-            valid_until: Some("vu".into()),
             notes: Some("n".into()),
             meta: Some(serde_json::Value::Bool(true)),
         };
@@ -1153,13 +1096,7 @@ mod tests {
         assert_eq!(r.relation_type, "depends-on");
         assert_eq!(r.source_instance_id, "s");
         assert_eq!(r.target_instance_id, "t");
-        assert_eq!(r.asserted_by, Some(AssertedBy::Ai));
-        assert_eq!(r.confidence, Some(0.9));
         assert_eq!(r.created_at.as_deref(), Some("now"));
-        assert_eq!(r.created_by.as_deref(), Some("me"));
-        assert_eq!(r.status, Some(RelationStatus::Active));
-        assert_eq!(r.valid_from.as_deref(), Some("vf"));
-        assert_eq!(r.valid_until.as_deref(), Some("vu"));
         assert_eq!(r.notes.as_deref(), Some("n"));
         assert_eq!(r.meta, Some(serde_json::Value::Bool(true)));
 

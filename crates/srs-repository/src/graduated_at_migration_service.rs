@@ -290,18 +290,10 @@ mod tests {
                 relation_type: GRADUATION_RELATION_TYPE.to_string(),
                 source_instance_id: source.to_string(),
                 target_instance_id: target.to_string(),
-                asserted_by: None,
-                confidence: None,
                 created_at: Some(created_at.to_string()),
-                created_by: None,
-                status: None,
-                valid_from: None,
-                valid_until: None,
                 notes: None,
                 source_refs: None,
                 meta: None,
-                source_repository_id: None,
-                target_repository_id: None,
             },
         )
         .unwrap();

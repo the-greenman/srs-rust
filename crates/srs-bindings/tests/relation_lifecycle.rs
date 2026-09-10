@@ -187,18 +187,10 @@ fn create_relation_appears_in_list_by_source() {
         relation_type: GALLERY_REL_TYPE.to_string(),
         source_instance_id: GALLERY_SRC.to_string(),
         target_instance_id: GALLERY_TGT.to_string(),
-        asserted_by: None,
-        confidence: None,
         created_at: Some("2026-06-07T00:00:00Z".to_string()),
-        created_by: None,
-        status: None,
-        valid_from: None,
-        valid_until: None,
         notes: None,
         source_refs: None,
         meta: None,
-        source_repository_id: None,
-        target_repository_id: None,
     };
 
     let result = relation_service::create_relation_auto(&store, relation)
@@ -240,18 +232,10 @@ fn delete_relation_removes_it() {
         relation_type: GALLERY_REL_TYPE.to_string(),
         source_instance_id: GALLERY_SRC.to_string(),
         target_instance_id: GALLERY_TGT.to_string(),
-        asserted_by: None,
-        confidence: None,
         created_at: Some("2026-06-07T00:00:00Z".to_string()),
-        created_by: None,
-        status: None,
-        valid_from: None,
-        valid_until: None,
         notes: None,
         source_refs: None,
         meta: None,
-        source_repository_id: None,
-        target_repository_id: None,
     };
     relation_service::create_relation_auto(&store, relation)
         .expect("create_relation should succeed before delete");
@@ -505,18 +489,10 @@ fn create_relation_depends_on() {
         relation_type: "depends-on".to_string(),
         source_instance_id: "rec-lc-001".to_string(),
         target_instance_id: "rec-lc-002".to_string(),
-        asserted_by: None,
-        confidence: None,
         created_at: Some("2026-06-25T00:00:00Z".to_string()),
-        created_by: None,
-        status: None,
-        valid_from: None,
-        valid_until: None,
         notes: None,
         source_refs: None,
         meta: None,
-        source_repository_id: None,
-        target_repository_id: None,
     };
 
     let created = relation_service::create_relation_auto(&store, relation)
