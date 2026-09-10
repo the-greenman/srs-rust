@@ -764,6 +764,11 @@ pub struct UpdateRelationTypeResult {
 #[serde(rename_all = "camelCase")]
 pub struct DeleteRelationTypeResult {
     pub id: String,
+    /// Notes, e.g., when the deleted definition's key remains resolvable through
+    /// another installed definition or the embedded core package (srs-rust#995) —
+    /// empty when nothing is worth flagging.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<String>,
 }
 
 // ── Relation type CRUD ───────────────────────────────────────────────────────
@@ -870,14 +875,51 @@ pub fn delete_relation_type(
         }
     };
 
+    let mut diagnostics = Vec::new();
     if !type_name.is_empty() {
         let refs = find_relations_of_type(store, &type_name)?;
         if !refs.is_empty() {
-            return Err(RepositoryError::CannotDeleteInUse {
-                entity_type: "relation-type".to_string(),
-                id: id.to_string(),
-                used_by: refs,
-            });
+            // The key may still resolve after this definition is gone — via another
+            // installed definition sharing the same key, or via the embedded core
+            // package's canonical definition (ADR-025), which `merge_core_into_package`
+            // only skips *because* this local shadow currently blocks it. In either
+            // case deleting is safe by construction: relations reference types by key,
+            // not by definition id, so nothing re-resolves to a different meaning
+            // (srs-rust#995).
+            let package = store.load_package()?;
+            let other_local_source = package
+                .relation_type_definitions
+                .iter()
+                .find(|rt| rt.key == type_name && rt.id != id);
+            let core_has_key = crate::core_package::core_package()
+                .relation_types
+                .iter()
+                .any(|rt| rt.key == type_name);
+
+            match other_local_source {
+                Some(other) => {
+                    diagnostics.push(format!(
+                        "relation-type '{id}' deleted while still referenced by {} relation(s); \
+                         key '{type_name}' remains resolvable via installed definition '{}'",
+                        refs.len(),
+                        other.id
+                    ));
+                }
+                None if core_has_key => {
+                    diagnostics.push(format!(
+                        "relation-type '{id}' deleted while still referenced by {} relation(s); \
+                         key '{type_name}' remains resolvable via the embedded core package",
+                        refs.len()
+                    ));
+                }
+                None => {
+                    return Err(RepositoryError::CannotDeleteInUse {
+                        entity_type: "relation-type".to_string(),
+                        id: id.to_string(),
+                        used_by: refs,
+                    });
+                }
+            }
         }
     }
 
@@ -889,7 +931,10 @@ pub fn delete_relation_type(
 
     store.delete_relation_type_file(&full_path)?;
     store.remove_definition_from_boundary(&owner, DefinitionKind::RelationType, &rel_path)?;
-    Ok(DeleteRelationTypeResult { id: id.to_string() })
+    Ok(DeleteRelationTypeResult {
+        id: id.to_string(),
+        diagnostics,
+    })
 }
 
 /// Find the repo-root-relative path and owner for a relation type definition by its ID.
@@ -2213,6 +2258,148 @@ mod tests {
         create_relation_type(&store, def, None).unwrap();
 
         delete_relation_type(&store, "rt-002").unwrap();
+    }
+
+    #[test]
+    fn relation_type_delete_allowed_when_key_still_resolves_via_core() {
+        use crate::relation_service::load_relations;
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+
+        let store = MemoryStore::default();
+
+        // A local shadow of the canonical "precedes" relation type, with its own id —
+        // exactly the pre-implicit-core-merge shape srs-rust#995 describes (muSrs).
+        let def = RelationTypeDefinition {
+            schema: None,
+            id: "rt-shadow-precedes".to_string(),
+            version: 1,
+            key: "precedes".to_string(),
+            namespace: "com.test".to_string(),
+            label: "Precedes".to_string(),
+            description: "A local shadow of the canonical precedes type".to_string(),
+            category: RelationTypeCategory::Sequence,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            status: None,
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: None,
+            require_same_type: None,
+            updated_at: None,
+            meta: None,
+        };
+        create_relation_type(&store, def, None).unwrap();
+
+        let rel_json = serde_json::json!({
+            "relations": [{
+                "relationId": "eeeeeeee-0000-4000-8000-000000000032",
+                "relationType": "precedes",
+                "sourceInstanceId": "source-001",
+                "targetInstanceId": "target-001"
+            }]
+        });
+        crate::store::write_relations_standalone_for_test(&store, &rel_json);
+
+        // Must NOT be refused: the "precedes" key resolves via the embedded core
+        // package once this local shadow is gone, so the 21-relation-strength
+        // refusal from the bug report would be wrong here.
+        let result = delete_relation_type(&store, "rt-shadow-precedes").unwrap();
+        assert_eq!(result.id, "rt-shadow-precedes");
+        assert!(
+            result.diagnostics.iter().any(|d| d.contains("core")),
+            "expected a diagnostic noting re-resolution via core, got: {:?}",
+            result.diagnostics
+        );
+
+        // The relation itself is untouched, and the key still resolves post-delete —
+        // now via core instead of the deleted local shadow.
+        let remaining = load_relations(&store).unwrap();
+        assert_eq!(remaining.len(), 1);
+        let package = store.load_package().unwrap();
+        assert_eq!(
+            package.resolve_relation_type("precedes").map(|rt| rt.id.as_str()),
+            Some(crate::core_package::core_package()
+                .relation_types
+                .iter()
+                .find(|rt| rt.key == "precedes")
+                .unwrap()
+                .id
+                .as_str())
+        );
+    }
+
+    #[test]
+    fn relation_type_delete_allowed_when_another_local_definition_shares_key() {
+        use crate::relation_service::load_relations;
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+
+        let store = MemoryStore::default();
+
+        // Two locally-declared definitions sharing a non-canonical key — an unusual
+        // but legal shape; deleting one must not be blocked by relations still
+        // reachable through the other.
+        let make_def = |id: &str| RelationTypeDefinition {
+            schema: None,
+            id: id.to_string(),
+            version: 1,
+            key: "shared-key".to_string(),
+            namespace: "com.test".to_string(),
+            label: "Shared Key".to_string(),
+            description: "One of two definitions sharing a key".to_string(),
+            category: RelationTypeCategory::Association,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            status: None,
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: None,
+            require_same_type: None,
+            updated_at: None,
+            meta: None,
+        };
+        // Distinct 8-char prefixes (`create_relation_type` derives the on-disk
+        // filename from key-slug + id[..8]) so the two definitions do not collide
+        // on the same file.
+        create_relation_type(&store, make_def("aaa1-shared-key-def"), None).unwrap();
+        create_relation_type(&store, make_def("bbb2-shared-key-def"), None).unwrap();
+
+        let rel_json = serde_json::json!({
+            "relations": [{
+                "relationId": "eeeeeeee-0000-4000-8000-000000000033",
+                "relationType": "shared-key",
+                "sourceInstanceId": "source-001",
+                "targetInstanceId": "target-001"
+            }]
+        });
+        crate::store::write_relations_standalone_for_test(&store, &rel_json);
+
+        let result = delete_relation_type(&store, "aaa1-shared-key-def").unwrap();
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("bbb2-shared-key-def")),
+            "expected a diagnostic naming the surviving definition, got: {:?}",
+            result.diagnostics
+        );
+        let remaining = load_relations(&store).unwrap();
+        assert_eq!(remaining.len(), 1);
+        let package = store.load_package().unwrap();
+        assert_eq!(
+            package.resolve_relation_type("shared-key").map(|rt| rt.id.as_str()),
+            Some("bbb2-shared-key-def")
+        );
+
+        // Now the sole remaining definition of "shared-key" IS blocked — nothing
+        // else resolves it.
+        let blocked = delete_relation_type(&store, "bbb2-shared-key-def");
+        assert!(
+            matches!(blocked, Err(RepositoryError::CannotDeleteInUse { .. })),
+            "expected CannotDeleteInUse, got {:?}",
+            blocked
+        );
     }
 
     #[test]
