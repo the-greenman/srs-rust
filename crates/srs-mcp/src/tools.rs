@@ -256,6 +256,16 @@ fn field_meta_map(
     input.map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())
 }
 
+/// Builds the `extra` envelope-extras bag (srs-rust#1031) from the tool
+/// surface's typed `meta` field, so it round-trips onto `Record.extra`.
+fn meta_extra(meta: Option<Value>) -> std::collections::BTreeMap<String, Value> {
+    let mut extra = std::collections::BTreeMap::new();
+    if let Some(m) = meta {
+        extra.insert("meta".to_string(), m);
+    }
+    extra
+}
+
 /// Envelope: type binding + container scope around a `CreateRecordInput` mirror.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -278,6 +288,8 @@ pub struct RecordCreateToolInput {
     /// `initialState` — must be reachable from it via declared transitions
     /// (srs-rust#960). Mirrors `record_successor`'s `lifecycleState`.
     pub lifecycle_state: Option<String>,
+    /// Envelope extra — round-trips onto `Record.extra["meta"]` (srs-rust#1031).
+    pub meta: Option<Value>,
 }
 
 impl From<RecordCreateToolInput> for CreateRecordInput {
@@ -287,6 +299,7 @@ impl From<RecordCreateToolInput> for CreateRecordInput {
             field_meta: field_meta_map(input.field_meta),
             tags: input.tags,
             lifecycle_state: input.lifecycle_state,
+            extra: meta_extra(input.meta),
         }
     }
 }
@@ -471,6 +484,10 @@ pub struct RecordUpdateToolInput {
     pub tags: Option<Vec<String>>,
     #[serde(default)]
     pub type_version: Option<u32>,
+    /// Envelope extra — omit to preserve the stored value, present to replace
+    /// it (srs-rust#1031). Round-trips onto `Record.extra["meta"]`.
+    #[serde(default)]
+    pub meta: Option<Value>,
 }
 
 impl From<RecordUpdateToolInput> for UpdateRecordInput {
@@ -480,6 +497,7 @@ impl From<RecordUpdateToolInput> for UpdateRecordInput {
             field_meta: field_meta_map(input.field_meta),
             tags: input.tags,
             type_version: input.type_version,
+            extra: meta_extra(input.meta),
         }
     }
 }
@@ -560,6 +578,9 @@ pub struct RecordSuccessorToolInput {
     pub field_values: serde_json::Map<String, Value>,
     pub lifecycle_state: Option<String>,
     pub type_version: Option<u32>,
+    /// Envelope extra, e.g. `meta.derivedFrom` — round-trips onto the new
+    /// successor's `Record.extra["meta"]` (srs-rust#1031).
+    pub meta: Option<Value>,
 }
 
 impl From<RecordSuccessorToolInput> for CreateRecordSuccessorInput {
@@ -569,6 +590,7 @@ impl From<RecordSuccessorToolInput> for CreateRecordSuccessorInput {
             field_values: FieldValues(input.field_values),
             lifecycle_state: input.lifecycle_state,
             type_version: input.type_version,
+            extra: meta_extra(input.meta),
         }
     }
 }
@@ -604,6 +626,7 @@ impl From<NoteGraduateToolInput> for GraduateNoteInput {
                 field_meta: field_meta_map(input.field_meta),
                 tags: input.tags,
                 lifecycle_state: None,
+                extra: std::collections::BTreeMap::new(),
             },
         }
     }
@@ -1083,6 +1106,7 @@ mod tests {
             tags: Some(vec!["t".into()]),
             container_id: Some("c".into()),
             lifecycle_state: Some("proposed".into()),
+            meta: Some(serde_json::json!({"derivedFrom": "src-id"})),
         };
         assert_eq!(rec.type_filter, "ns/nm");
         assert_eq!(rec.type_version, Some(3));
@@ -1103,6 +1127,10 @@ mod tests {
         );
         assert_eq!(ci.tags, Some(vec!["t".to_string()]));
         assert_eq!(ci.lifecycle_state.as_deref(), Some("proposed"));
+        assert_eq!(
+            ci.extra.get("meta"),
+            Some(&serde_json::json!({"derivedFrom": "src-id"}))
+        );
 
         // RelationCreate → Relation
         let rel = RelationCreateToolInput {
@@ -1249,6 +1277,7 @@ mod tests {
             ),
             tags: Some(vec!["tag1".into()]),
             type_version: Some(2),
+            meta: Some(serde_json::json!({"derivedFrom": "src-id"})),
         };
         assert_eq!(upd.instance_id, "iid");
         let ui: UpdateRecordInput = upd.into();
@@ -1258,6 +1287,10 @@ mod tests {
         assert_eq!(meta.edited_at.as_deref(), Some("t"));
         assert_eq!(ui.tags, Some(vec!["tag1".to_string()]));
         assert_eq!(ui.type_version, Some(2));
+        assert_eq!(
+            ui.extra.get("meta"),
+            Some(&serde_json::json!({"derivedFrom": "src-id"}))
+        );
 
         // FulfillmentNewRecordInput → FulfillmentNewRecord
         let fnr = FulfillmentNewRecordInput {
@@ -1316,6 +1349,7 @@ mod tests {
                 .collect(),
             lifecycle_state: Some("draft".into()),
             type_version: Some(5),
+            meta: Some(serde_json::json!({"derivedFrom": "pid"})),
         };
         assert_eq!(succ.predecessor_id, "pid");
         let si: CreateRecordSuccessorInput = succ.into();
@@ -1323,6 +1357,10 @@ mod tests {
         assert_eq!(si.field_values.get("f3"), Some(&serde_json::json!("v3")));
         assert_eq!(si.lifecycle_state.as_deref(), Some("draft"));
         assert_eq!(si.type_version, Some(5));
+        assert_eq!(
+            si.extra.get("meta"),
+            Some(&serde_json::json!({"derivedFrom": "pid"}))
+        );
 
         // NoteGraduateToolInput → GraduateNoteInput
         // Key: field_values/field_meta/tags land in result.record_input, not top-level.
