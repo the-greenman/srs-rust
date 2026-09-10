@@ -242,7 +242,7 @@ fn insert_value_shape(
     match ft.datatype {
         Datatype::String => {
             if ft.is_closed() {
-                insert_enum(target, field, diagnostics);
+                insert_enum(target, field, package, diagnostics);
                 return;
             }
             target.insert("type".into(), json!("string"));
@@ -395,27 +395,104 @@ fn insert_value_shape(
     }
 }
 
-/// Insert an `enum` populated from the field's closed-domain `allowedValues`.
-/// Emits a diagnostic when no values are declared (the property is left without
-/// an `enum`).
-fn insert_enum(target: &mut Map<String, Value>, field: &Field, diagnostics: &mut Vec<String>) {
+/// Insert an `enum` populated from the field's closed domain — either literal
+/// `allowedValues` or, when the field instead declares a `vocabularyRef`
+/// (srs-rust#1002), the active Term keys of the Vocabulary it resolves to.
+/// RFC-032 [R3] guarantees a closed field declares exactly one of the two, so
+/// these branches are mutually exclusive, not layered.
+///
+/// Emits a diagnostic and leaves `enum` absent when neither source yields a
+/// non-empty value set — an empty `enum: []` would assert "no value is ever
+/// valid", which is a stronger (and wrong) claim than "cannot enumerate".
+fn insert_enum(
+    target: &mut Map<String, Value>,
+    field: &Field,
+    package: &crate::package::Package,
+    diagnostics: &mut Vec<String>,
+) {
     // No `type` keyword: `enum` alone constrains the value, and this matches the
     // shape editors have consumed since before RFC-032.
-    match field.allowed_values() {
-        Some(values) if !values.is_empty() => {
+    if let Some(values) = field.allowed_values() {
+        if !values.is_empty() {
             target.insert(
                 "enum".into(),
                 Value::Array(values.iter().map(|v| json!(v)).collect()),
             );
-        }
-        _ => {
-            diagnostics.push(format!(
-                "field '{}' (closed {}) has no allowedValues; enum omitted",
-                field.name,
-                field.datatype().as_str()
-            ));
+            return;
         }
     }
+
+    if let Some(vocab_id) = field.vocabulary_ref() {
+        insert_vocabulary_enum(target, field, vocab_id, package, diagnostics);
+        return;
+    }
+
+    diagnostics.push(format!(
+        "field '{}' (closed {}) has no allowedValues or vocabularyRef; enum omitted",
+        field.name,
+        field.datatype().as_str()
+    ));
+}
+
+/// Resolve `vocab_id` against the effective package and, when it resolves,
+/// emit `enum` = the keys of its active (`accepts_new_writes`) Terms — i.e.
+/// excluding deprecated, tombstone and retired terms, which a new write must
+/// not pick even though reads still resolve them. Each active term's
+/// `label`/`description` rides along under `x-srs-vocabulary-terms`, since
+/// `enum` alone gives an agent authoring a record the key but not what it
+/// means.
+fn insert_vocabulary_enum(
+    target: &mut Map<String, Value>,
+    field: &Field,
+    vocab_id: &str,
+    package: &crate::package::Package,
+    diagnostics: &mut Vec<String>,
+) {
+    let Some(vocab) = package.vocabularies.iter().find(|v| v.id == vocab_id) else {
+        diagnostics.push(format!(
+            "field '{}' vocabularyRef '{}' does not resolve to an installed Vocabulary; enum omitted",
+            field.name, vocab_id
+        ));
+        return;
+    };
+
+    let active: Vec<&srs_core::types::term::Term> = vocab
+        .terms
+        .iter()
+        .filter(|t| t.accepts_new_writes())
+        .collect();
+    if active.is_empty() {
+        diagnostics.push(format!(
+            "field '{}' vocabularyRef '{}' resolves to vocabulary '{}' with no active terms; enum omitted",
+            field.name, vocab_id, vocab.name
+        ));
+        return;
+    }
+
+    target.insert(
+        "enum".into(),
+        Value::Array(active.iter().map(|t| json!(t.key)).collect()),
+    );
+    target.insert("x-srs-vocabulary-id".into(), json!(vocab_id));
+    target.insert(
+        "x-srs-vocabulary-terms".into(),
+        Value::Array(
+            active
+                .iter()
+                .map(|t| {
+                    let mut o = Map::new();
+                    o.insert("key".into(), json!(t.key));
+                    if let Some(label) = &t.label {
+                        o.insert("label".into(), json!(label));
+                    }
+                    if let Some(description) = &t.description {
+                        o.insert("description".into(), json!(description));
+                    }
+                    Value::Object(o)
+                })
+                .collect(),
+        ),
+    );
 }
 
 #[cfg(test)]
@@ -463,6 +540,14 @@ mod tests {
         fields: Vec<Field>,
         record_types: Vec<srs_core::types::record_type::RecordType>,
     ) -> Package {
+        make_package_with_vocabularies(fields, record_types, vec![])
+    }
+
+    fn make_package_with_vocabularies(
+        fields: Vec<Field>,
+        record_types: Vec<srs_core::types::record_type::RecordType>,
+        vocabularies: Vec<srs_core::types::vocabulary::Vocabulary>,
+    ) -> Package {
         Package {
             id: "test-pkg".to_string(),
             namespace: "com.test".to_string(),
@@ -478,8 +563,51 @@ mod tests {
             protocols: vec![],
             root: PathBuf::from("/memory"),
             package_dependencies: vec![],
-            vocabularies: vec![],
+            vocabularies,
             lifecycles: vec![],
+        }
+    }
+
+    fn term(
+        id: &str,
+        key: &str,
+        status: Option<srs_core::types::term::VocabularyEntryStatus>,
+    ) -> srs_core::types::term::Term {
+        srs_core::types::term::Term {
+            id: id.to_string(),
+            version: 1,
+            namespace: "com.test".to_string(),
+            key: key.to_string(),
+            label: Some(format!("{key} label")),
+            description: Some(format!("{key} description")),
+            aliases: None,
+            roles: None,
+            status,
+            meta: None,
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    fn make_vocabulary(
+        id: &str,
+        mode: srs_core::types::vocabulary::VocabularyMode,
+        terms: Vec<srs_core::types::term::Term>,
+    ) -> srs_core::types::vocabulary::Vocabulary {
+        srs_core::types::vocabulary::Vocabulary {
+            schema: None,
+            id: id.to_string(),
+            version: 1,
+            namespace: "com.test".to_string(),
+            name: "test-vocab".to_string(),
+            mode,
+            terms,
+            extends_vocabulary_id: None,
+            extends_vocabulary_version: None,
+            promotion_window: None,
+            description: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
         }
     }
 
@@ -504,6 +632,24 @@ mod tests {
             root: PathBuf::from("/memory"),
         };
         MemoryStore::new(manifest, make_package(fields, record_types))
+    }
+
+    fn store_with_vocabulary(
+        fields: Vec<Field>,
+        record_type: srs_core::types::record_type::RecordType,
+        vocabularies: Vec<srs_core::types::vocabulary::Vocabulary>,
+    ) -> MemoryStore {
+        let manifest = Manifest {
+            container: None,
+            upstream_package: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: PathBuf::from("/memory"),
+        };
+        MemoryStore::new(
+            manifest,
+            make_package_with_vocabularies(fields, vec![record_type], vocabularies),
+        )
     }
 
     fn make_type(
@@ -673,6 +819,141 @@ mod tests {
             result.schema["properties"]["tags"]["items"]["enum"],
             json!(["x", "y"])
         );
+    }
+
+    /// srs-rust#1002: a closed-domain select field whose values come from
+    /// `fieldType.valueDomain.vocabularyRef` must emit `enum` = the active
+    /// Term keys, not silently omit it (as only `allowedValues` used to).
+    /// Deprecated/tombstone/retired terms are excluded; each active term's
+    /// `label`/`description` rides along under `x-srs-vocabulary-terms` so an
+    /// agent reading the schema before authoring a record can see what each
+    /// key means, not just the key.
+    #[test]
+    fn type_schema_vocabulary_ref_emits_enum() {
+        use srs_core::types::term::VocabularyEntryStatus;
+        use srs_core::types::vocabulary::VocabularyMode;
+
+        const VOCAB_ID: &str = "v1000000-0000-4000-b000-000000000001";
+        let vocab = make_vocabulary(
+            VOCAB_ID,
+            VocabularyMode::Closed,
+            vec![
+                term("t1", "bug", Some(VocabularyEntryStatus::Active)),
+                term("t2", "feature", None), // absent status ⇒ active (R4 default)
+                term("t3", "chore", Some(VocabularyEntryStatus::Deprecated)),
+                term("t4", "spike", Some(VocabularyEntryStatus::Tombstone)),
+                term("t5", "wontfix", Some(VocabularyEntryStatus::Retired)),
+            ],
+        );
+
+        let sel = field(
+            &fid(1),
+            "kind",
+            FieldType::closed_by_ref(VOCAB_ID.to_string()),
+        );
+        let store = store_with_vocabulary(
+            vec![sel],
+            make_type(TID, vec![assignment(&fid(1), 0, false)]),
+            vec![vocab],
+        );
+
+        let result = type_schema(
+            &store,
+            TypeSchemaInput {
+                type_id: TID.to_string(),
+                type_version: None,
+            },
+        )
+        .unwrap();
+
+        let kind = &result.schema["properties"]["kind"];
+        // Only active (or absent-status, per R4 default) terms — deprecated,
+        // tombstone and retired are excluded from what a new write may pick.
+        assert_eq!(kind["enum"], json!(["bug", "feature"]));
+        assert_eq!(kind["x-srs-vocabulary-id"], json!(VOCAB_ID));
+        assert_eq!(
+            kind["x-srs-vocabulary-terms"],
+            json!([
+                {"key": "bug", "label": "bug label", "description": "bug description"},
+                {"key": "feature", "label": "feature label", "description": "feature description"},
+            ])
+        );
+        assert!(
+            result.diagnostics.is_empty(),
+            "no diagnostics expected: {:?}",
+            result.diagnostics
+        );
+    }
+
+    /// A `vocabularyRef` that does not resolve to an installed Vocabulary
+    /// leaves `enum` absent and surfaces a diagnostic, rather than panicking
+    /// or silently emitting an unconstrained string.
+    #[test]
+    fn type_schema_vocabulary_ref_unresolved_emits_diagnostic() {
+        let sel = field(
+            &fid(1),
+            "kind",
+            FieldType::closed_by_ref("does-not-exist".to_string()),
+        );
+        let store = store_with_vocabulary(
+            vec![sel],
+            make_type(TID, vec![assignment(&fid(1), 0, false)]),
+            vec![],
+        );
+
+        let result = type_schema(
+            &store,
+            TypeSchemaInput {
+                type_id: TID.to_string(),
+                type_version: None,
+            },
+        )
+        .unwrap();
+
+        assert!(result.schema["properties"]["kind"].get("enum").is_none());
+        assert!(result
+            .diagnostics
+            .iter()
+            .any(|d| d.contains("does-not-exist")));
+    }
+
+    /// A `vocabularyRef` resolving to a vocabulary with no active terms (all
+    /// deprecated/retired) also leaves `enum` absent with a diagnostic, rather
+    /// than emitting an empty `enum: []` (which JSON Schema treats as "no
+    /// value is ever valid").
+    #[test]
+    fn type_schema_vocabulary_ref_no_active_terms_emits_diagnostic() {
+        use srs_core::types::term::VocabularyEntryStatus;
+        use srs_core::types::vocabulary::VocabularyMode;
+
+        const VOCAB_ID: &str = "v1000000-0000-4000-b000-000000000002";
+        let vocab = make_vocabulary(
+            VOCAB_ID,
+            VocabularyMode::Closed,
+            vec![term("t1", "old", Some(VocabularyEntryStatus::Retired))],
+        );
+        let sel = field(
+            &fid(1),
+            "kind",
+            FieldType::closed_by_ref(VOCAB_ID.to_string()),
+        );
+        let store = store_with_vocabulary(
+            vec![sel],
+            make_type(TID, vec![assignment(&fid(1), 0, false)]),
+            vec![vocab],
+        );
+
+        let result = type_schema(
+            &store,
+            TypeSchemaInput {
+                type_id: TID.to_string(),
+                type_version: None,
+            },
+        )
+        .unwrap();
+
+        assert!(result.schema["properties"]["kind"].get("enum").is_none());
+        assert!(!result.diagnostics.is_empty());
     }
 
     #[test]
