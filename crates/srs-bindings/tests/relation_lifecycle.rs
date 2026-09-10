@@ -428,6 +428,7 @@ fn create_record_successor_supersedes() {
             ),
             lifecycle_state: None,
             type_version: None,
+            extra: std::collections::BTreeMap::new(),
         },
     )
     .expect("create_record_successor with supersedes should succeed");
@@ -470,6 +471,7 @@ fn create_record_successor_refines() {
             ),
             lifecycle_state: None,
             type_version: None,
+            extra: std::collections::BTreeMap::new(),
         },
     )
     .expect("create_record_successor with refines should succeed");

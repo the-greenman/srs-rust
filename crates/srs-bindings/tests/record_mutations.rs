@@ -152,6 +152,7 @@ fn update_record_changes_field_value() {
             field_meta: None,
             tags: None,
             type_version: None,
+            extra: std::collections::BTreeMap::new(),
         },
     )
     .expect("update_record should succeed");
