@@ -84,6 +84,9 @@ fn cmd_relation_type_delete(ctx: CliContext, id: String) -> Result<String> {
     let result = with_store(&ctx, |store| Ok(delete_relation_type(store, &id)?))?;
     output::serialize(
         "relation-type delete",
-        RelationTypeDeletePayload { id: result.id },
+        RelationTypeDeletePayload {
+            id: result.id,
+            diagnostics: result.diagnostics,
+        },
     )
 }
