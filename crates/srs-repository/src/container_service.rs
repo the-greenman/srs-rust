@@ -336,12 +336,51 @@ fn save_container_syncing_embed(
     Ok(())
 }
 
+/// Result of [`update_container`]: the updated container plus non-fatal
+/// diagnostics (srs-rust#1026) reporting anything the whole-object replace
+/// dropped that the caller may not have intended to drop.
+#[derive(Debug, Clone)]
+pub struct ContainerUpdateResult {
+    pub container: Container,
+    pub diagnostics: Vec<String>,
+}
+
+/// Diagnose a wholesale-replace patch field: names, in an informational
+/// message, any id present in `before` but absent from `after`. Membership
+/// replace semantics are unchanged by this — it is reporting only
+/// (srs-rust#1026, muDemocracy.org#155): `container update` silently dropped
+/// ids a sibling writer had added, because nothing treated "a container lost
+/// members" as reportable.
+fn diagnose_removed_ids(field: &str, before: &[String], after: &[String]) -> Option<String> {
+    let after_set: HashSet<&String> = after.iter().collect();
+    let mut removed: Vec<&String> = before.iter().filter(|id| !after_set.contains(id)).collect();
+    if removed.is_empty() {
+        return None;
+    }
+    removed.sort();
+    let total = removed.len();
+    const CAP: usize = 20;
+    let listed: Vec<&str> = removed.iter().take(CAP).map(|s| s.as_str()).collect();
+    let suffix = if total > CAP {
+        format!(", and {} more", total - CAP)
+    } else {
+        String::new()
+    };
+    Some(format!(
+        "container update replaced {field} and removed {total} id(s) not present in the patch: {}{suffix}",
+        listed.join(", ")
+    ))
+}
+
 pub fn update_container(
     store: &dyn RepositoryStore,
     container_id: &str,
     patch: ContainerPatch,
-) -> Result<Container, RepositoryError> {
+) -> Result<ContainerUpdateResult, RepositoryError> {
     let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
+    let before_roots = container.root_instance_ids.clone().unwrap_or_default();
+    let before_members = container.member_instance_ids.clone().unwrap_or_default();
+    let before_children = container.child_container_ids.clone().unwrap_or_default();
     if let Some(v) = patch.title {
         container.title = v;
     }
@@ -369,19 +408,29 @@ pub fn update_container(
     if let Some(ref v) = patch.anchor_instance_id {
         container.anchor_instance_id = Some(v.clone());
     }
+    let mut diagnostics: Vec<String> = Vec::new();
     if let Some(mut v) = patch.root_instance_ids {
         v.sort();
         v.dedup();
+        if let Some(d) = diagnose_removed_ids("rootInstanceIds", &before_roots, &v) {
+            diagnostics.push(d);
+        }
         container.root_instance_ids = if v.is_empty() { None } else { Some(v) };
     }
     if let Some(mut v) = patch.member_instance_ids {
         v.sort();
         v.dedup();
+        if let Some(d) = diagnose_removed_ids("memberInstanceIds", &before_members, &v) {
+            diagnostics.push(d);
+        }
         container.member_instance_ids = if v.is_empty() { None } else { Some(v) };
     }
     if let Some(mut v) = patch.child_container_ids {
         v.sort();
         v.dedup();
+        if let Some(d) = diagnose_removed_ids("childContainerIds", &before_children, &v) {
+            diagnostics.push(d);
+        }
         container.child_container_ids = if v.is_empty() { None } else { Some(v) };
     }
 
@@ -408,7 +457,10 @@ pub fn update_container(
     )?;
 
     save_container_syncing_embed(store, &container, is_embed_only, true)?;
-    Ok(container)
+    Ok(ContainerUpdateResult {
+        container,
+        diagnostics,
+    })
 }
 
 pub fn delete_container(
@@ -1138,7 +1190,9 @@ mod tests {
             title: Some("New".to_string()),
             ..ContainerPatch::default()
         };
-        let updated = update_container(&store, &created.container_id, patch).unwrap();
+        let updated = update_container(&store, &created.container_id, patch)
+            .unwrap()
+            .container;
         assert_eq!(updated.title, "New");
     }
 
@@ -1975,7 +2029,7 @@ mod tests {
             ..ContainerPatch::default()
         };
         // Path lookup is adapter-owned; service only needs the container ID
-        let updated = update_container(&store, id, patch).unwrap();
+        let updated = update_container(&store, id, patch).unwrap().container;
         assert_eq!(updated.title, "Updated");
     }
 
@@ -2182,7 +2236,9 @@ mod tests {
             identity_instance_id: Some("new-identity-id".to_string()),
             ..ContainerPatch::default()
         };
-        let updated = update_container(&store, container_id, patch).unwrap();
+        let updated = update_container(&store, container_id, patch)
+            .unwrap()
+            .container;
         assert_eq!(
             updated.identity_instance_id,
             Some("new-identity-id".to_string())
@@ -2228,7 +2284,7 @@ mod tests {
             root_instance_ids: Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]),
             ..ContainerPatch::default()
         };
-        let updated = update_container(&store, id, patch).unwrap();
+        let updated = update_container(&store, id, patch).unwrap().container;
         assert_eq!(
             updated.root_instance_ids,
             Some(vec!["11111111-1111-4111-8111-111111111111".to_string()])
@@ -2249,7 +2305,7 @@ mod tests {
             member_instance_ids: Some(vec!["22222222-2222-4222-8222-222222222222".to_string()]),
             ..ContainerPatch::default()
         };
-        let updated = update_container(&store, id, patch).unwrap();
+        let updated = update_container(&store, id, patch).unwrap().container;
         assert_eq!(
             updated.member_instance_ids,
             Some(vec!["22222222-2222-4222-8222-222222222222".to_string()])
@@ -2259,6 +2315,78 @@ mod tests {
             reloaded.member_instance_ids,
             Some(vec!["22222222-2222-4222-8222-222222222222".to_string()])
         );
+    }
+
+    #[test]
+    fn update_container_removing_members_reports_diagnostic() {
+        // srs-rust#1026: a patch that replaces memberInstanceIds with a
+        // subset must still succeed (replace semantics unchanged) but must
+        // name what it dropped instead of losing it silently.
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        seed_instance(&store, "33333333-3333-4333-8333-333333333333");
+        let mut c = minimal_container(id, "Container");
+        c.member_instance_ids = Some(vec![
+            "11111111-1111-4111-8111-111111111111".to_string(),
+            "22222222-2222-4222-8222-222222222222".to_string(),
+            "33333333-3333-4333-8333-333333333333".to_string(),
+        ]);
+        create_container(&store, c).unwrap();
+
+        let patch = ContainerPatch {
+            member_instance_ids: Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]),
+            ..ContainerPatch::default()
+        };
+        let result = update_container(&store, id, patch).unwrap();
+
+        // Replace semantics unchanged: the operation succeeded and the
+        // stored membership is exactly the patch's list.
+        assert_eq!(
+            result.container.member_instance_ids,
+            Some(vec!["11111111-1111-4111-8111-111111111111".to_string()])
+        );
+        let reloaded = get_container(&store, id).unwrap();
+        assert_eq!(
+            reloaded.member_instance_ids,
+            Some(vec!["11111111-1111-4111-8111-111111111111".to_string()])
+        );
+
+        // The removal is now visible.
+        assert_eq!(result.diagnostics.len(), 1, "{:?}", result.diagnostics);
+        let msg = &result.diagnostics[0];
+        assert!(msg.contains("memberInstanceIds"), "{msg}");
+        assert!(msg.contains('2'), "{msg}");
+        assert!(
+            msg.contains("22222222-2222-4222-8222-222222222222"),
+            "{msg}"
+        );
+        assert!(
+            msg.contains("33333333-3333-4333-8333-333333333333"),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn update_container_keeping_all_members_emits_no_diagnostic() {
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        let mut c = minimal_container(id, "Container");
+        c.member_instance_ids = Some(vec![
+            "11111111-1111-4111-8111-111111111111".to_string(),
+            "22222222-2222-4222-8222-222222222222".to_string(),
+        ]);
+        create_container(&store, c).unwrap();
+
+        // Same set, reordered — a no-op removal-wise.
+        let patch = ContainerPatch {
+            member_instance_ids: Some(vec![
+                "22222222-2222-4222-8222-222222222222".to_string(),
+                "11111111-1111-4111-8111-111111111111".to_string(),
+            ]),
+            ..ContainerPatch::default()
+        };
+        let result = update_container(&store, id, patch).unwrap();
+        assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
     }
 
     #[test]
@@ -2272,7 +2400,7 @@ mod tests {
             root_instance_ids: Some(vec![]),
             ..ContainerPatch::default()
         };
-        let updated = update_container(&store, id, patch).unwrap();
+        let updated = update_container(&store, id, patch).unwrap().container;
         assert!(updated.root_instance_ids.is_none());
         let reloaded = get_container(&store, id).unwrap();
         assert!(reloaded.root_instance_ids.is_none());
@@ -2289,7 +2417,7 @@ mod tests {
             member_instance_ids: Some(vec![]),
             ..ContainerPatch::default()
         };
-        let updated = update_container(&store, id, patch).unwrap();
+        let updated = update_container(&store, id, patch).unwrap().container;
         assert!(updated.member_instance_ids.is_none());
         let reloaded = get_container(&store, id).unwrap();
         assert!(reloaded.member_instance_ids.is_none());
@@ -2309,7 +2437,7 @@ mod tests {
             ]),
             ..ContainerPatch::default()
         };
-        let updated = update_container(&store, id, patch).unwrap();
+        let updated = update_container(&store, id, patch).unwrap().container;
         assert_eq!(
             updated.root_instance_ids,
             Some(vec![
@@ -2335,7 +2463,9 @@ mod tests {
             member_instance_ids: Some(vec!["22222222-2222-4222-8222-222222222222".to_string()]),
             ..ContainerPatch::default()
         };
-        let updated = update_container(&store, container_id, patch).unwrap();
+        let updated = update_container(&store, container_id, patch)
+            .unwrap()
+            .container;
         assert_eq!(
             updated.identity_instance_id,
             Some("11111111-1111-4111-8111-111111111111".to_string())
@@ -2500,7 +2630,7 @@ mod tests {
             title: Some("Updated Root".to_string()),
             ..ContainerPatch::default()
         };
-        let updated = update_container(&store, embed_id, patch).unwrap();
+        let updated = update_container(&store, embed_id, patch).unwrap().container;
         assert_eq!(updated.title, "Updated Root");
         let manifest = store.load_manifest().unwrap();
         assert_eq!(manifest.container.unwrap().title, "Updated Root");
