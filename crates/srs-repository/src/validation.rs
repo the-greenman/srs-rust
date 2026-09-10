@@ -1940,15 +1940,13 @@ fn validate_identity_field_invariants(
 /// no production caller at all, and a package could carry an unresolvable `ref`
 /// range or a datatype-inappropriate constraint and validate clean.
 ///
-/// **Warning, not error — deliberately, for this release.** Turning a check on
-/// for the first time finds pre-existing defects, not new ones: the spec repo's
-/// own package has a `protocol-tags` Field that was a pre-RFC-032 `multiselect`
-/// with neither `allowedValues` nor `vocabularyRef`, which RFC-032's migration
-/// faithfully carries forward as a closed domain with no source set. Making
-/// that a hard error would fail `repo validate` across the ecosystem for a
-/// defect that predates this change. Reporting it makes the gap visible, which
-/// is the point; promoting these to errors belongs with the data cleanup, as a
-/// separate, deliberate step.
+/// **Error, promoted from Warning (srs-rust#1003).** The corpus-conformance gate
+/// (`rule_enforcement_conformance.rs` + `scripts/check-corpus-conformance.sh` over all
+/// four first-party corpora) confirms a verified zero blast radius across 557 field
+/// definitions: `protocol-tags`, the one pre-existing defect the original Warning was
+/// written to accommodate, does not exist in any live corpus (`catalog.rs:121-123`
+/// already documents its deletion). A clause with a verified zero corpus count becomes
+/// an Error immediately.
 fn validate_field_type_conformance(
     pkg: &crate::package::Package,
     diagnostics: &mut Vec<ValidationDiagnostic>,
@@ -1957,7 +1955,7 @@ fn validate_field_type_conformance(
     for field in &pkg.fields {
         for d in validate_field_v3(field) {
             diagnostics.push(ValidationDiagnostic {
-                severity: DiagnosticSeverity::Warning,
+                severity: DiagnosticSeverity::Error,
                 relative_path: "package/package.json".to_string(),
                 schema_id: None,
                 message: format!("RFC-032 conformance: {}", d.message),
@@ -2156,18 +2154,43 @@ fn validate_vocabulary_invariants(
     diagnostics: &mut Vec<ValidationDiagnostic>,
 ) {
     // V2: every field.vocabularyRef must resolve to an installed Vocabulary UUID
+    // V3 (RFC-032 [R3], srs-rust#1003): a closed-domain field's vocabularyRef MUST
+    // resolve to a mode:closed Vocabulary — an open-mode vocabulary lets terms be
+    // added at will, which contradicts a "closed" field's own promise. Deliberately
+    // inline in this V2 loop's resolve check (not a new top-level check) — see the
+    // PR body for why a standalone function would have to be added to the
+    // duplicated call list at validation.rs:1258-1274 (two arms) and risks a
+    // forgotten arm.
     for field in &pkg.fields {
         if let Some(ref_id) = &field.field_type.vocabulary_ref {
-            if !pkg.vocabularies.iter().any(|v| &v.id == ref_id) {
-                diagnostics.push(ValidationDiagnostic {
-                    severity: DiagnosticSeverity::Error,
-                    relative_path: "package/package.json".to_string(),
-                    schema_id: None,
-                    message: format!(
-                        "V2: field '{}' vocabularyRef '{}' does not resolve to an installed Vocabulary",
-                        field.name, ref_id
-                    ),
-                });
+            match pkg.vocabularies.iter().find(|v| &v.id == ref_id) {
+                None => {
+                    diagnostics.push(ValidationDiagnostic {
+                        severity: DiagnosticSeverity::Error,
+                        relative_path: "package/package.json".to_string(),
+                        schema_id: None,
+                        message: format!(
+                            "V2: field '{}' vocabularyRef '{}' does not resolve to an installed Vocabulary",
+                            field.name, ref_id
+                        ),
+                    });
+                }
+                Some(vocab)
+                    if field.field_type.effective_value_domain()
+                        == srs_core::types::field_type::ValueDomain::Closed
+                        && vocab.mode == srs_core::types::vocabulary::VocabularyMode::Open =>
+                {
+                    diagnostics.push(ValidationDiagnostic {
+                        severity: DiagnosticSeverity::Error,
+                        relative_path: "package/package.json".to_string(),
+                        schema_id: None,
+                        message: format!(
+                            "V3: field '{}' vocabularyRef '{}' resolves to a mode:open Vocabulary; RFC-032 [R3] requires mode:closed",
+                            field.name, ref_id
+                        ),
+                    });
+                }
+                Some(_) => {}
             }
         }
     }
@@ -2688,6 +2711,18 @@ mod tests {
         field_name: &str,
         vocab_ref: Option<&str>,
     ) -> Value {
+        minimal_field_json_with_vocab_ref_and_domain(field_id, field_name, vocab_ref, "closed")
+    }
+
+    /// Widened form of [`minimal_field_json_with_vocab_ref`] (srs-rust#1003) — takes an
+    /// explicit `value_domain` so V3 fixtures can build a `vocabularyRef` on a `closed`
+    /// domain resolving to an `open` Vocabulary, distinct from R3-only fixtures.
+    fn minimal_field_json_with_vocab_ref_and_domain(
+        field_id: &str,
+        field_name: &str,
+        vocab_ref: Option<&str>,
+        value_domain: &str,
+    ) -> Value {
         let mut obj = json!({
             "$schema": srs_schema::FIELD_SCHEMA_ID,
             "id": field_id,
@@ -2703,7 +2738,7 @@ mod tests {
             // A vocabularyRef only makes sense on a closed domain (RFC-032 R3).
             obj["fieldType"] = json!({
                 "datatype": "string",
-                "valueDomain": "closed",
+                "valueDomain": value_domain,
                 "vocabularyRef": vr
             });
         }
@@ -3119,6 +3154,52 @@ mod tests {
             v2_errors.is_empty(),
             "expected no V2 errors for resolved vocabularyRef, got: {:?}",
             v2_errors
+        );
+    }
+
+    // --- V3 (RFC-032 [R3], srs-rust#1003): closed field vs vocabulary mode ---
+
+    #[test]
+    fn v3_closed_field_vocabulary_ref_to_open_vocabulary_is_error() {
+        let temp = TempDir::new().unwrap();
+        let field_id = "00000000-0000-4000-8000-000000000021";
+        let vocab_id = "00000000-0000-4000-8000-000000000031";
+
+        setup_package_only_repo(
+            &temp,
+            &minimal_package_json_full(
+                &["fields/test-field.json"],
+                &[],
+                &["vocabularies/test-vocab.json"],
+                &[],
+            ),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/test-field.json",
+            &minimal_field_json_with_vocab_ref_and_domain(
+                field_id,
+                "my-field",
+                Some(vocab_id),
+                "closed",
+            ),
+        );
+        write_json(
+            temp.path(),
+            "package/vocabularies/test-vocab.json",
+            &minimal_vocab_json(vocab_id, "open", vec![]),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let v3_error = report
+            .diagnostics
+            .iter()
+            .find(|d| d.severity == DiagnosticSeverity::Error && d.message.contains("V3"));
+        assert!(
+            v3_error.is_some(),
+            "expected V3 error for closed field vocabularyRef resolving to an open Vocabulary, got: {:?}",
+            report.diagnostics
         );
     }
 

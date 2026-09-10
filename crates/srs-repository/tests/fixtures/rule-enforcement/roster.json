@@ -1,0 +1,45 @@
+{
+  "$comment": "RFC-032 [R3] / V3 rule-enforcement conformance roster (srs-rust#1003). Each entry names a broken/clean fixture-repo pair under this directory. See rule_enforcement_conformance.rs for the RFC_032_R3_CLAUSES const this roster's id set is checked against — that const is hand-transcribed from rfc-032-composite-field-range.md, never derived from this file or from the code.",
+  "rules": [
+    {
+      "id": "r3.a",
+      "rfcClause": "RFC-032 [R3]: valueDomain is meaningful only for datatype string/integer",
+      "expectSeverity": "error",
+      "ruleToken": "valueDomain is meaningful only for datatype",
+      "brokenPath": "r3-a-value-domain-wrong-datatype/broken",
+      "cleanPath": "r3-a-value-domain-wrong-datatype/clean"
+    },
+    {
+      "id": "r3.b",
+      "rfcClause": "RFC-032 [R3]: closed requires exactly one of allowedValues or vocabularyRef. NOTE: already enforced pre-#1003 by field.json's own JSON Schema oneOf if/then; its broken fixture fires via the schema layer, not validate_field_v3.",
+      "expectSeverity": "error",
+      "ruleToken": "'oneOf' keyword",
+      "brokenPath": "r3-b-closed-requires-exactly-one-binding/broken",
+      "cleanPath": "r3-b-closed-requires-exactly-one-binding/clean"
+    },
+    {
+      "id": "r3.c",
+      "rfcClause": "RFC-032 [R3]: allowedValues/vocabularyRef require valueDomain == closed (binding present, valueDomain absent)",
+      "expectSeverity": "error",
+      "ruleToken": "allowedValues/vocabularyRef require valueDomain == closed",
+      "brokenPath": "r3-c-binding-without-value-domain/broken",
+      "cleanPath": "r3-c-binding-without-value-domain/clean"
+    },
+    {
+      "id": "r3.d",
+      "rfcClause": "RFC-032 [R3]: allowedValues/vocabularyRef require valueDomain == closed (explicit valueDomain: open, binding present)",
+      "expectSeverity": "error",
+      "ruleToken": "valueDomain is explicitly 'open'",
+      "brokenPath": "r3-d-open-domain-with-binding/broken",
+      "cleanPath": "r3-d-open-domain-with-binding/clean"
+    },
+    {
+      "id": "v3",
+      "rfcClause": "RFC-032 [R3]: a vocabularyRef MUST resolve to a mode:closed Vocabulary",
+      "expectSeverity": "error",
+      "ruleToken": "V3:",
+      "brokenPath": "v3-closed-field-vocabulary-ref-to-open-vocabulary/broken",
+      "cleanPath": "v3-closed-field-vocabulary-ref-to-open-vocabulary/clean"
+    }
+  ]
+}
