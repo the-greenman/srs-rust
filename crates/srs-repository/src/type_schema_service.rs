@@ -568,7 +568,11 @@ mod tests {
         }
     }
 
-    fn term(id: &str, key: &str, status: Option<srs_core::types::term::VocabularyEntryStatus>) -> srs_core::types::term::Term {
+    fn term(
+        id: &str,
+        key: &str,
+        status: Option<srs_core::types::term::VocabularyEntryStatus>,
+    ) -> srs_core::types::term::Term {
         srs_core::types::term::Term {
             id: id.to_string(),
             version: 1,
