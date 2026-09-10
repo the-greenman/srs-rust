@@ -2015,6 +2015,16 @@ fn render_record_at_level(
     let mut out = String::new();
     let mut record_heading_value = String::new();
 
+    // Resolved up front (srs-rust#1012 fold): a theme's `recordWrapper` supplies its
+    // own heading markup via the `{{record-heading}}` placeholder, so the renderer's
+    // default heading must not also be pushed into `out` — that would emit it twice,
+    // once from the wrapper template and once from `{{content}}`. `record_heading_value`
+    // is still populated below regardless, so `{{record-heading}}` fills either way.
+    let record_wrapper = ctx
+        .active_theme
+        .as_ref()
+        .and_then(|t| select_record_wrapper(t, &record.type_id));
+
     // The field that actually became the record heading, which is not always the
     // one the section declared: `[N+1]` can make an authored `titleFieldId`
     // ineligible. The body-skip below must key on *this*, not on
@@ -2030,7 +2040,9 @@ fn render_record_at_level(
             .and_then(|f| record.value_str(&f.name))
         {
             record_heading_value = title.to_string();
-            out.push_str(&format_heading(heading_level, ctx.format, title));
+            if record_wrapper.is_none() {
+                out.push_str(&format_heading(heading_level, ctx.format, title));
+            }
         }
         // Set even when the record carries no value for it, preserving the
         // pre-existing structured-mode behaviour for an eligible titleFieldId.
@@ -2293,10 +2305,6 @@ fn render_record_at_level(
         }
     }
 
-    let record_wrapper = ctx
-        .active_theme
-        .as_ref()
-        .and_then(|t| select_record_wrapper(t, &record.type_id));
     if let Some(wrapper) = record_wrapper {
         out = apply_wrapper(
             wrapper,
@@ -3370,17 +3378,27 @@ fn depth(base: u32, depth_offset: u32) -> u32 {
 }
 
 /// RFC-020 Rule [N+37]: resolve the effective heading field ID for a section/record pair.
-/// When `section.title_field_id` is **absent**, falls back to the Type's effective
-/// `identityFieldId` (when the Type is known) — RFC-020 [N+37]'s literal scope.
+/// Falls back to the Type's effective `identityFieldId` (when the Type is known) —
+/// RFC-020 [N+37], widened by Revision 7 (srs#731 / srs-rust#1011): the fallback
+/// fires whenever `section.title_field_id` is **absent**, or an authored one is not
+/// in the record's Type's *effective field set* (`Package::effective_fields`) — a
+/// heterogeneous `contains` tree can hold sibling records whose Types don't all
+/// carry the section's declared `titleFieldId`.
 ///
-/// `[N+1]` / ext:views-l2 governs the eligibility half, and its consequence on failure
-/// was settled by owner decision (srs PR #341, 2026-08-02): when an **authored**
-/// `titleFieldId` fails eligibility, the heading is **omitted**, not substituted. It
-/// does *not* fall through to `identityFieldId` — that reading (RFC-020 [N+37]
-/// extended past its literal "does not declare" scope) was raised as an open question
-/// and the spec research defeated it before the owner ruled it out explicitly. An
-/// ineligible `titleFieldId` is reported separately as a validation diagnostic; see
+/// `[N+1]` / ext:views-l2 governs the eligibility half — separate from carriage —
+/// and its consequence on failure was settled by owner decision (srs PR #341,
+/// 2026-08-02): when an **authored** `titleFieldId` **is carried but fails
+/// eligibility**, the heading is **omitted**, not substituted. It does *not* fall
+/// through to `identityFieldId` in that case — that reading (RFC-020 [N+37]
+/// extended past its literal scope) was raised as an open question and the spec
+/// research defeated it before the owner ruled it out explicitly. An ineligible
+/// `titleFieldId` is reported separately as a validation diagnostic; see
 /// `validate_title_field_id_eligibility`.
+///
+/// The discriminator between "Type doesn't carry the field" (falls back) and
+/// "record left the field's value empty" (omits, no fallback) MUST be
+/// `effective_fields`, never the record's own value — both look identical at the
+/// value layer, and only the field-carriage check tells them apart.
 fn resolve_heading_field_id(
     section: &DocumentSection,
     rt: Option<&srs_core::types::record_type::RecordType>,
@@ -3388,7 +3406,25 @@ fn resolve_heading_field_id(
 ) -> Option<String> {
     match &section.title_field_id {
         Some(field_id) => {
-            title_field_id_is_eligible(field_id, rt, package).then(|| field_id.clone())
+            if !title_field_id_is_eligible(field_id, rt, package) {
+                return None;
+            }
+            let carried = rt
+                .map(|t| {
+                    package
+                        .effective_fields(t)
+                        .map(|fields| fields.iter().any(|fa| &fa.field_id == field_id))
+                        // An error here is diagnosed elsewhere (ext:type-inheritance);
+                        // don't fabricate a fallback on top of it.
+                        .unwrap_or(true)
+                })
+                // Type unresolvable: leave to referential-integrity validation, as before.
+                .unwrap_or(true);
+            if carried {
+                Some(field_id.clone())
+            } else {
+                rt.and_then(|t| package.effective_identity_field_id(t).ok().flatten())
+            }
         }
         None => rt.and_then(|t| package.effective_identity_field_id(t).ok().flatten()),
     }
@@ -5669,26 +5705,6 @@ mod tests {
                 .any(|d| d.contains("[view-dispatch]")),
             "expected [view-dispatch] diagnostic for non-matching record; got: {:?}",
             result.diagnostics
-        );
-    }
-
-    #[test]
-    fn title_field_id_omitted_silently_for_record_lacking_field() {
-        // The ContainerSubset view uses titleFieldId = f-heading. Both record types have
-        // f-heading, so headings render for all. This test asserts no crash when rendering
-        // a heterogeneous set — the existing l1_view tests cover the heading-omit path.
-        let (store, _text_id, _table_id, view_id) = make_hetero_store();
-        let result = render_composition(RenderCompositionOptions {
-            store: &store,
-            view_id: &view_id,
-            format: None,
-            theme_variant: None,
-            container_id: None,
-            instance_id_filter: None,
-        });
-        assert!(
-            result.is_ok(),
-            "render should not panic or error on mixed-type container"
         );
     }
 
@@ -9268,6 +9284,416 @@ mod tests {
             result.rendered.contains("Closed Value"),
             "the ineligible title field's value must survive as an ordinary field row; got: {}",
             result.rendered
+        );
+    }
+
+    /// Fixture for RFC-020 Revision 7 (srs#731 / srs-rust#1011): a section declares
+    /// `titleFieldId` = `f-head`, but a heterogeneous `contains`/discovery tree can hold
+    /// sibling records whose Types don't all carry that field. `t-carries` carries
+    /// `f-head` (plus its own `identityFieldId`, `f-alt-id`, used to prove the
+    /// empty-value case does not fall back); `t-lacks` does not carry `f-head` at all,
+    /// and declares its own `identityFieldId` (`f-own-id`) that [N+37] Rev 7 must
+    /// reach for instead.
+    fn make_title_field_carriage_store() -> (
+        crate::store::memory::MemoryStore,
+        String, // markdown composition: sec-carries (present + empty-value records)
+        String, // markdown composition: sec-lacks (the fallback record)
+        String, // html composition, theme with recordWrapper, over t-carries
+        String, // json composition over t-lacks, mirrors the markdown fallback case
+    ) {
+        use crate::package::Package;
+        use crate::record_store::create_record;
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+        use srs_core::types::theme::{ElementTemplates, Theme};
+        use srs_core::types::view::{
+            Composition, DocumentSection, EmptyBehavior, SectionSource, ThemeMode, ThemeReference,
+        };
+
+        let mk_field = |id: &str, name: &str| Field {
+            schema: None,
+            id: id.to_string(),
+            namespace: "com.test".to_string(),
+            name: name.to_string(),
+            version: 1,
+            field_type: FieldType::string(),
+            description: format!("{name} field"),
+            instructions: None,
+            ai_guidance: Some(AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            }),
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let f_head = mk_field("f-head", "head");
+        let f_alt_id = mk_field("f-alt-id", "alt_id");
+        let f_own_id = mk_field("f-own-id", "own_id");
+
+        let t_carries = RecordType {
+            schema: None,
+            ai_guidance: None,
+            tags: None,
+            id: "t-carries".to_string(),
+            namespace: "com.test".to_string(),
+            name: "carries-type".to_string(),
+            version: 1,
+            description: "Type whose effective field set carries f-head".to_string(),
+            fields: vec![
+                FieldAssignment {
+                    field_id: "f-head".to_string(),
+                    order: 0,
+                    required: false,
+                    display_label: Some("Head".to_string()),
+                    description: None,
+                },
+                FieldAssignment {
+                    field_id: "f-alt-id".to_string(),
+                    order: 1,
+                    required: false,
+                    display_label: Some("Alt Id".to_string()),
+                    description: None,
+                },
+            ],
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: Some("f-alt-id".to_string()),
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            lineage: None,
+            provenance: None,
+        };
+        let t_lacks = RecordType {
+            schema: None,
+            ai_guidance: None,
+            tags: None,
+            id: "t-lacks".to_string(),
+            namespace: "com.test".to_string(),
+            name: "lacks-type".to_string(),
+            version: 1,
+            description: "Type whose effective field set does not carry f-head".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "f-own-id".to_string(),
+                order: 0,
+                required: false,
+                display_label: Some("Own Id".to_string()),
+                description: None,
+            }],
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: Some("f-own-id".to_string()),
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            lineage: None,
+            provenance: None,
+        };
+
+        let make_section = |section_id: &str, ns_name: &str| DocumentSection {
+            composite_renderers: None,
+            section_id: section_id.to_string(),
+            title: Some(section_id.to_string()),
+            description: None,
+            order: 0,
+            source: {
+                let (ns, name) = ns_name.split_once('/').expect("test type key is 'ns/name'");
+                SectionSource::DiscoveryQuery {
+                    query: srs_core::types::discovery::DiscoveryQuery {
+                        type_namespace: Some(ns.to_string()),
+                        type_name: Some(name.to_string()),
+                        ..Default::default()
+                    },
+                    container_ids: None,
+                    container_scope: None,
+                }
+            },
+            render_view_id: None,
+            type_dispatch: None,
+            title_field_id: Some("f-head".to_string()),
+            ordering: None,
+            required: None,
+            empty_behavior: Some(EmptyBehavior::Hide),
+            relations_presentation: None,
+        };
+
+        let make_dv = |id: &str, section: DocumentSection, format: &str, theme_ref| Composition {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
+            composite_renderers: None,
+            id: id.to_string(),
+            namespace: "com.test".to_string(),
+            name: id.to_string(),
+            version: 1,
+            description: id.to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![section],
+            navigation_links: None,
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some(format.to_string()),
+                omit_empty_fields: None,
+            }),
+            depth_offset: None,
+            theme_ref,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let dv_carries = make_dv(
+            "dv-carries",
+            make_section("sec-carries", "com.test/carries-type"),
+            "markdown",
+            None,
+        );
+        let dv_lacks = make_dv(
+            "dv-lacks",
+            make_section("sec-lacks", "com.test/lacks-type"),
+            "markdown",
+            None,
+        );
+        let dv_lacks_json = make_dv(
+            "dv-lacks-json",
+            make_section("sec-lacks-json", "com.test/lacks-type"),
+            "json",
+            None,
+        );
+
+        // srs-rust#1012 fold: a theme recordWrapper supplying its own heading markup —
+        // the renderer's default `### {{heading}}` must not also land inside {{content}}.
+        let wrapper_theme = Theme {
+            schema: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
+            id: "th-wrapper".to_string(),
+            namespace: "com.test".to_string(),
+            name: "wrapper-theme".to_string(),
+            version: 1,
+            description: "Theme with a recordWrapper heading".to_string(),
+            targets: vec!["html".to_string()],
+            assets: None,
+            css_class_fields: None,
+            page_templates: None,
+            element_templates: Some(ElementTemplates {
+                document_wrapper: None,
+                section_wrapper: None,
+                section_wrapper_overrides: None,
+                record_wrapper: Some(
+                    "<div class=\"card-head\">{{record-heading}}</div>{{content}}".to_string(),
+                ),
+                record_wrapper_overrides: None,
+                field_row: None,
+                composite_field_row_templates: None,
+                composite_renderer_config: None,
+            }),
+            stylesheet: None,
+            typography: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let dv_wrapper = make_dv(
+            "dv-wrapper",
+            make_section("sec-wrapper", "com.test/carries-type"),
+            "html",
+            Some(ThemeReference {
+                mode: ThemeMode::Bundled,
+                theme_id: Some("th-wrapper".to_string()),
+                path: None,
+                url: None,
+            }),
+        );
+
+        let manifest = crate::manifest::Manifest {
+            container: None,
+            upstream_package: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "pkg-carriage".to_string(),
+            namespace: "com.test".to_string(),
+            name: "carriage-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![f_head, f_alt_id, f_own_id],
+            record_types: vec![t_carries, t_lacks],
+            relation_type_definitions: vec![],
+            views: vec![],
+            compositions: vec![dv_carries, dv_lacks, dv_lacks_json, dv_wrapper],
+            themes: vec![wrapper_theme],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            package_dependencies: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        // r-present: carries f-head → ordinary heading, sanity check on the fixture.
+        let fv_present = {
+            let mut fv = srs_core::types::record::FieldValues::new();
+            fv.insert("head", serde_json::json!("Present Heading"));
+            fv.insert("alt_id", serde_json::json!("Alt Identity Value"));
+            fv
+        };
+        create_record(&store, "t-carries", 1, fv_present, None, None).unwrap();
+
+        // r-empty: carries f-head (effective_fields has it) but leaves it empty — must
+        // omit the heading, and must NOT fall through to f-alt-id's identityFieldId.
+        let fv_empty = {
+            let mut fv = srs_core::types::record::FieldValues::new();
+            fv.insert("alt_id", serde_json::json!("Alt Identity Value"));
+            fv
+        };
+        create_record(&store, "t-carries", 1, fv_empty, None, None).unwrap();
+
+        // r-fallback: does not carry f-head at all → falls back to its own identityFieldId.
+        let fv_fallback = {
+            let mut fv = srs_core::types::record::FieldValues::new();
+            fv.insert("own_id", serde_json::json!("Own Identity Value"));
+            fv
+        };
+        create_record(&store, "t-lacks", 1, fv_fallback, None, None).unwrap();
+
+        (
+            store,
+            "dv-carries".to_string(),
+            "dv-lacks".to_string(),
+            "dv-wrapper".to_string(),
+            "dv-lacks-json".to_string(),
+        )
+    }
+
+    /// RFC-020 Revision 7 (srs#731): an authored `titleFieldId` not present in the
+    /// record's Type's effective field set must fall back to that Type's own
+    /// `identityFieldId`, exactly as the absent-`titleFieldId` case already does.
+    #[test]
+    fn title_field_id_omitted_silently_for_record_lacking_field() {
+        let (store, _dv_carries, dv_lacks, _dv_wrapper, _dv_lacks_json) =
+            make_title_field_carriage_store();
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: &dv_lacks,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+        assert!(
+            result.rendered.contains("### Own Identity Value"),
+            "a record whose Type does not carry the section's titleFieldId must fall \
+             back to its Type's identityFieldId (RFC-020 Revision 7); got: {}",
+            result.rendered
+        );
+    }
+
+    /// The discriminator MUST be `effective_fields`, never `value_str().is_none()`:
+    /// a record whose Type *does* carry `titleFieldId` but which left the value empty
+    /// must still omit the heading — and must NOT fall through to a different field's
+    /// `identityFieldId` just because the title value happened to be empty.
+    #[test]
+    fn heading_omitted_when_type_has_title_field_but_record_value_empty() {
+        let (store, dv_carries, _dv_lacks, _dv_wrapper, _dv_lacks_json) =
+            make_title_field_carriage_store();
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: &dv_carries,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+        assert!(
+            result.rendered.contains("### Present Heading"),
+            "sanity: a record that carries and populates f-head still gets its heading; \
+             got: {}",
+            result.rendered
+        );
+        assert!(
+            !result.rendered.contains("### Alt Identity Value"),
+            "a record whose Type carries titleFieldId but left it empty must NOT fall \
+             through to a different field's identityFieldId; got: {}",
+            result.rendered
+        );
+    }
+
+    /// srs-rust#1012 fold: when a theme supplies `recordWrapper` with its own
+    /// `{{record-heading}}` placeholder, the renderer's default heading must not also
+    /// be emitted inside `{{content}}` — that would duplicate it.
+    #[test]
+    fn record_wrapper_heading_is_emitted_exactly_once() {
+        let (store, _dv_carries, _dv_lacks, dv_wrapper, _dv_lacks_json) =
+            make_title_field_carriage_store();
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: &dv_wrapper,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+        assert!(
+            result
+                .rendered
+                .contains("class=\"card-head\">Present Heading</div>"),
+            "expected the wrapper's own heading markup to carry the heading value; got: {}",
+            result.rendered
+        );
+        let occurrences = result.rendered.matches("Present Heading").count();
+        assert_eq!(
+            occurrences, 1,
+            "recordWrapper heading must be emitted exactly once, not once by the \
+             wrapper and once by the renderer's default heading; got {occurrences} \
+             occurrences in: {}",
+            result.rendered
+        );
+    }
+
+    /// Mirrors `title_field_id_omitted_silently_for_record_lacking_field` in the JSON
+    /// projection direction (as `identity_field_id_fallback_record_heading_json` mirrors
+    /// `identity_field_id_fallback_emits_heading_markdown`): the fallback must also
+    /// populate `record_heading` in the structured projection, not only the markdown.
+    #[test]
+    fn title_field_id_carriage_fallback_record_heading_json() {
+        let (store, _dv_carries, _dv_lacks, _dv_wrapper, dv_lacks_json) =
+            make_title_field_carriage_store();
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: &dv_lacks_json,
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+        let projection = result
+            .projection
+            .expect("json format should produce a projection");
+        assert_eq!(
+            projection.sections[0].records[0].record_heading.as_deref(),
+            Some("Own Identity Value"),
+            "record_heading should reflect the identityFieldId fallback in the JSON \
+             projection when the record's Type does not carry the section's \
+             titleFieldId"
         );
     }
 
