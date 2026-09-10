@@ -101,7 +101,7 @@ fn record_get() {
 
 #[test]
 fn record_delete() {
-    check::<DeletedPayload>("record-delete");
+    check::<RecordDeletePayload>("record-delete");
 }
 
 #[test]

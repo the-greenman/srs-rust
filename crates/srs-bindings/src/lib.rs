@@ -388,10 +388,26 @@ impl SrsRepository {
         to_js(&record)
     }
 
-    /// Delete a record by instance ID. Returns nothing on success.
-    pub fn delete_record(&self, instance_id: &str) -> Result<(), JsValue> {
-        record_store::delete_record(&self.store, instance_id).map_err(js_err)?;
-        Ok(())
+    /// Delete a record by instance ID. `cascade` mirrors the CLI's `--cascade`
+    /// flag (srs-rust#1025): `false` (the default a caller should pass unless
+    /// it has already decided) refuses a record that is the **target** of
+    /// inbound relations — e.g. a successor's `derived-from` edge — rather
+    /// than silently dropping them; `true` deletes them with the record.
+    /// Returns `{ instanceId, cascadedRelations: RelationSummary[] }` — every
+    /// relation (inbound or outbound) this delete actually removed.
+    pub fn delete_record(&self, instance_id: &str, cascade: bool) -> Result<JsValue, JsValue> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct DeleteRecordOutput {
+            instance_id: String,
+            cascaded_relations: Vec<relation_service::RelationSummary>,
+        }
+        let result =
+            record_store::delete_record(&self.store, instance_id, cascade).map_err(js_err)?;
+        to_js(&DeleteRecordOutput {
+            instance_id: result.instance_id,
+            cascaded_relations: result.cascaded_relations,
+        })
     }
 
     /// List relations. `filter_json` is a JSON object with optional camelCase fields:

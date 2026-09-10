@@ -1,3 +1,4 @@
+use crate::relation_service::RelationSummary;
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -52,6 +53,20 @@ pub enum RepositoryError {
     RecordValidation {
         path: PathBuf,
         source: srs_core::error::CoreError,
+    },
+
+    /// srs-rust#1025: `record delete` used to cascade-delete every relation
+    /// incident to the record with no diagnostic — a record that is the
+    /// **target** of inbound relations (e.g. a successor's `derived-from`
+    /// edge) had its provenance silently severed. Refusal is the default;
+    /// `--cascade` (`cascade_inbound: true` at the service layer) opts in.
+    #[error(
+        "RECORD_HAS_INBOUND_RELATIONS: record '{instance_id}' is the target of {count} inbound relation(s); deleting it would silently drop them. Pass --cascade to delete the record and its incident relations, or resolve the relations first: {relations:?}"
+    )]
+    RecordHasInboundRelations {
+        instance_id: String,
+        count: usize,
+        relations: Vec<RelationSummary>,
     },
 
     #[error("manifest parse error at {path:?}: {source}")]
@@ -520,6 +535,18 @@ impl PartialEq for RepositoryError {
                     source: sb,
                 },
             ) => a == b && sa == sb,
+            (
+                RepositoryError::RecordHasInboundRelations {
+                    instance_id: a,
+                    count: ca,
+                    relations: ra,
+                },
+                RepositoryError::RecordHasInboundRelations {
+                    instance_id: b,
+                    count: cb,
+                    relations: rb,
+                },
+            ) => a == b && ca == cb && ra == rb,
             (
                 RepositoryError::ManifestParse { path: a, source: _ },
                 RepositoryError::ManifestParse { path: b, source: _ },

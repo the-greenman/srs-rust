@@ -507,10 +507,20 @@ pub fn validate_record_input(
 ///
 /// The record's own tier and locator come from one catalog snapshot ([R24]).
 /// `manifest.instance_index` is never written (srs-rust#783 Phase 3).
+///
+/// **Inbound-relations gate (srs-rust#1025).** Before any write, records
+/// where `instance_id` is the **target** are checked — the provenance-carrying
+/// direction (e.g. a successor's `derived-from` edge). If any exist and
+/// `cascade_inbound` is `false`, the delete is refused with
+/// [`RepositoryError::RecordHasInboundRelations`] and the tree is untouched.
+/// `cascade_inbound: true` proceeds and the removed relations (both
+/// directions) come back in [`DeleteRecordResult::cascaded_relations`] —
+/// nothing is silently dropped.
 pub fn delete_record(
     store: &dyn RepositoryStore,
     instance_id: &str,
-) -> Result<String, RepositoryError> {
+    cascade_inbound: bool,
+) -> Result<DeleteRecordResult, RepositoryError> {
     let cat = store.catalog()?;
     let path = cat
         .instances
@@ -520,6 +530,17 @@ pub fn delete_record(
         .ok_or_else(|| RepositoryError::NotFound {
             path: std::path::PathBuf::from("records"),
         })?;
+
+    if !cascade_inbound {
+        let inbound = relation_service::inbound_relations_to(store, instance_id)?;
+        if !inbound.is_empty() {
+            return Err(RepositoryError::RecordHasInboundRelations {
+                instance_id: instance_id.to_string(),
+                count: inbound.len(),
+                relations: inbound,
+            });
+        }
+    }
 
     // Change F: container membership is an *explicit container-membership
     // operation*, outside [R22]'s routine-write prohibition. Removed before the
@@ -535,13 +556,16 @@ pub fn delete_record(
     store.begin_batch();
     // [R22] cascade: incident relation files are declared targets of this delete.
     let cascade_result = relation_service::delete_relations_incident_to(store, instance_id);
-    match cascade_result {
-        Ok(_) => store.commit_batch()?,
+    let cascaded_relations = match cascade_result {
+        Ok(relations) => {
+            store.commit_batch()?;
+            relations
+        }
         Err(e) => {
             let _ = store.abort_batch();
             return Err(e);
         }
-    }
+    };
     // The record's own file, deleted only after its incident relations are gone.
     //
     // This delete propagates its failure (srs-rust#839). It was best-effort
@@ -558,7 +582,10 @@ pub fn delete_record(
     // while there was a sidecar for it to delete.
     store.delete_instance_file(&path)?;
 
-    Ok(instance_id.to_string())
+    Ok(DeleteRecordResult {
+        instance_id: instance_id.to_string(),
+        cascaded_relations,
+    })
 }
 
 /// Filter options for listing records
@@ -654,10 +681,16 @@ pub struct CreateRecordResult {
     pub record: Record,
 }
 
-/// Result for delete_record_in_context
-#[derive(Debug, Clone)]
+/// Result for `delete_record` / `delete_record_in_context`.
+///
+/// `cascaded_relations` is every relation this delete removed as its [R22]
+/// incident-relation cascade (srs-rust#1025) — inbound and outbound alike, so
+/// a caller can see exactly what provenance the delete took with it instead
+/// of discovering it later as a missing edge.
+#[derive(Debug, Clone, PartialEq)]
 pub struct DeleteRecordResult {
     pub instance_id: String,
+    pub cascaded_relations: Vec<relation_service::RelationSummary>,
 }
 
 /// Input for [`get_field_value_by_name`].
@@ -828,8 +861,12 @@ pub fn get_record_summary_by_id(
 /// (transient I/O error on `add_member`) therefore cleans up correctly. See ADR-024.
 ///
 /// TODO: fault-injection test for this error arm pending a FailStore test double (see ADR-024).
+///
+/// `cascade_inbound: true` — this is best-effort cleanup of a record this same
+/// operation just wrote; the srs-rust#1025 refusal gate exists for a caller's
+/// intentional delete, not for rolling back our own half-finished write.
 fn attempt_rollback_delete(store: &dyn RepositoryStore, instance_id: &str) {
-    let _ = delete_record(store, instance_id);
+    let _ = delete_record(store, instance_id, true);
 }
 
 /// Create a record from a `namespace/name` type filter and optionally add to a container.
@@ -958,10 +995,15 @@ pub fn create_record_in_context(
 /// the scope is a *guard*, not a mutation. Removing the membership is
 /// `delete_record`'s own cascade (srs-rust#834), which clears every container,
 /// so doing it here as well would be a second implementation of the same step.
+///
+/// `cascade_inbound` forwards to `delete_record`'s inbound-relations gate
+/// (srs-rust#1025): `false` (the CLI default) refuses a record that is the
+/// target of inbound relations; `true` (`--cascade`) deletes them with it.
 pub fn delete_record_in_context(
     store: &dyn RepositoryStore,
     id: String,
     container_id: Option<String>,
+    cascade_inbound: bool,
 ) -> Result<DeleteRecordResult, RepositoryError> {
     if let Some(ref cid) = container_id {
         if !container_service::is_member(store, cid, &id)? {
@@ -974,8 +1016,7 @@ pub fn delete_record_in_context(
         }
     }
 
-    let instance_id = delete_record(store, &id)?;
-    Ok(DeleteRecordResult { instance_id })
+    delete_record(store, &id, cascade_inbound)
 }
 
 /// Input for `create_record_in_container`.
@@ -2799,7 +2840,7 @@ mod tests {
             })
             .unwrap();
 
-        delete_record(&store, &record_b.instance_id).unwrap();
+        delete_record(&store, &record_b.instance_id, true).unwrap();
 
         // Both incident relations are gone; the bystander survives.
         let remaining = load_relations(&store).unwrap();
@@ -2838,7 +2879,7 @@ mod tests {
         )
         .unwrap();
 
-        delete_record(&store, &record.instance_id).unwrap();
+        delete_record(&store, &record.instance_id, true).unwrap();
     }
 
     #[test]
@@ -2855,8 +2896,8 @@ mod tests {
 
         assert!(store.load_instance_json(&key).is_ok());
 
-        let deleted_id = delete_record(&store, &instance_id).unwrap();
-        assert_eq!(deleted_id, instance_id);
+        let deleted = delete_record(&store, &instance_id, true).unwrap();
+        assert_eq!(deleted.instance_id, instance_id);
 
         assert!(store.load_instance_json(&key).is_err());
 
@@ -2864,6 +2905,141 @@ mod tests {
         // entry to begin with — absence from the catalog is the real check.
         let cat = store.catalog().unwrap();
         assert!(cat.instances.iter().all(|e| e.id != instance_id));
+    }
+
+    /// srs-rust#1025 red-then-green: before the fix, deleting a record that is
+    /// the **target** of an inbound relation (e.g. a successor's
+    /// `derived-from` edge) cascade-deleted that relation with no diagnostic —
+    /// the provenance edge just vanished. `RED` below is what the old
+    /// behaviour would assert (delete succeeds, relation silently gone); it is
+    /// commented out because it now fails — `cascade_inbound: false` refuses
+    /// instead. `GREEN` is the fixed behaviour this test actually checks.
+    fn make_store_with_inbound_relation() -> (MemoryStore, String, String, String) {
+        let store = make_store_with_package();
+        let original = create_record(
+            &store,
+            "type-test-001",
+            1,
+            fvs(vec![("test-name", json!("Original"))]),
+            None,
+            None,
+        )
+        .unwrap();
+        let successor = create_record(
+            &store,
+            "type-test-001",
+            1,
+            fvs(vec![("test-name", json!("Successor"))]),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let relation_id = "aaaaaaaa-1025-4000-8000-000000000001".to_string();
+        crate::store::write_relations_standalone_for_test(
+            &store,
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+                "relations": [{
+                    "relationId": relation_id,
+                    "relationType": "derived-from",
+                    "sourceInstanceId": successor.instance_id,
+                    "targetInstanceId": original.instance_id,
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }]
+            }),
+        );
+
+        (store, original.instance_id, successor.instance_id, relation_id)
+    }
+
+    #[test]
+    fn record_delete_refuses_by_default_when_target_of_inbound_relation() {
+        let (store, original_id, _successor_id, relation_id) = make_store_with_inbound_relation();
+
+        // RED: the pre-fix behaviour — `delete_record(&store, &original_id, true)`
+        // — used to succeed here and silently drop `relation_id`. Asserting the
+        // refusal below is what makes that regression visible again if the gate
+        // is ever removed.
+        let err = delete_record(&store, &original_id, false).unwrap_err();
+        match &err {
+            RepositoryError::RecordHasInboundRelations {
+                instance_id,
+                count,
+                relations,
+            } => {
+                assert_eq!(instance_id, &original_id);
+                assert_eq!(*count, 1);
+                assert_eq!(relations.len(), 1);
+                assert_eq!(relations[0].relation_id, relation_id);
+                assert_eq!(relations[0].relation_type, "derived-from");
+                assert_eq!(relations[0].target_id, original_id);
+            }
+            other => panic!("expected RecordHasInboundRelations, got {other:?}"),
+        }
+
+        // GREEN / tree untouched: refusal happens before any write.
+        assert!(
+            store.find_instance(&original_id).unwrap().is_some(),
+            "a refused delete must not remove the record"
+        );
+        let relations_after =
+            relation_service::list_relations(&store, relation_service::ListRelationsFilter::default())
+                .unwrap();
+        assert_eq!(
+            relations_after.len(),
+            1,
+            "a refused delete must not remove the inbound relation"
+        );
+    }
+
+    #[test]
+    fn record_delete_cascade_true_removes_record_and_reports_cascaded_relation() {
+        let (store, original_id, _successor_id, relation_id) = make_store_with_inbound_relation();
+
+        let result = delete_record(&store, &original_id, true).unwrap();
+        assert_eq!(result.instance_id, original_id);
+        assert_eq!(result.cascaded_relations.len(), 1);
+        assert_eq!(result.cascaded_relations[0].relation_id, relation_id);
+        assert_eq!(result.cascaded_relations[0].relation_type, "derived-from");
+        assert_eq!(result.cascaded_relations[0].target_id, original_id);
+
+        assert!(store.find_instance(&original_id).unwrap().is_none());
+        let relations_after =
+            relation_service::list_relations(&store, relation_service::ListRelationsFilter::default())
+                .unwrap();
+        assert!(
+            relations_after.is_empty(),
+            "cascade must remove the now-dangling relation, and report having done so"
+        );
+    }
+
+    #[test]
+    fn record_delete_refuses_inbound_relations_roundtrip_stores() {
+        // Cross-store roundtrip (memory -> file) per CLAUDE.md Storage Boundary Rules.
+        let (store, original_id, _successor_id, relation_id) = make_store_with_inbound_relation();
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::store::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store).unwrap();
+
+        let err = delete_record(&file_store, &original_id, false).unwrap_err();
+        match err {
+            RepositoryError::RecordHasInboundRelations {
+                instance_id,
+                relations,
+                ..
+            } => {
+                assert_eq!(instance_id, original_id);
+                assert_eq!(relations[0].relation_id, relation_id);
+            }
+            other => panic!("expected RecordHasInboundRelations on FileStore, got {other:?}"),
+        }
+        assert!(file_store.find_instance(&original_id).unwrap().is_some());
+
+        let result = delete_record(&file_store, &original_id, true).unwrap();
+        assert_eq!(result.cascaded_relations.len(), 1);
+        assert!(file_store.find_instance(&original_id).unwrap().is_none());
     }
 
     fn make_store_with_lifecycle() -> MemoryStore {
@@ -5776,7 +5952,7 @@ mod tests {
             "manifest must have one more entry after create"
         );
 
-        delete_record(&store, &record.instance_id).expect("delete should succeed");
+        delete_record(&store, &record.instance_id, true).expect("delete should succeed");
 
         let after_delete_len = store.catalog().unwrap().instances.len();
         assert_eq!(
@@ -6211,7 +6387,7 @@ mod tests {
         let instance_id = record.instance_id.clone();
 
         store.arm_fail_at(FailPoint::SaveManifest);
-        let result = delete_record(&store, &instance_id);
+        let result = delete_record(&store, &instance_id, true);
         assert!(
             result.is_ok(),
             "a routine delete must not touch manifest.json, so an armed \
@@ -6258,8 +6434,8 @@ mod tests {
             .expect("the new record has a catalog locator");
 
         store.arm_fail_at(FailPoint::DeleteInstanceFileAt(record_path.clone()));
-        let err = delete_record(&store, &instance_id)
-            .map(|ok| panic!("expected {record_path} to fail the delete, got Ok({ok})"))
+        let err = delete_record(&store, &instance_id, true)
+            .map(|ok| panic!("expected {record_path} to fail the delete, got Ok({ok:?})"))
             .unwrap_err();
         assert!(
             matches!(err, RepositoryError::Io { .. }),
@@ -6275,7 +6451,7 @@ mod tests {
         );
 
         // Re-run: the earlier steps are idempotent no-ops and the delete completes.
-        delete_record(&store, &instance_id).expect("re-running the delete must complete it");
+        delete_record(&store, &instance_id, true).expect("re-running the delete must complete it");
         assert!(
             store.find_instance(&instance_id).unwrap().is_none(),
             "the record must be gone after the successful re-run"

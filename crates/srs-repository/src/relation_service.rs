@@ -32,7 +32,7 @@ use srs_schema::{SchemaRegistry, RELATIONS_COLLECTION_SCHEMA_ID};
 use std::collections::{HashMap, HashSet};
 
 /// Summary for relation list operations
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelationSummary {
     pub relation_id: String,
@@ -380,18 +380,47 @@ pub(crate) fn remove_relations_where(
 /// `instance_id` (as source or target). Called from instance/container delete
 /// paths so a delete never leaves dangling relation endpoints behind. The
 /// incident relation files are declared targets of the same delete under
-/// [R22]'s explicit cascade exception. Returns the removed relation ids.
+/// [R22]'s explicit cascade exception. Returns the removed relations in full
+/// (srs-rust#1025 — callers report what was cascaded rather than swallowing it).
 ///
 /// Batch scoping is the caller's responsibility (group with the instance
 /// delete under `begin_batch`/`commit_batch`).
 pub(crate) fn delete_relations_incident_to(
     store: &dyn RepositoryStore,
     instance_id: &str,
-) -> Result<Vec<String>, RepositoryError> {
+) -> Result<Vec<RelationSummary>, RepositoryError> {
     let removed = remove_relations_where(store, |r| {
         r.source_instance_id == instance_id || r.target_instance_id == instance_id
     })?;
-    Ok(removed.into_iter().map(|r| r.relation_id).collect())
+    Ok(removed.into_iter().map(RelationSummary::from).collect())
+}
+
+impl From<Relation> for RelationSummary {
+    fn from(r: Relation) -> Self {
+        Self {
+            relation_id: r.relation_id,
+            relation_type: r.relation_type,
+            source_id: r.source_instance_id,
+            target_id: r.target_instance_id,
+        }
+    }
+}
+
+/// Relations where `instance_id` is the **target** — the provenance-carrying
+/// direction (srs-rust#1025). Used to gate a record delete before any write:
+/// deleting a record that other instances point *at* (e.g. a successor's
+/// `derived-from` edge) would otherwise silently sever that provenance.
+pub(crate) fn inbound_relations_to(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+) -> Result<Vec<RelationSummary>, RepositoryError> {
+    list_relations(
+        store,
+        ListRelationsFilter {
+            target: Some(instance_id.to_string()),
+            ..Default::default()
+        },
+    )
 }
 
 /// Validate one relation's JSON shape against the relations-collection schema's

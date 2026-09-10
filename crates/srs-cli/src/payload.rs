@@ -252,11 +252,24 @@ pub struct NotePayload {
     pub note: Note,
 }
 
-/// Shared by note/record/tag/extension delete (all use `instanceId`).
+/// Shared by note/tag/extension delete (all use `instanceId`).
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DeletedPayload {
     pub instance_id: String,
+}
+
+/// `record delete` (srs-rust#1025). Extends `DeletedPayload`'s shape with
+/// every relation the delete cascaded away — inbound or outbound — so a
+/// caller can see what provenance was removed instead of discovering a
+/// missing edge later. Empty when the deleted record had no incident
+/// relations.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordDeletePayload {
+    pub instance_id: String,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub cascaded_relations: Vec<RelationSummary>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

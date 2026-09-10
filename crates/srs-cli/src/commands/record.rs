@@ -1,9 +1,9 @@
 use crate::commands::{with_store, CliContext, RecordCommand, RecordTagCommand};
 use crate::output;
 use crate::payload::{
-    DeletedPayload, RecordAllowedTransitionsPayload, RecordGetAttachmentsPayload, RecordGetPayload,
-    RecordListPayload, RecordPayload, RecordSuccessorPayload, RecordTagAddPayload,
-    RecordTagListPayload, RecordTransitionPayload, RecordValidatePayload,
+    RecordAllowedTransitionsPayload, RecordDeletePayload, RecordGetAttachmentsPayload,
+    RecordGetPayload, RecordListPayload, RecordPayload, RecordSuccessorPayload,
+    RecordTagAddPayload, RecordTagListPayload, RecordTransitionPayload, RecordValidatePayload,
 };
 use anyhow::Result;
 use srs_repository::attachment_service::{get_record_attachments, GetRecordAttachmentsInput};
@@ -32,7 +32,7 @@ pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
         } => cmd_record_create(ctx, type_filter, version, dir),
         RecordCommand::Update { id, json: _ } => cmd_record_update(ctx, id),
         RecordCommand::Validate => cmd_record_validate(ctx),
-        RecordCommand::Delete { id, json: _ } => cmd_record_delete(ctx, id),
+        RecordCommand::Delete { id, cascade, json: _ } => cmd_record_delete(ctx, id, cascade),
         RecordCommand::Transition { id } => cmd_record_transition(ctx, id),
         RecordCommand::Successor { id } => cmd_record_successor(ctx, id),
         RecordCommand::AllowedTransitions { id } => cmd_record_allowed_transitions(ctx, id),
@@ -190,15 +190,16 @@ fn cmd_record_update(ctx: CliContext, id: String) -> Result<String> {
     }
 }
 
-fn cmd_record_delete(ctx: CliContext, id: String) -> Result<String> {
+fn cmd_record_delete(ctx: CliContext, id: String, cascade: bool) -> Result<String> {
     let container_id = ctx.container_id.clone();
     match with_store(&ctx, |store| {
-        Ok(delete_record_in_context(store, id, container_id)?)
+        Ok(delete_record_in_context(store, id, container_id, cascade)?)
     }) {
         Ok(result) => output::serialize(
             "record delete",
-            DeletedPayload {
+            RecordDeletePayload {
                 instance_id: result.instance_id,
+                cascaded_relations: result.cascaded_relations,
             },
         ),
         Err(e) => Ok(output::err("record delete", vec![e.to_string()])),

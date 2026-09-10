@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "DeletedPayload",
-  "description": "Shared by note/record/tag/extension delete (all use `instanceId`).",
+  "description": "Shared by note/tag/extension delete (all use `instanceId`).",
   "type": "object",
   "required": [
     "instanceId"

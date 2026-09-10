@@ -166,7 +166,10 @@ fn scaffold_purpose_record(
         .as_ref()
         .expect("container always set by get_or_insert_with above");
     if let Err(e) = store.save_container(container) {
-        let _ = delete_record(store, &instance_id);
+        // Best-effort rollback of the record this same call just wrote —
+        // the srs-rust#1025 inbound-relations gate is for a caller's
+        // intentional delete, not our own half-finished scaffold.
+        let _ = delete_record(store, &instance_id, true);
         if let Ok(mut m) = store.load_manifest() {
             m.container = None;
             let _ = write_manifest(store, &m);

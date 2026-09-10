@@ -461,7 +461,10 @@ pub fn graduate_note(
         },
         &definitions,
     ) {
-        let _ = crate::record_store::delete_record(store, &create_result.record.instance_id);
+        // Best-effort rollback of the record this same call just wrote — see
+        // srs-rust#1025's note on `attempt_rollback_delete` for why rollback
+        // paths force cascade_inbound rather than hitting the refusal gate.
+        let _ = crate::record_store::delete_record(store, &create_result.record.instance_id, true);
         return Err(e);
     }
 
