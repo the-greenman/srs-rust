@@ -187,6 +187,8 @@ mod tests {
             ],
             &["createdAt", "notes", "sourceRefs", "meta"],
         )
-        .unwrap_or_else(|report| panic!("Relation vs relations-collection.json Relation def: {report}"));
+        .unwrap_or_else(|report| {
+            panic!("Relation vs relations-collection.json Relation def: {report}")
+        });
     }
 }
