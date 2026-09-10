@@ -1227,6 +1227,13 @@ pub enum RecordCommand {
     Delete {
         /// Record instance ID
         id: String,
+        /// Delete the record even though it is the target of inbound
+        /// relations (e.g. a successor's `derived-from` edge), removing
+        /// those relations with it. Without this flag, a record with inbound
+        /// relations is refused rather than silently severing them
+        /// (srs-rust#1025).
+        #[arg(long)]
+        cascade: bool,
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,

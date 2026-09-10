@@ -156,7 +156,7 @@ fn run_cascade_suite(store: &dyn RepositoryStore) {
     assert_loads_clean(store, "before the delete");
 
     // Tier 2 — the reproduction filed on #834.
-    record_store::delete_record(store, RECORD_ID).unwrap();
+    record_store::delete_record(store, RECORD_ID, true).unwrap();
     assert_loads_clean(store, "after deleting a container member (record)");
 
     // Tier 0 — the same cascade, via the other instance-delete path.
@@ -230,7 +230,7 @@ fn a_failed_membership_write_never_leaves_the_repository_unloadable() {
     assert_loads_clean(&store, "before the delete");
 
     store.arm_fail_at(FailPoint::SaveManifest);
-    let err = record_store::delete_record(&store, RECORD_ID)
+    let err = record_store::delete_record(&store, RECORD_ID, true)
         .expect_err("the injected manifest-write fault must surface, not be swallowed");
     assert!(
         matches!(err, RepositoryError::Io { .. }),
@@ -271,7 +271,7 @@ fn deleting_a_container_identity_record_leaves_a_valid_repository() {
         "premise: the scaffolded record is the root container's identity"
     );
 
-    record_store::delete_record(&store, &identity).unwrap();
+    record_store::delete_record(&store, &identity, true).unwrap();
 
     assert_loads_clean(&store, "after deleting the identity record");
     let root = store.load_manifest().unwrap().container.unwrap();

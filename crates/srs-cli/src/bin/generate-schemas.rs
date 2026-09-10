@@ -44,7 +44,7 @@ fn main() {
     write_schema!("record-create", RecordPayload);
     write_schema!("record-update", RecordPayload);
     write_schema!("record-validate", RecordValidatePayload);
-    write_schema!("record-delete", DeletedPayload);
+    write_schema!("record-delete", RecordDeletePayload);
     write_schema!("record-transition", RecordTransitionPayload);
     write_schema!("record-successor", RecordSuccessorPayload);
     write_schema!("record-tag-add", RecordTagAddPayload);

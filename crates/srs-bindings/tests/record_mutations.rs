@@ -191,7 +191,7 @@ fn delete_record_makes_get_return_none() {
     assert!(found.is_some(), "record should exist before deletion");
 
     // Delete
-    record_store::delete_record(&store, &instance_id).expect("delete_record should succeed");
+    record_store::delete_record(&store, &instance_id, true).expect("delete_record should succeed");
 
     // Verify it's gone
     let after = record_store::get_record_by_id(&store, &instance_id).expect("get after delete");
