@@ -91,17 +91,9 @@ fn relation(id: &str, source: &str, target: &str) -> Relation {
         relation_type: "depends-on".to_string(),
         source_instance_id: source.to_string(),
         target_instance_id: target.to_string(),
-        asserted_by: None,
-        confidence: None,
         created_at: None,
-        created_by: None,
-        status: None,
-        valid_from: None,
-        valid_until: None,
         notes: None,
         source_refs: None,
-        source_repository_id: None,
-        target_repository_id: None,
         meta: None,
     }
 }

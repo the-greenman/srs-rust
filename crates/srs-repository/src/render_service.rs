@@ -12,7 +12,6 @@ use serde_json::json;
 use srs_core::types::field::{Datatype, FieldType};
 use srs_core::types::record::Record;
 use srs_core::types::relation::Relation;
-use srs_core::types::relation::RelationStatus;
 use srs_core::types::theme::{AssetMode, Theme};
 use srs_core::types::view::{
     Composition, ContainerScope, DocumentSection, PresentationDirection, RelationDirection,
@@ -2331,10 +2330,6 @@ pub(crate) fn humanize_relation_key(key: &str) -> String {
     }
 }
 
-fn is_active_relation(rel: &Relation) -> bool {
-    matches!(rel.status, None | Some(RelationStatus::Active))
-}
-
 fn resolve_display_label_for_relation_target(
     store: &dyn RepositoryStore,
     instance_id: &str,
@@ -2468,7 +2463,6 @@ fn collect_relation_rows(
                     for rel in relations {
                         if rel.relation_type == entry.relation_type
                             && rel.source_instance_id == record.instance_id
-                            && is_active_relation(rel)
                             && seen.insert(rel.target_instance_id.clone())
                         {
                             target_ids.push(rel.target_instance_id.clone());
@@ -2479,7 +2473,6 @@ fn collect_relation_rows(
                     for rel in relations {
                         if rel.relation_type == entry.relation_type
                             && rel.target_instance_id == record.instance_id
-                            && is_active_relation(rel)
                             && seen.insert(rel.source_instance_id.clone())
                         {
                             target_ids.push(rel.source_instance_id.clone());
@@ -4672,18 +4665,10 @@ mod tests {
                 relation_type: "precedes".to_string(),
                 source_instance_id: text_id.clone(),
                 target_instance_id: table_id.clone(),
-                asserted_by: None,
-                confidence: None,
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
-                created_by: None,
-                status: None,
-                valid_from: None,
-                valid_until: None,
                 notes: None,
                 source_refs: None,
                 meta: None,
-                source_repository_id: None,
-                target_repository_id: None,
             },
         )
         .unwrap();
@@ -4958,18 +4943,10 @@ mod tests {
                 relation_type: "contains".to_string(),
                 source_instance_id: root_id.clone(),
                 target_instance_id: child_id.clone(),
-                asserted_by: None,
-                confidence: None,
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
-                created_by: None,
-                status: None,
-                valid_from: None,
-                valid_until: None,
                 notes: None,
                 source_refs: None,
                 meta: None,
-                source_repository_id: None,
-                target_repository_id: None,
             },
         )
         .unwrap();
@@ -4980,18 +4957,10 @@ mod tests {
                 relation_type: "contains".to_string(),
                 source_instance_id: child_id.clone(),
                 target_instance_id: grandchild_id.clone(),
-                asserted_by: None,
-                confidence: None,
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
-                created_by: None,
-                status: None,
-                valid_from: None,
-                valid_until: None,
                 notes: None,
                 source_refs: None,
                 meta: None,
-                source_repository_id: None,
-                target_repository_id: None,
             },
         )
         .unwrap();
@@ -7380,18 +7349,10 @@ mod tests {
                 relation_type: "precedes".to_string(),
                 source_instance_id: text_id.clone(),
                 target_instance_id: table_id.clone(),
-                asserted_by: None,
-                confidence: None,
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
-                created_by: None,
-                status: None,
-                valid_from: None,
-                valid_until: None,
                 notes: None,
                 source_refs: None,
                 meta: None,
-                source_repository_id: None,
-                target_repository_id: None,
             },
         )
         .unwrap();
@@ -7677,18 +7638,10 @@ mod tests {
                 relation_type: "precedes".to_string(),
                 source_instance_id: table_id,
                 target_instance_id: text2_id,
-                asserted_by: None,
-                confidence: None,
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
-                created_by: None,
-                status: None,
-                valid_from: None,
-                valid_until: None,
                 notes: None,
                 source_refs: None,
                 meta: None,
-                source_repository_id: None,
-                target_repository_id: None,
             },
         )
         .unwrap();
@@ -10268,18 +10221,10 @@ mod tests {
                 relation_type: "refers-to".to_string(),
                 source_instance_id: SOURCE_ID.to_string(),
                 target_instance_id: NOTE_ID.to_string(),
-                asserted_by: None,
-                confidence: None,
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
-                created_by: None,
-                status: None,
-                valid_from: None,
-                valid_until: None,
                 notes: None,
                 source_refs: None,
                 meta: None,
-                source_repository_id: None,
-                target_repository_id: None,
             },
         )
         .unwrap();
@@ -10349,18 +10294,10 @@ mod tests {
             relation_type: rtype.to_string(),
             source_instance_id: src.to_string(),
             target_instance_id: tgt.to_string(),
-            asserted_by: None,
-            confidence: None,
             created_at: None,
-            created_by: None,
-            status: None,
-            valid_from: None,
-            valid_until: None,
             notes: None,
             source_refs: None,
             meta: None,
-            source_repository_id: None,
-            target_repository_id: None,
         }
     }
 

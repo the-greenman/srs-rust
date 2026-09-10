@@ -15,19 +15,7 @@ pub struct Relation {
     pub source_instance_id: String,
     pub target_instance_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub asserted_by: Option<AssertedBy>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub confidence: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub created_by: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<RelationStatus>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub valid_from: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub valid_until: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
     // SourceReference omits deny_unknown_fields intentionally (forward-compat);
@@ -36,10 +24,6 @@ pub struct Relation {
     pub source_refs: Option<Vec<SourceReference>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_repository_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub target_repository_id: Option<String>,
 }
 
 /// The top-level relations collection file.
@@ -49,23 +33,6 @@ pub struct RelationsCollection {
     #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
     pub relations: Vec<Relation>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum AssertedBy {
-    Human,
-    Ai,
-    Imported,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum RelationStatus {
-    Proposed,
-    Active,
-    Rejected,
-    Superseded,
 }
 
 #[cfg(test)]
@@ -79,18 +46,10 @@ mod tests {
             relation_type: "precedes".to_string(),
             source_instance_id: "aaaa0001-0000-4000-a000-000000000001".to_string(),
             target_instance_id: "aaaa0002-0000-4000-a000-000000000002".to_string(),
-            asserted_by: None,
-            confidence: None,
             created_at: Some("2026-05-29T00:00:00Z".to_string()),
-            created_by: None,
-            status: None,
-            valid_from: None,
-            valid_until: None,
             notes: None,
             source_refs: None,
             meta: None,
-            source_repository_id: None,
-            target_repository_id: None,
         };
         let json = serde_json::to_string(&r).unwrap();
         let parsed: Relation = serde_json::from_str(&json).unwrap();
@@ -136,9 +95,6 @@ mod tests {
             "relationType": "precedes",
             "sourceInstanceId": "aaaa0001-0000-4000-a000-000000000001",
             "targetInstanceId": "aaaa0002-0000-4000-a000-000000000002",
-            "assertedBy": "human",
-            "confidence": 0.8,
-            "status": "active",
             "sourceRefs": [{
                 "sourceType": "repository-document",
                 "sourceId": "doc-1"
@@ -146,8 +102,91 @@ mod tests {
             "meta": {"k":"v"}
         }"#;
         let relation: Relation = serde_json::from_str(json).unwrap();
-        assert_eq!(relation.asserted_by, Some(AssertedBy::Human));
-        assert_eq!(relation.status, Some(RelationStatus::Active));
         assert!(relation.source_refs.is_some());
+    }
+
+    /// Regression test for srs-rust#1022: `assertedBy`, `confidence`,
+    /// `status`, `createdBy`, `validFrom`, `validUntil`, `sourceRepositoryId`,
+    /// `targetRepositoryId` were removed from the canonical schema by srs#441
+    /// but survived on the Rust struct — so `srs relation create` accepted
+    /// them at parse time and only failed later, at the repository's schema
+    /// gate, with a confusing "Additional properties are not allowed" error.
+    /// Now the authoring surface itself rejects them, matching what it can
+    /// actually persist.
+    #[test]
+    fn relation_rejects_fields_removed_by_srs_441() {
+        for field in [
+            r#""assertedBy": "human""#,
+            r#""confidence": 0.8"#,
+            r#""status": "active""#,
+            r#""createdBy": "someone""#,
+            r#""validFrom": "2026-01-01T00:00:00Z""#,
+            r#""validUntil": "2026-12-31T00:00:00Z""#,
+            r#""sourceRepositoryId": "repo-a""#,
+            r#""targetRepositoryId": "repo-b""#,
+        ] {
+            let json = format!(
+                r#"{{
+                    "relationId": "d0000001-0000-4000-a000-000000000001",
+                    "relationType": "precedes",
+                    "sourceInstanceId": "aaaa0001-0000-4000-a000-000000000001",
+                    "targetInstanceId": "aaaa0002-0000-4000-a000-000000000002",
+                    {field}
+                }}"#
+            );
+            let result: Result<Relation, _> = serde_json::from_str(&json);
+            assert!(
+                result.is_err(),
+                "Relation must reject {field} — it was removed from the canonical schema by srs#441"
+            );
+        }
+    }
+
+    /// Struct/schema property-parity guard (srs-rust#777 pattern). Exhaustive
+    /// destructure: the compiler forces this test to be touched the moment
+    /// `Relation` gains or loses a field, so the property lists below cannot
+    /// silently drift the way the removed fields above did.
+    ///
+    /// Compared against `RELATIONS_COLLECTION_SCHEMA_ID`'s embedded `Relation`
+    /// def — the schema `schema_validate_relation` (srs-repository) actually
+    /// enforces at create time today, per its own code comment. The standalone
+    /// `relation.json` mirror (`RELATION_SCHEMA_ID`) additionally requires
+    /// `$schema`, which `Relation` has no field for yet — that gap is tracked
+    /// separately as srs-rust#1021 and is out of scope here.
+    #[test]
+    fn relation_struct_matches_relations_collection_relation_def_property_set() {
+        let sample = Relation {
+            relation_id: "d0000001-0000-4000-a000-000000000001".to_string(),
+            relation_type: "precedes".to_string(),
+            source_instance_id: "aaaa0001-0000-4000-a000-000000000001".to_string(),
+            target_instance_id: "aaaa0002-0000-4000-a000-000000000002".to_string(),
+            created_at: None,
+            notes: None,
+            source_refs: None,
+            meta: None,
+        };
+        let Relation {
+            relation_id: _,
+            relation_type: _,
+            source_instance_id: _,
+            target_instance_id: _,
+            created_at: _,
+            notes: _,
+            source_refs: _,
+            meta: _,
+        } = sample;
+
+        srs_schema::conformance::assert_property_parity(
+            srs_schema::RELATIONS_COLLECTION_SCHEMA_ID,
+            Some("Relation"),
+            &[
+                "relationId",
+                "relationType",
+                "sourceInstanceId",
+                "targetInstanceId",
+            ],
+            &["createdAt", "notes", "sourceRefs", "meta"],
+        )
+        .unwrap_or_else(|report| panic!("Relation vs relations-collection.json Relation def: {report}"));
     }
 }

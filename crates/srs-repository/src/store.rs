@@ -4429,18 +4429,10 @@ mod tests {
             relation_type: "precedes".to_string(),
             source_instance_id: "aaaa0001-0000-4000-a000-000000000001".to_string(),
             target_instance_id: "aaaa0002-0000-4000-a000-000000000002".to_string(),
-            asserted_by: None,
-            confidence: None,
             created_at: Some("2026-01-01T00:00:00Z".to_string()),
-            created_by: None,
-            status: None,
-            valid_from: None,
-            valid_until: None,
             notes: None,
             source_refs: None,
             meta: None,
-            source_repository_id: None,
-            target_repository_id: None,
         }
     }
 

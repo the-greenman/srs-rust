@@ -1257,18 +1257,10 @@ mod tests {
                 relation_type: "contains".to_string(),
                 source_instance_id: created.container_id.clone(),
                 target_instance_id: "some-instance".to_string(),
-                asserted_by: None,
-                confidence: None,
                 created_at: None,
-                created_by: None,
-                status: None,
-                valid_from: None,
-                valid_until: None,
                 notes: None,
                 source_refs: None,
                 meta: None,
-                source_repository_id: None,
-                target_repository_id: None,
             })
             .unwrap();
 
