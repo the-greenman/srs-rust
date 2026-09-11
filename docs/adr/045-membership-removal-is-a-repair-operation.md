@@ -82,6 +82,13 @@ external damage the repair path exists to undo — and not a widening of the exe
   methods introduced here (used by the two `*_for_repair` service helpers and by
   `validate_container_invariants`), and any remaining direct `crate::catalog::build` call.
   `archive::pack` is the one such direct caller left, with its own documented rationale.
+  `load_container_for_repair` itself has since gained two further read-only callers beyond
+  `remove_member`/`remove_root`: `manifest_service::unset_manifest_root_container` (reads the
+  root container so it can still resolve it when the checked catalog load is fatal — the same
+  repair-path need `remove_root` has) and `doctor_service::instance_id_referenced` (checks
+  whether an id is still referenced by any container before allowing an `adopt`, tolerating a
+  container that would fail the checked load). Neither writes through the seam; both are
+  documented at their call sites.
 - Store-agnostic by construction: the unchecked builder is a free function over
   `&dyn RepositoryStore`, so disk and `.srsj`/tree sessions behave identically.
 
