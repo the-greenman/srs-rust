@@ -558,6 +558,51 @@ fn dangling_field_assignment_diagnosed_per_target_set() {
     );
 }
 
+/// The implicit core package (ADR-025) is merged into `load_package()` results but is never
+/// written to disk, so it is not part of the R13 resolution set — a FieldAssignment referencing
+/// a core field by id must still dangle at catalog load. Locks in the exact behavior
+/// `package_service::create_type_in_package`'s write-time check (srs-rust#1039) relies on:
+/// whatever R13 accepts here is exactly what that check must accept too.
+#[test]
+fn dangling_field_assignment_against_implicit_core_field_is_still_an_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    write(root, "manifest.json", MINIMAL_MANIFEST);
+    write(
+        root,
+        "package/package.json",
+        r#"{
+          "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+          "id": "7d0a1c9e-0000-4000-8000-000000000002",
+          "namespace": "com.test", "name": "pkg", "version": "1.0.0",
+          "title": "pkg", "description": "", "status": "active",
+          "createdAt": "2026-01-01T00:00:00Z",
+          "fields": [], "types": ["types/t.json"]
+        }"#,
+    );
+    write(
+        root,
+        "package/types/t.json",
+        r#"{
+          "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+          "id": "9c56b6ae-0000-4000-8000-000000000002",
+          "namespace": "com.test", "name": "thing", "version": 1,
+          "description": "t", "createdAt": "2026-01-01T00:00:00Z",
+          "fields": [{"fieldId": "3b000001-0000-4000-a000-000000000001", "order": 1, "required": true}]
+        }"#,
+    );
+    let cat = catalog::build(&FileStore::new(root)).unwrap();
+    let dangling: Vec<_> = cat
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == codes::DANGLING_REFERENCE)
+        .collect();
+    assert_eq!(dangling.len(), 1, "{:?}", cat.diagnostics);
+    assert!(dangling[0]
+        .message
+        .contains("3b000001-0000-4000-a000-000000000001"));
+}
+
 #[test]
 fn sidecar_without_document_id_is_an_error() {
     let tmp = tempfile::tempdir().unwrap();
