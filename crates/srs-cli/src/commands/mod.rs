@@ -89,6 +89,16 @@ pub fn resolve_repo(
     }
 }
 
+/// Parse the canonical `namespace/name` type-filter form shared by `record list`,
+/// `record create` and `find --type`.
+pub(crate) fn parse_type_filter(type_filter: &str) -> Option<(String, String)> {
+    let parts: Vec<&str> = type_filter.split('/').collect();
+    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+        return None;
+    }
+    Some((parts[0].to_string(), parts[1].to_string()))
+}
+
 fn infer_store_from_location(path: &Path) -> StoreBackend {
     if path.extension().and_then(|ext| ext.to_str()) == Some("srsj") || path.is_file() {
         StoreBackend::Json
@@ -1648,6 +1658,11 @@ pub struct FindArgs {
     /// Free-text recall-floor search over the record's text projection
     #[arg(long = "text")]
     pub text: Option<String>,
+    /// Exact match on type, in canonical `namespace/name` form (e.g.
+    /// com.example/section). Alias for `--type-namespace` + `--type-name`;
+    /// takes precedence over them when both are given.
+    #[arg(long = "type")]
+    pub type_filter: Option<String>,
     /// Exact match on Record.typeId
     #[arg(long = "type-id")]
     pub type_id: Option<String>,

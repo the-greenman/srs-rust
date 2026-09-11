@@ -2840,6 +2840,98 @@ fn record_list_returns_records_by_type() {
 }
 
 #[test]
+fn find_type_flag_is_alias_for_type_namespace_and_type_name() {
+    let temp = create_temp_repo();
+
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(&package_dir).unwrap();
+    std::fs::create_dir_all(package_dir.join("types")).unwrap();
+
+    let record_type = serde_json::json!({
+        "id": "type-test-001",
+        "namespace": "com.test",
+        "name": "test-item",
+        "version": 1,
+        "description": "Test item type",
+        "fields": []
+    });
+    write_json(&package_dir.join("types/test-item.json"), record_type);
+
+    let package_json = serde_json::json!({
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "fields": [],
+        "types": ["types/test-item.json"]
+    });
+    write_json(&package_dir.join("package.json"), package_json);
+
+    std::fs::create_dir_all(temp.path().join("records/test-items")).unwrap();
+    let record_id = "dddddddd-dddd-dddd-8ddd-dddddddddddd";
+    let record = serde_json::json!({
+        "instanceId": record_id,
+        "typeId": "type-test-001",
+        "typeVersion": 1,
+        "typeNamespace": "com.test",
+        "typeName": "test-item",
+        "fieldValues": {},
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    std::fs::write(
+        temp.path()
+            .join(format!("records/test-items/{}.json", record_id)),
+        serde_json::to_string_pretty(&record).unwrap(),
+    )
+    .unwrap();
+
+    let manifest: Value = serde_json::json!({
+        "srsVersion": "2.0-draft",
+        "dataModelRevision": 2,
+        "repositoryId": "test-repo",
+    });
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    // `--type namespace/name` (the new alias) ...
+    let via_alias = run_srs_in_dir(temp.path(), &["find", "--type", "com.test/test-item"]);
+    assert_eq!(via_alias["ok"], true, "find --type failed: {:?}", via_alias);
+    let alias_hits = via_alias["payload"]["result"]["hits"]
+        .as_array()
+        .expect("hits should be array");
+    assert_eq!(alias_hits.len(), 1);
+    assert_eq!(alias_hits[0]["instanceId"], record_id);
+
+    // ... must match the existing split-flag form exactly.
+    let via_split = run_srs_in_dir(
+        temp.path(),
+        &[
+            "find",
+            "--type-namespace",
+            "com.test",
+            "--type-name",
+            "test-item",
+        ],
+    );
+    assert_eq!(via_split["ok"], true);
+    assert_eq!(
+        via_split["payload"]["result"],
+        via_alias["payload"]["result"]
+    );
+
+    // An invalid (non `namespace/name`) filter is rejected, mirroring `record list`.
+    let invalid = run_srs_in_dir(temp.path(), &["find", "--type", "not-a-valid-filter"]);
+    assert_eq!(invalid["ok"], false);
+    assert!(invalid["diagnostics"][0]
+        .as_str()
+        .unwrap()
+        .contains("Invalid type filter"));
+}
+
+#[test]
 fn record_get_returns_record_by_id() {
     let temp = create_temp_repo();
 
