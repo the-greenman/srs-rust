@@ -1496,7 +1496,7 @@ pub enum RenderCommand {
         /// Composition UUID
         #[arg(long = "view")]
         view: String,
-        /// Optional render format override (markdown, text, adoc)
+        /// Optional render format override (markdown, text, adoc, html, json)
         #[arg(long = "view-format")]
         view_format: Option<String>,
         /// Optional named theme variant defined on the Composition
