@@ -1,4 +1,4 @@
-use crate::commands::{with_store, CliContext, RecordCommand, RecordTagCommand};
+use crate::commands::{parse_type_filter, with_store, CliContext, RecordCommand, RecordTagCommand};
 use crate::output;
 use crate::payload::{
     RecordAllowedTransitionsPayload, RecordDeletePayload, RecordGetAttachmentsPayload,
@@ -286,10 +286,3 @@ fn cmd_record_attachments(ctx: CliContext, id: String) -> Result<String> {
     }
 }
 
-fn parse_type_filter(type_filter: &str) -> Option<(String, String)> {
-    let parts: Vec<&str> = type_filter.split('/').collect();
-    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
-        return None;
-    }
-    Some((parts[0].to_string(), parts[1].to_string()))
-}
