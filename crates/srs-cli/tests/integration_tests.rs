@@ -3476,8 +3476,7 @@ fn relation_create_accepts_canonical_schema_pointer() {
     .unwrap();
     let object: Value = serde_json::from_str(&content).unwrap();
     assert_eq!(
-        object["$schema"],
-        "https://srs.semanticops.com/schema/2.0/relation.json",
+        object["$schema"], "https://srs.semanticops.com/schema/2.0/relation.json",
         "the stored object's own $schema is unaffected by the input carrying one"
     );
 }
@@ -3509,7 +3508,9 @@ fn relation_create_rejects_mismatched_schema_pointer() {
 
     let created = run_srs_stdin_in_dir(temp.path(), &["relation", "create"], &relation);
     assert_eq!(created["ok"], false, "mismatched $schema must be rejected");
-    let diagnostics = created["diagnostics"].as_array().expect("diagnostics array");
+    let diagnostics = created["diagnostics"]
+        .as_array()
+        .expect("diagnostics array");
     assert!(
         diagnostics
             .iter()
