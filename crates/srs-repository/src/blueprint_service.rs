@@ -200,13 +200,50 @@ pub fn get_blueprint_by_id(
     }
 }
 
-/// Return the `structure` (RelationSpec list) for a blueprint, sorted deterministically.
+/// A blueprint structure entry with type names resolved alongside their ids
+/// (srs-rust#1046) — a client renders a blueprint structure table from
+/// `type_id` alone as a grid of UUID stubs.
+#[derive(Debug, Clone)]
+pub struct BlueprintRelationSpec {
+    pub relation_type: String,
+    pub source_type_id: String,
+    /// `namespace/name` for `source_type_id`, when it resolves in the package.
+    pub source_type_name: Option<String>,
+    pub target_type_id: String,
+    /// `namespace/name` for `target_type_id`, when it resolves in the package.
+    pub target_type_name: Option<String>,
+    pub cardinality: Option<String>,
+    pub required: Option<bool>,
+}
+
+/// Resolve a `TypeRef` to its `namespace/name`, `None` when it doesn't resolve
+/// (dangling ref, or a version-less ref with no matching type at all) — same
+/// version-optional resolution `resolve_brief_type` uses in
+/// `blueprint_brief_service`. Takes an already-loaded `Package` so a
+/// structure list with many entries loads the package once, not once per entry.
+fn resolve_type_ref_name(
+    package: &crate::package::Package,
+    type_ref: &srs_core::types::blueprint::TypeRef,
+) -> Option<String> {
+    let record_type = match type_ref.type_version {
+        Some(v) => package.resolve_type(&type_ref.type_id, v),
+        None => package
+            .record_types
+            .iter()
+            .filter(|rt| rt.id == type_ref.type_id)
+            .max_by_key(|rt| rt.version),
+    }?;
+    Some(format!("{}/{}", record_type.namespace, record_type.name))
+}
+
+/// Return the `structure` (RelationSpec list, with type names resolved) for a
+/// blueprint, sorted deterministically.
 ///
 /// Sort order: `(source_type_id, target_type_id, relation_type)` ascending.
 pub fn list_blueprint_structure(
     store: &dyn RepositoryStore,
     id: &str,
-) -> Result<Vec<srs_core::types::blueprint::RelationSpec>, RepositoryError> {
+) -> Result<Vec<BlueprintRelationSpec>, RepositoryError> {
     match get_blueprint_by_id(store, id)? {
         GetBlueprintResult::Found(bp) => {
             let mut structure = bp.structure;
@@ -217,7 +254,19 @@ pub fn list_blueprint_structure(
                     .then(a.target_type.type_id.cmp(&b.target_type.type_id))
                     .then(a.relation_type.cmp(&b.relation_type))
             });
-            Ok(structure)
+            let package = store.load_package()?;
+            Ok(structure
+                .into_iter()
+                .map(|rs| BlueprintRelationSpec {
+                    source_type_name: resolve_type_ref_name(&package, &rs.source_type),
+                    target_type_name: resolve_type_ref_name(&package, &rs.target_type),
+                    relation_type: rs.relation_type,
+                    source_type_id: rs.source_type.type_id,
+                    target_type_id: rs.target_type.type_id,
+                    cardinality: rs.cardinality,
+                    required: rs.required,
+                })
+                .collect())
         }
         GetBlueprintResult::NotFound => Err(RepositoryError::BlueprintNotFound {
             blueprint_id: id.to_string(),
@@ -705,8 +754,94 @@ mod tests {
         let bp = create_blueprint(&store, bp, None).unwrap().blueprint;
         let structure = list_blueprint_structure(&store, &bp.id).unwrap();
 
-        assert_eq!(structure[0].source_type.type_id, "a/type");
-        assert_eq!(structure[1].source_type.type_id, "b/type");
+        assert_eq!(structure[0].source_type_id, "a/type");
+        assert_eq!(structure[1].source_type_id, "b/type");
+        // srs-rust#1046: neither "a/type" nor "b/type" is a real registered Type in
+        // this fixture's (default, empty) package — names must stay None, never a
+        // fabricated or misleading value.
+        assert_eq!(structure[0].source_type_name, None);
+        assert_eq!(structure[1].source_type_name, None);
+    }
+
+    #[test]
+    fn blueprint_structure_resolves_type_names_when_registered() {
+        // srs-rust#1046: when structure[].sourceType/targetType DO resolve in the
+        // package, list_blueprint_structure must surface their names — not just the
+        // bare ids the srs-rust#1046 issue's V2 example showed leaking.
+        let manifest = crate::manifest::Manifest {
+            container: None,
+            upstream_package: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let source_type = srs_core::types::record_type::RecordType {
+            schema: None,
+            ai_guidance: None,
+            tags: None,
+            id: "type-src".to_string(),
+            namespace: "com.test".to_string(),
+            name: "source-type".to_string(),
+            version: 1,
+            description: "test".to_string(),
+            fields: vec![],
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            lineage: None,
+            provenance: None,
+        };
+        let package = crate::package::Package {
+            id: "pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![],
+            record_types: vec![source_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            compositions: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            package_dependencies: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = MemoryStore::new(manifest, package);
+        store.register_package_boundary(&None).unwrap();
+
+        let mut bp = minimal_blueprint("named");
+        bp.structure = vec![RelationSpec {
+            relation_type: "depends-on".to_string(),
+            source_type: TypeRef {
+                type_id: "type-src".to_string(),
+                type_version: None,
+            },
+            target_type: TypeRef {
+                type_id: "type-does-not-exist".to_string(),
+                type_version: None,
+            },
+            cardinality: None,
+            required: None,
+        }];
+
+        let bp = create_blueprint(&store, bp, None).unwrap().blueprint;
+        let structure = list_blueprint_structure(&store, &bp.id).unwrap();
+
+        assert_eq!(structure.len(), 1);
+        assert_eq!(
+            structure[0].source_type_name.as_deref(),
+            Some("com.test/source-type")
+        );
+        assert_eq!(structure[0].target_type_name, None);
     }
 
     #[test]

@@ -21,6 +21,7 @@
 
 use crate::container_service;
 use crate::error::RepositoryError;
+use crate::record_label;
 use crate::record_store;
 use crate::relation_graph;
 use crate::store::{relation_object_path, RepositoryStore};
@@ -39,6 +40,40 @@ pub struct RelationSummary {
     pub relation_type: String,
     pub source_id: String,
     pub target_id: String,
+    /// Display label for `source_id`, resolved via `record_label` (RFC-020 Rule
+    /// [N+36] for Tier-2, `Note.title` for Tier-0) — srs-rust#1046. `None` when
+    /// the endpoint isn't an instance the label helper can resolve (a Container,
+    /// a dangling reference, or an I/O error loading it) — a client falls back
+    /// to `source_id` in that case, same as today.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_label: Option<String>,
+    /// Display label for `target_id` — see `source_label`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_label: Option<String>,
+}
+
+/// Resolve a relation endpoint's display label, reusing `record_label`'s
+/// existing Tier-2 heuristic and falling back to `Note.title` for Tier-0 —
+/// no new label logic (srs-rust#1046). Returns `None` for anything the label
+/// helper can't handle: a Container id (never a relation endpoint per the
+/// core invariant, but validation is advisory, not enforced here), a dangling
+/// reference, or a load error — callers already treat a missing label as
+/// "fall back to the bare id".
+fn resolve_endpoint_label(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+    field_name_index: &record_label::FieldNameIndex,
+    identity_field_index: &record_label::IdentityFieldIndex,
+) -> Option<String> {
+    match record_store::get_instance_by_id(store, instance_id) {
+        Ok(Some(record_store::LoadedInstance::Record(record))) => Some(
+            record_label::record_display_label(&record, identity_field_index, field_name_index),
+        ),
+        Ok(Some(record_store::LoadedInstance::Note(note))) => {
+            Some(note.title.unwrap_or(note.instance_id))
+        }
+        Ok(None) | Err(_) => None,
+    }
 }
 
 /// Result for get_relation_by_id
@@ -87,6 +122,24 @@ pub fn list_relations(
 
     let relations = load_relations(store)?;
 
+    // One package load for both label indexes, and a per-id cache so a busy
+    // endpoint (e.g. a hub record with many relations) is resolved once, not
+    // once per relation. build_label_indexes needs a loadable package; when it
+    // doesn't (e.g. a corrupt package.json), every summary just falls back to
+    // no labels rather than failing the whole listing.
+    let label_indexes = record_label::build_label_indexes(store).ok();
+    let mut label_cache: HashMap<String, Option<String>> = HashMap::new();
+    let mut label_for = |id: &str| -> Option<String> {
+        if let Some(cached) = label_cache.get(id) {
+            return cached.clone();
+        }
+        let label = label_indexes
+            .as_ref()
+            .and_then(|(fni, ifi)| resolve_endpoint_label(store, id, fni, ifi));
+        label_cache.insert(id.to_string(), label.clone());
+        label
+    };
+
     let filtered: Vec<_> = relations
         .into_iter()
         .filter(|r| {
@@ -118,6 +171,8 @@ pub fn list_relations(
         .map(|r| RelationSummary {
             relation_id: r.relation_id.clone(),
             relation_type: r.relation_type.clone(),
+            source_label: label_for(&r.source_instance_id),
+            target_label: label_for(&r.target_instance_id),
             source_id: r.source_instance_id.clone(),
             target_id: r.target_instance_id.clone(),
         })
@@ -397,11 +452,18 @@ pub(crate) fn delete_relations_incident_to(
 
 impl From<Relation> for RelationSummary {
     fn from(r: Relation) -> Self {
+        // No labels here: every caller (currently only delete_relations_incident_to,
+        // reporting relations removed as a side effect of deleting one of their own
+        // endpoints) is reporting on an in-flight or already-gone instance, so a
+        // label lookup would race the delete it's reporting on. Callers that want
+        // labels use `list_relations`, which resolves them via `resolve_endpoint_label`.
         Self {
             relation_id: r.relation_id,
             relation_type: r.relation_type,
             source_id: r.source_instance_id,
             target_id: r.target_instance_id,
+            source_label: None,
+            target_label: None,
         }
     }
 }
@@ -752,11 +814,18 @@ pub fn rebuild_precedes_chain(
         }
     }
 
+    let label_indexes = record_label::build_label_indexes(store).ok();
     let created = new_relations
         .iter()
         .map(|r| RelationSummary {
             relation_id: r.relation_id.clone(),
             relation_type: r.relation_type.clone(),
+            source_label: label_indexes.as_ref().and_then(|(fni, ifi)| {
+                resolve_endpoint_label(store, &r.source_instance_id, fni, ifi)
+            }),
+            target_label: label_indexes.as_ref().and_then(|(fni, ifi)| {
+                resolve_endpoint_label(store, &r.target_instance_id, fni, ifi)
+            }),
             source_id: r.source_instance_id.clone(),
             target_id: r.target_instance_id.clone(),
         })
@@ -825,6 +894,71 @@ mod tests {
             source_refs: None,
             meta: None,
         }
+    }
+
+    #[test]
+    fn list_relations_resolves_note_labels_via_record_label() {
+        // srs-rust#1046: sourceLabel/targetLabel reuse record_label's existing
+        // Tier-2 heuristic / Tier-0 Note.title fallback — no new label logic.
+        let store = MemoryStore::default();
+        store
+            .save_instance_json(
+                "records/notes/note-1.json",
+                &json!({"instanceId": "note-1", "title": "First Note", "sections": []}),
+            )
+            .unwrap();
+        store
+            .save_instance_json(
+                "records/notes/note-2.json",
+                &json!({"instanceId": "note-2", "sections": []}),
+            )
+            .unwrap();
+        let relations = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+            "relations": [{
+                "relationId": "aaaaaaaa-0000-4000-8000-000000000009",
+                "relationType": "contains",
+                "sourceInstanceId": "note-1",
+                "targetInstanceId": "note-2",
+                "createdAt": "2026-01-01T00:00:00Z"
+            }]
+        });
+        crate::store::write_relations_standalone_for_test(&store, &relations);
+
+        let result = list_relations(&store, ListRelationsFilter::default()).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].source_label.as_deref(), Some("First Note"));
+        // note-2 has no title — Note.title fallback is the instance id, same as
+        // record_label's own no-title-field behaviour for a Note without a title.
+        assert_eq!(result[0].target_label.as_deref(), Some("note-2"));
+    }
+
+    #[test]
+    fn list_relations_endpoint_with_no_label_source_is_none() {
+        // srs-rust#1046: an endpoint that isn't a loadable instance (a Container, a
+        // dangling reference) must yield `None`, never panic or error the listing.
+        let store = MemoryStore::default();
+        store
+            .save_instance_json(
+                "records/notes/note-1.json",
+                &json!({"instanceId": "note-1", "sections": []}),
+            )
+            .unwrap();
+        let relations = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+            "relations": [{
+                "relationId": "aaaaaaaa-0000-4000-8000-00000000000a",
+                "relationType": "contains",
+                "sourceInstanceId": "note-1",
+                "targetInstanceId": "does-not-exist",
+                "createdAt": "2026-01-01T00:00:00Z"
+            }]
+        });
+        crate::store::write_relations_standalone_for_test(&store, &relations);
+
+        let result = list_relations(&store, ListRelationsFilter::default()).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].target_label, None);
     }
 
     #[test]

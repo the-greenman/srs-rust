@@ -335,7 +335,7 @@ pub enum Commands {
     /// Container grouping and membership commands
     #[command(subcommand)]
     Container(ContainerCommand),
-    /// Render document outputs from views
+    /// Render document outputs from Compositions
     #[command(subcommand)]
     Render(RenderCommand),
     /// Package management commands
@@ -347,7 +347,7 @@ pub enum Commands {
     /// View (L1 field view) definition management
     #[command(subcommand)]
     View(ViewCommand),
-    /// Document view (L2 render view) definition management
+    /// Composition (L2 render view) definition management
     #[command(subcommand, name = "composition")]
     Composition(CompositionCommand),
     /// Vocabulary definition commands (RFC-006)
@@ -1014,7 +1014,7 @@ pub enum ViewCommand {
 
 #[derive(Subcommand)]
 pub enum CompositionCommand {
-    /// List document view (L2) definitions
+    /// List Composition (L2) definitions
     List {
         /// Filter by namespace
         #[arg(long)]
@@ -1029,23 +1029,23 @@ pub enum CompositionCommand {
         #[arg(long = "root-type")]
         root_type: Option<String>,
     },
-    /// Get a document view definition by ID
+    /// Get a Composition definition by ID
     Get {
         /// Composition ID
         id: String,
     },
-    /// Create a new document view definition (reads JSON from stdin)
+    /// Create a new Composition definition (reads JSON from stdin)
     Create {
         /// Package boundary path (omit for primary package, pass path for sub-package)
         #[arg(long)]
         package: Option<String>,
     },
-    /// Update a document view definition (reads full JSON from stdin)
+    /// Update a Composition definition (reads full JSON from stdin)
     Update {
         /// Composition ID
         id: String,
     },
-    /// Delete a document view definition by ID
+    /// Delete a Composition definition by ID
     Delete {
         /// Composition ID
         id: String,
@@ -1491,7 +1491,7 @@ pub enum BlueprintCommand {
 
 #[derive(Subcommand)]
 pub enum RenderCommand {
-    /// Render a document view
+    /// Render a Composition
     Composition {
         /// Composition UUID
         #[arg(long = "view")]

@@ -41,8 +41,20 @@
         "sourceTypeId": {
           "type": "string"
         },
+        "sourceTypeName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "targetTypeId": {
           "type": "string"
+        },
+        "targetTypeName": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     }

@@ -200,7 +200,9 @@ fn map_brief_relation_spec(rs: BriefRelationSpecResult) -> BriefRelationSpec {
     BriefRelationSpec {
         relation_type: rs.relation_type,
         source_type_id: rs.source_type_id,
+        source_type_name: rs.source_type_name,
         target_type_id: rs.target_type_id,
+        target_type_name: rs.target_type_name,
         cardinality: rs.cardinality,
         required: rs.required,
     }
@@ -282,8 +284,10 @@ fn cmd_blueprint_structure(ctx: CliContext, id: String) -> Result<String> {
         .into_iter()
         .map(|rs| RelationSpecEntry {
             relation_type: rs.relation_type,
-            source_type_id: rs.source_type.type_id,
-            target_type_id: rs.target_type.type_id,
+            source_type_id: rs.source_type_id,
+            source_type_name: rs.source_type_name,
+            target_type_id: rs.target_type_id,
+            target_type_name: rs.target_type_name,
             cardinality: rs.cardinality,
             required: rs.required,
         })

@@ -52,7 +52,12 @@ pub struct BriefTypeResult {
 pub struct BriefRelationSpecResult {
     pub relation_type: String,
     pub source_type_id: String,
+    /// `namespace/name` for `source_type_id`, when it resolves in the package
+    /// (srs-rust#1046).
+    pub source_type_name: Option<String>,
     pub target_type_id: String,
+    /// `namespace/name` for `target_type_id`, when it resolves in the package.
+    pub target_type_name: Option<String>,
     pub cardinality: Option<String>,
     pub required: Option<bool>,
 }
@@ -124,17 +129,18 @@ pub fn blueprint_brief(
         }
     }
 
-    let structure = blueprint
-        .structure
-        .iter()
-        .map(|rs| BriefRelationSpecResult {
+    let mut structure = Vec::with_capacity(blueprint.structure.len());
+    for rs in &blueprint.structure {
+        structure.push(BriefRelationSpecResult {
             relation_type: rs.relation_type.clone(),
             source_type_id: rs.source_type.type_id.clone(),
+            source_type_name: resolve_type_ref_name(store, &rs.source_type)?,
             target_type_id: rs.target_type.type_id.clone(),
+            target_type_name: resolve_type_ref_name(store, &rs.target_type)?,
             cardinality: rs.cardinality.clone(),
             required: rs.required,
-        })
-        .collect();
+        });
+    }
 
     let required_types = blueprint
         .required_types
@@ -266,6 +272,26 @@ pub fn render_brief_markdown(result: &BlueprintBriefResult) -> String {
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/// Resolve a `TypeRef` to its `namespace/name`, `None` when it doesn't resolve
+/// (srs-rust#1046). Same version-optional resolution as `resolve_brief_type`,
+/// which this can't reuse directly — `resolve_brief_type` returns the full
+/// resolved Type plus its fields (and pushes a diagnostic on miss); a
+/// `structure[]` entry referencing a type outside `root_types` is common and
+/// not itself diagnostic-worthy.
+fn resolve_type_ref_name(
+    store: &dyn RepositoryStore,
+    type_ref: &TypeRef,
+) -> Result<Option<String>, RepositoryError> {
+    let found = match type_ref.type_version {
+        Some(v) => get_type_by_id(store, &type_ref.type_id, v)?,
+        None => get_type_by_id_latest(store, &type_ref.type_id)?,
+    };
+    Ok(match found {
+        GetTypeResult::Found(rt) => Some(format!("{}/{}", rt.namespace, rt.name)),
+        GetTypeResult::NotFound => None,
+    })
+}
 
 fn resolve_brief_type(
     store: &dyn RepositoryStore,
@@ -931,6 +957,14 @@ mod tests {
         assert_eq!(result.structure[0].target_type_id, "type-222");
         assert_eq!(result.structure[0].cardinality.as_deref(), Some("1..*"));
         assert_eq!(result.structure[0].required, Some(true));
+        // srs-rust#1046: type-111 resolves in the package (test.ns/article);
+        // type-222 is never defined, so its name stays None rather than a bare UUID
+        // masquerading as a name.
+        assert_eq!(
+            result.structure[0].source_type_name.as_deref(),
+            Some("test.ns/article")
+        );
+        assert_eq!(result.structure[0].target_type_name, None);
     }
 
     #[test]
