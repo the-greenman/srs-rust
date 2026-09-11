@@ -2917,7 +2917,10 @@ fn find_type_flag_is_alias_for_type_namespace_and_type_name() {
         ],
     );
     assert_eq!(via_split["ok"], true);
-    assert_eq!(via_split["payload"]["result"], via_alias["payload"]["result"]);
+    assert_eq!(
+        via_split["payload"]["result"],
+        via_alias["payload"]["result"]
+    );
 
     // An invalid (non `namespace/name`) filter is rejected, mirroring `record list`.
     let invalid = run_srs_in_dir(temp.path(), &["find", "--type", "not-a-valid-filter"]);

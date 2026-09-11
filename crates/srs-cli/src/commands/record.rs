@@ -285,4 +285,3 @@ fn cmd_record_attachments(ctx: CliContext, id: String) -> Result<String> {
         )),
     }
 }
-
