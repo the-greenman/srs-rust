@@ -38,6 +38,28 @@ pub enum DiagnosticSeverity {
     Warning,
 }
 
+// --- srs-rust#1046: diagnostic messages must not leak bare UUIDs where a name
+// is resolvable. A client renders `diagnostic.message` verbatim and cannot
+// recover a name from a UUID without a second lookup it has no tool for. Each
+// helper appends ` (namespace/name[@version])` when the id resolves in the
+// package, and falls back to the bare id — unchanged — when it does not
+// (an unresolved reference has no name to show, and the bare id is itself the
+// diagnostic).
+
+fn fmt_field_ref(pkg: &crate::package::Package, field_id: &str) -> String {
+    match pkg.resolve_field(field_id) {
+        Some(f) => format!("{} ({}/{})", field_id, f.namespace, f.name),
+        None => field_id.to_string(),
+    }
+}
+
+fn fmt_vocabulary_ref(pkg: &crate::package::Package, vocab_id: &str) -> String {
+    match pkg.resolve_vocabulary(vocab_id) {
+        Some(v) => format!("{} ({}/{})", vocab_id, v.namespace, v.name),
+        None => vocab_id.to_string(),
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ValidationSummary {
@@ -644,8 +666,12 @@ pub fn validate_repository(
                                 relative_path: rel_path.clone(),
                                 schema_id: None,
                                 message: format!(
-                                    "SRS038-R13-DANGLING-REFERENCE: record '{}' typeId '{}'@{} resolves to nothing in the definition set",
-                                    record.instance_id, record.type_id, record.type_version
+                                    "SRS038-R13-DANGLING-REFERENCE: record '{}' typeId '{}'@{} (denormalized hint: '{}/{}') resolves to nothing in the definition set",
+                                    record.instance_id,
+                                    record.type_id,
+                                    record.type_version,
+                                    record.type_namespace,
+                                    record.type_name
                                 ),
                             });
                         }
@@ -1899,7 +1925,7 @@ fn validate_identity_field_invariants(
                             schema_id: None,
                             message: format!(
                                 "RFC-020 (Rule [N+33]): type '{}/{}@{}' identityFieldId '{}' is not in the effective field set",
-                                rt.namespace, rt.name, rt.version, field_id
+                                rt.namespace, rt.name, rt.version, fmt_field_ref(pkg, &field_id)
                             ),
                         });
                     }
@@ -2125,7 +2151,7 @@ fn validate_title_field_id_eligibility(
                         schema_id: None,
                         message: format!(
                             "RFC-032 Revision 7 ([N+1]): composition '{}' section '{}' titleFieldId '{}' is not eligible (must be an effective-single, open-domain, prose-formatted string field); the heading will be omitted at render time",
-                            dv.id, section.section_id, field_id
+                            dv.id, section.section_id, fmt_field_ref(pkg, field_id)
                         ),
                     });
                 }
@@ -2140,7 +2166,7 @@ fn validate_title_field_id_eligibility(
                         schema_id: None,
                         message: format!(
                             "RFC-032 Revision 7 ([N+1]): composition '{}' section '{}' titleFieldId '{}' is not eligible for type '{}/{}@{}' (must be an effective-single, open-domain, prose-formatted string field); the heading will be omitted at render time",
-                            dv.id, section.section_id, field_id, rt.namespace, rt.name, rt.version
+                            dv.id, section.section_id, fmt_field_ref(pkg, field_id), rt.namespace, rt.name, rt.version
                         ),
                     });
                 }
@@ -2186,7 +2212,7 @@ fn validate_vocabulary_invariants(
                         schema_id: None,
                         message: format!(
                             "V3: field '{}' vocabularyRef '{}' resolves to a mode:open Vocabulary; RFC-032 [R3] requires mode:closed",
-                            field.name, ref_id
+                            field.name, fmt_vocabulary_ref(pkg, ref_id)
                         ),
                     });
                 }
@@ -2982,6 +3008,16 @@ mod tests {
             "expected a dangling-reference error naming the unresolvable typeId, got: {:?}",
             report.diagnostics
         );
+        // srs-rust#1046: the typeId itself is unresolvable (that's the point of the
+        // diagnostic) but the Record still carries denormalized typeNamespace/typeName
+        // hints (`minimal_record_json` sets "com.test"/"test-type") — the message must
+        // surface them so a client isn't left with a bare, unexplained UUID.
+        assert!(
+            err.unwrap().message.contains("com.test/test-type"),
+            "expected the dangling-typeId message to include the record's denormalized \
+             type hint, got: {:?}",
+            err
+        );
         assert!(
             !report.is_ok(),
             "repo with an unresolvable typeId must not validate as ok"
@@ -3200,6 +3236,14 @@ mod tests {
             v3_error.is_some(),
             "expected V3 error for closed field vocabularyRef resolving to an open Vocabulary, got: {:?}",
             report.diagnostics
+        );
+        // srs-rust#1046: the vocabulary DOES resolve here (that's the whole point of
+        // the V3 check — a resolved vocab in the wrong mode) so its name must appear
+        // in the message alongside the bare UUID, not the UUID alone.
+        assert!(
+            v3_error.unwrap().message.contains("com.test/test-vocab"),
+            "expected V3 message to name the resolved vocabulary, got: {:?}",
+            v3_error
         );
     }
 
@@ -3967,6 +4011,60 @@ mod tests {
             n33_error.is_some(),
             "expected Rule [N+33] error for dangling identityFieldId, got: {:?}",
             report.diagnostics
+        );
+    }
+
+    #[test]
+    fn identity_field_id_resolved_but_not_effective_names_the_field() {
+        // srs-rust#1046: unlike the dangling case above, identityFieldId here resolves
+        // to a real Field in the package — it's just not part of this Type's effective
+        // field set. The message must surface the resolved field's name, not just the
+        // bare id, since a client can't recover it otherwise.
+        let temp = TempDir::new().unwrap();
+        let type_id = "00000000-0000-4000-8000-000000000040";
+        let other_field_id = "00000000-0000-4000-8000-0000000000f2";
+
+        setup_package_only_repo(
+            &temp,
+            &minimal_package_json_full(
+                &["fields/other-field.json"],
+                &["types/test-type.json"],
+                &[],
+                &[],
+            ),
+        );
+        write_json(
+            temp.path(),
+            "package/fields/other-field.json",
+            &minimal_field_json_with_vocab_ref_and_domain(
+                other_field_id,
+                "elsewhere",
+                None,
+                "open",
+            ),
+        );
+        write_json(
+            temp.path(),
+            "package/types/test-type.json",
+            &minimal_type_json_with_identity_field_id(type_id, other_field_id),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let n33_error = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Error
+                && d.message.contains("N+33")
+                && d.message.contains("identityFieldId")
+        });
+        assert!(
+            n33_error.is_some(),
+            "expected Rule [N+33] error for identityFieldId outside the effective field set, got: {:?}",
+            report.diagnostics
+        );
+        assert!(
+            n33_error.unwrap().message.contains("com.test/elsewhere"),
+            "expected the message to name the resolved field, got: {:?}",
+            n33_error
         );
     }
 
@@ -5043,6 +5141,16 @@ mod tests {
                     && d.message.contains("test-type")
                     && d.severity == DiagnosticSeverity::Warning),
             "expected an [N+1] warning naming the resolved type, got {:?}",
+            report.diagnostics
+        );
+        // srs-rust#1046: the ineligible titleFieldId itself resolves to a real Field
+        // ("closed-field") — the diagnostic must name it, not just the bare UUID.
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("[N+1]") && d.message.contains("com.test/closed-field")),
+            "expected the [N+1] warning to name the resolved field, got {:?}",
             report.diagnostics
         );
     }

@@ -170,7 +170,11 @@ pub struct BlueprintListEntry {
 pub struct RelationSpecEntry {
     pub relation_type: String,
     pub source_type_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_type_name: Option<String>,
     pub target_type_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_type_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cardinality: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -493,8 +497,9 @@ impl From<ListRecordTagsResult> for RecordTagListPayload {
 #[serde(rename_all = "camelCase")]
 pub struct RelationListPayload {
     /// Uses `RelationSummary` directly — its `serde(rename_all = "camelCase")` produces
-    /// `{ "relationId", "relationType", "sourceId", "targetId" }` which matches the
-    /// previous hand-rolled `json!()` output exactly.
+    /// `{ "relationId", "relationType", "sourceId", "targetId" }`, plus `sourceLabel`/
+    /// `targetLabel` when the endpoint resolves to a display label (srs-rust#1046;
+    /// omitted, not null, when it doesn't).
     #[schemars(with = "Vec<serde_json::Value>")]
     pub relations: Vec<RelationSummary>,
 }
@@ -1024,7 +1029,11 @@ pub struct BriefType {
 pub struct BriefRelationSpec {
     pub relation_type: String,
     pub source_type_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_type_name: Option<String>,
     pub target_type_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_type_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cardinality: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1267,7 +1276,7 @@ pub struct ProjectedSection {
     pub records: Vec<ProjectedRecord>,
 }
 
-/// The top-level JSON projection object for a rendered document view.
+/// The top-level JSON projection object for a rendered Composition.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CompositionProjection {
