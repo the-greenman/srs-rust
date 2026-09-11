@@ -19,6 +19,7 @@
 //! output::ok("field list", result)
 //! ```
 
+use crate::catalog::CatalogKind;
 use crate::error::RepositoryError;
 use crate::package_types::{
     validate_package_selector, DefinitionKind, PackageBoundary, PackageSelector,
@@ -665,6 +666,27 @@ pub fn create_type_in_package(
     // Validate the selector form, then that the boundary exists, before touching the filesystem.
     validate_package_selector(&selector)?;
     store.load_package_boundary(&selector)?;
+
+    // Reject a FieldAssignment.fieldId that would fail RFC-038 [R13] dangling-reference
+    // resolution at catalog load — writing it anyway leaves a type on disk that makes the
+    // whole repository catalog unloadable (srs-rust#1039). Resolve against exactly the set
+    // [R13] itself resolves against (the on-disk definition catalog, which — unlike
+    // `load_package()`'s ADR-025 merge — does not include the implicit core package), so a
+    // reference accepted here is guaranteed to still resolve at the next catalog load.
+    let catalog = store.catalog()?;
+    let known_field_ids: std::collections::BTreeSet<&str> = catalog
+        .definitions
+        .iter()
+        .filter(|e| e.kind == CatalogKind::Field)
+        .map(|e| e.id.as_str())
+        .collect();
+    for assignment in &record_type.fields {
+        if !known_field_ids.contains(assignment.field_id.as_str()) {
+            return Err(RepositoryError::FieldNotFound {
+                field_id: assignment.field_id.clone(),
+            });
+        }
+    }
 
     if record_type.id.trim().is_empty() {
         record_type.id = new_instance_id();
@@ -1625,6 +1647,100 @@ mod tests {
         assert!(types
             .iter()
             .any(|t| t.as_str().unwrap().contains("new-type")));
+    }
+
+    #[test]
+    fn type_create_rejects_dangling_field_id() {
+        let store = MemoryStore::default();
+        let mut rt = make_type("00000000-0000-0000-0000-000000000021", "probe");
+        rt.fields = vec![srs_core::types::record_type::FieldAssignment {
+            field_id: "00000000-0000-0000-0000-0000000000ff".to_string(),
+            order: 0,
+            required: true,
+            display_label: None,
+            description: None,
+        }];
+
+        let result = create_type(&store, rt);
+        assert!(
+            matches!(
+                result,
+                Err(RepositoryError::FieldNotFound { ref field_id }) if field_id == "00000000-0000-0000-0000-0000000000ff"
+            ),
+            "expected FieldNotFound, got {result:?}"
+        );
+
+        // Nothing should have been written: package.json's types array is unchanged.
+        let pkg = store.load_package_json().unwrap();
+        let types = pkg["types"].as_array().unwrap();
+        assert!(
+            !types.iter().any(|t| t.as_str().unwrap().contains("probe")),
+            "no type file should have been registered after a rejected create"
+        );
+    }
+
+    #[test]
+    fn type_create_rejects_implicit_core_field_id() {
+        // The implicit core package (ADR-025) is merged into `load_package()` results but is
+        // NOT part of the on-disk definition catalog [R13] resolves FieldAssignment.fieldId
+        // against (srs-rust#1039) — so referencing a core field by id must be rejected here
+        // exactly as catalog load would reject it, rather than corrupting the repository.
+        let store = MemoryStore::default();
+        let core_field_id = store
+            .load_package()
+            .unwrap()
+            .fields
+            .iter()
+            .find(|f| f.namespace == "com.semanticops.core")
+            .expect("implicit core package merges at least one field")
+            .id
+            .clone();
+
+        let mut rt = make_type("00000000-0000-0000-0000-000000000022", "core-probe");
+        rt.fields = vec![srs_core::types::record_type::FieldAssignment {
+            field_id: core_field_id.clone(),
+            order: 0,
+            required: true,
+            display_label: None,
+            description: None,
+        }];
+
+        let result = create_type(&store, rt);
+        assert!(
+            matches!(
+                result,
+                Err(RepositoryError::FieldNotFound { ref field_id }) if field_id == &core_field_id
+            ),
+            "expected FieldNotFound for implicit-core fieldId, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn type_create_accepts_local_field_id() {
+        // Consistency check: a fieldId that legitimately resolves (a local field already in
+        // the package) must not be rejected by the new check, and the written type must in
+        // turn pass the exact same [R13] catalog check it was validated against.
+        let field = make_field("00000000-0000-0000-0000-000000000030", "local-field");
+        let store = MemoryStore::with_field(field);
+
+        let mut rt = make_type("00000000-0000-0000-0000-000000000031", "local-probe");
+        rt.fields = vec![srs_core::types::record_type::FieldAssignment {
+            field_id: "00000000-0000-0000-0000-000000000030".to_string(),
+            order: 0,
+            required: true,
+            display_label: None,
+            description: None,
+        }];
+
+        let result = create_type(&store, rt).unwrap();
+        assert_eq!(result.record_type.fields.len(), 1);
+
+        let catalog = store.catalog().unwrap();
+        assert!(
+            !catalog.has_fatal(),
+            "a type accepted by create_type must not trip [R13] at catalog load: {:?}",
+            catalog.diagnostics
+        );
     }
 
     #[test]

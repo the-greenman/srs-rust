@@ -4951,10 +4951,15 @@ fn create_temp_repo_with_package() -> TempDir {
     std::fs::create_dir_all(package_dir.join("types")).unwrap();
 
     let package_json = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
         "id": "primary-pkg",
         "namespace": "com.test",
         "name": "primary",
         "version": "1.0.0",
+        "title": "primary",
+        "description": "",
+        "status": "active",
+        "createdAt": "2026-01-01T00:00:00Z",
         "fields": [],
         "types": []
     });
