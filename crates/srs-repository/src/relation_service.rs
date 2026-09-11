@@ -181,6 +181,39 @@ pub fn list_relations(
     Ok(filtered)
 }
 
+/// Parse a `relation create` request body into a [`Relation`].
+///
+/// Accepts either the bare shape (`Relation`'s own fields, no `$schema`) or
+/// the canonical standalone `relation.json` carrier, which additionally
+/// *requires* `$schema` pinned to [`crate::store::RELATION_OBJECT_SCHEMA_URL`]
+/// (RFC-038 Change E, [R11]). A caller that already holds schema-valid
+/// Relation JSON — round-tripped from `relation get`, or migration tooling —
+/// can therefore submit it to `relation create` unmodified instead of
+/// stripping `$schema` itself first (srs-rust#1021).
+///
+/// `$schema`, when present, must equal the canonical id or the input is
+/// rejected; either way it plays no further part in the created `Relation` —
+/// the *stored* standalone object's own `$schema` continues to be added and
+/// checked separately, by `save_relation`/`load_relation` via
+/// `relation_object_to_value`/`relation_object_from_value`.
+pub fn parse_relation_input(mut value: serde_json::Value) -> Result<Relation, RepositoryError> {
+    if let Some(obj) = value.as_object_mut() {
+        if let Some(schema) = obj.remove("$schema") {
+            if schema.as_str() != Some(crate::store::RELATION_OBJECT_SCHEMA_URL) {
+                return Err(RepositoryError::InvalidInput {
+                    message: format!(
+                        "relation $schema must be '{}' if present, found {schema}",
+                        crate::store::RELATION_OBJECT_SCHEMA_URL
+                    ),
+                });
+            }
+        }
+    }
+    serde_json::from_value(value).map_err(|e| RepositoryError::InvalidInput {
+        message: format!("invalid relation JSON: {e}"),
+    })
+}
+
 /// Create a relation, loading relation type definitions internally from the package.
 ///
 /// This variant does not require the caller to supply definitions — the service
@@ -894,6 +927,75 @@ mod tests {
             source_refs: None,
             meta: None,
         }
+    }
+
+    /// srs-rust#1021: the canonical standalone `relation.json` schema requires
+    /// `$schema` — a producer holding schema-valid Relation JSON (e.g.
+    /// round-tripped from `relation get`) must be able to submit it to
+    /// `relation create` unmodified.
+    #[test]
+    fn parse_relation_input_accepts_canonical_schema_pointer() {
+        let value = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+            "relationId": "aaaaaaaa-0000-4000-8000-000000000009",
+            "relationType": "contains",
+            "sourceInstanceId": "note-1",
+            "targetInstanceId": "note-2",
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        let relation = parse_relation_input(value).expect("canonical carrier should parse");
+        assert_eq!(relation.relation_id, "aaaaaaaa-0000-4000-8000-000000000009");
+        assert_eq!(relation.relation_type, "contains");
+    }
+
+    #[test]
+    fn parse_relation_input_still_accepts_bare_shape_without_schema() {
+        let value = json!({
+            "relationId": "aaaaaaaa-0000-4000-8000-00000000000a",
+            "relationType": "contains",
+            "sourceInstanceId": "note-1",
+            "targetInstanceId": "note-2"
+        });
+        let relation = parse_relation_input(value).expect("bare shape should still parse");
+        assert_eq!(relation.relation_id, "aaaaaaaa-0000-4000-8000-00000000000a");
+    }
+
+    #[test]
+    fn parse_relation_input_rejects_mismatched_schema_pointer() {
+        let value = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+            "relationId": "aaaaaaaa-0000-4000-8000-00000000000b",
+            "relationType": "contains",
+            "sourceInstanceId": "note-1",
+            "targetInstanceId": "note-2"
+        });
+        let err = parse_relation_input(value).expect_err("wrong $schema must be rejected");
+        assert!(
+            matches!(err, RepositoryError::InvalidInput { .. }),
+            "expected InvalidInput, got {err:?}"
+        );
+        assert!(err.to_string().contains("$schema"));
+    }
+
+    #[test]
+    fn parse_relation_input_does_not_leak_schema_field_into_relation() {
+        // The parsed Relation must not itself carry `$schema` — the stored
+        // object's `$schema` remains solely `store::relation_object_to_value`'s
+        // responsibility, so create's schema-gate check
+        // (`schema_validate_relation`) sees the same shape as before.
+        let value = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+            "relationId": "aaaaaaaa-0000-4000-8000-00000000000c",
+            "relationType": "contains",
+            "sourceInstanceId": "note-1",
+            "targetInstanceId": "note-2"
+        });
+        let relation = parse_relation_input(value).unwrap();
+        let round_tripped = serde_json::to_value(&relation).unwrap();
+        assert!(
+            round_tripped.get("$schema").is_none(),
+            "Relation must not re-serialize a $schema property: {round_tripped}"
+        );
     }
 
     #[test]

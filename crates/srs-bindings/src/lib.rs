@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use srs_core::types::record::{FieldMeta, FieldValues};
-use srs_core::types::relation::Relation;
 use srs_repository::attachment_service::{
     self as attachment_service, AddAttachmentInput, GetAttachmentBytesInput,
     GetRecordAttachmentsInput, LinkAttachmentInput, ListAttachmentsFilter,
@@ -437,11 +436,14 @@ impl SrsRepository {
 
     /// Create a relation. `input_json` is a JSON object whose fields match the `Relation` struct
     /// (camelCase: `relationType`, `sourceInstanceId`, `targetInstanceId`; `relationId` is
-    /// auto-generated if absent or empty).
+    /// auto-generated if absent or empty). Also accepts the canonical standalone `relation.json`
+    /// carrier's `$schema` property, which is validated (if present) and then discarded
+    /// (srs-rust#1021).
     /// Returns the created `Relation` as a JS value.
     pub fn create_relation(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let relation: Relation = serde_json::from_str(input_json)
+        let raw: serde_json::Value = serde_json::from_str(input_json)
             .map_err(|e| js_err(format!("invalid relation input: {e}")))?;
+        let relation = relation_service::parse_relation_input(raw).map_err(js_err)?;
         let result =
             relation_service::create_relation_auto(&self.store, relation).map_err(js_err)?;
         to_js(&result.relation)
