@@ -2,10 +2,9 @@ use crate::commands::{with_store, CliContext, RelationCommand};
 use crate::output;
 use crate::payload::{RelationDeletePayload, RelationListPayload, RelationPayload};
 use anyhow::Result;
-use srs_core::types::relation::Relation;
 use srs_repository::relation_service::{
-    create_relation_auto, delete_relation, get_relation_by_id, list_relations, GetRelationResult,
-    ListRelationsFilter,
+    create_relation_auto, delete_relation, get_relation_by_id, list_relations,
+    parse_relation_input, GetRelationResult, ListRelationsFilter,
 };
 
 pub fn dispatch(ctx: CliContext, cmd: RelationCommand) -> Result<String> {
@@ -54,7 +53,11 @@ fn cmd_relation_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_relation_create(ctx: CliContext) -> Result<String> {
-    let relation: Relation = match crate::input::from_stdin("relation") {
+    let raw = match crate::input::value_from_stdin("relation") {
+        Ok(raw) => raw,
+        Err(e) => return Ok(output::err("relation create", vec![e.to_string()])),
+    };
+    let relation = match parse_relation_input(raw) {
         Ok(relation) => relation,
         Err(e) => return Ok(output::err("relation create", vec![e.to_string()])),
     };

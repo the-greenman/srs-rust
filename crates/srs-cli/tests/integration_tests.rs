@@ -3383,6 +3383,141 @@ fn relation_create_writes_standalone_object() {
     );
 }
 
+/// srs-rust#1021: the canonical standalone `relation.json` schema requires
+/// `$schema` (const-pinned). A producer holding schema-valid Relation JSON —
+/// e.g. round-tripped from `relation get`, or migration tooling — must be
+/// able to submit it to `relation create` unmodified instead of hitting
+/// "unknown field `$schema`" at parse time.
+#[test]
+fn relation_create_accepts_canonical_schema_pointer() {
+    let temp = create_temp_repo();
+
+    let manifest: Value = serde_json::json!({
+        "srsVersion": "2.0-draft",
+        "dataModelRevision": 2,
+        "repositoryId": "test-repo",
+    });
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(package_dir.join("relation-types")).unwrap();
+    let relation_type_def = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+        "id": "rt-contains-001",
+        "version": 1,
+        "key": "contains",
+        "namespace": "com.test",
+        "label": "Contains",
+        "description": "Source contains target.",
+        "category": "composition",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "status": "active"
+    });
+    write_json(
+        &package_dir.join("relation-types/contains.json"),
+        relation_type_def,
+    );
+    let package_json = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+        "id": "test-pkg",
+        "namespace": "com.test",
+        "name": "test",
+        "version": "1.0.0",
+        "title": "test",
+        "description": "",
+        "status": "active",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "fields": [],
+        "types": [],
+        "relationTypes": ["relation-types/contains.json"]
+    });
+    write_json(&package_dir.join("package.json"), package_json);
+
+    let notes_dir = temp.path().join("records/notes");
+    std::fs::create_dir_all(&notes_dir).unwrap();
+    for id in ["note-1", "note-2"] {
+        std::fs::write(
+            notes_dir.join(format!("{id}.json")),
+            serde_json::json!({"instanceId": id, "sections": []}).to_string(),
+        )
+        .unwrap();
+    }
+
+    // The full canonical carrier, as `relation get`/`relation list` would
+    // hand back a standalone object — including the required `$schema`.
+    let relation = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+        "relationId": "dcf00002-0000-4000-a000-000000000002",
+        "relationType": "contains",
+        "sourceInstanceId": "note-1",
+        "targetInstanceId": "note-2",
+        "createdAt": "2026-01-01T00:00:00Z"
+    })
+    .to_string();
+
+    let created = run_srs_stdin_in_dir(temp.path(), &["relation", "create"], &relation);
+    assert_eq!(
+        created["ok"], true,
+        "relation create should accept the canonical $schema-bearing carrier: {created:?}"
+    );
+    assert_eq!(
+        created["payload"]["relation"]["relationId"],
+        "dcf00002-0000-4000-a000-000000000002"
+    );
+
+    let content = std::fs::read_to_string(
+        temp.path()
+            .join("relations/dcf00002-0000-4000-a000-000000000002.json"),
+    )
+    .unwrap();
+    let object: Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(
+        object["$schema"],
+        "https://srs.semanticops.com/schema/2.0/relation.json",
+        "the stored object's own $schema is unaffected by the input carrying one"
+    );
+}
+
+/// A `$schema` present but pointing at the wrong schema is a real input
+/// mistake and must be rejected, not silently ignored.
+#[test]
+fn relation_create_rejects_mismatched_schema_pointer() {
+    let temp = create_temp_repo();
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "srsVersion": "2.0-draft",
+            "dataModelRevision": 2,
+            "repositoryId": "test-repo",
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let relation = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+        "relationId": "dcf00003-0000-4000-a000-000000000003",
+        "relationType": "contains",
+        "sourceInstanceId": "note-1",
+        "targetInstanceId": "note-2"
+    })
+    .to_string();
+
+    let created = run_srs_stdin_in_dir(temp.path(), &["relation", "create"], &relation);
+    assert_eq!(created["ok"], false, "mismatched $schema must be rejected");
+    let diagnostics = created["diagnostics"].as_array().expect("diagnostics array");
+    assert!(
+        diagnostics
+            .iter()
+            .any(|e| e.as_str().unwrap_or("").contains("$schema")),
+        "diagnostics should name $schema: {diagnostics:?}"
+    );
+}
+
 #[test]
 fn relation_delete_removes_relation() {
     let temp = create_temp_repo();
