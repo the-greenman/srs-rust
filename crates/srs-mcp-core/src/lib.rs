@@ -6,6 +6,8 @@
 
 use serde_json::{json, Value};
 
+pub mod uri;
+
 pub const JSON_RPC_VERSION: &str = "2.0";
 pub const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
 
