@@ -183,14 +183,33 @@ pub fn get_container(
 
 /// Resolve the repository's root container declared by `manifest.container`.
 ///
-/// Resolution order (RFC-013):
-/// 1. A materialised container in the container store (`containerIndex` / `containers/`)
-///    whose id matches the embed's `containerId` — richest source when present
-///    (e.g. repos scaffolded by srs-gov or `repo create`).
-/// 2. The `manifest.container` embed itself. The embed is documented as the canonical
-///    source of truth for the repository's identity, so an embed-only root (as written
-///    by `repo set-root-container`, or by migrations of pre-RFC-013 repos) must resolve
-///    without a container file existing.
+/// The `manifest.container` embed is the **sole authoritative form** of the
+/// root container (RFC-013, RFC-038 [R1]). No write path ever materialises a
+/// `containers/*.json` file sharing the embed's id — `save_container_at`
+/// detects that the id matches `manifest.container` and folds the write back
+/// into the embed instead of creating a file.
+///
+/// A `containers/*.json` file that *does* share the embed's id regardless
+/// (e.g. from a hand-edited or pre-RFC-038 legacy repo) is not a second,
+/// richer source to prefer over the embed: the embed unconditionally
+/// contributes its own entry (locator `manifest.json#/container`) to the
+/// catalog's container set, so a same-id file produces a second entry for
+/// that id and catalog build fails fatally on `SRS038-R12-DUPLICATE-ID`
+/// before any locator can be resolved. Since `store.load_container` below
+/// builds that catalog first, this state surfaces here as a propagated
+/// `CatalogLoad` error, not as a successful `Ok(container)` — the `Ok` arm
+/// of the match is unreachable for the embed's own id under any state that
+/// is not already fatal.
+///
+/// Resolution is therefore effectively single-source:
+/// 1. `store.load_container(embed.container_id)` — `ContainerNotFound`
+///    (the catalog has no *file-backed* entry for that id, the ordinary case)
+///    falls back to the embed itself, step 2 below. Any other error,
+///    including [R12] on the coexistence case above, propagates.
+/// 2. The `manifest.container` embed itself — the ordinary case for an
+///    embed-only root (as written by `repo set-root-container`,
+///    `repo create`, or migrations of pre-RFC-013 repos), which resolves
+///    without any container file existing.
 ///
 /// Returns `Ok(None)` when the manifest declares no root container at all.
 pub fn resolve_root_container(
@@ -2530,6 +2549,45 @@ mod tests {
         let listed = list_containers(&store, &ContainerListFilter::default()).unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].container_id, embed_id);
+    }
+
+    /// srs-rust#988: a `containers/*.json` file sharing the embed's id is not
+    /// a "richest source" `resolve_root_container` can prefer — no write path
+    /// (`save_container`/`save_container_unchecked`) ever produces this shape,
+    /// but a hand-edited or pre-RFC-038 legacy repo can. This state is fatal
+    /// under [R12] (`SRS038-R12-DUPLICATE-ID`) because the embed unconditionally
+    /// contributes its own catalog entry alongside the file's, and
+    /// `resolve_root_container` must surface that as a propagated error, never
+    /// as `Ok(container)` from the file-backed copy.
+    #[test]
+    fn resolve_root_container_rejects_embed_and_file_backed_coexistence() {
+        let embed_id = "aaa00000-0000-4000-8000-000000000001";
+        let store = embed_only_store(embed_id, "Root");
+        // Bypass the dedup in `save_container_at` (which would fold a write
+        // under this id back into the embed) by writing the file directly —
+        // this is exactly the "hand-edited outside the sanctioned write path"
+        // shape the finding describes.
+        let duplicate = minimal_container(embed_id, "Root (duplicate file)");
+        let value = serde_json::to_value(&duplicate).unwrap();
+        store.ensure_instance_dir("containers").unwrap();
+        store
+            .save_instance_json("containers/duplicate-root.json", &value)
+            .unwrap();
+
+        let manifest = store.load_manifest().unwrap();
+        let err = resolve_root_container(&store, &manifest).unwrap_err();
+        match err {
+            RepositoryError::CatalogLoad { diagnostics, .. } => {
+                assert!(
+                    diagnostics
+                        .iter()
+                        .any(|d| d.code == crate::catalog::codes::DUPLICATE_ID),
+                    "expected a {} diagnostic, got: {diagnostics:?}",
+                    crate::catalog::codes::DUPLICATE_ID
+                );
+            }
+            other => panic!("expected RepositoryError::CatalogLoad, got: {other:?}"),
+        }
     }
 
     // list_no_duplicate_when_root_in_index retired by RFC-038 Phase 3
