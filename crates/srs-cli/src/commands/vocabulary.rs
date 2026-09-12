@@ -14,7 +14,7 @@ pub fn dispatch(ctx: CliContext, cmd: VocabularyCommand) -> Result<String> {
     match cmd {
         VocabularyCommand::List { json: _ } => cmd_vocabulary_list(ctx),
         VocabularyCommand::Get { id, json: _ } => cmd_vocabulary_get(ctx, id),
-        VocabularyCommand::Create => cmd_vocabulary_create(ctx),
+        VocabularyCommand::Create { package } => cmd_vocabulary_create(ctx, package),
         VocabularyCommand::TermCreate { vocabulary_id } => cmd_term_create(ctx, vocabulary_id),
         VocabularyCommand::Promote { id } => cmd_vocabulary_promote(ctx, id),
         VocabularyCommand::DeriveTagSet { id } => cmd_vocabulary_derive_tag_set(ctx, id),
@@ -42,11 +42,13 @@ fn cmd_vocabulary_get(ctx: CliContext, id: String) -> Result<String> {
     }
 }
 
-fn cmd_vocabulary_create(ctx: CliContext) -> Result<String> {
+fn cmd_vocabulary_create(ctx: CliContext, package: Option<String>) -> Result<String> {
     let raw = crate::input::value_from_stdin("vocabulary")?;
     let result = with_store(&ctx, |store| {
         Ok(vocabulary_service::create_vocabulary_normalized(
-            store, raw,
+            store,
+            raw,
+            package.clone(),
         )?)
     })?;
     output::serialize(
