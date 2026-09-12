@@ -16,8 +16,7 @@ use srs_repository::blueprint_brief_service::{
 };
 use srs_repository::blueprint_service::list_blueprints_summary;
 use srs_repository::error::RepositoryError;
-
-use crate::server::SrsMcpServer;
+use srs_repository::store::RepositoryStore;
 
 fn service_err(e: RepositoryError) -> McpError {
     McpError::internal_error(e.to_string(), None)
@@ -27,9 +26,8 @@ fn prompt_description(namespace: &str, name: &str, version: u32, description: &s
     format!("{namespace}/{name} v{version}: {description}")
 }
 
-pub(crate) fn list_prompts(server: &SrsMcpServer) -> Result<ListPromptsResult, McpError> {
-    let store = server.open_store();
-    let result = list_blueprints_summary(&store).map_err(service_err)?;
+pub(crate) fn list_prompts(store: &dyn RepositoryStore) -> Result<ListPromptsResult, McpError> {
+    let result = list_blueprints_summary(store).map_err(service_err)?;
     // Non-fatal diagnostics (missing blueprint files, duplicate IDs) are
     // intentionally not surfaced here — list_prompts has no warnings channel.
     let prompts = result
@@ -52,7 +50,7 @@ pub(crate) fn list_prompts(server: &SrsMcpServer) -> Result<ListPromptsResult, M
 }
 
 pub(crate) fn get_prompt(
-    server: &SrsMcpServer,
+    store: &dyn RepositoryStore,
     name: &str,
     arguments: Option<&JsonObject>,
 ) -> Result<GetPromptResult, McpError> {
@@ -62,9 +60,8 @@ pub(crate) fn get_prompt(
             None,
         ));
     }
-    let store = server.open_store();
     let result = blueprint_brief(
-        &store,
+        store,
         BlueprintBriefInput {
             blueprint_id: name.to_string(),
         },
@@ -88,6 +85,7 @@ pub(crate) fn get_prompt(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SrsMcpServer;
     use rmcp::model::ErrorCode;
     use srs_core::types::blueprint::{Blueprint, TypeRef};
     use srs_repository::blueprint_service::create_blueprint;
@@ -158,7 +156,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = list_prompts(&server).unwrap();
+        let result = list_prompts(&server.open_store()).unwrap();
         assert_eq!(result.prompts.len(), 2);
 
         let names: Vec<&str> = result.prompts.iter().map(|p| p.name.as_str()).collect();
@@ -194,7 +192,7 @@ mod tests {
         .unwrap();
         let bp_id = created.blueprint.id.clone();
 
-        let result = get_prompt(&server, &bp_id, None).unwrap();
+        let result = get_prompt(&server.open_store(), &bp_id, None).unwrap();
         assert_eq!(result.messages.len(), 1);
 
         let text = match &result.messages[0].content {
@@ -210,7 +208,7 @@ mod tests {
     #[test]
     fn get_prompt_unknown_name_returns_invalid_params() {
         let (_dir, server) = make_test_server();
-        let err = get_prompt(&server, "no-such-id", None).unwrap_err();
+        let err = get_prompt(&server.open_store(), "no-such-id", None).unwrap_err();
         assert_eq!(
             err.code,
             ErrorCode::INVALID_PARAMS,
@@ -231,7 +229,7 @@ mod tests {
             "foo".to_string(),
             serde_json::Value::String("bar".to_string()),
         );
-        let err = get_prompt(&server, "any-id", Some(&args)).unwrap_err();
+        let err = get_prompt(&server.open_store(), "any-id", Some(&args)).unwrap_err();
         assert_eq!(
             err.code,
             ErrorCode::INVALID_PARAMS,

@@ -30,10 +30,9 @@ use srs_repository::record_store::{
 };
 use srs_repository::relation_service;
 use srs_repository::services::{self, CreateNoteInput, GraduateNoteInput};
+use srs_repository::store::RepositoryStore;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation::validate_repository;
-
-use crate::server::SrsMcpServer;
 
 // ── Tool names ────────────────────────────────────────────────────────────────
 
@@ -842,22 +841,21 @@ fn tool_err(message: String) -> CallToolResult {
 }
 
 pub(crate) fn call_tool(
-    server: &SrsMcpServer,
+    store: &dyn RepositoryStore,
     name: &str,
     arguments: Option<JsonObject>,
 ) -> Result<CallToolResult, McpError> {
-    let store = server.open_store();
     match name {
         TOOL_REPO_VALIDATE => {
             let _: EmptyToolInput = parse_args(arguments)?;
-            match validate_repository(&store) {
+            match validate_repository(store) {
                 Ok(report) => tool_ok(&report),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
         TOOL_FIND => {
             let input: FindToolInput = parse_args(arguments)?;
-            match discovery_service::find(&store, input.into()) {
+            match discovery_service::find(store, input.into()) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
@@ -868,7 +866,7 @@ pub(crate) fn call_tool(
             let type_version = input.type_version;
             let container_id = input.container_id.clone();
             match record_store::create_record_in_context(
-                &store,
+                store,
                 &type_filter,
                 type_version,
                 input.into(),
@@ -881,21 +879,21 @@ pub(crate) fn call_tool(
         }
         TOOL_RELATION_CREATE => {
             let input: RelationCreateToolInput = parse_args(arguments)?;
-            match relation_service::create_relation_auto(&store, input.into()) {
+            match relation_service::create_relation_auto(store, input.into()) {
                 Ok(result) => tool_ok(&result.relation),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
         TOOL_NOTE_CREATE => {
             let input: NoteCreateToolInput = parse_args(arguments)?;
-            match services::create_note_in_context(&store, input.into()) {
+            match services::create_note_in_context(store, input.into()) {
                 Ok(result) => tool_ok(&result.note),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
         TOOL_TYPE_SCHEMA => {
             let input: TypeSchemaToolInput = parse_args(arguments)?;
-            match type_schema_service::type_schema(&store, input.into()) {
+            match type_schema_service::type_schema(store, input.into()) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
@@ -904,7 +902,7 @@ pub(crate) fn call_tool(
         TOOL_RECORD_UPDATE => {
             let input: RecordUpdateToolInput = parse_args(arguments)?;
             let instance_id = input.instance_id.clone();
-            match record_store::update_record(&store, &instance_id, input.into()) {
+            match record_store::update_record(store, &instance_id, input.into()) {
                 Ok(record) => tool_ok(&record),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
@@ -912,14 +910,14 @@ pub(crate) fn call_tool(
         TOOL_RECORD_TRANSITION => {
             let input: RecordTransitionToolInput = parse_args(arguments)?;
             let instance_id = input.instance_id.clone();
-            match record_store::transition_record_lifecycle(&store, &instance_id, input.into()) {
+            match record_store::transition_record_lifecycle(store, &instance_id, input.into()) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
         TOOL_RECORD_ALLOWED_TRANSITIONS => {
             let input: RecordAllowedTransitionsToolInput = parse_args(arguments)?;
-            match record_store::get_allowed_lifecycle_transitions(&store, &input.instance_id) {
+            match record_store::get_allowed_lifecycle_transitions(store, &input.instance_id) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
@@ -927,14 +925,14 @@ pub(crate) fn call_tool(
         TOOL_RECORD_SUCCESSOR => {
             let input: RecordSuccessorToolInput = parse_args(arguments)?;
             let predecessor_id = input.predecessor_id.clone();
-            match record_store::create_record_successor(&store, &predecessor_id, input.into()) {
+            match record_store::create_record_successor(store, &predecessor_id, input.into()) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
         TOOL_NOTE_GRADUATE => {
             let input: NoteGraduateToolInput = parse_args(arguments)?;
-            match services::graduate_note(&store, input.into()) {
+            match services::graduate_note(store, input.into()) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
@@ -942,7 +940,7 @@ pub(crate) fn call_tool(
         TOOL_CONTAINER_MEMBER_ADD => {
             let input: ContainerMemberToolInput = parse_args(arguments)?;
             match container_service::add_container_member(
-                &store,
+                store,
                 &input.container_id,
                 &input.instance_id,
             ) {
@@ -955,7 +953,7 @@ pub(crate) fn call_tool(
         TOOL_CONTAINER_MEMBER_REMOVE => {
             let input: ContainerMemberToolInput = parse_args(arguments)?;
             match container_service::remove_container_member(
-                &store,
+                store,
                 &input.container_id,
                 &input.instance_id,
             ) {
@@ -968,21 +966,21 @@ pub(crate) fn call_tool(
         // Protocol run execution tools (#977)
         TOOL_PROTOCOL_RUN_CREATE => {
             let input: ProtocolRunCreateToolInput = parse_args(arguments)?;
-            match protocol_run_service::create_run(&store, input.into()) {
+            match protocol_run_service::create_run(store, input.into()) {
                 Ok(result) => tool_ok(&result.run),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
         TOOL_PROTOCOL_RUN_ADVANCE => {
             let input: ProtocolRunAdvanceToolInput = parse_args(arguments)?;
-            match protocol_run_service::advance_stage(&store, input.into()) {
+            match protocol_run_service::advance_stage(store, input.into()) {
                 Ok(result) => tool_ok(&result.run),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
         TOOL_PROTOCOL_RUN_GET => {
             let input: ProtocolRunIdToolInput = parse_args(arguments)?;
-            match protocol_run_service::get_run(&store, &input.run_id) {
+            match protocol_run_service::get_run(store, &input.run_id) {
                 Ok(GetRunResult::Found(run)) => tool_ok(&*run),
                 Ok(GetRunResult::NotFound) => Ok(tool_err(format!(
                     "Protocol run '{}' not found",
@@ -993,21 +991,21 @@ pub(crate) fn call_tool(
         }
         TOOL_PROTOCOL_RUN_LIST => {
             let input: ProtocolRunListToolInput = parse_args(arguments)?;
-            match protocol_run_service::list_runs(&store, input.into()) {
+            match protocol_run_service::list_runs(store, input.into()) {
                 Ok(runs) => tool_ok(&ProtocolRunListToolResult { runs }),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
         TOOL_PROTOCOL_RUN_COMPLETE => {
             let input: ProtocolRunIdToolInput = parse_args(arguments)?;
-            match protocol_run_service::complete_run(&store, &input.run_id) {
+            match protocol_run_service::complete_run(store, &input.run_id) {
                 Ok(result) => tool_ok(&result.run),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
         TOOL_PROTOCOL_RUN_ABANDON => {
             let input: ProtocolRunIdToolInput = parse_args(arguments)?;
-            match protocol_run_service::abandon_run(&store, &input.run_id) {
+            match protocol_run_service::abandon_run(store, &input.run_id) {
                 Ok(result) => tool_ok(&result.run),
                 Err(e) => Ok(tool_err(e.to_string())),
             }

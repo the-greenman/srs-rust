@@ -27,8 +27,8 @@ use srs_repository::tree_service::{build_tree, TreeOptions};
 use srs_repository::type_schema_service::{type_schema, TypeSchemaInput};
 use srs_repository::view_service::{list_compositions_summary, CompositionListFilter};
 
-use crate::server::SrsMcpServer;
 use crate::uri::{self, SrsUri};
+use srs_repository::store::RepositoryStore;
 
 const MIME_JSON: &str = "application/json";
 const MIME_MARKDOWN: &str = "text/markdown";
@@ -43,10 +43,10 @@ fn json_text<T: Serialize>(value: &T, uri: &str) -> Result<ResourceContents, Mcp
     Ok(ResourceContents::text(text, uri).with_mime_type(MIME_JSON))
 }
 
-pub(crate) fn list_resources(server: &SrsMcpServer) -> Result<ListResourcesResult, McpError> {
-    let store = server.open_store();
-    let repo_id = server.repository_id();
-
+pub(crate) fn list_resources(
+    store: &dyn RepositoryStore,
+    repo_id: &str,
+) -> Result<ListResourcesResult, McpError> {
     let mut resources = vec![
         Resource::new(uri::format(&SrsUri::Map, repo_id), "map")
             .with_title("Repository map")
@@ -79,7 +79,7 @@ pub(crate) fn list_resources(server: &SrsMcpServer) -> Result<ListResourcesResul
             .with_mime_type(MIME_JSON),
     ];
 
-    for c in list_containers(&store, &ContainerListFilter::default()).map_err(service_err)? {
+    for c in list_containers(store, &ContainerListFilter::default()).map_err(service_err)? {
         resources.push(
             Resource::new(
                 uri::format(&SrsUri::Container(c.container_id.clone()), repo_id),
@@ -92,7 +92,7 @@ pub(crate) fn list_resources(server: &SrsMcpServer) -> Result<ListResourcesResul
     }
 
     for v in
-        list_compositions_summary(&store, &CompositionListFilter::default()).map_err(service_err)?
+        list_compositions_summary(store, &CompositionListFilter::default()).map_err(service_err)?
     {
         resources.push(
             Resource::new(
@@ -116,7 +116,7 @@ pub(crate) fn list_resources(server: &SrsMcpServer) -> Result<ListResourcesResul
             .with_mime_type(MIME_JSON),
     );
 
-    for p in list_protocols(&store).map_err(service_err)? {
+    for p in list_protocols(store).map_err(service_err)? {
         resources.push(
             Resource::new(
                 uri::format(&SrsUri::Protocol(p.protocol_id), repo_id),
@@ -127,7 +127,7 @@ pub(crate) fn list_resources(server: &SrsMcpServer) -> Result<ListResourcesResul
         );
     }
 
-    for t in list_types_filtered(&store, TypeListFilter::default()).map_err(service_err)? {
+    for t in list_types_filtered(store, TypeListFilter::default()).map_err(service_err)? {
         resources.push(
             Resource::new(
                 uri::format(&SrsUri::Type(t.id.clone()), repo_id),
@@ -143,30 +143,29 @@ pub(crate) fn list_resources(server: &SrsMcpServer) -> Result<ListResourcesResul
     Ok(ListResourcesResult::with_all_items(resources))
 }
 
-pub(crate) fn list_resource_templates(server: &SrsMcpServer) -> ListResourceTemplatesResult {
-    let template = ResourceTemplate::new(uri::record_template(server.repository_id()), "record")
+pub(crate) fn list_resource_templates(repo_id: &str) -> ListResourceTemplatesResult {
+    let template = ResourceTemplate::new(uri::record_template(repo_id), "record")
         .with_title("Record by instance id")
         .with_description(
             "Read a single record (any tier) as typed JSON by its instanceId. \
              Discover instanceIds via the find tool or container resources.",
         )
         .with_mime_type(MIME_JSON);
-    let type_tmpl = ResourceTemplate::new(uri::type_template(server.repository_id()), "type")
+    let type_tmpl = ResourceTemplate::new(uri::type_template(repo_id), "type")
         .with_title("Type authoring schema by type id")
         .with_description(
             "Authoring schema for a type: fieldIds, required flags, and aiGuidance \
              — read before record_create on an unfamiliar type.",
         )
         .with_mime_type(MIME_JSON);
-    let protocol_tmpl =
-        ResourceTemplate::new(uri::protocol_template(server.repository_id()), "protocol")
-            .with_title("Protocol definition by protocol id")
-            .with_description(
-                "A Protocol definition (same shape as `srs protocol get`) plus its stages \
+    let protocol_tmpl = ResourceTemplate::new(uri::protocol_template(repo_id), "protocol")
+        .with_title("Protocol definition by protocol id")
+        .with_description(
+            "A Protocol definition (same shape as `srs protocol get`) plus its stages \
                  sorted by order — the dependsOn walk an agent follows.",
-            )
-            .with_mime_type(MIME_JSON);
-    let tree_tmpl = ResourceTemplate::new(uri::tree_template(server.repository_id()), "tree")
+        )
+        .with_mime_type(MIME_JSON);
+    let tree_tmpl = ResourceTemplate::new(uri::tree_template(repo_id), "tree")
         .with_title("Subtree by root instance id")
         .with_description(
             "Recursive `contains` tree rooted at one instance — descend from any \
@@ -177,29 +176,29 @@ pub(crate) fn list_resource_templates(server: &SrsMcpServer) -> ListResourceTemp
 }
 
 pub(crate) fn read_resource(
-    server: &SrsMcpServer,
+    store: &dyn RepositoryStore,
+    repository_id: &str,
     raw_uri: &str,
 ) -> Result<ReadResourceResult, McpError> {
-    let parsed = uri::parse(raw_uri, server.repository_id())
+    let parsed = uri::parse(raw_uri, repository_id)
         .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
-    let store = server.open_store();
 
     let contents = match parsed {
         SrsUri::Map => {
-            let map = build_repo_map(&store).map_err(service_err)?;
+            let map = build_repo_map(store).map_err(service_err)?;
             json_text(&map, raw_uri)?
         }
         SrsUri::Navigation => {
-            let nav = repository_navigation(&store).map_err(service_err)?;
+            let nav = repository_navigation(store).map_err(service_err)?;
             json_text(&nav, raw_uri)?
         }
         SrsUri::Tree => {
-            let tree = build_tree(&store, TreeOptions::default()).map_err(service_err)?;
+            let tree = build_tree(store, TreeOptions::default()).map_err(service_err)?;
             json_text(&tree, raw_uri)?
         }
         SrsUri::TreeFrom(id) => {
             let tree = build_tree(
-                &store,
+                store,
                 TreeOptions {
                     root_ids: Some(vec![id]),
                     ..TreeOptions::default()
@@ -209,10 +208,10 @@ pub(crate) fn read_resource(
             json_text(&tree, raw_uri)?
         }
         SrsUri::AgentIndex => {
-            let index = build_agent_index(&store).map_err(service_err)?;
+            let index = build_agent_index(store).map_err(service_err)?;
             json_text(&index, raw_uri)?
         }
-        SrsUri::Record(id) => match get_record_by_id(&store, &id).map_err(service_err)? {
+        SrsUri::Record(id) => match get_record_by_id(store, &id).map_err(service_err)? {
             // `Ok(None)` is not a service error, so there is no service message
             // to reuse — the not-found text is adapter-authored (plan review AR-6).
             None => {
@@ -225,7 +224,7 @@ pub(crate) fn read_resource(
         },
         SrsUri::Container(id) => {
             let view = resolve_container_view(
-                &store,
+                store,
                 ResolveContainerViewInput {
                     container_id: id,
                     view_id: None,
@@ -236,7 +235,7 @@ pub(crate) fn read_resource(
         }
         SrsUri::Composition(id) => {
             let result = render_composition(RenderCompositionOptions {
-                store: &store,
+                store,
                 view_id: &id,
                 format: Some("markdown"),
                 theme_variant: None,
@@ -250,7 +249,7 @@ pub(crate) fn read_resource(
         // Err(RepositoryError::TypeNotFound) for unknown ids — no Ok(None) branch.
         SrsUri::Type(id) => {
             let result = type_schema(
-                &store,
+                store,
                 TypeSchemaInput {
                     type_id: id,
                     type_version: None,
@@ -260,12 +259,12 @@ pub(crate) fn read_resource(
             json_text(&result, raw_uri)?
         }
         SrsUri::ProtocolList => {
-            let protocols = list_protocols(&store).map_err(service_err)?;
+            let protocols = list_protocols(store).map_err(service_err)?;
             json_text(&serde_json::json!({ "protocols": protocols }), raw_uri)?
         }
         // Mirrors `srs protocol get` + `srs protocol stages` in one read: the
         // stored definition verbatim, plus the stages sorted by `order`.
-        SrsUri::Protocol(id) => match get_protocol_by_id(&store, &id).map_err(service_err)? {
+        SrsUri::Protocol(id) => match get_protocol_by_id(store, &id).map_err(service_err)? {
             GetProtocolResult::NotFound => {
                 return Err(McpError::resource_not_found(
                     format!("resource not found: {raw_uri}"),
@@ -273,7 +272,7 @@ pub(crate) fn read_resource(
                 ))
             }
             GetProtocolResult::Found(protocol) => {
-                let stages = list_protocol_stages(&store, &id).map_err(service_err)?;
+                let stages = list_protocol_stages(store, &id).map_err(service_err)?;
                 json_text(
                     &serde_json::json!({ "protocol": protocol, "stages": stages }),
                     raw_uri,

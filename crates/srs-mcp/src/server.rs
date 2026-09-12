@@ -9,74 +9,17 @@ use std::future::{ready, Future};
 use std::path::PathBuf;
 
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, GetPromptRequestParams, GetPromptResult, Implementation,
-    InitializeResult, ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult,
-    ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResult,
-    ServerCapabilities, ServerInfo,
+    CallToolRequestParams, CallToolResult, GetPromptRequestParams, GetPromptResult,
+    ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult, ListToolsResult,
+    PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResult, ServerInfo,
 };
 use rmcp::service::RequestContext;
 use rmcp::ErrorData as McpError;
 use rmcp::{RoleServer, ServerHandler};
 use srs_repository::error::RepositoryError;
-use srs_repository::manifest::MIN_SUPPORTED_DATA_MODEL_REVISION;
 use srs_repository::store::{FileStore, RepositoryStore};
 
-use crate::{prompts, resources, tools};
-
-/// The release build number this binary was built with (srs-rust#858),
-/// baked in at release-build time via `SRS_BUILD_NUMBER` (see release.yml).
-/// Absent on every local/dev build, where `option_env!` yields `None`.
-const BUILD_NUMBER: Option<&str> = option_env!("SRS_BUILD_NUMBER");
-
-/// `serverInfo.version`: crate version plus the release build number
-/// (semver build-metadata, `+build.N`) — a workspace whose mounted server
-/// ran a stale binary for a week against a newer-generation corpus had
-/// nothing at the protocol level to distinguish it from a current server
-/// (srs-rust#858). `+dev` on a binary built without `SRS_BUILD_NUMBER` set
-/// (i.e. every local/dev build).
-fn release_version() -> String {
-    let base = env!("CARGO_PKG_VERSION");
-    match BUILD_NUMBER {
-        Some(n) if !n.is_empty() => format!("{base}+build.{n}"),
-        _ => format!("{base}+dev"),
-    }
-}
-
-/// `serverInfo.description`: the data-model generation this build requires
-/// ([R21]) — `Implementation` (rmcp 2.2) has no open extension slot for a
-/// structured field, so this rides the one other free-text slot the shape
-/// offers, kept separate from `version` (semver build-metadata is for build
-/// identity, not this) so a client can match on either independently.
-fn release_generation_description() -> String {
-    format!("supports data-model generation >= {MIN_SUPPORTED_DATA_MODEL_REVISION} (RFC-038 [R21])")
-}
-
-/// Guidance shown to MCP clients at initialize time. Mirrors the discovery
-/// ladder in `srs-usage.md`: orient first, then read, then write, then validate.
-const INSTRUCTIONS: &str = "This server exposes one SRS (Semantic Record System) repository. \
-Orient before writing: read srs://<repositoryId>/map for counts and package info, and \
-srs://<repositoryId>/navigation for the document structure. srs://<repositoryId>/agent-index is \
-the one-page AI orientation index (identity, counts, types, sections, entry points). \
-srs://<repositoryId>/tree is the recursive contains-tree from every root, and \
-srs://<repositoryId>/tree/{instanceId} the subtree under one instance — descend from a \
-navigation section or container member by its instanceId; container members also carry \
-sectionContainerId when they root a sub-container. Read individual records via the \
-srs://<repositoryId>/record/{instanceId} resource template, containers via \
-srs://<repositoryId>/container/<containerId>, and rendered document views via \
-srs://<repositoryId>/view/<compositionId>. Type schemas live at \
-srs://<repositoryId>/type/{typeId} (also via the type_schema tool): read one before \
-authoring records of an unfamiliar type — its properties are keyed by Field.name (the \
-same keys record_create fieldValues uses, RFC-039) and carry aiGuidance. Protocols (staged \
-processes) live at srs://<repositoryId>/protocol (list) and \
-srs://<repositoryId>/protocol/{protocolId} (definition plus stages in order). Use the find tool for structured discovery \
-(type, tag, lifecycle, tier, container, content match). Writes are validated: record_create, \
-relation_create, and note_create enforce the repository's type and relation contracts and \
-return diagnostics on rejection. Run repo_validate after a write batch and check its \
-summary: summary.errors == 0 means the repository is consistent. Warnings are non-blocking, \
-but review them. An empty diagnostics array means the repository is completely clean. \
-Prompts: this server exposes one MCP prompt per installed blueprint. Call prompts/list \
-to discover available blueprints; call prompts/get with a blueprint UUID to retrieve its \
-full brief as rendered markdown — AI guidance, required types, structure, and protocol.";
+use crate::application::McpApplication;
 
 /// MCP server over a single SRS repository.
 #[derive(Debug)]
@@ -132,18 +75,7 @@ impl SrsMcpServer {
 
 impl ServerHandler for SrsMcpServer {
     fn get_info(&self) -> ServerInfo {
-        InitializeResult::new(
-            ServerCapabilities::builder()
-                .enable_prompts()
-                .enable_resources()
-                .enable_tools()
-                .build(),
-        )
-        .with_server_info(
-            Implementation::new("srs-mcp", release_version())
-                .with_description(release_generation_description()),
-        )
-        .with_instructions(INSTRUCTIONS)
+        McpApplication::server_info()
     }
 
     // Handlers are synchronous service calls wrapped in ready futures: the
@@ -155,7 +87,8 @@ impl ServerHandler for SrsMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListResourcesResult, McpError>> + Send + '_ {
-        ready(resources::list_resources(self))
+        let store = self.open_store();
+        ready(McpApplication::new(&store, &self.repository_id).list_resources())
     }
 
     fn list_resource_templates(
@@ -163,7 +96,10 @@ impl ServerHandler for SrsMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListResourceTemplatesResult, McpError>> + Send + '_ {
-        ready(Ok(resources::list_resource_templates(self)))
+        let store = self.open_store();
+        ready(Ok(
+            McpApplication::new(&store, &self.repository_id).list_resource_templates()
+        ))
     }
 
     fn read_resource(
@@ -171,7 +107,8 @@ impl ServerHandler for SrsMcpServer {
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ReadResourceResult, McpError>> + Send + '_ {
-        ready(resources::read_resource(self, &request.uri))
+        let store = self.open_store();
+        ready(McpApplication::new(&store, &self.repository_id).read_resource(&request.uri))
     }
 
     fn list_tools(
@@ -179,7 +116,10 @@ impl ServerHandler for SrsMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
-        ready(Ok(tools::list_tools()))
+        let store = self.open_store();
+        ready(Ok(
+            McpApplication::new(&store, &self.repository_id).list_tools()
+        ))
     }
 
     fn call_tool(
@@ -187,7 +127,11 @@ impl ServerHandler for SrsMcpServer {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<CallToolResult, McpError>> + Send + '_ {
-        ready(tools::call_tool(self, &request.name, request.arguments))
+        let store = self.open_store();
+        ready(
+            McpApplication::new(&store, &self.repository_id)
+                .call_tool(&request.name, request.arguments),
+        )
     }
 
     fn list_prompts(
@@ -195,7 +139,8 @@ impl ServerHandler for SrsMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListPromptsResult, McpError>> + Send + '_ {
-        ready(prompts::list_prompts(self))
+        let store = self.open_store();
+        ready(McpApplication::new(&store, &self.repository_id).list_prompts())
     }
 
     fn get_prompt(
@@ -203,17 +148,18 @@ impl ServerHandler for SrsMcpServer {
         request: GetPromptRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<GetPromptResult, McpError>> + Send + '_ {
-        ready(prompts::get_prompt(
-            self,
-            &request.name,
-            request.arguments.as_ref(),
-        ))
+        let store = self.open_store();
+        ready(
+            McpApplication::new(&store, &self.repository_id)
+                .get_prompt(&request.name, request.arguments.as_ref()),
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use srs_repository::manifest::MIN_SUPPORTED_DATA_MODEL_REVISION;
 
     #[test]
     fn server_info_reports_name_and_capabilities() {
