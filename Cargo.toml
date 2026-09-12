@@ -8,6 +8,7 @@ members = [
     "crates/srs-projection",
     "crates/srs-bindings",
     "crates/srs-gov",
+    "crates/srs-mcp-core",
     "crates/srs-mcp",
 ]
 
@@ -23,6 +24,7 @@ srs-core = { path = "crates/srs-core" }
 srs-schema = { path = "crates/srs-schema" }
 srs-repository = { path = "crates/srs-repository" }
 srs-projection = { path = "crates/srs-projection" }
+srs-mcp-core = { path = "crates/srs-mcp-core" }
 srs-mcp = { path = "crates/srs-mcp" }
 serde = { version = "1", features = ["derive"] }
 # preserve_order: enabled deliberately (ADR-043, amending ADR-017/036/037) — the RFC-039
