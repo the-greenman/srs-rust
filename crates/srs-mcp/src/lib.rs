@@ -6,6 +6,7 @@
 //! result serialized. No business logic lives here.
 
 mod application;
+pub mod json_application;
 mod prompts;
 mod resources;
 pub mod server;
