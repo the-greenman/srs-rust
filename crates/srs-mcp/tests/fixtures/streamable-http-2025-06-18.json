@@ -1,0 +1,299 @@
+{
+  "profile": "mcp-streamable-http-2025-06-18-json-only",
+  "specification": "https://modelcontextprotocol.io/specification/2025-06-18/basic/transports",
+  "adapterContract": {
+    "requestMetadata": [
+      "content-type",
+      "accept",
+      "mcp-protocol-version",
+      "mcp-session-id",
+      "origin"
+    ],
+    "successHeaders": {
+      "cache-control": "no-store",
+      "referrer-policy": "no-referrer"
+    },
+    "unsupportedMethodHeaders": {
+      "allow": "POST"
+    }
+  },
+  "cases": [
+    {
+      "id": "initialize-without-http-version",
+      "request": {
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"fixture\",\"version\":\"1\"}}}"
+      },
+      "expect": {
+        "status": 200,
+        "bodyKind": "json-rpc-response",
+        "responseId": "same-as-request",
+        "dispatch": "core",
+        "headers": { "content-type": "application/json" }
+      }
+    },
+    {
+      "id": "request-with-negotiated-http-version",
+      "request": {
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2025-06-18"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}"
+      },
+      "expect": {
+        "status": 200,
+        "bodyKind": "json-rpc-response",
+        "responseId": "same-as-request",
+        "dispatch": "core",
+        "headers": { "content-type": "application/json" }
+      }
+    },
+    {
+      "id": "notification-is-accepted-empty",
+      "request": {
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2025-06-18"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\",\"params\":{}}"
+      },
+      "expect": {
+        "status": 202,
+        "bodyKind": "empty",
+        "dispatch": "core",
+        "headers": {}
+      }
+    },
+    {
+      "id": "cancellation-is-forwarded-notification",
+      "request": {
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2025-06-18"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/cancelled\",\"params\":{\"requestId\":2,\"reason\":\"fixture\"}}"
+      },
+      "expect": {
+        "status": 202,
+        "bodyKind": "empty",
+        "dispatch": "core",
+        "headers": {}
+      }
+    },
+    {
+      "id": "json-rpc-response-is-accepted-empty",
+      "request": {
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2025-06-18"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{}}"
+      },
+      "expect": {
+        "status": 202,
+        "bodyKind": "empty",
+        "dispatch": "core",
+        "headers": {}
+      }
+    },
+    {
+      "id": "batch-is-rejected-before-core",
+      "request": {
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2025-06-18"
+        },
+        "body": "[{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/list\",\"params\":{}}]"
+      },
+      "expect": {
+        "status": 400,
+        "bodyKind": "json-rpc-invalid-request",
+        "responseId": "null",
+        "dispatch": "none",
+        "headers": { "content-type": "application/json" }
+      }
+    },
+    {
+      "id": "malformed-json-is-parse-error",
+      "request": {
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2025-06-18"
+        },
+        "body": "{not json"
+      },
+      "expect": {
+        "status": 400,
+        "bodyKind": "json-rpc-parse-error",
+        "responseId": "null",
+        "dispatch": "core-error",
+        "headers": { "content-type": "application/json" }
+      }
+    },
+    {
+      "id": "invalid-json-rpc-is-invalid-request",
+      "request": {
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2025-06-18"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":5}"
+      },
+      "expect": {
+        "status": 400,
+        "bodyKind": "json-rpc-invalid-request",
+        "responseId": "null",
+        "dispatch": "core-error",
+        "headers": { "content-type": "application/json" }
+      }
+    },
+    {
+      "id": "unsupported-content-type",
+      "request": {
+        "method": "POST",
+        "headers": {
+          "content-type": "text/plain",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2025-06-18"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/list\",\"params\":{}}"
+      },
+      "expect": {
+        "status": 415,
+        "bodyKind": "empty",
+        "dispatch": "none",
+        "headers": {}
+      }
+    },
+    {
+      "id": "accept-must-offer-json-and-sse",
+      "request": {
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2025-06-18"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/list\",\"params\":{}}"
+      },
+      "expect": {
+        "status": 406,
+        "bodyKind": "empty",
+        "dispatch": "none",
+        "headers": {}
+      }
+    },
+    {
+      "id": "missing-version-after-initialize-is-rejected",
+      "request": {
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/list\",\"params\":{}}"
+      },
+      "expect": {
+        "status": 400,
+        "bodyKind": "empty",
+        "dispatch": "none",
+        "headers": {}
+      }
+    },
+    {
+      "id": "unsupported-version-is-rejected",
+      "request": {
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2025-03-26"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/list\",\"params\":{}}"
+      },
+      "expect": {
+        "status": 400,
+        "bodyKind": "empty",
+        "dispatch": "none",
+        "headers": {}
+      }
+    },
+    {
+      "id": "session-header-is-rejected",
+      "request": {
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2025-06-18",
+          "mcp-session-id": "not-supported"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/list\",\"params\":{}}"
+      },
+      "expect": {
+        "status": 400,
+        "bodyKind": "empty",
+        "dispatch": "none",
+        "headers": {}
+      }
+    },
+    {
+      "id": "get-sse-is-deliberately-unsupported",
+      "request": { "method": "GET", "headers": { "accept": "text/event-stream" } },
+      "expect": {
+        "status": 405,
+        "bodyKind": "empty",
+        "dispatch": "none",
+        "headers": { "allow": "POST" }
+      }
+    },
+    {
+      "id": "delete-session-is-deliberately-unsupported",
+      "request": { "method": "DELETE", "headers": {} },
+      "expect": {
+        "status": 405,
+        "bodyKind": "empty",
+        "dispatch": "none",
+        "headers": { "allow": "POST" }
+      }
+    },
+    {
+      "id": "unexpected-browser-origin-is-rejected",
+      "request": {
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2025-06-18",
+          "origin": "https://untrusted.invalid"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/list\",\"params\":{}}"
+      },
+      "expect": {
+        "status": 403,
+        "bodyKind": "empty",
+        "dispatch": "none",
+        "headers": {}
+      }
+    }
+  ]
+}
