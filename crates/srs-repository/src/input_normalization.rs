@@ -269,7 +269,7 @@ mod create_normalization_tests {
             "mode": "open",
             "terms": []
         });
-        let result = crate::vocabulary_service::create_vocabulary_normalized(&store, raw)
+        let result = crate::vocabulary_service::create_vocabulary_normalized(&store, raw, None)
             .expect("vocabulary create without createdAt should succeed");
         assert!(!result.vocabulary.created_at.is_empty());
     }

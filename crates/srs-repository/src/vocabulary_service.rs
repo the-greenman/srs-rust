@@ -1,5 +1,5 @@
 use crate::error::RepositoryError;
-use crate::package_types::DefinitionKind;
+use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
 use crate::store::RepositoryStore;
 use crate::writer::new_instance_id;
 use srs_core::types::term::{Term, VocabularyEntryStatus};
@@ -66,23 +66,28 @@ pub struct CreateVocabularyResult {
 pub fn create_vocabulary_normalized(
     store: &dyn RepositoryStore,
     mut raw: serde_json::Value,
+    selector: PackageSelector,
 ) -> Result<CreateVocabularyResult, RepositoryError> {
     crate::input_normalization::default_created_at(&mut raw, "createdAt");
     let vocabulary = crate::input_normalization::from_value_with_path(raw, "Vocabulary")?;
-    create_vocabulary(store, vocabulary)
+    create_vocabulary(store, vocabulary, selector)
 }
 
-/// Create a new Vocabulary in the primary package.
+/// Create a new Vocabulary in a specific package boundary.
+/// Pass `selector = None` for the primary package; `Some(path)` for a sub-package.
 ///
-/// Writes `package/vocabularies/{slug}-{id}.json` and adds the path to
-/// `package/package.json` → `vocabularies[]`. If `vocabulary.id` is empty,
+/// Writes `<boundary>/vocabularies/{slug}-{id}.json` and adds the path to
+/// `<boundary>/package.json` → `vocabularies[]`. If `vocabulary.id` is empty,
 /// a new UUID is generated. If `vocabulary.created_at` is empty, the
 /// current timestamp is used.
 pub fn create_vocabulary(
     store: &dyn RepositoryStore,
     mut vocabulary: Vocabulary,
+    selector: PackageSelector,
 ) -> Result<CreateVocabularyResult, RepositoryError> {
-    store.load_package_boundary(&None)?;
+    // Validate the selector form, then that the boundary exists, before touching the filesystem.
+    validate_package_selector(&selector)?;
+    store.load_package_boundary(&selector)?;
 
     if vocabulary.id.trim().is_empty() {
         vocabulary.id = new_instance_id();
@@ -98,16 +103,17 @@ pub fn create_vocabulary(
         }
     }
 
+    let boundary_path = selector.as_deref().unwrap_or("package");
     let slug = vocabulary
         .name
         .to_lowercase()
         .replace(|c: char| !c.is_alphanumeric() && c != '-', "-");
     let rel_filename = format!("vocabularies/{}-{}.json", slug, &vocabulary.id[..8]);
-    let full_path = format!("package/{rel_filename}");
+    let full_path = format!("{boundary_path}/{rel_filename}");
 
-    store.ensure_vocabularies_dir("package/vocabularies")?;
+    store.ensure_vocabularies_dir(&format!("{boundary_path}/vocabularies"))?;
     store.save_vocabulary(&full_path, &vocabulary)?;
-    store.add_definition_to_boundary(&None, DefinitionKind::Vocabulary, &rel_filename)?;
+    store.add_definition_to_boundary(&selector, DefinitionKind::Vocabulary, &rel_filename)?;
 
     Ok(CreateVocabularyResult { vocabulary })
 }
@@ -526,7 +532,7 @@ mod tests {
     #[test]
     fn create_vocabulary_assigns_id_and_writes_file() {
         let store = MemoryStore::default();
-        let result = create_vocabulary(&store, make_vocab("my-vocab")).unwrap();
+        let result = create_vocabulary(&store, make_vocab("my-vocab"), None).unwrap();
         assert!(!result.vocabulary.id.is_empty());
         let found = get_vocabulary_by_id(&store, &result.vocabulary.id).unwrap();
         assert!(found.is_some());
@@ -536,7 +542,7 @@ mod tests {
     #[test]
     fn create_vocabulary_roundtrips_via_file_store() {
         let store = MemoryStore::default();
-        let result = create_vocabulary(&store, make_vocab("roundtrip-vocab")).unwrap();
+        let result = create_vocabulary(&store, make_vocab("roundtrip-vocab"), None).unwrap();
         let vocab = result.vocabulary;
         let found = get_vocabulary_by_id(&store, &vocab.id).unwrap().unwrap();
         assert_eq!(found.id, vocab.id);
@@ -548,7 +554,7 @@ mod tests {
     #[test]
     fn create_term_appends_to_vocabulary() {
         let store = MemoryStore::default();
-        let vocab_result = create_vocabulary(&store, make_vocab("vocab-with-terms")).unwrap();
+        let vocab_result = create_vocabulary(&store, make_vocab("vocab-with-terms"), None).unwrap();
         let vocab_id = vocab_result.vocabulary.id.clone();
         create_term(&store, &vocab_id, make_term("my-key")).unwrap();
         let terms = list_terms(&store).unwrap();
@@ -559,7 +565,7 @@ mod tests {
     #[test]
     fn get_vocabulary_by_id_finds_created() {
         let store = MemoryStore::default();
-        let created = create_vocabulary(&store, make_vocab("find-me")).unwrap();
+        let created = create_vocabulary(&store, make_vocab("find-me"), None).unwrap();
         let id = created.vocabulary.id.clone();
         let found = get_vocabulary_by_id(&store, &id).unwrap().unwrap();
         assert_eq!(found.id, id);
@@ -568,8 +574,8 @@ mod tests {
     #[test]
     fn list_terms_returns_terms_across_vocabularies() {
         let store = MemoryStore::default();
-        let v1 = create_vocabulary(&store, make_vocab("vocab-a")).unwrap();
-        let v2 = create_vocabulary(&store, make_vocab("vocab-b")).unwrap();
+        let v1 = create_vocabulary(&store, make_vocab("vocab-a"), None).unwrap();
+        let v2 = create_vocabulary(&store, make_vocab("vocab-b"), None).unwrap();
         create_term(&store, &v1.vocabulary.id, make_term("term-a")).unwrap();
         create_term(&store, &v2.vocabulary.id, make_term("term-b")).unwrap();
         let terms = list_terms(&store).unwrap();
@@ -577,5 +583,121 @@ mod tests {
         let keys: Vec<&str> = terms.iter().map(|t| t.key.as_str()).collect();
         assert!(keys.contains(&"term-a"));
         assert!(keys.contains(&"term-b"));
+    }
+
+    #[test]
+    fn create_vocabulary_in_memory_sub_package_registers_in_boundary() {
+        let store = MemoryStore::default();
+        let selector = Some("packages/governance".to_string());
+        store.register_package_boundary(&selector).unwrap();
+
+        create_vocabulary(&store, make_vocab("gov-vocab"), selector).unwrap();
+
+        let data = store.all_data();
+        assert!(
+            data.keys()
+                .any(|k| k.starts_with("packages/governance/vocabularies/")),
+            "vocabulary file should be written under the boundary directory"
+        );
+        let pkg_json = data.get("packages/governance/package.json").unwrap();
+        assert!(
+            pkg_json["vocabularies"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v.as_str().unwrap_or("").starts_with("vocabularies/")),
+            "vocabulary should be registered in the boundary's package.json"
+        );
+    }
+
+    #[test]
+    fn create_vocabulary_in_file_sub_package_registers_and_lists() {
+        // Cross-store coverage for the same behavior verified on MemoryStore above.
+        use crate::package_service::{create_package, CreatePackageInput};
+        use crate::store::FileStore;
+
+        let temp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path().join(".srs")).unwrap();
+        std::fs::write(
+            temp.path().join("manifest.json"),
+            r#"{"dataModelRevision":2}"#,
+        )
+        .unwrap();
+        std::fs::create_dir_all(temp.path().join("package")).unwrap();
+        std::fs::write(
+            temp.path().join("package/package.json"),
+            serde_json::json!({
+                "id": "pkg",
+                "namespace": "com.test",
+                "name": "test",
+                "version": "1.0.0",
+                "fields": [],
+                "types": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let store = FileStore::new(temp.path());
+        create_package(
+            &store,
+            CreatePackageInput {
+                id: "gov-pkg".to_string(),
+                namespace: "com.gov".to_string(),
+                name: "governance".to_string(),
+                version: "1.0.0".to_string(),
+                boundary_path: Some("packages/governance".to_string()),
+            },
+        )
+        .unwrap();
+
+        create_vocabulary(
+            &store,
+            make_vocab("gov-file-vocab"),
+            Some("packages/governance".to_string()),
+        )
+        .unwrap();
+
+        // File written into the boundary's directory.
+        assert!(
+            temp.path()
+                .join("packages/governance/vocabularies")
+                .is_dir(),
+            "vocabularies dir should exist in boundary"
+        );
+
+        // Registered in the boundary's package.json vocabularies array.
+        let pkg_json: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(temp.path().join("packages/governance/package.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            pkg_json["vocabularies"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v.as_str().unwrap_or("").starts_with("vocabularies/")),
+            "vocabulary should be registered in the boundary's package.json"
+        );
+    }
+
+    #[test]
+    fn create_vocabulary_with_undeclared_package_selector_errors() {
+        let store = MemoryStore::default();
+        let result = create_vocabulary(
+            &store,
+            make_vocab("ghost-vocab"),
+            Some("package/ghost".to_string()),
+        );
+        assert!(
+            result.is_err(),
+            "creating a vocabulary against an undeclared boundary should fail"
+        );
+        assert!(
+            !store
+                .all_data()
+                .keys()
+                .any(|k| k.starts_with("package/ghost/")),
+            "no files should be created under the undeclared boundary"
+        );
     }
 }

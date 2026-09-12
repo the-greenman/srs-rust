@@ -900,7 +900,11 @@ pub enum VocabularyCommand {
         json: bool,
     },
     /// Create a new vocabulary (reads JSON from stdin)
-    Create,
+    Create {
+        /// Package boundary path (omit for primary package, pass path for sub-package)
+        #[arg(long)]
+        package: Option<String>,
+    },
     /// Add a term to an existing vocabulary (reads term JSON from stdin)
     TermCreate {
         /// Vocabulary UUID id to add the term to

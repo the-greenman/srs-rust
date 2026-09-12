@@ -6771,6 +6771,106 @@ fn vocabulary_list_contains_created_vocabulary() {
 }
 
 #[test]
+fn vocabulary_create_in_sub_package() {
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "vocab-sub-package-repo");
+
+    // Create sub-package boundary via CLI (package create writes the package.json).
+    let pkg_result = run_srs_in_dir(
+        &repo,
+        &[
+            "package",
+            "create",
+            "--id",
+            "ext-pkg-vocab-001",
+            "--namespace",
+            "com.ext",
+            "--name",
+            "ext",
+            "--version",
+            "1.0.0",
+            "--path",
+            "pkg/ext",
+        ],
+    );
+    assert_eq!(
+        pkg_result["ok"], true,
+        "package create failed: {:?}",
+        pkg_result
+    );
+
+    let vocab_json = serde_json::json!({
+        "version": 1,
+        "namespace": "com.ext",
+        "name": "ext-vocab",
+        "mode": "open",
+        "terms": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+    let result = run_srs_stdin_in_dir(
+        &repo,
+        &["vocabulary", "create", "--package", "pkg/ext"],
+        &vocab_json.to_string(),
+    );
+    assert_eq!(
+        result["ok"], true,
+        "vocabulary create --package should succeed: {:?}",
+        result
+    );
+
+    // Sub-package package.json should list the vocabulary; primary should not.
+    let sub_pkg: Value =
+        serde_json::from_str(&std::fs::read_to_string(repo.join("pkg/ext/package.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        sub_pkg["vocabularies"].as_array().unwrap().len(),
+        1,
+        "vocabulary should appear in sub-package package.json"
+    );
+
+    let primary_pkg: Value =
+        serde_json::from_str(&std::fs::read_to_string(repo.join("package/package.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        primary_pkg["vocabularies"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0),
+        0,
+        "vocabulary should NOT appear in primary package.json"
+    );
+}
+
+#[test]
+fn vocabulary_create_with_undeclared_package_flag_errors() {
+    let temp = TempDir::new().unwrap();
+    let repo = create_repo_with_package(&temp, "vocab-ghost-package-repo");
+    let vocab_json = serde_json::json!({
+        "version": 1,
+        "namespace": "com.test",
+        "name": "ghost-vocab",
+        "mode": "open",
+        "terms": [],
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+
+    let (_ok, result) = run_srs_stdin_any_status_in_dir(
+        &repo,
+        &["vocabulary", "create", "--package", "package/ghost"],
+        &vocab_json.to_string(),
+    );
+    assert_eq!(
+        result["ok"], false,
+        "vocabulary create with undeclared --package should fail: {:?}",
+        result
+    );
+    assert!(
+        !repo.join("package/ghost").exists(),
+        "no files should be created under undeclared boundary"
+    );
+}
+
+#[test]
 fn vocabulary_get_returns_not_found_for_unknown_id() {
     let temp = TempDir::new().unwrap();
     let repo = create_repo_with_package(&temp, "vocab-get-notfound");
