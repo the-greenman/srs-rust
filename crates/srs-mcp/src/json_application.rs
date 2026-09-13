@@ -8,7 +8,9 @@
 use rmcp::model::JsonObject;
 use rmcp::ErrorData as McpError;
 use serde_json::Value;
-use srs_mcp_core::{srs_metadata, McpApplication as JsonApplication, McpApplicationError};
+use srs_mcp_core::{
+    srs_metadata, srs_resources, McpApplication as JsonApplication, McpApplicationError,
+};
 
 use crate::McpApplication;
 
@@ -67,7 +69,9 @@ impl JsonApplication for JsonSrsApplication<'_> {
     fn call(&mut self, method: &str, params: Option<&Value>) -> Result<Value, McpApplicationError> {
         let response = match method {
             "resources/list" => result(self.application.list_resources().map_err(mcp_error)?)?,
-            "resources/templates/list" => result(self.application.list_resource_templates())?,
+            "resources/templates/list" => {
+                srs_resources::list_resource_templates(self.application.repository_id())
+            }
             "resources/read" => {
                 let uri = required_string(params, "uri")?;
                 result(self.application.read_resource(&uri).map_err(mcp_error)?)?
@@ -214,6 +218,17 @@ mod tests {
         assert_eq!(
             srs_metadata::initialize_result(),
             result(McpApplication::server_info()).unwrap()
+        );
+    }
+
+    #[test]
+    fn native_and_json_resource_templates_are_identical() {
+        let repository_id = "template-parity";
+        let directory = tempfile::tempdir().unwrap();
+        let store = FileStore::new(directory.path());
+        assert_eq!(
+            srs_resources::list_resource_templates(repository_id),
+            result(McpApplication::new(&store, repository_id).list_resource_templates()).unwrap()
         );
     }
 }

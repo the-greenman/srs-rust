@@ -32,6 +32,10 @@ impl<'store> McpApplication<'store> {
         }
     }
 
+    pub fn repository_id(&self) -> &str {
+        self.repository_id
+    }
+
     pub fn server_info() -> ServerInfo {
         InitializeResult::new(server_capabilities())
             // The JSON core and Streamable HTTP fixture intentionally pin the
