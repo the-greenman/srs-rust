@@ -8,7 +8,7 @@
 use rmcp::model::JsonObject;
 use rmcp::ErrorData as McpError;
 use serde_json::Value;
-use srs_mcp_core::{McpApplication as JsonApplication, McpApplicationError};
+use srs_mcp_core::{srs_metadata, McpApplication as JsonApplication, McpApplicationError};
 
 use crate::McpApplication;
 
@@ -61,7 +61,7 @@ fn mcp_error(error: McpError) -> McpApplicationError {
 
 impl JsonApplication for JsonSrsApplication<'_> {
     fn initialize(&mut self, _params: &Value) -> Result<Value, McpApplicationError> {
-        result(McpApplication::server_info())
+        Ok(srs_metadata::initialize_result())
     }
 
     fn call(&mut self, method: &str, params: Option<&Value>) -> Result<Value, McpApplicationError> {
@@ -207,5 +207,13 @@ mod tests {
             .unwrap();
         assert_eq!(created["result"]["isError"], false, "{created}");
         assert!(created["result"]["structuredContent"]["instanceId"].is_string());
+    }
+
+    #[test]
+    fn native_and_json_initialize_contracts_are_identical() {
+        assert_eq!(
+            srs_metadata::initialize_result(),
+            result(McpApplication::server_info()).unwrap()
+        );
     }
 }
