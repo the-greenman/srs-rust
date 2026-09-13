@@ -81,6 +81,52 @@ full brief as rendered markdown — AI guidance, required types, structure, and 
 
 pub mod uri;
 
+/// JSON-native portions of the generic SRS resource contract.
+///
+/// Dynamic resource enumeration and reads will move here with their repository
+/// service calls. Templates are intentionally extracted first because they
+/// have no runtime dependency and make a precise parity boundary.
+pub mod srs_resources {
+    use serde_json::{json, Value};
+
+    use crate::uri;
+
+    const MIME_JSON: &str = "application/json";
+
+    pub fn list_resource_templates(repository_id: &str) -> Value {
+        json!({ "resourceTemplates": [
+            {
+                "uriTemplate": uri::record_template(repository_id),
+                "name": "record",
+                "title": "Record by instance id",
+                "description": "Read a single record (any tier) as typed JSON by its instanceId. Discover instanceIds via the find tool or container resources.",
+                "mimeType": MIME_JSON
+            },
+            {
+                "uriTemplate": uri::type_template(repository_id),
+                "name": "type",
+                "title": "Type authoring schema by type id",
+                "description": "Authoring schema for a type: fieldIds, required flags, and aiGuidance — read before record_create on an unfamiliar type.",
+                "mimeType": MIME_JSON
+            },
+            {
+                "uriTemplate": uri::protocol_template(repository_id),
+                "name": "protocol",
+                "title": "Protocol definition by protocol id",
+                "description": "A Protocol definition (same shape as `srs protocol get`) plus its stages sorted by order — the dependsOn walk an agent follows.",
+                "mimeType": MIME_JSON
+            },
+            {
+                "uriTemplate": uri::tree_template(repository_id),
+                "name": "tree",
+                "title": "Subtree by root instance id",
+                "description": "Recursive `contains` tree rooted at one instance — descend from any navigation section or container member by its instanceId.",
+                "mimeType": MIME_JSON
+            }
+        ] })
+    }
+}
+
 pub const JSON_RPC_VERSION: &str = "2.0";
 pub const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
 
