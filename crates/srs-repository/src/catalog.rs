@@ -1030,6 +1030,32 @@ impl Builder<'_> {
         });
     }
 
+    /// Body to validate a declared definition candidate's content against.
+    ///
+    /// `vocabulary.json` and `lifecycle.json` are the only two definition
+    /// schemas that close the object (`additionalProperties: false`) without
+    /// declaring `$schema` in `properties`, unlike every sibling definition
+    /// schema (srs-rust#1058). The caller already confirmed `declared ==
+    /// schema_id` before reaching here, so the pointer is known-correct —
+    /// stripping it before the content check loses no validation and avoids
+    /// rejecting a self-describing definition. Every other schema either
+    /// declares `$schema` as optional (safe either way) or `required`
+    /// (view.json, relation-type.json, theme.json — stripping there would
+    /// wrongly report it missing), so the strip is scoped to just these two.
+    fn body_for_definition_schema(schema_id: &str, value: &Value) -> Value {
+        if schema_id == srs_schema::VOCABULARY_SCHEMA_ID
+            || schema_id == srs_schema::LIFECYCLE_SCHEMA_ID
+        {
+            let mut body = value.clone();
+            if let Some(obj) = body.as_object_mut() {
+                obj.remove("$schema");
+            }
+            body
+        } else {
+            value.clone()
+        }
+    }
+
     /// Classify one declared definition candidate ([R7]/[R8]; the admissible
     /// set at a declared definition path is a singleton, so there is nothing
     /// to discriminate against).
@@ -1060,7 +1086,10 @@ impl Builder<'_> {
                 );
                 return;
             }
-            if let Err(e) = registry.validate_by_id(schema_id, &value) {
+            if let Err(e) = registry.validate_by_id(
+                schema_id,
+                &Self::body_for_definition_schema(schema_id, &value),
+            ) {
                 self.error(
                     codes::SCHEMA_VALIDATION,
                     vec![path.to_string()],

@@ -134,10 +134,12 @@ pub struct Lifecycle {
     /// Accepted and re-emitted anyway: a schema pointer is never unknown
     /// *content*, and the pre-existing behaviour (the removed `extra` bag)
     /// already carried it, so dropping it here would be exactly the silent loss
-    /// `rfc-decision-2e0cd70a` forbids. Note the consequence while the gap is
-    /// open: such a file loads, but `repo validate` reports it as failing its
-    /// declared schema. No first-party corpus file carries the pointer today —
-    /// the fix belongs in the two schemas, not here.
+    /// `rfc-decision-2e0cd70a` forbids. The catalog (`classify_definition_candidate`
+    /// in `srs-repository`'s `catalog.rs`) strips `$schema` before validating a
+    /// vocabulary/lifecycle body against its schema, since the two schemas'
+    /// `additionalProperties: false` would otherwise reject the very pointer
+    /// this field re-emits (srs-rust#1058) — a symmetric properties-list fix in
+    /// the two canonical schemas would let that stripping be dropped again.
     #[serde(rename = "$schema", default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
     pub id: String,
