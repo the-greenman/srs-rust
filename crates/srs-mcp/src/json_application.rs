@@ -266,4 +266,56 @@ mod tests {
             result(application.list_resources().unwrap()).unwrap()
         );
     }
+
+    #[test]
+    fn raw_json_resource_errors_preserve_mcp_codes() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = FileStore::new(directory.path());
+        create_repository(
+            &store,
+            &InitializeRepositoryInput {
+                repository: RepositoryMetadata {
+                    repository_id: "read-errors".into(),
+                    namespace: "com.example.errors".into(),
+                    srs_version: "2.0".into(),
+                    title: None,
+                    description: None,
+                },
+                primary_package: PrimaryPackageMetadata {
+                    id: "package".into(),
+                    namespace: "com.example.errors".into(),
+                    name: "fixture".into(),
+                    version: "1.0.0".into(),
+                },
+            },
+        )
+        .unwrap();
+        let mut dispatcher = McpDispatcher::new(JsonSrsApplication::new(McpApplication::new(
+            &store,
+            "read-errors",
+        )));
+        dispatcher
+            .dispatch(message(
+                1,
+                "initialize",
+                serde_json::json!({ "protocolVersion": MCP_PROTOCOL_VERSION }),
+            ))
+            .unwrap();
+        let missing = dispatcher
+            .dispatch(message(
+                2,
+                "resources/read",
+                serde_json::json!({ "uri": "srs://read-errors/record/missing" }),
+            ))
+            .unwrap();
+        assert_eq!(missing["error"]["code"], -32002);
+        let invalid = dispatcher
+            .dispatch(message(
+                3,
+                "resources/read",
+                serde_json::json!({ "uri": "srs://other/map" }),
+            ))
+            .unwrap();
+        assert_eq!(invalid["error"]["code"], -32602);
+    }
 }
