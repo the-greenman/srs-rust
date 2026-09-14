@@ -1,8 +1,9 @@
 //! Transport- and runtime-independent MCP JSON-RPC dispatch.
 //!
-//! This crate deliberately owns no HTTP, WebSocket, stdio, Tokio, rmcp,
-//! repository, or provider code. A native adapter and a browser binding can
-//! both place their application implementation behind [`McpApplication`].
+//! This crate deliberately owns no HTTP, WebSocket, stdio, Tokio, rmcp, or
+//! provider code. It owns the generic SRS contract over an injected
+//! [`srs_repository::store::RepositoryStore`], so native and browser adapters
+//! can execute the same application semantics behind [`McpApplication`].
 
 use serde_json::{json, Value};
 
