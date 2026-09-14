@@ -88,10 +88,91 @@ pub mod uri;
 /// have no runtime dependency and make a precise parity boundary.
 pub mod srs_resources {
     use serde_json::{json, Value};
+    use srs_repository::container_service::{list_containers, ContainerListFilter};
+    use srs_repository::package_service::{list_types_filtered, TypeListFilter};
+    use srs_repository::protocol_service::list_protocols;
+    use srs_repository::store::RepositoryStore;
+    use srs_repository::view_service::{list_compositions_summary, CompositionListFilter};
 
     use crate::uri;
 
     const MIME_JSON: &str = "application/json";
+    const MIME_MARKDOWN: &str = "text/markdown";
+
+    fn resource(
+        uri: String,
+        name: String,
+        title: Option<String>,
+        description: Option<String>,
+        mime_type: &str,
+    ) -> Value {
+        let mut value = json!({ "uri": uri, "name": name, "mimeType": mime_type });
+        let object = value.as_object_mut().expect("resource is an object");
+        if let Some(title) = title {
+            object.insert("title".into(), Value::String(title));
+        }
+        if let Some(description) = description {
+            object.insert("description".into(), Value::String(description));
+        }
+        value
+    }
+
+    /// Enumerate the generic SRS resource catalogue without an MCP model dependency.
+    pub fn list_resources(
+        store: &dyn RepositoryStore,
+        repository_id: &str,
+    ) -> Result<Value, String> {
+        let mut resources = vec![
+            resource(uri::format(&uri::SrsUri::Map, repository_id), "map".into(), Some("Repository map".into()), Some("Counts, package info, relation summary and description for this repository — read this first to orient.".into()), MIME_JSON),
+            resource(uri::format(&uri::SrsUri::Navigation, repository_id), "navigation".into(), Some("Repository navigation".into()), Some("The repository's identity record and ordered navigation sections (root container structure).".into()), MIME_JSON),
+            resource(uri::format(&uri::SrsUri::Tree, repository_id), "tree".into(), Some("Repository tree".into()), Some("Recursive `contains` tree from every auto-detected root (records not targeted by a contains edge), with depth and cycle pruning — the same result as `srs tree`. Subtrees: srs://<repositoryId>/tree/{instanceId}.".into()), MIME_JSON),
+            resource(uri::format(&uri::SrsUri::AgentIndex, repository_id), "agent-index".into(), Some("Agent index".into()), Some("AI orientation index: repository identity, counts, installed types, top-level sections and suggested entry points — same as `srs repo agent-index`.".into()), MIME_JSON),
+        ];
+        for c in
+            list_containers(store, &ContainerListFilter::default()).map_err(|e| e.to_string())?
+        {
+            resources.push(resource(
+                uri::format(&uri::SrsUri::Container(c.container_id), repository_id),
+                c.title.clone(),
+                Some(c.title),
+                Some("Container: authored columns and ordered members (resolve-view).".into()),
+                MIME_JSON,
+            ));
+        }
+        for v in list_compositions_summary(store, &CompositionListFilter::default())
+            .map_err(|e| e.to_string())?
+        {
+            resources.push(resource(
+                uri::format(&uri::SrsUri::Composition(v.id), repository_id),
+                format!("{}/{}", v.namespace, v.name),
+                None,
+                Some(v.description),
+                MIME_MARKDOWN,
+            ));
+        }
+        resources.push(resource(uri::format(&uri::SrsUri::ProtocolList, repository_id), "protocol".into(), Some("Installed protocols".into()), Some("Every installed Protocol definition: id, namespace/name@version, targetType, stageCount. Read one via srs://<repositoryId>/protocol/{protocolId}.".into()), MIME_JSON));
+        for p in list_protocols(store).map_err(|e| e.to_string())? {
+            resources.push(resource(
+                uri::format(&uri::SrsUri::Protocol(p.protocol_id), repository_id),
+                format!("{}/{}", p.protocol_namespace, p.protocol_name),
+                None,
+                Some("Protocol definition with its stages in dependsOn order.".into()),
+                MIME_JSON,
+            ));
+        }
+        for t in list_types_filtered(store, TypeListFilter::default()).map_err(|e| e.to_string())? {
+            resources.push(resource(
+                uri::format(&uri::SrsUri::Type(t.id), repository_id),
+                format!("{}/{}", t.namespace, t.name),
+                None,
+                Some(t.description.unwrap_or_else(|| {
+                    "Type schema: fieldAssignments + aiGuidance for authoring".into()
+                })),
+                MIME_JSON,
+            ));
+        }
+        Ok(json!({ "resources": resources }))
+    }
 
     pub fn list_resource_templates(repository_id: &str) -> Value {
         json!({ "resourceTemplates": [

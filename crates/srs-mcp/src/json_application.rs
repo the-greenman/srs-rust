@@ -68,7 +68,11 @@ impl JsonApplication for JsonSrsApplication<'_> {
 
     fn call(&mut self, method: &str, params: Option<&Value>) -> Result<Value, McpApplicationError> {
         let response = match method {
-            "resources/list" => result(self.application.list_resources().map_err(mcp_error)?)?,
+            "resources/list" => srs_resources::list_resources(
+                self.application.store(),
+                self.application.repository_id(),
+            )
+            .map_err(McpApplicationError::internal)?,
             "resources/templates/list" => {
                 srs_resources::list_resource_templates(self.application.repository_id())
             }
@@ -229,6 +233,37 @@ mod tests {
         assert_eq!(
             srs_resources::list_resource_templates(repository_id),
             result(McpApplication::new(&store, repository_id).list_resource_templates()).unwrap()
+        );
+    }
+
+    #[test]
+    fn native_and_json_resource_catalogues_are_identical() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = FileStore::new(directory.path());
+        create_repository(
+            &store,
+            &InitializeRepositoryInput {
+                repository: RepositoryMetadata {
+                    repository_id: "catalogue-parity".into(),
+                    namespace: "com.example.catalogue".into(),
+                    srs_version: "2.0".into(),
+                    title: None,
+                    description: None,
+                },
+                primary_package: PrimaryPackageMetadata {
+                    id: "package".into(),
+                    namespace: "com.example.catalogue".into(),
+                    name: "fixture".into(),
+                    version: "1.0.0".into(),
+                },
+            },
+        )
+        .unwrap();
+        let application = McpApplication::new(&store, "catalogue-parity");
+        assert_eq!(
+            srs_resources::list_resources(application.store(), application.repository_id())
+                .unwrap(),
+            result(application.list_resources().unwrap()).unwrap()
         );
     }
 }
