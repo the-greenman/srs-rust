@@ -4116,7 +4116,10 @@ mod tests {
     fn create_record_in_context_rejects_reserved_envelope_key() {
         let store = make_store_with_package();
         let mut extra = std::collections::BTreeMap::new();
-        extra.insert("instanceId".to_string(), json!("11111111-1111-1111-1111-111111111111"));
+        extra.insert(
+            "instanceId".to_string(),
+            json!("11111111-1111-1111-1111-111111111111"),
+        );
 
         let err = create_record_in_context(
             &store,
@@ -4181,7 +4184,10 @@ mod tests {
             create_record(&store, "type-test-001", 1, fv, None, None).expect("create");
 
         let mut extra = std::collections::BTreeMap::new();
-        extra.insert("instanceId".to_string(), json!("22222222-2222-2222-2222-222222222222"));
+        extra.insert(
+            "instanceId".to_string(),
+            json!("22222222-2222-2222-2222-222222222222"),
+        );
         let err = create_record_successor(
             &store,
             &predecessor.instance_id,
