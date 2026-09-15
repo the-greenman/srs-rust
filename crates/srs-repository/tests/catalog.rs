@@ -447,6 +447,121 @@ fn declared_typed_record_schema_is_unresolvable() {
     );
 }
 
+/// srs-rust#1058: `vocabulary.json` and `lifecycle.json` don't declare
+/// `$schema` in their own `properties` (unlike every sibling definition
+/// schema), yet the Vocabulary/Lifecycle Rust types accept and re-emit a
+/// caller-supplied `$schema` pointer verbatim. `srs vocabulary create`
+/// therefore used to write a file that failed to reload: the very next
+/// catalog build (any command, e.g. `type create`, `repo doctor`) reported
+/// SCHEMA_VALIDATION with `'$schema' was unexpected`, fatally blocking the
+/// whole load ([R24]). A self-describing definition must round-trip.
+#[test]
+fn declared_vocabulary_with_schema_pointer_validates() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    write(root, "manifest.json", MINIMAL_MANIFEST);
+    let pkg: serde_json::Value = serde_json::from_str(&srs_package_json()).unwrap();
+    let mut pkg = pkg.as_object().unwrap().clone();
+    pkg.insert(
+        "vocabularies".to_string(),
+        serde_json::json!(["vocabularies/entry.json"]),
+    );
+    write(
+        root,
+        "pkg/package.json",
+        &serde_json::to_string(&pkg).unwrap(),
+    );
+    write(
+        root,
+        "pkg/vocabularies/entry.json",
+        r#"{
+            "$schema": "https://srs.semanticops.com/schema/2.0/vocabulary.json",
+            "id": "00000000-0000-4000-8000-0000000000v1",
+            "version": 1,
+            "namespace": "com.test",
+            "name": "test-vocab",
+            "mode": "open",
+            "terms": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        }"#,
+    );
+    let cat = catalog::build(&FileStore::new(root)).unwrap();
+    assert!(cat.diagnostics.is_empty(), "{:?}", cat.diagnostics);
+    assert_eq!(
+        cat.definitions
+            .iter()
+            .filter(|e| e.kind == CatalogKind::Vocabulary)
+            .count(),
+        1
+    );
+
+    // A genuinely malformed vocabulary (missing required `mode`) must still
+    // fail — the fix strips only `$schema`, not the rest of the check.
+    write(
+        root,
+        "pkg/vocabularies/entry.json",
+        r#"{
+            "$schema": "https://srs.semanticops.com/schema/2.0/vocabulary.json",
+            "id": "00000000-0000-4000-8000-0000000000v1",
+            "version": 1,
+            "namespace": "com.test",
+            "name": "test-vocab",
+            "terms": [],
+            "createdAt": "2026-01-01T00:00:00Z"
+        }"#,
+    );
+    let cat = catalog::build(&FileStore::new(root)).unwrap();
+    assert_eq!(
+        code_counts(&cat).get(codes::SCHEMA_VALIDATION),
+        Some(&1),
+        "{:?}",
+        cat.diagnostics
+    );
+}
+
+/// Same gap, same fix, for `lifecycle.json` (srs-rust#1058).
+#[test]
+fn declared_lifecycle_with_schema_pointer_validates() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    write(root, "manifest.json", MINIMAL_MANIFEST);
+    let pkg: serde_json::Value = serde_json::from_str(&srs_package_json()).unwrap();
+    let mut pkg = pkg.as_object().unwrap().clone();
+    pkg.insert(
+        "lifecycles".to_string(),
+        serde_json::json!(["lifecycles/entry.json"]),
+    );
+    write(
+        root,
+        "pkg/package.json",
+        &serde_json::to_string(&pkg).unwrap(),
+    );
+    write(
+        root,
+        "pkg/lifecycles/entry.json",
+        r#"{
+            "$schema": "https://srs.semanticops.com/schema/2.0/lifecycle.json",
+            "id": "00000000-0000-4000-8000-0000000000l1",
+            "version": 1,
+            "namespace": "com.test",
+            "name": "test-lifecycle",
+            "states": [{"key": "draft", "isInitial": true}],
+            "transitions": [],
+            "initialState": "draft",
+            "createdAt": "2026-01-01T00:00:00Z"
+        }"#,
+    );
+    let cat = catalog::build(&FileStore::new(root)).unwrap();
+    assert!(cat.diagnostics.is_empty(), "{:?}", cat.diagnostics);
+    assert_eq!(
+        cat.definitions
+            .iter()
+            .filter(|e| e.kind == CatalogKind::Lifecycle)
+            .count(),
+        1
+    );
+}
+
 #[test]
 fn near_miss_package_manifest_diagnosed_and_does_not_anchor() {
     let tmp = tempfile::tempdir().unwrap();
