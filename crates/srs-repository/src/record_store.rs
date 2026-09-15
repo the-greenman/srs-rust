@@ -42,6 +42,50 @@ use srs_core::validation::relation::validate_relation_type_for_write;
 use srs_schema::RECORD_SCHEMA_ID;
 use std::collections::BTreeMap;
 
+/// Field names `Record` itself serializes (its camelCase wire form). An envelope
+/// `extra` key that collides with one of these silently overrides the canonical
+/// field of the same name the next time the record is serialized — `extra` is
+/// `#[serde(flatten)]`, and it is declared after (and so wins over) the named
+/// field with the same JSON key. That corrupts the record's own identity/type/
+/// lifecycle metadata on disk without any error at write time, and a later
+/// catalog rescan reads the corrupted value back — producing a second file
+/// under the original (now catalog-invisible) id and a fatal
+/// SRS038-R12-DUPLICATE-ID (srs-rust#1049, srs-rust#1060).
+const RESERVED_RECORD_ENVELOPE_KEYS: &[&str] = &[
+    "instanceId",
+    "typeId",
+    "typeVersion",
+    "typeNamespace",
+    "typeName",
+    "fieldValues",
+    "fieldMeta",
+    "lifecycleState",
+    "tags",
+    "createdAt",
+    "updatedAt",
+];
+
+/// Reject an envelope `extra` bag that carries one of `Record`'s own field
+/// names before it ever reaches a `Record.extra` assignment. Called before any
+/// write so a bad envelope fails the whole operation instead of silently
+/// corrupting a record already written this call.
+fn reject_reserved_envelope_keys(
+    extra: &BTreeMap<String, serde_json::Value>,
+) -> Result<(), RepositoryError> {
+    if let Some(key) = extra
+        .keys()
+        .find(|k| RESERVED_RECORD_ENVELOPE_KEYS.contains(&k.as_str()))
+    {
+        return Err(RepositoryError::InvalidRepositoryInitialization {
+            message: format!(
+                "envelope key '{key}' collides with a canonical Record field and cannot be \
+                 carried as an extra; set it through the input's own field instead"
+            ),
+        });
+    }
+    Ok(())
+}
+
 /// List all Tier 2 records in the repository, regardless of type.
 pub fn list_all_records(store: &dyn RepositoryStore) -> Result<Vec<Record>, RepositoryError> {
     let refs = store.list_instances(&InstanceQuery {
@@ -384,6 +428,7 @@ pub fn update_record(
     // `extra` is an open-ended bag rather than a single value (srs-rust#1031:
     // this used to unconditionally keep the stored `extra`, silently dropping
     // whatever the caller sent).
+    reject_reserved_envelope_keys(&input.extra)?;
     let mut updated_extra = record.extra;
     updated_extra.extend(input.extra);
 
@@ -966,6 +1011,7 @@ pub fn create_record_in_context(
     };
 
     let extra = input.extra;
+    reject_reserved_envelope_keys(&extra)?;
     let mut record = create_record_at_dir(
         store,
         &record_type.id,
@@ -1620,6 +1666,7 @@ pub fn create_record_successor(
 
     // Create the successor record (lifecycle_state auto-set from Type.initialState).
     let extra = input.extra;
+    reject_reserved_envelope_keys(&extra)?;
     let mut successor = create_record_at_dir(
         store,
         &predecessor.type_id,
@@ -4055,6 +4102,105 @@ mod tests {
             Some(&json!({"derivedFrom": predecessor.instance_id})),
             "meta must be persisted by record successor, not silently dropped"
         );
+    }
+
+    // srs-rust#1049 / srs-rust#1060: an envelope `extra` key that names one of
+    // `Record`'s own fields (most notably `instanceId`) used to be accepted
+    // silently, then clobber that field's value the next time the record was
+    // serialized — corrupting the on-disk id and, on a later write in the same
+    // call (e.g. an explicit `lifecycleState` override), causing the catalog
+    // to treat the record as new and write a second file under the original
+    // id, a fatal SRS038-R12-DUPLICATE-ID. These are red-test-first repros:
+    // each must be rejected up front, before anything is written.
+    #[test]
+    fn create_record_in_context_rejects_reserved_envelope_key() {
+        let store = make_store_with_package();
+        let mut extra = std::collections::BTreeMap::new();
+        extra.insert("instanceId".to_string(), json!("11111111-1111-1111-1111-111111111111"));
+
+        let err = create_record_in_context(
+            &store,
+            "com.test/test-type",
+            None,
+            CreateRecordInput {
+                field_values: fvs(vec![("test-name", json!("Created"))]),
+                field_meta: None,
+                tags: None,
+                lifecycle_state: None,
+                extra,
+            },
+            None,
+            None,
+        )
+        .expect_err("reserved envelope key must be rejected");
+        assert!(
+            matches!(err, RepositoryError::InvalidRepositoryInitialization { ref message } if message.contains("instanceId")),
+            "error should name the offending key: {err:?}"
+        );
+
+        // Nothing should have been written.
+        assert!(list_all_records(&store).expect("list").is_empty());
+    }
+
+    #[test]
+    fn update_record_rejects_reserved_envelope_key() {
+        let store = make_store_with_package();
+        let fv = fvs(vec![("test-name", json!("Initial"))]);
+        let record = create_record(&store, "type-test-001", 1, fv, None, None).expect("create");
+        let id = record.instance_id.clone();
+
+        let mut extra = std::collections::BTreeMap::new();
+        extra.insert("typeId".to_string(), json!("bogus-type-id"));
+        let err = update_record(
+            &store,
+            &id,
+            UpdateRecordInput {
+                field_values: fvs(vec![("test-name", json!("Changed"))]),
+                field_meta: None,
+                tags: None,
+                type_version: None,
+                extra,
+            },
+        )
+        .expect_err("reserved envelope key must be rejected");
+        assert!(
+            matches!(err, RepositoryError::InvalidRepositoryInitialization { ref message } if message.contains("typeId")),
+            "error should name the offending key: {err:?}"
+        );
+
+        // The original record must be untouched.
+        let loaded = get_record_by_id(&store, &id).unwrap().unwrap();
+        assert_eq!(loaded.value("test-name"), Some(&json!("Initial")));
+    }
+
+    #[test]
+    fn create_record_successor_rejects_reserved_envelope_key() {
+        let store = make_store_with_package();
+        let fv = fvs(vec![("test-name", json!("Predecessor"))]);
+        let predecessor =
+            create_record(&store, "type-test-001", 1, fv, None, None).expect("create");
+
+        let mut extra = std::collections::BTreeMap::new();
+        extra.insert("instanceId".to_string(), json!("22222222-2222-2222-2222-222222222222"));
+        let err = create_record_successor(
+            &store,
+            &predecessor.instance_id,
+            CreateRecordSuccessorInput {
+                relation_type: "supersedes".to_string(),
+                field_values: fvs(vec![("test-name", json!("Successor"))]),
+                lifecycle_state: None,
+                type_version: None,
+                extra,
+            },
+        )
+        .expect_err("reserved envelope key must be rejected");
+        assert!(
+            matches!(err, RepositoryError::InvalidRepositoryInitialization { ref message } if message.contains("instanceId")),
+            "error should name the offending key: {err:?}"
+        );
+
+        // No successor, and no relation, should have been written.
+        assert_eq!(list_all_records(&store).expect("list").len(), 1);
     }
 
     fn make_record_in_store(store: &MemoryStore) -> String {
