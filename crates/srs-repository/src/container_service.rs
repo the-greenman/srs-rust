@@ -163,6 +163,7 @@ pub fn create_container(
         .map_err(|source| RepositoryError::ContainerValidation { source })?;
 
     require_resolvable_instances(store, declared_membership(&container))?;
+    require_resolvable_identity(store, &container)?;
     require_valid_child_containers(
         store,
         &container.container_id,
@@ -469,6 +470,7 @@ pub fn update_container(
         .map_err(|source| RepositoryError::ContainerValidation { source })?;
 
     require_resolvable_instances(store, declared_membership(&container))?;
+    require_resolvable_identity(store, &container)?;
     require_valid_child_containers(
         store,
         &container.container_id,
@@ -744,8 +746,10 @@ fn require_resolvable_instances<'a>(
 
 /// Every membership id a container declares — `rootInstanceIds` ∪
 /// `memberInstanceIds`. `identityInstanceId` is deliberately excluded: it is not
-/// a container reference in the [R13] reference set, and its dangling case is
-/// srs-rust#837's separate question.
+/// a container reference in the [R13] reference set (srs-rust#837 leaves that
+/// question — whether a dangling identity should become a catalog/[R13]
+/// diagnostic — open; see `require_resolvable_identity` for the write-time
+/// check that does apply to it).
 fn declared_membership(container: &Container) -> impl Iterator<Item = &str> {
     container
         .root_instance_ids
@@ -753,6 +757,30 @@ fn declared_membership(container: &Container) -> impl Iterator<Item = &str> {
         .chain(container.member_instance_ids.iter())
         .flatten()
         .map(String::as_str)
+}
+
+/// `identityInstanceId` must name an instance that actually exists.
+///
+/// Not membership (see `declared_membership`'s doc) and not folded into
+/// `require_resolvable_instances`'s caller list: an unresolvable identity is
+/// checked, but doesn't need the empty-list short-circuit or the blank-id
+/// distinction membership writes want, since a container legitimately carries
+/// no identity at all (`None` is skipped here).
+///
+/// srs-rust#837: before this check, `container update`/`container create`
+/// accepted any string here with no existence check, so a typo or a stale id
+/// silently produced a dangling `identityInstanceId` — invisible to `repo
+/// validate` at [R13]-fatal severity (it's just the RFC-013 I-81 warning) and
+/// fatal to `repo navigation`, which hard-fails instead of degrading the way
+/// it does for a *cleared* identity (srs-rust#843).
+fn require_resolvable_identity(
+    store: &dyn RepositoryStore,
+    container: &Container,
+) -> Result<(), RepositoryError> {
+    if let Some(ref id) = container.identity_instance_id {
+        require_resolvable_instances(store, [id.as_str()])?;
+    }
+    Ok(())
 }
 
 pub fn add_member(
@@ -2244,7 +2272,7 @@ mod tests {
         store.save_manifest(&manifest).unwrap();
 
         let patch = ContainerPatch {
-            identity_instance_id: Some("new-identity-id".to_string()),
+            identity_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
             ..ContainerPatch::default()
         };
         let updated = update_container(&store, container_id, patch)
@@ -2252,13 +2280,13 @@ mod tests {
             .container;
         assert_eq!(
             updated.identity_instance_id,
-            Some("new-identity-id".to_string())
+            Some("11111111-1111-4111-8111-111111111111".to_string())
         );
 
         let manifest = store.load_manifest().unwrap();
         assert_eq!(
             manifest.container.unwrap().identity_instance_id,
-            Some("new-identity-id".to_string())
+            Some("11111111-1111-4111-8111-111111111111".to_string())
         );
     }
 
@@ -2277,13 +2305,81 @@ mod tests {
 
         // Patch OTHER container's identity_instance_id — manifest should not change
         let patch = ContainerPatch {
-            identity_instance_id: Some("should-not-sync".to_string()),
+            identity_instance_id: Some("22222222-2222-4222-8222-222222222222".to_string()),
             ..ContainerPatch::default()
         };
         update_container(&store, other_id, patch).unwrap();
 
         let manifest = store.load_manifest().unwrap();
         assert_eq!(manifest.container.unwrap().identity_instance_id, None);
+    }
+
+    /// srs-rust#837: before `require_resolvable_identity`, `container update`
+    /// accepted a nonexistent `identityInstanceId` with no existence check,
+    /// producing a genuinely dangling pointer — not caught by the [R13]
+    /// catalog fatal (identity is deliberately outside that reference set),
+    /// only surfaced later as a non-fatal `repo validate` I-81 warning, and
+    /// fatal to `repo navigation` (`get_record_by_id` -> `NotFound`).
+    #[test]
+    fn update_container_rejects_nonexistent_identity_instance_id() {
+        let store = make_store();
+        let container_id = "550e8400-e29b-41d4-a716-446655440000";
+        create_container(&store, minimal_container(container_id, "Root")).unwrap();
+
+        let patch = ContainerPatch {
+            identity_instance_id: Some("dddddddd-dddd-4ddd-8ddd-dddddddddddd".to_string()),
+            ..ContainerPatch::default()
+        };
+        let err = update_container(&store, container_id, patch).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                RepositoryError::InstanceNotFound { ref id }
+                if id == "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+            ),
+            "expected InstanceNotFound, got: {err:?}"
+        );
+
+        // The rejected patch must not have been written.
+        let (container, _) = load_container_with_embed_fallback(&store, container_id).unwrap();
+        assert_eq!(container.identity_instance_id, None);
+    }
+
+    #[test]
+    fn create_container_rejects_nonexistent_identity_instance_id() {
+        let store = make_store();
+        let mut container = minimal_container("550e8400-e29b-41d4-a716-446655440002", "Root");
+        container.identity_instance_id =
+            Some("dddddddd-dddd-4ddd-8ddd-dddddddddddd".to_string());
+
+        let err = create_container(&store, container).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                RepositoryError::InstanceNotFound { ref id }
+                if id == "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+            ),
+            "expected InstanceNotFound, got: {err:?}"
+        );
+    }
+
+    /// A container with no identity at all must still create/update cleanly —
+    /// `require_resolvable_identity` must not treat `None` as a failure.
+    #[test]
+    fn update_container_allows_clearing_or_omitting_identity() {
+        let store = make_store();
+        let container_id = "550e8400-e29b-41d4-a716-446655440003";
+        create_container(&store, minimal_container(container_id, "Root")).unwrap();
+
+        let patch = ContainerPatch {
+            title: Some("Renamed".to_string()),
+            ..ContainerPatch::default()
+        };
+        let updated = update_container(&store, container_id, patch)
+            .unwrap()
+            .container;
+        assert_eq!(updated.identity_instance_id, None);
+        assert_eq!(updated.title, "Renamed");
     }
 
     #[test]
