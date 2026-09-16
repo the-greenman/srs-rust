@@ -2349,8 +2349,7 @@ mod tests {
     fn create_container_rejects_nonexistent_identity_instance_id() {
         let store = make_store();
         let mut container = minimal_container("550e8400-e29b-41d4-a716-446655440002", "Root");
-        container.identity_instance_id =
-            Some("dddddddd-dddd-4ddd-8ddd-dddddddddddd".to_string());
+        container.identity_instance_id = Some("dddddddd-dddd-4ddd-8ddd-dddddddddddd".to_string());
 
         let err = create_container(&store, container).unwrap_err();
         assert!(
