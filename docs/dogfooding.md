@@ -932,6 +932,17 @@ $SRS_BIN repo navigation --repo "$SCRATCH" --pretty
 
 **Note.** Once the RFC-018 I-81 warning appears, use `repo migrate-identity` (S21) to resolve it.
 
+**Addendum — reject a nonexistent identityInstanceId at write time (srs-rust#837).** Before this fix, `container update`/`container create` accepted any string for `identityInstanceId` with no existence check — a typo or stale id produced a dangling pointer that `repo validate` only caught as the I-81 warning above (not a fatal), and that `repo navigation` then hard-failed on (`ok: false`, `"not found: \"instance/<id>\""`) instead of degrading gracefully. `container update` now rejects the write outright:
+
+```bash
+FAKE=00000000-0000-4000-8000-000000000099
+echo "{\"identityInstanceId\":\"$FAKE\"}" | $SRS_BIN container update --repo "$SCRATCH" "$CONTAINER_ID" --pretty
+```
+
+**Done when.** The write returns `ok: false` with a diagnostic naming `"instance not found: $FAKE"`, and the container's `identityInstanceId` on disk is unchanged from before the call — the dangling pointer is never written, so `repo validate`/`repo navigation` never see it. Re-pointing `identityInstanceId` at a real, non-member instance (the I-81 legacy/override case above) still succeeds — this check is existence-only, not the membership invariant.
+
+**Verified 2026-09-16** on branch `feat/837-container-update-identity-existence-check`, repo `/tmp/dogfood-837b`: the fake-UUID write returned `ok: false` / `"instance not found: <fake-id>"` and left `manifest.json`'s `identityInstanceId` at its prior value; a follow-up update pointing `identityInstanceId` at a real member id succeeded and `repo validate` reported 0 errors.
+
 ---
 
 ### S21 — Graduate a Tier-0 identity note to a purpose record (`repo migrate-identity`)
