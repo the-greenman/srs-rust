@@ -1608,6 +1608,62 @@ fn unrelate_json_returns_ok() {
 }
 
 #[test]
+fn transition_json_invalid_state_exits_nonzero() {
+    // Regression test for the-greenman/srs-rust#763: run_srs_impl's print_raw
+    // early-return happened before the ok:false guard, so `--json` verbs
+    // printed a failing envelope but exited 0. A caller checking only the
+    // exit code (not parsing the envelope) would miss the failure.
+    let repo = setup_repo("transition-json-bad");
+
+    let list = srs_json(
+        &repo.path,
+        &["record", "list", "--type", "governance/decision"],
+        None,
+    );
+    let draft_id = list["payload"]["records"]
+        .as_array()
+        .expect("records array")
+        .iter()
+        .find(|r| r["record"]["lifecycleState"].as_str() == Some("draft"))
+        .and_then(|r| r["instanceId"].as_str())
+        .expect("draft decision from setup_repo")
+        .to_string();
+
+    let gov = srs_gov_bin();
+    let srs = srs_bin();
+    let out = std::process::Command::new(&gov)
+        .env("SRS_BIN", &srs)
+        .arg("--repo")
+        .arg(&repo.path)
+        .args([
+            "--json",
+            "transition",
+            &draft_id,
+            "--to",
+            "nonexistent_state",
+        ])
+        .output()
+        .expect("run srs-gov --json transition");
+
+    assert!(
+        !out.status.success(),
+        "transition --json to an invalid state must exit non-zero, but exited 0. stdout: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+
+    // The failing envelope must still be printed to stdout for callers that
+    // do parse it.
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let envelope: serde_json::Value =
+        serde_json::from_str(&stdout).expect("failing --json output should still be JSON");
+    assert_eq!(
+        envelope["ok"].as_bool(),
+        Some(false),
+        "expected ok:false envelope\n{stdout}"
+    );
+}
+
+#[test]
 fn relations_json_includes_both_directions() {
     // Regression guard for 9658dd4: cmd_relations --json was dropping incoming relations.
     // Setup: create A→B supersedes. Query from B's perspective (B has an incoming relation).
