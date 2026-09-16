@@ -5,12 +5,15 @@
 //! input → exactly one `srs-repository` service call → the service's typed
 //! result serialized. No business logic lives here.
 
+mod application;
+pub mod json_application;
 mod prompts;
 mod resources;
 pub mod server;
 pub mod tools;
 mod uri;
 
+pub use application::McpApplication;
 pub use server::SrsMcpServer;
 
 use std::path::PathBuf;

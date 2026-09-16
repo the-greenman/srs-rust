@@ -7,6 +7,7 @@
 use rmcp::model::ReadResourceRequestParams;
 use rmcp::ServiceExt;
 use srs_mcp::SrsMcpServer;
+use srs_mcp_core::srs_resources;
 use srs_repository::agent_index_service::build_agent_index;
 use srs_repository::analysis::build_repo_map;
 use srs_repository::container_view_service::{resolve_container_view, ResolveContainerViewInput};
@@ -223,6 +224,19 @@ async fn list_resources_enumerates_containers_and_views() {
     assert_eq!(proto.name, "com.example.mcptest/decision-walk");
 
     client.cancel().await.unwrap();
+}
+
+#[test]
+fn core_resource_catalogue_matches_native_for_dynamic_fixture() {
+    let fx = make_fixture();
+    let store = store_for(&fx);
+    let native = srs_mcp::McpApplication::new(&store, &fx.repo_id)
+        .list_resources()
+        .unwrap();
+    assert_eq!(
+        srs_resources::list_resources(&store, &fx.repo_id).unwrap(),
+        serde_json::to_value(native).unwrap()
+    );
 }
 
 async fn read_text(
