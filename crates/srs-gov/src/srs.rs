@@ -104,17 +104,22 @@ fn run_srs_impl(
         }
     })?;
 
+    let failed = matches!(envelope.get("ok").and_then(|v| v.as_bool()), Some(false));
+
     if print_raw {
         println!("{}", serde_json::to_string_pretty(&envelope)?);
-        return Ok(Value::Null);
     }
 
-    if let Some(false) = envelope.get("ok").and_then(|v| v.as_bool()) {
+    if failed {
         let diag = envelope
             .get("diagnostics")
             .and_then(|d| serde_json::to_string_pretty(d).ok())
             .unwrap_or_default();
         bail!("srs command failed:\n{diag}");
+    }
+
+    if print_raw {
+        return Ok(Value::Null);
     }
 
     Ok(envelope.get("payload").cloned().unwrap_or(Value::Null))
