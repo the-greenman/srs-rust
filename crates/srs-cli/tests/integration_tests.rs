@@ -8176,3 +8176,28 @@ fn repo_apply_migration_migrate_identity_graduates_note_to_purpose_record() {
         "statement must come from the note body"
     );
 }
+
+/// srs-rust#1069: the top-level help text describes `srs tree` as "rooted at
+/// top-level or specified instances", but the root instance could only be
+/// given via `--from` — a positional id was rejected with "unexpected
+/// argument". Accept the positional form so the CLI matches its own help.
+#[test]
+fn tree_accepts_positional_root_instance_id() {
+    let repo = create_navigation_repo();
+    let repo_path = repo.path().to_string_lossy().into_owned();
+    let articles = "00000000-0000-4000-8000-00000000a200";
+
+    let positional = run_srs_in_dir(repo.path(), &["--repo", &repo_path, "tree", articles]);
+    let via_flag = run_srs_in_dir(
+        repo.path(),
+        &["--repo", &repo_path, "tree", "--from", articles],
+    );
+
+    assert_eq!(positional["ok"], true, "expected ok: {positional:?}");
+    assert_eq!(positional["payload"]["roots"], via_flag["payload"]["roots"]);
+    let roots = positional["payload"]["roots"]
+        .as_array()
+        .expect("roots array");
+    assert_eq!(roots.len(), 1);
+    assert_eq!(roots[0]["instanceId"], articles);
+}

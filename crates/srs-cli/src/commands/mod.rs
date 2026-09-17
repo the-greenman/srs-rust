@@ -1642,6 +1642,8 @@ pub enum PackageCommand {
 #[derive(Args)]
 pub struct TreeArgs {
     /// Start the tree from this instance ID (repeatable; omit to auto-detect top-level records)
+    pub roots: Vec<String>,
+    /// Start the tree from this instance ID (repeatable; omit to auto-detect top-level records)
     #[arg(long = "from", action = clap::ArgAction::Append)]
     pub from: Vec<String>,
     /// Edge type to follow for parent → child traversal (default: contains)
