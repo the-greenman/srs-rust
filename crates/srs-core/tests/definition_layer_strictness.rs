@@ -97,11 +97,14 @@ fn definition_types_reject_unknown_keys() {
     );
 }
 
-/// Strictness must not reject a key the schema declares but the engine does
-/// not yet act on. `DocumentSection.ordering.memberOrder` (RFC-015 [N+29]) is
-/// the case that nearly slipped through: no first-party corpus uses it, so a
-/// corpus-only safety gate would have stayed green while a schema-valid
-/// Composition became unloadable.
+/// Strictness must not reject a key the schema declares. `srs-core` never
+/// acts on `DocumentSection.ordering.memberOrder` itself — per
+/// `docs/architecture/capability-layering.md`, ordering is business logic and
+/// lives in `srs-repository` (`relation_graph::apply_section_ordering`,
+/// srs-rust#567), not in this crate's serde/validation layer. This is the
+/// case that nearly slipped through here: no first-party corpus used the key
+/// at the time, so a corpus-only safety gate would have stayed green while a
+/// schema-valid Composition became unloadable by this crate.
 #[test]
 fn composition_accepts_schema_declared_but_unconsumed_keys() {
     let dv: Composition = serde_json::from_value(serde_json::json!({

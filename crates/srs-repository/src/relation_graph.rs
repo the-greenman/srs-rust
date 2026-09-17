@@ -1,8 +1,10 @@
 use crate::error::RepositoryError;
+use crate::package::Package;
 use crate::record_store::{get_instance_by_id, LoadedInstance};
 use crate::store::RepositoryStore;
 use srs_core::types::record::Record;
 use srs_core::types::relation::Relation;
+use srs_core::types::view::{SectionOrdering, SectionSource, SortDirection};
 use std::collections::{HashMap, HashSet};
 
 /// Anything that can participate in a `precedes`-chain sort: it has an instance
@@ -231,6 +233,178 @@ pub(crate) fn children_by_relation_type(
     }
 
     Ok(sort_by_precedes_chain(children, all_relations))
+}
+
+/// Derive the RFC-008 `typeFilter` (when declared and non-empty) and the
+/// `FixedInstances` flag from a section's `source`, for an
+/// [`apply_section_ordering`] caller whose contract is "this section's
+/// rendered subset" (render/project). A caller whose contract is "the full
+/// membership, reordered" (the container-view editor projection) passes
+/// `(None, false)` to `apply_section_ordering` directly instead of calling
+/// this helper — see that function's `type_filter` doc.
+pub(crate) fn section_ordering_inputs(source: &SectionSource) -> (Option<&[String]>, bool) {
+    let type_filter = match source {
+        SectionSource::ContainerSubset {
+            type_filter: Some(f),
+            ..
+        } if !f.is_empty() => Some(f.as_slice()),
+        _ => None,
+    };
+    let is_fixed_instances = matches!(source, SectionSource::FixedInstances { .. });
+    (type_filter, is_fixed_instances)
+}
+
+/// Apply a `DocumentSection`'s full ordering ladder: RFC-015 [N+29]
+/// `ordering.memberOrder`, else authored `ordering.fieldId`+`direction`, else
+/// the [N+12] precedes/createdAt fallback — plus the RFC-008 `typeFilter`
+/// projection ([N+18]-[N+22], and RFC-015 [N+30] when `memberOrder` is also
+/// present).
+///
+/// `type_filter` is the RFC-008 `typeFilter` to project onto the result
+/// (`None` to skip filtering entirely — a caller whose contract is "the full
+/// membership, reordered" rather than "this section's rendered subset", e.g.
+/// the container-view editor projection, passes `None`). `is_fixed_instances`
+/// suppresses the [N+12] fallback: a `FixedInstances` section's declared
+/// `instance_ids` order is the author's intent and must not be overridden
+/// when no explicit `ordering` is present.
+///
+/// One shared implementation for every ordering consumer (render, container
+/// view) — see `docs/architecture/capability-layering.md`: if two callers
+/// could disagree about section order, the logic was in the wrong place.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn apply_section_ordering(
+    mut records: Vec<LoadedInstance>,
+    ordering: Option<&SectionOrdering>,
+    type_filter: Option<&[String]>,
+    is_fixed_instances: bool,
+    package: &Package,
+    relations: &[Relation],
+    section_id: &str,
+    diagnostics: &mut Vec<String>,
+) -> Vec<LoadedInstance> {
+    if let Some(ordering) = ordering {
+        if let Some(member_order) = &ordering.member_order {
+            return apply_member_order(
+                records,
+                member_order,
+                ordering.direction.clone(),
+                type_filter,
+                package,
+                relations,
+                section_id,
+                diagnostics,
+            );
+        }
+        if let Some(field_id) = &ordering.field_id {
+            // `SectionOrdering.field_id` is a Field UUID; the RFC-039 carrier
+            // keys values by `Field.name` — bridge via the package.
+            let field_name = package
+                .resolve_field(field_id)
+                .map(|f| f.name.clone())
+                .unwrap_or_else(|| field_id.clone());
+            records.sort_by(|a, b| {
+                let av = a.get_field_value_str(&field_name).unwrap_or("");
+                let bv = b.get_field_value_str(&field_name).unwrap_or("");
+                av.cmp(bv)
+            });
+            if matches!(ordering.direction, Some(SortDirection::Desc)) {
+                records.reverse();
+            }
+            apply_type_filter(&mut records, type_filter, package);
+            return records;
+        }
+    }
+
+    // No explicit ordering: [N+12] fallback, unless the section's declared
+    // instance order (FixedInstances) must be preserved as authored.
+    if !is_fixed_instances {
+        records = sort_by_precedes_chain(records, relations);
+    }
+    apply_type_filter(&mut records, type_filter, package);
+    records
+}
+
+/// RFC-008 `typeFilter`: restrict container-subset members to matching
+/// types. Tier-0 notes have no type and never match an explicit `typeFilter`.
+fn apply_type_filter(
+    records: &mut Vec<LoadedInstance>,
+    type_filter: Option<&[String]>,
+    package: &Package,
+) {
+    let Some(filter) = type_filter else {
+        return;
+    };
+    records.retain(|inst| {
+        let Some(r) = inst.as_record() else {
+            return false;
+        };
+        if let Some(rt) = package.resolve_type(&r.type_id, r.type_version) {
+            let key = format!("{}/{}", rt.namespace, rt.name);
+            filter.iter().any(|f| f == &key)
+        } else {
+            false
+        }
+    });
+}
+
+/// RFC-015 [N+29]/[N+30]: `memberOrder` applied over the (optionally
+/// `typeFilter`-narrowed) member set.
+///
+/// Step (1)/(2): a listed id present in the filtered set is emitted in
+/// declared order; a listed id excluded only by `typeFilter` is skipped
+/// silently ([N+30] — no diagnostic); a listed id that is not a container
+/// member at all is a departed entry and is diagnosed ([N+29] step 2), never
+/// treated as a validation failure. Step (3): surviving members not named in
+/// `memberOrder` are appended in [N+12] order, computed over the filtered
+/// set. Step (4): `direction: desc` reverses the whole combined sequence.
+#[allow(clippy::too_many_arguments)]
+fn apply_member_order(
+    records: Vec<LoadedInstance>,
+    member_order: &[String],
+    direction: Option<SortDirection>,
+    type_filter: Option<&[String]>,
+    package: &Package,
+    relations: &[Relation],
+    section_id: &str,
+    diagnostics: &mut Vec<String>,
+) -> Vec<LoadedInstance> {
+    let all_ids: HashSet<String> = records
+        .iter()
+        .map(|r| r.instance_id().to_string())
+        .collect();
+
+    let mut filtered = records;
+    apply_type_filter(&mut filtered, type_filter, package);
+
+    let mut by_id: HashMap<String, LoadedInstance> = filtered
+        .into_iter()
+        .map(|r| (r.instance_id().to_string(), r))
+        .collect();
+
+    let mut result = Vec::with_capacity(member_order.len());
+    for id in member_order {
+        if let Some(inst) = by_id.remove(id) {
+            result.push(inst);
+        } else if !all_ids.contains(id) {
+            diagnostics.push(format!(
+                "[section:{section_id}] memberOrder entry {id} is not a current \
+                 container member; skipped (RFC-015 [N+29])"
+            ));
+        }
+        // else: present in the container but excluded by `typeFilter` — RFC-015
+        // [N+30] silent skip, no diagnostic.
+    }
+
+    // Step (3): survivors not named in `memberOrder`, in [N+12] order over the
+    // filtered set.
+    let remaining: Vec<LoadedInstance> = by_id.into_values().collect();
+    result.extend(sort_by_precedes_chain(remaining, relations));
+
+    // Step (4).
+    if matches!(direction, Some(SortDirection::Desc)) {
+        result.reverse();
+    }
+    result
 }
 
 #[cfg(test)]
@@ -476,5 +650,296 @@ mod tests {
             let ids: Vec<&str> = sorted.iter().map(|r| r.instance_id.as_str()).collect();
             assert_eq!(ids, expected, "rotation {rotation} must not change order");
         }
+    }
+
+    // ── RFC-015 [N+29]/[N+30]: apply_section_ordering / apply_member_order ────
+
+    use srs_core::types::record_type::RecordType;
+
+    fn minimal_package() -> Package {
+        Package {
+            id: "pkg-test".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![],
+            record_types: vec![],
+            relation_type_definitions: vec![],
+            views: vec![],
+            compositions: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            package_dependencies: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        }
+    }
+
+    fn minimal_record_type(id: &str, namespace: &str, name: &str) -> RecordType {
+        RecordType {
+            schema: None,
+            ai_guidance: None,
+            tags: None,
+            id: id.to_string(),
+            namespace: namespace.to_string(),
+            name: name.to_string(),
+            version: 1,
+            description: String::new(),
+            fields: vec![],
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            lineage: None,
+            provenance: None,
+        }
+    }
+
+    fn loaded(id: &str, created_at: &str) -> LoadedInstance {
+        LoadedInstance::Record(make_record(id, created_at))
+    }
+
+    fn typed_loaded(id: &str, created_at: &str, type_id: &str) -> LoadedInstance {
+        let mut r = make_record(id, created_at);
+        r.type_id = type_id.to_string();
+        LoadedInstance::Record(r)
+    }
+
+    #[test]
+    fn apply_member_order_basic_sequence() {
+        let ts = "2026-01-01T00:00:00Z";
+        let records = vec![loaded("a", ts), loaded("b", ts), loaded("c", ts)];
+        let ordering = SectionOrdering {
+            field_id: None,
+            direction: None,
+            member_order: Some(vec!["c".into(), "a".into(), "b".into()]),
+        };
+        let package = minimal_package();
+        let mut diagnostics = Vec::new();
+        let result = apply_section_ordering(
+            records,
+            Some(&ordering),
+            None,
+            false,
+            &package,
+            &[],
+            "s1",
+            &mut diagnostics,
+        );
+        let ids: Vec<&str> = result.iter().map(|r| r.instance_id()).collect();
+        assert_eq!(ids, vec!["c", "a", "b"]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    /// RFC-015 [N+29] step (3): survivors not named in `memberOrder` are
+    /// appended in [N+12] order, not container/list order.
+    #[test]
+    fn apply_member_order_appends_unlisted_in_precedes_order() {
+        let ts = "2026-01-01T00:00:00Z";
+        let records = vec![
+            loaded("a", ts),
+            loaded("b", ts),
+            loaded("c", ts),
+            loaded("d", ts),
+        ];
+        let relations = vec![make_precedes("d", "b")];
+        let ordering = SectionOrdering {
+            field_id: None,
+            direction: None,
+            member_order: Some(vec!["c".into()]),
+        };
+        let package = minimal_package();
+        let mut diagnostics = Vec::new();
+        let result = apply_section_ordering(
+            records,
+            Some(&ordering),
+            None,
+            false,
+            &package,
+            &relations,
+            "s1",
+            &mut diagnostics,
+        );
+        let ids: Vec<&str> = result.iter().map(|r| r.instance_id()).collect();
+        // c first (listed); then the [N+12] order of {a, b, d}: a and d are
+        // both ready (createdAt tie -> instanceId), a < d, then d frees b.
+        assert_eq!(ids, vec!["c", "a", "d", "b"]);
+    }
+
+    /// RFC-015 [N+29] step (2): a `memberOrder` entry naming an id that is no
+    /// longer a container member is diagnosed, never a validation failure.
+    #[test]
+    fn apply_member_order_departed_entry_diagnosed_not_failed() {
+        let ts = "2026-01-01T00:00:00Z";
+        let records = vec![loaded("a", ts), loaded("b", ts)];
+        let ordering = SectionOrdering {
+            field_id: None,
+            direction: None,
+            member_order: Some(vec!["ghost".into(), "a".into()]),
+        };
+        let package = minimal_package();
+        let mut diagnostics = Vec::new();
+        let result = apply_section_ordering(
+            records,
+            Some(&ordering),
+            None,
+            false,
+            &package,
+            &[],
+            "s1",
+            &mut diagnostics,
+        );
+        let ids: Vec<&str> = result.iter().map(|r| r.instance_id()).collect();
+        assert_eq!(ids, vec!["a", "b"]);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert!(diagnostics[0].contains("ghost"), "{}", diagnostics[0]);
+    }
+
+    /// RFC-015 [N+29] step (4): `direction: desc` reverses the whole combined
+    /// sequence (listed + appended tail), not just the listed prefix.
+    #[test]
+    fn apply_member_order_desc_reverses_combined_sequence() {
+        let ts = "2026-01-01T00:00:00Z";
+        let records = vec![loaded("a", ts), loaded("b", ts), loaded("c", ts)];
+        let ordering = SectionOrdering {
+            field_id: None,
+            direction: Some(SortDirection::Desc),
+            member_order: Some(vec!["a".into(), "b".into()]),
+        };
+        let package = minimal_package();
+        let mut diagnostics = Vec::new();
+        let result = apply_section_ordering(
+            records,
+            Some(&ordering),
+            None,
+            false,
+            &package,
+            &[],
+            "s1",
+            &mut diagnostics,
+        );
+        let ids: Vec<&str> = result.iter().map(|r| r.instance_id()).collect();
+        assert_eq!(ids, vec!["c", "b", "a"]);
+    }
+
+    /// RFC-015 [N+30]: a `memberOrder` entry naming a real container member
+    /// that `typeFilter` excludes is skipped silently — no diagnostic, unlike
+    /// a genuinely departed member.
+    #[test]
+    fn apply_member_order_with_type_filter_silently_skips_excluded_members() {
+        let ts = "2026-01-01T00:00:00Z";
+        let records = vec![
+            typed_loaded("a", ts, "t-keep"),
+            typed_loaded("b", ts, "t-drop"),
+            typed_loaded("c", ts, "t-keep"),
+        ];
+        let ordering = SectionOrdering {
+            field_id: None,
+            direction: None,
+            member_order: Some(vec!["b".into(), "c".into(), "a".into()]),
+        };
+        let mut package = minimal_package();
+        package.record_types = vec![
+            minimal_record_type("t-keep", "com.test", "keep"),
+            minimal_record_type("t-drop", "com.test", "drop"),
+        ];
+        let type_filter = vec!["com.test/keep".to_string()];
+        let mut diagnostics = Vec::new();
+        let result = apply_section_ordering(
+            records,
+            Some(&ordering),
+            Some(&type_filter),
+            false,
+            &package,
+            &[],
+            "s1",
+            &mut diagnostics,
+        );
+        let ids: Vec<&str> = result.iter().map(|r| r.instance_id()).collect();
+        assert_eq!(ids, vec!["c", "a"]);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn apply_section_ordering_no_ordering_falls_back_to_precedes_chain() {
+        let ts = "2026-01-01T00:00:00Z";
+        let records = vec![loaded("z", ts), loaded("m", ts)];
+        let relations = vec![make_precedes("m", "z")];
+        let package = minimal_package();
+        let mut diagnostics = Vec::new();
+        let result = apply_section_ordering(
+            records,
+            None,
+            None,
+            false,
+            &package,
+            &relations,
+            "s1",
+            &mut diagnostics,
+        );
+        let ids: Vec<&str> = result.iter().map(|r| r.instance_id()).collect();
+        assert_eq!(ids, vec!["m", "z"]);
+    }
+
+    /// A `FixedInstances` section's declared order is the author's intent and
+    /// must survive even though the [N+12] fallback would reorder it.
+    #[test]
+    fn apply_section_ordering_fixed_instances_preserves_declared_order_absent_ordering() {
+        let ts = "2026-01-01T00:00:00Z";
+        let records = vec![loaded("z", ts), loaded("m", ts)];
+        let relations = vec![make_precedes("m", "z")];
+        let package = minimal_package();
+        let mut diagnostics = Vec::new();
+        let result = apply_section_ordering(
+            records,
+            None,
+            None,
+            true,
+            &package,
+            &relations,
+            "s1",
+            &mut diagnostics,
+        );
+        let ids: Vec<&str> = result.iter().map(|r| r.instance_id()).collect();
+        assert_eq!(ids, vec!["z", "m"]);
+    }
+
+    /// The container-view editor projection passes `type_filter: None` even
+    /// when its governing section declares one — `ContainerView.members` is
+    /// documented as the full membership, reordered, never narrowed.
+    #[test]
+    fn apply_section_ordering_none_type_filter_keeps_all_members() {
+        let ts = "2026-01-01T00:00:00Z";
+        let records = vec![
+            typed_loaded("a", ts, "t-keep"),
+            typed_loaded("b", ts, "t-drop"),
+        ];
+        let ordering = SectionOrdering {
+            field_id: None,
+            direction: None,
+            member_order: Some(vec!["b".into(), "a".into()]),
+        };
+        let mut package = minimal_package();
+        package.record_types = vec![minimal_record_type("t-keep", "com.test", "keep")];
+        let mut diagnostics = Vec::new();
+        let result = apply_section_ordering(
+            records,
+            Some(&ordering),
+            None,
+            false,
+            &package,
+            &[],
+            "s1",
+            &mut diagnostics,
+        );
+        let ids: Vec<&str> = result.iter().map(|r| r.instance_id()).collect();
+        assert_eq!(ids, vec!["b", "a"]);
     }
 }

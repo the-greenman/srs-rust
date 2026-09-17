@@ -54,6 +54,15 @@ pub fn validate_composition(dv: &Composition) -> Result<(), CoreError> {
                 section_id: section.section_id.clone(),
             });
         }
+        // RFC-015 [N+29]: memberOrder and fieldId are mutually exclusive
+        // ordering mechanisms on the same section.
+        if let Some(ordering) = &section.ordering {
+            if ordering.member_order.is_some() && ordering.field_id.is_some() {
+                return Err(CoreError::SectionOrderingConflict {
+                    section_id: section.section_id.clone(),
+                });
+            }
+        }
     }
 
     if let Some(variants) = &dv.theme_variants {
@@ -270,6 +279,41 @@ mod tests {
         );
 
         assert!(validate_view(&view).is_ok());
+    }
+
+    /// RFC-015 [N+29]: `memberOrder` and `fieldId` MUST NOT coexist on the
+    /// same section.
+    #[test]
+    fn validate_member_order_and_field_id_conflict_fails() {
+        use crate::types::view::{SectionOrdering, SortDirection};
+
+        let mut dv = minimal_composition();
+        dv.sections[0].ordering = Some(SectionOrdering {
+            field_id: Some("f1".to_string()),
+            direction: Some(SortDirection::Asc),
+            member_order: Some(vec!["a".to_string()]),
+        });
+
+        assert_eq!(
+            validate_composition(&dv),
+            Err(CoreError::SectionOrderingConflict {
+                section_id: "s1".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn validate_member_order_alone_passes() {
+        use crate::types::view::SectionOrdering;
+
+        let mut dv = minimal_composition();
+        dv.sections[0].ordering = Some(SectionOrdering {
+            field_id: None,
+            direction: None,
+            member_order: Some(vec!["a".to_string()]),
+        });
+
+        assert!(validate_composition(&dv).is_ok());
     }
 
     #[test]

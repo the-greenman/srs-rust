@@ -15,7 +15,7 @@ use srs_core::types::relation::Relation;
 use srs_core::types::theme::{AssetMode, Theme};
 use srs_core::types::view::{
     Composition, ContainerScope, DocumentSection, PresentationDirection, RelationDirection,
-    SectionSource, SortDirection, ThemeMode, ViewRow,
+    SectionSource, ThemeMode, ViewRow,
 };
 use std::collections::HashSet;
 
@@ -421,7 +421,7 @@ fn project_section_json(
     instance_id_filter: Option<&str>,
     diagnostics: &mut Vec<String>,
 ) -> Result<ProjectedSection, RepositoryError> {
-    let mut records = resolve_section_instances(
+    let records = resolve_section_instances(
         store,
         section,
         relations,
@@ -430,53 +430,20 @@ fn project_section_json(
         diagnostics,
     )?;
 
-    if let Some(ordering) = &section.ordering {
-        if let Some(field_id) = &ordering.field_id {
-            // `SectionOrdering.field_id` is a Field UUID; the RFC-039 carrier
-            // keys values by `Field.name` — bridge via the package.
-            let field_name = package
-                .resolve_field(field_id)
-                .map(|f| f.name.clone())
-                .unwrap_or_else(|| field_id.clone());
-            records.sort_by(|a, b| {
-                let av = a.get_field_value_str(&field_name).unwrap_or("");
-                let bv = b.get_field_value_str(&field_name).unwrap_or("");
-                av.cmp(bv)
-            });
-            if matches!(ordering.direction, Some(SortDirection::Desc)) {
-                records.reverse();
-            }
-        }
-    } else if !matches!(&section.source, SectionSource::FixedInstances { .. }) {
-        // Sort by precedes chain for any source that doesn't have authored ordering.
-        // FixedInstances sections declare an explicit instance_ids order that must be
-        // preserved — applying precedes-chain sorting would override the author's intent.
-        // ContainerSubset, DiscoveryQuery, and RelationQuery all benefit from precedes ordering.
-        records = relation_graph::sort_by_precedes_chain(records, relations);
-    }
-
-    // RFC-008 typeFilter: applied after sort (same invariant as render_section).
-    // Sort sees the full container; filter projects onto the sorted survivor set.
-    // Tier-0 notes have no type and never match an explicit typeFilter.
-    if let SectionSource::ContainerSubset {
-        type_filter: Some(filter),
-        ..
-    } = &section.source
-    {
-        if !filter.is_empty() {
-            records.retain(|inst| {
-                let Some(r) = inst.as_record() else {
-                    return false;
-                };
-                if let Some(rt) = package.resolve_type(&r.type_id, r.type_version) {
-                    let key = format!("{}/{}", rt.namespace, rt.name);
-                    filter.iter().any(|f| f == &key)
-                } else {
-                    false
-                }
-            });
-        }
-    }
+    // RFC-015 [N+29]/[N+30]: memberOrder, else authored fieldId+direction,
+    // else the [N+12] fallback; typeFilter projects onto the result.
+    let (type_filter, is_fixed_instances) =
+        relation_graph::section_ordering_inputs(&section.source);
+    let records = relation_graph::apply_section_ordering(
+        records,
+        section.ordering.as_ref(),
+        type_filter,
+        is_fixed_instances,
+        package,
+        relations,
+        &section.section_id,
+        diagnostics,
+    );
 
     let mut projected_records = Vec::new();
     for instance in &records {
@@ -1570,7 +1537,7 @@ fn render_section(
     instance_id_filter: Option<&str>,
     diagnostics: &mut Vec<String>,
 ) -> Result<String, RepositoryError> {
-    let mut records = resolve_section_instances(
+    let records = resolve_section_instances(
         store,
         section,
         relations,
@@ -1579,57 +1546,20 @@ fn render_section(
         diagnostics,
     )?;
 
-    // Apply explicit field-based ordering first if declared.
-    if let Some(ordering) = &section.ordering {
-        if let Some(field_id) = &ordering.field_id {
-            // `SectionOrdering.field_id` is a Field UUID; the RFC-039 carrier
-            // keys values by `Field.name` — bridge via the package.
-            let field_name = ctx
-                .package
-                .resolve_field(field_id)
-                .map(|f| f.name.clone())
-                .unwrap_or_else(|| field_id.clone());
-            records.sort_by(|a, b| {
-                let av = a.get_field_value_str(&field_name).unwrap_or("");
-                let bv = b.get_field_value_str(&field_name).unwrap_or("");
-                av.cmp(bv)
-            });
-            if matches!(ordering.direction, Some(SortDirection::Desc)) {
-                records.reverse();
-            }
-        }
-    } else if !matches!(&section.source, SectionSource::FixedInstances { .. }) {
-        // Sort by precedes chain for any source that doesn't have authored ordering.
-        // FixedInstances sections declare an explicit instance_ids order that must be
-        // preserved — applying precedes-chain sorting would override the author's intent.
-        // ContainerSubset, DiscoveryQuery, and RelationQuery all benefit from precedes ordering.
-        records = relation_graph::sort_by_precedes_chain(records, relations);
-    }
-
-    // RFC-008 typeFilter: restrict container-subset members to matching types.
-    // Applied AFTER sort so sort_by_precedes_chain sees the full container (including
-    // cross-type edges). The filter is a projection step: full ordering established first,
-    // non-matching types dropped while preserving the relative order of survivors.
-    // Tier-0 notes have no type and never match an explicit typeFilter.
-    if let SectionSource::ContainerSubset {
-        type_filter: Some(filter),
-        ..
-    } = &section.source
-    {
-        if !filter.is_empty() {
-            records.retain(|inst| {
-                let Some(r) = inst.as_record() else {
-                    return false;
-                };
-                if let Some(rt) = ctx.package.resolve_type(&r.type_id, r.type_version) {
-                    let key = format!("{}/{}", rt.namespace, rt.name);
-                    filter.iter().any(|f| f == &key)
-                } else {
-                    false
-                }
-            });
-        }
-    }
+    // RFC-015 [N+29]/[N+30]: memberOrder, else authored fieldId+direction,
+    // else the [N+12] fallback; typeFilter projects onto the result.
+    let (type_filter, is_fixed_instances) =
+        relation_graph::section_ordering_inputs(&section.source);
+    let records = relation_graph::apply_section_ordering(
+        records,
+        section.ordering.as_ref(),
+        type_filter,
+        is_fixed_instances,
+        ctx.package,
+        relations,
+        &section.section_id,
+        diagnostics,
+    );
 
     if records.is_empty() && section.required != Some(true) {
         return Ok(String::new());
@@ -3458,7 +3388,7 @@ mod tests {
     use super::*;
     use crate::store::FileStore;
     use srs_core::types::record::FieldValues;
-    use srs_core::types::view::ExportConfig;
+    use srs_core::types::view::{ExportConfig, SortDirection};
 
     fn srs_spec_repo() -> std::path::PathBuf {
         if let Ok(p) = std::env::var("SRS_SPEC_REPO") {
@@ -6812,6 +6742,304 @@ mod tests {
             c_pos < b_pos && b_pos < a_pos,
             "desc ordering: expected C→B→A, got:\n{}",
             rendered
+        );
+    }
+
+    // ── RFC-015 [N+29]/[N+30]: memberOrder in the render path ──────────────────
+
+    /// Same fixture shape as `make_field_sort_store`, but with
+    /// `ordering.memberOrder` instead of `fieldId`+`direction`.
+    fn make_member_order_store(
+        member_order: Vec<String>,
+        direction: Option<SortDirection>,
+    ) -> crate::store::memory::MemoryStore {
+        use crate::container_service;
+        use crate::package::Package;
+        use srs_core::types::container::Container;
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
+        use srs_core::types::record::{FieldValues, Record};
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+        use srs_core::types::view::{Composition, DocumentSection, SectionOrdering, SectionSource};
+
+        let heading_field = Field {
+            schema: None,
+            id: "f-heading".to_string(),
+            namespace: "com.test".to_string(),
+            name: "heading".to_string(),
+            version: 1,
+            field_type: FieldType::string(),
+            description: "Heading".to_string(),
+            instructions: None,
+            ai_guidance: Some(AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            }),
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let record_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            tags: None,
+            id: "t-record".to_string(),
+            namespace: "com.test".to_string(),
+            name: "item".to_string(),
+            version: 1,
+            description: "Item".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "f-heading".to_string(),
+                order: 0,
+                required: true,
+                display_label: None,
+                description: None,
+            }],
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+
+            identity_field_id: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            lineage: None,
+            provenance: None,
+        };
+
+        let doc_view = Composition {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
+            composite_renderers: None,
+            id: "dv-member-order".to_string(),
+            namespace: "com.test".to_string(),
+            name: "member-order-view".to_string(),
+            version: 1,
+            description: "View for memberOrder".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![DocumentSection {
+                composite_renderers: None,
+                section_id: "items".to_string(),
+                title: Some("Items".to_string()),
+                description: None,
+                order: 0,
+                source: SectionSource::ContainerSubset {
+                    container_id: "00000000-0000-4000-8000-000000000c02".to_string(),
+                    container_type: None,
+                    type_filter: None,
+                },
+                render_view_id: None,
+                type_dispatch: None,
+                title_field_id: Some("f-heading".to_string()),
+                ordering: Some(SectionOrdering {
+                    member_order: Some(member_order),
+                    field_id: None,
+                    direction,
+                }),
+                required: None,
+                empty_behavior: None,
+                relations_presentation: None,
+            }],
+            navigation_links: None,
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some("markdown".to_string()),
+                omit_empty_fields: None,
+            }),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            container: None,
+            upstream_package: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "pkg-member-order".to_string(),
+            namespace: "com.test".to_string(),
+            name: "member-order-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![heading_field],
+            record_types: vec![record_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            compositions: vec![doc_view],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            package_dependencies: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        container_service::create_container(
+            &store,
+            Container {
+                container_id: "00000000-0000-4000-8000-000000000c02".to_string(),
+                title: "Test Container".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                anchor_instance_id: None,
+                root_instance_ids: None,
+                member_instance_ids: None,
+                child_container_ids: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .unwrap();
+
+        // Declared/add_member (UUID) order: 001, 002, 003 → C-last, A-first, B-middle.
+        let records_data = [
+            ("00000000-0000-4000-8000-000000000001", "C-last"),
+            ("00000000-0000-4000-8000-000000000002", "A-first"),
+            ("00000000-0000-4000-8000-000000000003", "B-middle"),
+        ];
+
+        for (id, title) in &records_data {
+            let record = Record {
+                field_meta: None,
+                instance_id: id.to_string(),
+                type_id: "t-record".to_string(),
+                type_version: 1,
+                type_namespace: "com.test".to_string(),
+                type_name: "item".to_string(),
+                field_values: {
+                    let mut fv = FieldValues::new();
+                    fv.insert("heading", serde_json::json!(title));
+                    fv
+                },
+                lifecycle_state: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                extra: std::collections::BTreeMap::new(),
+            };
+            let path = format!("records/{}.json", id);
+            let value = serde_json::to_value(&record).unwrap();
+            store.ensure_instance_dir("records").unwrap();
+            store.save_instance_json(&path, &value).unwrap();
+
+            let manifest = store.load_manifest().unwrap();
+            store.save_manifest(&manifest).unwrap();
+
+            container_service::add_member(&store, "00000000-0000-4000-8000-000000000c02", id)
+                .unwrap();
+        }
+
+        store
+    }
+
+    #[test]
+    fn container_subset_member_order_orders_explicitly() {
+        let store = make_member_order_store(
+            vec![
+                "00000000-0000-4000-8000-000000000003".to_string(), // B-middle
+                "00000000-0000-4000-8000-000000000001".to_string(), // C-last
+                "00000000-0000-4000-8000-000000000002".to_string(), // A-first
+            ],
+            None,
+        );
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: "dv-member-order",
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+
+        let rendered = &result.rendered;
+        let b_pos = rendered.find("B-middle").expect("B-middle not found");
+        let c_pos = rendered.find("C-last").expect("C-last not found");
+        let a_pos = rendered.find("A-first").expect("A-first not found");
+        assert!(
+            b_pos < c_pos && c_pos < a_pos,
+            "memberOrder: expected B→C→A, got:\n{}",
+            rendered
+        );
+    }
+
+    /// [N+29] step (4): `direction: desc` reverses the whole combined
+    /// sequence — the listed prefix and the appended [N+12] tail together.
+    #[test]
+    fn container_subset_member_order_desc_reverses_combined_sequence() {
+        // Only C-last is explicitly listed; A-first/B-middle are appended via
+        // [N+12] (no precedes relations here, so createdAt/instanceId
+        // tiebreak: 002 < 003 → A-first, B-middle). Forward = [C, A, B].
+        let store = make_member_order_store(
+            vec!["00000000-0000-4000-8000-000000000001".to_string()],
+            Some(SortDirection::Desc),
+        );
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: "dv-member-order",
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+
+        let rendered = &result.rendered;
+        let b_pos = rendered.find("B-middle").expect("B-middle not found");
+        let a_pos = rendered.find("A-first").expect("A-first not found");
+        let c_pos = rendered.find("C-last").expect("C-last not found");
+        assert!(
+            b_pos < a_pos && a_pos < c_pos,
+            "desc reverses [C, A, B] to [B, A, C], got:\n{}",
+            rendered
+        );
+    }
+
+    /// [N+29] step (2): a `memberOrder` entry for an id that never joined the
+    /// container is diagnosed, not a render failure.
+    #[test]
+    fn container_subset_member_order_departed_entry_emits_diagnostic() {
+        let store = make_member_order_store(
+            vec!["00000000-0000-4000-8000-000000000999".to_string()],
+            None,
+        );
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: "dv-member-order",
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("000000000999") && d.contains("memberOrder")),
+            "{:?}",
+            result.diagnostics
         );
     }
 
