@@ -351,6 +351,7 @@ jobs:
           corpora=(
             "srs-spec=$GITHUB_WORKSPACE/corpora/srs/srs"
             "gallery=$GITHUB_WORKSPACE/corpora/srs/docs/spec/examples/gallery-project-v2"
+            "discovery-fixture=$GITHUB_WORKSPACE/corpora/srs/conformance/discovery/fixture-repo"
           )
           # Keyed on whether the CHECKOUT ran, not on whether the corpus directory is there — the
           # same predicate the provenance step uses, for the same reason. Testing for the directory
