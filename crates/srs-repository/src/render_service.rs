@@ -5094,8 +5094,7 @@ mod tests {
             namespace: "com.test".to_string(),
             name: "contains-note-view".to_string(),
             version: 1,
-            description: "Structured contains-descent-into-Tier-0-note regression test"
-                .to_string(),
+            description: "Structured contains-descent-into-Tier-0-note regression test".to_string(),
             container_type: None,
             root_type_refs: None,
             sections: vec![DocumentSection {
