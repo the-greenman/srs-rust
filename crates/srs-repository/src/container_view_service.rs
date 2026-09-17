@@ -19,6 +19,8 @@ use crate::container_service;
 use crate::error::RepositoryError;
 use crate::record_label;
 use crate::record_store;
+use crate::relation_graph;
+use crate::relation_service::load_relations;
 use crate::repository_navigation_service;
 use crate::store::RepositoryStore;
 use crate::view_service::{self, GetCompositionResult, GetViewResult};
@@ -213,10 +215,14 @@ pub fn resolve_container_view(
         None => Vec::new(),
     };
 
-    // Authored default-hidden lifecycle states from the same governing section (ADR-020).
-    let exclude_lifecycle_states = composition
+    // The section that governs this container's list (ADR-018) — also the
+    // source of authored ordering (RFC-015 [N+29]) below.
+    let governing_section = composition
         .as_ref()
-        .and_then(|dv| select_governing_section(dv, &container_id))
+        .and_then(|dv| select_governing_section(dv, &container_id));
+
+    // Authored default-hidden lifecycle states from the same governing section (ADR-020).
+    let exclude_lifecycle_states = governing_section
         .map(section_exclude_lifecycle_states)
         .unwrap_or_default();
 
@@ -240,10 +246,66 @@ pub fn resolve_container_view(
         None => None,
     };
 
-    // Resolve ordered members (roots-first, deduped).
+    // Resolve ordered members (roots-first, deduped). The roots-first prefix
+    // is this projection's own structural invariant (documented on
+    // `ContainerView.members`), independent of Composition-driven
+    // presentation order, so it is carved off and preserved as declared;
+    // RFC-015 [N+29]/#379 ordering — memberOrder, else authored
+    // fieldId+direction, else the [N+12] fallback, sourced from the governing
+    // section — applies only to the non-root tail. `type_filter: None` on
+    // that call — this projection's contract is "the full membership,
+    // reordered", never narrowed (`ContainerView.members` doc comment).
     let member_ids = container_service::list_container_members(store, &container_id)?;
+    let root_id_set: std::collections::HashSet<&str> = container
+        .root_instance_ids
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .map(|s| s.as_str())
+        .collect();
+    let (root_members, tail_members): (Vec<String>, Vec<String>) = member_ids
+        .into_iter()
+        .partition(|id| root_id_set.contains(id.as_str()));
+
+    let ordered_tail = match governing_section {
+        Some(section) => {
+            let package = store.load_package()?;
+            let relations = load_relations(store)?;
+
+            let mut instances = Vec::new();
+            let mut unresolved_ids = Vec::new();
+            for id in &tail_members {
+                match record_store::get_instance_by_id(store, id)? {
+                    Some(instance) => instances.push(instance),
+                    // Left for `resolve_member` below to diagnose by id, so its
+                    // existing "not in manifest index" / tier diagnostics are
+                    // unaffected by this ordering step.
+                    None => unresolved_ids.push(id.clone()),
+                }
+            }
+
+            let mut ordered: Vec<String> = relation_graph::apply_section_ordering(
+                instances,
+                section.ordering.as_ref(),
+                None,
+                false,
+                &package,
+                &relations,
+                &section.section_id,
+                &mut diagnostics,
+            )
+            .into_iter()
+            .map(|inst| inst.instance_id().to_string())
+            .collect();
+            ordered.extend(unresolved_ids);
+            ordered
+        }
+        None => tail_members,
+    };
+    let ordered_member_ids: Vec<String> = root_members.into_iter().chain(ordered_tail).collect();
+
     let mut members = Vec::new();
-    for id in &member_ids {
+    for id in &ordered_member_ids {
         if let Some(m) = resolve_member(
             store,
             id,
@@ -519,7 +581,7 @@ mod tests {
     use srs_core::types::record_type::{FieldAssignment, RecordType};
     use srs_core::types::view::{
         Composition, DocumentSection, ExactTypeRef, FieldView, RecordProperty, RecordPropertyView,
-        SectionSource, View, ViewRow,
+        SectionOrdering, SectionSource, SortDirection, View, ViewRow,
     };
     use std::path::PathBuf;
 
@@ -1285,6 +1347,132 @@ mod tests {
         assert_eq!(result.members[0].display_label, "Root Decision");
         assert_eq!(result.members[1].display_label, "Member Decision");
         assert_eq!(result.members[0].tier, 2);
+    }
+
+    /// Three-record variant of `standard_store`, for ordering tests that need
+    /// more than one non-root member to distinguish "reordered" from
+    /// "coincidentally already in order".
+    fn store_with_three_records(sections: Vec<DocumentSection>) -> MemoryStore {
+        let fields = vec![field("f-title", "title")];
+        let view = view_with_fields(vec![field_view("f-title", 0, None, None)]);
+        let dv = composition(DV_ID, sections);
+        let root = record("root-1", "title", "Root Decision");
+        let mem_a = record("mem-a", "title", "A-member");
+        let mem_b = record("mem-b", "title", "B-member");
+        build_store(
+            fields,
+            vec![view],
+            vec![dv],
+            vec![
+                ("root-1", 2, serde_json::to_value(&root).unwrap()),
+                ("mem-a", 2, serde_json::to_value(&mem_a).unwrap()),
+                ("mem-b", 2, serde_json::to_value(&mem_b).unwrap()),
+            ],
+        )
+    }
+
+    /// RFC-015 [N+29]/#379: `resolve_container_view` previously ignored the
+    /// governing section's `ordering` entirely — members came back in
+    /// declared/authored order regardless. `memberOrder` must now be honored.
+    #[test]
+    fn resolve_container_view_applies_member_order_to_non_root_members() {
+        let mut s = section(
+            "s1",
+            0,
+            SectionSource::ContainerSubset {
+                container_id: CONTAINER_ID.to_string(),
+                container_type: None,
+                type_filter: None,
+            },
+            Some(VIEW_ID),
+        );
+        s.ordering = Some(SectionOrdering {
+            field_id: None,
+            direction: None,
+            member_order: Some(vec!["mem-b".to_string(), "mem-a".to_string()]),
+        });
+        let store = store_with_three_records(vec![s]);
+        // Declared/authored order is mem-a then mem-b; memberOrder reverses it.
+        container_service::create_container(
+            &store,
+            make_container(vec!["root-1"], vec!["mem-a", "mem-b"]),
+        )
+        .unwrap();
+
+        let result = resolve_container_view(&store, input(None)).unwrap();
+        let labels: Vec<&str> = result
+            .members
+            .iter()
+            .map(|m| m.display_label.as_str())
+            .collect();
+        assert_eq!(labels, vec!["Root Decision", "B-member", "A-member"]);
+    }
+
+    /// #379's literal case: an authored `ordering.fieldId`+`direction` on the
+    /// governing section must now be applied to the member list, not ignored.
+    #[test]
+    fn resolve_container_view_applies_field_id_ordering_to_non_root_members() {
+        let mut s = section(
+            "s1",
+            0,
+            SectionSource::ContainerSubset {
+                container_id: CONTAINER_ID.to_string(),
+                container_type: None,
+                type_filter: None,
+            },
+            Some(VIEW_ID),
+        );
+        s.ordering = Some(SectionOrdering {
+            field_id: Some("f-title".to_string()),
+            direction: Some(SortDirection::Desc),
+            member_order: None,
+        });
+        let store = store_with_three_records(vec![s]);
+        // Declared/authored order is mem-a then mem-b; desc-by-title reverses it.
+        container_service::create_container(
+            &store,
+            make_container(vec!["root-1"], vec!["mem-a", "mem-b"]),
+        )
+        .unwrap();
+
+        let result = resolve_container_view(&store, input(None)).unwrap();
+        let labels: Vec<&str> = result
+            .members
+            .iter()
+            .map(|m| m.display_label.as_str())
+            .collect();
+        assert_eq!(labels, vec!["Root Decision", "B-member", "A-member"]);
+    }
+
+    /// The roots-first structural invariant survives even when `memberOrder`
+    /// names the root id — root placement is this projection's own
+    /// contract, not a presentation-layer concern.
+    #[test]
+    fn resolve_container_view_member_order_keeps_root_first() {
+        let mut s = section(
+            "s1",
+            0,
+            SectionSource::ContainerSubset {
+                container_id: CONTAINER_ID.to_string(),
+                container_type: None,
+                type_filter: None,
+            },
+            Some(VIEW_ID),
+        );
+        s.ordering = Some(SectionOrdering {
+            field_id: None,
+            direction: None,
+            member_order: Some(vec!["mem-b".to_string(), "mem-a".to_string()]),
+        });
+        let store = store_with_three_records(vec![s]);
+        container_service::create_container(
+            &store,
+            make_container(vec!["root-1"], vec!["mem-a", "mem-b"]),
+        )
+        .unwrap();
+
+        let result = resolve_container_view(&store, input(None)).unwrap();
+        assert_eq!(result.members[0].display_label, "Root Decision");
     }
 
     #[test]

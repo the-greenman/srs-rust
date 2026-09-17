@@ -89,6 +89,14 @@ pub enum CoreError {
     #[error("duplicate document section id: {section_id}")]
     DuplicateDocumentSectionId { section_id: String },
 
+    /// RFC-015 [N+29]: `ordering.memberOrder` and `ordering.fieldId` are two
+    /// different ordering mechanisms for the same section; declaring both is
+    /// invalid, not merely redundant — a validator MUST reject it.
+    #[error(
+        "section '{section_id}' declares both ordering.memberOrder and ordering.fieldId (RFC-015 [N+29]): a section MUST use exactly one ordering mechanism"
+    )]
+    SectionOrderingConflict { section_id: String },
+
     #[error("duplicate field view id: {field_id}")]
     DuplicateFieldViewId { field_id: String },
 
