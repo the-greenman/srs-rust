@@ -206,7 +206,6 @@ fn run_migration(
     // ── Phase 2 — repository level ──
     migrate_themes(store, &mut result)?;
     crate::field_type_migration_service::stamp_data_model_revision(store, CARRIER_REVISION)?;
-    stamp_package_manifests(store)?;
     delete_zero_referent_versions(store, &index)?;
 
     Ok(result)
@@ -1222,38 +1221,6 @@ fn migrate_themes(
     Ok(())
 }
 
-/// Phase 2 step 8 — stamp every first-party package manifest: the primary
-/// root and every local manifest packageRef (RFC-039 Change H names all of
-/// them; srs-rust#809).
-fn stamp_package_manifests(store: &dyn RepositoryStore) -> Result<(), RepositoryError> {
-    let mut roots: Vec<String> = vec!["package".to_string()];
-    if let Ok(manifest) = store.load_manifest() {
-        for r in manifest
-            .extra
-            .get("packageRefs")
-            .and_then(|v| v.as_array())
-            .into_iter()
-            .flatten()
-        {
-            if r.get("mode").and_then(|m| m.as_str()) == Some("local") {
-                if let Some(path) = r.get("path").and_then(|p| p.as_str()) {
-                    roots.push(path.to_string());
-                }
-            }
-        }
-    }
-    for root in roots {
-        let path = format!("{root}/package.json");
-        if let Ok(mut pkg_index) = store.load_instance_json(&path) {
-            if let Some(obj) = pkg_index.as_object_mut() {
-                obj.insert("dataModelRevision".to_string(), json!(CARRIER_REVISION));
-            }
-            store.save_instance_json(&path, &pkg_index)?;
-        }
-    }
-    Ok(())
-}
-
 /// Phase 2 step 10 — delete every Type version left with zero referents by
 /// step 1's re-pin (Change E.2: the superseded pre-bump versions). With
 /// single-file-per-Type storage the bump already rewrote the file in place, so
@@ -1973,10 +1940,9 @@ mod tests {
     }
 
     /// srs-rust#809: a record typed by a `manifest.packageRefs` sub-package
-    /// Type must migrate — the definition index reads every local root, and
-    /// Phase 2 stamps every root's package manifest.
+    /// Type must migrate — the definition index reads every local root.
     #[test]
-    fn sub_package_types_resolve_and_all_manifests_stamped() {
+    fn sub_package_types_resolve() {
         let srsj = serde_json::json!({
             "srsj": "2",
             "manifest": {
@@ -2045,15 +2011,15 @@ mod tests {
         let record = store.load_instance_json("records/r-sub.json").unwrap();
         assert_eq!(record["fieldValues"]["subtitle"], "hello");
 
+        // srs-rust#985: the repo-local package manifest never carries a
+        // `dataModelRevision` stamp — the manifest is the single source of
+        // generational truth on this path.
         let root_pkg = store.load_instance_json("package/package.json").unwrap();
-        assert_eq!(root_pkg["dataModelRevision"], 2);
+        assert!(root_pkg.get("dataModelRevision").is_none());
         let sub_pkg = store
             .load_instance_json("package/sub/package.json")
             .unwrap();
-        assert_eq!(
-            sub_pkg["dataModelRevision"], 2,
-            "packageRefs manifests are stamped too (Change H)"
-        );
+        assert!(sub_pkg.get("dataModelRevision").is_none());
     }
 
     /// srs-rust#809 (guard): a revision-0 repository must be refused — its

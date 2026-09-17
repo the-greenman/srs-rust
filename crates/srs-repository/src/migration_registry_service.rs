@@ -169,9 +169,15 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        Fields over minted range Types (Change E.2), strips the \
                        deprecated FieldAssignment repeatable/minItems/maxItems trio, \
                        replaces Tier-1 valueType with an inline fieldType, and stamps \
-                       dataModelRevision: 2. This is data-model migration #2 \
-                       (revision 1 -> 2). Aborts rather than skips; an abort rolls \
-                       the store back (ADR-021).",
+                       dataModelRevision: 2 on the manifest. This is data-model \
+                       migration #2 (revision 1 -> 2). Aborts rather than skips; an \
+                       abort rolls the store back (ADR-021). Does not stamp a \
+                       repo-local package.json (srs-rust#985 dropped that write): \
+                       `dataModelRevision` on a package manifest is a \
+                       bundle-publication-only concern (srs#380's future reader), \
+                       never something a repo-local migration or `repo create` \
+                       writes — the manifest is the single source of generational \
+                       truth on that path.",
         status_fn: |store| {
             if crate::rfc039_carrier_migration_service::migration_needed(store)? {
                 Ok(MigrationStatus::Needed)
