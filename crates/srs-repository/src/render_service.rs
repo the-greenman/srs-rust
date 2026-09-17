@@ -2284,6 +2284,9 @@ fn render_record_at_level(
     )?);
 
     // In structured mode, render subsections nested one heading level deeper.
+    // Tier-aware: a `contains` child may resolve to a Tier-0 Note (a legal edge
+    // under the core Relation model), which renders through its note shape
+    // rather than the typed-record path (srs-rust#1070).
     if structured {
         let subsections = relation_graph::children_by_relation_type(
             &record.instance_id,
@@ -2292,15 +2295,22 @@ fn render_record_at_level(
             store,
         )?;
         for subsection in &subsections {
-            out.push_str(&render_record_at_level(
-                store,
-                ctx,
-                section,
-                subsection,
-                heading_level + 1,
-                relations,
-                diagnostics,
-            )?);
+            match subsection {
+                LoadedInstance::Record(sub_record) => {
+                    out.push_str(&render_record_at_level(
+                        store,
+                        ctx,
+                        section,
+                        sub_record,
+                        heading_level + 1,
+                        relations,
+                        diagnostics,
+                    )?);
+                }
+                LoadedInstance::Note(note) => {
+                    out.push_str(&render_note_at_level(ctx, note, heading_level + 1));
+                }
+            }
         }
     }
 
@@ -5047,6 +5057,225 @@ mod tests {
             root_pos < child_pos && child_pos < grandchild_pos,
             "records should render in tree order (root, then child, then \
              grandchild); got:\n{rendered}"
+        );
+    }
+
+    /// srs-rust#1070: `render_record_at_level`'s structured `contains` descent
+    /// used a Tier-2-only loader (`relation_graph::children_by_relation_type`)
+    /// that hard-errored the moment a `contains` child resolved to a Tier-0
+    /// Note (`missing field typeId`), aborting the whole render. `contains` →
+    /// Note is a legal edge under the core Relation model (R1) — owner-ruled
+    /// legal for this class of trap by `tree_service.rs`'s identical fix for
+    /// the tree walk (the-greenman/srs-rust#993, 2026-09-17). The descent must
+    /// resolve the child Tier-aware and render it through its note shape
+    /// instead of erroring.
+    #[test]
+    fn structured_contains_descent_renders_tier0_note_child_instead_of_erroring() {
+        use crate::container_service;
+        use crate::record_store::create_record;
+        use crate::relation_service;
+        use srs_core::types::note::{Note, NoteSection};
+        use srs_core::types::relation::Relation;
+        use srs_core::types::view::{Composition, DocumentSection, EmptyBehavior, SectionSource};
+
+        const CONTAINER_ID: &str = "00000000-0000-4000-8000-00000000cc20";
+        const NOTE_ID: &str = "00000000-0000-4000-8000-0000000f1070";
+
+        let (heading_field, item_type) = simple_field_and_type();
+
+        let doc_view = Composition {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
+            composite_renderers: None,
+            id: "dv-contains-note".to_string(),
+            namespace: "com.test".to_string(),
+            name: "contains-note-view".to_string(),
+            version: 1,
+            description: "Structured contains-descent-into-Tier-0-note regression test"
+                .to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![DocumentSection {
+                composite_renderers: None,
+                section_id: "body".to_string(),
+                title: Some("Body".to_string()),
+                description: None,
+                order: 0,
+                source: SectionSource::ContainerSubset {
+                    container_id: CONTAINER_ID.to_string(),
+                    container_type: None,
+                    type_filter: None,
+                },
+                render_view_id: None,
+                type_dispatch: None,
+                // Non-empty title_field_id makes `structured` true, which is what
+                // arms the `contains` descent under test.
+                title_field_id: Some("f-heading".to_string()),
+                ordering: None,
+                required: None,
+                empty_behavior: Some(EmptyBehavior::Hide),
+                relations_presentation: None,
+            }],
+            navigation_links: None,
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some("markdown".to_string()),
+                omit_empty_fields: None,
+            }),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            container: None,
+            upstream_package: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = crate::package::Package {
+            id: "pkg-contains-note".to_string(),
+            namespace: "com.test".to_string(),
+            name: "contains-note-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![heading_field],
+            record_types: vec![item_type],
+            relation_type_definitions: vec![
+                srs_core::types::relation_type_definition::RelationTypeDefinition {
+                    schema: None,
+                    id: "00000000-0000-4000-8000-000000000rt3".to_string(),
+                    namespace: "com.test".to_string(),
+                    key: "contains".to_string(),
+                    label: "Contains".to_string(),
+                    description: "Structural containment".to_string(),
+                    category:
+                        srs_core::types::relation_type_definition::RelationTypeCategory::Composition,
+                    canonical_direction: None,
+                    irreflexive: Some(true),
+                    inverse_type: None,
+                    version: 1,
+                    created_at: "2026-01-01T00:00:00Z".to_string(),
+                    require_same_type: None,
+                    status: None,
+                    updated_at: None,
+                    meta: None,
+                },
+            ],
+            views: vec![],
+            compositions: vec![doc_view],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            package_dependencies: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        container_service::create_container(
+            &store,
+            srs_core::types::container::Container {
+                container_id: CONTAINER_ID.to_string(),
+                title: "Contains-Note Part".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: Some("part".to_string()),
+                identity_instance_id: None,
+                anchor_instance_id: None,
+                root_instance_ids: None,
+                member_instance_ids: None,
+                child_container_ids: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .unwrap();
+
+        let mut fv_root = srs_core::types::record::FieldValues::new();
+        fv_root.insert("heading", serde_json::json!("Concept Heading"));
+        let root_id = create_record(&store, "t-item", 1, fv_root, None, None)
+            .unwrap()
+            .instance_id;
+
+        crate::services::create_note(
+            &store,
+            Note {
+                instance_id: NOTE_ID.to_string(),
+                title: Some("Narrative Note Title".to_string()),
+                tags: None,
+                sections: vec![NoteSection {
+                    name: "body".to_string(),
+                    label: None,
+                    content: "Narrative note body text.".to_string(),
+                    content_hint: None,
+                    tags: None,
+                }],
+                graduated_at: None,
+                source_refs: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+            },
+        )
+        .unwrap();
+
+        // Only the typed root is declared container membership; the note is
+        // reached purely through the `contains` descent under test.
+        container_service::add_member(&store, CONTAINER_ID, &root_id).unwrap();
+
+        relation_service::create_relation_auto(
+            &store,
+            Relation {
+                relation_id: String::new(),
+                relation_type: "contains".to_string(),
+                source_instance_id: root_id.clone(),
+                target_instance_id: NOTE_ID.to_string(),
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                notes: None,
+                source_refs: None,
+                meta: None,
+            },
+        )
+        .unwrap();
+
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: "dv-contains-note",
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect(
+            "render must not hard-error descending a `contains` edge into a \
+             Tier-0 Note",
+        );
+
+        let rendered = &result.rendered;
+        assert!(
+            rendered.contains("Concept Heading"),
+            "typed root should still render; got:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("Narrative Note Title"),
+            "Tier-0 note child should render through its note shape (title as \
+             heading); got:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("Narrative note body text."),
+            "Tier-0 note child's section content should render as narrative body \
+             text; got:\n{rendered}"
         );
     }
 

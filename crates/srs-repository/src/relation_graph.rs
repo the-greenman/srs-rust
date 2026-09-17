@@ -1,5 +1,5 @@
 use crate::error::RepositoryError;
-use crate::record_store::get_record_by_id;
+use crate::record_store::{get_instance_by_id, LoadedInstance};
 use crate::store::RepositoryStore;
 use srs_core::types::record::Record;
 use srs_core::types::relation::Relation;
@@ -205,14 +205,18 @@ pub(crate) fn sort_by_precedes_chain_diagnosed<T: PrecedesSortable>(
     (result, diagnostics)
 }
 
-/// Return child records reached via `relation_type` edges from `source_id`,
-/// ordered by precedes chain. Skips IDs that don't resolve to a Tier 2 record.
+/// Return child instances reached via `relation_type` edges from `source_id`,
+/// ordered by precedes chain. Tier-aware: a target that resolves to a Tier-0
+/// Note loads as `LoadedInstance::Note` rather than through the Tier-2-only
+/// record loader, which hard-errors on one (`missing field typeId`) instead of
+/// returning it — the same trap `tree_service`'s `child_ids` already fixed for
+/// the tree walk (srs-rust#1070). Skips IDs that don't resolve to any instance.
 pub(crate) fn children_by_relation_type(
     source_id: &str,
     relation_type: &str,
     all_relations: &[Relation],
     store: &dyn RepositoryStore,
-) -> Result<Vec<Record>, RepositoryError> {
+) -> Result<Vec<LoadedInstance>, RepositoryError> {
     let target_ids: Vec<&str> = all_relations
         .iter()
         .filter(|r| r.relation_type == relation_type && r.source_instance_id == source_id)
@@ -221,8 +225,8 @@ pub(crate) fn children_by_relation_type(
 
     let mut children = Vec::new();
     for id in target_ids {
-        if let Some(record) = get_record_by_id(store, id)? {
-            children.push(record);
+        if let Some(instance) = get_instance_by_id(store, id)? {
+            children.push(instance);
         }
     }
 
