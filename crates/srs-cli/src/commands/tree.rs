@@ -5,11 +5,9 @@ use anyhow::Result;
 use srs_repository::tree_service::{self, TreeNode, TreeOptions};
 
 pub fn dispatch(ctx: CliContext, args: TreeArgs) -> Result<String> {
-    let root_ids = if args.from.is_empty() {
-        None
-    } else {
-        Some(args.from)
-    };
+    let mut roots = args.roots;
+    roots.extend(args.from);
+    let root_ids = if roots.is_empty() { None } else { Some(roots) };
     let options = TreeOptions {
         root_ids,
         container_id: ctx.container_id.clone(),
