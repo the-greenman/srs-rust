@@ -8,7 +8,7 @@
 //! "a second grammar would be a second source of truth").
 
 use crate::error::CoreError;
-use crate::types::field_type::{Datatype, FieldType, MapValueRange, RefMode};
+use crate::types::field_type::{AllowedValue, Datatype, FieldType, MapValueRange, RefMode};
 use crate::types::record::json_type_name;
 
 /// Resolved view of one entry in a Type's effective field set — the
@@ -99,15 +99,30 @@ fn validate_single(
         return;
     }
     match field_type.datatype {
-        Datatype::String => expect(key, value.is_string(), "string", value, diagnostics),
+        Datatype::String => {
+            expect(key, value.is_string(), "string", value, diagnostics);
+            if let Some(s) = value.as_str() {
+                check_closed_domain(
+                    key,
+                    field_type,
+                    &AllowedValue::String(s.to_string()),
+                    diagnostics,
+                );
+            }
+        }
         Datatype::Number => expect(key, value.is_number(), "number", value, diagnostics),
-        Datatype::Integer => expect(
-            key,
-            value.as_i64().is_some() || value.as_u64().is_some(),
-            "integer",
-            value,
-            diagnostics,
-        ),
+        Datatype::Integer => {
+            expect(
+                key,
+                value.as_i64().is_some() || value.as_u64().is_some(),
+                "integer",
+                value,
+                diagnostics,
+            );
+            if let Some(i) = value.as_i64() {
+                check_closed_domain(key, field_type, &AllowedValue::Integer(i), diagnostics);
+            }
+        }
         Datatype::Boolean => expect(key, value.is_boolean(), "boolean", value, diagnostics),
         // Portable scalar table: dates are ISO-8601 strings on the wire.
         Datatype::Date | Datatype::DateTime => {
@@ -240,6 +255,43 @@ pub fn validate_field_values_map(
     }
 }
 
+/// RFC-030/RFC-032 [R3]: a `valueDomain: closed` field with an inline
+/// `allowedValues` vocabulary constrains every value to that set. Scoped to
+/// the inline vocabulary only — a closed field sourced from a `vocabularyRef`
+/// has no `allowedValues` here and is left to the caller's Vocabulary-aware
+/// checks.
+fn check_closed_domain(
+    key: &str,
+    field_type: &FieldType,
+    value: &AllowedValue,
+    diagnostics: &mut Vec<CoreError>,
+) {
+    let Some(allowed) = field_type.allowed_values() else {
+        return;
+    };
+    if !field_type.is_closed() {
+        return;
+    }
+    if !allowed.contains(value) {
+        let rendered = match value {
+            AllowedValue::String(s) => s.clone(),
+            AllowedValue::Integer(i) => i.to_string(),
+        };
+        diagnostics.push(CoreError::ValueNotInClosedDomain {
+            key: key.to_string(),
+            value: rendered,
+            allowed: allowed
+                .iter()
+                .map(|a| match a {
+                    AllowedValue::String(s) => s.clone(),
+                    AllowedValue::Integer(i) => i.to_string(),
+                })
+                .collect::<Vec<_>>()
+                .join(", "),
+        });
+    }
+}
+
 fn expect(
     key: &str,
     ok: bool,
@@ -353,6 +405,60 @@ mod tests {
         let mut d = Vec::new();
         validate_value("m", &map_list, &json!({"a": "x"}), &no_resolver(), &mut d);
         assert!(matches!(&d[0], CoreError::ValueShape { key, .. } if key == "m"));
+    }
+
+    #[test]
+    fn closed_domain_rejects_value_outside_allowed_values() {
+        // srs-rust#1068: a closed valueDomain's allowedValues were not enforced
+        // on the value side — a typo like "read" against
+        // ground|understand|rebuild|prove passed silently.
+        let wave = FieldType::select(["ground", "understand", "rebuild", "prove"]);
+
+        let mut d = Vec::new();
+        validate_value("wave", &wave, &json!("understand"), &no_resolver(), &mut d);
+        assert!(d.is_empty(), "{d:?}");
+
+        let mut d = Vec::new();
+        validate_value("wave", &wave, &json!("read"), &no_resolver(), &mut d);
+        assert_eq!(d.len(), 1, "{d:?}");
+        assert!(
+            matches!(&d[0], CoreError::ValueNotInClosedDomain { key, value, .. }
+                if key == "wave" && value == "read"),
+            "{d:?}"
+        );
+
+        // The list-cardinality wrap applies the same per-item check.
+        let mut d = Vec::new();
+        validate_value(
+            "waves",
+            &wave.clone().into_list(),
+            &json!(["prove", "read"]),
+            &no_resolver(),
+            &mut d,
+        );
+        assert_eq!(d.len(), 1, "{d:?}");
+        assert!(
+            matches!(&d[0], CoreError::ValueNotInClosedDomain { key, .. } if key == "waves[1]"),
+            "{d:?}"
+        );
+    }
+
+    #[test]
+    fn closed_integer_domain_rejects_value_outside_allowed_values() {
+        let ft = FieldType::closed_integer([0, 2]);
+
+        let mut d = Vec::new();
+        validate_value("n", &ft, &json!(2), &no_resolver(), &mut d);
+        assert!(d.is_empty(), "{d:?}");
+
+        let mut d = Vec::new();
+        validate_value("n", &ft, &json!(1), &no_resolver(), &mut d);
+        assert_eq!(d.len(), 1, "{d:?}");
+        assert!(
+            matches!(&d[0], CoreError::ValueNotInClosedDomain { key, value, .. }
+                if key == "n" && value == "1"),
+            "{d:?}"
+        );
     }
 
     #[test]
