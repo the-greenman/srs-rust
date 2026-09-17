@@ -163,6 +163,15 @@ pub enum CoreError {
 
     #[error("cross-field rule misconfigured: {reason}")]
     CrossFieldRuleMisconfigured { reason: String },
+
+    /// RFC-030/RFC-032 [R3]: a value at a `valueDomain: closed` field with an
+    /// inline `allowedValues` vocabulary that names none of them.
+    #[error("value '{value}' at '{key}' is not in the closed domain [{allowed}]")]
+    ValueNotInClosedDomain {
+        key: String,
+        value: String,
+        allowed: String,
+    },
 }
 
 impl PartialEq for CoreError {

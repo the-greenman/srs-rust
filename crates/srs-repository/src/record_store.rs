@@ -2624,6 +2624,25 @@ mod tests {
     }
 
     #[test]
+    fn create_record_closed_domain_rejects_value_outside_allowed_values() {
+        // srs-rust#1068: `test-status` is a closed valueDomain over
+        // active|inactive — a value outside that set must be a write-time
+        // rejection, not silently accepted.
+        let store = make_store_with_package();
+        let field_values = fvs(vec![
+            ("test-name", json!("Test Record")),
+            ("test-status", json!("pending")),
+        ]);
+
+        let result = create_record(&store, "type-test-001", 1, field_values, None, None);
+        assert!(result.is_err(), "{result:?}");
+        assert!(matches!(
+            result.unwrap_err(),
+            RepositoryError::RecordValidation { .. }
+        ));
+    }
+
+    #[test]
     fn create_record_optional_field_absent_succeeds() {
         let store = make_store_with_package();
         let field_values = fvs(vec![("test-name", json!("Test Record"))]);
