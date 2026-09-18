@@ -1,6 +1,6 @@
 # CLAUDE.md — srs-rust
 
-Rust implementation of the SRS system: `srs-core`, `srs-repository`, `srs-cli`, `srs-bindings`, `srs-mcp`, `srs-projection`.
+Rust implementation of the SRS system: `srs-core`, `srs-repository`, `srs-cli`, `srs-bindings`, `srs-mcp`, `srs-mcp-core`, `srs-projection`.
 
 The top-level `semanticops/CLAUDE.md` contains the full SRS data model, CLI reference, and agentic usage rules. Read that first. This file adds rules specific to working inside the Rust codebase.
 
@@ -31,6 +31,7 @@ cargo run --bin generate-schemas          # regenerate payload JSON Schema golde
 | `srs-cli` | Arg parsing, stdin handling, JSON envelope output | One service call per handler. No business logic. No direct filesystem access in handlers. |
 | `srs-bindings` | JSON-first binding surface over repository services | Calls the same services as the CLI. No duplicated logic. |
 | `srs-mcp` | MCP stdio server over repository services (`srs mcp serve`, ADR-037) | Sole owner of `rmcp`/`tokio`. One service call per handler. Tool inputs are shadow structs with mandatory `From` conversions. No business logic. |
+| `srs-mcp-core` | Transport-agnostic MCP application core shared by `srs-mcp` and the WASM adapter (ADR-037): initialization/capability metadata, URI routing, the JSON-native resource contract, and JSON-RPC dispatch (`McpDispatcher`/`McpApplication`) | No `rmcp`, Tokio, stdio, file paths, or `FileStore`. Carries `wasm32-unknown-unknown`-only dependencies gated under `cfg(target_arch = "wasm32")`, reflecting the intent that it must compile for that target. |
 | `srs-projection` | Rendering and export projections | Placeholder — no work until consumers exist. |
 | `srs-gov` | Governance TUI/workflow layer over repository services | Consumes services only; no schema or storage logic of its own. |
 
