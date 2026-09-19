@@ -606,8 +606,14 @@ fn project_nested_section_json(
         }
     }
 
-    let (mut body_records, sub_sections) =
-        project_entries_json(store, package, section, &nested.entries, relations, diagnostics)?;
+    let (mut body_records, sub_sections) = project_entries_json(
+        store,
+        package,
+        section,
+        &nested.entries,
+        relations,
+        diagnostics,
+    )?;
     records.append(&mut body_records);
 
     Ok(ProjectedSection {
@@ -7660,8 +7666,11 @@ mod tests {
     ///   renders (`CC1` and `Q`), the [R24] reuse case.
     ///
     /// Returns `(store, composition_id_with_subtree, composition_id_explicit)`.
-    fn make_rfc042_nested_store() -> (crate::store::memory::MemoryStore, &'static str, &'static str)
-    {
+    fn make_rfc042_nested_store() -> (
+        crate::store::memory::MemoryStore,
+        &'static str,
+        &'static str,
+    ) {
         use crate::container_service;
         use crate::package::Package;
         use srs_core::types::container::Container;
@@ -7785,7 +7794,13 @@ mod tests {
                     s
                 },
                 {
-                    let mut s = section("reuse", Some("Worked Examples"), RFC042_Q_CONTAINER_ID, None, None);
+                    let mut s = section(
+                        "reuse",
+                        Some("Worked Examples"),
+                        RFC042_Q_CONTAINER_ID,
+                        None,
+                        None,
+                    );
                     s.order = 1;
                     s
                 },
@@ -7927,13 +7942,25 @@ mod tests {
 
         // Leaf containers first — `create_container` validates
         // `childContainerIds` against already-existing containers.
-        container_service::create_container(&store, minimal_container(RFC042_CC1A_CONTAINER_ID, "CC1a Nested Section"))
-            .unwrap();
-        container_service::add_member(&store, RFC042_CC1A_CONTAINER_ID, RFC042_R_CC1A_NESTED_MEMBER).unwrap();
+        container_service::create_container(
+            &store,
+            minimal_container(RFC042_CC1A_CONTAINER_ID, "CC1a Nested Section"),
+        )
+        .unwrap();
+        container_service::add_member(
+            &store,
+            RFC042_CC1A_CONTAINER_ID,
+            RFC042_R_CC1A_NESTED_MEMBER,
+        )
+        .unwrap();
 
-        container_service::create_container(&store, minimal_container(RFC042_CC2_CONTAINER_ID, "Alpha Child Section"))
+        container_service::create_container(
+            &store,
+            minimal_container(RFC042_CC2_CONTAINER_ID, "Alpha Child Section"),
+        )
+        .unwrap();
+        container_service::add_member(&store, RFC042_CC2_CONTAINER_ID, RFC042_R_CC2_MEMBER)
             .unwrap();
-        container_service::add_member(&store, RFC042_CC2_CONTAINER_ID, RFC042_R_CC2_MEMBER).unwrap();
 
         {
             let mut cc3 = minimal_container(RFC042_CC3_CONTAINER_ID, "Beta Child Section");
@@ -7947,13 +7974,18 @@ mod tests {
         }
 
         {
-            let mut cc1 = minimal_container(RFC042_CC1_CONTAINER_ID, "Composite Rendering Nested Section");
+            let mut cc1 = minimal_container(
+                RFC042_CC1_CONTAINER_ID,
+                "Composite Rendering Nested Section",
+            );
             cc1.anchor_instance_id = Some(RFC042_R_ANCHOR.to_string());
             cc1.child_container_ids = Some(vec![RFC042_CC1A_CONTAINER_ID.to_string()]);
             container_service::create_container(&store, cc1).unwrap();
         }
-        container_service::add_member(&store, RFC042_CC1_CONTAINER_ID, RFC042_R_CC1A_MEMBER).unwrap();
-        container_service::add_member(&store, RFC042_CC1_CONTAINER_ID, RFC042_R_CC1B_MEMBER).unwrap();
+        container_service::add_member(&store, RFC042_CC1_CONTAINER_ID, RFC042_R_CC1A_MEMBER)
+            .unwrap();
+        container_service::add_member(&store, RFC042_CC1_CONTAINER_ID, RFC042_R_CC1B_MEMBER)
+            .unwrap();
 
         {
             let mut p = minimal_container(RFC042_P_CONTAINER_ID, "Part");
@@ -7968,8 +8000,11 @@ mod tests {
         container_service::add_member(&store, RFC042_P_CONTAINER_ID, RFC042_R_ANCHOR).unwrap();
         container_service::add_member(&store, RFC042_P_CONTAINER_ID, RFC042_R_LAST).unwrap();
 
-        container_service::create_container(&store, minimal_container(RFC042_Q_CONTAINER_ID, "Worked Examples"))
-            .unwrap();
+        container_service::create_container(
+            &store,
+            minimal_container(RFC042_Q_CONTAINER_ID, "Worked Examples"),
+        )
+        .unwrap();
         // [R24]: "CC1 Member A" is a direct member of BOTH CC1 and Q.
         container_service::add_member(&store, RFC042_Q_CONTAINER_ID, RFC042_R_CC1A_MEMBER).unwrap();
         container_service::add_member(&store, RFC042_Q_CONTAINER_ID, RFC042_R_Q_ONLY).unwrap();
@@ -8020,8 +8055,14 @@ mod tests {
             cc1_title < anchor,
             "CC1's nested-section title must precede its anchor lead content"
         );
-        assert!(anchor < cc1_a, "anchor lead content must precede CC1's own members");
-        assert!(cc1_a < cc1_b, "CC1 Member A before CC1 Member B (add order, no ordering key)");
+        assert!(
+            anchor < cc1_a,
+            "anchor lead content must precede CC1's own members"
+        );
+        assert!(
+            cc1_a < cc1_b,
+            "CC1 Member A before CC1 Member B (add order, no ordering key)"
+        );
         assert!(
             cc1_b < cc1a_title,
             "CC1's own members must precede CC1's own nested child CC1a"
@@ -8032,14 +8073,20 @@ mod tests {
             "the whole CC1 nested section (including its own CC1a nesting) must render \
              at the anchor's position, i.e. before 'Last'"
         );
-        assert!(last < cc2_title, "rootless nested sections render after every positioned member");
+        assert!(
+            last < cc2_title,
+            "rootless nested sections render after every positioned member"
+        );
         assert!(cc2_title < cc2_x);
         assert!(
             cc2_x < cc3_title,
             "rootless tail is ordered by container title: 'Alpha Child Section' before 'Beta Child Section'"
         );
         assert!(cc3_title < cc3_r1);
-        assert!(cc3_r1 < cc3_r2, "CC3's own two roots render in declared order");
+        assert!(
+            cc3_r1 < cc3_r2,
+            "CC3's own two roots render in declared order"
+        );
 
         // [R22]: the anchor record renders ONCE — as the nested section's
         // lead content — and MUST NOT also render among the parent's plain
@@ -8064,7 +8111,10 @@ mod tests {
         // [R23]: heading levels. depthOffset 0, top section records at level
         // 3; CC1/CC2/CC3 nested at depth 1 (title level 3, record level 4);
         // CC1a nested at depth 2 (title level 4, record level 5).
-        assert!(rendered.contains("### First"), "top-level record heading:\n{rendered}");
+        assert!(
+            rendered.contains("### First"),
+            "top-level record heading:\n{rendered}"
+        );
         assert!(
             rendered.contains("### Composite Rendering Nested Section"),
             "depth-1 nested-section title heading:\n{rendered}"
@@ -8168,7 +8218,9 @@ mod tests {
         })
         .expect("render should succeed");
 
-        let projection = result.projection.expect("json format must produce a projection");
+        let projection = result
+            .projection
+            .expect("json format must produce a projection");
         let part = projection
             .sections
             .iter()
@@ -8180,7 +8232,12 @@ mod tests {
         let part_record_headings: Vec<&str> = part
             .records
             .iter()
-            .map(|r| r.fields.get("heading").and_then(|v| v.as_str()).unwrap_or(""))
+            .map(|r| {
+                r.fields
+                    .get("heading")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+            })
             .collect();
         assert_eq!(
             part_record_headings,
@@ -8188,18 +8245,30 @@ mod tests {
             "the parent section's own records must be exactly its non-anchor plain \
              members — nested content must not flatten in: {part_record_headings:?}"
         );
-        assert_eq!(part.sections.len(), 3, "CC1, CC2, CC3 as three nested sections");
+        assert_eq!(
+            part.sections.len(),
+            3,
+            "CC1, CC2, CC3 as three nested sections"
+        );
 
         let cc1 = part
             .sections
             .iter()
             .find(|s| s.section_id == RFC042_CC1_CONTAINER_ID)
             .expect("CC1 nested section present");
-        assert_eq!(cc1.title.as_deref(), Some("Composite Rendering Nested Section"));
+        assert_eq!(
+            cc1.title.as_deref(),
+            Some("Composite Rendering Nested Section")
+        );
         let cc1_headings: Vec<&str> = cc1
             .records
             .iter()
-            .map(|r| r.fields.get("heading").and_then(|v| v.as_str()).unwrap_or(""))
+            .map(|r| {
+                r.fields
+                    .get("heading")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+            })
             .collect();
         assert_eq!(
             cc1_headings,
@@ -8214,10 +8283,18 @@ mod tests {
         let cc1a_headings: Vec<&str> = cc1a
             .records
             .iter()
-            .map(|r| r.fields.get("heading").and_then(|v| v.as_str()).unwrap_or(""))
+            .map(|r| {
+                r.fields
+                    .get("heading")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+            })
             .collect();
         assert_eq!(cc1a_headings, vec!["CC1a Member X"]);
-        assert!(cc1a.sections.is_empty(), "CC1a has no further nested children");
+        assert!(
+            cc1a.sections.is_empty(),
+            "CC1a has no further nested children"
+        );
 
         let titles: Vec<&str> = part
             .sections
@@ -8491,7 +8568,8 @@ mod tests {
             result.rendered
         );
         assert!(
-            result.rendered.contains("###### Depth 5 Record") || result.rendered.contains("###### Depth 4 Record"),
+            result.rendered.contains("###### Depth 5 Record")
+                || result.rendered.contains("###### Depth 4 Record"),
             "at least one record must render at the clamped ceiling (level 6):\n{}",
             result.rendered
         );
