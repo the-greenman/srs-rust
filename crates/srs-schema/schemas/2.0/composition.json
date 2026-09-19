@@ -328,6 +328,14 @@
                 "type": "string"
               },
               "description": "RFC-008 (ext:views-l2). When present and non-empty, restricts the section to container members whose resolved type (namespace/name, version-independent) matches one of these keys. Ordering is the base-spec [N+12] order computed over the full container, then projected onto the survivors (filter-then-project). Absent or empty array = all members (no-op). Exclusive to the container-subset source."
+            },
+            "containerScope": {
+              "type": "string",
+              "enum": [
+                "explicit",
+                "subtree"
+              ],
+              "description": "RFC-042 Revision 5 [R21], using RFC-034 [R8]'s one scoping vocabulary. Controls whether this section descends into the named container's declared child containers. 'explicit' (the default, and the behaviour of every section authored before RFC-042 Revision 5): render direct(C) alone — the container's own rootInstanceIds and memberInstanceIds — with no nested section. 'subtree': additionally render each container named in childContainerIds as a nested section one heading level deeper, titled by that child container's title, holding its own direct members in the same order (RFC-015 [N+29], then ordering.fieldId, then Rule [N+12]), recursively over the declared child graph. Follows declared child edges only, never contains Relations. 'repository' is not admitted on this variant — the source already names exactly one container; a container-subset section declaring it is invalid."
             }
           }
         }

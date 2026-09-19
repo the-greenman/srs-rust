@@ -245,7 +245,8 @@
       "required": [
         "order",
         "records",
-        "sectionId"
+        "sectionId",
+        "sections"
       ],
       "properties": {
         "order": {
@@ -260,6 +261,13 @@
         },
         "sectionId": {
           "type": "string"
+        },
+        "sections": {
+          "description": "RFC-042 Revision 5 [R25]: nested sections produced by a `container-subset` source with `containerScope: \"subtree\"`. Omitted (never flattened into `records`) when this section renders no nested section.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ProjectedSection"
+          }
         },
         "title": {
           "type": [

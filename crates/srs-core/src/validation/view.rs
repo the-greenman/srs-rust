@@ -1,5 +1,5 @@
 use crate::error::CoreError;
-use crate::types::view::{Composition, View, ViewRow};
+use crate::types::view::{Composition, ContainerScope, SectionSource, View, ViewRow};
 use std::collections::HashSet;
 
 pub fn validate_view(view: &View) -> Result<(), CoreError> {
@@ -62,6 +62,17 @@ pub fn validate_composition(dv: &Composition) -> Result<(), CoreError> {
                     section_id: section.section_id.clone(),
                 });
             }
+        }
+        // RFC-042 Revision 5 [R21]: `containerScope: "repository"` is invalid
+        // on a `container-subset` source.
+        if let SectionSource::ContainerSubset {
+            container_scope: Some(ContainerScope::Repository),
+            ..
+        } = &section.source
+        {
+            return Err(CoreError::ContainerSubsetRepositoryScopeInvalid {
+                section_id: section.section_id.clone(),
+            });
         }
     }
 

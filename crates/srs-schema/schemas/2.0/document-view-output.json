@@ -75,6 +75,13 @@
           "items": {
             "$ref": "#/$defs/ProjectedRecord"
           }
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProjectedSection"
+          },
+          "description": "RFC-042 Revision 5 [R25]. Nested sections produced by a container-subset source with containerScope 'subtree': one entry per declared child container of this section's container, in the order [R22] fixes, each carrying its own records and, recursively, its own nested sections. Omitted when the section renders no nested section. A renderer MUST NOT flatten nested sections into this section's records."
         }
       }
     },
