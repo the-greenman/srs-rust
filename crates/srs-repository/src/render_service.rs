@@ -14,8 +14,8 @@ use srs_core::types::record::Record;
 use srs_core::types::relation::Relation;
 use srs_core::types::theme::{AssetMode, Theme};
 use srs_core::types::view::{
-    Composition, ContainerScope, DocumentSection, PresentationDirection, RelationDirection,
-    SectionSource, ThemeMode, ViewRow,
+    Composition, ContainerScope, DocumentSection, LabelMode, PresentationDirection,
+    RelationDirection, SectionSource, ThemeMode, ViewRow,
 };
 use std::collections::HashSet;
 
@@ -1085,6 +1085,7 @@ fn render_record_property_row(
         RowIdentity::RecordProperty(identity_name),
         &label,
         &row_value,
+        LabelMode::Inline,
     );
     let value_text = row_value.template_value();
     let mut out = String::new();
@@ -1175,12 +1176,13 @@ fn format_field_row(
     identity: RowIdentity<'_>,
     label: &str,
     value: &RowValue,
+    label_mode: LabelMode,
 ) -> String {
     match format {
-        "html" => format_field_row_html(identity, label, value),
-        "markdown" => format_field_row_text(format, label, value, "**", "- "),
-        "adoc" => format_field_row_text(format, label, value, "*", "* "),
-        _ => format_field_row_text(format, label, value, "", "- "),
+        "html" => format_field_row_html(identity, label, value, label_mode),
+        "markdown" => format_field_row_text(format, label, value, "**", "- ", label_mode),
+        "adoc" => format_field_row_text(format, label, value, "*", "* ", label_mode),
+        _ => format_field_row_text(format, label, value, "", "- ", label_mode),
     }
 }
 
@@ -1252,7 +1254,15 @@ fn format_field_row_text(
     value: &RowValue,
     emphasis: &str,
     marker: &str,
+    label_mode: LabelMode,
 ) -> String {
+    if label_mode == LabelMode::None {
+        // `[FR-037-20]`: no resolved label, no separating colon. There is no
+        // label line for a block-level scalar to be glued to, so the
+        // Revision-4 block-opening branch below does not apply here — the
+        // value simply begins the row.
+        return format_field_row_text_unlabeled(value, marker, format);
+    }
     let label = format!("{emphasis}{label}{emphasis}");
     match value {
         RowValue::Scalar(v) => {
@@ -1287,6 +1297,35 @@ fn format_field_row_text(
     }
 }
 
+/// `[FR-037-20]` `labelMode: "none"` — the `markdown`/`adoc`/`text` forms with
+/// no resolved label and no separating colon. A single-valued row's value
+/// begins at column zero unconditionally (the Revision-4 block-opening
+/// distinction is specific to gluing a value to its label line, which does
+/// not exist here). A multi-entry row keeps `[FR-037-5]`'s block list with
+/// the label line omitted; the first entry begins the row.
+fn format_field_row_text_unlabeled(value: &RowValue, marker: &str, format: &str) -> String {
+    match value {
+        RowValue::Scalar(v) => v.clone(),
+        RowValue::Placeholder => EMPTY_PLACEHOLDER.to_string(),
+        RowValue::Entries(entries) => {
+            let mut out = String::new();
+            for (idx, entry) in entries.iter().enumerate() {
+                if idx > 0 {
+                    out.push('\n');
+                }
+                let body = if format == "adoc" {
+                    adoc_entry_continuation(entry)
+                } else {
+                    indent_entry_continuation(entry)
+                };
+                out.push_str(marker);
+                out.push_str(&body);
+            }
+            out
+        }
+    }
+}
+
 /// The `html` row structure of Changes A1 and B1.
 ///
 /// Normative here are the element names and their nesting, their order, the
@@ -1294,12 +1333,23 @@ fn format_field_row_text(
 /// prefixed class names. Inter-element whitespace is not normative
 /// (`[FR-037-4]`), and the single-line form is emitted so conformance fixtures
 /// have a canonical serialisation.
-fn format_field_row_html(identity: RowIdentity<'_>, label: &str, value: &RowValue) -> String {
+fn format_field_row_html(
+    identity: RowIdentity<'_>,
+    label: &str,
+    value: &RowValue,
+    label_mode: LabelMode,
+) -> String {
     let id_class = identity.css_class();
-    let label = html_escape(label);
-    let open = format!(
-        "<div class=\"srs-field {id_class}\"><strong class=\"{LABEL_CLASSES}\">{label}</strong>:"
-    );
+    let open = if label_mode == LabelMode::None {
+        // `[FR-037-20]`: no `strong` label element, no literal colon — the
+        // enclosing `div`, its classes, and the value element are unchanged.
+        format!("<div class=\"srs-field {id_class}\">")
+    } else {
+        let label = html_escape(label);
+        format!(
+            "<div class=\"srs-field {id_class}\"><strong class=\"{LABEL_CLASSES}\">{label}</strong>:"
+        )
+    };
     match value {
         RowValue::Scalar(v) => {
             format!("{open} <span class=\"{VALUE_CLASSES}\">{v}</span></div>")
@@ -1968,9 +2018,23 @@ fn render_record_at_level(
             .resolve_field(&title_field_id)
             .and_then(|f| record.value_str(&f.name))
         {
-            record_heading_value = title.to_string();
-            if record_wrapper.is_none() {
-                out.push_str(&format_heading(heading_level, ctx.format, title));
+            // RFC-001 Rule [N+38] — a resolved heading equal to the enclosing
+            // section's title (trimmed, exact string equality, no case
+            // folding) is not emitted. Applies to whichever path
+            // `resolve_heading_field_id` used to resolve `title` — [N+1]'s
+            // `titleFieldId` or [N+37]'s `identityFieldId` fallback alike —
+            // and is evaluated here, before any Theme sees a heading value,
+            // so `record_heading_value` (which feeds a Theme's
+            // `{{record-heading}}` placeholder) is left unset too.
+            let duplicates_section_title = section
+                .title
+                .as_deref()
+                .is_some_and(|section_title| section_title.trim() == title.trim());
+            if !duplicates_section_title {
+                record_heading_value = title.to_string();
+                if record_wrapper.is_none() {
+                    out.push_str(&format_heading(heading_level, ctx.format, title));
+                }
             }
         }
         // Set even when the record carries no value for it, preserving the
@@ -1980,6 +2044,11 @@ fn render_record_at_level(
 
     let mut rows_to_render: Vec<RenderRow> = Vec::new();
     let mut display_labels = std::collections::HashMap::new();
+    // `[FR-037-20]` — only a bound View's `FieldView.labelMode` can be
+    // non-default; the baseline (no-View) path never populates this map, so
+    // every row there resolves to `LabelMode::Inline`.
+    let mut label_modes: std::collections::HashMap<String, LabelMode> =
+        std::collections::HashMap::new();
     let mut omit_empty = false;
 
     let effective_view_id = resolve_effective_view_id(section, record, ctx.package);
@@ -2029,6 +2098,9 @@ fn render_record_at_level(
                 if let Some(fv) = row.as_field() {
                     display_labels.insert(fv.field_id.clone(), label.to_string());
                 }
+            }
+            if let Some(fv) = row.as_field() {
+                label_modes.insert(fv.field_id.clone(), fv.effective_label_mode());
             }
         }
         for row in sorted_rows {
@@ -2184,6 +2256,7 @@ fn render_record_at_level(
                     .and_then(|fa| fa.display_label.clone())
             })
             .unwrap_or_else(|| field_name.clone());
+        let label_mode = label_modes.get(&field_id).copied().unwrap_or_default();
 
         // `[FR-037-19]`: this form is the content `ElementTemplates.fieldRow`
         // receives as `{{content}}`. A Theme wraps the row; it never replaces it.
@@ -2192,6 +2265,7 @@ fn render_record_at_level(
             RowIdentity::FieldName(&field_name),
             &label,
             &row_value,
+            label_mode,
         );
         let value_text = row_value.template_value();
         push_themed_row(
@@ -2574,6 +2648,7 @@ fn render_relations_block(
             RowIdentity::RelationTypeKey(&row.relation_type),
             &row.label,
             &value,
+            LabelMode::Inline,
         ));
         out.push_str(row_separator(format));
     }
@@ -2783,6 +2858,7 @@ fn render_composite_baseline(
                     RowIdentity::FieldName(&name),
                     &label,
                     &row_value,
+                    LabelMode::Inline,
                 ));
                 out.push_str(row_separator(ctx.format));
             }
@@ -4480,6 +4556,7 @@ mod tests {
             field_views: vec![FieldView {
                 display_hint: None,
                 editor_hint_override: None,
+                label_mode: None,
                 composite_renderer: None,
                 field_id: "f-body".to_string(),
                 order: 0,
@@ -5473,6 +5550,7 @@ mod tests {
             make_lifecycle_status_store(vec![ViewRow::Field(FieldView {
                 display_hint: None,
                 editor_hint_override: None,
+                label_mode: None,
                 composite_renderer: None,
                 field_id: "f-title".to_string(),
                 order: 0,
@@ -5504,6 +5582,54 @@ mod tests {
         );
     }
 
+    /// `[FR-037-20]` end to end through the L1 View render path: a bound
+    /// View's `FieldView.labelMode: "none"` resolves via `label_modes` at the
+    /// emission site (not just the isolated row primitive) and the rendered
+    /// field row carries no label.
+    #[test]
+    fn fr_037_20_none_resolves_end_to_end_through_bound_view() {
+        use srs_core::types::view::{FieldView, LabelMode, ViewRow};
+
+        let (store, _record_id, view_id) =
+            make_lifecycle_status_store(vec![ViewRow::Field(FieldView {
+                display_hint: None,
+                editor_hint_override: None,
+                label_mode: Some(LabelMode::None),
+                composite_renderer: None,
+                field_id: "f-title".to_string(),
+                order: 0,
+                required: None,
+                visible: None,
+                display_label: Some("Title".to_string()),
+            })]);
+
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: &view_id,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+
+        assert!(
+            result.rendered.contains("Adopt the Widget Format"),
+            "the value must still render; got:\n{}",
+            result.rendered
+        );
+        assert!(
+            !result.rendered.contains("Title"),
+            "labelMode: none must suppress the resolved displayLabel end to end; got:\n{}",
+            result.rendered
+        );
+        assert!(
+            !result.rendered.contains(':'),
+            "labelMode: none must omit the separating colon too; got:\n{}",
+            result.rendered
+        );
+    }
+
     /// GREEN: adding a `RecordPropertyView` row for `lifecycleState`, ordered
     /// after the title `FieldView`, recovers the Status line — resolved via the
     /// bound Lifecycle's `LifecycleState.label` (`[R6]`), interleaved into the
@@ -5516,6 +5642,7 @@ mod tests {
             ViewRow::Field(FieldView {
                 display_hint: None,
                 editor_hint_override: None,
+                label_mode: None,
                 composite_renderer: None,
                 field_id: "f-title".to_string(),
                 order: 0,
@@ -5577,6 +5704,7 @@ mod tests {
             ViewRow::Field(FieldView {
                 display_hint: None,
                 editor_hint_override: None,
+                label_mode: None,
                 composite_renderer: None,
                 field_id: "f-title".to_string(),
                 order: 0,
@@ -5639,6 +5767,7 @@ mod tests {
             make_lifecycle_status_store(vec![ViewRow::Field(FieldView {
                 display_hint: None,
                 editor_hint_override: None,
+                label_mode: None,
                 composite_renderer: None,
                 field_id: "f-title".to_string(),
                 order: 0,
@@ -5693,6 +5822,7 @@ mod tests {
                 ViewRow::Field(FieldView {
                     display_hint: None,
                     editor_hint_override: None,
+                    label_mode: None,
                     composite_renderer: None,
                     field_id: "f-title".to_string(),
                     order: 0,
@@ -6154,6 +6284,7 @@ mod tests {
                 FieldView {
                     display_hint: None,
                     editor_hint_override: None,
+                    label_mode: None,
                     composite_renderer: None,
                     field_id: "f-title".to_string(),
                     order: 0,
@@ -6165,6 +6296,7 @@ mod tests {
                 FieldView {
                     display_hint: None,
                     editor_hint_override: None,
+                    label_mode: None,
                     composite_renderer: composite_renderer.map(|r| CompositeRendererBinding {
                         renderer: r.to_string(),
                         roles: None,
@@ -7694,6 +7826,7 @@ mod tests {
             field_views: vec![FieldView {
                 display_hint: None,
                 editor_hint_override: None,
+                label_mode: None,
                 composite_renderer: None,
                 field_id: "f-body".to_string(),
                 order: 0,
@@ -9650,6 +9783,374 @@ mod tests {
         );
     }
 
+    // ---------------------------------------------------------------------
+    // RFC-001 Rule [N+38] — duplicate per-record heading suppression.
+
+    /// A MemoryStore purpose-built for [N+38]: one Field (`heading`), two
+    /// RecordTypes — `t-h` (plain, no `identityFieldId`) and `t-h-identity`
+    /// (identical field, but as `identityFieldId` instead of an authored
+    /// `titleFieldId`, exercising the [N+37] fallback path) — and two
+    /// records, `rec-widget` (`heading: "Widget"`) and `rec-other`
+    /// (`heading: "Other"`). Callers pass the section(s) they need; the
+    /// fixture wires each into its own single-section Composition.
+    fn make_n38_store(
+        sections: Vec<(&str, DocumentSection)>,
+    ) -> (
+        crate::store::memory::MemoryStore,
+        std::collections::HashMap<String, String>,
+    ) {
+        use crate::package::Package;
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+
+        let heading_field = Field {
+            schema: None,
+            id: "f-head".to_string(),
+            namespace: "com.test".to_string(),
+            name: "heading".to_string(),
+            version: 1,
+            field_type: FieldType::string(),
+            description: "Heading field".to_string(),
+            instructions: None,
+            ai_guidance: Some(AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            }),
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let plain_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            tags: None,
+            id: "t-h".to_string(),
+            namespace: "com.test".to_string(),
+            name: "h".to_string(),
+            version: 1,
+            description: "Plain type, titleFieldId path".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "f-head".to_string(),
+                order: 0,
+                required: true,
+                display_label: None,
+                description: None,
+            }],
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            lineage: None,
+            provenance: None,
+        };
+        let identity_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            tags: None,
+            id: "t-h-identity".to_string(),
+            namespace: "com.test".to_string(),
+            name: "h-identity".to_string(),
+            version: 1,
+            description: "identityFieldId path, [N+37] fallback".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "f-head".to_string(),
+                order: 0,
+                required: true,
+                display_label: None,
+                description: None,
+            }],
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: Some("f-head".to_string()),
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            lineage: None,
+            provenance: None,
+        };
+
+        let mut view_ids = std::collections::HashMap::new();
+        let compositions = sections
+            .into_iter()
+            .map(|(id, section)| {
+                view_ids.insert(id.to_string(), format!("dv-{id}"));
+                Composition {
+                    schema: None,
+                    ai_guidance: None,
+                    lineage: None,
+                    provenance: None,
+                    updated_at: None,
+                    composite_renderers: None,
+                    id: format!("dv-{id}"),
+                    namespace: "com.test".to_string(),
+                    name: id.to_string(),
+                    version: 1,
+                    description: id.to_string(),
+                    container_type: None,
+                    root_type_refs: None,
+                    sections: vec![section],
+                    navigation_links: None,
+                    export_config: Some(ExportConfig {
+                        preamble: None,
+                        format: Some("markdown".to_string()),
+                        omit_empty_fields: None,
+                    }),
+                    depth_offset: None,
+                    theme_ref: None,
+                    theme_variants: None,
+                    tags: None,
+                    created_at: "2026-01-01T00:00:00Z".to_string(),
+                }
+            })
+            .collect();
+
+        let manifest = crate::manifest::Manifest {
+            container: None,
+            upstream_package: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "pkg-n38".to_string(),
+            namespace: "com.test".to_string(),
+            name: "n38-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![heading_field],
+            record_types: vec![plain_type, identity_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            compositions,
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            package_dependencies: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        for (type_id, type_namespace, type_name, instance_id, heading) in [
+            (
+                "t-h",
+                "com.test",
+                "h",
+                "00000000-0000-4000-8000-0000000000a1",
+                "Widget",
+            ),
+            (
+                "t-h",
+                "com.test",
+                "h",
+                "00000000-0000-4000-8000-0000000000a2",
+                "Other",
+            ),
+            (
+                "t-h-identity",
+                "com.test",
+                "h-identity",
+                "00000000-0000-4000-8000-0000000000a3",
+                "Widget",
+            ),
+        ] {
+            let mut fv = srs_core::types::record::FieldValues::new();
+            fv.insert("heading", serde_json::json!(heading));
+            let record = srs_core::types::record::Record {
+                instance_id: instance_id.to_string(),
+                type_id: type_id.to_string(),
+                type_version: 1,
+                type_namespace: type_namespace.to_string(),
+                type_name: type_name.to_string(),
+                field_values: fv,
+                field_meta: None,
+                lifecycle_state: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: Some("2026-01-01T00:00:00Z".to_string()),
+                extra: std::collections::BTreeMap::new(),
+            };
+            store.save_record(&record).unwrap();
+        }
+
+        (store, view_ids)
+    }
+
+    fn n38_title_field_section(
+        section_title: Option<&str>,
+        instance_ids: Vec<&str>,
+    ) -> DocumentSection {
+        DocumentSection {
+            composite_renderers: None,
+            section_id: "s1".to_string(),
+            title: section_title.map(|t| t.to_string()),
+            description: None,
+            order: 0,
+            source: SectionSource::FixedInstances {
+                instance_ids: instance_ids.into_iter().map(|s| s.to_string()).collect(),
+            },
+            render_view_id: None,
+            type_dispatch: None,
+            title_field_id: Some("f-head".to_string()),
+            ordering: None,
+            required: None,
+            empty_behavior: None,
+            relations_presentation: None,
+        }
+    }
+
+    fn render_n38(store: &crate::store::memory::MemoryStore, view_id: &str) -> String {
+        render_composition(RenderCompositionOptions {
+            store,
+            view_id,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed")
+        .rendered
+    }
+
+    #[test]
+    fn n38_exact_match_suppresses_the_heading() {
+        let (store, ids) = make_n38_store(vec![(
+            "exact",
+            n38_title_field_section(Some("Widget"), vec!["00000000-0000-4000-8000-0000000000a1"]),
+        )]);
+        let out = render_n38(&store, &ids["exact"]);
+        assert!(
+            !out.contains("### Widget"),
+            "a heading equal to the section title must be suppressed; got: {out}"
+        );
+    }
+
+    #[test]
+    fn n38_case_difference_does_not_suppress() {
+        let (store, ids) = make_n38_store(vec![(
+            "case",
+            n38_title_field_section(Some("widget"), vec!["00000000-0000-4000-8000-0000000000a1"]),
+        )]);
+        let out = render_n38(&store, &ids["case"]);
+        assert!(
+            out.contains("### Widget"),
+            "[N+38] must not case-fold — a case difference must not suppress; got: {out}"
+        );
+    }
+
+    #[test]
+    fn n38_whitespace_only_difference_suppresses_trim_is_the_only_normalisation() {
+        let (store, ids) = make_n38_store(vec![(
+            "ws",
+            n38_title_field_section(
+                Some("  Widget  "),
+                vec!["00000000-0000-4000-8000-0000000000a1"],
+            ),
+        )]);
+        let out = render_n38(&store, &ids["ws"]);
+        assert!(
+            !out.contains("### Widget"),
+            "trimmed section title equal to the heading must still suppress; got: {out}"
+        );
+    }
+
+    #[test]
+    fn n38_no_section_title_never_suppresses() {
+        let (store, ids) = make_n38_store(vec![(
+            "notitle",
+            n38_title_field_section(None, vec!["00000000-0000-4000-8000-0000000000a1"]),
+        )]);
+        let out = render_n38(&store, &ids["notitle"]);
+        assert!(
+            out.contains("### Widget"),
+            "a section with no title must emit every heading; got: {out}"
+        );
+    }
+
+    #[test]
+    fn n38_only_the_duplicating_record_is_suppressed() {
+        let (store, ids) = make_n38_store(vec![(
+            "partial",
+            n38_title_field_section(
+                Some("Widget"),
+                vec![
+                    "00000000-0000-4000-8000-0000000000a1",
+                    "00000000-0000-4000-8000-0000000000a2",
+                ],
+            ),
+        )]);
+        let out = render_n38(&store, &ids["partial"]);
+        assert!(
+            !out.contains("### Widget"),
+            "the duplicating record's heading must be suppressed; got: {out}"
+        );
+        assert!(
+            out.contains("### Other"),
+            "the non-duplicating record's heading must still be emitted; got: {out}"
+        );
+    }
+
+    #[test]
+    fn n38_identity_field_id_fallback_path_also_suppresses() {
+        let section = DocumentSection {
+            composite_renderers: None,
+            section_id: "s1".to_string(),
+            title: Some("Widget".to_string()),
+            description: None,
+            order: 0,
+            source: SectionSource::FixedInstances {
+                instance_ids: vec!["00000000-0000-4000-8000-0000000000a3".to_string()],
+            },
+            render_view_id: None,
+            type_dispatch: None,
+            title_field_id: None,
+            ordering: None,
+            required: None,
+            empty_behavior: None,
+            relations_presentation: None,
+        };
+        let (store, ids) = make_n38_store(vec![("identity", section)]);
+        let out = render_n38(&store, &ids["identity"]);
+        assert!(
+            !out.contains("### Widget"),
+            "[N+37]'s identityFieldId fallback heading must also be suppressed \
+             when it duplicates the section title; got: {out}"
+        );
+    }
+
+    #[test]
+    fn n38_suppression_does_not_promote_or_shift_row_levels() {
+        let (store, ids) = make_n38_store(vec![(
+            "levels",
+            n38_title_field_section(Some("Widget"), vec!["00000000-0000-4000-8000-0000000000a1"]),
+        )]);
+        let out = render_n38(&store, &ids["levels"]);
+        // The heading field is skipped from the body in structured mode
+        // regardless of suppression (pre-existing behaviour, unrelated to
+        // [N+38]); what [N+38] must not do is promote anything else to the
+        // section's own H2 level — no stray "## " beyond the section heading
+        // itself, and no "### " at all since the only heading was suppressed.
+        assert_eq!(
+            out.matches("## ").count(),
+            1,
+            "expected exactly the section's own H2 heading, no promotion; got: {out}"
+        );
+        assert!(
+            !out.contains("### "),
+            "the suppressed record heading must not reappear at any level; got: {out}"
+        );
+    }
+
     /// `[N+1]` ineligibility consequence, owner-decided (srs PR #341, 2026-08-02):
     /// an authored-but-ineligible `titleFieldId` must **omit** the heading, and
     /// must **not** fall through to the Type's `identityFieldId` even when one is
@@ -11384,11 +11885,11 @@ mod tests {
             &[test_rel(
                 "eeeeeeee-0000-4000-8000-0000000000a1",
                 "links-to",
-                "rec-other",
+                "00000000-0000-4000-8000-0000000000a2",
                 "rec-src",
             )],
         );
-        add_rp_record(&store, "rec-other", None);
+        add_rp_record(&store, "00000000-0000-4000-8000-0000000000a2", None);
         add_rp_record(&store, "rec-src", None);
 
         let section = rp_section_for(vec![RelationPresentationEntry {
@@ -11402,7 +11903,7 @@ mod tests {
         let relations = vec![test_rel(
             "eeeeeeee-0000-4000-8000-0000000000a1",
             "links-to",
-            "rec-other",
+            "00000000-0000-4000-8000-0000000000a2",
             "rec-src",
         )];
         let mut diag = Vec::new();
@@ -11411,7 +11912,7 @@ mod tests {
         )
         .unwrap();
         assert!(
-            out.contains("rec-other"),
+            out.contains("00000000-0000-4000-8000-0000000000a2"),
             "inverse source rec-other not in: {out}"
         );
         assert!(diag.is_empty(), "unexpected diagnostics: {diag:?}");
@@ -12650,7 +13151,29 @@ mod tests {
     }
 
     fn field_row(format: &str, name: &str, label: &str, value: &RowValue) -> String {
-        format_field_row(format, RowIdentity::FieldName(name), label, value)
+        format_field_row(
+            format,
+            RowIdentity::FieldName(name),
+            label,
+            value,
+            LabelMode::Inline,
+        )
+    }
+
+    fn field_row_with_mode(
+        format: &str,
+        name: &str,
+        label: &str,
+        value: &RowValue,
+        label_mode: LabelMode,
+    ) -> String {
+        format_field_row(
+            format,
+            RowIdentity::FieldName(name),
+            label,
+            value,
+            label_mode,
+        )
     }
 
     #[test]
@@ -13006,6 +13529,7 @@ mod tests {
             RowIdentity::RelationTypeKey("core/depends-on"),
             "Depends on",
             &scalar("Target"),
+            LabelMode::Inline,
         );
         // The five-step rule has no replacement step for `/`, so it is deleted
         // and a namespaced key normalises without a separator. Ugly, deterministic,
@@ -13045,6 +13569,7 @@ mod tests {
                 RowIdentity::RelationTypeKey("depends-on"),
                 "Depends on",
                 &scalar("Target"),
+                LabelMode::Inline,
             );
             let field = field_row(format, "depends-on", "Depends on", &scalar("Target"));
             assert_eq!(
@@ -13102,6 +13627,228 @@ mod tests {
             render_field_value(&serde_json::json!(["a", "b"]), None, "markdown"),
             Some(entries(&["a", "b"]))
         );
+    }
+
+    // ---------------------------------------------------------------------
+    // RFC-037 Revision 5 [FR-037-20]-[FR-037-22] — `FieldView.labelMode`.
+
+    #[test]
+    fn fr_037_20_none_scalar_markdown_begins_at_column_zero() {
+        assert_eq!(
+            field_row_with_mode(
+                "markdown",
+                "rationale",
+                "Rationale",
+                &scalar("because"),
+                LabelMode::None
+            ),
+            "because"
+        );
+    }
+
+    #[test]
+    fn fr_037_20_none_scalar_block_opening_value_skips_revision_4_branch() {
+        // Under "inline" this value would occupy its own line after a
+        // `Label:\n` line (Revision 4's block-opening branch). Under "none"
+        // there is no label line to glue it to — the value just begins the
+        // row, unconditionally, without regard to whether it opens a block.
+        let block_value = scalar("- list item");
+        assert_eq!(
+            field_row_with_mode("markdown", "notes", "Notes", &block_value, LabelMode::None),
+            "- list item"
+        );
+        // Sanity: under "inline" the same value DOES take the block-opening
+        // form, so this test is only meaningful in contrast to it.
+        assert_eq!(
+            field_row_with_mode(
+                "markdown",
+                "notes",
+                "Notes",
+                &block_value,
+                LabelMode::Inline
+            ),
+            "**Notes**:\n- list item"
+        );
+    }
+
+    #[test]
+    fn fr_037_20_none_multi_entry_omits_label_line_first_entry_begins_row() {
+        assert_eq!(
+            field_row_with_mode(
+                "markdown",
+                "tags",
+                "Tags",
+                &entries(&["a", "b"]),
+                LabelMode::None
+            ),
+            "- a\n- b"
+        );
+    }
+
+    #[test]
+    fn fr_037_20_none_adoc_and_text_forms() {
+        assert_eq!(
+            field_row_with_mode(
+                "adoc",
+                "rationale",
+                "Rationale",
+                &scalar("because"),
+                LabelMode::None
+            ),
+            "because"
+        );
+        assert_eq!(
+            field_row_with_mode(
+                "text",
+                "rationale",
+                "Rationale",
+                &scalar("because"),
+                LabelMode::None
+            ),
+            "because"
+        );
+        assert_eq!(
+            field_row_with_mode(
+                "adoc",
+                "tags",
+                "Tags",
+                &entries(&["a", "b"]),
+                LabelMode::None
+            ),
+            "* a\n* b"
+        );
+    }
+
+    #[test]
+    fn fr_037_20_none_html_omits_strong_and_colon_keeps_structure() {
+        let row = field_row_with_mode(
+            "html",
+            "rationale",
+            "Rationale",
+            &scalar("because"),
+            LabelMode::None,
+        );
+        assert!(
+            !row.contains("<strong"),
+            "no strong label element expected; got {row}"
+        );
+        assert!(
+            !row.contains("</strong>:"),
+            "no literal colon separator expected; got {row}"
+        );
+        assert!(
+            row.contains("<div class=\"srs-field srs-fieldname-rationale\">"),
+            "enclosing div and identity class must be unchanged; got {row}"
+        );
+        assert!(
+            row.contains("<span class=\"srs-field-value\">because</span>"),
+            "value element must be unchanged; got {row}"
+        );
+        assert!(
+            row.contains("</div>"),
+            "row must still close its div; got {row}"
+        );
+    }
+
+    #[test]
+    fn fr_037_20_none_html_multi_entry_keeps_ul_structure() {
+        let row = field_row_with_mode(
+            "html",
+            "tags",
+            "Tags",
+            &entries(&["a", "b"]),
+            LabelMode::None,
+        );
+        assert!(!row.contains("<strong"), "got {row}");
+        assert!(
+            row.contains(
+                "<ul><li class=\"srs-field-value\">a</li><li class=\"srs-field-value\">b</li></ul>"
+            ),
+            "the ul/li structure must be unchanged; got {row}"
+        );
+    }
+
+    #[test]
+    fn fr_037_20_absent_and_explicit_inline_are_byte_identical_to_baseline() {
+        // The no-regression anchor: an absent labelMode and an explicit
+        // "inline" must both reproduce today's output exactly.
+        let via_default = field_row("markdown", "rationale", "Rationale", &scalar("because"));
+        let via_explicit_inline = field_row_with_mode(
+            "markdown",
+            "rationale",
+            "Rationale",
+            &scalar("because"),
+            LabelMode::Inline,
+        );
+        assert_eq!(via_default, "**Rationale**: because");
+        assert_eq!(via_default, via_explicit_inline);
+    }
+
+    #[test]
+    fn fr_037_22_theme_field_row_wraps_a_none_row_content_verbatim() {
+        // [FR-037-22]: labelMode is the only mechanism for label omission —
+        // `fieldRow` keeps wrapping whatever [FR-037-20] emits as
+        // `{{content}}`, with no suppression or restoration logic of its own.
+        // `apply_wrapper` is the primitive `push_themed_row` calls for this.
+        let none_row = field_row_with_mode(
+            "markdown",
+            "rationale",
+            "Rationale",
+            &scalar("because"),
+            LabelMode::None,
+        );
+        assert_eq!(
+            none_row, "because",
+            "sanity: the wrapped content carries no label"
+        );
+
+        let wrapped = apply_wrapper(
+            "> {{content}}\n",
+            &none_row,
+            &[
+                ("field-label", "Rationale"),
+                ("field-value", "because"),
+                ("field-name", "rationale"),
+            ],
+            None,
+        );
+        assert_eq!(
+            wrapped, "> because\n",
+            "{{{{content}}}} must carry the unlabeled row through verbatim; got: {wrapped}"
+        );
+    }
+
+    #[test]
+    fn field_view_label_mode_absent_defaults_to_inline() {
+        let json = serde_json::json!({
+            "fieldId": "00000000-0000-4000-8000-000000000001",
+            "order": 0
+        });
+        let fv: srs_core::types::view::FieldView = serde_json::from_value(json).unwrap();
+        assert_eq!(fv.label_mode, None);
+        assert_eq!(
+            fv.effective_label_mode(),
+            srs_core::types::view::LabelMode::Inline
+        );
+    }
+
+    #[test]
+    fn field_view_label_mode_none_round_trips_and_is_visible_field_independent() {
+        let json = serde_json::json!({
+            "fieldId": "00000000-0000-4000-8000-000000000001",
+            "order": 0,
+            "labelMode": "none",
+            "visible": true
+        });
+        let fv: srs_core::types::view::FieldView = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(
+            fv.effective_label_mode(),
+            srs_core::types::view::LabelMode::None
+        );
+        // [FR-037-21]: labelMode is not a second spelling of `visible: false` —
+        // it does not remove the field, only its label.
+        assert_eq!(fv.visible, Some(true));
+        assert_eq!(serde_json::to_value(fv).unwrap(), json);
     }
 
     #[test]
@@ -13261,6 +14008,7 @@ mod tests {
                     FieldView {
                         display_hint: None,
                         editor_hint_override: None,
+                        label_mode: None,
                         composite_renderer: None,
                         field_id: "f-heading".to_string(),
                         order: 0,
@@ -13272,6 +14020,7 @@ mod tests {
                     FieldView {
                         display_hint: None,
                         editor_hint_override: None,
+                        label_mode: None,
                         composite_renderer: None,
                         field_id: "f-summary".to_string(),
                         order: 1,
