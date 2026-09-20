@@ -69,6 +69,14 @@ pub fn build_tree(
 
     let relations = load_relations(store)?;
     let (field_name_index, identity_field_index) = record_label::build_label_indexes(store)?;
+    // RFC-034 [R1] direct membership as extra part-of children (srs-rust#1096) —
+    // only meaningful for the "contains" part-of tree, never an arbitrary
+    // `--relation-type` traversal.
+    let container_children = if options.relation_type == "contains" {
+        container_service::direct_children_by_root(store)?
+    } else {
+        HashMap::new()
+    };
 
     let root_ids = resolve_roots(store, &options, &relations)?;
 
@@ -87,6 +95,7 @@ pub fn build_tree(
             0,
             &mut ancestors,
             &mut diagnostics,
+            &container_children,
         )? {
             roots.push(node);
         }
@@ -153,6 +162,7 @@ fn build_node(
     depth: u32,
     ancestors: &mut HashSet<String>,
     diagnostics: &mut Vec<String>,
+    container_children: &HashMap<String, Vec<String>>,
 ) -> Result<Option<TreeNode>, RepositoryError> {
     // Tier-aware: a Tier-0 note is a legal member of the part-of tree (RFC-013
     // scaffolds one as a section), and reading it through the Tier-2-only loader
@@ -221,7 +231,13 @@ fn build_node(
 
     ancestors.insert(instance_id.to_string());
     let mut child_nodes = Vec::new();
-    for child_id in child_ids(store, instance_id, &options.relation_type, relations)? {
+    for child_id in child_ids(
+        store,
+        instance_id,
+        &options.relation_type,
+        relations,
+        container_children,
+    )? {
         if let Some(child) = build_node(
             store,
             &child_id,
@@ -232,6 +248,7 @@ fn build_node(
             depth + 1,
             ancestors,
             diagnostics,
+            container_children,
         )? {
             child_nodes.push(child);
         }
@@ -241,15 +258,20 @@ fn build_node(
     Ok(Some(node(child_nodes, false)))
 }
 
-/// Outgoing `relation_type` targets of `source_id`, ordered by the `precedes` chain
-/// among them. Resolves ids only — unlike `relation_graph::children_by_relation_type`
-/// this never parses a target as a Tier-2 record, so a Tier-0 note child is ordered
-/// and walked like any other node.
+/// Outgoing `relation_type` targets of `source_id`, plus (when `relation_type`
+/// is "contains") the direct members of any Container rooted at `source_id`
+/// that a `contains` Relation doesn't already name (RFC-034 [R1], srs-rust#1096)
+/// — the part-of tree's two membership sources, merged and deduplicated.
+/// Ordered by the `precedes` chain among them. Resolves ids only — unlike
+/// `relation_graph::children_by_relation_type` this never parses a target as a
+/// Tier-2 record, so a Tier-0 note child is ordered and walked like any other
+/// node.
 fn child_ids(
     store: &dyn RepositoryStore,
     source_id: &str,
     relation_type: &str,
     relations: &[srs_core::types::relation::Relation],
+    container_children: &HashMap<String, Vec<String>>,
 ) -> Result<Vec<String>, RepositoryError> {
     #[derive(Clone)]
     struct Child {
@@ -266,13 +288,28 @@ fn child_ids(
     }
 
     let mut children = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
     for rel in relations
         .iter()
         .filter(|r| r.relation_type == relation_type && r.source_instance_id == source_id)
     {
+        if !seen.insert(rel.target_instance_id.clone()) {
+            continue;
+        }
         if let Some(instance) = get_instance_by_id(store, &rel.target_instance_id)? {
             children.push(Child {
                 id: rel.target_instance_id.clone(),
+                created_at: instance.created_at().map(str::to_string),
+            });
+        }
+    }
+    for id in container_children.get(source_id).into_iter().flatten() {
+        if !seen.insert(id.clone()) {
+            continue;
+        }
+        if let Some(instance) = get_instance_by_id(store, id)? {
+            children.push(Child {
+                id: id.clone(),
                 created_at: instance.created_at().map(str::to_string),
             });
         }
@@ -576,5 +613,66 @@ mod tests {
 
         assert_eq!(result.roots.len(), 1);
         assert_eq!(result.roots[0].instance_id, sec_id);
+    }
+
+    /// Reproduction for srs-rust#1096: a section whose Container carries its
+    /// members in `memberInstanceIds` (RFC-034 [R1] direct membership), with
+    /// no `contains` relation at all, must still surface those members as
+    /// part-of children — not render as an empty leaf.
+    #[test]
+    fn build_tree_surfaces_container_direct_membership_with_no_contains_relations() {
+        let store = make_store(
+            vec![make_field("f-title", "title")],
+            vec![make_type("t-node", "node", &["f-title"])],
+        );
+        let section_id = add_record(&store, "t-node", "title", "The Case");
+        let member_1 = add_record(&store, "t-node", "title", "Evidence Item 1");
+        let member_2 = add_record(&store, "t-node", "title", "Evidence Item 2");
+
+        // No `contains` relation anywhere — membership is declared only via the
+        // Container's `rootInstanceIds`/`memberInstanceIds`, per container.json.
+        crate::container_service::create_container(
+            &store,
+            srs_core::types::container::Container {
+                container_id: "00000000-0000-4000-8000-00000000c100".to_string(),
+                title: "The Case".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                anchor_instance_id: None,
+                root_instance_ids: Some(vec![section_id.clone()]),
+                member_instance_ids: Some(vec![member_1.clone(), member_2.clone()]),
+                child_container_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .unwrap();
+
+        let result = build_tree(
+            &store,
+            TreeOptions {
+                root_ids: Some(vec![section_id.clone()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.roots.len(), 1);
+        let children: Vec<&str> = result.roots[0]
+            .children
+            .iter()
+            .map(|c| c.label.as_str())
+            .collect();
+        assert_eq!(
+            children,
+            vec!["Evidence Item 1", "Evidence Item 2"],
+            "container direct membership must surface as part-of children, got {children:?}"
+        );
     }
 }

@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use srs_core::types::container::Container;
 use srs_core::validation::container::validate_container;
 use srs_schema::{SchemaRegistry, CONTAINER_SCHEMA_ID};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -580,6 +580,39 @@ fn direct_member_ids(container: &Container) -> Vec<String> {
         }
     }
     combined
+}
+
+/// RFC-034 [R1] direct membership, indexed by each container's declared root(s),
+/// as extra part-of children for `tree_service`/navigation (srs-rust#1096).
+///
+/// `container.json` declares direct membership as `rootInstanceIds ∪
+/// memberInstanceIds`, but the part-of tree only ever descended `contains`
+/// Relations — a container whose members are declared solely through the
+/// membership arrays was therefore unreachable from `repo navigation`/`tree`
+/// even though `repo validate` reported it healthy. This gives the tree
+/// walker, keyed by a node's own id, the other direct members of every
+/// container that names that node as a root — the node's own id is excluded
+/// so a container isn't wired as its own child.
+pub(crate) fn direct_children_by_root(
+    store: &dyn RepositoryStore,
+) -> Result<HashMap<String, Vec<String>>, RepositoryError> {
+    let mut by_root: HashMap<String, Vec<String>> = HashMap::new();
+    for summary in list_containers(store, &ContainerListFilter::default())? {
+        let container = get_container(store, &summary.container_id)?;
+        let Some(roots) = container.root_instance_ids.clone() else {
+            continue;
+        };
+        let members = direct_member_ids(&container);
+        for root_id in &roots {
+            let entry = by_root.entry(root_id.clone()).or_default();
+            for id in &members {
+                if id != root_id && !entry.contains(id) {
+                    entry.push(id.clone());
+                }
+            }
+        }
+    }
+    Ok(by_root)
 }
 
 /// RFC-034 [R3]/Change B: a Container's **effective membership** — the least
