@@ -623,6 +623,7 @@ mod tests {
         ViewRow::Field(FieldView {
             display_hint: None,
             editor_hint_override: None,
+            label_mode: None,
             composite_renderer: None,
             field_id: field_id.to_string(),
             order,

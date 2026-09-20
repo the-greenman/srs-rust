@@ -26,6 +26,19 @@ pub struct CompositeRendererDirective {
     pub roles: Option<std::collections::BTreeMap<String, String>>,
 }
 
+/// RFC-037 Revision 5 [FR-037-20] — whether a `FieldView` row's label is
+/// emitted. `"inline"` (the default, absent ⇒ this value) is today's
+/// behaviour unchanged; `"none"` emits the value alone with no resolved
+/// label and no separating colon. Presentation only (Invariant 13,
+/// [FR-037-21]) — never `visible: false`'s second spelling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LabelMode {
+    #[default]
+    Inline,
+    None,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FieldView {
@@ -42,10 +55,20 @@ pub struct FieldView {
     pub visible: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_label: Option<String>,
+    /// RFC-037 Revision 5 [FR-037-20]-[FR-037-22]. Absent ⇒ `Inline`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label_mode: Option<LabelMode>,
     /// RFC-036 — render this field's composite-range value through a named
     /// composite renderer. Highest-precedence declaration site ([CR-036-6]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub composite_renderer: Option<CompositeRendererBinding>,
+}
+
+impl FieldView {
+    /// [FR-037-20] — the effective label mode, defaulting absence to `Inline`.
+    pub fn effective_label_mode(&self) -> LabelMode {
+        self.label_mode.unwrap_or_default()
+    }
 }
 
 /// RFC-041 Change B — the closed, DERIVED vocabulary of top-level Record

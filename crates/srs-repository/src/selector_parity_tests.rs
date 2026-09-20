@@ -101,6 +101,7 @@ fn make_view(name: &str) -> View {
         field_views: vec![FieldView {
             display_hint: None,
             editor_hint_override: None,
+            label_mode: None,
             composite_renderer: None,
             field_id: "f1".to_string(),
             order: 0,
