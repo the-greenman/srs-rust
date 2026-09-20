@@ -3,6 +3,7 @@ name: Schema Drift
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   check-schema-drift:
