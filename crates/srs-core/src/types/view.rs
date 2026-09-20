@@ -281,6 +281,16 @@ pub enum SectionSource {
         /// keys. Ordering is computed over the full container then projected onto survivors.
         #[serde(skip_serializing_if = "Option::is_none")]
         type_filter: Option<Vec<String>>,
+        /// RFC-042 Revision 5 [R21], using RFC-034 [R8]'s one scoping vocabulary.
+        /// `Explicit` (the default) renders `direct(C)` alone, no descent.
+        /// `Subtree` additionally renders each container named in
+        /// `childContainerIds` as a nested section. `Repository` is not
+        /// admitted on this variant — [`crate::validation::view::validate_composition`]
+        /// rejects it (a `container-subset` source already names exactly one
+        /// container, so "every container in the repository" is meaningless
+        /// here).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        container_scope: Option<ContainerScope>,
     },
 }
 
@@ -835,6 +845,7 @@ mod tests {
             container_id: "cid-1".to_string(),
             container_type: None,
             type_filter: Some(vec!["ns/name".to_string(), "ns/other".to_string()]),
+            container_scope: None,
         };
         let json = serde_json::to_string(&source).unwrap();
         assert!(
@@ -855,11 +866,47 @@ mod tests {
             container_id: "cid-1".to_string(),
             container_type: None,
             type_filter: None,
+            container_scope: None,
         };
         let json = serde_json::to_string(&source).unwrap();
         assert!(
             !json.contains("typeFilter"),
             "typeFilter: None must be omitted from JSON: {json}"
+        );
+    }
+
+    /// RFC-042 Revision 5 [R21]: `containerScope` is now valid on
+    /// `container-subset`, with the `explicit`/`subtree` vocabulary
+    /// (`repository` is rejected at validation, not at the type layer).
+    #[test]
+    fn container_subset_container_scope_round_trips() {
+        let source = SectionSource::ContainerSubset {
+            container_id: "cid-1".to_string(),
+            container_type: None,
+            type_filter: None,
+            container_scope: Some(ContainerScope::Subtree),
+        };
+        let json = serde_json::to_string(&source).unwrap();
+        assert!(
+            json.contains("\"containerScope\":\"subtree\""),
+            "containerScope must serialize as camelCase with lowercase value: {json}"
+        );
+        let parsed: SectionSource = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, source);
+    }
+
+    #[test]
+    fn container_subset_no_container_scope_omitted_from_json() {
+        let source = SectionSource::ContainerSubset {
+            container_id: "cid-1".to_string(),
+            container_type: None,
+            type_filter: None,
+            container_scope: None,
+        };
+        let json = serde_json::to_string(&source).unwrap();
+        assert!(
+            !json.contains("containerScope"),
+            "containerScope: None must be omitted from JSON: {json}"
         );
     }
 

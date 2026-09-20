@@ -1,4 +1,4 @@
-use crate::container_service::{list_direct_members, list_members};
+use crate::container_service::{get_container, list_direct_members, list_members};
 use crate::discovery_service::record_matches_structured_predicates;
 use crate::error::RepositoryError;
 use crate::package::Package;
@@ -139,6 +139,14 @@ pub struct ProjectedSection {
     pub title: Option<String>,
     pub order: i32,
     pub records: Vec<ProjectedRecord>,
+    /// RFC-042 Revision 5 [R25]: nested sections produced by a
+    /// `container-subset` source with `containerScope: "subtree"` — one
+    /// entry per declared child container of this section's container, in
+    /// the order [R22] fixes, each carrying its own records and,
+    /// recursively, its own nested sections. Omitted (never flattened into
+    /// `records`) when this section renders no nested section.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<ProjectedSection>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -184,6 +192,73 @@ struct RenderContext<'a> {
     /// RFC-036 — Composition.compositeRenderers, the lowest-precedence
     /// composite dispatch site ([CR-036-6]).
     doc_composite_renderers: Option<Vec<srs_core::types::view::CompositeRendererDirective>>,
+}
+
+// ── RFC-042 Revision 5 [R20]-[R25]: container-subset nested-section plan ──────
+//
+// A `container-subset` section's rendering sequence, resolved once and shared
+// by both output engines (markdown/html/adoc's `render_section_entries` and
+// JSON's `project_entries_json`) so the two never disagree about which
+// records render where — the drift shape RFC-042 Rev 5 exists to close, one
+// layer over (see the RFC's Change J note on the JSON projection).
+
+/// One entry in a `container-subset` section's [R20]-ordered rendering
+/// sequence: either a plain direct member (record or Tier-0 note), or a
+/// nested section descending into a declared child container ([R21]).
+enum SectionEntry {
+    Plain(LoadedInstance),
+    Nested(NestedSectionPlan),
+}
+
+/// [R21]/[R22]: a nested section produced by descending one `childContainerIds`
+/// edge. `anchor` is `Some` exactly when the child container's [R22] position
+/// anchor ([`container_service::r22_position_anchor_instance_id`]) resolved
+/// to an id that is a direct member of the parent — in which case that
+/// record is this nested section's lead content and MUST NOT also appear
+/// among `entries` one level up (the plain-member list at the parent depth).
+/// `depth` is the nesting depth per [R23]'s heading-level formula (the
+/// section's own top-level records are depth 0; this struct's shallowest
+/// instances are depth 1).
+struct NestedSectionPlan {
+    container_id: String,
+    title: String,
+    anchor: Option<LoadedInstance>,
+    /// This child container's own direct members, ordered per [R20]/[R21],
+    /// each possibly itself a further-nested [`SectionEntry::Nested`]
+    /// (recursion over the declared child graph).
+    entries: Vec<SectionEntry>,
+    depth: u32,
+}
+
+/// [R23]: a nested section's title heading level at nesting depth `d`.
+fn nested_title_level(depth_offset: u32, d: u32) -> u32 {
+    2 + depth_offset + d
+}
+
+/// [R23]: a nested section's per-record heading level at nesting depth `d`
+/// (also the level the section's own top-level records render at, at `d=0`
+/// — `depth(2, depth_offset) + 1 == nested_record_level(depth_offset, 0)`).
+fn nested_record_level(depth_offset: u32, d: u32) -> u32 {
+    3 + depth_offset + d
+}
+
+/// [R23]: "For `format` values `markdown`, `html` and `adoc`, a computed
+/// heading level above 6 MUST be emitted at 6 and MUST produce a
+/// diagnostic; the render MUST NOT fail." Applies uniformly to the
+/// pre-existing `contains` recursion inside a record (Change G: this closes
+/// a gap that predates nested sections) and to every nested-section heading
+/// level this revision adds. Idempotent — clamping an already-clamped level
+/// is a no-op, so callers may apply it defensively at every heading site
+/// without risking a duplicate diagnostic for the same overflow.
+fn clamp_heading_level(level: u32, format: &str, diagnostics: &mut Vec<String>) -> u32 {
+    if level > 6 && matches!(format, "markdown" | "html" | "adoc") {
+        diagnostics.push(format!(
+            "[R23] computed heading level {level} exceeds 6 for format '{format}'; clamped to 6"
+        ));
+        6
+    } else {
+        level
+    }
 }
 
 pub fn render_composition(
@@ -250,11 +325,8 @@ pub fn render_composition(
         rendered.push_str(&substitute_vars(preamble, &ctx, None, false));
         rendered.push_str("\n\n");
     } else {
-        rendered.push_str(&format_heading(
-            depth(1, ctx.depth_offset),
-            format,
-            &ctx.container_title,
-        ));
+        let title_level = clamp_heading_level(depth(1, ctx.depth_offset), format, &mut diagnostics);
+        rendered.push_str(&format_heading(title_level, format, &ctx.container_title));
     }
 
     let mut sections = dv.sections.clone();
@@ -421,35 +493,102 @@ fn project_section_json(
     instance_id_filter: Option<&str>,
     diagnostics: &mut Vec<String>,
 ) -> Result<ProjectedSection, RepositoryError> {
-    let records = resolve_section_instances(
+    let entries = resolve_section_entries(
         store,
+        package,
         section,
         relations,
         cli_container_id,
         instance_id_filter,
         diagnostics,
     )?;
+    let (records, sections) =
+        project_entries_json(store, package, section, &entries, relations, diagnostics)?;
 
-    // RFC-015 [N+29]/[N+30]: memberOrder, else authored fieldId+direction,
-    // else the [N+12] fallback; typeFilter projects onto the result.
-    let (type_filter, is_fixed_instances) =
-        relation_graph::section_ordering_inputs(&section.source);
-    let records = relation_graph::apply_section_ordering(
+    Ok(ProjectedSection {
+        section_id: section.section_id.clone(),
+        title: section.title.clone(),
+        order: section.order,
         records,
-        section.ordering.as_ref(),
-        type_filter,
-        is_fixed_instances,
-        package,
-        relations,
-        &section.section_id,
-        diagnostics,
-    );
+        sections,
+    })
+}
 
-    let mut projected_records = Vec::new();
-    for instance in &records {
-        match instance {
+/// [R25]: project a flat entry sequence into `(records, nested sections)` —
+/// the split `ProjectedSection` needs (`records` for plain members,
+/// `sections` for [R21] nested descents, never flattened together). Shared
+/// by the top-level section and by [`project_nested_section_json`]'s own
+/// recursion, so JSON's tree shape and markdown/html/adoc's tree shape
+/// (`render_section_entries`) are built from the one resolved
+/// [`SectionEntry`] sequence and cannot drift apart.
+fn project_entries_json(
+    store: &dyn RepositoryStore,
+    package: &Package,
+    section: &DocumentSection,
+    entries: &[SectionEntry],
+    relations: &[Relation],
+    diagnostics: &mut Vec<String>,
+) -> Result<(Vec<ProjectedRecord>, Vec<ProjectedSection>), RepositoryError> {
+    let mut records = Vec::new();
+    let mut sections = Vec::new();
+    for (idx, entry) in entries.iter().enumerate() {
+        match entry {
+            SectionEntry::Plain(LoadedInstance::Record(record)) => {
+                records.push(project_record_json(
+                    store,
+                    package,
+                    section,
+                    record,
+                    relations,
+                    diagnostics,
+                )?);
+            }
+            SectionEntry::Plain(LoadedInstance::Note(note)) => {
+                // The composition JSON output schema models typed records only;
+                // Tier-0 notes are skipped from the projection with a warning (#510).
+                diagnostics.push(format!(
+                    "[section:{}] tier-0 note {} is not representable in the JSON projection; skipped",
+                    section.section_id, note.instance_id
+                ));
+            }
+            SectionEntry::Nested(nested) => {
+                sections.push(project_nested_section_json(
+                    store,
+                    package,
+                    section,
+                    nested,
+                    relations,
+                    idx as i32,
+                    diagnostics,
+                )?);
+            }
+        }
+    }
+    Ok((records, sections))
+}
+
+/// [R22]/[R25]: a nested section's JSON form. Its `records[]` opens with the
+/// [R22] anchor (the child container's lead content), when one resolved,
+/// followed by the child's own plain direct members; its `sections[]` is its
+/// own further-nested descents. `order` is this entry's position in the
+/// immediate parent's [R20]-ordered entry sequence — the one place a nested
+/// `ProjectedSection`'s position is recorded, since it has no authored
+/// `DocumentSection.order` of its own.
+#[allow(clippy::too_many_arguments)]
+fn project_nested_section_json(
+    store: &dyn RepositoryStore,
+    package: &Package,
+    section: &DocumentSection,
+    nested: &NestedSectionPlan,
+    relations: &[Relation],
+    order: i32,
+    diagnostics: &mut Vec<String>,
+) -> Result<ProjectedSection, RepositoryError> {
+    let mut records = Vec::new();
+    if let Some(anchor) = &nested.anchor {
+        match anchor {
             LoadedInstance::Record(record) => {
-                projected_records.push(project_record_json(
+                records.push(project_record_json(
                     store,
                     package,
                     section,
@@ -459,21 +598,30 @@ fn project_section_json(
                 )?);
             }
             LoadedInstance::Note(note) => {
-                // The composition JSON output schema models typed records only;
-                // Tier-0 notes are skipped from the projection with a warning (#510).
                 diagnostics.push(format!(
-                    "[section:{}] tier-0 note {} is not representable in the JSON projection; skipped",
+                    "[section:{}] tier-0 note {} (nested-section anchor) is not representable in the JSON projection; skipped",
                     section.section_id, note.instance_id
                 ));
             }
         }
     }
 
+    let (mut body_records, sub_sections) = project_entries_json(
+        store,
+        package,
+        section,
+        &nested.entries,
+        relations,
+        diagnostics,
+    )?;
+    records.append(&mut body_records);
+
     Ok(ProjectedSection {
-        section_id: section.section_id.clone(),
-        title: section.title.clone(),
-        order: section.order,
-        records: projected_records,
+        section_id: nested.container_id.clone(),
+        title: Some(nested.title.clone()),
+        order,
+        records,
+        sections: sub_sections,
     })
 }
 
@@ -1537,8 +1685,9 @@ fn render_section(
     instance_id_filter: Option<&str>,
     diagnostics: &mut Vec<String>,
 ) -> Result<String, RepositoryError> {
-    let records = resolve_section_instances(
+    let entries = resolve_section_entries(
         store,
+        ctx.package,
         section,
         relations,
         cli_container_id,
@@ -1546,64 +1695,36 @@ fn render_section(
         diagnostics,
     )?;
 
-    // RFC-015 [N+29]/[N+30]: memberOrder, else authored fieldId+direction,
-    // else the [N+12] fallback; typeFilter projects onto the result.
-    let (type_filter, is_fixed_instances) =
-        relation_graph::section_ordering_inputs(&section.source);
-    let records = relation_graph::apply_section_ordering(
-        records,
-        section.ordering.as_ref(),
-        type_filter,
-        is_fixed_instances,
-        ctx.package,
-        relations,
-        &section.section_id,
-        diagnostics,
-    );
-
-    if records.is_empty() && section.required != Some(true) {
+    if entries.is_empty() && section.required != Some(true) {
         return Ok(String::new());
     }
 
     let mut out = String::new();
     if let Some(title) = &section.title {
-        out.push_str(&format_heading(
-            depth(2, ctx.depth_offset),
-            ctx.format,
-            title,
-        ));
+        let title_level = clamp_heading_level(depth(2, ctx.depth_offset), ctx.format, diagnostics);
+        out.push_str(&format_heading(title_level, ctx.format, title));
     }
     if let Some(description) = &section.description {
         out.push_str(description);
         out.push_str("\n\n");
     }
 
-    if records.is_empty() && section.required == Some(true) {
+    if entries.is_empty() && section.required == Some(true) {
         out.push_str("No records.\n\n");
         return Ok(out);
     }
 
-    let record_heading_level = depth(2, ctx.depth_offset) + 1;
-    for instance in &records {
-        match instance {
-            LoadedInstance::Record(record) => {
-                out.push_str(&render_record_at_level(
-                    store,
-                    ctx,
-                    section,
-                    record,
-                    record_heading_level,
-                    relations,
-                    diagnostics,
-                )?);
-            }
-            LoadedInstance::Note(note) => {
-                // Tier-0 note members render through their note shape: title as the
-                // heading, free-text section content as body text (#510).
-                out.push_str(&render_note_at_level(ctx, note, record_heading_level));
-            }
-        }
-    }
+    let record_heading_level =
+        clamp_heading_level(depth(2, ctx.depth_offset) + 1, ctx.format, diagnostics);
+    out.push_str(&render_section_entries(
+        store,
+        ctx,
+        section,
+        &entries,
+        relations,
+        record_heading_level,
+        diagnostics,
+    )?);
 
     let section_wrapper = ctx
         .active_theme
@@ -1835,37 +1956,24 @@ fn resolve_section_instances(
             container_id,
             container_type: _,
             type_filter: _,
+            container_scope: _,
         } => {
             // CLI --container overrides the view-declared container_id, allowing one
             // ContainerSubset composition to render any guide by switching at render time.
             let effective_id = cli_container_id.unwrap_or(container_id.as_str());
-            let members =
-                list_members_degraded(store, effective_id, &section.section_id, diagnostics)?;
-            // A container's declared membership is the whole `contains` subtree
-            // (RFC-042 Part containers, srs#681), but `render_record_at_level` /
-            // `project_record_json` already recurse each record's own `contains`
-            // children one level at a time. Rendering every declared member here
-            // AND recursing into descendants double- (or, at depth, N-) renders
-            // everything below the top level (srs-rust container-subset render
-            // defect, srs#682/#693). Fix at the root: this section renders only
-            // the subtree ROOTS among the declared members — a member is a root
-            // unless some other member of the same set `contains` it — in
-            // precedes order; recursion renders every descendant exactly once.
-            // A member unrelated to any other member is trivially a root.
-            let member_set: HashSet<&str> = members.iter().map(String::as_str).collect();
-            let non_root_ids: HashSet<&str> = relations
-                .iter()
-                .filter(|r| {
-                    r.relation_type == "contains"
-                        && member_set.contains(r.source_instance_id.as_str())
-                        && member_set.contains(r.target_instance_id.as_str())
-                })
-                .map(|r| r.target_instance_id.as_str())
-                .collect();
-            let roots: Vec<String> = members
-                .into_iter()
-                .filter(|id| !non_root_ids.contains(id.as_str()))
-                .collect();
+            // RFC-042 Revision 5 [R20]: a container-subset section renders
+            // direct(C), not effective(C) — [`list_direct_members_degraded`],
+            // not `list_members_degraded`. This arm is reached only from the
+            // `instance_id_filter` (single-record export) fallback in
+            // `resolve_section_entries`; the ordinary path builds
+            // `SectionEntry`s via `build_container_subset_entries` instead.
+            let members = list_direct_members_degraded(
+                store,
+                effective_id,
+                &section.section_id,
+                diagnostics,
+            )?;
+            let roots = filter_contains_roots(&members, relations);
             let mut records = Vec::new();
             for id in roots {
                 if let Some(instance) = get_instance_by_id(store, &id)? {
@@ -1880,6 +1988,356 @@ fn resolve_section_instances(
     }
 }
 
+/// A container's declared membership can include records that are
+/// `contains`-children of *other* members of the same set. `render_record_at_level`
+/// / `project_record_json` already recurse each record's own `contains`
+/// children one level at a time, so rendering every declared member here AND
+/// recursing into descendants would double- (or, at depth, N-) render
+/// everything below the top level (srs-rust container-subset render defect,
+/// srs#682/#693). This is unrelated to RFC-042 [R24] (cross-*place* reuse,
+/// i.e. across different sections/nested-sections) — it is a single set's own
+/// internal `contains` overlap. Fix: keep only the subtree ROOTS among the
+/// declared members — a member is a root unless some other member of the same
+/// set `contains` it; recursion then renders every descendant exactly once. A
+/// member unrelated to any other member is trivially a root. Order is
+/// preserved (a `Vec`, not a `HashSet`) — the caller applies [R20] ordering
+/// afterward.
+fn filter_contains_roots(members: &[String], relations: &[Relation]) -> Vec<String> {
+    let member_set: HashSet<&str> = members.iter().map(String::as_str).collect();
+    let non_root_ids: HashSet<&str> = relations
+        .iter()
+        .filter(|r| {
+            r.relation_type == "contains"
+                && member_set.contains(r.source_instance_id.as_str())
+                && member_set.contains(r.target_instance_id.as_str())
+        })
+        .map(|r| r.target_instance_id.as_str())
+        .collect();
+    members
+        .iter()
+        .filter(|id| !non_root_ids.contains(id.as_str()))
+        .cloned()
+        .collect()
+}
+
+/// [R20]: this container's direct members (`direct(C)`), with the same-set
+/// `contains`-overlap dedup ([`filter_contains_roots`]) already applied, in
+/// final [R20] order (`ordering.memberOrder`, else `ordering.fieldId`, else
+/// the [N+12] fallback — [`relation_graph::apply_section_ordering`]).
+/// Shared by the top-level `container-subset` resolution and, recursively via
+/// [`build_container_subset_entries`], by every nested child container's own
+/// body.
+#[allow(clippy::too_many_arguments)]
+fn ordered_direct_members(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    section_id: &str,
+    ordering: Option<&srs_core::types::view::SectionOrdering>,
+    type_filter: Option<&[String]>,
+    is_fixed_instances: bool,
+    package: &Package,
+    relations: &[Relation],
+    diagnostics: &mut Vec<String>,
+) -> Result<Vec<LoadedInstance>, RepositoryError> {
+    let members = list_direct_members_degraded(store, container_id, section_id, diagnostics)?;
+    let roots = filter_contains_roots(&members, relations);
+    let mut records = Vec::new();
+    for id in roots {
+        if let Some(instance) = get_instance_by_id(store, &id)? {
+            records.push(instance);
+        }
+    }
+    Ok(relation_graph::apply_section_ordering(
+        records,
+        ordering,
+        type_filter,
+        is_fixed_instances,
+        package,
+        relations,
+        section_id,
+        diagnostics,
+    ))
+}
+
+/// RFC-042 Revision 5 [R20]-[R22]: resolve a `container-subset` section's
+/// full rendering sequence — `direct(C)` alone for `containerScope: "explicit"`
+/// (the default), or the [R21] nested-section tree for `"subtree"`. Every
+/// other `SectionSource` (and a `container-subset` section under
+/// `instance_id_filter`, the single-record export mode nesting does not
+/// apply to) falls through to the pre-existing flat resolution
+/// ([`resolve_section_instances`] + [`relation_graph::apply_section_ordering`]),
+/// wrapped as [`SectionEntry::Plain`].
+#[allow(clippy::too_many_arguments)]
+fn resolve_section_entries(
+    store: &dyn RepositoryStore,
+    package: &Package,
+    section: &DocumentSection,
+    relations: &[Relation],
+    cli_container_id: Option<&str>,
+    instance_id_filter: Option<&str>,
+    diagnostics: &mut Vec<String>,
+) -> Result<Vec<SectionEntry>, RepositoryError> {
+    if let SectionSource::ContainerSubset {
+        container_id,
+        container_scope,
+        type_filter,
+        ..
+    } = &section.source
+    {
+        if instance_id_filter.is_none() {
+            let effective_id = cli_container_id.unwrap_or(container_id.as_str());
+            let scope = container_scope.clone().unwrap_or(ContainerScope::Explicit);
+            let type_filter_slice = type_filter.as_deref().filter(|f| !f.is_empty());
+
+            if matches!(scope, ContainerScope::Subtree) {
+                let mut visited = HashSet::new();
+                return build_container_subset_entries(
+                    store,
+                    effective_id,
+                    section.ordering.as_ref(),
+                    type_filter_slice,
+                    package,
+                    relations,
+                    &section.section_id,
+                    0,
+                    &mut visited,
+                    diagnostics,
+                );
+            }
+
+            // "explicit" (the default): direct(C) alone, no descent — [R21].
+            let records = ordered_direct_members(
+                store,
+                effective_id,
+                &section.section_id,
+                section.ordering.as_ref(),
+                type_filter_slice,
+                false,
+                package,
+                relations,
+                diagnostics,
+            )?;
+            return Ok(records.into_iter().map(SectionEntry::Plain).collect());
+        }
+    }
+
+    let records = resolve_section_instances(
+        store,
+        section,
+        relations,
+        cli_container_id,
+        instance_id_filter,
+        diagnostics,
+    )?;
+    let (type_filter, is_fixed_instances) =
+        relation_graph::section_ordering_inputs(&section.source);
+    let records = relation_graph::apply_section_ordering(
+        records,
+        section.ordering.as_ref(),
+        type_filter,
+        is_fixed_instances,
+        package,
+        relations,
+        &section.section_id,
+        diagnostics,
+    );
+    Ok(records.into_iter().map(SectionEntry::Plain).collect())
+}
+
+/// [R21]/[R22]: build one container's [R20]-ordered plain members, with each
+/// declared `childContainerIds` entry spliced in as a [`SectionEntry::Nested`]
+/// at its [R22] position (or appended to the rootless tail, sorted by title
+/// then `containerId`), recursively over the declared child graph.
+///
+/// `visited` is a defensive cycle guard — RFC-034 [R7] requires the
+/// `childContainerIds` graph to be acyclic and enforces it at write time
+/// (`require_valid_child_containers`), so this is a backstop against a
+/// corrupted repository, not the primary cycle defence, mirroring
+/// `effective_member_ids_into`'s own guard.
+#[allow(clippy::too_many_arguments)]
+fn build_container_subset_entries(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    ordering: Option<&srs_core::types::view::SectionOrdering>,
+    type_filter: Option<&[String]>,
+    package: &Package,
+    relations: &[Relation],
+    section_id: &str,
+    depth: u32,
+    visited: &mut HashSet<String>,
+    diagnostics: &mut Vec<String>,
+) -> Result<Vec<SectionEntry>, RepositoryError> {
+    if !visited.insert(container_id.to_string()) {
+        diagnostics.push(format!(
+            "[section:{section_id}] childContainerIds cycle detected at container {container_id}; stopping descent (RFC-034 [R7] should have rejected this at write time)"
+        ));
+        return Ok(Vec::new());
+    }
+
+    let plain_records = ordered_direct_members(
+        store,
+        container_id,
+        section_id,
+        ordering,
+        type_filter,
+        false,
+        package,
+        relations,
+        diagnostics,
+    )?;
+
+    let container = match get_container(store, container_id) {
+        Ok(c) => c,
+        Err(RepositoryError::ContainerNotFound { .. }) => {
+            // ordered_direct_members already degraded/diagnosed this.
+            visited.remove(container_id);
+            return Ok(plain_records.into_iter().map(SectionEntry::Plain).collect());
+        }
+        Err(e) => return Err(e),
+    };
+    let child_ids: Vec<String> = container.child_container_ids.clone().unwrap_or_default();
+
+    if child_ids.is_empty() {
+        diagnostics.push(format!(
+            "[measure] section {section_id} container {container_id} depth {depth}: direct_members={} child_sections=0",
+            plain_records.len()
+        ));
+        visited.remove(container_id);
+        return Ok(plain_records.into_iter().map(SectionEntry::Plain).collect());
+    }
+
+    struct ChildInfo {
+        container: srs_core::types::container::Container,
+        anchor_id: Option<String>,
+    }
+
+    let mut children = Vec::new();
+    for cid in &child_ids {
+        match get_container(store, cid) {
+            Ok(c) => {
+                let anchor_id = crate::container_service::r22_position_anchor_instance_id(&c);
+                children.push(ChildInfo {
+                    container: c,
+                    anchor_id,
+                });
+            }
+            Err(RepositoryError::ContainerNotFound { container_id }) => {
+                diagnostics.push(format!(
+                    "[section:{section_id}] childContainerIds names missing container {container_id}; skipped"
+                ));
+            }
+            Err(e) => {
+                visited.remove(container_id);
+                return Err(e);
+            }
+        }
+    }
+
+    let plain_ids: HashSet<String> = plain_records
+        .iter()
+        .map(|r| r.instance_id().to_string())
+        .collect();
+
+    let mut positioned: std::collections::HashMap<String, ChildInfo> =
+        std::collections::HashMap::new();
+    let mut rootless: Vec<ChildInfo> = Vec::new();
+    for child in children {
+        match &child.anchor_id {
+            Some(aid) if plain_ids.contains(aid) => {
+                positioned.insert(aid.clone(), child);
+            }
+            _ => rootless.push(child),
+        }
+    }
+
+    // [R22]: nested body ordering reuses the same resolution ladder, but a
+    // parent-scoped `memberOrder` names the PARENT's own instance ids — none
+    // of them are members of a child container, so passing it down verbatim
+    // would make every listed id look "departed" (`apply_member_order`'s
+    // diagnostic). There is no per-child `memberOrder` (RFC-042 explicitly:
+    // `childContainerIds` carries no ordering key), so a nested body's own
+    // order ladder starts at `ordering.fieldId`, falling to [N+12].
+    let child_ordering = ordering.map(|o| srs_core::types::view::SectionOrdering {
+        member_order: None,
+        field_id: o.field_id.clone(),
+        direction: o.direction.clone(),
+    });
+
+    let mut child_sections_count = 0usize;
+    let mut entries = Vec::with_capacity(plain_records.len() + rootless.len());
+    for record in plain_records {
+        let id = record.instance_id().to_string();
+        if let Some(child) = positioned.remove(&id) {
+            child_sections_count += 1;
+            let nested_entries = build_container_subset_entries(
+                store,
+                &child.container.container_id,
+                child_ordering.as_ref(),
+                None,
+                package,
+                relations,
+                section_id,
+                depth + 1,
+                visited,
+                diagnostics,
+            )?;
+            entries.push(SectionEntry::Nested(NestedSectionPlan {
+                container_id: child.container.container_id.clone(),
+                title: child.container.title.clone(),
+                anchor: Some(record),
+                entries: nested_entries,
+                depth: depth + 1,
+            }));
+        } else {
+            entries.push(SectionEntry::Plain(record));
+        }
+    }
+
+    // [R22]: the rootless tail, sorted by container title then containerId.
+    rootless.sort_by(|a, b| {
+        a.container
+            .title
+            .cmp(&b.container.title)
+            .then_with(|| a.container.container_id.cmp(&b.container.container_id))
+    });
+    for child in rootless {
+        child_sections_count += 1;
+        let nested_entries = build_container_subset_entries(
+            store,
+            &child.container.container_id,
+            child_ordering.as_ref(),
+            None,
+            package,
+            relations,
+            section_id,
+            depth + 1,
+            visited,
+            diagnostics,
+        )?;
+        entries.push(SectionEntry::Nested(NestedSectionPlan {
+            container_id: child.container.container_id.clone(),
+            title: child.container.title.clone(),
+            anchor: None,
+            entries: nested_entries,
+            depth: depth + 1,
+        }));
+    }
+
+    // Non-normative measurement instrumentation (rfc-decision-8aed3412):
+    // fan-out per section, obtainable from diagnostics without a new payload
+    // shape.
+    let direct_member_count = entries
+        .iter()
+        .filter(|e| matches!(e, SectionEntry::Plain(_)))
+        .count();
+    diagnostics.push(format!(
+        "[measure] section {section_id} container {container_id} depth {depth}: direct_members={direct_member_count} child_sections={child_sections_count}"
+    ));
+
+    visited.remove(container_id);
+    Ok(entries)
+}
+
 /// Render a Tier-0 note as a composition entry: the note title becomes the
 /// heading and each note section's free-text content is emitted as body text
 /// (with the section label, when present, as a sub-heading). Notes are legal
@@ -1889,16 +2347,19 @@ fn render_note_at_level(
     ctx: &RenderContext<'_>,
     note: &srs_core::types::note::Note,
     heading_level: u32,
+    diagnostics: &mut Vec<String>,
 ) -> String {
     let mut out = String::new();
 
     if let Some(title) = note.title.as_deref().filter(|t| !t.is_empty()) {
-        out.push_str(&format_heading(heading_level, ctx.format, title));
+        let title_level = clamp_heading_level(heading_level, ctx.format, diagnostics);
+        out.push_str(&format_heading(title_level, ctx.format, title));
     }
 
     for note_section in &note.sections {
         if let Some(label) = note_section.label.as_deref().filter(|l| !l.is_empty()) {
-            out.push_str(&format_heading(heading_level + 1, ctx.format, label));
+            let label_level = clamp_heading_level(heading_level + 1, ctx.format, diagnostics);
+            out.push_str(&format_heading(label_level, ctx.format, label));
         }
         if note_section.content.is_empty() {
             continue;
@@ -1924,6 +2385,115 @@ fn render_note_at_level(
 
     out.push('\n');
     out
+}
+
+/// Render a resolved [`SectionEntry`] sequence: a `SectionEntry::Plain` at
+/// `record_level` (already [R23]-clamped by the caller — every entry at one
+/// nesting depth shares the same plain-member heading level, so this is
+/// computed once outside the loop rather than reclamped per entry), a
+/// `SectionEntry::Nested` via [`render_nested_section`], which computes and
+/// clamps its own title/record levels from its stored `depth`.
+fn render_section_entries(
+    store: &dyn RepositoryStore,
+    ctx: &RenderContext<'_>,
+    section: &DocumentSection,
+    entries: &[SectionEntry],
+    relations: &[Relation],
+    record_level: u32,
+    diagnostics: &mut Vec<String>,
+) -> Result<String, RepositoryError> {
+    let mut out = String::new();
+    for entry in entries {
+        match entry {
+            SectionEntry::Plain(LoadedInstance::Record(record)) => {
+                out.push_str(&render_record_at_level(
+                    store,
+                    ctx,
+                    section,
+                    record,
+                    record_level,
+                    relations,
+                    diagnostics,
+                )?);
+            }
+            SectionEntry::Plain(LoadedInstance::Note(note)) => {
+                // Tier-0 note members render through their note shape: title as the
+                // heading, free-text section content as body text (#510).
+                out.push_str(&render_note_at_level(ctx, note, record_level, diagnostics));
+            }
+            SectionEntry::Nested(nested) => {
+                out.push_str(&render_nested_section(
+                    store,
+                    ctx,
+                    section,
+                    nested,
+                    relations,
+                    diagnostics,
+                )?);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// RFC-042 Revision 5 [R21]-[R23]: render one nested section — its title at
+/// `nested_title_level(depth_offset, d)`, its [R22] anchor (when present) as
+/// lead content at `nested_record_level(depth_offset, d)`, then its own
+/// entries (plain members and further-nested descents) at that same record
+/// level, recursively.
+fn render_nested_section(
+    store: &dyn RepositoryStore,
+    ctx: &RenderContext<'_>,
+    section: &DocumentSection,
+    nested: &NestedSectionPlan,
+    relations: &[Relation],
+    diagnostics: &mut Vec<String>,
+) -> Result<String, RepositoryError> {
+    let mut out = String::new();
+
+    let title_level = clamp_heading_level(
+        nested_title_level(ctx.depth_offset, nested.depth),
+        ctx.format,
+        diagnostics,
+    );
+    out.push_str(&format_heading(title_level, ctx.format, &nested.title));
+
+    let record_level = clamp_heading_level(
+        nested_record_level(ctx.depth_offset, nested.depth),
+        ctx.format,
+        diagnostics,
+    );
+
+    if let Some(anchor) = &nested.anchor {
+        match anchor {
+            LoadedInstance::Record(record) => {
+                out.push_str(&render_record_at_level(
+                    store,
+                    ctx,
+                    section,
+                    record,
+                    record_level,
+                    relations,
+                    diagnostics,
+                )?);
+            }
+            LoadedInstance::Note(note) => {
+                out.push_str(&render_note_at_level(ctx, note, record_level, diagnostics));
+            }
+        }
+    }
+
+    out.push_str(&render_section_entries(
+        store,
+        ctx,
+        section,
+        &nested.entries,
+        relations,
+        record_level,
+        diagnostics,
+    )?);
+
+    Ok(out)
 }
 
 fn render_record_at_level(
@@ -2218,6 +2788,10 @@ fn render_record_at_level(
     // under the core Relation model), which renders through its note shape
     // rather than the typed-record path (srs-rust#1070).
     if structured {
+        // [R23]: this recursion pre-dates nested sections (Change G) but the
+        // H6 clamp binds it uniformly — "closes a gap that predates nested
+        // sections rather than one this revision creates."
+        let child_level = clamp_heading_level(heading_level + 1, ctx.format, diagnostics);
         let subsections = relation_graph::children_by_relation_type(
             &record.instance_id,
             "contains",
@@ -2232,13 +2806,13 @@ fn render_record_at_level(
                         ctx,
                         section,
                         sub_record,
-                        heading_level + 1,
+                        child_level,
                         relations,
                         diagnostics,
                     )?);
                 }
                 LoadedInstance::Note(note) => {
-                    out.push_str(&render_note_at_level(ctx, note, heading_level + 1));
+                    out.push_str(&render_note_at_level(ctx, note, child_level, diagnostics));
                 }
             }
         }
@@ -4520,6 +5094,7 @@ mod tests {
                     container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
                     container_type: None,
                     type_filter: None,
+                    container_scope: None,
                 },
                 render_view_id: Some("v-text-only".to_string()),
                 type_dispatch: None,
@@ -4794,6 +5369,7 @@ mod tests {
                     container_id: "00000000-0000-4000-8000-00000000cc01".to_string(),
                     container_type: None,
                     type_filter: None,
+                    container_scope: None,
                 },
                 render_view_id: None,
                 type_dispatch: None,
@@ -5037,6 +5613,7 @@ mod tests {
                     container_id: CONTAINER_ID.to_string(),
                     container_type: None,
                     type_filter: None,
+                    container_scope: None,
                 },
                 render_view_id: None,
                 type_dispatch: None,
@@ -6567,6 +7144,7 @@ mod tests {
                     container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
                     container_type: None,
                     type_filter: None,
+                    container_scope: None,
                 },
                 render_view_id: None,
                 type_dispatch: None,
@@ -6835,6 +7413,7 @@ mod tests {
                     container_id: "00000000-0000-4000-8000-000000000c02".to_string(),
                     container_type: None,
                     type_filter: None,
+                    container_scope: None,
                 },
                 render_view_id: None,
                 type_dispatch: None,
@@ -7040,6 +7619,975 @@ mod tests {
                 .any(|d| d.contains("000000000999") && d.contains("memberOrder")),
             "{:?}",
             result.diagnostics
+        );
+    }
+
+    // ── RFC-042 Revision 5 [R20]-[R25]: container-subset nested-section rendering ──
+
+    const RFC042_ITEM_HEADING_FIELD_ID: &str = "00000000-0000-4000-b000-000000000001";
+    const RFC042_ITEM_TYPE_ID: &str = "00000000-0000-4000-b000-000000000002";
+
+    const RFC042_P_CONTAINER_ID: &str = "00000000-0000-4000-9000-000000000001";
+    const RFC042_CC1_CONTAINER_ID: &str = "00000000-0000-4000-9000-000000000011";
+    const RFC042_CC1A_CONTAINER_ID: &str = "00000000-0000-4000-9000-000000000012";
+    const RFC042_CC2_CONTAINER_ID: &str = "00000000-0000-4000-9000-000000000021";
+    const RFC042_CC3_CONTAINER_ID: &str = "00000000-0000-4000-9000-000000000031";
+    const RFC042_Q_CONTAINER_ID: &str = "00000000-0000-4000-9000-000000000002";
+
+    const RFC042_R_FIRST: &str = "00000000-0000-4000-a000-000000000001";
+    const RFC042_R_ANCHOR: &str = "00000000-0000-4000-a000-000000000002";
+    const RFC042_R_LAST: &str = "00000000-0000-4000-a000-000000000003";
+    const RFC042_R_CC1A_MEMBER: &str = "00000000-0000-4000-a000-000000000011";
+    const RFC042_R_CC1B_MEMBER: &str = "00000000-0000-4000-a000-000000000012";
+    const RFC042_R_CC1A_NESTED_MEMBER: &str = "00000000-0000-4000-a000-000000000013";
+    const RFC042_R_CC2_MEMBER: &str = "00000000-0000-4000-a000-000000000021";
+    const RFC042_R_CC3_ROOT1: &str = "00000000-0000-4000-a000-000000000031";
+    const RFC042_R_CC3_ROOT2: &str = "00000000-0000-4000-a000-000000000032";
+    const RFC042_R_Q_ONLY: &str = "00000000-0000-4000-a000-000000000041";
+
+    /// Builds the RFC-042 Revision 5 worked-example-shaped fixture:
+    ///
+    /// - Part container `P`, direct members `[First, Anchor Concept, Last]`
+    ///   (fixed by `memberOrder`), `childContainerIds: [CC1, CC2, CC3]`.
+    /// - `CC1` ("Composite Rendering Nested Section"): `anchorInstanceId` =
+    ///   the "Anchor Concept" record, which is a direct member of `P` — the
+    ///   [R22] *positioned* case. Its own direct members are "CC1 Member A"/
+    ///   "CC1 Member B", and it declares its own child `CC1a` (two-level
+    ///   nesting), whose own member is "CC1a Member X".
+    /// - `CC2` ("Alpha Child Section"): no `anchorInstanceId`, no
+    ///   `rootInstanceIds` at all — the [R22] *rootless* case.
+    /// - `CC3` ("Beta Child Section"): no `anchorInstanceId`, but **two**
+    ///   `rootInstanceIds` — the critical [R22] nuance: this is *also*
+    ///   rootless (not "first root"), so it MUST land in the same tail
+    ///   bucket as `CC2`, ordered after it by title (`Alpha` < `Beta`).
+    /// - `Q` ("Worked Examples"), an unrelated container whose direct
+    ///   members are `["CC1 Member A", "Q Only Member"]` — "CC1 Member A" is
+    ///   thus a direct member of *two* containers a single Composition
+    ///   renders (`CC1` and `Q`), the [R24] reuse case.
+    ///
+    /// Returns `(store, composition_id_with_subtree, composition_id_explicit)`.
+    fn make_rfc042_nested_store() -> (
+        crate::store::memory::MemoryStore,
+        &'static str,
+        &'static str,
+    ) {
+        use crate::container_service;
+        use crate::package::Package;
+        use srs_core::types::container::Container;
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
+        use srs_core::types::record::{FieldValues, Record};
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+        use srs_core::types::view::{Composition, SectionOrdering};
+
+        let heading_field = Field {
+            schema: None,
+            id: RFC042_ITEM_HEADING_FIELD_ID.to_string(),
+            namespace: "com.test".to_string(),
+            name: "heading".to_string(),
+            version: 1,
+            field_type: FieldType::string(),
+            description: "Heading".to_string(),
+            instructions: None,
+            ai_guidance: Some(AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            }),
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let record_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            tags: None,
+            id: RFC042_ITEM_TYPE_ID.to_string(),
+            namespace: "com.test".to_string(),
+            name: "item".to_string(),
+            version: 1,
+            description: "Item".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: RFC042_ITEM_HEADING_FIELD_ID.to_string(),
+                order: 0,
+                required: true,
+                display_label: None,
+                description: None,
+            }],
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            lineage: None,
+            provenance: None,
+        };
+
+        fn section(
+            id: &str,
+            title: Option<&str>,
+            container_id: &str,
+            container_scope: Option<ContainerScope>,
+            ordering: Option<srs_core::types::view::SectionOrdering>,
+        ) -> srs_core::types::view::DocumentSection {
+            srs_core::types::view::DocumentSection {
+                composite_renderers: None,
+                section_id: id.to_string(),
+                title: title.map(|t| t.to_string()),
+                description: None,
+                order: 0,
+                source: srs_core::types::view::SectionSource::ContainerSubset {
+                    container_id: container_id.to_string(),
+                    container_type: None,
+                    type_filter: None,
+                    container_scope,
+                },
+                render_view_id: None,
+                type_dispatch: None,
+                title_field_id: Some(RFC042_ITEM_HEADING_FIELD_ID.to_string()),
+                ordering,
+                required: None,
+                empty_behavior: None,
+                relations_presentation: None,
+            }
+        }
+
+        let part_ordering = Some(SectionOrdering {
+            member_order: Some(vec![
+                RFC042_R_FIRST.to_string(),
+                RFC042_R_ANCHOR.to_string(),
+                RFC042_R_LAST.to_string(),
+            ]),
+            field_id: None,
+            direction: None,
+        });
+
+        let dv_subtree = Composition {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
+            composite_renderers: None,
+            id: "dv-rfc042-subtree".to_string(),
+            namespace: "com.test".to_string(),
+            name: "rfc042-subtree-view".to_string(),
+            version: 1,
+            description: "RFC-042 Revision 5 subtree view".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![
+                {
+                    let mut s = section(
+                        "part",
+                        Some("Part Records"),
+                        RFC042_P_CONTAINER_ID,
+                        Some(ContainerScope::Subtree),
+                        part_ordering.clone(),
+                    );
+                    s.order = 0;
+                    s
+                },
+                {
+                    let mut s = section(
+                        "reuse",
+                        Some("Worked Examples"),
+                        RFC042_Q_CONTAINER_ID,
+                        None,
+                        None,
+                    );
+                    s.order = 1;
+                    s
+                },
+            ],
+            navigation_links: None,
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: None,
+                omit_empty_fields: None,
+            }),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let dv_explicit = Composition {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
+            composite_renderers: None,
+            id: "dv-rfc042-explicit".to_string(),
+            namespace: "com.test".to_string(),
+            name: "rfc042-explicit-view".to_string(),
+            version: 1,
+            description: "RFC-042 Revision 5 explicit (default, no descent) view".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![section(
+                "part",
+                Some("Part Records"),
+                RFC042_P_CONTAINER_ID,
+                None, // absent == "explicit" — today's default behaviour, unchanged.
+                part_ordering,
+            )],
+            navigation_links: None,
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: None,
+                omit_empty_fields: None,
+            }),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            container: None,
+            upstream_package: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "pkg-rfc042".to_string(),
+            namespace: "com.test".to_string(),
+            name: "rfc042-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![heading_field],
+            record_types: vec![record_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            compositions: vec![dv_subtree, dv_explicit],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            package_dependencies: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        fn save_item(store: &crate::store::memory::MemoryStore, id: &str, heading: &str) {
+            let record = Record {
+                field_meta: None,
+                instance_id: id.to_string(),
+                type_id: RFC042_ITEM_TYPE_ID.to_string(),
+                type_version: 1,
+                type_namespace: "com.test".to_string(),
+                type_name: "item".to_string(),
+                field_values: {
+                    let mut fv = FieldValues::new();
+                    fv.insert("heading", serde_json::json!(heading));
+                    fv
+                },
+                lifecycle_state: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                extra: std::collections::BTreeMap::new(),
+            };
+            let path = format!("records/{id}.json");
+            let value = serde_json::to_value(&record).unwrap();
+            store.ensure_instance_dir("records").unwrap();
+            store.save_instance_json(&path, &value).unwrap();
+        }
+
+        for (id, heading) in [
+            (RFC042_R_FIRST, "First"),
+            (RFC042_R_ANCHOR, "Anchor Concept"),
+            (RFC042_R_LAST, "Last"),
+            (RFC042_R_CC1A_MEMBER, "CC1 Member A"),
+            (RFC042_R_CC1B_MEMBER, "CC1 Member B"),
+            (RFC042_R_CC1A_NESTED_MEMBER, "CC1a Member X"),
+            (RFC042_R_CC2_MEMBER, "CC2 Member X"),
+            (RFC042_R_CC3_ROOT1, "CC3 Root One"),
+            (RFC042_R_CC3_ROOT2, "CC3 Root Two"),
+            (RFC042_R_Q_ONLY, "Q Only Member"),
+        ] {
+            save_item(&store, id, heading);
+        }
+
+        fn minimal_container(id: &str, title: &str) -> Container {
+            Container {
+                container_id: id.to_string(),
+                title: title.to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                anchor_instance_id: None,
+                root_instance_ids: None,
+                member_instance_ids: None,
+                child_container_ids: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            }
+        }
+
+        // Leaf containers first — `create_container` validates
+        // `childContainerIds` against already-existing containers.
+        container_service::create_container(
+            &store,
+            minimal_container(RFC042_CC1A_CONTAINER_ID, "CC1a Nested Section"),
+        )
+        .unwrap();
+        container_service::add_member(
+            &store,
+            RFC042_CC1A_CONTAINER_ID,
+            RFC042_R_CC1A_NESTED_MEMBER,
+        )
+        .unwrap();
+
+        container_service::create_container(
+            &store,
+            minimal_container(RFC042_CC2_CONTAINER_ID, "Alpha Child Section"),
+        )
+        .unwrap();
+        container_service::add_member(&store, RFC042_CC2_CONTAINER_ID, RFC042_R_CC2_MEMBER)
+            .unwrap();
+
+        {
+            let mut cc3 = minimal_container(RFC042_CC3_CONTAINER_ID, "Beta Child Section");
+            // Two rootInstanceIds, no anchorInstanceId — the [R22] nuance:
+            // NOT "first root", genuinely no anchor.
+            cc3.root_instance_ids = Some(vec![
+                RFC042_R_CC3_ROOT1.to_string(),
+                RFC042_R_CC3_ROOT2.to_string(),
+            ]);
+            container_service::create_container(&store, cc3).unwrap();
+        }
+
+        {
+            let mut cc1 = minimal_container(
+                RFC042_CC1_CONTAINER_ID,
+                "Composite Rendering Nested Section",
+            );
+            cc1.anchor_instance_id = Some(RFC042_R_ANCHOR.to_string());
+            cc1.child_container_ids = Some(vec![RFC042_CC1A_CONTAINER_ID.to_string()]);
+            container_service::create_container(&store, cc1).unwrap();
+        }
+        container_service::add_member(&store, RFC042_CC1_CONTAINER_ID, RFC042_R_CC1A_MEMBER)
+            .unwrap();
+        container_service::add_member(&store, RFC042_CC1_CONTAINER_ID, RFC042_R_CC1B_MEMBER)
+            .unwrap();
+
+        {
+            let mut p = minimal_container(RFC042_P_CONTAINER_ID, "Part");
+            p.child_container_ids = Some(vec![
+                RFC042_CC1_CONTAINER_ID.to_string(),
+                RFC042_CC2_CONTAINER_ID.to_string(),
+                RFC042_CC3_CONTAINER_ID.to_string(),
+            ]);
+            container_service::create_container(&store, p).unwrap();
+        }
+        container_service::add_member(&store, RFC042_P_CONTAINER_ID, RFC042_R_FIRST).unwrap();
+        container_service::add_member(&store, RFC042_P_CONTAINER_ID, RFC042_R_ANCHOR).unwrap();
+        container_service::add_member(&store, RFC042_P_CONTAINER_ID, RFC042_R_LAST).unwrap();
+
+        container_service::create_container(
+            &store,
+            minimal_container(RFC042_Q_CONTAINER_ID, "Worked Examples"),
+        )
+        .unwrap();
+        // [R24]: "CC1 Member A" is a direct member of BOTH CC1 and Q.
+        container_service::add_member(&store, RFC042_Q_CONTAINER_ID, RFC042_R_CC1A_MEMBER).unwrap();
+        container_service::add_member(&store, RFC042_Q_CONTAINER_ID, RFC042_R_Q_ONLY).unwrap();
+
+        (store, "dv-rfc042-subtree", "dv-rfc042-explicit")
+    }
+
+    #[test]
+    fn rfc042_subtree_renders_two_level_nested_sections_in_r22_order() {
+        let (store, subtree_view, _explicit_view) = make_rfc042_nested_store();
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: subtree_view,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+        let rendered = &result.rendered;
+
+        let pos = |needle: &str| {
+            rendered
+                .find(needle)
+                .unwrap_or_else(|| panic!("'{needle}' not found in rendered output:\n{rendered}"))
+        };
+
+        // [R20]/[R22]: parent order (First, Anchor, Last) with CC1's nested
+        // section spliced in AT the anchor's position, CC2/CC3's rootless
+        // nested sections after every positioned member, CC2 before CC3
+        // ("Alpha" < "Beta").
+        let first = pos("First");
+        let cc1_title = pos("Composite Rendering Nested Section");
+        let anchor = pos("Anchor Concept");
+        let cc1_a = pos("CC1 Member A");
+        let cc1_b = pos("CC1 Member B");
+        let cc1a_title = pos("CC1a Nested Section");
+        let cc1a_x = pos("CC1a Member X");
+        let last = pos("Last");
+        let cc2_title = pos("Alpha Child Section");
+        let cc2_x = pos("CC2 Member X");
+        let cc3_title = pos("Beta Child Section");
+        let cc3_r1 = pos("CC3 Root One");
+        let cc3_r2 = pos("CC3 Root Two");
+
+        assert!(first < cc1_title, "First must precede CC1's nested section");
+        assert!(
+            cc1_title < anchor,
+            "CC1's nested-section title must precede its anchor lead content"
+        );
+        assert!(
+            anchor < cc1_a,
+            "anchor lead content must precede CC1's own members"
+        );
+        assert!(
+            cc1_a < cc1_b,
+            "CC1 Member A before CC1 Member B (add order, no ordering key)"
+        );
+        assert!(
+            cc1_b < cc1a_title,
+            "CC1's own members must precede CC1's own nested child CC1a"
+        );
+        assert!(cc1a_title < cc1a_x, "CC1a's title must precede its member");
+        assert!(
+            cc1a_x < last,
+            "the whole CC1 nested section (including its own CC1a nesting) must render \
+             at the anchor's position, i.e. before 'Last'"
+        );
+        assert!(
+            last < cc2_title,
+            "rootless nested sections render after every positioned member"
+        );
+        assert!(cc2_title < cc2_x);
+        assert!(
+            cc2_x < cc3_title,
+            "rootless tail is ordered by container title: 'Alpha Child Section' before 'Beta Child Section'"
+        );
+        assert!(cc3_title < cc3_r1);
+        assert!(
+            cc3_r1 < cc3_r2,
+            "CC3's own two roots render in declared order"
+        );
+
+        // [R22]: the anchor record renders ONCE — as the nested section's
+        // lead content — and MUST NOT also render among the parent's plain
+        // members.
+        assert_eq!(
+            rendered.matches("Anchor Concept").count(),
+            1,
+            "anchor record must render exactly once, not once per its two candidate places:\n{rendered}"
+        );
+
+        // [R24]: "CC1 Member A" is a direct member of both CC1 (rendered
+        // nested under "part") and Q (rendered by the separate "reuse"
+        // section) — it MUST render once per place, not de-duplicated.
+        assert_eq!(
+            rendered.matches("CC1 Member A").count(),
+            2,
+            "a record that is a direct member of two containers one Composition renders \
+             must render once per place (RFC-042 [R24]):\n{rendered}"
+        );
+        assert!(rendered.contains("Q Only Member"));
+
+        // [R23]: heading levels. depthOffset 0, top section records at level
+        // 3; CC1/CC2/CC3 nested at depth 1 (title level 3, record level 4);
+        // CC1a nested at depth 2 (title level 4, record level 5).
+        assert!(
+            rendered.contains("### First"),
+            "top-level record heading:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("### Composite Rendering Nested Section"),
+            "depth-1 nested-section title heading:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("#### Anchor Concept"),
+            "depth-1 nested-section record heading:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("#### CC1a Nested Section"),
+            "depth-2 nested-section title heading:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("##### CC1a Member X"),
+            "depth-2 nested-section record heading:\n{rendered}"
+        );
+
+        // Non-normative measurement instrumentation (rfc-decision-8aed3412):
+        // fan-out per section obtainable via diagnostics.
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.starts_with("[measure] section part container")
+                    && d.contains(RFC042_P_CONTAINER_ID)
+                    && d.contains("child_sections=3")),
+            "expected a [measure] fan-out diagnostic for the part section, got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    /// [R21]: `containerScope: "explicit"` (the default — declared as
+    /// `None` here, same as every section authored before this revision)
+    /// MUST render `direct(C)` alone, with **no** descent into
+    /// `childContainerIds`, even though the container declares them. Same
+    /// container, same `memberOrder`, as the subtree fixture above — the
+    /// only difference is `containerScope` — so this is the "byte-identical
+    /// to pre-Rev-5 output" case: nothing new (no nested title, no nested
+    /// member) appears in this render at all.
+    #[test]
+    fn rfc042_explicit_default_renders_flat_with_no_descent() {
+        let (store, _subtree_view, explicit_view) = make_rfc042_nested_store();
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: explicit_view,
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+        let rendered = &result.rendered;
+
+        assert!(rendered.contains("First"));
+        assert!(rendered.contains("Anchor Concept"));
+        assert!(rendered.contains("Last"));
+
+        for absent in [
+            "Composite Rendering Nested Section",
+            "CC1 Member A",
+            "CC1 Member B",
+            "CC1a Nested Section",
+            "CC1a Member X",
+            "Alpha Child Section",
+            "CC2 Member X",
+            "Beta Child Section",
+            "CC3 Root One",
+            "CC3 Root Two",
+        ] {
+            assert!(
+                !rendered.contains(absent),
+                "containerScope 'explicit' (the default) MUST NOT descend into \
+                 childContainerIds — found unexpected nested content '{absent}':\n{rendered}"
+            );
+        }
+
+        // No nested section was ever built, so no [measure] fan-out
+        // diagnostic for a nested descent fires either.
+        assert!(
+            !result
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("child_sections=") && !d.contains("child_sections=0")),
+            "explicit scope must report no descended child sections: {:?}",
+            result.diagnostics
+        );
+    }
+
+    /// [R25]: `format: "json"` carries nested sections as nested `sections`
+    /// entries on `ProjectedSection` — never flattened into `records`.
+    #[test]
+    fn rfc042_json_projection_carries_nested_sections_not_flattened() {
+        let (store, subtree_view, _explicit_view) = make_rfc042_nested_store();
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: subtree_view,
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed");
+
+        let projection = result
+            .projection
+            .expect("json format must produce a projection");
+        let part = projection
+            .sections
+            .iter()
+            .find(|s| s.section_id == "part")
+            .expect("part section present");
+
+        // The anchor record and CC1/CC2/CC3's own members are NOT flattened
+        // into `part.records` — only the section's own plain members are.
+        let part_record_headings: Vec<&str> = part
+            .records
+            .iter()
+            .map(|r| {
+                r.fields
+                    .get("heading")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+            })
+            .collect();
+        assert_eq!(
+            part_record_headings,
+            vec!["First", "Last"],
+            "the parent section's own records must be exactly its non-anchor plain \
+             members — nested content must not flatten in: {part_record_headings:?}"
+        );
+        assert_eq!(
+            part.sections.len(),
+            3,
+            "CC1, CC2, CC3 as three nested sections"
+        );
+
+        let cc1 = part
+            .sections
+            .iter()
+            .find(|s| s.section_id == RFC042_CC1_CONTAINER_ID)
+            .expect("CC1 nested section present");
+        assert_eq!(
+            cc1.title.as_deref(),
+            Some("Composite Rendering Nested Section")
+        );
+        let cc1_headings: Vec<&str> = cc1
+            .records
+            .iter()
+            .map(|r| {
+                r.fields
+                    .get("heading")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+            })
+            .collect();
+        assert_eq!(
+            cc1_headings,
+            vec!["Anchor Concept", "CC1 Member A", "CC1 Member B"],
+            "CC1's own records: the [R22] anchor as lead content, then its own \
+             direct members: {cc1_headings:?}"
+        );
+        assert_eq!(cc1.sections.len(), 1, "CC1 has one nested child, CC1a");
+        let cc1a = &cc1.sections[0];
+        assert_eq!(cc1a.section_id, RFC042_CC1A_CONTAINER_ID);
+        assert_eq!(cc1a.title.as_deref(), Some("CC1a Nested Section"));
+        let cc1a_headings: Vec<&str> = cc1a
+            .records
+            .iter()
+            .map(|r| {
+                r.fields
+                    .get("heading")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+            })
+            .collect();
+        assert_eq!(cc1a_headings, vec!["CC1a Member X"]);
+        assert!(
+            cc1a.sections.is_empty(),
+            "CC1a has no further nested children"
+        );
+
+        let titles: Vec<&str> = part
+            .sections
+            .iter()
+            .map(|s| s.title.as_deref().unwrap_or(""))
+            .collect();
+        assert_eq!(
+            titles,
+            vec![
+                "Composite Rendering Nested Section",
+                "Alpha Child Section",
+                "Beta Child Section",
+            ],
+            "[R22] order: CC1 at its anchor's position, then the rootless tail \
+             sorted by title: {titles:?}"
+        );
+
+        // [R24] in JSON: "CC1 Member A" appears once under CC1's nested
+        // section, and once more as a plain record of the separate "reuse"
+        // section — never de-duplicated across places.
+        let reuse = projection
+            .sections
+            .iter()
+            .find(|s| s.section_id == "reuse")
+            .expect("reuse section present");
+        assert!(reuse
+            .records
+            .iter()
+            .any(|r| r.fields.get("heading").and_then(|v| v.as_str()) == Some("CC1 Member A")));
+    }
+
+    /// [R23]: a computed heading level above 6 is clamped to 6 (never
+    /// failing the render) and MUST produce a diagnostic. Five levels of
+    /// declared child-container nesting push the deepest nested section's
+    /// title to level 7 and its records to level 8 at `depthOffset: 0`
+    /// (`nested_title_level`/`nested_record_level` = `2/3 + depthOffset + d`).
+    #[test]
+    fn rfc042_h6_overflow_clamps_and_diagnoses_but_still_renders() {
+        use crate::container_service;
+        use crate::package::Package;
+        use srs_core::types::container::Container;
+        use srs_core::types::field::{AiGuidance, Field, FieldType};
+        use srs_core::types::record::{FieldValues, Record};
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+        use srs_core::types::view::{Composition, DocumentSection, SectionSource};
+
+        let heading_field = Field {
+            schema: None,
+            id: "00000000-0000-4000-c000-000000000001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "heading".to_string(),
+            version: 1,
+            field_type: FieldType::string(),
+            description: "Heading".to_string(),
+            instructions: None,
+            ai_guidance: Some(AiGuidance {
+                purpose: "Test guidance".to_string(),
+                ..Default::default()
+            }),
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let record_type = RecordType {
+            schema: None,
+            ai_guidance: None,
+            tags: None,
+            id: "00000000-0000-4000-c000-000000000002".to_string(),
+            namespace: "com.test".to_string(),
+            name: "item".to_string(),
+            version: 1,
+            description: "Item".to_string(),
+            fields: vec![FieldAssignment {
+                field_id: "00000000-0000-4000-c000-000000000001".to_string(),
+                order: 0,
+                required: true,
+                display_label: None,
+                description: None,
+            }],
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            lineage: None,
+            provenance: None,
+        };
+
+        // A chain of 6 containers, each the sole child of the previous, each
+        // anchored on its own one member — depth 0 (top) through depth 5.
+        let container_ids: Vec<String> = (0..6)
+            .map(|i| format!("00000000-0000-4000-c000-0000000000{i:02}"))
+            .collect();
+        let record_ids: Vec<String> = (0..6)
+            .map(|i| format!("00000000-0000-4000-c000-0000000001{i:02}"))
+            .collect();
+
+        let manifest = crate::manifest::Manifest {
+            container: None,
+            upstream_package: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let dv = Composition {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
+            composite_renderers: None,
+            id: "dv-rfc042-h6".to_string(),
+            namespace: "com.test".to_string(),
+            name: "rfc042-h6-view".to_string(),
+            version: 1,
+            description: "RFC-042 Revision 5 H6-overflow fixture".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![DocumentSection {
+                composite_renderers: None,
+                section_id: "deep".to_string(),
+                title: None,
+                description: None,
+                order: 0,
+                source: SectionSource::ContainerSubset {
+                    container_id: container_ids[0].clone(),
+                    container_type: None,
+                    type_filter: None,
+                    container_scope: Some(ContainerScope::Subtree),
+                },
+                render_view_id: None,
+                type_dispatch: None,
+                title_field_id: Some("00000000-0000-4000-c000-000000000001".to_string()),
+                ordering: None,
+                required: None,
+                empty_behavior: None,
+                relations_presentation: None,
+            }],
+            navigation_links: None,
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: None,
+                omit_empty_fields: None,
+            }),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let package = Package {
+            id: "pkg-rfc042-h6".to_string(),
+            namespace: "com.test".to_string(),
+            name: "rfc042-h6-package".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![heading_field],
+            record_types: vec![record_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            compositions: vec![dv],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            package_dependencies: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        for (i, id) in record_ids.iter().enumerate() {
+            let record = Record {
+                field_meta: None,
+                instance_id: id.clone(),
+                type_id: "00000000-0000-4000-c000-000000000002".to_string(),
+                type_version: 1,
+                type_namespace: "com.test".to_string(),
+                type_name: "item".to_string(),
+                field_values: {
+                    let mut fv = FieldValues::new();
+                    fv.insert("heading", serde_json::json!(format!("Depth {i} Record")));
+                    fv
+                },
+                lifecycle_state: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                extra: std::collections::BTreeMap::new(),
+            };
+            let path = format!("records/{id}.json");
+            let value = serde_json::to_value(&record).unwrap();
+            store.ensure_instance_dir("records").unwrap();
+            store.save_instance_json(&path, &value).unwrap();
+        }
+
+        // Build leaf-to-root: container[5] first (no children), then
+        // container[4], etc. Each container[i]'s own direct members are
+        // whatever positions in ITS body — the next level's anchor
+        // (`record_ids[i+1]`, so `container[i+1]` positions inside
+        // `container[i]`), plus, for the top container only, its own record
+        // (`record_ids[0]`, a plain member with nothing to anchor it). Every
+        // deeper container's own "Depth i Record" content instead arrives as
+        // ITS anchor/lead content once `container[i-1]` positions it — it is
+        // never also a member of `container[i]` itself.
+        for i in (0..6).rev() {
+            let own_members: Option<Vec<String>> = match i {
+                0 => Some(vec![record_ids[0].clone(), record_ids[1].clone()]),
+                i if i + 1 < 6 => Some(vec![record_ids[i + 1].clone()]),
+                _ => None, // deepest container: no further descent, no own body.
+            };
+            let c = Container {
+                container_id: container_ids[i].clone(),
+                title: format!("Depth {i} Section"),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                // [R22] anchor: positions this container within its PARENT
+                // (container[i-1]) at record_ids[i]'s member position there.
+                // Meaningless (and unused) for the top container, i=0, which
+                // is named directly by the section and never itself
+                // positioned by an ancestor.
+                anchor_instance_id: Some(record_ids[i].clone()),
+                root_instance_ids: None,
+                member_instance_ids: own_members,
+                child_container_ids: if i + 1 < 6 {
+                    Some(vec![container_ids[i + 1].clone()])
+                } else {
+                    None
+                },
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            };
+            container_service::create_container(&store, c).unwrap();
+        }
+
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: "dv-rfc042-h6",
+            format: None,
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render MUST NOT fail on heading overflow (RFC-042 [R23])");
+
+        // Every record still renders — clamping degrades presentation, it
+        // never drops content.
+        for i in 0..6 {
+            assert!(
+                result.rendered.contains(&format!("Depth {i} Record")),
+                "Depth {i} Record missing from render:\n{}",
+                result.rendered
+            );
+        }
+
+        // No heading above level 6 was ever emitted.
+        assert!(
+            !result.rendered.contains("\n####### "),
+            "a 7th-level markdown heading must never be emitted (clamped to 6):\n{}",
+            result.rendered
+        );
+        assert!(
+            result.rendered.contains("###### Depth 5 Record")
+                || result.rendered.contains("###### Depth 4 Record"),
+            "at least one record must render at the clamped ceiling (level 6):\n{}",
+            result.rendered
+        );
+
+        let r23_diagnostics: Vec<&String> = result
+            .diagnostics
+            .iter()
+            .filter(|d| d.starts_with("[R23]"))
+            .collect();
+        assert!(
+            !r23_diagnostics.is_empty(),
+            "expected at least one [R23] clamp diagnostic, got: {:?}",
+            result.diagnostics
+        );
+        assert!(
+            r23_diagnostics.iter().all(|d| d.contains("clamped to 6")),
+            "{:?}",
+            r23_diagnostics
         );
     }
 
@@ -7863,6 +9411,7 @@ mod tests {
                     container_id: RFC008_CONTAINER_ID.to_string(),
                     container_type: None,
                     type_filter,
+                    container_scope: None,
                 },
                 render_view_id,
                 type_dispatch,
@@ -10396,6 +11945,7 @@ mod tests {
                 container_id: container_id.to_string(),
                 container_type: None,
                 type_filter: None,
+                container_scope: None,
             },
             render_view_id: None,
             type_dispatch: None,

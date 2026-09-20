@@ -531,6 +531,32 @@ pub fn typing_anchor_instance_id(container: &Container) -> Option<String> {
         .or_else(|| container.root_instance_ids.as_ref()?.first().cloned())
 }
 
+/// RFC-042 Revision 5 [R22]'s own anchor resolution — **not**
+/// [`typing_anchor_instance_id`], which this deliberately does not call.
+///
+/// [R22]: "A child container whose `anchorInstanceId`, or absent one whose
+/// **single** `rootInstanceId`, is a direct member of the parent MUST render
+/// at that member's position... A child container with no such anchor MUST
+/// render after every positioned member." The load-bearing word is *single*:
+/// a container with two or more `rootInstanceIds` and no declared
+/// `anchorInstanceId` has **no** [R22] anchor — it falls into the "no such
+/// anchor" (rootless-tail) bucket — whereas `typing_anchor_instance_id`
+/// would happily hand back `rootInstanceIds[0]`, "any first root,
+/// unconditionally". That fallback is right for *typing* (RFC-009: some
+/// record must supply the Type match) and wrong for *positioning* (RFC-034
+/// [R3]/RFC-042 [R22]: an unordered multi-root container has no declared
+/// single point to position against — this call site never reads
+/// `.first()`).
+pub(crate) fn r22_position_anchor_instance_id(container: &Container) -> Option<String> {
+    if let Some(anchor) = &container.anchor_instance_id {
+        return Some(anchor.clone());
+    }
+    match container.root_instance_ids.as_deref() {
+        Some([single]) => Some(single.clone()),
+        _ => None,
+    }
+}
+
 /// RFC-034 [R1]: a Container's **direct membership** — `rootInstanceIds` ∪
 /// `memberInstanceIds`, in declared order, deduplicated. No traversal of any
 /// kind: a `contains` Relation never adds a member (RFC-034 [R4]), and nesting
@@ -1167,6 +1193,54 @@ mod tests {
     fn typing_anchor_instance_id_none_when_no_anchor_and_no_roots() {
         let c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
         assert_eq!(typing_anchor_instance_id(&c), None);
+    }
+
+    #[test]
+    fn r22_position_anchor_prefers_declared_anchor() {
+        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
+        c.root_instance_ids = Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]);
+        c.anchor_instance_id = Some("22222222-2222-4222-8222-222222222222".to_string());
+        assert_eq!(
+            r22_position_anchor_instance_id(&c),
+            Some("22222222-2222-4222-8222-222222222222".to_string())
+        );
+    }
+
+    #[test]
+    fn r22_position_anchor_falls_back_to_single_root_when_absent() {
+        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
+        c.root_instance_ids = Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]);
+        assert_eq!(
+            r22_position_anchor_instance_id(&c),
+            Some("11111111-1111-4111-8111-111111111111".to_string())
+        );
+    }
+
+    /// The critical nuance the RFC-042 [R22] resolution must get right and
+    /// `typing_anchor_instance_id` gets wrong for this purpose: two or more
+    /// `rootInstanceIds` with no declared `anchorInstanceId` is NOT "the
+    /// first one" — it is no anchor at all under [R22].
+    #[test]
+    fn r22_position_anchor_none_when_multiple_roots_and_no_declared_anchor() {
+        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
+        c.root_instance_ids = Some(vec![
+            "11111111-1111-4111-8111-111111111111".to_string(),
+            "33333333-3333-4333-8333-333333333333".to_string(),
+        ]);
+        assert_eq!(r22_position_anchor_instance_id(&c), None);
+        // Contrast with typing_anchor_instance_id, which DOES fall back to
+        // the first root — proving the two functions genuinely disagree on
+        // this input rather than one being a redundant wrapper of the other.
+        assert_eq!(
+            typing_anchor_instance_id(&c),
+            Some("11111111-1111-4111-8111-111111111111".to_string())
+        );
+    }
+
+    #[test]
+    fn r22_position_anchor_none_when_no_anchor_and_no_roots() {
+        let c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
+        assert_eq!(r22_position_anchor_instance_id(&c), None);
     }
 
     #[test]
