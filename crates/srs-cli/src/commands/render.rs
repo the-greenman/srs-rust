@@ -112,6 +112,9 @@ fn map_section(s: SvcSection) -> ProjectedSection {
         title: s.title,
         order: s.order,
         records: s.records.into_iter().map(map_record).collect(),
+        // RFC-042 Revision 5 [R25]: nested sections recurse through the same
+        // mapping, never flattened into `records`.
+        sections: s.sections.into_iter().map(map_section).collect(),
     }
 }
 

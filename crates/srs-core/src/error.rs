@@ -97,6 +97,14 @@ pub enum CoreError {
     )]
     SectionOrderingConflict { section_id: String },
 
+    /// RFC-042 Revision 5 [R21]: `containerScope: "repository"` is invalid on a
+    /// `container-subset` `SectionSource` — the source already names exactly
+    /// one container, so "every container in the repository" is meaningless.
+    #[error(
+        "section '{section_id}' declares containerScope 'repository' on a container-subset source (RFC-042 [R21]): 'repository' is only meaningful on discovery-query; use 'explicit' or 'subtree'"
+    )]
+    ContainerSubsetRepositoryScopeInvalid { section_id: String },
+
     #[error("duplicate field view id: {field_id}")]
     DuplicateFieldViewId { field_id: String },
 

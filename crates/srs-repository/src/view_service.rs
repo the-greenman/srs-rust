@@ -694,6 +694,7 @@ mod tests {
             field_views: vec![FieldView {
                 display_hint: None,
                 editor_hint_override: None,
+                label_mode: None,
                 composite_renderer: None,
                 field_id: "f1".to_string(),
                 order: 0,
@@ -998,6 +999,58 @@ mod tests {
         let mut dv = minimal_composition("bad");
         dv.sections = vec![];
         assert!(create_composition(&store, dv, None).is_err());
+    }
+
+    /// RFC-042 Revision 5 [R21]: `containerScope: "repository"` on a
+    /// `container-subset` source is invalid and MUST be reported as a
+    /// validation error — never a panic, never silently accepted. Proven at
+    /// the write boundary every `container-subset` composition passes
+    /// through (`create_composition` routes through `validate_composition`
+    /// before any file touches disk).
+    #[test]
+    fn create_composition_fails_with_repository_scope_on_container_subset() {
+        use srs_core::error::CoreError;
+        use srs_core::types::view::ContainerScope;
+
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let store = FileStore::new(temp.path());
+
+        let mut dv = minimal_composition("bad-scope");
+        dv.sections[0].source = SectionSource::ContainerSubset {
+            container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+            container_type: None,
+            type_filter: None,
+            container_scope: Some(ContainerScope::Repository),
+        };
+
+        match create_composition(&store, dv, None) {
+            Err(RepositoryError::CompositionValidation {
+                source: CoreError::ContainerSubsetRepositoryScopeInvalid { section_id },
+                ..
+            }) => {
+                assert_eq!(section_id, "s1");
+            }
+            other => panic!(
+                "expected CompositionValidation/ContainerSubsetRepositoryScopeInvalid, got: {:?}",
+                other.map(|r| r.composition.id)
+            ),
+        }
+
+        // The same guard fires for `explicit` and `subtree` passing cleanly —
+        // proving this rejects specifically `repository`, not the presence of
+        // `containerScope` on `container-subset` at all.
+        let mut ok_dv = minimal_composition("ok-scope");
+        ok_dv.sections[0].source = SectionSource::ContainerSubset {
+            container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+            container_type: None,
+            type_filter: None,
+            container_scope: Some(ContainerScope::Subtree),
+        };
+        assert!(
+            create_composition(&store, ok_dv, None).is_ok(),
+            "containerScope: subtree must be accepted on container-subset"
+        );
     }
 
     #[test]

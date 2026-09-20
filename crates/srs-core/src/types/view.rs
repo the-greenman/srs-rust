@@ -26,6 +26,19 @@ pub struct CompositeRendererDirective {
     pub roles: Option<std::collections::BTreeMap<String, String>>,
 }
 
+/// RFC-037 Revision 5 [FR-037-20] — whether a `FieldView` row's label is
+/// emitted. `"inline"` (the default, absent ⇒ this value) is today's
+/// behaviour unchanged; `"none"` emits the value alone with no resolved
+/// label and no separating colon. Presentation only (Invariant 13,
+/// [FR-037-21]) — never `visible: false`'s second spelling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LabelMode {
+    #[default]
+    Inline,
+    None,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FieldView {
@@ -42,10 +55,20 @@ pub struct FieldView {
     pub visible: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_label: Option<String>,
+    /// RFC-037 Revision 5 [FR-037-20]-[FR-037-22]. Absent ⇒ `Inline`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label_mode: Option<LabelMode>,
     /// RFC-036 — render this field's composite-range value through a named
     /// composite renderer. Highest-precedence declaration site ([CR-036-6]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub composite_renderer: Option<CompositeRendererBinding>,
+}
+
+impl FieldView {
+    /// [FR-037-20] — the effective label mode, defaulting absence to `Inline`.
+    pub fn effective_label_mode(&self) -> LabelMode {
+        self.label_mode.unwrap_or_default()
+    }
 }
 
 /// RFC-041 Change B — the closed, DERIVED vocabulary of top-level Record
@@ -281,6 +304,16 @@ pub enum SectionSource {
         /// keys. Ordering is computed over the full container then projected onto survivors.
         #[serde(skip_serializing_if = "Option::is_none")]
         type_filter: Option<Vec<String>>,
+        /// RFC-042 Revision 5 [R21], using RFC-034 [R8]'s one scoping vocabulary.
+        /// `Explicit` (the default) renders `direct(C)` alone, no descent.
+        /// `Subtree` additionally renders each container named in
+        /// `childContainerIds` as a nested section. `Repository` is not
+        /// admitted on this variant — [`crate::validation::view::validate_composition`]
+        /// rejects it (a `container-subset` source already names exactly one
+        /// container, so "every container in the repository" is meaningless
+        /// here).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        container_scope: Option<ContainerScope>,
     },
 }
 
@@ -835,6 +868,7 @@ mod tests {
             container_id: "cid-1".to_string(),
             container_type: None,
             type_filter: Some(vec!["ns/name".to_string(), "ns/other".to_string()]),
+            container_scope: None,
         };
         let json = serde_json::to_string(&source).unwrap();
         assert!(
@@ -855,11 +889,47 @@ mod tests {
             container_id: "cid-1".to_string(),
             container_type: None,
             type_filter: None,
+            container_scope: None,
         };
         let json = serde_json::to_string(&source).unwrap();
         assert!(
             !json.contains("typeFilter"),
             "typeFilter: None must be omitted from JSON: {json}"
+        );
+    }
+
+    /// RFC-042 Revision 5 [R21]: `containerScope` is now valid on
+    /// `container-subset`, with the `explicit`/`subtree` vocabulary
+    /// (`repository` is rejected at validation, not at the type layer).
+    #[test]
+    fn container_subset_container_scope_round_trips() {
+        let source = SectionSource::ContainerSubset {
+            container_id: "cid-1".to_string(),
+            container_type: None,
+            type_filter: None,
+            container_scope: Some(ContainerScope::Subtree),
+        };
+        let json = serde_json::to_string(&source).unwrap();
+        assert!(
+            json.contains("\"containerScope\":\"subtree\""),
+            "containerScope must serialize as camelCase with lowercase value: {json}"
+        );
+        let parsed: SectionSource = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, source);
+    }
+
+    #[test]
+    fn container_subset_no_container_scope_omitted_from_json() {
+        let source = SectionSource::ContainerSubset {
+            container_id: "cid-1".to_string(),
+            container_type: None,
+            type_filter: None,
+            container_scope: None,
+        };
+        let json = serde_json::to_string(&source).unwrap();
+        assert!(
+            !json.contains("containerScope"),
+            "containerScope: None must be omitted from JSON: {json}"
         );
     }
 

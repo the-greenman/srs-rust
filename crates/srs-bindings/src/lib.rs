@@ -598,7 +598,11 @@ impl SrsRepository {
     /// `{ $schema, compositionId, containerId: string|null, generatedAt, containerTitle,
     ///   preamble?, sections: [{ sectionId, title?, order, records: [{ instanceId, typeId,
     ///   typeVersion, typeNamespace, typeName, recordHeading?, preamble?, fields,
-    ///   orderedFieldKeys, relations?, properties? }] }] }`.
+    ///   orderedFieldKeys, relations?, properties? }], sections?: [<nested ProjectedSection,
+    ///   same shape, recursive>] }] }`.
+    /// `sections[*].sections` (RFC-042 Revision 5 [R25]) carries nested sections produced by a
+    /// `container-subset` source with `containerScope: "subtree"`; it is omitted when a section
+    /// renders no nested section, and its records are never flattened into the parent's `records`.
     /// `containerId` is always present in the JSON but may be `null` when the view is
     /// not scoped to a container.
     /// `records[*].relations` is present when the document view defines a `relationsPresentation`;

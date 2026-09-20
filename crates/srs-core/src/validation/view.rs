@@ -1,5 +1,5 @@
 use crate::error::CoreError;
-use crate::types::view::{Composition, View, ViewRow};
+use crate::types::view::{Composition, ContainerScope, SectionSource, View, ViewRow};
 use std::collections::HashSet;
 
 pub fn validate_view(view: &View) -> Result<(), CoreError> {
@@ -63,6 +63,17 @@ pub fn validate_composition(dv: &Composition) -> Result<(), CoreError> {
                 });
             }
         }
+        // RFC-042 Revision 5 [R21]: `containerScope: "repository"` is invalid
+        // on a `container-subset` source.
+        if let SectionSource::ContainerSubset {
+            container_scope: Some(ContainerScope::Repository),
+            ..
+        } = &section.source
+        {
+            return Err(CoreError::ContainerSubsetRepositoryScopeInvalid {
+                section_id: section.section_id.clone(),
+            });
+        }
     }
 
     if let Some(variants) = &dv.theme_variants {
@@ -110,6 +121,7 @@ mod tests {
             field_views: vec![FieldView {
                 display_hint: None,
                 editor_hint_override: None,
+                label_mode: None,
                 field_id: "f1".to_string(),
                 order: 0,
                 required: None,
