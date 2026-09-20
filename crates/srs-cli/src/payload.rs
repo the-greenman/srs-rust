@@ -1274,6 +1274,12 @@ pub struct ProjectedSection {
     pub title: Option<String>,
     pub order: i32,
     pub records: Vec<ProjectedRecord>,
+    /// RFC-042 Revision 5 [R25]: nested sections produced by a
+    /// `container-subset` source with `containerScope: "subtree"`. Omitted
+    /// (never flattened into `records`) when this section renders no
+    /// nested section.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<ProjectedSection>,
 }
 
 /// The top-level JSON projection object for a rendered Composition.
