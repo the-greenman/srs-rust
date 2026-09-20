@@ -1,9 +1,11 @@
 use crate::error::RepositoryError;
 use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
 use crate::store::RepositoryStore;
+use crate::validation::validate_definition_write_schema;
 use crate::writer::new_instance_id;
 use srs_core::types::term::{Term, VocabularyEntryStatus};
 use srs_core::types::vocabulary::{Vocabulary, VocabularyMode};
+use srs_schema::VOCABULARY_SCHEMA_ID;
 use std::collections::HashMap;
 
 /// Load package, returning empty result if no package exists.
@@ -110,6 +112,18 @@ pub fn create_vocabulary(
         .replace(|c: char| !c.is_alphanumeric() && c != '-', "-");
     let rel_filename = format!("vocabularies/{}-{}.json", slug, &vocabulary.id[..8]);
     let full_path = format!("{boundary_path}/{rel_filename}");
+
+    // vocabulary.json closes the object without declaring `$schema` (srs-rust#1058) — strip it
+    // before validating, exactly as the catalog loader's `body_for_definition_schema` does, so
+    // write-time and load-time validation agree.
+    let mut raw = serde_json::to_value(&vocabulary).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from(&full_path),
+        source: e,
+    })?;
+    if let Some(obj) = raw.as_object_mut() {
+        obj.remove("$schema");
+    }
+    validate_definition_write_schema(VOCABULARY_SCHEMA_ID, &raw, std::path::Path::new(&full_path))?;
 
     store.ensure_vocabularies_dir(&format!("{boundary_path}/vocabularies"))?;
     store.save_vocabulary(&full_path, &vocabulary)?;
@@ -537,6 +551,22 @@ mod tests {
         let found = get_vocabulary_by_id(&store, &result.vocabulary.id).unwrap();
         assert!(found.is_some());
         assert_eq!(found.unwrap().name, "my-vocab");
+    }
+
+    /// srs-rust#1098: `create_vocabulary` ran *no* validation at all before this fix.
+    /// `vocabulary.json`'s `version` requires `minimum: 1`, but `Vocabulary.version` is a
+    /// bare `u32` (Rust happily allows `0`) — before this fix, `create_vocabulary` wrote such
+    /// a vocabulary to disk and it would only fail at the next `repo validate`/catalog load.
+    #[test]
+    fn create_vocabulary_rejects_schema_violation() {
+        let store = MemoryStore::default();
+        let mut vocab = make_vocab("bad-version");
+        vocab.version = 0;
+        match create_vocabulary(&store, vocab, None) {
+            Err(RepositoryError::SchemaValidation { .. }) => {}
+            Ok(_) => panic!("expected SchemaValidation (version must be >= 1 per vocabulary.json)"),
+            Err(e) => panic!("expected SchemaValidation, got: {e:?}"),
+        }
     }
 
     #[test]

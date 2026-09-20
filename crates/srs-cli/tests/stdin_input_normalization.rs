@@ -69,6 +69,7 @@ fn run_srs_stdin(dir: &std::path::Path, args: &[&str], stdin: &str) -> (Value, b
 fn composition_create_succeeds_without_created_at() {
     let repo = create_temp_repo();
     let body = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
         "namespace": "com.test",
         "name": "governance-doc",
         "version": 1,
@@ -76,7 +77,10 @@ fn composition_create_succeeds_without_created_at() {
             {
                 "sectionId": "s1",
                 "order": 0,
-                "source": { "type": "fixed-instances", "instanceIds": [] }
+                "source": {
+                    "type": "container-subset",
+                    "containerId": "00000000-0000-4000-8000-000000000c01"
+                }
             }
         ]
     });

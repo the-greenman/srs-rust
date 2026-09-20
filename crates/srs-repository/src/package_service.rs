@@ -26,6 +26,7 @@ use crate::package_types::{
 };
 use crate::relation_service;
 use crate::store::RepositoryStore;
+use crate::validation::validate_definition_write_schema;
 use crate::writer::new_instance_id;
 use serde::{Deserialize, Serialize};
 use srs_core::extensions::import_tracking::{
@@ -34,7 +35,7 @@ use srs_core::extensions::import_tracking::{
 use srs_core::types::field::{Field, FieldType};
 use srs_core::types::record_type::RecordType;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
-use srs_schema::{SchemaRegistry, FIELD_SCHEMA_ID};
+use srs_schema::{SchemaRegistry, FIELD_SCHEMA_ID, TYPE_SCHEMA_ID};
 
 /// Summary for field list operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -699,6 +700,12 @@ pub fn create_type_in_package(
     );
     let full_path = format!("{boundary_path}/{rel_filename}");
 
+    let raw = serde_json::to_value(&record_type).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from(&full_path),
+        source: e,
+    })?;
+    validate_definition_write_schema(TYPE_SCHEMA_ID, &raw, std::path::Path::new(&full_path))?;
+
     store.ensure_types_dir(&format!("{boundary_path}/types"))?;
 
     store.save_type(&full_path, &record_type)?;
@@ -718,6 +725,15 @@ pub fn update_type(
             type_id: record_type.id.clone(),
             version: record_type.version,
         })?;
+    let raw = serde_json::to_value(&record_type).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from(&relative_path),
+        source: e,
+    })?;
+    validate_definition_write_schema(
+        TYPE_SCHEMA_ID,
+        &raw,
+        std::path::Path::new(&relative_path),
+    )?;
     store.update_type_file(&relative_path, &record_type)?;
     Ok(UpdateTypeResult { record_type })
 }
@@ -1449,6 +1465,7 @@ pub fn update_package_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use srs_schema::RELATION_TYPE_SCHEMA_ID;
     use crate::package_types::DefinitionKind;
     use crate::store::memory::MemoryStore;
     use srs_core::types::field::{AiGuidance, FieldType};
@@ -1647,6 +1664,31 @@ mod tests {
         assert!(types
             .iter()
             .any(|t| t.as_str().unwrap().contains("new-type")));
+    }
+
+    /// srs-rust#1098: `type.json`'s `version` requires `minimum: 1`, but `RecordType.version`
+    /// is a bare `u32` (Rust happily allows `0`). Before this fix, `create_type` wrote such a
+    /// type to disk and it would only fail at the next `repo validate`/catalog load.
+    #[test]
+    fn create_type_rejects_schema_violation() {
+        let store = MemoryStore::default();
+        let mut rt = make_type("00000000-0000-0000-0000-000000000021", "bad-version");
+        rt.version = 0;
+
+        let result = create_type(&store, rt);
+        assert!(
+            matches!(result, Err(RepositoryError::SchemaValidation { .. })),
+            "expected SchemaValidation (version must be >= 1 per type.json), got {result:?}"
+        );
+
+        let pkg = store.load_package_json().unwrap();
+        let types = pkg["types"].as_array().unwrap();
+        assert!(
+            !types
+                .iter()
+                .any(|t| t.as_str().unwrap().contains("bad-version")),
+            "no type file should have been registered after a rejected create"
+        );
     }
 
     #[test]
@@ -2296,7 +2338,7 @@ mod tests {
         let store = MemoryStore::default();
 
         let def = RelationTypeDefinition {
-            schema: None,
+            schema: Some(RELATION_TYPE_SCHEMA_ID.to_string()),
             id: "rt-001".to_string(),
             version: 1,
             key: "test-link".to_string(),
@@ -2354,7 +2396,7 @@ mod tests {
         let store = MemoryStore::default();
 
         let def = RelationTypeDefinition {
-            schema: None,
+            schema: Some(RELATION_TYPE_SCHEMA_ID.to_string()),
             id: "rt-002".to_string(),
             version: 1,
             key: "unused-link".to_string(),
@@ -2388,7 +2430,7 @@ mod tests {
         // A local shadow of the canonical "precedes" relation type, with its own id —
         // exactly the pre-implicit-core-merge shape srs-rust#995 describes (muSrs).
         let def = RelationTypeDefinition {
-            schema: None,
+            schema: Some(RELATION_TYPE_SCHEMA_ID.to_string()),
             id: "rt-shadow-precedes".to_string(),
             version: 1,
             key: "precedes".to_string(),
@@ -2462,7 +2504,7 @@ mod tests {
         // but legal shape; deleting one must not be blocked by relations still
         // reachable through the other.
         let make_def = |id: &str| RelationTypeDefinition {
-            schema: None,
+            schema: Some(RELATION_TYPE_SCHEMA_ID.to_string()),
             id: id.to_string(),
             version: 1,
             key: "shared-key".to_string(),
@@ -2535,7 +2577,7 @@ mod tests {
         store.register_package_boundary(&selector).unwrap();
 
         let def = RelationTypeDefinition {
-            schema: None,
+            schema: Some(RELATION_TYPE_SCHEMA_ID.to_string()),
             id: "rt-sub-001".to_string(),
             version: 1,
             key: "gov-link".to_string(),
@@ -2614,7 +2656,7 @@ mod tests {
         .unwrap();
 
         let def = RelationTypeDefinition {
-            schema: None,
+            schema: Some(RELATION_TYPE_SCHEMA_ID.to_string()),
             id: "rt-sub-002".to_string(),
             version: 1,
             key: "gov-file-link".to_string(),
