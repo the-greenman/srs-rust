@@ -126,6 +126,14 @@
           "type": "boolean",
           "description": "Default: true. A hidden field remains in the Record and may appear in other Views."
         },
+        "labelMode": {
+          "type": "string",
+          "enum": [
+            "inline",
+            "none"
+          ],
+          "description": "RFC-037 Revision 5. Presentation only (Invariant 13). Default: 'inline' — the row carries its resolved label per RFC-037 [FR-037-3]-[FR-037-6]. 'none' emits the value alone, with no label and no separating colon, on every path [FR-037-1] covers. It does not change which fields render (that is 'visible') and alters nothing in the Record."
+        },
         "displayLabel": {
           "type": "string"
         },
