@@ -106,8 +106,13 @@ jobs:
 
           # A PR opened (or a branch pushed) with the Actions token never triggers the
           # `pull_request`/`push` workflows that carry the required checks (#979), so
-          # dispatch them directly against the branch we just pushed.
+          # dispatch them directly against the branch we just pushed. Branch protection
+          # requires ["Test","Lint","Schema Drift"]; ci.yml carries Test and Lint (and its
+          # own Schema Drift job), but schema-drift.yml is a separate workflow file and was
+          # never dispatched here — dispatch it too so its "Schema Drift" check reports
+          # even if ci.yml's dispatch alone doesn't register on the head SHA (#1093).
           gh workflow run ci.yml --ref "${branch}"
+          gh workflow run schema-drift.yml --ref "${branch}"
 
           if [ -n "${EXISTING_BRANCH}" ]; then
             echo "Pushed new release content to existing sync PR branch ${branch}."
