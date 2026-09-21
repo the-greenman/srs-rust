@@ -511,11 +511,7 @@ pub fn update_view(
         path: std::path::PathBuf::from("package/views"),
         source: e,
     })?;
-    validate_definition_write_schema(
-        VIEW_SCHEMA_ID,
-        &raw,
-        std::path::Path::new("package/views"),
-    )?;
+    validate_definition_write_schema(VIEW_SCHEMA_ID, &raw, std::path::Path::new("package/views"))?;
     validate_view(&view).map_err(|e| RepositoryError::ViewValidation {
         path: std::path::PathBuf::from("package/views"),
         source: e,

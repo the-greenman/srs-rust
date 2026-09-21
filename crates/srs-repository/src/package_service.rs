@@ -729,11 +729,7 @@ pub fn update_type(
         path: std::path::PathBuf::from(&relative_path),
         source: e,
     })?;
-    validate_definition_write_schema(
-        TYPE_SCHEMA_ID,
-        &raw,
-        std::path::Path::new(&relative_path),
-    )?;
+    validate_definition_write_schema(TYPE_SCHEMA_ID, &raw, std::path::Path::new(&relative_path))?;
     store.update_type_file(&relative_path, &record_type)?;
     Ok(UpdateTypeResult { record_type })
 }
@@ -1465,10 +1461,10 @@ pub fn update_package_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use srs_schema::RELATION_TYPE_SCHEMA_ID;
     use crate::package_types::DefinitionKind;
     use crate::store::memory::MemoryStore;
     use srs_core::types::field::{AiGuidance, FieldType};
+    use srs_schema::RELATION_TYPE_SCHEMA_ID;
 
     fn make_field(id: &str, name: &str) -> Field {
         Field {
