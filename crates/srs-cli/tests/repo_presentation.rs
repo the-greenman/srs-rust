@@ -32,7 +32,7 @@ fn create_minimal_repo_with_package(dir: &std::path::Path) {
 
 fn create_test_composition(store: &FileStore, name: &str) -> String {
     let composition = Composition {
-        schema: None,
+        schema: Some("https://srs.semanticops.com/schema/2.0/composition.json".to_string()),
         ai_guidance: None,
         lineage: None,
         provenance: None,
@@ -51,8 +51,11 @@ fn create_test_composition(store: &FileStore, name: &str) -> String {
             title: None,
             description: None,
             order: 0,
-            source: SectionSource::FixedInstances {
-                instance_ids: vec![],
+            source: SectionSource::ContainerSubset {
+                container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+                container_type: None,
+                type_filter: None,
+                container_scope: None,
             },
             render_view_id: None,
             type_dispatch: None,

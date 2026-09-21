@@ -33,6 +33,8 @@ use srs_core::validation::protocol::validate_protocol;
 use crate::error::RepositoryError;
 use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
 use crate::store::RepositoryStore;
+use crate::validation::validate_definition_write_schema;
+use srs_schema::PROTOCOL_SCHEMA_ID;
 
 const PROTOCOLS_DIR: &str = "protocols";
 
@@ -335,8 +337,6 @@ pub fn create_protocol(
     check_protocol(&protocol)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");
-    store.ensure_instance_dir(&format!("{boundary_path}/{PROTOCOLS_DIR}"))?;
-
     let id_prefix = &protocol.id[..protocol.id.len().min(8)];
     let rel_filename = format!(
         "{PROTOCOLS_DIR}/{}-{}.json",
@@ -344,6 +344,12 @@ pub fn create_protocol(
         id_prefix
     );
     let full_path = format!("{boundary_path}/{rel_filename}");
+
+    // Validate the exact value about to be written (not a re-serialized `Protocol`, which
+    // would lose stage fields beyond the `ProtocolStage` struct — see the write below).
+    validate_definition_write_schema(PROTOCOL_SCHEMA_ID, &value, std::path::Path::new(&full_path))?;
+
+    store.ensure_instance_dir(&format!("{boundary_path}/{PROTOCOLS_DIR}"))?;
 
     // Write file first (atomicity: file before index). Store the value verbatim to preserve
     // stage fields beyond the `ProtocolStage` struct.
@@ -401,6 +407,7 @@ pub fn update_protocol(
 
     let protocol = protocol_from_value(&value)?;
     check_protocol(&protocol)?;
+    validate_definition_write_schema(PROTOCOL_SCHEMA_ID, &value, std::path::Path::new(&path))?;
 
     store.save_instance_json(&path, &value)?;
     Ok(UpdateProtocolResult { protocol: value })

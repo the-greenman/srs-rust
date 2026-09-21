@@ -26,9 +26,11 @@ use crate::container_service;
 use crate::error::RepositoryError;
 use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
 use crate::store::RepositoryStore;
+use crate::validation::validate_definition_write_schema;
 use crate::writer::new_instance_id;
 use srs_core::types::view::{Composition, ExactTypeRef, View};
 use srs_core::validation::view::{validate_composition, validate_view};
+use srs_schema::{COMPOSITION_SCHEMA_ID, VIEW_SCHEMA_ID};
 
 // ── Result enums (read-only) ──────────────────────────────────────────────────
 
@@ -474,13 +476,22 @@ pub fn create_view(
     store.load_package_boundary(&selector)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");
+    if view.id.is_empty() {
+        view.id = new_instance_id();
+    }
+    let raw = serde_json::to_value(&view).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from(format!("{boundary_path}/views")),
+        source: e,
+    })?;
+    validate_definition_write_schema(
+        VIEW_SCHEMA_ID,
+        &raw,
+        std::path::Path::new(&format!("{boundary_path}/views")),
+    )?;
     validate_view(&view).map_err(|e| RepositoryError::ViewValidation {
         path: std::path::PathBuf::from(format!("{boundary_path}/views")),
         source: e,
     })?;
-    if view.id.is_empty() {
-        view.id = new_instance_id();
-    }
     store.ensure_views_dir(&format!("{boundary_path}/views"))?;
     let id_prefix = &view.id[..view.id.len().min(8)];
     let rel_filename = format!("views/{}-{}.json", slugify(&view.name), id_prefix);
@@ -496,6 +507,11 @@ pub fn update_view(
     view_id: &str,
     view: View,
 ) -> Result<UpdateViewResult, RepositoryError> {
+    let raw = serde_json::to_value(&view).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from("package/views"),
+        source: e,
+    })?;
+    validate_definition_write_schema(VIEW_SCHEMA_ID, &raw, std::path::Path::new("package/views"))?;
     validate_view(&view).map_err(|e| RepositoryError::ViewValidation {
         path: std::path::PathBuf::from("package/views"),
         source: e,
@@ -584,13 +600,22 @@ pub fn create_composition(
     store.load_package_boundary(&selector)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");
+    if composition.id.is_empty() {
+        composition.id = new_instance_id();
+    }
+    let raw = serde_json::to_value(&composition).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from(format!("{boundary_path}/compositions")),
+        source: e,
+    })?;
+    validate_definition_write_schema(
+        COMPOSITION_SCHEMA_ID,
+        &raw,
+        std::path::Path::new(&format!("{boundary_path}/compositions")),
+    )?;
     validate_composition(&composition).map_err(|e| RepositoryError::CompositionValidation {
         path: std::path::PathBuf::from(format!("{boundary_path}/compositions")),
         source: e,
     })?;
-    if composition.id.is_empty() {
-        composition.id = new_instance_id();
-    }
     store.ensure_compositions_dir(&format!("{boundary_path}/compositions"))?;
     let id_prefix = &composition.id[..composition.id.len().min(8)];
     let rel_filename = format!(
@@ -613,6 +638,15 @@ pub fn update_composition(
     mut composition: Composition,
 ) -> Result<UpdateCompositionResult, RepositoryError> {
     composition.id = composition_id.to_string();
+    let raw = serde_json::to_value(&composition).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from("package/compositions"),
+        source: e,
+    })?;
+    validate_definition_write_schema(
+        COMPOSITION_SCHEMA_ID,
+        &raw,
+        std::path::Path::new("package/compositions"),
+    )?;
     validate_composition(&composition).map_err(|e| RepositoryError::CompositionValidation {
         path: std::path::PathBuf::from("package/compositions"),
         source: e,
@@ -681,7 +715,7 @@ mod tests {
 
     fn minimal_view(name: &str) -> View {
         View {
-            schema: None,
+            schema: Some(VIEW_SCHEMA_ID.to_string()),
             ai_guidance: None,
             lineage: None,
             provenance: None,
@@ -713,7 +747,7 @@ mod tests {
 
     fn minimal_composition(name: &str) -> Composition {
         Composition {
-            schema: None,
+            schema: Some(COMPOSITION_SCHEMA_ID.to_string()),
             ai_guidance: None,
             lineage: None,
             provenance: None,
@@ -732,8 +766,11 @@ mod tests {
                 title: None,
                 description: None,
                 order: 0,
-                source: SectionSource::FixedInstances {
-                    instance_ids: vec![],
+                source: SectionSource::ContainerSubset {
+                    container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+                    container_type: None,
+                    type_filter: None,
+                    container_scope: None,
                 },
                 render_view_id: None,
                 type_dispatch: None,
@@ -783,6 +820,33 @@ mod tests {
         let mut v = minimal_view("bad");
         v.field_views = vec![];
         assert!(create_view(&store, v, None).is_err());
+    }
+
+    /// srs-rust#1098 / srs#832: `View.protection` still exists as a Rust struct field (it
+    /// round-trips through serde), but the view-root `protection` enum was deliberately
+    /// removed from `view.json` (rfc-decision-4f1e12e5 entry 5, srs#444) — zero use, and a
+    /// hint without an enforcement contract. `view.json` declares `additionalProperties:
+    /// false` and no `protection` property, so a View with `protection` set is
+    /// Rust-struct-valid but schema-invalid — exactly the shape class this fix catches at
+    /// create time instead of at the next `repo validate`.
+    #[test]
+    fn create_view_rejects_schema_violation() {
+        use srs_core::types::view::ViewProtection;
+
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let store = FileStore::new(temp.path());
+
+        let mut v = minimal_view("retired-protection-field");
+        v.protection = Some(ViewProtection::ReadOnly);
+
+        match create_view(&store, v, None) {
+            Err(RepositoryError::SchemaValidation { .. }) => {}
+            other => panic!(
+                "expected SchemaValidation (protection is not a property of view.json), got: {:?}",
+                other.map(|r| r.view.id)
+            ),
+        }
     }
 
     /// RFC-041 [R7]: a duplicate `order` across the mixed FieldView/RecordPropertyView
@@ -1001,15 +1065,60 @@ mod tests {
         assert!(create_composition(&store, dv, None).is_err());
     }
 
+    /// srs-rust#1098 / srs#832: `SectionSource::FixedInstances` still exists as a Rust enum
+    /// variant (it round-trips through serde and several internal render/relation-graph code
+    /// paths still handle it defensively), but it was deliberately removed from
+    /// `composition.json`'s `SectionSource` oneOf (rfc-decision-4f1e12e5, srs#444) — 0 of 13
+    /// real sections used it. Before this fix, `create_composition` happily wrote a
+    /// `fixed-instances` section to disk (the Rust type accepts it) and the file would only
+    /// fail at the next `repo validate`/catalog load, bricking the whole repository. It must
+    /// now be refused at create time instead.
+    #[test]
+    fn create_composition_rejects_fixed_instances_section_source() {
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let store = FileStore::new(temp.path());
+
+        let mut dv = minimal_composition("fixed-instances-section");
+        dv.sections[0].source = SectionSource::FixedInstances {
+            instance_ids: vec!["00000000-0000-4000-8000-000000000001".to_string()],
+        };
+
+        match create_composition(&store, dv, None) {
+            Err(RepositoryError::SchemaValidation { message, .. }) => {
+                assert!(
+                    message.contains("fixed-instances") || message.contains("oneOf"),
+                    "expected the schema diagnostic to name the rejected shape, got: {message}"
+                );
+            }
+            other => panic!(
+                "expected SchemaValidation (fixed-instances is not in composition.json's SectionSource oneOf), got: {:?}",
+                other.map(|r| r.composition.id)
+            ),
+        }
+
+        // Nothing was written: the compositions directory never gets created, and the
+        // boundary's package.json compositions[] index stays empty.
+        assert!(
+            list_compositions(&store).unwrap().is_empty(),
+            "a schema-invalid composition must not be registered in the boundary"
+        );
+    }
+
     /// RFC-042 Revision 5 [R21]: `containerScope: "repository"` on a
     /// `container-subset` source is invalid and MUST be reported as a
     /// validation error — never a panic, never silently accepted. Proven at
     /// the write boundary every `container-subset` composition passes
-    /// through (`create_composition` routes through `validate_composition`
-    /// before any file touches disk).
+    /// through (`create_composition`). srs-core's own
+    /// `validate_composition` still carries the specific
+    /// `ContainerSubsetRepositoryScopeInvalid` semantic guard (exercised
+    /// directly by srs-core's own tests) — but since `containerScope:
+    /// "repository"` isn't in `composition.json`'s enum for `container-subset`
+    /// either, `create_composition`'s now-earlier write-time schema check
+    /// (srs-rust#1098) catches this shape first and reports
+    /// `SchemaValidation`, before the semantic validator ever runs.
     #[test]
     fn create_composition_fails_with_repository_scope_on_container_subset() {
-        use srs_core::error::CoreError;
         use srs_core::types::view::ContainerScope;
 
         let temp = tempfile::TempDir::new().unwrap();
@@ -1025,14 +1134,14 @@ mod tests {
         };
 
         match create_composition(&store, dv, None) {
-            Err(RepositoryError::CompositionValidation {
-                source: CoreError::ContainerSubsetRepositoryScopeInvalid { section_id },
-                ..
-            }) => {
-                assert_eq!(section_id, "s1");
+            Err(RepositoryError::SchemaValidation { message, .. }) => {
+                assert!(
+                    message.contains("container"),
+                    "expected the schema diagnostic to implicate the container-subset shape, got: {message}"
+                );
             }
             other => panic!(
-                "expected CompositionValidation/ContainerSubsetRepositoryScopeInvalid, got: {:?}",
+                "expected SchemaValidation (schema forbids containerScope: repository on container-subset), got: {:?}",
                 other.map(|r| r.composition.id)
             ),
         }

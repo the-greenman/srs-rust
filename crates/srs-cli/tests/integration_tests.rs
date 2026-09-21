@@ -5532,6 +5532,7 @@ fn create_temp_repo_with_views() -> TempDir {
 
 fn minimal_view_json() -> String {
     serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/view.json",
         "id": "",
         "namespace": "com.test",
         "name": "test-view",
@@ -5546,6 +5547,7 @@ fn minimal_view_json() -> String {
 
 fn minimal_composition_json() -> String {
     serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
         "id": "",
         "namespace": "com.test",
         "name": "test-doc-view",
@@ -5554,7 +5556,10 @@ fn minimal_composition_json() -> String {
         "sections": [{
             "sectionId": "s1",
             "order": 0,
-            "source": { "type": "fixed-instances", "instanceIds": [] }
+            "source": {
+                "type": "container-subset",
+                "containerId": "00000000-0000-4000-8000-000000000c01"
+            }
         }],
         "createdAt": "2026-01-01T00:00:00Z"
     })
@@ -5613,6 +5618,7 @@ fn view_list_filters_by_namespace() {
     run_srs_stdin_in_dir(temp.path(), &["view", "create"], &minimal_view_json());
 
     let other_view = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/view.json",
         "id": "",
         "namespace": "com.other",
         "name": "other-view",
@@ -5665,6 +5671,7 @@ fn view_update_changes_description() {
     let id = created["payload"]["view"]["id"].as_str().unwrap();
 
     let updated_json = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/view.json",
         "id": id,
         "namespace": "com.test",
         "name": "test-view",
@@ -5807,6 +5814,7 @@ fn composition_list_filters_by_namespace() {
     );
 
     let other = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
         "id": "",
         "namespace": "com.other",
         "name": "other-doc-view",
@@ -5815,7 +5823,10 @@ fn composition_list_filters_by_namespace() {
         "sections": [{
             "sectionId": "s1",
             "order": 0,
-            "source": { "type": "fixed-instances", "instanceIds": [] }
+            "source": {
+                "type": "container-subset",
+                "containerId": "00000000-0000-4000-8000-000000000c01"
+            }
         }],
         "createdAt": "2026-01-01T00:00:00Z"
     })
@@ -5843,6 +5854,7 @@ fn composition_update_replaces_description() {
     let id = created["payload"]["composition"]["id"].as_str().unwrap();
 
     let updated_json = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
         "id": id,
         "namespace": "com.test",
         "name": "test-doc-view",
@@ -5851,7 +5863,10 @@ fn composition_update_replaces_description() {
         "sections": [{
             "sectionId": "s1",
             "order": 0,
-            "source": { "type": "fixed-instances", "instanceIds": [] }
+            "source": {
+                "type": "container-subset",
+                "containerId": "00000000-0000-4000-8000-000000000c01"
+            }
         }],
         "createdAt": "2026-01-01T00:00:00Z"
     })

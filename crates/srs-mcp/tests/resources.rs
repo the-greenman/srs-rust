@@ -73,6 +73,7 @@ fn make_fixture() -> Fixture {
     create_composition_normalized(
         &store,
         serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
             "id": view_id,
             "namespace": "com.example.mcptest",
             "name": "test-view",

@@ -14,10 +14,12 @@
 use crate::error::RepositoryError;
 use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
 use crate::store::RepositoryStore;
+use crate::validation::validate_definition_write_schema;
 use crate::writer::new_instance_id;
 use srs_core::types::theme::Theme;
 use srs_core::types::view::Composition;
 use srs_core::validation::theme::validate_theme;
+use srs_schema::THEME_SCHEMA_ID;
 
 // ── Result enums (read-only) ──────────────────────────────────────────────────
 
@@ -186,13 +188,22 @@ pub fn create_theme(
     store.load_package_boundary(&selector)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");
+    if theme.id.is_empty() {
+        theme.id = new_instance_id();
+    }
+    let raw = serde_json::to_value(&theme).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from(format!("{boundary_path}/themes")),
+        source: e,
+    })?;
+    validate_definition_write_schema(
+        THEME_SCHEMA_ID,
+        &raw,
+        std::path::Path::new(&format!("{boundary_path}/themes")),
+    )?;
     validate_theme(&theme).map_err(|e| RepositoryError::ThemeValidation {
         path: std::path::PathBuf::from(format!("{boundary_path}/themes")),
         source: e,
     })?;
-    if theme.id.is_empty() {
-        theme.id = new_instance_id();
-    }
     store.ensure_themes_dir(&format!("{boundary_path}/themes"))?;
     let id_prefix = &theme.id[..theme.id.len().min(8)];
     let rel_filename = format!("themes/{}-{}.json", slugify(&theme.name), id_prefix);
@@ -208,6 +219,15 @@ pub fn update_theme(
     theme_id: &str,
     theme: Theme,
 ) -> Result<UpdateThemeResult, RepositoryError> {
+    let raw = serde_json::to_value(&theme).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from("package/themes"),
+        source: e,
+    })?;
+    validate_definition_write_schema(
+        THEME_SCHEMA_ID,
+        &raw,
+        std::path::Path::new("package/themes"),
+    )?;
     validate_theme(&theme).map_err(|e| RepositoryError::ThemeValidation {
         path: std::path::PathBuf::from("package/themes"),
         source: e,
@@ -315,7 +335,7 @@ mod tests {
 
     fn minimal_theme(name: &str) -> Theme {
         Theme {
-            schema: None,
+            schema: Some(THEME_SCHEMA_ID.to_string()),
             lineage: None,
             provenance: None,
             updated_at: None,
@@ -341,7 +361,7 @@ mod tests {
         theme_id: &str,
     ) -> srs_core::types::view::Composition {
         srs_core::types::view::Composition {
-            schema: None,
+            schema: Some(srs_schema::COMPOSITION_SCHEMA_ID.to_string()),
             ai_guidance: None,
             lineage: None,
             provenance: None,
@@ -360,8 +380,11 @@ mod tests {
                 title: None,
                 description: None,
                 order: 0,
-                source: SectionSource::FixedInstances {
-                    instance_ids: vec![],
+                source: SectionSource::ContainerSubset {
+                    container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+                    container_type: None,
+                    type_filter: None,
+                    container_scope: None,
                 },
                 render_view_id: None,
                 type_dispatch: None,
@@ -388,7 +411,7 @@ mod tests {
 
     fn minimal_composition_no_theme(name: &str) -> srs_core::types::view::Composition {
         srs_core::types::view::Composition {
-            schema: None,
+            schema: Some(srs_schema::COMPOSITION_SCHEMA_ID.to_string()),
             ai_guidance: None,
             lineage: None,
             provenance: None,
@@ -407,8 +430,11 @@ mod tests {
                 title: None,
                 description: None,
                 order: 0,
-                source: SectionSource::FixedInstances {
-                    instance_ids: vec![],
+                source: SectionSource::ContainerSubset {
+                    container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+                    container_type: None,
+                    type_filter: None,
+                    container_scope: None,
                 },
                 render_view_id: None,
                 type_dispatch: None,
@@ -456,6 +482,24 @@ mod tests {
         let mut t = minimal_theme("bad");
         t.targets = vec![];
         assert!(create_theme(&store, t, None).is_err());
+    }
+
+    /// srs-rust#1098: `theme.json`'s `version` requires `minimum: 1`, but `Theme.version` is a
+    /// bare `u32` (Rust happily allows `0`). Before this fix, `create_theme` wrote such a
+    /// theme to disk and it would only fail at the next `repo validate`/catalog load.
+    #[test]
+    fn create_theme_rejects_schema_violation() {
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let store = FileStore::new(temp.path());
+
+        let mut t = minimal_theme("bad-version");
+        t.version = 0;
+        match create_theme(&store, t, None) {
+            Err(RepositoryError::SchemaValidation { .. }) => {}
+            Ok(_) => panic!("expected SchemaValidation (version must be >= 1 per theme.json)"),
+            Err(e) => panic!("expected SchemaValidation, got: {e:?}"),
+        }
     }
 
     #[test]

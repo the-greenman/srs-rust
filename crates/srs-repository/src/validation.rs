@@ -2431,6 +2431,29 @@ fn validate_value_against_schema(
     Some(diags)
 }
 
+/// Write-path fail-fast twin of [`validate_value_against_schema`] above.
+///
+/// That function is for read-path, whole-repo diagnostic scanning (`repo validate`) — it
+/// collects `ValidationDiagnostic`s and carries package-manifest-specific forward-compat
+/// leniency. This one is for a service's own `create_*`/`update_*` write path: it enforces the
+/// same declared JSON Schema (`SchemaRegistry::global().validate_by_id`) against the exact
+/// value about to be written, before the write happens, so a value that satisfies its Rust
+/// type but not the narrower published schema is refused with a precise diagnostic instead of
+/// being written to disk and bricking the repository at the next catalog load
+/// (`SRS038-R7-SCHEMA-VALIDATION`) — srs-rust#1098.
+pub(crate) fn validate_definition_write_schema(
+    schema_id: &'static str,
+    value: &Value,
+    context: &std::path::Path,
+) -> Result<(), RepositoryError> {
+    SchemaRegistry::global()
+        .validate_by_id(schema_id, value)
+        .map_err(|e| RepositoryError::SchemaValidation {
+            path: context.to_path_buf(),
+            message: e.to_string(),
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

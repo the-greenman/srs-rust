@@ -116,6 +116,7 @@ mod create_normalization_tests {
 
     fn minimal_composition() -> serde_json::Value {
         json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
             "namespace": "com.test",
             "name": "test-doc-view",
             "version": 1,
@@ -123,7 +124,10 @@ mod create_normalization_tests {
                 {
                     "sectionId": "s1",
                     "order": 0,
-                    "source": { "type": "fixed-instances", "instanceIds": [] }
+                    "source": {
+                        "type": "container-subset",
+                        "containerId": "00000000-0000-4000-8000-000000000c01"
+                    }
                 }
             ]
         })
@@ -169,6 +173,7 @@ mod create_normalization_tests {
     fn view_create_defaults_created_at_and_description() {
         let store = MemoryStore::default();
         let raw = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/view.json",
             "namespace": "com.test",
             "name": "test-view",
             "version": 1,
@@ -184,6 +189,7 @@ mod create_normalization_tests {
     fn theme_create_defaults_created_at_and_description() {
         let store = MemoryStore::default();
         let raw = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/theme.json",
             "namespace": "com.test",
             "name": "test-theme",
             "version": 1,
@@ -230,6 +236,7 @@ mod create_normalization_tests {
     fn relation_type_create_defaults_created_at_and_description() {
         let store = MemoryStore::default();
         let raw = json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
             "version": 1,
             "key": "test-relates",
             "namespace": "com.test",

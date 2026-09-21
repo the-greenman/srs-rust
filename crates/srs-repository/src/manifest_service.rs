@@ -1503,7 +1503,7 @@ mod tests {
         use srs_core::types::view::{Composition, DocumentSection, SectionSource};
 
         let composition = Composition {
-            schema: None,
+            schema: Some("https://srs.semanticops.com/schema/2.0/composition.json".to_string()),
             ai_guidance: None,
             lineage: None,
             provenance: None,
@@ -1522,8 +1522,11 @@ mod tests {
                 title: None,
                 description: None,
                 order: 0,
-                source: SectionSource::FixedInstances {
-                    instance_ids: vec![],
+                source: SectionSource::ContainerSubset {
+                    container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+                    container_type: None,
+                    type_filter: None,
+                    container_scope: None,
                 },
                 render_view_id: None,
                 type_dispatch: None,

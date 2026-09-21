@@ -93,6 +93,7 @@ fn run_srs_stdin(dir: &std::path::Path, args: &[&str], stdin: &str) -> Value {
 
 fn minimal_theme_json(name: &str) -> String {
     serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/theme.json",
         "id": "",
         "namespace": "com.test",
         "name": name,
@@ -106,6 +107,7 @@ fn minimal_theme_json(name: &str) -> String {
 
 fn minimal_composition_with_theme_json(theme_id: &str) -> String {
     serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
         "id": "",
         "namespace": "com.test",
         "name": "test-doc-view",
@@ -114,7 +116,10 @@ fn minimal_composition_with_theme_json(theme_id: &str) -> String {
         "sections": [{
             "sectionId": "s1",
             "order": 0,
-            "source": { "type": "fixed-instances", "instanceIds": [] }
+            "source": {
+                "type": "container-subset",
+                "containerId": "00000000-0000-4000-8000-000000000c01"
+            }
         }],
         "themeRef": {
             "mode": "bundled",
@@ -212,6 +217,7 @@ fn theme_update_overwrites_description() {
         .to_string();
 
     let updated_json = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/theme.json",
         "id": id,
         "namespace": "com.test",
         "name": "update-me",

@@ -88,7 +88,7 @@ fn make_type(id: &str, name: &str) -> RecordType {
 
 fn make_view(name: &str) -> View {
     View {
-        schema: None,
+        schema: Some("https://srs.semanticops.com/schema/2.0/view.json".to_string()),
         ai_guidance: None,
         lineage: None,
         provenance: None,
@@ -120,7 +120,7 @@ fn make_view(name: &str) -> View {
 
 fn make_composition(name: &str) -> Composition {
     Composition {
-        schema: None,
+        schema: Some("https://srs.semanticops.com/schema/2.0/composition.json".to_string()),
         ai_guidance: None,
         lineage: None,
         provenance: None,
@@ -139,8 +139,11 @@ fn make_composition(name: &str) -> Composition {
             title: None,
             description: None,
             order: 0,
-            source: SectionSource::FixedInstances {
-                instance_ids: vec![],
+            source: SectionSource::ContainerSubset {
+                container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+                container_type: None,
+                type_filter: None,
+                container_scope: None,
             },
             render_view_id: None,
             type_dispatch: None,
@@ -162,7 +165,7 @@ fn make_composition(name: &str) -> Composition {
 
 fn make_theme(name: &str) -> Theme {
     Theme {
-        schema: None,
+        schema: Some("https://srs.semanticops.com/schema/2.0/theme.json".to_string()),
         lineage: None,
         provenance: None,
         updated_at: None,
