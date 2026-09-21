@@ -128,8 +128,13 @@ fn collect_entries(
         }
     };
 
-    let child_ids =
-        tree_service::child_ids(store, instance_id, "contains", relations, container_children)?;
+    let child_ids = tree_service::child_ids(
+        store,
+        instance_id,
+        "contains",
+        relations,
+        container_children,
+    )?;
 
     let mut entry = okf_entry_from_instance(&instance, fni, ifi);
     let mut own_filename = entry.path.clone();
@@ -716,10 +721,7 @@ mod tests {
             .save_record(&minimal_record(child_id, Some("2026-01-02T00:00:00Z")))
             .unwrap();
         store
-            .save_record(&minimal_record(
-                grandchild_id,
-                Some("2026-01-03T00:00:00Z"),
-            ))
+            .save_record(&minimal_record(grandchild_id, Some("2026-01-03T00:00:00Z")))
             .unwrap();
 
         let c = create_container(&store, minimal_container("", "Tree")).unwrap();
@@ -857,7 +859,8 @@ mod tests {
             .filter(|e| e.instance_id == shared_child)
             .count();
         assert_eq!(
-            occurrences, 1,
+            occurrences,
+            1,
             "shared child must be emitted exactly once, got {occurrences} occurrences in {:?}",
             bundle
                 .entries
