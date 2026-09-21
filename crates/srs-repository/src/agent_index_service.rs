@@ -1,7 +1,7 @@
 use crate::analysis::build_repo_map;
 use crate::error::RepositoryError;
 use crate::package_service::list_types;
-use crate::repository_navigation_service::repository_navigation;
+use crate::repository_navigation_service::repository_navigation_with_depth;
 use crate::store::RepositoryStore;
 use serde::{Deserialize, Serialize};
 
@@ -45,7 +45,10 @@ pub struct AgentIndex {
 pub fn build_agent_index(store: &dyn RepositoryStore) -> Result<AgentIndex, RepositoryError> {
     let repo_map = build_repo_map(store)?;
     let type_list = list_types(store)?;
-    let navigation = repository_navigation(store)?;
+    // Only the top-level section labels are read below; the part-of tree under
+    // them is never consulted, so do not build it (srs-rust#1113 makes full
+    // depth combinatorial on a corpus with overlapping container membership).
+    let navigation = repository_navigation_with_depth(store, Some(0))?;
 
     let types = type_list
         .into_iter()
