@@ -266,7 +266,7 @@ fn build_node(
 /// `relation_graph::children_by_relation_type` this never parses a target as a
 /// Tier-2 record, so a Tier-0 note child is ordered and walked like any other
 /// node.
-fn child_ids(
+pub(crate) fn child_ids(
     store: &dyn RepositoryStore,
     source_id: &str,
     relation_type: &str,
