@@ -8,7 +8,9 @@ use crate::payload::{
 use anyhow::Result;
 use srs_core::types::view::RecordProperty as SvcRecordProperty;
 use srs_repository::export_service::{export_record_bundle, ExportBundleInput};
-use srs_repository::okf_export_service::{OkfBundle, OkfEntry, OkfExportInput};
+use srs_repository::okf_export_service::{
+    group_relation_links_by_type, OkfBundle, OkfEntry, OkfExportInput,
+};
 use srs_repository::render_service::{
     render_composition, CompositionProjection as SvcProjection,
     ProjectedPropertyRow as SvcPropertyRow, ProjectedPropertyValue as SvcPropertyValue,
@@ -249,7 +251,8 @@ fn write_okf_bundle_to_dir(bundle: &OkfBundle, dir: &Path) -> Result<usize> {
         let frontmatter = build_frontmatter(entry);
         let body = entry.note_text.as_deref().unwrap_or("").to_string();
         let heading = entry.display_label.replace('\n', " ").replace('\r', "");
-        let content = format!("{frontmatter}\n# {heading}\n\n{body}");
+        let related = build_related_section(entry);
+        let content = format!("{frontmatter}\n# {heading}\n\n{body}{related}");
         std::fs::write(dir.join(&entry.path), content.as_bytes())
             .map_err(|e| anyhow::anyhow!("failed to write {:?}: {}", entry.path, e))?;
         index_lines.push(format!("- [{}]({})", entry.display_label, entry.path));
@@ -271,6 +274,27 @@ fn build_frontmatter(entry: &OkfEntry) -> String {
     for (name, value) in &entry.field_pairs {
         lines.push(format!("{name}: {value}"));
     }
+    for (relation_type, paths) in group_relation_links_by_type(&entry.outgoing_relations) {
+        let list = paths.join(", ");
+        lines.push(format!("{relation_type}: [{list}]"));
+    }
     lines.push("---".to_string());
+    lines.join("\n")
+}
+
+/// A human-readable `## Related` section — the frontmatter list above is the
+/// machine-readable contract, this is what an agent reading the file sees.
+fn build_related_section(entry: &OkfEntry) -> String {
+    if entry.outgoing_relations.is_empty() {
+        return String::new();
+    }
+    let mut lines = vec![String::new(), "## Related".to_string(), String::new()];
+    for link in &entry.outgoing_relations {
+        lines.push(format!(
+            "- {}: [{}]({})",
+            link.relation_type, link.target_display_label, link.target_path
+        ));
+    }
+    lines.push(String::new());
     lines.join("\n")
 }
