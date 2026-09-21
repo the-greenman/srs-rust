@@ -8,11 +8,21 @@ use crate::store::RepositoryStore;
 use crate::tree_service;
 use crate::writer::slugify_instance_name;
 use srs_core::types::relation::Relation;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[derive(Debug)]
 pub struct OkfExportInput {
     pub container_id: String,
+}
+
+/// A relation from this entry to another entry in the same bundle, already
+/// resolved to that entry's exported path — the writer has no id→path index
+/// of its own, so resolution happens here, once, at export time.
+#[derive(Debug, Clone)]
+pub struct OkfRelationLink {
+    pub relation_type: String,
+    pub target_path: String,
+    pub target_display_label: String,
 }
 
 #[derive(Debug)]
@@ -23,6 +33,9 @@ pub struct OkfEntry {
     pub type_label: String,
     pub field_pairs: Vec<(String, String)>,
     pub note_text: Option<String>,
+    /// Outgoing edges whose target is also in this bundle, sorted by
+    /// (relation_type, target_path) for deterministic output.
+    pub outgoing_relations: Vec<OkfRelationLink>,
 }
 
 #[derive(Debug)]
@@ -81,11 +94,82 @@ pub fn export_okf_bundle(
         )?;
     }
 
+    attach_relation_links(&mut entries, &all_relations, &mut diagnostics);
+
     Ok(OkfBundle {
         container_title: container.title,
         entries,
         diagnostics,
     })
+}
+
+/// Resolves every relation whose source is a bundle member to its target's
+/// exported path, and attaches the result to the source entry. A target
+/// outside the bundle cannot be linked — that would be a dangling markdown
+/// link indistinguishable from a rename, exactly the failure mode OKF export
+/// exists to avoid reproducing — so it is reported as a diagnostic instead.
+fn attach_relation_links(
+    entries: &mut [OkfEntry],
+    all_relations: &[Relation],
+    diagnostics: &mut Vec<String>,
+) {
+    let id_to_path: HashMap<&str, &str> = entries
+        .iter()
+        .map(|e| (e.instance_id.as_str(), e.path.as_str()))
+        .collect();
+    let id_to_label: HashMap<&str, &str> = entries
+        .iter()
+        .map(|e| (e.instance_id.as_str(), e.display_label.as_str()))
+        .collect();
+    let member_ids: HashSet<&str> = id_to_path.keys().copied().collect();
+
+    let mut links_by_source: HashMap<&str, Vec<OkfRelationLink>> = HashMap::new();
+    for rel in all_relations {
+        let source = rel.source_instance_id.as_str();
+        if !member_ids.contains(source) {
+            continue;
+        }
+        let target = rel.target_instance_id.as_str();
+        match (id_to_path.get(target), id_to_label.get(target)) {
+            (Some(path), Some(label)) => {
+                links_by_source
+                    .entry(source)
+                    .or_default()
+                    .push(OkfRelationLink {
+                        relation_type: rel.relation_type.clone(),
+                        target_path: (*path).to_string(),
+                        target_display_label: (*label).to_string(),
+                    });
+            }
+            _ => diagnostics.push(format!(
+                "relation {} ({}) from {source} points outside the bundle: {target}",
+                rel.relation_id, rel.relation_type
+            )),
+        }
+    }
+
+    for entry in entries.iter_mut() {
+        if let Some(mut links) = links_by_source.remove(entry.instance_id.as_str()) {
+            links.sort_by(|a, b| {
+                a.relation_type
+                    .cmp(&b.relation_type)
+                    .then_with(|| a.target_path.cmp(&b.target_path))
+            });
+            entry.outgoing_relations = links;
+        }
+    }
+}
+
+/// Groups an entry's outgoing links by relation type for frontmatter
+/// rendering — one key per relation type, list of target paths.
+pub fn group_relation_links_by_type(links: &[OkfRelationLink]) -> Vec<(String, Vec<String>)> {
+    let mut map: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for link in links {
+        map.entry(link.relation_type.clone())
+            .or_default()
+            .push(link.target_path.clone());
+    }
+    map.into_iter().collect()
 }
 
 /// Walks the `contains` tree rooted at `instance_id`, emitting one
@@ -215,6 +299,7 @@ fn okf_entry_from_instance(
                 type_label,
                 field_pairs,
                 note_text: None,
+                outgoing_relations: Vec::new(),
             }
         }
         LoadedInstance::Note(n) => {
@@ -248,6 +333,7 @@ fn okf_entry_from_instance(
                 type_label: "note".to_string(),
                 field_pairs: vec![],
                 note_text,
+                outgoing_relations: Vec::new(),
             }
         }
     }
@@ -330,9 +416,13 @@ mod tests {
     }
 
     fn make_precedes_relation(id: &str, src: &str, tgt: &str) -> Relation {
+        make_relation(id, "precedes", src, tgt)
+    }
+
+    fn make_relation(id: &str, relation_type: &str, src: &str, tgt: &str) -> Relation {
         Relation {
             relation_id: id.to_string(),
-            relation_type: "precedes".to_string(),
+            relation_type: relation_type.to_string(),
             source_instance_id: src.to_string(),
             target_instance_id: tgt.to_string(),
             created_at: None,
@@ -340,6 +430,21 @@ mod tests {
             source_refs: None,
             meta: None,
         }
+    }
+
+    fn write_relations(store: &MemoryStore, relations: &[Relation]) {
+        let rel_json = serde_json::json!({
+            "relations": relations
+                .iter()
+                .map(|r| serde_json::json!({
+                    "relationId": r.relation_id,
+                    "relationType": r.relation_type,
+                    "sourceInstanceId": r.source_instance_id,
+                    "targetInstanceId": r.target_instance_id,
+                }))
+                .collect::<Vec<_>>()
+        });
+        crate::store::write_relations_standalone_for_test(store, &rel_json);
     }
 
     #[test]
@@ -919,5 +1024,195 @@ mod tests {
             .entries
             .iter()
             .any(|e| e.path == format!("{second}.md")));
+    }
+
+    #[test]
+    fn refines_relation_resolves_to_target_path_within_bundle() {
+        let store = make_store();
+        let a_id = "0000a001-aaaa-4001-8000-0000000000a1";
+        let b_id = "0000a002-aaaa-4002-8000-0000000000a2";
+        let a = minimal_record(a_id, Some("2026-01-01T00:00:00Z"));
+        let b = minimal_record(b_id, Some("2026-01-02T00:00:00Z"));
+        store.save_record(&a).unwrap();
+        store.save_record(&b).unwrap();
+
+        let c = create_container(&store, minimal_container("", "Refines")).unwrap();
+        add_member(&store, &c.container_id, a_id).unwrap();
+        add_member(&store, &c.container_id, b_id).unwrap();
+
+        write_relations(
+            &store,
+            &[make_relation(
+                "eeeeeeee-1000-4000-8000-000000000001",
+                "refines",
+                a_id,
+                b_id,
+            )],
+        );
+
+        let bundle = export_okf_bundle(
+            &store,
+            OkfExportInput {
+                container_id: c.container_id.clone(),
+            },
+        )
+        .unwrap();
+
+        assert!(bundle.diagnostics.is_empty());
+        let entry_a = bundle
+            .entries
+            .iter()
+            .find(|e| e.instance_id == a_id)
+            .unwrap();
+        let entry_b = bundle
+            .entries
+            .iter()
+            .find(|e| e.instance_id == b_id)
+            .unwrap();
+        assert_eq!(entry_a.outgoing_relations.len(), 1);
+        let link = &entry_a.outgoing_relations[0];
+        assert_eq!(link.relation_type, "refines");
+        assert_eq!(link.target_path, entry_b.path);
+        assert_eq!(link.target_display_label, entry_b.display_label);
+        // Target carries no outgoing edge of its own.
+        assert!(entry_b.outgoing_relations.is_empty());
+    }
+
+    #[test]
+    fn relation_target_outside_bundle_produces_diagnostic_not_a_dangling_link() {
+        let store = make_store();
+        let a_id = "0000b001-bbbb-4001-8000-0000000000b1";
+        let outside_id = "0000b002-bbbb-4002-8000-0000000000b2";
+        let a = minimal_record(a_id, Some("2026-01-01T00:00:00Z"));
+        let outside = minimal_record(outside_id, Some("2026-01-02T00:00:00Z"));
+        store.save_record(&a).unwrap();
+        store.save_record(&outside).unwrap();
+
+        // Only `a` is a member of the bundle's container — `outside` is not.
+        let c = create_container(&store, minimal_container("", "Dangling")).unwrap();
+        add_member(&store, &c.container_id, a_id).unwrap();
+
+        write_relations(
+            &store,
+            &[make_relation(
+                "eeeeeeee-2000-4000-8000-000000000002",
+                "depends-on",
+                a_id,
+                outside_id,
+            )],
+        );
+
+        let bundle = export_okf_bundle(
+            &store,
+            OkfExportInput {
+                container_id: c.container_id.clone(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(bundle.entries.len(), 1);
+        let entry_a = &bundle.entries[0];
+        assert!(
+            entry_a.outgoing_relations.is_empty(),
+            "target outside the bundle must not produce a link"
+        );
+        assert_eq!(bundle.diagnostics.len(), 1);
+        assert!(bundle.diagnostics[0].contains(outside_id));
+        assert!(bundle.diagnostics[0].contains("depends-on"));
+    }
+
+    #[test]
+    fn precedes_relation_is_represented_on_the_entry_not_only_in_index_order() {
+        let store = make_store();
+        let a_id = "0000c001-cccc-4001-8000-0000000000c1";
+        let b_id = "0000c002-cccc-4002-8000-0000000000c2";
+        let a = minimal_record(a_id, Some("2026-01-01T00:00:00Z"));
+        let b = minimal_record(b_id, Some("2026-01-02T00:00:00Z"));
+        store.save_record(&a).unwrap();
+        store.save_record(&b).unwrap();
+
+        let c = create_container(&store, minimal_container("", "Precedes")).unwrap();
+        add_member(&store, &c.container_id, a_id).unwrap();
+        add_member(&store, &c.container_id, b_id).unwrap();
+
+        write_relations(
+            &store,
+            &[make_precedes_relation(
+                "eeeeeeee-3000-4000-8000-000000000003",
+                a_id,
+                b_id,
+            )],
+        );
+
+        let bundle = export_okf_bundle(
+            &store,
+            OkfExportInput {
+                container_id: c.container_id.clone(),
+            },
+        )
+        .unwrap();
+
+        let entry_a = bundle
+            .entries
+            .iter()
+            .find(|e| e.instance_id == a_id)
+            .unwrap();
+        assert_eq!(entry_a.outgoing_relations.len(), 1);
+        assert_eq!(entry_a.outgoing_relations[0].relation_type, "precedes");
+    }
+
+    #[test]
+    fn multiple_relation_types_group_by_type_and_sort_deterministically() {
+        let store = make_store();
+        let a_id = "0000d001-dddd-4001-8000-0000000000d1";
+        let b_id = "0000d002-dddd-4002-8000-0000000000d2";
+        let c_id = "0000d003-dddd-4003-8000-0000000000d3";
+        let a = minimal_record(a_id, Some("2026-01-01T00:00:00Z"));
+        let b = minimal_record(b_id, Some("2026-01-02T00:00:00Z"));
+        let c_rec = minimal_record(c_id, Some("2026-01-03T00:00:00Z"));
+        store.save_record(&a).unwrap();
+        store.save_record(&b).unwrap();
+        store.save_record(&c_rec).unwrap();
+
+        let container = create_container(&store, minimal_container("", "Grouped")).unwrap();
+        add_member(&store, &container.container_id, a_id).unwrap();
+        add_member(&store, &container.container_id, b_id).unwrap();
+        add_member(&store, &container.container_id, c_id).unwrap();
+
+        write_relations(
+            &store,
+            &[
+                make_relation(
+                    "eeeeeeee-4000-4000-8000-000000000004",
+                    "depends-on",
+                    a_id,
+                    c_id,
+                ),
+                make_relation(
+                    "eeeeeeee-4000-4000-8000-000000000005",
+                    "refines",
+                    a_id,
+                    b_id,
+                ),
+            ],
+        );
+
+        let bundle = export_okf_bundle(
+            &store,
+            OkfExportInput {
+                container_id: container.container_id.clone(),
+            },
+        )
+        .unwrap();
+
+        let entry_a = bundle
+            .entries
+            .iter()
+            .find(|e| e.instance_id == a_id)
+            .unwrap();
+        let grouped = group_relation_links_by_type(&entry_a.outgoing_relations);
+        let types: Vec<&str> = grouped.iter().map(|(t, _)| t.as_str()).collect();
+        // "depends-on" sorts before "refines" — deterministic, not insertion order.
+        assert_eq!(types, vec!["depends-on", "refines"]);
     }
 }
