@@ -1,11 +1,15 @@
 use crate::container_service;
 use crate::error::RepositoryError;
+use crate::package::Package;
 use crate::record_label;
 use crate::record_store::{self, LoadedInstance};
 use crate::relation_graph;
 use crate::relation_service;
 use crate::store::RepositoryStore;
 use crate::writer::slugify_instance_name;
+use srs_core::types::field::{EditorHint, Field};
+use srs_core::types::field_type::{Datatype, StringFormat};
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct OkfExportInput {
@@ -19,6 +23,11 @@ pub struct OkfEntry {
     pub instance_id: String,
     pub type_label: String,
     pub field_pairs: Vec<(String, String)>,
+    /// `(heading, content)` — text-formatted field values (RFC-032
+    /// `datatype: string` with `format: markdown`, or a `textarea`/`rich-text`
+    /// `editorHint`), rendered as body sections instead of frontmatter scalars
+    /// (srs-rust#1106). Empty for a Tier-0 note (its content is `note_text`).
+    pub body_sections: Vec<(String, String)>,
     pub note_text: Option<String>,
 }
 
@@ -36,7 +45,8 @@ pub fn export_okf_bundle(
     let container = container_service::get_container(store, &input.container_id)?;
     let member_ids = container_service::list_container_members(store, &input.container_id)?;
 
-    let (fni, ifi) = record_label::build_label_indexes(store)?;
+    let package = store.load_package()?;
+    let (fni, ifi) = record_label::build_label_indexes_from_package(&package);
     let all_relations = relation_service::load_relations(store)?;
 
     let mut instances: Vec<LoadedInstance> = Vec::new();
@@ -53,7 +63,7 @@ pub fn export_okf_bundle(
 
     let entries = sorted
         .iter()
-        .map(|inst| okf_entry_from_instance(inst, &fni, &ifi))
+        .map(|inst| okf_entry_from_instance(inst, &package, &fni, &ifi))
         .collect();
 
     Ok(OkfBundle {
@@ -65,6 +75,7 @@ pub fn export_okf_bundle(
 
 fn okf_entry_from_instance(
     instance: &LoadedInstance,
+    package: &Package,
     fni: &record_label::FieldNameIndex,
     ifi: &record_label::IdentityFieldIndex,
 ) -> OkfEntry {
@@ -80,17 +91,28 @@ fn okf_entry_from_instance(
             };
             let type_label = format!("{}/{}", r.type_namespace, r.type_name);
             // RFC-039: keys are Field.name already — no id→name index needed.
-            let field_pairs = r
-                .field_values
-                .iter()
-                .map(|(name, value)| (name.clone(), value.to_string()))
-                .collect();
+            let text_fields = text_field_display_labels(package, &r.type_id, r.type_version);
+            let mut field_pairs = Vec::new();
+            let mut body_sections = Vec::new();
+            for (name, value) in r.field_values.iter() {
+                match text_fields.get(name) {
+                    Some(heading) => {
+                        let content = value
+                            .as_str()
+                            .map(str::to_string)
+                            .unwrap_or_else(|| value.to_string());
+                        body_sections.push((heading.clone(), content));
+                    }
+                    None => field_pairs.push((name.clone(), value.to_string())),
+                }
+            }
             OkfEntry {
                 path,
                 display_label,
                 instance_id: r.instance_id.clone(),
                 type_label,
                 field_pairs,
+                body_sections,
                 note_text: None,
             }
         }
@@ -124,10 +146,57 @@ fn okf_entry_from_instance(
                 instance_id: n.instance_id.clone(),
                 type_label: "note".to_string(),
                 field_pairs: vec![],
+                body_sections: vec![],
                 note_text,
             }
         }
     }
+}
+
+/// A field renders as a body section rather than a frontmatter scalar when it
+/// is declared for long-form prose: a `textarea`/`rich-text` `editorHint`
+/// (already presentation-only per RFC-032, RFC-015's "view-owned, not
+/// type-owned" test applied to a Field-level hint), or `datatype: string`
+/// with `format: markdown` for a Field that predates `editorHint` adoption.
+fn is_text_field(field: &Field) -> bool {
+    if matches!(
+        field.editor_hint,
+        Some(EditorHint::Textarea) | Some(EditorHint::RichText)
+    ) {
+        return true;
+    }
+    field.field_type.datatype == Datatype::String
+        && field.field_type.format == Some(StringFormat::Markdown)
+}
+
+/// `field name → display heading` for every text-classified field effective
+/// on `type_id`/`type_version` (RFC-020 `displayLabel`, falling back to the
+/// Field's own name — the same fallback `FieldView.display_label` uses).
+/// An unresolvable Type or a broken inheritance chain degrades to "no text
+/// fields" rather than failing the export — consistent with
+/// `identity_field_index_from_package`'s graceful-degradation contract.
+fn text_field_display_labels(
+    package: &Package,
+    type_id: &str,
+    type_version: u32,
+) -> HashMap<String, String> {
+    let mut result = HashMap::new();
+    let Some(record_type) = package.resolve_type(type_id, type_version) else {
+        return result;
+    };
+    let Ok(effective_fields) = package.effective_fields(record_type) else {
+        return result;
+    };
+    for fa in &effective_fields {
+        let Some(field) = package.resolve_field(&fa.field_id) else {
+            continue;
+        };
+        if is_text_field(field) {
+            let heading = fa.display_label.clone().unwrap_or_else(|| field.name.clone());
+            result.insert(field.name.clone(), heading);
+        }
+    }
+    result
 }
 
 #[cfg(test)]
@@ -513,6 +582,188 @@ mod tests {
         assert_eq!(entry.field_pairs[0].0, "title");
         // serde_json stringifies strings with surrounding quotes (valid JSON/YAML scalar)
         assert_eq!(entry.field_pairs[0].1, "\"My Title\"");
+    }
+
+    // Regression for srs-rust#1106: a `text`-formatted field (RFC-032
+    // `datatype: string` + `format: markdown`, `editorHint: textarea` — the
+    // real `description` field's shape) must render as a `## <heading>` body
+    // section, not a frontmatter scalar with embedded `\n` escapes. Requires a
+    // resolvable RecordType so `text_field_display_labels` can classify the
+    // record's fields; `title` (a bare `datatype: string`, no format/hint)
+    // stays in frontmatter to prove the split, not a blanket body dump.
+    #[test]
+    fn record_with_text_field_renders_body_section_scalar_stays_in_frontmatter() {
+        use crate::manifest::Manifest;
+        use crate::package::Package;
+        use srs_core::types::field::{EditorHint, Field};
+        use srs_core::types::field_type::{Datatype, FieldType, StringFormat};
+        use srs_core::types::record_type::{FieldAssignment, RecordType};
+        use std::path::PathBuf;
+
+        let title_field_id = "f-title-0000-0000-0000-000000000001".to_string();
+        let desc_field_id = "f-desc-0000-0000-0000-0000000000002".to_string();
+
+        let title_field = Field {
+            schema: None,
+            id: title_field_id.clone(),
+            namespace: "com.test".to_string(),
+            name: "title".to_string(),
+            version: 1,
+            description: String::new(),
+            instructions: None,
+            ai_guidance: None,
+            field_type: FieldType::string(),
+            editor_hint: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let mut desc_field_type = FieldType::new(Datatype::String);
+        desc_field_type.format = Some(StringFormat::Markdown);
+        let desc_field = Field {
+            schema: None,
+            id: desc_field_id.clone(),
+            namespace: "com.test".to_string(),
+            name: "description".to_string(),
+            version: 1,
+            description: String::new(),
+            instructions: None,
+            ai_guidance: None,
+            field_type: desc_field_type,
+            editor_hint: Some(EditorHint::Textarea),
+            tags: None,
+            lineage: None,
+            provenance: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let record_type = RecordType {
+            schema: None,
+            id: "t-test-0001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "item".to_string(),
+            version: 1,
+            description: String::new(),
+            fields: vec![
+                FieldAssignment {
+                    field_id: title_field_id,
+                    order: 1,
+                    required: true,
+                    display_label: None,
+                    description: None,
+                },
+                FieldAssignment {
+                    field_id: desc_field_id,
+                    order: 2,
+                    required: false,
+                    display_label: Some("Description".to_string()),
+                    description: None,
+                },
+            ],
+            extends_type_id: None,
+            extends_type_version: None,
+            field_order: None,
+            field_assignment_overrides: None,
+            identity_field_id: None,
+            lifecycle: None,
+            lifecycle_ref: None,
+            validation_rules: None,
+            ai_guidance: None,
+            tags: None,
+            lineage: None,
+            provenance: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let manifest = Manifest {
+            container: None,
+            upstream_package: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "test-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![title_field, desc_field],
+            record_types: vec![record_type],
+            relation_type_definitions: vec![],
+            views: vec![],
+            compositions: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: PathBuf::from("/memory"),
+            package_dependencies: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = MemoryStore::new(manifest, package);
+
+        let mut r = minimal_record(
+            "00000022-f1e1-4d00-8000-000000000022",
+            Some("2026-01-01T00:00:00Z"),
+        );
+        let long_prose = "First paragraph.\n\nSecond paragraph with detail.";
+        r.field_values = {
+            let mut fv = FieldValues::new();
+            fv.insert("title", serde_json::json!("My Title"));
+            fv.insert("description", serde_json::json!(long_prose));
+            fv
+        };
+        store.save_record(&r).unwrap();
+        let c = create_container(&store, minimal_container("", "TextFields")).unwrap();
+        add_member(&store, &c.container_id, &r.instance_id).unwrap();
+
+        let bundle = export_okf_bundle(
+            &store,
+            OkfExportInput {
+                container_id: c.container_id.clone(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(bundle.entries.len(), 1);
+        let entry = &bundle.entries[0];
+
+        // Scalar field: still a frontmatter pair.
+        assert_eq!(entry.field_pairs.len(), 1);
+        assert_eq!(entry.field_pairs[0].0, "title");
+        assert_eq!(entry.field_pairs[0].1, "\"My Title\"");
+
+        // Text field: a body section, raw (unescaped, un-quoted) content —
+        // not a JSON-quoted frontmatter scalar with embedded `\n` escapes.
+        assert_eq!(entry.body_sections.len(), 1);
+        assert_eq!(entry.body_sections[0].0, "Description");
+        assert_eq!(entry.body_sections[0].1, long_prose);
+    }
+
+    // A record with only scalar fields must keep an empty body — no
+    // regression from the srs-rust#1106 fix for the common case.
+    #[test]
+    fn record_with_only_scalar_fields_has_empty_body_sections() {
+        let store = make_store();
+        let r = minimal_record(
+            "00000023-f1e1-4d00-8000-000000000023",
+            Some("2026-01-01T00:00:00Z"),
+        );
+        store.save_record(&r).unwrap();
+        let c = create_container(&store, minimal_container("", "NoText")).unwrap();
+        add_member(&store, &c.container_id, &r.instance_id).unwrap();
+
+        let bundle = export_okf_bundle(
+            &store,
+            OkfExportInput {
+                container_id: c.container_id.clone(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(bundle.entries.len(), 1);
+        assert!(bundle.entries[0].body_sections.is_empty());
     }
 
     #[test]

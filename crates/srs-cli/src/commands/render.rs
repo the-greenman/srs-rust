@@ -247,7 +247,7 @@ fn write_okf_bundle_to_dir(bundle: &OkfBundle, dir: &Path) -> Result<usize> {
 
     for entry in &bundle.entries {
         let frontmatter = build_frontmatter(entry);
-        let body = entry.note_text.as_deref().unwrap_or("").to_string();
+        let body = build_body(entry);
         let heading = entry.display_label.replace('\n', " ").replace('\r', "");
         let content = format!("{frontmatter}\n# {heading}\n\n{body}");
         std::fs::write(dir.join(&entry.path), content.as_bytes())
@@ -260,6 +260,22 @@ fn write_okf_bundle_to_dir(bundle: &OkfBundle, dir: &Path) -> Result<usize> {
 
     // entry files + index.md
     Ok(bundle.entries.len() + 1)
+}
+
+/// Tier-0 note content (`note_text`), if any, followed by one `## <heading>`
+/// section per text-formatted field (srs-rust#1106) — OKF's frontmatter is for
+/// metadata, markdown body for content, which a `text`/markdown field is.
+fn build_body(entry: &OkfEntry) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(note_text) = entry.note_text.as_deref() {
+        if !note_text.is_empty() {
+            parts.push(note_text.to_string());
+        }
+    }
+    for (heading, content) in &entry.body_sections {
+        parts.push(format!("## {heading}\n\n{content}"));
+    }
+    parts.join("\n\n")
 }
 
 fn build_frontmatter(entry: &OkfEntry) -> String {
