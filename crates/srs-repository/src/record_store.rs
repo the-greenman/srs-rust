@@ -4195,6 +4195,45 @@ mod tests {
         assert_eq!(loaded.value("test-name"), Some(&json!("Initial")));
     }
 
+    /// srs-rust#1099: a whole-object update body carrying a literal
+    /// `lifecycleState: null` (e.g. from a `jq '{fieldValues, tags,
+    /// lifecycleState}'` pattern applied to a record whose type has no
+    /// lifecycle at all) must be rejected, not silently persisted as a
+    /// literal null the loader then can't validate. `UpdateRecordInput` has
+    /// no typed `lifecycle_state` field, so `lifecycleState` in the body
+    /// lands in `extra` via `#[serde(flatten)]` — this is the same envelope
+    /// key collision `reject_reserved_envelope_keys` already guards against
+    /// (srs-rust#1031/#1049/#1060, landed in e9087e2 before this issue was
+    /// filed). This test locks in that coverage for the exact case reported,
+    /// parsing through `serde_json` the same way the CLI's stdin handler does
+    /// rather than constructing `UpdateRecordInput` by hand.
+    #[test]
+    fn update_record_rejects_lifecycle_state_null_on_no_lifecycle_type() {
+        let store = make_store_with_package();
+        let fv = fvs(vec![("test-name", json!("Initial"))]);
+        let record = create_record(&store, "type-test-001", 1, fv, None, None).expect("create");
+        let id = record.instance_id.clone();
+
+        let body = json!({
+            "fieldValues": {"test-name": "Changed"},
+            "tags": null,
+            "lifecycleState": null
+        });
+        let input: UpdateRecordInput = serde_json::from_value(body).expect("deserialize");
+        let err = update_record(&store, &id, input)
+            .expect_err("lifecycleState in the envelope must be rejected");
+        assert!(
+            matches!(err, RepositoryError::InvalidRepositoryInitialization { ref message } if message.contains("lifecycleState")),
+            "error should name the offending key: {err:?}"
+        );
+
+        // The original record must be untouched — no literal lifecycleState:
+        // null ever reaches disk.
+        let loaded = get_record_by_id(&store, &id).unwrap().unwrap();
+        assert_eq!(loaded.value("test-name"), Some(&json!("Initial")));
+        assert_eq!(loaded.lifecycle_state, None);
+    }
+
     #[test]
     fn create_record_successor_rejects_reserved_envelope_key() {
         let store = make_store_with_package();
