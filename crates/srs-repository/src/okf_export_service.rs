@@ -192,7 +192,10 @@ fn text_field_display_labels(
             continue;
         };
         if is_text_field(field) {
-            let heading = fa.display_label.clone().unwrap_or_else(|| field.name.clone());
+            let heading = fa
+                .display_label
+                .clone()
+                .unwrap_or_else(|| field.name.clone());
             result.insert(field.name.clone(), heading);
         }
     }
