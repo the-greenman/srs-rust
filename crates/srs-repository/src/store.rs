@@ -22,6 +22,7 @@ use srs_core::validation::relation_type_definition::validate_relation_type_defin
 use srs_core::validation::theme::validate_theme;
 use srs_core::validation::view::{validate_composition, validate_view};
 use srs_schema::{NOTE_SCHEMA_ID, RECORD_SCHEMA_ID};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -845,7 +846,7 @@ pub trait RepositoryStore {
 /// All I/O is funnelled through the [`Vfs`] seam (ADR-038): `DiskVfs` for the
 /// CLI's on-disk repositories, `MemVfs` for in-memory tree sessions (WASM).
 /// Service functions must not import `std::fs` directly.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FileStore {
     /// Display-only root: feeds `repository_root()` and error paths. All I/O
     /// goes through `vfs`. MemVfs-backed stores use the `"<memory>"` sentinel
@@ -855,6 +856,43 @@ pub struct FileStore {
     /// RFC-038 [R21] migrator exemption: skip the [R2]/[R21] manifest checks
     /// for this store instance. See [`FileStore::with_rfc038_exemption`].
     rfc038_exempt: bool,
+    /// Store-instance-scoped memoized catalog (srs-rust#1108): `catalog()`
+    /// (build_checked) walked and re-parsed the whole corpus on every call,
+    /// making per-node lookups (`find_instance` → `catalog()`) O(nodes ×
+    /// corpus) — 25s+ for one navigation depth level on a 3276-file corpus.
+    /// Safe because a `FileStore` is short-lived (one per CLI command, one
+    /// per srs-mcp request via `open_store()`): the cache's lifetime is one
+    /// operation, so there is no stale-data window to reason about across
+    /// requests. `RefCell` (not `Mutex`) because `FileStore` already holds an
+    /// `Rc<dyn Vfs>` and is single-threaded by construction.
+    ///
+    /// ponytail: two live `FileStore` instances over the same directory do
+    /// not see each other's writes (each has its own cache, and neither
+    /// invalidates the other's). Out of scope: store lifetime is one
+    /// command/request, never shared across concurrent writers.
+    catalog_cache: RefCell<Option<Rc<crate::catalog::RepositoryCatalog>>>,
+    /// Separate memo for `catalog_unchecked()` (build) — it returns a
+    /// different (unchecked) snapshot than `catalog()` (build_checked) and
+    /// must never serve the other's cached value.
+    catalog_unchecked_cache: RefCell<Option<Rc<crate::catalog::RepositoryCatalog>>>,
+}
+
+// Manual Clone: `#[derive(Clone)]` would carry the cached `Rc<RepositoryCatalog>`
+// straight into the clone. A cloned store is a distinct handle that can be
+// mutated independently (it holds its own `Rc<dyn Vfs>` reference), so sharing
+// cache contents across the clone boundary risks one instance serving a
+// catalog snapshot the other's writes have already invalidated. Simplest
+// correct choice: a clone starts with an empty cache.
+impl Clone for FileStore {
+    fn clone(&self) -> Self {
+        Self {
+            repo_root: self.repo_root.clone(),
+            vfs: self.vfs.clone(),
+            rfc038_exempt: self.rfc038_exempt,
+            catalog_cache: RefCell::new(None),
+            catalog_unchecked_cache: RefCell::new(None),
+        }
+    }
 }
 
 impl FileStore {
@@ -865,6 +903,8 @@ impl FileStore {
             repo_root,
             vfs,
             rfc038_exempt: false,
+            catalog_cache: RefCell::new(None),
+            catalog_unchecked_cache: RefCell::new(None),
         }
     }
 
@@ -875,6 +915,8 @@ impl FileStore {
             repo_root: PathBuf::from("<memory>"),
             vfs,
             rfc038_exempt: false,
+            catalog_cache: RefCell::new(None),
+            catalog_unchecked_cache: RefCell::new(None),
         }
     }
 
@@ -936,15 +978,71 @@ impl FileStore {
             path: self.abs(rel),
             source: e,
         })?;
-        self.vfs.write(rel, json.as_bytes())
+        self.vfs_write(rel, json.as_bytes())
     }
 
     fn ensure_dir(&self, rel: &str) -> Result<(), RepositoryError> {
-        self.vfs.create_dir_all(rel)
+        self.vfs_create_dir_all(rel)
     }
 
     fn delete_file(&self, rel: &str) -> Result<(), RepositoryError> {
-        self.vfs.remove(rel)
+        self.vfs_remove(rel)
+    }
+
+    // --- Catalog cache invalidation (srs-rust#1108) ---
+    //
+    // Every FileStore mutation funnels through the Vfs seam's three mutators
+    // (write, remove, create_dir_all — vfs.rs). These three wrappers are the
+    // ONLY call sites in this file allowed to touch `self.vfs.write`,
+    // `self.vfs.remove` or `self.vfs.create_dir_all` directly; every other
+    // mutation path in this impl goes through `write_json`/`ensure_dir`/
+    // `delete_file` above or these wrappers, so the cache can never see a
+    // write it didn't invalidate for.
+
+    fn invalidate_catalog_cache(&self) {
+        self.catalog_cache.borrow_mut().take();
+        self.catalog_unchecked_cache.borrow_mut().take();
+    }
+
+    /// Rc-returning core of `catalog()`: populate-or-hit the memo without the
+    /// callers of the public-by-value `catalog()` cloning the whole
+    /// `RepositoryCatalog` on every access.
+    ///
+    /// `catalog()` still returns an owned value (trait contract, many call
+    /// sites), so it clones once here. But `find_instance` — the specific
+    /// per-node hot path srs-rust#1108 names (`build_node`/`child_ids` call
+    /// it once per tree node) — reads this Rc directly and clones nothing
+    /// but the single matched entry, which is what turns the fix from "same
+    /// O(nodes x corpus) with a cheaper constant" into an actual O(nodes)
+    /// win: on a corpus with heavy structural revisits (a DAG walked without
+    /// a global visited-node memo — muSrs `repo navigation` calls `find_instance`
+    /// 150k+ times over a ~800-instance corpus by tree depth 3 alone) a full
+    /// per-call catalog clone is itself expensive enough to erase the gain.
+    fn cached_catalog(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
+        if let Some(cached) = self.catalog_cache.borrow().as_ref() {
+            return Ok(cached.clone());
+        }
+        let built = Rc::new(crate::catalog::build_checked(self)?);
+        *self.catalog_cache.borrow_mut() = Some(built.clone());
+        Ok(built)
+    }
+
+    fn vfs_write(&self, rel: &str, content: &[u8]) -> Result<(), RepositoryError> {
+        self.vfs.write(rel, content)?;
+        self.invalidate_catalog_cache();
+        Ok(())
+    }
+
+    fn vfs_remove(&self, rel: &str) -> Result<(), RepositoryError> {
+        self.vfs.remove(rel)?;
+        self.invalidate_catalog_cache();
+        Ok(())
+    }
+
+    fn vfs_create_dir_all(&self, rel: &str) -> Result<(), RepositoryError> {
+        self.vfs.create_dir_all(rel)?;
+        self.invalidate_catalog_cache();
+        Ok(())
     }
 }
 
@@ -1907,15 +2005,47 @@ impl RepositoryStore for FileStore {
     // --- Catalog (RFC-038; one walker over the Vfs seam: DiskVfs and MemVfs) ---
 
     fn catalog(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
-        crate::catalog::build_checked(self)
+        // srs-rust#1108: memoized per FileStore instance. Every mutation path
+        // (vfs_write/vfs_remove/vfs_create_dir_all above) clears this before
+        // the next read, so a hit here is always current for this store's
+        // lifetime (one CLI command / one srs-mcp request). See
+        // `cached_catalog` for why the hottest reader (`find_instance`,
+        // overridden below) bypasses this by-value clone.
+        Ok((*self.cached_catalog()?).clone())
+    }
+
+    /// Override the trait default: read the memoized catalog through the Rc
+    /// (`cached_catalog`) instead of `catalog()`'s owned clone. `find_instance`
+    /// is the per-tree-node hot path srs-rust#1108 names, and the default's
+    /// `let cat = self.catalog()?` clones every entry in the whole repository
+    /// just to search it once and discard it.
+    fn find_instance(&self, instance_id: &str) -> Result<Option<InstanceRef>, RepositoryError> {
+        let cat = self.cached_catalog()?;
+        let Some(entry) = cat.instances.iter().find(|e| e.id == instance_id) else {
+            return Ok(None);
+        };
+        Ok(Some(catalog_instance_ref(self, entry)?))
     }
 
     fn catalog_unchecked(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
-        crate::catalog::build(self)
+        // Separate memo from `catalog()` — build() and build_checked() return
+        // different snapshots; never let one serve the other's cache.
+        if let Some(cached) = self.catalog_unchecked_cache.borrow().as_ref() {
+            return Ok((**cached).clone());
+        }
+        let built = crate::catalog::build(self)?;
+        let built = Rc::new(built);
+        *self.catalog_unchecked_cache.borrow_mut() = Some(built.clone());
+        Ok((*built).clone())
     }
 
     fn catalog_validity_token(&self) -> Result<String, RepositoryError> {
-        Ok(crate::catalog::build(self)?.validity_token())
+        // Semantics unchanged (still a full `build()` under the hood) but
+        // now routes through the memoized `catalog_unchecked()` so it
+        // benefits from the same cache rather than doubling the work. Not
+        // itself the cache's invalidation signal — the Vfs mutator wrappers
+        // are (see `invalidate_catalog_cache`).
+        Ok(self.catalog_unchecked()?.validity_token())
     }
 
     // --- Relations ---
@@ -2184,9 +2314,9 @@ impl RepositoryStore for FileStore {
 
     fn save_text_file(&self, relative_path: &str, content: &str) -> Result<(), RepositoryError> {
         if let Some((parent, _)) = relative_path.rsplit_once('/') {
-            self.vfs.create_dir_all(parent)?;
+            self.vfs_create_dir_all(parent)?;
         }
-        self.vfs.write(relative_path, content.as_bytes())
+        self.vfs_write(relative_path, content.as_bytes())
     }
 
     fn load_binary_file(&self, relative_path: &str) -> Result<Vec<u8>, RepositoryError> {
@@ -2199,9 +2329,9 @@ impl RepositoryStore for FileStore {
 
     fn save_binary_file(&self, relative_path: &str, content: &[u8]) -> Result<(), RepositoryError> {
         if let Some((parent, _)) = relative_path.rsplit_once('/') {
-            self.vfs.create_dir_all(parent)?;
+            self.vfs_create_dir_all(parent)?;
         }
-        self.vfs.write(relative_path, content)
+        self.vfs_write(relative_path, content)
     }
 
     // --- Sub-package path validation ---
@@ -3900,6 +4030,7 @@ pub(crate) fn write_relations_standalone_for_test(
 mod tests {
     use super::memory::MemoryStore;
     use super::*;
+    use crate::vfs::MemVfs;
     use srs_core::types::record::FieldValues;
     use tempfile::TempDir;
 
@@ -5319,6 +5450,265 @@ mod tests {
         assert!(
             err.is_not_found(),
             "absent binary file must return a not-found error, got: {err:?}"
+        );
+    }
+
+    // --- Catalog memoization (srs-rust#1108) ---
+    //
+    // `catalog()`/`catalog_unchecked()` used to do a full walk-and-parse of
+    // the corpus on every call, making per-node lookups (find_instance ->
+    // catalog()) O(nodes x corpus). These tests prove (a) the cache is
+    // actually used, and (b) every FileStore mutation shape invalidates it.
+
+    /// Counts `list_recursive` calls (the single walk-entry-point `catalog`
+    /// build hits, store.rs's `list_files_recursive` -> `Vfs::list_recursive`)
+    /// while delegating everything else to an inner `Vfs`. A cache hit must
+    /// not re-walk the tree, so repeated lookups should leave the count at 1.
+    #[derive(Debug)]
+    struct CountingVfs {
+        inner: MemVfs,
+        list_recursive_calls: std::cell::Cell<usize>,
+    }
+
+    impl CountingVfs {
+        fn new(inner: MemVfs) -> Self {
+            Self {
+                inner,
+                list_recursive_calls: std::cell::Cell::new(0),
+            }
+        }
+    }
+
+    impl crate::vfs::Vfs for CountingVfs {
+        fn read_to_string(&self, rel: &str) -> Result<String, RepositoryError> {
+            self.inner.read_to_string(rel)
+        }
+        fn read_bytes(&self, rel: &str) -> Result<Vec<u8>, RepositoryError> {
+            self.inner.read_bytes(rel)
+        }
+        fn write(&self, rel: &str, bytes: &[u8]) -> Result<(), RepositoryError> {
+            self.inner.write(rel, bytes)
+        }
+        fn remove(&self, rel: &str) -> Result<(), RepositoryError> {
+            self.inner.remove(rel)
+        }
+        fn exists(&self, rel: &str) -> bool {
+            self.inner.exists(rel)
+        }
+        fn is_dir(&self, rel: &str) -> bool {
+            self.inner.is_dir(rel)
+        }
+        fn is_file(&self, rel: &str) -> bool {
+            self.inner.is_file(rel)
+        }
+        fn byte_len(&self, rel: &str) -> Result<u64, RepositoryError> {
+            self.inner.byte_len(rel)
+        }
+        fn list_dir(&self, rel: &str) -> Result<Vec<crate::vfs::VfsEntry>, RepositoryError> {
+            self.inner.list_dir(rel)
+        }
+        fn list_recursive(&self, rel: &str) -> Vec<String> {
+            self.list_recursive_calls
+                .set(self.list_recursive_calls.get() + 1);
+            self.inner.list_recursive(rel)
+        }
+        fn create_dir_all(&self, rel: &str) -> Result<(), RepositoryError> {
+            self.inner.create_dir_all(rel)
+        }
+        fn check_dir_within_root(&self, rel: &str) -> Result<DirCheck, RepositoryError> {
+            self.inner.check_dir_within_root(rel)
+        }
+        fn as_mem_snapshot(&self) -> Option<std::collections::BTreeMap<String, Vec<u8>>> {
+            self.inner.as_mem_snapshot()
+        }
+    }
+
+    /// A `package.json` that validates against `package-manifest.json`
+    /// (unlike `write_minimal_file_repo`'s, which several tests below rely on
+    /// staying schema-invalid-but-load_package-tolerant) — needed here because
+    /// these tests exercise `catalog()`/`find_instance`, which run the
+    /// stricter `build_checked` path.
+    fn catalog_ready_package_json() -> serde_json::Value {
+        serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+            "id": "test-pkg",
+            "namespace": "com.test",
+            "name": "test",
+            "title": "Test Package",
+            "description": "Catalog memoization test fixture package.",
+            "status": "active",
+            "version": "1.0.0",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "fields": [],
+            "types": [],
+            "views": [],
+            "compositions": []
+        })
+    }
+
+    fn write_catalog_ready_file_repo(temp: &TempDir) {
+        write_minimal_file_repo(temp);
+        std::fs::write(
+            temp.path().join("package/package.json"),
+            serde_json::to_string_pretty(&catalog_ready_package_json()).unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn minimal_mem_repo() -> MemVfs {
+        let manifest = serde_json::json!({
+            "dataModelRevision": 2,
+            "srsVersion": "2.0-draft",
+            "repositoryId": "test-repo-id",
+            "namespace": "com.test"
+        });
+        let mut files = std::collections::BTreeMap::new();
+        files.insert(
+            "manifest.json".to_string(),
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        );
+        files.insert(
+            "package/package.json".to_string(),
+            serde_json::to_vec_pretty(&catalog_ready_package_json()).unwrap(),
+        );
+        MemVfs::from_map(files)
+    }
+
+    #[test]
+    fn catalog_is_memoized_across_repeated_lookups() {
+        let counting = std::rc::Rc::new(CountingVfs::new(minimal_mem_repo()));
+        let store = FileStore::from_vfs(counting.clone() as std::rc::Rc<dyn crate::vfs::Vfs>);
+
+        store
+            .save_record(&minimal_record_for_store(
+                "10000000-0000-4000-8000-000000000001",
+                "R",
+                None,
+            ))
+            .unwrap();
+
+        // The write above invalidates the cache it may have warmed; reset the
+        // counter so this test measures only the read-side behaviour.
+        counting.list_recursive_calls.set(0);
+
+        for _ in 0..5 {
+            let found = store
+                .find_instance("10000000-0000-4000-8000-000000000001")
+                .unwrap();
+            assert!(found.is_some());
+        }
+
+        assert_eq!(
+            counting.list_recursive_calls.get(),
+            1,
+            "5 repeated find_instance calls should build the catalog once and \
+             serve the rest from the memoized cache"
+        );
+    }
+
+    #[test]
+    fn catalog_cache_invalidated_by_record_save() {
+        let temp = tempfile::TempDir::new().unwrap();
+        write_catalog_ready_file_repo(&temp);
+        let store = FileStore::new(temp.path());
+
+        // Warm the cache.
+        assert!(store
+            .find_instance("20000000-0000-4000-8000-000000000001")
+            .unwrap()
+            .is_none());
+
+        store
+            .save_record(&minimal_record_for_store(
+                "20000000-0000-4000-8000-000000000001",
+                "R",
+                None,
+            ))
+            .unwrap();
+
+        let found = store
+            .find_instance("20000000-0000-4000-8000-000000000001")
+            .unwrap();
+        assert!(
+            found.is_some(),
+            "save_record must invalidate the memoized catalog so the next \
+             lookup sees the new instance"
+        );
+    }
+
+    #[test]
+    fn catalog_cache_invalidated_by_instance_delete() {
+        let temp = tempfile::TempDir::new().unwrap();
+        write_catalog_ready_file_repo(&temp);
+        let store = FileStore::new(temp.path());
+
+        store
+            .save_record(&minimal_record_for_store(
+                "30000000-0000-4000-8000-000000000001",
+                "R",
+                None,
+            ))
+            .unwrap();
+
+        // Warm the cache with the instance present.
+        assert!(store
+            .find_instance("30000000-0000-4000-8000-000000000001")
+            .unwrap()
+            .is_some());
+
+        store
+            .delete_instance("30000000-0000-4000-8000-000000000001")
+            .unwrap();
+
+        assert!(
+            store
+                .find_instance("30000000-0000-4000-8000-000000000001")
+                .unwrap()
+                .is_none(),
+            "delete_instance must invalidate the memoized catalog so the \
+             next lookup no longer sees the deleted instance"
+        );
+    }
+
+    #[test]
+    fn catalog_cache_invalidated_by_relation_save() {
+        let temp = tempfile::TempDir::new().unwrap();
+        write_catalog_ready_file_repo(&temp);
+        let store = FileStore::new(temp.path());
+
+        // minimal_relation_for_store's source/target must resolve, or
+        // build_checked flags SRS038-R13-DANGLING-REFERENCE.
+        store
+            .save_record(&minimal_record_for_store(
+                "aaaa0001-0000-4000-a000-000000000001",
+                "R",
+                None,
+            ))
+            .unwrap();
+        store
+            .save_record(&minimal_record_for_store(
+                "aaaa0002-0000-4000-a000-000000000002",
+                "R",
+                None,
+            ))
+            .unwrap();
+
+        // Warm the cache before the relation exists.
+        let before = store.catalog().unwrap();
+        assert!(before.relations.is_empty());
+
+        store
+            .save_relation(&minimal_relation_for_store(
+                "40000000-0000-4000-a000-000000000001",
+            ))
+            .unwrap();
+
+        let after = store.catalog().unwrap();
+        assert_eq!(
+            after.relations.len(),
+            1,
+            "save_relation must invalidate the memoized catalog so the next \
+             catalog() call reflects the new relation"
         );
     }
 }
