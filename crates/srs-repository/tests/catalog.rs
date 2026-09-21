@@ -263,6 +263,15 @@ fn malformed_candidate_fatal_inside_reserved_location_untouched_outside() {
     let counts = code_counts(&cat);
     assert_eq!(counts.get(codes::CANDIDATE_MALFORMED), Some(&1));
     // [R24]: fatal — the load fails as a whole rather than dropping one file.
+    //
+    // A fresh store, not the one above: `catalog()`/`catalog_unchecked()` are
+    // memoized per FileStore instance (srs-rust#1108) for the store's
+    // lifetime, which is exactly one CLI command / MCP request in real
+    // usage. A raw on-disk write made through this test's `write()` helper
+    // (bypassing the FileStore/Vfs seam entirely) is invisible to `store`'s
+    // already-warmed cache by design — the known bound documented on
+    // `FileStore::catalog_cache`.
+    let store = FileStore::new(root);
     assert!(matches!(
         store.catalog(),
         Err(RepositoryError::CatalogLoad { .. })
@@ -928,7 +937,15 @@ fn validity_token_tracks_the_enumerated_id_set() {
         "records/b.json",
         &note_json("00000000-0000-4000-8000-000000000002"),
     );
-    let t2 = store.catalog_validity_token().unwrap();
+    // A fresh store: `catalog_validity_token()` now routes through the
+    // memoized `catalog_unchecked()` (srs-rust#1108), scoped to one
+    // FileStore instance's lifetime. The raw on-disk write above went
+    // through `write()` (bypassing the FileStore/Vfs seam), which the
+    // already-warmed `store` above cannot see by design — real callers
+    // (CLI, srs-mcp) build one store per command/request, so this matches
+    // actual usage rather than the same live instance observing an
+    // out-of-band writer.
+    let t2 = FileStore::new(root).catalog_validity_token().unwrap();
     assert_ne!(t1, t2, "token changes when the enumerable id set changes");
 }
 
