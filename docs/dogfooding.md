@@ -2762,9 +2762,9 @@ srs --repo $REPO.srsj repo validate  # must be 0 errors after all operations
 
 **Intention.** *"I keep my sprint tasks and retrospective notes in an SRS container. I want to publish them as a folder of plain markdown files — one file per item, with YAML frontmatter — so the content is readable and indexable by any markdown-aware tool, not just SRS clients."*
 
-**Capabilities exercised.** `export_okf_bundle` service: loads all container members (notes and records), resolves field names from the package, builds per-entry markdown with YAML frontmatter, writes `{slug}-{id8}.md` files + `index.md`; `OkfBundlePayload` (file count, output dir, diagnostics); `render okf-bundle` CLI handler.
+**Capabilities exercised.** `export_okf_bundle` service: loads the container's direct members, then descends each member's `contains` tree (reusing `tree_service::child_ids`, RFC-034 [R1]-aware) so every transitively-contained note/record is exported, not just direct members (srs-rust#1104); resolves field names from the package; builds per-entry markdown with YAML frontmatter; writes `{slug}-{id8}.md` files for leaves and `<dir>/index.md` for a node with children, nesting one directory level per `contains` edge; falls back to the full instance id when two siblings' slug+id8 would otherwise collide; de-duplicates a node reachable from more than one parent so it is emitted exactly once. `OkfBundlePayload` (file count, output dir, diagnostics); `render okf-bundle` CLI handler.
 
-**CLI surface.** `repo create`, `container create`, `container members add`, `note create`, `record create`, `field create`, `type create`, `render okf-bundle`, `repo validate`.
+**CLI surface.** `repo create`, `container create`, `container members add`, `note create`, `record create`, `field create`, `type create`, `relation create`, `render okf-bundle`, `repo validate`.
 
 **Anchor repo.** Build from scratch — `srs repo create --repo /tmp/dogfood-okf --namespace com.example.dogfood`.
 
@@ -2778,7 +2778,7 @@ rm -rf "$REPO" /tmp/dogfood-okf-export
 # 1. Create repo and define a task type with a title field
 $SRS repo create --repo "$REPO" --namespace com.example.dogfood --pretty
 
-FIELD_JSON='{"namespace":"com.example.dogfood","name":"title","version":1,"description":"Task title","valueType":"string","createdAt":"2026-01-01T00:00:00Z"}'
+FIELD_JSON='{"namespace":"com.example.dogfood","name":"title","version":1,"description":"Task title","valueType":"string","aiGuidance":{"purpose":"The human-readable title of the task."},"createdAt":"2026-01-01T00:00:00Z"}'
 FIELD_ID=$(echo "$FIELD_JSON" | $SRS field create --repo "$REPO" | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['field']['id'])")
 
 TYPE_JSON=$(printf '{"namespace":"com.example.dogfood","name":"task","version":1,"description":"Sprint task","createdAt":"2026-01-01T00:00:00Z","fields":[{"fieldId":"%s","order":1,"required":true}]}' "$FIELD_ID")
@@ -2787,25 +2787,35 @@ TYPE_ID=$(echo "$TYPE_JSON" | $SRS type create --repo "$REPO" | python3 -c "impo
 # 2. Create the sprint container
 CONTAINER_ID=$(echo '{"title":"Sprint 1","namespace":"com.example.dogfood"}' \
   | $SRS container create --repo "$REPO" \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['containerId'])")
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['container']['containerId'])")
 
-# 3. Create a note and two task records
+# 3. Create a note and three task records (fieldValues is an object keyed by
+# Field.name — RFC-039 [R9], dataModelRevision >= 2)
 NOTE_ID=$(echo '{"title":"Sprint retrospective: what went well","sections":[{"name":"body","content":"Team velocity was high."}]}' \
   | $SRS note create --repo "$REPO" \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['note']['instanceId'])")
 
-TASK1_ID=$(printf '{"fieldValues":[{"fieldId":"%s","value":"Set up CI: build matrix"}]}' "$FIELD_ID" \
+TASK1_ID=$(echo '{"fieldValues":{"title":"Set up CI: build matrix"}}' \
   | $SRS record create --repo "$REPO" --type com.example.dogfood/task \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['record']['instanceId'])")
 
-TASK2_ID=$(printf '{"fieldValues":[{"fieldId":"%s","value":"Write release notes"}]}' "$FIELD_ID" \
+TASK2_ID=$(echo '{"fieldValues":{"title":"Write release notes"}}' \
   | $SRS record create --repo "$REPO" --type com.example.dogfood/task \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['record']['instanceId'])")
 
-# 4. Add all three instances to the container (container members add requires explicit membership)
+# A subtask, deliberately NOT added to the container directly — it is only
+# reachable by descending TASK1's `contains` tree (srs-rust#1104).
+SUBTASK_ID=$(echo '{"fieldValues":{"title":"Pin the container base image"}}' \
+  | $SRS record create --repo "$REPO" --type com.example.dogfood/task \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['payload']['record']['instanceId'])")
+
+# 4. Add the note and top-level tasks to the container (container members add
+# requires explicit membership); relate the subtask to TASK1 via `contains`
 $SRS container members add --repo "$REPO" "$CONTAINER_ID" "$NOTE_ID"
 $SRS container members add --repo "$REPO" "$CONTAINER_ID" "$TASK1_ID"
 $SRS container members add --repo "$REPO" "$CONTAINER_ID" "$TASK2_ID"
+printf '{"relationType":"contains","sourceInstanceId":"%s","targetInstanceId":"%s"}' "$TASK1_ID" "$SUBTASK_ID" \
+  | $SRS relation create --repo "$REPO"
 
 # 5. Export the OKF bundle
 $SRS render okf-bundle \
@@ -2813,27 +2823,33 @@ $SRS render okf-bundle \
   --container "$CONTAINER_ID" \
   --output /tmp/dogfood-okf-export \
   --pretty
-# → ok: true; payload.fileCount: 4 (index.md + 3 entries)
+# → ok: true; payload.fileCount: 5 (index.md + note + task2 + task1 + subtask —
+#   the subtask is reached even though it was never added to the container)
 
-# 6. Inspect output
-ls /tmp/dogfood-okf-export/
-# index.md, sprint-retrospective-what-went-well-<id8>.md,
-# set-up-ci-build-matrix-<id8>.md, write-release-notes-<id8>.md
+# 6. Inspect output — TASK1 has a child, so it becomes a directory holding its
+# own index.md plus the subtask's file; the note and TASK2 are leaves.
+find /tmp/dogfood-okf-export -type f | sort
+# index.md
+# set-up-ci-build-matrix-<id8>/index.md
+# set-up-ci-build-matrix-<id8>/pin-the-container-base-image-<id8>.md
+# sprint-retrospective-what-went-well-<id8>.md
+# write-release-notes-<id8>.md
 
 cat /tmp/dogfood-okf-export/index.md
 # # Sprint 1
 # - [Sprint retrospective: what went well](sprint-retrospective-…)
-# - [Set up CI: build matrix](set-up-ci-…)
+# - [Set up CI: build matrix](set-up-ci-build-matrix-…/index.md)
+# - [Pin the container base image](set-up-ci-build-matrix-…/pin-the-container-base-image-…)
 # - [Write release notes](write-release-notes-…)
 
-# One record entry — verify YAML frontmatter and heading
-cat /tmp/dogfood-okf-export/set-up-ci-build-matrix-*.md
+# The nested entry — verify YAML frontmatter and heading
+cat /tmp/dogfood-okf-export/set-up-ci-build-matrix-*/pin-the-container-base-image-*.md
 # ---
 # srs_id: <uuid>
 # type: com.example.dogfood/task
-# title: "Set up CI: build matrix"
+# title: "Pin the container base image"
 # ---
-# # Set up CI: build matrix
+# # Pin the container base image
 
 # 7. Validate — repo must still be clean
 $SRS repo validate --repo "$REPO" --pretty
@@ -2852,16 +2868,20 @@ $SRS render okf-bundle \
 ```
 
 **Done when.**
-- `payload.fileCount` equals the number of container members plus 1 (for `index.md`).
-- `index.md` contains a heading with the container title and a `- [label](path)` link for every member.
+- `payload.fileCount` equals the number of instances reachable from the container's direct members (direct members plus everything each one transitively `contains`) plus 1 (for `index.md`) — srs-rust#1104: this must include descendants, not just direct members.
+- `index.md` contains a heading with the container title and a `- [label](path)` link for every reachable instance, including nested ones.
+- A member with no `contains` children is a leaf, written as `{slug}-{id8}.md` directly under its parent's directory. A member with children becomes a directory of the same name (sans `.md`) holding its own `index.md` plus one file/directory per child.
+- Two siblings whose slug + first-8-hex-chars would otherwise collide: the later one falls back to its full instance id (`<full-uuid>.md`) rather than overwriting the first.
+- A node reachable from more than one parent is exported exactly once, at the first path reached.
 - Each entry file carries `---` YAML frontmatter with `srs_id` (full UUID), `type` (`<namespace>/<name>` for records, `note` for notes), and one key per field name for records.
 - String field values appear JSON-quoted in frontmatter (e.g. `title: "Set up CI: build matrix"`) — valid YAML scalars, no escaping issues.
-- Entry filenames follow `{slug}-{id8}.md` (title-derived slug + first 8 hex of UUID); a member with a title that slugifies to empty falls back to `{id8}.md`.
 - Note body text appears below the `# <heading>` heading.
 - `srs repo validate` still reports `ok: true` with 0 errors after the export.
 - The negative case (nonexistent container) returns `ok: false` with a diagnostic naming the container ID, and writes no files.
 
 **Verified 2026-07-24 (#677).** `/tmp/dogfood-okf` — 1 note + 2 task records added to a `Sprint 1` container via `container members add`. `render okf-bundle` → `fileCount: 4`, `outputDir: /tmp/dogfood-okf-export`. All four files present and correct: `index.md` with container title heading and 3 entry links; per-entry files with correct YAML frontmatter (srs_id, type, title field quoted), `# <heading>` line, and note body text. Negative case (zero UUID container) → `ok: false`, `diagnostics[0]: "container not found: …"`. `repo validate` → `ok: true`, 0 errors.
+
+**Verified 2026-09-21 (srs-rust#1104).** Re-ran with a fourth record (`Pin the container base image`) related to `TASK1` via `contains` and deliberately *not* added to the container. `render okf-bundle` → `fileCount: 5`; `find` confirmed the layout: `set-up-ci-build-matrix-<id8>/index.md` (TASK1's own content, now a directory since it has a child) plus `set-up-ci-build-matrix-<id8>/pin-the-container-base-image-<id8>.md` (the subtask), alongside the note and TASK2 as flat leaf files. `index.md` links to all four content files at their correct (nested for the subtask) paths. `repo validate` → `ok: true`, 0 errors, 6 checked. Negative case unchanged. Also re-ran against a real corpus (`srs/srs`, 679 validated instances, container `6587bc86-9461-43f4-b790-504b2bcbddb5`): pre-fix, the export produced 11 files (the direct nav-section members only); post-fix, 519 entries with 519 unique paths and 0 duplicate-path groups (verified via a scratch example binary calling `export_okf_bundle` directly) — the remaining ~160 corpus instances are not reachable via `contains` from that container's members (e.g. free-standing Field/Type/RFC records), which is expected. The export also surfaced two real defects the flat 11-file export never reached deep enough to expose: (1) a node reachable from more than one parent was walked and emitted once per parent — global dedup fixed it; (2) several hand-authored example/fixture records share an 8-hex-char id prefix, which collided on the default `{slug}-{id8}.md` path — a collision-detecting fallback to the full instance id fixed it. Both are covered by unit tests (`multiparent_contains_child_is_emitted_exactly_once`, `id8_collision_falls_back_to_full_instance_id`) in addition to the corpus run.
 
 ---
 
@@ -3095,7 +3115,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `repo validate` — RFC-017 I-107 attachment_policy size/MIME diagnostics (#284) | S37 (**partial gap** — full end-to-end blocked pending srs#193 `com.semanticops.base` package); regression verified 2026-07-18: 0 policy diagnostics on spec repo and fresh repos; 12 unit tests in `validation.rs` cover maxPerFileBytes, maxDocBytes, maxTotalBytes, allowedMimeTypes (array + bare-string), tombstone skip (ADR-031), multiple-records Change B error, and both per-file limits firing independently |
 | `archive pack` / `archive unpack` (#630) + WASM `loadArchive` / `exportArchive` (#290) + WASM `getAttachmentBytes` (#291) + JsonStore/MemoryStore manifest key-order determinism (#654) | S41 (#630, #684, #654); CLI handlers `srs archive pack` / `srs archive unpack` added in `crates/srs-cli/src/commands/archive.rs`; container roundtrip bug fixed (containerIndex files now packed and unpacked). Library functions `archive_pack` / `archive_unpack` / `archive_to_vec` / `JsonStore::from_archive` implemented in `srs-repository` (ADR-033) and verified via 15 unit/integration tests: 8 original unit tests (roundtrip, determinism, entry order, timestamps, error paths, FileStore roundtrip, cross-store roundtrip) + `test_archive_no_extra_fields_and_deflated` + `test_archive_golden_fixture` + `test_archive_golden_roundtrip` (#277) + `test_load_from_archive_roundtrip` + `test_load_from_archive_rejects_invalid_bytes` (#290) + `test_archive_determinism_from_jsonstore` + `test_archive_manifest_bytes_identical_filestore_vs_jsonstore` (#654). WASM bindings `SrsRepository::load_archive(bytes)` and `SrsRepository::export_archive()` verified via `archive_service_roundtrip_smoke` in `crates/srs-bindings/src/lib.rs` and `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#290). `JsonStore::save_binary_file`/`load_binary_file` now store bytes in memory (ADR-031 amendment, #291) enabling `SrsRepository::get_attachment_bytes(documentId)` → `Uint8Array` (RFC-017 Gate D); verified via 3 integration tests in `crates/srs-bindings/tests/attachment_bytes.rs` (archive roundtrip, unknown documentId, srsj tombstone) and 5 unit tests in `json_store.rs` (#291). |
 | `render export-bundle` (flat ZIP export: rendered doc + attachments, ADR-035, #289) | S38 (#289); service-layer tests in `export_service.rs` (3 tests: no-attachment, with-attachment, cross-store roundtrip via `tempfile::NamedTempFile`). |
-| `render okf-bundle` (OKF markdown folder export — index.md + per-member files with YAML frontmatter, #677) | S45 (#677); 10 unit tests in `okf_export_service.rs` (empty container, note-only, record-only, mixed, field-value pairs, ordering, display-label multiline strip, slug-collision-safe path via id8, empty-slug fallback, record with field values → field_pairs); WASM binding deferred to #758. |
+| `render okf-bundle` (OKF markdown folder export — index.md + per-instance files with YAML frontmatter, descending the full `contains` tree from each direct member, #677/srs-rust#1104) | S45 (#677, re-verified srs-rust#1104); 13 unit tests in `okf_export_service.rs` (empty container, note-only, record-only, mixed, field-value pairs, ordering, display-label multiline strip, slug-collision-safe path via id8, empty-slug fallback, record with field values → field_pairs, two-level `contains` descent, multi-parent dedup, id8-collision fallback to full instance id); WASM binding deferred to #758. |
 | `srs-gov export-decision` (governance operator exports shareable bundle, #289) | S38 (#289); exercises record lookup → view discovery → `render export-bundle` chain; `--explain` pre-stages all 3 underlying srs calls; default output filename (`<id8>.zip`). |
 | `mcp serve` (MCP stdio server: resources map/navigation/record/container/view/**type** + all 13 tools: `repo_validate`/`find`/`type_schema`/`record_create`/`relation_create`/`note_create`/`record_update`/`record_transition`/`record_allowed_transitions`/`record_successor`/`note_graduate`/`container_member_add`/`container_member_remove` + **prompts** `prompts/list`/`prompts/get`, ADR-037 + #692 amendment + #682 prompts + **#680 second-wave write tools**) | S42 (incl. the #692 discover-then-author step, #682 prompts step 10b, and #680 second-wave step 10c); 32 crate tests in `crates/srs-mcp/` (13 unit + 13 duplex-transport integration + 6 second-wave integration) + 2 binary-level handshake tests in `crates/srs-cli/tests/mcp_serve.rs` + 4 unit tests in `crates/srs-mcp/src/prompts.rs` |
 

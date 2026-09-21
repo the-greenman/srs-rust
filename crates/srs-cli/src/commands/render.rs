@@ -253,7 +253,13 @@ fn write_okf_bundle_to_dir(bundle: &OkfBundle, dir: &Path) -> Result<usize> {
         let heading = entry.display_label.replace('\n', " ").replace('\r', "");
         let related = build_related_section(entry);
         let content = format!("{frontmatter}\n# {heading}\n\n{body}{related}");
-        std::fs::write(dir.join(&entry.path), content.as_bytes())
+        let entry_path = dir.join(&entry.path);
+        if let Some(parent) = entry_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                anyhow::anyhow!("cannot create output directory {:?}: {}", parent, e)
+            })?;
+        }
+        std::fs::write(&entry_path, content.as_bytes())
             .map_err(|e| anyhow::anyhow!("failed to write {:?}: {}", entry.path, e))?;
         index_lines.push(format!("- [{}]({})", entry.display_label, entry.path));
     }

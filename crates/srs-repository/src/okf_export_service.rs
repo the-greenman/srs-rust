@@ -5,7 +5,9 @@ use crate::record_store::{self, LoadedInstance};
 use crate::relation_graph;
 use crate::relation_service;
 use crate::store::RepositoryStore;
+use crate::tree_service;
 use crate::writer::slugify_instance_name;
+use srs_core::types::relation::Relation;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[derive(Debug)]
@@ -52,23 +54,45 @@ pub fn export_okf_bundle(
 
     let (fni, ifi) = record_label::build_label_indexes(store)?;
     let all_relations = relation_service::load_relations(store)?;
+    // RFC-034 [R1]: a container's own direct membership can duplicate what a
+    // sibling's `contains` subtree already reaches (the same corpus shape
+    // `tree_service::child_ids` merges as extra part-of children) — the
+    // `visited` set below is what keeps that from being walked twice.
+    let container_children = container_service::direct_children_by_root(store)?;
 
-    let mut instances: Vec<LoadedInstance> = Vec::new();
+    let mut member_instances: Vec<LoadedInstance> = Vec::new();
     let mut diagnostics: Vec<String> = Vec::new();
 
     for id in &member_ids {
         match record_store::get_instance_by_id(store, id)? {
-            Some(inst) => instances.push(inst),
+            Some(inst) => member_instances.push(inst),
             None => diagnostics.push(format!("instance not found: {id}")),
         }
     }
 
-    let sorted = relation_graph::sort_by_precedes_chain(instances, &all_relations);
+    // Direct members set the top-level order (unchanged from before); everything
+    // each one transitively `contains` is then pulled in by descending the
+    // tree rather than dropped, per srs-rust#1104.
+    let sorted_members = relation_graph::sort_by_precedes_chain(member_instances, &all_relations);
 
-    let mut entries: Vec<OkfEntry> = sorted
-        .iter()
-        .map(|inst| okf_entry_from_instance(inst, &fni, &ifi))
-        .collect();
+    let mut entries = Vec::new();
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut used_slots: HashSet<String> = HashSet::new();
+    for member in &sorted_members {
+        collect_entries(
+            store,
+            member.instance_id(),
+            "",
+            &all_relations,
+            &container_children,
+            &fni,
+            &ifi,
+            &mut visited,
+            &mut used_slots,
+            &mut entries,
+            &mut diagnostics,
+        )?;
+    }
 
     attach_relation_links(&mut entries, &all_relations, &mut diagnostics);
 
@@ -86,7 +110,7 @@ pub fn export_okf_bundle(
 /// exists to avoid reproducing — so it is reported as a diagnostic instead.
 fn attach_relation_links(
     entries: &mut [OkfEntry],
-    all_relations: &[srs_core::types::relation::Relation],
+    all_relations: &[Relation],
     diagnostics: &mut Vec<String>,
 ) {
     let id_to_path: HashMap<&str, &str> = entries
@@ -146,6 +170,104 @@ pub fn group_relation_links_by_type(links: &[OkfRelationLink]) -> Vec<(String, V
             .push(link.target_path.clone());
     }
     map.into_iter().collect()
+}
+
+/// Walks the `contains` tree rooted at `instance_id`, emitting one
+/// [`OkfEntry`] per instance the *first* time it is reached. A node with
+/// children becomes a directory (named after its own file, sans `.md`)
+/// holding an `index.md` for its own content plus one file per child; a leaf
+/// node is written directly into `dir_prefix`.
+///
+/// `visited` is shared across the whole export, not per top-level member: a
+/// `contains` node can legally be reachable from more than one parent (a
+/// declared container membership that overlaps a sibling's subtree — the
+/// same corpus shape `render_service`'s container-subset fix addressed,
+/// commit 3a20e59), and re-walking it per parent duplicates both the output
+/// and the work, compounding with depth. First-reached wins; later paths to
+/// an already-visited instance are skipped entirely, without recursing
+/// further.
+#[allow(clippy::too_many_arguments)]
+fn collect_entries(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+    dir_prefix: &str,
+    relations: &[Relation],
+    container_children: &HashMap<String, Vec<String>>,
+    fni: &record_label::FieldNameIndex,
+    ifi: &record_label::IdentityFieldIndex,
+    visited: &mut HashSet<String>,
+    used_slots: &mut HashSet<String>,
+    entries: &mut Vec<OkfEntry>,
+    diagnostics: &mut Vec<String>,
+) -> Result<(), RepositoryError> {
+    if !visited.insert(instance_id.to_string()) {
+        return Ok(());
+    }
+
+    let instance = match record_store::get_instance_by_id(store, instance_id)? {
+        Some(inst) => inst,
+        None => {
+            diagnostics.push(format!("instance not found: {instance_id}"));
+            return Ok(());
+        }
+    };
+
+    let child_ids = tree_service::child_ids(
+        store,
+        instance_id,
+        "contains",
+        relations,
+        container_children,
+    )?;
+
+    let mut entry = okf_entry_from_instance(&instance, fni, ifi);
+    let mut own_filename = entry.path.clone();
+
+    // Slug + first-8-hex-chars can collide: this corpus has hand-authored
+    // fixture/example instances that intentionally share an 8-char id
+    // prefix (and sometimes a display label too) with their siblings. A
+    // collision here would otherwise silently overwrite one sibling's file
+    // with another's — fall back to the full instance id, which is unique
+    // by construction, instead.
+    if !used_slots.insert(join_path(dir_prefix, &own_filename)) {
+        own_filename = format!("{instance_id}.md");
+        used_slots.insert(join_path(dir_prefix, &own_filename));
+    }
+
+    if child_ids.is_empty() {
+        entry.path = join_path(dir_prefix, &own_filename);
+        entries.push(entry);
+    } else {
+        let dir_name = own_filename.strip_suffix(".md").unwrap_or(&own_filename);
+        let node_dir = join_path(dir_prefix, dir_name);
+        entry.path = join_path(&node_dir, "index.md");
+        entries.push(entry);
+        for child_id in &child_ids {
+            collect_entries(
+                store,
+                child_id,
+                &node_dir,
+                relations,
+                container_children,
+                fni,
+                ifi,
+                visited,
+                used_slots,
+                entries,
+                diagnostics,
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+fn join_path(prefix: &str, name: &str) -> String {
+    if prefix.is_empty() {
+        name.to_string()
+    } else {
+        format!("{prefix}/{name}")
+    }
 }
 
 fn okf_entry_from_instance(
@@ -685,6 +807,223 @@ mod tests {
         // path should be just id8.md when slug is empty
         let id8 = &note_id[..8];
         assert_eq!(entry.path, format!("{id8}.md"));
+    }
+
+    // Regression for srs-rust#1104: the export must descend the `contains`
+    // tree below each direct container member, not just export the flat
+    // member list. A two-level chain (member -> child -> grandchild) proves
+    // both levels of descent.
+    #[test]
+    fn contains_descent_reaches_grandchild_two_levels_deep() {
+        let store = make_store();
+        let root_id = "00000041-aaaa-4001-8000-000000000041";
+        let child_id = "00000042-aaaa-4002-8000-000000000042";
+        let grandchild_id = "00000043-aaaa-4003-8000-000000000043";
+        store
+            .save_record(&minimal_record(root_id, Some("2026-01-01T00:00:00Z")))
+            .unwrap();
+        store
+            .save_record(&minimal_record(child_id, Some("2026-01-02T00:00:00Z")))
+            .unwrap();
+        store
+            .save_record(&minimal_record(grandchild_id, Some("2026-01-03T00:00:00Z")))
+            .unwrap();
+
+        let c = create_container(&store, minimal_container("", "Tree")).unwrap();
+        // Only the top-level root is a direct container member — child and
+        // grandchild hang off it purely via `contains` relations, exactly
+        // like the spec repo's section -> concept -> ... structure.
+        add_member(&store, &c.container_id, root_id).unwrap();
+
+        let rel_json = serde_json::json!({
+            "relations": [
+                {
+                    "relationId": "eeeeeeee-1111-4000-8000-000000000001",
+                    "relationType": "contains",
+                    "sourceInstanceId": root_id,
+                    "targetInstanceId": child_id,
+                },
+                {
+                    "relationId": "eeeeeeee-1111-4000-8000-000000000002",
+                    "relationType": "contains",
+                    "sourceInstanceId": child_id,
+                    "targetInstanceId": grandchild_id,
+                },
+            ]
+        });
+        crate::store::write_relations_standalone_for_test(&store, &rel_json);
+
+        let bundle = export_okf_bundle(
+            &store,
+            OkfExportInput {
+                container_id: c.container_id.clone(),
+            },
+        )
+        .unwrap();
+
+        assert!(bundle.diagnostics.is_empty(), "{:?}", bundle.diagnostics);
+        assert_eq!(
+            bundle.entries.len(),
+            3,
+            "expected one entry per instance reachable via contains, got {:?}",
+            bundle
+                .entries
+                .iter()
+                .map(|e| &e.instance_id)
+                .collect::<Vec<_>>()
+        );
+
+        let by_id = |id: &str| {
+            bundle
+                .entries
+                .iter()
+                .find(|e| e.instance_id == id)
+                .unwrap_or_else(|| panic!("missing entry for {id}"))
+        };
+
+        let root_entry = by_id(root_id);
+        let child_entry = by_id(child_id);
+        let grandchild_entry = by_id(grandchild_id);
+
+        // Root and child both have children of their own, so each becomes a
+        // directory (named after its own leaf filename) holding an index.md.
+        let root_dir = root_entry.path.strip_suffix("/index.md").unwrap();
+        assert!(
+            child_entry.path.starts_with(&format!("{root_dir}/")),
+            "child path {:?} should nest under root dir {:?}",
+            child_entry.path,
+            root_dir
+        );
+        let child_dir = child_entry.path.strip_suffix("/index.md").unwrap();
+        assert!(
+            grandchild_entry.path.starts_with(&format!("{child_dir}/")),
+            "grandchild path {:?} should nest under child dir {:?}",
+            grandchild_entry.path,
+            child_dir
+        );
+        // The grandchild is a leaf: no index.md indirection.
+        assert!(!grandchild_entry.path.ends_with("/index.md"));
+    }
+
+    // Regression for srs-rust#1104: the real spec corpus has `contains` nodes
+    // reachable from more than one parent (an RFC-034 [R1] container's
+    // declared membership overlapping a sibling's `contains` subtree — the
+    // same shape as the historical `render_service` container-subset bug,
+    // commit 3a20e59). Without a global visited set this both duplicates the
+    // output and re-walks the shared subtree once per parent, compounding
+    // with depth.
+    #[test]
+    fn multiparent_contains_child_is_emitted_exactly_once() {
+        let store = make_store();
+        let member_a = "00000051-aaaa-4001-8000-000000000051";
+        let member_b = "00000052-aaaa-4002-8000-000000000052";
+        let shared_child = "00000053-aaaa-4003-8000-000000000053";
+        store
+            .save_record(&minimal_record(member_a, Some("2026-01-01T00:00:00Z")))
+            .unwrap();
+        store
+            .save_record(&minimal_record(member_b, Some("2026-01-02T00:00:00Z")))
+            .unwrap();
+        store
+            .save_record(&minimal_record(shared_child, Some("2026-01-03T00:00:00Z")))
+            .unwrap();
+
+        let c = create_container(&store, minimal_container("", "Diamond")).unwrap();
+        add_member(&store, &c.container_id, member_a).unwrap();
+        add_member(&store, &c.container_id, member_b).unwrap();
+
+        let rel_json = serde_json::json!({
+            "relations": [
+                {
+                    "relationId": "eeeeeeee-2222-4000-8000-000000000001",
+                    "relationType": "contains",
+                    "sourceInstanceId": member_a,
+                    "targetInstanceId": shared_child,
+                },
+                {
+                    "relationId": "eeeeeeee-2222-4000-8000-000000000002",
+                    "relationType": "contains",
+                    "sourceInstanceId": member_b,
+                    "targetInstanceId": shared_child,
+                },
+            ]
+        });
+        crate::store::write_relations_standalone_for_test(&store, &rel_json);
+
+        let bundle = export_okf_bundle(
+            &store,
+            OkfExportInput {
+                container_id: c.container_id.clone(),
+            },
+        )
+        .unwrap();
+
+        let occurrences = bundle
+            .entries
+            .iter()
+            .filter(|e| e.instance_id == shared_child)
+            .count();
+        assert_eq!(
+            occurrences,
+            1,
+            "shared child must be emitted exactly once, got {occurrences} occurrences in {:?}",
+            bundle
+                .entries
+                .iter()
+                .map(|e| (&e.instance_id, &e.path))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            bundle.entries.len(),
+            3,
+            "expected member_a + member_b + shared_child, no duplicates"
+        );
+    }
+
+    // Regression for srs-rust#1104: real fixture/example instances in the
+    // spec corpus can share an 8-hex-char id prefix (and even a display
+    // label) with a sibling. Without a collision guard, the second entry's
+    // file silently overwrites the first's on disk, which breaks the
+    // "file count within 1 of reachable instances" contract.
+    #[test]
+    fn id8_collision_falls_back_to_full_instance_id() {
+        let store = make_store();
+        // Both records fall back to the same display label (their shared
+        // type name, "item" — see `record_display_label`'s fallback ladder)
+        // and share the same first 8 hex chars, so their default id8 paths
+        // would otherwise collide on "item-aaaaaaaa.md".
+        let first = "aaaaaaaa-1111-4001-8000-000000000001";
+        let second = "aaaaaaaa-2222-4002-8000-000000000002";
+        store
+            .save_record(&minimal_record(first, Some("2026-01-01T00:00:00Z")))
+            .unwrap();
+        store
+            .save_record(&minimal_record(second, Some("2026-01-02T00:00:00Z")))
+            .unwrap();
+
+        let c = create_container(&store, minimal_container("", "Collide")).unwrap();
+        add_member(&store, &c.container_id, first).unwrap();
+        add_member(&store, &c.container_id, second).unwrap();
+
+        let bundle = export_okf_bundle(
+            &store,
+            OkfExportInput {
+                container_id: c.container_id.clone(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(bundle.entries.len(), 2);
+        let paths: std::collections::HashSet<&str> =
+            bundle.entries.iter().map(|e| e.path.as_str()).collect();
+        assert_eq!(paths.len(), 2, "both entries must land at distinct paths");
+        // The earlier-sorted record keeps the short id8 path; the collision
+        // forces the later one onto its full instance id.
+        assert!(bundle.entries.iter().any(|e| e.path == "item-aaaaaaaa.md"));
+        assert!(bundle
+            .entries
+            .iter()
+            .any(|e| e.path == format!("{second}.md")));
     }
 
     #[test]
