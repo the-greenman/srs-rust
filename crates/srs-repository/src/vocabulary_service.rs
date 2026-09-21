@@ -120,8 +120,13 @@ pub fn create_vocabulary(
         path: std::path::PathBuf::from(&full_path),
         source: e,
     })?;
-    if let Some(obj) = raw.as_object_mut() {
-        obj.remove("$schema");
+    // Only strip a `$schema` that actually names this schema (mirroring the catalog loader's
+    // `body_for_definition_schema`) — a value pointing somewhere else is left in place so it
+    // fails validation instead of being silently discarded.
+    if raw.get("$schema").and_then(|v| v.as_str()) == Some(VOCABULARY_SCHEMA_ID) {
+        if let Some(obj) = raw.as_object_mut() {
+            obj.remove("$schema");
+        }
     }
     validate_definition_write_schema(VOCABULARY_SCHEMA_ID, &raw, std::path::Path::new(&full_path))?;
 
