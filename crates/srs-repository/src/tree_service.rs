@@ -48,6 +48,11 @@ pub struct TreeNode {
     pub children: Vec<TreeNode>,
     /// True when this node was not expanded because its ID appeared in the ancestor path.
     pub cycle_pruned: bool,
+    /// True when this node was already expanded once elsewhere in this same
+    /// `build_tree` call (srs-rust#1117 — "expand once per tree"). Its first
+    /// occurrence, decided purely by walk order, carries the real subtree;
+    /// every later occurrence is a leaf stub and is never re-walked.
+    pub already_expanded: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -147,6 +152,11 @@ pub fn build_tree(
 
     let mut diagnostics = Vec::new();
     let mut roots = Vec::new();
+    // Global to the whole `build_tree` call (srs-rust#1117), not per-root: a
+    // node reached under one root and again under another (or again later
+    // under the same root, off the current ancestor path) is expanded only
+    // once, at its first occurrence in walk order.
+    let mut expanded: HashSet<String> = HashSet::new();
 
     for id in &root_ids {
         let mut ancestors = HashSet::new();
@@ -157,6 +167,7 @@ pub fn build_tree(
             &options,
             0,
             &mut ancestors,
+            &mut expanded,
             &mut diagnostics,
             &container_children,
         )? {
@@ -222,6 +233,7 @@ fn build_node(
     options: &TreeOptions,
     depth: u32,
     ancestors: &mut HashSet<String>,
+    expanded: &mut HashSet<String>,
     diagnostics: &mut Vec<String>,
     container_children: &HashMap<String, Vec<String>>,
 ) -> Result<Option<TreeNode>, RepositoryError> {
@@ -243,9 +255,10 @@ fn build_node(
         }
     }
 
-    // Cycle check must precede max_depth: a node at exactly max_depth that is also
-    // an ancestor is a back-edge and must be flagged cycle_pruned, not silently truncated.
-    let node = |children: Vec<TreeNode>, cycle_pruned: bool| TreeNode {
+    // Cycle check must precede everything else: a node at exactly max_depth
+    // or already expanded elsewhere that is ALSO a back-edge on the current
+    // path is still a cycle first (srs-rust#1117: "cycle_pruned wins").
+    let node = |children: Vec<TreeNode>, cycle_pruned: bool, already_expanded: bool| TreeNode {
         instance_id: instance_id.to_string(),
         label: header.label.clone(),
         type_id: header.type_id.clone(),
@@ -256,16 +269,31 @@ fn build_node(
         depth,
         children,
         cycle_pruned,
+        already_expanded,
     };
 
     if ancestors.contains(instance_id) {
-        return Ok(Some(node(vec![], true)));
+        return Ok(Some(node(vec![], true, false)));
+    }
+    // Already-expanded check precedes max_depth (srs-rust#1117): a node
+    // expanded once anywhere in this tree is never re-walked, regardless of
+    // how deep this second occurrence sits. Checking max_depth first would
+    // silently swallow the fact that this is a duplicate (it would emit an
+    // indistinguishable plain truncation stub instead) and — because a
+    // max_depth truncation must NOT itself count as an expansion — would
+    // also require extra bookkeeping to avoid re-truncating instead of fully
+    // expanding a shallower path to the same node reached later. Checking
+    // the expanded set first keeps both rules simple: only a node that is
+    // actually walked to completion here is inserted into `expanded`.
+    if expanded.contains(instance_id) {
+        return Ok(Some(node(vec![], false, true)));
     }
     if options.max_depth.is_some_and(|max| depth >= max) {
-        return Ok(Some(node(vec![], false)));
+        return Ok(Some(node(vec![], false, false)));
     }
 
     ancestors.insert(instance_id.to_string());
+    expanded.insert(instance_id.to_string());
     let mut child_nodes = Vec::new();
     for child_id in child_ids_from_headers(
         headers,
@@ -281,6 +309,7 @@ fn build_node(
             options,
             depth + 1,
             ancestors,
+            expanded,
             diagnostics,
             container_children,
         )? {
@@ -289,7 +318,7 @@ fn build_node(
     }
     ancestors.remove(instance_id);
 
-    Ok(Some(node(child_nodes, false)))
+    Ok(Some(node(child_nodes, false, false)))
 }
 
 /// Outgoing `relation_type` targets of `source_id`, plus (when `relation_type`
@@ -755,6 +784,144 @@ mod tests {
             children,
             vec!["Evidence Item 1", "Evidence Item 2"],
             "container direct membership must surface as part-of children, got {children:?}"
+        );
+    }
+
+    /// srs-rust#1117: a node reachable from two distinct roots (a DAG, not a
+    /// tree) is expanded once, at its first occurrence in walk order; every
+    /// later occurrence is a leaf stub flagged `already_expanded`.
+    #[test]
+    fn build_tree_dag_node_expanded_once_second_occurrence_is_stub() {
+        let store = make_store(
+            vec![make_field("f-title", "title")],
+            vec![make_type("t-node", "node", &["f-title"])],
+        );
+        let p1_id = add_record(&store, "t-node", "title", "P1");
+        let p2_id = add_record(&store, "t-node", "title", "P2");
+        let c_id = add_record(&store, "t-node", "title", "C");
+        let d_id = add_record(&store, "t-node", "title", "D");
+        create_relation_auto(&store, make_relation("contains", &p1_id, &c_id)).unwrap();
+        create_relation_auto(&store, make_relation("contains", &p2_id, &c_id)).unwrap();
+        create_relation_auto(&store, make_relation("contains", &c_id, &d_id)).unwrap();
+
+        // Explicit root order: P1 walked before P2, so P1's C is primary.
+        let result = build_tree(
+            &store,
+            TreeOptions {
+                root_ids: Some(vec![p1_id.clone(), p2_id.clone()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.roots.len(), 2);
+        let c_under_p1 = &result.roots[0].children[0];
+        assert_eq!(c_under_p1.instance_id, c_id);
+        assert!(
+            !c_under_p1.already_expanded,
+            "first occurrence (under P1) must be the primary expansion"
+        );
+        assert_eq!(c_under_p1.children.len(), 1, "primary C keeps its child D");
+        assert_eq!(c_under_p1.children[0].instance_id, d_id);
+
+        let c_under_p2 = &result.roots[1].children[0];
+        assert_eq!(c_under_p2.instance_id, c_id);
+        assert!(
+            c_under_p2.already_expanded,
+            "second occurrence (under P2) must be flagged already_expanded"
+        );
+        assert!(
+            c_under_p2.children.is_empty(),
+            "an already-expanded stub is never re-walked"
+        );
+        assert!(!c_under_p2.cycle_pruned, "not a back-edge, just a dup");
+    }
+
+    /// srs-rust#1117: container membership can make the part-of graph cyclic
+    /// (container A's members include container B's root and vice versa).
+    /// The walk must terminate, bounded by the instance count plus stubs —
+    /// not blow up per-path the way it did on muSrs (srs-rust#1113 measured
+    /// 584 real nodes exploding to 936k at depth 5).
+    #[test]
+    fn build_tree_container_membership_cycle_terminates_and_cycle_pruned_wins() {
+        let store = make_store(
+            vec![make_field("f-title", "title")],
+            vec![make_type("t-node", "node", &["f-title"])],
+        );
+        let a_id = add_record(&store, "t-node", "title", "A");
+        let b_id = add_record(&store, "t-node", "title", "B");
+
+        // No `contains` relations at all — the cycle comes entirely from
+        // container membership, per srs-rust#1097.
+        crate::container_service::create_container(
+            &store,
+            srs_core::types::container::Container {
+                container_id: "00000000-0000-4000-8000-00000000ca00".to_string(),
+                title: "Container A".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                anchor_instance_id: None,
+                root_instance_ids: Some(vec![a_id.clone()]),
+                member_instance_ids: Some(vec![b_id.clone()]),
+                child_container_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .unwrap();
+        crate::container_service::create_container(
+            &store,
+            srs_core::types::container::Container {
+                container_id: "00000000-0000-4000-8000-00000000cb00".to_string(),
+                title: "Container B".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                anchor_instance_id: None,
+                root_instance_ids: Some(vec![b_id.clone()]),
+                member_instance_ids: Some(vec![a_id.clone()]),
+                child_container_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .unwrap();
+
+        let result = build_tree(
+            &store,
+            TreeOptions {
+                root_ids: Some(vec![a_id.clone()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.roots.len(), 1, "walk must terminate");
+        let a_node = &result.roots[0];
+        assert_eq!(a_node.children.len(), 1, "A's only child is B");
+        let b_node = &a_node.children[0];
+        assert_eq!(b_node.instance_id, b_id);
+        assert_eq!(b_node.children.len(), 1, "B's only child is a back to A");
+        let a_again = &b_node.children[0];
+        assert_eq!(a_again.instance_id, a_id);
+        assert!(
+            a_again.cycle_pruned,
+            "A is both an ancestor and already expanded here — cycle_pruned must win"
+        );
+        assert!(
+            !a_again.already_expanded,
+            "cycle_pruned wins over already_expanded when both are true"
         );
     }
 }

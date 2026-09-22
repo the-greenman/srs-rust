@@ -32,6 +32,14 @@ pub struct NavigationNode {
     /// container tree). Empty for a leaf, and omitted from the payload.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<NavigationNode>,
+    /// Carried through from `TreeNode::already_expanded` (srs-rust#1117):
+    /// true when this node was already expanded once elsewhere in the same
+    /// navigation tree and this occurrence is a leaf stub, not the primary.
+    /// Always `false` for a record built directly from a `Record`
+    /// (`node_for_record`) — only `node_for_tree_node` can set it, matching
+    /// how `cycle_pruned` is scoped to `tree_service`.
+    #[serde(default)]
+    pub already_expanded: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -289,6 +297,7 @@ fn node_for_record(
         display_label: display_label(record, identity_field_index, field_name_index),
         section_container_id,
         children: Vec::new(),
+        already_expanded: false,
     }
 }
 
@@ -311,6 +320,7 @@ fn node_for_tree_node(
         type_namespace: node.type_namespace,
         type_name: node.type_name,
         display_label: node.label,
+        already_expanded: node.already_expanded,
     }
 }
 
