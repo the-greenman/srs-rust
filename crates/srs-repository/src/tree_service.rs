@@ -57,6 +57,67 @@ pub struct TreeResult {
     pub diagnostics: Vec<String>,
 }
 
+/// The subset of an instance's data a tree node needs to render itself and
+/// sort its siblings — everything `build_node`/`child_ids` used to re-derive
+/// by fully re-parsing the instance on every visit (srs-rust#1113). Built
+/// once per `build_tree` call, over every catalog instance, never per visit.
+struct NodeHeader {
+    label: String,
+    type_id: String,
+    type_version: u32,
+    type_namespace: String,
+    type_name: String,
+    lifecycle_state: Option<String>,
+    created_at: Option<String>,
+}
+
+/// One pass over every instance in the catalog, computed exactly once
+/// regardless of how many times (or via how many paths) the tree walk
+/// visits it. `record_label::record_display_label` needs a Record's
+/// `fieldValues` (for the identity-field label) and `LoadedInstance` doesn't
+/// carry `createdAt` at the catalog-entry level, so this still loads each
+/// instance once via `get_instance_by_id` — but once, not once per visit.
+fn build_node_headers(
+    store: &dyn RepositoryStore,
+    identity_field_index: &HashMap<(String, u32), String>,
+    field_name_index: &HashMap<String, String>,
+) -> Result<HashMap<String, NodeHeader>, RepositoryError> {
+    let cat = store.catalog()?;
+    let mut headers = HashMap::with_capacity(cat.instances.len());
+    for entry in &cat.instances {
+        let Some(instance) = get_instance_by_id(store, &entry.id)? else {
+            continue;
+        };
+        let header = match &instance {
+            LoadedInstance::Record(record) => NodeHeader {
+                label: record_label::record_display_label(
+                    record,
+                    identity_field_index,
+                    field_name_index,
+                ),
+                type_id: record.type_id.clone(),
+                type_version: record.type_version,
+                type_namespace: record.type_namespace.clone(),
+                type_name: record.type_name.clone(),
+                lifecycle_state: record.lifecycle_state.clone(),
+                created_at: instance.created_at().map(str::to_string),
+            },
+            // A Note has no type binding, so its title is the only label there is.
+            LoadedInstance::Note(note) => NodeHeader {
+                label: note.title.clone().unwrap_or_else(|| entry.id.clone()),
+                type_id: String::new(),
+                type_version: 0,
+                type_namespace: String::new(),
+                type_name: String::new(),
+                lifecycle_state: None,
+                created_at: instance.created_at().map(str::to_string),
+            },
+        };
+        headers.insert(entry.id.clone(), header);
+    }
+    Ok(headers)
+}
+
 pub fn build_tree(
     store: &dyn RepositoryStore,
     options: TreeOptions,
@@ -77,6 +138,10 @@ pub fn build_tree(
     } else {
         HashMap::new()
     };
+    // Single pass, once per `build_tree` call (srs-rust#1113) — the walk
+    // below touches no instance files at all, however many times a shared
+    // node is visited.
+    let headers = build_node_headers(store, &identity_field_index, &field_name_index)?;
 
     let root_ids = resolve_roots(store, &options, &relations)?;
 
@@ -86,11 +151,9 @@ pub fn build_tree(
     for id in &root_ids {
         let mut ancestors = HashSet::new();
         if let Some(node) = build_node(
-            store,
             id,
             &relations,
-            &identity_field_index,
-            &field_name_index,
+            &headers,
             &options,
             0,
             &mut ancestors,
@@ -153,11 +216,9 @@ fn resolve_roots(
 
 #[allow(clippy::too_many_arguments)]
 fn build_node(
-    store: &dyn RepositoryStore,
     instance_id: &str,
     relations: &[srs_core::types::relation::Relation],
-    identity_field_index: &HashMap<(String, u32), String>,
-    field_name_index: &HashMap<String, String>,
+    headers: &HashMap<String, NodeHeader>,
     options: &TreeOptions,
     depth: u32,
     ancestors: &mut HashSet<String>,
@@ -165,44 +226,19 @@ fn build_node(
     container_children: &HashMap<String, Vec<String>>,
 ) -> Result<Option<TreeNode>, RepositoryError> {
     // Tier-aware: a Tier-0 note is a legal member of the part-of tree (RFC-013
-    // scaffolds one as a section), and reading it through the Tier-2-only loader
-    // raised a hard `missing field typeId` parse error that took down the whole
-    // traversal — the same trap the navigation service already documents.
-    let instance = match get_instance_by_id(store, instance_id)? {
-        Some(i) => i,
-        None => {
-            diagnostics.push(format!(
-                "tree: instance {instance_id} does not resolve — skipped"
-            ));
-            return Ok(None);
-        }
-    };
-    let (type_id, type_version, type_namespace, type_name, lifecycle_state, label) = match &instance
-    {
-        LoadedInstance::Record(record) => (
-            record.type_id.clone(),
-            record.type_version,
-            record.type_namespace.clone(),
-            record.type_name.clone(),
-            record.lifecycle_state.clone(),
-            record_label::record_display_label(record, identity_field_index, field_name_index),
-        ),
-        // A Note has no type binding, so its title is the only label there is.
-        LoadedInstance::Note(note) => (
-            String::new(),
-            0,
-            String::new(),
-            String::new(),
-            None,
-            note.title
-                .clone()
-                .unwrap_or_else(|| instance_id.to_string()),
-        ),
+    // scaffolds one as a section) — its header (built once in
+    // `build_node_headers`) carries an empty type and no lifecycle, exactly
+    // as a fresh `get_instance_by_id` parse would.
+    let Some(header) = headers.get(instance_id) else {
+        diagnostics.push(format!(
+            "tree: instance {instance_id} does not resolve — skipped"
+        ));
+        return Ok(None);
     };
 
     // Apply type filter when visiting non-root nodes. An untyped Note never matches.
     if let Some(filter) = &options.type_filter {
-        if &format!("{type_namespace}/{type_name}") != filter {
+        if &format!("{}/{}", header.type_namespace, header.type_name) != filter {
             return Ok(None);
         }
     }
@@ -211,12 +247,12 @@ fn build_node(
     // an ancestor is a back-edge and must be flagged cycle_pruned, not silently truncated.
     let node = |children: Vec<TreeNode>, cycle_pruned: bool| TreeNode {
         instance_id: instance_id.to_string(),
-        label,
-        type_id,
-        type_version,
-        type_namespace,
-        type_name,
-        lifecycle_state,
+        label: header.label.clone(),
+        type_id: header.type_id.clone(),
+        type_version: header.type_version,
+        type_namespace: header.type_namespace.clone(),
+        type_name: header.type_name.clone(),
+        lifecycle_state: header.lifecycle_state.clone(),
         depth,
         children,
         cycle_pruned,
@@ -231,19 +267,17 @@ fn build_node(
 
     ancestors.insert(instance_id.to_string());
     let mut child_nodes = Vec::new();
-    for child_id in child_ids(
-        store,
+    for child_id in child_ids_from_headers(
+        headers,
         instance_id,
         &options.relation_type,
         relations,
         container_children,
-    )? {
+    ) {
         if let Some(child) = build_node(
-            store,
             &child_id,
             relations,
-            identity_field_index,
-            field_name_index,
+            headers,
             options,
             depth + 1,
             ancestors,
@@ -266,6 +300,62 @@ fn build_node(
 /// `relation_graph::children_by_relation_type` this never parses a target as a
 /// Tier-2 record, so a Tier-0 note child is ordered and walked like any other
 /// node.
+#[derive(Clone)]
+struct Child {
+    id: String,
+    created_at: Option<String>,
+}
+impl relation_graph::PrecedesSortable for Child {
+    fn precedes_instance_id(&self) -> &str {
+        &self.id
+    }
+    fn precedes_created_at(&self) -> Option<&str> {
+        self.created_at.as_deref()
+    }
+}
+
+/// The candidate child ids of `source_id`: outgoing `relation_type` targets
+/// plus (for `contains`) direct container membership, deduplicated — the
+/// part-of tree's two membership sources, merged, before either candidate
+/// is checked for existence. Shared by both `child_ids` (store-backed, for
+/// callers outside the header-mapped tree walk) and `child_ids_from_headers`.
+fn child_candidate_ids(
+    source_id: &str,
+    relation_type: &str,
+    relations: &[srs_core::types::relation::Relation],
+    container_children: &HashMap<String, Vec<String>>,
+) -> Vec<String> {
+    let mut ids = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for rel in relations
+        .iter()
+        .filter(|r| r.relation_type == relation_type && r.source_instance_id == source_id)
+    {
+        if seen.insert(rel.target_instance_id.clone()) {
+            ids.push(rel.target_instance_id.clone());
+        }
+    }
+    for id in container_children.get(source_id).into_iter().flatten() {
+        if seen.insert(id.clone()) {
+            ids.push(id.clone());
+        }
+    }
+    ids
+}
+
+/// Outgoing `relation_type` targets of `source_id`, plus (when `relation_type`
+/// is "contains") the direct members of any Container rooted at `source_id`
+/// that a `contains` Relation doesn't already name (RFC-034 [R1], srs-rust#1096)
+/// — the part-of tree's two membership sources, merged and deduplicated.
+/// Ordered by the `precedes` chain among them. Resolves ids only — unlike
+/// `relation_graph::children_by_relation_type` this never parses a target as a
+/// Tier-2 record, so a Tier-0 note child is ordered and walked like any other
+/// node.
+///
+/// Store-backed: used by callers (e.g. `okf_export_service`) that don't
+/// already hold a `NodeHeader` map. `tree_service::build_tree`'s own walk
+/// uses `child_ids_from_headers` instead so it never re-parses an instance
+/// per visit (srs-rust#1113).
 pub(crate) fn child_ids(
     store: &dyn RepositoryStore,
     source_id: &str,
@@ -273,44 +363,12 @@ pub(crate) fn child_ids(
     relations: &[srs_core::types::relation::Relation],
     container_children: &HashMap<String, Vec<String>>,
 ) -> Result<Vec<String>, RepositoryError> {
-    #[derive(Clone)]
-    struct Child {
-        id: String,
-        created_at: Option<String>,
-    }
-    impl relation_graph::PrecedesSortable for Child {
-        fn precedes_instance_id(&self) -> &str {
-            &self.id
-        }
-        fn precedes_created_at(&self) -> Option<&str> {
-            self.created_at.as_deref()
-        }
-    }
-
     let mut children = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
-    for rel in relations
-        .iter()
-        .filter(|r| r.relation_type == relation_type && r.source_instance_id == source_id)
-    {
-        if !seen.insert(rel.target_instance_id.clone()) {
-            continue;
-        }
-        if let Some(instance) = get_instance_by_id(store, &rel.target_instance_id)? {
+    for id in child_candidate_ids(source_id, relation_type, relations, container_children) {
+        if let Some(instance) = get_instance_by_id(store, &id)? {
             children.push(Child {
-                id: rel.target_instance_id.clone(),
                 created_at: instance.created_at().map(str::to_string),
-            });
-        }
-    }
-    for id in container_children.get(source_id).into_iter().flatten() {
-        if !seen.insert(id.clone()) {
-            continue;
-        }
-        if let Some(instance) = get_instance_by_id(store, id)? {
-            children.push(Child {
-                id: id.clone(),
-                created_at: instance.created_at().map(str::to_string),
+                id,
             });
         }
     }
@@ -318,6 +376,30 @@ pub(crate) fn child_ids(
         .into_iter()
         .map(|c| c.id)
         .collect())
+}
+
+/// `child_ids`, resolved from the pre-built header map instead of the store —
+/// touches no instance files. See `child_ids`'s doc comment.
+fn child_ids_from_headers(
+    headers: &HashMap<String, NodeHeader>,
+    source_id: &str,
+    relation_type: &str,
+    relations: &[srs_core::types::relation::Relation],
+    container_children: &HashMap<String, Vec<String>>,
+) -> Vec<String> {
+    let mut children = Vec::new();
+    for id in child_candidate_ids(source_id, relation_type, relations, container_children) {
+        if let Some(header) = headers.get(&id) {
+            children.push(Child {
+                created_at: header.created_at.clone(),
+                id,
+            });
+        }
+    }
+    relation_graph::sort_by_precedes_chain(children, relations)
+        .into_iter()
+        .map(|c| c.id)
+        .collect()
 }
 
 #[cfg(test)]
