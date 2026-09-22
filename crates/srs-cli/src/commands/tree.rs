@@ -42,6 +42,7 @@ fn map_node(node: &TreeNode) -> TreeNodePayload {
         depth: node.depth,
         children: node.children.iter().map(map_node).collect(),
         cycle_pruned: node.cycle_pruned,
+        already_expanded: node.already_expanded,
     }
 }
 

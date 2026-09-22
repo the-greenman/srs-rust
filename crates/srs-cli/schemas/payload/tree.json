@@ -28,6 +28,7 @@
     "TreeNodePayload": {
       "type": "object",
       "required": [
+        "alreadyExpanded",
         "children",
         "cyclePruned",
         "depth",
@@ -37,6 +38,9 @@
         "typeNamespace"
       ],
       "properties": {
+        "alreadyExpanded": {
+          "type": "boolean"
+        },
         "children": {
           "type": "array",
           "items": true
