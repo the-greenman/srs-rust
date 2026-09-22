@@ -5468,6 +5468,10 @@ mod tests {
     struct CountingVfs {
         inner: MemVfs,
         list_recursive_calls: std::cell::Cell<usize>,
+        /// Reads of a file under `records/` — i.e. an actual instance parse.
+        /// Used by srs-rust#1113's tree-walk test to prove `build_tree` reads
+        /// each instance once, not once per visit.
+        record_file_reads: std::cell::Cell<usize>,
     }
 
     impl CountingVfs {
@@ -5475,12 +5479,16 @@ mod tests {
             Self {
                 inner,
                 list_recursive_calls: std::cell::Cell::new(0),
+                record_file_reads: std::cell::Cell::new(0),
             }
         }
     }
 
     impl crate::vfs::Vfs for CountingVfs {
         fn read_to_string(&self, rel: &str) -> Result<String, RepositoryError> {
+            if rel.starts_with("records/") {
+                self.record_file_reads.set(self.record_file_reads.get() + 1);
+            }
             self.inner.read_to_string(rel)
         }
         fn read_bytes(&self, rel: &str) -> Result<Vec<u8>, RepositoryError> {
@@ -5709,6 +5717,83 @@ mod tests {
             1,
             "save_relation must invalidate the memoized catalog so the next \
              catalog() call reflects the new relation"
+        );
+    }
+
+    // --- tree_service header map (srs-rust#1113) ---
+
+    /// Runs `build_tree` over a 4-instance corpus wired with the given
+    /// `contains` edges and returns how many `records/` files were read from
+    /// disk. Used to compare a plain 4-node chain (4 visits, no sharing)
+    /// against a corpus where one node is reachable via two parents (5
+    /// visits) — srs-rust#1113's shape.
+    fn build_tree_record_reads(ids: [&str; 4], edges: &[(&str, &str)]) -> usize {
+        let counting = std::rc::Rc::new(CountingVfs::new(minimal_mem_repo()));
+        let store = FileStore::from_vfs(counting.clone() as std::rc::Rc<dyn crate::vfs::Vfs>);
+
+        for id in ids {
+            store
+                .save_record(&minimal_record_for_store(id, "R", None))
+                .unwrap();
+        }
+        for (i, (from, to)) in edges.iter().enumerate() {
+            store
+                .save_relation(&srs_core::types::relation::Relation {
+                    relation_id: format!("60000000-0000-4000-a000-{i:012}"),
+                    relation_type: "contains".to_string(),
+                    source_instance_id: from.to_string(),
+                    target_instance_id: to.to_string(),
+                    created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                    notes: None,
+                    source_refs: None,
+                    meta: None,
+                })
+                .unwrap();
+        }
+
+        // Reset the counter: the writes above (and any catalog build they
+        // triggered) are setup, not the walk under test.
+        counting.record_file_reads.set(0);
+
+        crate::tree_service::build_tree(&store, crate::tree_service::TreeOptions::default())
+            .unwrap();
+
+        counting.record_file_reads.get()
+    }
+
+    /// Reproduces the srs-rust#1113 shape: a node reachable via more than one
+    /// path (`root -> a -> shared`, `root -> b -> shared`) used to be
+    /// re-parsed from disk once per incoming path — and, independently,
+    /// every node's own file was re-parsed once per visit rather than once
+    /// per `build_tree` call. Compares two 4-instance corpora that differ
+    /// only in edge shape: a plain chain (4 visits total, no revisits) and
+    /// the sharing DAG (5 visits total, `shared` visited twice). If the walk
+    /// still read a file per visit, the sharing corpus would cost strictly
+    /// more; with the header map it costs exactly the same, because reads
+    /// scale with corpus size, not with how many paths (or how many times)
+    /// the walk reaches a node.
+    #[test]
+    fn build_tree_reads_do_not_scale_with_shared_visit_count() {
+        let root = "10000000-0000-4000-8000-000000000001";
+        let a = "10000000-0000-4000-8000-000000000002";
+        let b = "10000000-0000-4000-8000-000000000003";
+        let c_or_shared = "10000000-0000-4000-8000-000000000004";
+
+        let chain_reads = build_tree_record_reads(
+            [root, a, b, c_or_shared],
+            &[(root, a), (a, b), (b, c_or_shared)],
+        );
+        let shared_reads = build_tree_record_reads(
+            [root, a, b, c_or_shared],
+            &[(root, a), (root, b), (a, c_or_shared), (b, c_or_shared)],
+        );
+
+        assert_eq!(
+            chain_reads, shared_reads,
+            "read count must depend only on corpus size (4 instances), not \
+             on how many paths (or times) the walk reaches a shared node — \
+             a plain chain visits 4 times, the sharing DAG visits 5 times \
+             (the shared node twice), but both must cost the same reads"
         );
     }
 }

@@ -48,6 +48,11 @@ pub struct TreeNode {
     pub children: Vec<TreeNode>,
     /// True when this node was not expanded because its ID appeared in the ancestor path.
     pub cycle_pruned: bool,
+    /// True when this node was already expanded once elsewhere in this same
+    /// `build_tree` call (srs-rust#1117 — "expand once per tree"). Its first
+    /// occurrence, decided purely by walk order, carries the real subtree;
+    /// every later occurrence is a leaf stub and is never re-walked.
+    pub already_expanded: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -55,6 +60,67 @@ pub struct TreeNode {
 pub struct TreeResult {
     pub roots: Vec<TreeNode>,
     pub diagnostics: Vec<String>,
+}
+
+/// The subset of an instance's data a tree node needs to render itself and
+/// sort its siblings — everything `build_node`/`child_ids` used to re-derive
+/// by fully re-parsing the instance on every visit (srs-rust#1113). Built
+/// once per `build_tree` call, over every catalog instance, never per visit.
+struct NodeHeader {
+    label: String,
+    type_id: String,
+    type_version: u32,
+    type_namespace: String,
+    type_name: String,
+    lifecycle_state: Option<String>,
+    created_at: Option<String>,
+}
+
+/// One pass over every instance in the catalog, computed exactly once
+/// regardless of how many times (or via how many paths) the tree walk
+/// visits it. `record_label::record_display_label` needs a Record's
+/// `fieldValues` (for the identity-field label) and `LoadedInstance` doesn't
+/// carry `createdAt` at the catalog-entry level, so this still loads each
+/// instance once via `get_instance_by_id` — but once, not once per visit.
+fn build_node_headers(
+    store: &dyn RepositoryStore,
+    identity_field_index: &HashMap<(String, u32), String>,
+    field_name_index: &HashMap<String, String>,
+) -> Result<HashMap<String, NodeHeader>, RepositoryError> {
+    let cat = store.catalog()?;
+    let mut headers = HashMap::with_capacity(cat.instances.len());
+    for entry in &cat.instances {
+        let Some(instance) = get_instance_by_id(store, &entry.id)? else {
+            continue;
+        };
+        let header = match &instance {
+            LoadedInstance::Record(record) => NodeHeader {
+                label: record_label::record_display_label(
+                    record,
+                    identity_field_index,
+                    field_name_index,
+                ),
+                type_id: record.type_id.clone(),
+                type_version: record.type_version,
+                type_namespace: record.type_namespace.clone(),
+                type_name: record.type_name.clone(),
+                lifecycle_state: record.lifecycle_state.clone(),
+                created_at: instance.created_at().map(str::to_string),
+            },
+            // A Note has no type binding, so its title is the only label there is.
+            LoadedInstance::Note(note) => NodeHeader {
+                label: note.title.clone().unwrap_or_else(|| entry.id.clone()),
+                type_id: String::new(),
+                type_version: 0,
+                type_namespace: String::new(),
+                type_name: String::new(),
+                lifecycle_state: None,
+                created_at: instance.created_at().map(str::to_string),
+            },
+        };
+        headers.insert(entry.id.clone(), header);
+    }
+    Ok(headers)
 }
 
 pub fn build_tree(
@@ -77,23 +143,31 @@ pub fn build_tree(
     } else {
         HashMap::new()
     };
+    // Single pass, once per `build_tree` call (srs-rust#1113) — the walk
+    // below touches no instance files at all, however many times a shared
+    // node is visited.
+    let headers = build_node_headers(store, &identity_field_index, &field_name_index)?;
 
     let root_ids = resolve_roots(store, &options, &relations)?;
 
     let mut diagnostics = Vec::new();
     let mut roots = Vec::new();
+    // Global to the whole `build_tree` call (srs-rust#1117), not per-root: a
+    // node reached under one root and again under another (or again later
+    // under the same root, off the current ancestor path) is expanded only
+    // once, at its first occurrence in walk order.
+    let mut expanded: HashSet<String> = HashSet::new();
 
     for id in &root_ids {
         let mut ancestors = HashSet::new();
         if let Some(node) = build_node(
-            store,
             id,
             &relations,
-            &identity_field_index,
-            &field_name_index,
+            &headers,
             &options,
             0,
             &mut ancestors,
+            &mut expanded,
             &mut diagnostics,
             &container_children,
         )? {
@@ -153,100 +227,89 @@ fn resolve_roots(
 
 #[allow(clippy::too_many_arguments)]
 fn build_node(
-    store: &dyn RepositoryStore,
     instance_id: &str,
     relations: &[srs_core::types::relation::Relation],
-    identity_field_index: &HashMap<(String, u32), String>,
-    field_name_index: &HashMap<String, String>,
+    headers: &HashMap<String, NodeHeader>,
     options: &TreeOptions,
     depth: u32,
     ancestors: &mut HashSet<String>,
+    expanded: &mut HashSet<String>,
     diagnostics: &mut Vec<String>,
     container_children: &HashMap<String, Vec<String>>,
 ) -> Result<Option<TreeNode>, RepositoryError> {
     // Tier-aware: a Tier-0 note is a legal member of the part-of tree (RFC-013
-    // scaffolds one as a section), and reading it through the Tier-2-only loader
-    // raised a hard `missing field typeId` parse error that took down the whole
-    // traversal — the same trap the navigation service already documents.
-    let instance = match get_instance_by_id(store, instance_id)? {
-        Some(i) => i,
-        None => {
-            diagnostics.push(format!(
-                "tree: instance {instance_id} does not resolve — skipped"
-            ));
-            return Ok(None);
-        }
-    };
-    let (type_id, type_version, type_namespace, type_name, lifecycle_state, label) = match &instance
-    {
-        LoadedInstance::Record(record) => (
-            record.type_id.clone(),
-            record.type_version,
-            record.type_namespace.clone(),
-            record.type_name.clone(),
-            record.lifecycle_state.clone(),
-            record_label::record_display_label(record, identity_field_index, field_name_index),
-        ),
-        // A Note has no type binding, so its title is the only label there is.
-        LoadedInstance::Note(note) => (
-            String::new(),
-            0,
-            String::new(),
-            String::new(),
-            None,
-            note.title
-                .clone()
-                .unwrap_or_else(|| instance_id.to_string()),
-        ),
+    // scaffolds one as a section) — its header (built once in
+    // `build_node_headers`) carries an empty type and no lifecycle, exactly
+    // as a fresh `get_instance_by_id` parse would.
+    let Some(header) = headers.get(instance_id) else {
+        diagnostics.push(format!(
+            "tree: instance {instance_id} does not resolve — skipped"
+        ));
+        return Ok(None);
     };
 
     // Apply type filter when visiting non-root nodes. An untyped Note never matches.
     if let Some(filter) = &options.type_filter {
-        if &format!("{type_namespace}/{type_name}") != filter {
+        if &format!("{}/{}", header.type_namespace, header.type_name) != filter {
             return Ok(None);
         }
     }
 
-    // Cycle check must precede max_depth: a node at exactly max_depth that is also
-    // an ancestor is a back-edge and must be flagged cycle_pruned, not silently truncated.
-    let node = |children: Vec<TreeNode>, cycle_pruned: bool| TreeNode {
+    // Cycle check must precede everything else: a node at exactly max_depth
+    // or already expanded elsewhere that is ALSO a back-edge on the current
+    // path is still a cycle first (srs-rust#1117: "cycle_pruned wins").
+    let node = |children: Vec<TreeNode>, cycle_pruned: bool, already_expanded: bool| TreeNode {
         instance_id: instance_id.to_string(),
-        label,
-        type_id,
-        type_version,
-        type_namespace,
-        type_name,
-        lifecycle_state,
+        label: header.label.clone(),
+        type_id: header.type_id.clone(),
+        type_version: header.type_version,
+        type_namespace: header.type_namespace.clone(),
+        type_name: header.type_name.clone(),
+        lifecycle_state: header.lifecycle_state.clone(),
         depth,
         children,
         cycle_pruned,
+        already_expanded,
     };
 
     if ancestors.contains(instance_id) {
-        return Ok(Some(node(vec![], true)));
+        return Ok(Some(node(vec![], true, false)));
+    }
+    // Already-expanded check precedes max_depth (srs-rust#1117): a node
+    // expanded once anywhere in this tree is never re-walked, regardless of
+    // how deep this second occurrence sits. Checking max_depth first would
+    // silently swallow the fact that this is a duplicate (it would emit an
+    // indistinguishable plain truncation stub instead) and — because a
+    // max_depth truncation must NOT itself count as an expansion — would
+    // also require extra bookkeeping to avoid re-truncating instead of fully
+    // expanding a shallower path to the same node reached later. Checking
+    // the expanded set first keeps both rules simple: only a node that is
+    // actually walked to completion here is inserted into `expanded`.
+    if expanded.contains(instance_id) {
+        return Ok(Some(node(vec![], false, true)));
     }
     if options.max_depth.is_some_and(|max| depth >= max) {
-        return Ok(Some(node(vec![], false)));
+        return Ok(Some(node(vec![], false, false)));
     }
 
     ancestors.insert(instance_id.to_string());
+    expanded.insert(instance_id.to_string());
     let mut child_nodes = Vec::new();
-    for child_id in child_ids(
-        store,
+    for child_id in child_ids_from_headers(
+        headers,
         instance_id,
         &options.relation_type,
         relations,
         container_children,
-    )? {
+    ) {
         if let Some(child) = build_node(
-            store,
             &child_id,
             relations,
-            identity_field_index,
-            field_name_index,
+            headers,
             options,
             depth + 1,
             ancestors,
+            expanded,
             diagnostics,
             container_children,
         )? {
@@ -255,7 +318,7 @@ fn build_node(
     }
     ancestors.remove(instance_id);
 
-    Ok(Some(node(child_nodes, false)))
+    Ok(Some(node(child_nodes, false, false)))
 }
 
 /// Outgoing `relation_type` targets of `source_id`, plus (when `relation_type`
@@ -266,6 +329,62 @@ fn build_node(
 /// `relation_graph::children_by_relation_type` this never parses a target as a
 /// Tier-2 record, so a Tier-0 note child is ordered and walked like any other
 /// node.
+#[derive(Clone)]
+struct Child {
+    id: String,
+    created_at: Option<String>,
+}
+impl relation_graph::PrecedesSortable for Child {
+    fn precedes_instance_id(&self) -> &str {
+        &self.id
+    }
+    fn precedes_created_at(&self) -> Option<&str> {
+        self.created_at.as_deref()
+    }
+}
+
+/// The candidate child ids of `source_id`: outgoing `relation_type` targets
+/// plus (for `contains`) direct container membership, deduplicated — the
+/// part-of tree's two membership sources, merged, before either candidate
+/// is checked for existence. Shared by both `child_ids` (store-backed, for
+/// callers outside the header-mapped tree walk) and `child_ids_from_headers`.
+fn child_candidate_ids(
+    source_id: &str,
+    relation_type: &str,
+    relations: &[srs_core::types::relation::Relation],
+    container_children: &HashMap<String, Vec<String>>,
+) -> Vec<String> {
+    let mut ids = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for rel in relations
+        .iter()
+        .filter(|r| r.relation_type == relation_type && r.source_instance_id == source_id)
+    {
+        if seen.insert(rel.target_instance_id.clone()) {
+            ids.push(rel.target_instance_id.clone());
+        }
+    }
+    for id in container_children.get(source_id).into_iter().flatten() {
+        if seen.insert(id.clone()) {
+            ids.push(id.clone());
+        }
+    }
+    ids
+}
+
+/// Outgoing `relation_type` targets of `source_id`, plus (when `relation_type`
+/// is "contains") the direct members of any Container rooted at `source_id`
+/// that a `contains` Relation doesn't already name (RFC-034 [R1], srs-rust#1096)
+/// — the part-of tree's two membership sources, merged and deduplicated.
+/// Ordered by the `precedes` chain among them. Resolves ids only — unlike
+/// `relation_graph::children_by_relation_type` this never parses a target as a
+/// Tier-2 record, so a Tier-0 note child is ordered and walked like any other
+/// node.
+///
+/// Store-backed: used by callers (e.g. `okf_export_service`) that don't
+/// already hold a `NodeHeader` map. `tree_service::build_tree`'s own walk
+/// uses `child_ids_from_headers` instead so it never re-parses an instance
+/// per visit (srs-rust#1113).
 pub(crate) fn child_ids(
     store: &dyn RepositoryStore,
     source_id: &str,
@@ -273,44 +392,12 @@ pub(crate) fn child_ids(
     relations: &[srs_core::types::relation::Relation],
     container_children: &HashMap<String, Vec<String>>,
 ) -> Result<Vec<String>, RepositoryError> {
-    #[derive(Clone)]
-    struct Child {
-        id: String,
-        created_at: Option<String>,
-    }
-    impl relation_graph::PrecedesSortable for Child {
-        fn precedes_instance_id(&self) -> &str {
-            &self.id
-        }
-        fn precedes_created_at(&self) -> Option<&str> {
-            self.created_at.as_deref()
-        }
-    }
-
     let mut children = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
-    for rel in relations
-        .iter()
-        .filter(|r| r.relation_type == relation_type && r.source_instance_id == source_id)
-    {
-        if !seen.insert(rel.target_instance_id.clone()) {
-            continue;
-        }
-        if let Some(instance) = get_instance_by_id(store, &rel.target_instance_id)? {
+    for id in child_candidate_ids(source_id, relation_type, relations, container_children) {
+        if let Some(instance) = get_instance_by_id(store, &id)? {
             children.push(Child {
-                id: rel.target_instance_id.clone(),
                 created_at: instance.created_at().map(str::to_string),
-            });
-        }
-    }
-    for id in container_children.get(source_id).into_iter().flatten() {
-        if !seen.insert(id.clone()) {
-            continue;
-        }
-        if let Some(instance) = get_instance_by_id(store, id)? {
-            children.push(Child {
-                id: id.clone(),
-                created_at: instance.created_at().map(str::to_string),
+                id,
             });
         }
     }
@@ -318,6 +405,30 @@ pub(crate) fn child_ids(
         .into_iter()
         .map(|c| c.id)
         .collect())
+}
+
+/// `child_ids`, resolved from the pre-built header map instead of the store —
+/// touches no instance files. See `child_ids`'s doc comment.
+fn child_ids_from_headers(
+    headers: &HashMap<String, NodeHeader>,
+    source_id: &str,
+    relation_type: &str,
+    relations: &[srs_core::types::relation::Relation],
+    container_children: &HashMap<String, Vec<String>>,
+) -> Vec<String> {
+    let mut children = Vec::new();
+    for id in child_candidate_ids(source_id, relation_type, relations, container_children) {
+        if let Some(header) = headers.get(&id) {
+            children.push(Child {
+                created_at: header.created_at.clone(),
+                id,
+            });
+        }
+    }
+    relation_graph::sort_by_precedes_chain(children, relations)
+        .into_iter()
+        .map(|c| c.id)
+        .collect()
 }
 
 #[cfg(test)]
@@ -673,6 +784,144 @@ mod tests {
             children,
             vec!["Evidence Item 1", "Evidence Item 2"],
             "container direct membership must surface as part-of children, got {children:?}"
+        );
+    }
+
+    /// srs-rust#1117: a node reachable from two distinct roots (a DAG, not a
+    /// tree) is expanded once, at its first occurrence in walk order; every
+    /// later occurrence is a leaf stub flagged `already_expanded`.
+    #[test]
+    fn build_tree_dag_node_expanded_once_second_occurrence_is_stub() {
+        let store = make_store(
+            vec![make_field("f-title", "title")],
+            vec![make_type("t-node", "node", &["f-title"])],
+        );
+        let p1_id = add_record(&store, "t-node", "title", "P1");
+        let p2_id = add_record(&store, "t-node", "title", "P2");
+        let c_id = add_record(&store, "t-node", "title", "C");
+        let d_id = add_record(&store, "t-node", "title", "D");
+        create_relation_auto(&store, make_relation("contains", &p1_id, &c_id)).unwrap();
+        create_relation_auto(&store, make_relation("contains", &p2_id, &c_id)).unwrap();
+        create_relation_auto(&store, make_relation("contains", &c_id, &d_id)).unwrap();
+
+        // Explicit root order: P1 walked before P2, so P1's C is primary.
+        let result = build_tree(
+            &store,
+            TreeOptions {
+                root_ids: Some(vec![p1_id.clone(), p2_id.clone()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.roots.len(), 2);
+        let c_under_p1 = &result.roots[0].children[0];
+        assert_eq!(c_under_p1.instance_id, c_id);
+        assert!(
+            !c_under_p1.already_expanded,
+            "first occurrence (under P1) must be the primary expansion"
+        );
+        assert_eq!(c_under_p1.children.len(), 1, "primary C keeps its child D");
+        assert_eq!(c_under_p1.children[0].instance_id, d_id);
+
+        let c_under_p2 = &result.roots[1].children[0];
+        assert_eq!(c_under_p2.instance_id, c_id);
+        assert!(
+            c_under_p2.already_expanded,
+            "second occurrence (under P2) must be flagged already_expanded"
+        );
+        assert!(
+            c_under_p2.children.is_empty(),
+            "an already-expanded stub is never re-walked"
+        );
+        assert!(!c_under_p2.cycle_pruned, "not a back-edge, just a dup");
+    }
+
+    /// srs-rust#1117: container membership can make the part-of graph cyclic
+    /// (container A's members include container B's root and vice versa).
+    /// The walk must terminate, bounded by the instance count plus stubs —
+    /// not blow up per-path the way it did on muSrs (srs-rust#1113 measured
+    /// 584 real nodes exploding to 936k at depth 5).
+    #[test]
+    fn build_tree_container_membership_cycle_terminates_and_cycle_pruned_wins() {
+        let store = make_store(
+            vec![make_field("f-title", "title")],
+            vec![make_type("t-node", "node", &["f-title"])],
+        );
+        let a_id = add_record(&store, "t-node", "title", "A");
+        let b_id = add_record(&store, "t-node", "title", "B");
+
+        // No `contains` relations at all — the cycle comes entirely from
+        // container membership, per srs-rust#1097.
+        crate::container_service::create_container(
+            &store,
+            srs_core::types::container::Container {
+                container_id: "00000000-0000-4000-8000-00000000ca00".to_string(),
+                title: "Container A".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                anchor_instance_id: None,
+                root_instance_ids: Some(vec![a_id.clone()]),
+                member_instance_ids: Some(vec![b_id.clone()]),
+                child_container_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .unwrap();
+        crate::container_service::create_container(
+            &store,
+            srs_core::types::container::Container {
+                container_id: "00000000-0000-4000-8000-00000000cb00".to_string(),
+                title: "Container B".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                anchor_instance_id: None,
+                root_instance_ids: Some(vec![b_id.clone()]),
+                member_instance_ids: Some(vec![a_id.clone()]),
+                child_container_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .unwrap();
+
+        let result = build_tree(
+            &store,
+            TreeOptions {
+                root_ids: Some(vec![a_id.clone()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.roots.len(), 1, "walk must terminate");
+        let a_node = &result.roots[0];
+        assert_eq!(a_node.children.len(), 1, "A's only child is B");
+        let b_node = &a_node.children[0];
+        assert_eq!(b_node.instance_id, b_id);
+        assert_eq!(b_node.children.len(), 1, "B's only child is a back to A");
+        let a_again = &b_node.children[0];
+        assert_eq!(a_again.instance_id, a_id);
+        assert!(
+            a_again.cycle_pruned,
+            "A is both an ancestor and already expanded here — cycle_pruned must win"
+        );
+        assert!(
+            !a_again.already_expanded,
+            "cycle_pruned wins over already_expanded when both are true"
         );
     }
 }

@@ -1820,6 +1820,7 @@ pub struct TreeNodePayload {
     #[schemars(with = "Vec<serde_json::Value>")]
     pub children: Vec<TreeNodePayload>,
     pub cycle_pruned: bool,
+    pub already_expanded: bool,
 }
 
 // ── Repo init-new payload ─────────────────────────────────────────────────────
