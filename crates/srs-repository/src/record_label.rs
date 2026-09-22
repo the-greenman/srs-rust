@@ -39,13 +39,23 @@ pub(crate) fn build_label_indexes(
     store: &dyn RepositoryStore,
 ) -> Result<(FieldNameIndex, IdentityFieldIndex), RepositoryError> {
     let package = store.load_package()?;
+    Ok(build_label_indexes_from_package(&package))
+}
+
+/// Same as [`build_label_indexes`], but from an already-loaded `Package` —
+/// for callers that need the package itself for other lookups too and must
+/// not load it twice (`FileStore` re-reads/re-parses every package file on
+/// every `load_package()` call, with no caching).
+pub(crate) fn build_label_indexes_from_package(
+    package: &crate::package::Package,
+) -> (FieldNameIndex, IdentityFieldIndex) {
     let field_name_index = package
         .fields
         .iter()
         .map(|f| (f.id.clone(), f.name.clone()))
         .collect();
-    let identity_field_index = identity_field_index_from_package(&package);
-    Ok((field_name_index, identity_field_index))
+    let identity_field_index = identity_field_index_from_package(package);
+    (field_name_index, identity_field_index)
 }
 
 /// Extract the best display label for a record using pre-built identity and field name indexes.
