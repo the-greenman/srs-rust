@@ -1274,6 +1274,12 @@ pub struct ProjectedRecord {
     pub relations: Option<Vec<ProjectedRelationRow>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<Vec<ProjectedPropertyRow>>,
+    /// srs-rust#1127: this record's `contains` children, nested recursively,
+    /// same order/condition as the markdown/html/adoc renderer's structured
+    /// heading recursion. Omitted when the section has no `titleFieldId`, or
+    /// the record has no `contains` children.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<ProjectedRecord>,
 }
 
 /// A single section in a JSON projection document.

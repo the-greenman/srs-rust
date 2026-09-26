@@ -638,7 +638,8 @@ impl SrsRepository {
         to_js(&result)
     }
 
-    /// Render a document view. `view_id` is the view's UUID; `format` is `"json"` or `"markdown"`;
+    /// Render a document view. `view_id` is the view's UUID; `format` is one of
+    /// `"json"`, `"markdown"`, `"html"` or `"adoc"`;
     /// `container_id` optionally scopes TypeQuery sections to a container's membership;
     /// `instance_id_filter` optionally scopes ContainerSubset sections to a single record,
     /// producing a per-record export document.
@@ -647,8 +648,14 @@ impl SrsRepository {
     /// `{ $schema, compositionId, containerId: string|null, generatedAt, containerTitle,
     ///   preamble?, sections: [{ sectionId, title?, order, records: [{ instanceId, typeId,
     ///   typeVersion, typeNamespace, typeName, recordHeading?, preamble?, fields,
-    ///   orderedFieldKeys, relations?, properties? }], sections?: [<nested ProjectedSection,
-    ///   same shape, recursive>] }] }`.
+    ///   orderedFieldKeys, relations?, properties?, children?: [<nested record, same shape,
+    ///   recursive>] }], sections?: [<nested ProjectedSection, same shape, recursive>] }] }`.
+    /// `records[*].children` (srs-rust#1127) carries the record's `contains` children —
+    /// same order and same condition (the enclosing section declares a `titleFieldId`) as
+    /// the markdown/html/adoc renderer's nested-heading recursion — so a client can take
+    /// document structure from the engine instead of re-deriving it from raw `contains`
+    /// relations. Omitted when the section has no `titleFieldId`, or the record has no
+    /// `contains` children.
     /// `sections[*].sections` (RFC-042 Revision 5 [R25]) carries nested sections produced by a
     /// `container-subset` source with `containerScope: "subtree"`; it is omitted when a section
     /// renders no nested section, and its records are never flattened into the parent's `records`.
@@ -842,6 +849,18 @@ impl SrsRepository {
     /// provenance issues (missing files, duplicate IDs) surface in `diagnostics`.
     pub fn list_blueprints(&self) -> Result<JsValue, JsValue> {
         let result = blueprint_service::list_blueprints_summary(&self.store).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// List a blueprint's `structure` (RelationSpec list, with type names resolved),
+    /// sorted deterministically by `(sourceTypeId, targetTypeId, relationType)`.
+    /// `blueprint_id` is the blueprint's UUID. Same shape as the CLI's
+    /// `blueprint structure` command payload's `relationSpecs`: a JS array of
+    /// `{ relationType, sourceTypeId, sourceTypeName?, targetTypeId, targetTypeName?,
+    /// cardinality?, required? }` objects.
+    pub fn list_blueprint_structure(&self, blueprint_id: &str) -> Result<JsValue, JsValue> {
+        let result = blueprint_service::list_blueprint_structure(&self.store, blueprint_id)
+            .map_err(js_err)?;
         to_js(&result)
     }
 
@@ -2401,6 +2420,7 @@ mod tests {
             ordered_field_keys: vec![],
             relations: Some(vec![row]),
             properties: None,
+            children: vec![],
         };
         let json = serde_json::to_value(&record).expect("ProjectedRecord must serialize");
         assert_eq!(json["typeVersion"].as_u64(), Some(1));
@@ -2459,6 +2479,7 @@ mod tests {
             ordered_field_keys: vec!["rows".to_string()],
             relations: None,
             properties: None,
+            children: vec![],
         };
         let json = serde_json::to_value(&record).expect("ProjectedRecord must serialize");
         assert_eq!(
