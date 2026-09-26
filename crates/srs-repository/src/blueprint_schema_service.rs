@@ -57,13 +57,21 @@ pub fn blueprint_schema(
     };
 
     let mut diagnostics: Vec<String> = Vec::new();
+    let package = store.load_package()?;
 
-    // Collect unique TypeRefs to project: root_types + structure[].target_type only.
-    // source_type TypeRefs are deliberately excluded — source-only types produce
-    // unreachable definitions entries with no $ref pointing to them.
+    // Collect unique TypeRefs to project: root_types + structure[].target_type, each
+    // expanded to its transitive subtypes (srs-rust#1124, Gap 1) — an editor's
+    // component picker for an abstract target type (e.g. `homepage-section`) must
+    // see every concrete component that extends it. For `precedes` groups (peer
+    // ordering), also expand and include each spec's source_type — a `precedes`
+    // group orders peers, so the source side belongs among the choosable items too.
+    // `contains` and other relation types keep the original target-only behaviour.
     let mut type_ids_ordered: Vec<(String, Option<u32>)> = Vec::new();
     let mut seen_type_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
+    // Explicitly-declared TypeRefs carry their own `type_version`; a subtype pulled
+    // in transitively has no declared version in the blueprint, so it resolves its
+    // own latest version (`None`).
     let mut add_type_ref = |type_id: &str, type_version: Option<u32>| {
         if seen_type_ids.insert(type_id.to_string()) {
             type_ids_ordered.push((type_id.to_string(), type_version));
@@ -75,6 +83,15 @@ pub fn blueprint_schema(
     }
     for spec in &blueprint.structure {
         add_type_ref(&spec.target_type.type_id, spec.target_type.type_version);
+        for id in package.subtypes_of(&spec.target_type.type_id) {
+            add_type_ref(&id.id, None);
+        }
+        if spec.relation_type == "precedes" {
+            add_type_ref(&spec.source_type.type_id, spec.source_type.type_version);
+            for id in package.subtypes_of(&spec.source_type.type_id) {
+                add_type_ref(&id.id, None);
+            }
+        }
     }
 
     // Project each unique TypeRef into a definitions sub-schema.
@@ -129,12 +146,28 @@ pub fn blueprint_schema(
     let mut required: Vec<Value> = Vec::new();
 
     for (prop_key, specs) in &relation_groups {
-        // Collect unique target type_ids for this relation group.
+        // Collect unique target type_ids for this relation group, each expanded to
+        // its transitive subtypes (srs-rust#1124, Gap 1). For `precedes` groups
+        // (peer ordering) also include each spec's source_type + subtypes, since
+        // the source side is a peer choosable in the same array. `contains` and
+        // other relation types keep target-only items.
         let mut seen_targets: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut target_ids: Vec<String> = Vec::new();
+        let mut push_id = |id: String| {
+            if seen_targets.insert(id.clone()) {
+                target_ids.push(id);
+            }
+        };
         for spec in specs {
-            if seen_targets.insert(spec.target_type.type_id.clone()) {
-                target_ids.push(spec.target_type.type_id.clone());
+            push_id(spec.target_type.type_id.clone());
+            for st in package.subtypes_of(&spec.target_type.type_id) {
+                push_id(st.id.clone());
+            }
+            if spec.relation_type == "precedes" {
+                push_id(spec.source_type.type_id.clone());
+                for st in package.subtypes_of(&spec.source_type.type_id) {
+                    push_id(st.id.clone());
+                }
             }
         }
 
@@ -898,6 +931,163 @@ mod tests {
         assert!(
             defs.contains_key(SECTION_ID),
             "target type should be in definitions"
+        );
+    }
+
+    // ── Type inheritance: subtypes expand into items + definitions ────────────
+
+    #[test]
+    fn blueprint_schema_expands_target_subtypes_into_items_and_definitions() {
+        const CHILD_ID: &str = "00000000-0000-4000-8000-0000000000c1";
+        const GRANDCHILD_ID: &str = "00000000-0000-4000-8000-0000000000c2";
+        const UNRELATED_ID: &str = "00000000-0000-4000-8000-0000000000c9";
+
+        let mut child = record_type(CHILD_ID, FIELD_ID);
+        child.fields = vec![];
+        child.extends_type_id = Some(SECTION_ID.to_string());
+        child.extends_type_version = Some(1);
+        let mut grandchild = record_type(GRANDCHILD_ID, FIELD_ID);
+        grandchild.fields = vec![];
+        grandchild.extends_type_id = Some(CHILD_ID.to_string());
+        grandchild.extends_type_version = Some(1);
+        let unrelated = record_type(UNRELATED_ID, FIELD_ID);
+
+        let store = store_with_types_and_blueprint(
+            vec![field(FIELD_ID, "title")],
+            vec![
+                record_type(ROOT_ID, FIELD_ID),
+                record_type(SECTION_ID, FIELD_ID),
+                child,
+                grandchild,
+                unrelated,
+            ],
+        );
+        let bp = minimal_blueprint_with_structure(
+            vec![ROOT_ID],
+            vec![relation_spec("contains", ROOT_ID, SECTION_ID, None, None)],
+        );
+        let bp = create_blueprint(&store, bp, None).unwrap().blueprint;
+        let result = blueprint_schema(
+            &store,
+            BlueprintSchemaInput {
+                blueprint_id: bp.id,
+            },
+        )
+        .unwrap();
+
+        let defs = result.schema["definitions"].as_object().unwrap();
+        assert!(defs.contains_key(SECTION_ID), "declared target present");
+        assert!(defs.contains_key(CHILD_ID), "direct subtype present");
+        assert!(
+            defs.contains_key(GRANDCHILD_ID),
+            "transitive subtype present"
+        );
+        assert!(
+            !defs.contains_key(UNRELATED_ID),
+            "unrelated type must not leak in"
+        );
+
+        let items = &result.schema["properties"]["contains"]["items"];
+        let refs: Vec<&str> = items["oneOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v["$ref"].as_str().unwrap())
+            .collect();
+        assert!(refs.iter().any(|r| r.ends_with(SECTION_ID)));
+        assert!(refs.iter().any(|r| r.ends_with(CHILD_ID)));
+        assert!(refs.iter().any(|r| r.ends_with(GRANDCHILD_ID)));
+        assert!(!refs.iter().any(|r| r.ends_with(UNRELATED_ID)));
+    }
+
+    // ── precedes groups also include source_type + its subtypes ───────────────
+
+    #[test]
+    fn blueprint_schema_precedes_group_includes_source_type_and_subtypes() {
+        const SOURCE_CHILD_ID: &str = "00000000-0000-4000-8000-0000000000d1";
+
+        let mut source_child = record_type(SOURCE_CHILD_ID, FIELD_ID);
+        source_child.fields = vec![];
+        source_child.extends_type_id = Some(ROOT_ID.to_string());
+        source_child.extends_type_version = Some(1);
+
+        let store = store_with_types_and_blueprint(
+            vec![field(FIELD_ID, "title")],
+            vec![
+                record_type(ROOT_ID, FIELD_ID),
+                record_type(SECTION_ID, FIELD_ID),
+                source_child,
+            ],
+        );
+        let bp = minimal_blueprint_with_structure(
+            vec![ROOT_ID],
+            vec![relation_spec("precedes", ROOT_ID, SECTION_ID, None, None)],
+        );
+        let bp = create_blueprint(&store, bp, None).unwrap().blueprint;
+        let result = blueprint_schema(
+            &store,
+            BlueprintSchemaInput {
+                blueprint_id: bp.id,
+            },
+        )
+        .unwrap();
+
+        let defs = result.schema["definitions"].as_object().unwrap();
+        assert!(defs.contains_key(ROOT_ID), "source_type present in defs");
+        assert!(
+            defs.contains_key(SOURCE_CHILD_ID),
+            "source_type's subtype present in defs"
+        );
+        assert!(defs.contains_key(SECTION_ID), "target still present");
+
+        let items = &result.schema["properties"]["precedes"]["items"];
+        let refs: Vec<&str> = items["oneOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v["$ref"].as_str().unwrap())
+            .collect();
+        assert!(
+            refs.iter().any(|r| r.ends_with(ROOT_ID)),
+            "precedes items include the peer source type: {:?}",
+            refs
+        );
+        assert!(
+            refs.iter().any(|r| r.ends_with(SOURCE_CHILD_ID)),
+            "precedes items include the source type's subtype: {:?}",
+            refs
+        );
+        assert!(refs.iter().any(|r| r.ends_with(SECTION_ID)));
+    }
+
+    #[test]
+    fn blueprint_schema_contains_group_excludes_source_type() {
+        // Sanity check for the "contains unchanged" half of the rule: a `contains`
+        // group must NOT pull in source_type — only `precedes` does.
+        let store = store_with_types_and_blueprint(
+            vec![field(FIELD_ID, "title")],
+            vec![
+                record_type(ROOT_ID, FIELD_ID),
+                record_type(SECTION_ID, FIELD_ID),
+            ],
+        );
+        let bp = minimal_blueprint_with_structure(
+            vec![ROOT_ID],
+            vec![relation_spec("contains", ROOT_ID, SECTION_ID, None, None)],
+        );
+        let bp = create_blueprint(&store, bp, None).unwrap().blueprint;
+        let result = blueprint_schema(
+            &store,
+            BlueprintSchemaInput {
+                blueprint_id: bp.id,
+            },
+        )
+        .unwrap();
+
+        let items = &result.schema["properties"]["contains"]["items"];
+        assert!(
+            items.get("$ref").is_some(),
+            "contains with a single target must stay a bare $ref (no source added): {items}"
         );
     }
 

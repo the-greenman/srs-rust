@@ -32,7 +32,8 @@ use srs_repository::registry_service::{
     filter_registry_entries, parse_registry_json, RegistryListFilter,
 };
 use srs_repository::relation_service::{
-    self, ListRelationsFilter, OrderByPrecedesInput, RebuildPrecedesChainInput,
+    self, InsertIntoPrecedesChainInput, ListRelationsFilter, MoveInPrecedesChainInput,
+    OrderByPrecedesInput, RebuildPrecedesChainInput, RemoveFromPrecedesChainInput,
 };
 use srs_repository::render_service::{self, RenderCompositionOptions};
 use srs_repository::repository_lifecycle::{self, InitNewRepositoryInput};
@@ -504,6 +505,54 @@ impl SrsRepository {
             },
         )
         .map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Insert one instance into a `precedes` chain right after `afterId` or right
+    /// before `beforeId` (exactly one required) — chain-local: only edges incident
+    /// to the anchor and the inserted instance are touched, so a disjoint sibling
+    /// chain (srs-rust#1124) is untouched.
+    ///
+    /// `input_json` is `{ "instanceId": "uuid", "afterId": "uuid" }` or
+    /// `{ "instanceId": "uuid", "beforeId": "uuid" }`.
+    ///
+    /// Returns `{ "created": [<RelationSummary>, ...], "removed": [<RelationSummary>, ...] }`.
+    /// Errors if `instanceId` already has `precedes` edges.
+    pub fn insert_into_precedes_chain(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: InsertIntoPrecedesChainInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result =
+            relation_service::insert_into_precedes_chain(&self.store, input).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Remove one instance from its `precedes` chain, reconnecting its predecessor
+    /// to its successor when both existed — chain-local, a disjoint sibling chain
+    /// is untouched (srs-rust#1124).
+    ///
+    /// `input_json` is `{ "instanceId": "uuid" }`.
+    /// Returns `{ "created": [<RelationSummary>, ...], "removed": [<RelationSummary>, ...] }`.
+    pub fn remove_from_precedes_chain(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: RemoveFromPrecedesChainInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result =
+            relation_service::remove_from_precedes_chain(&self.store, input).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Move one instance to a new position in a `precedes` chain in one batch:
+    /// remove it from its current position (reconnecting prev→next), then insert
+    /// it after `afterId` or before `beforeId` (exactly one required) —
+    /// chain-local throughout (srs-rust#1124).
+    ///
+    /// `input_json` is `{ "instanceId": "uuid", "afterId": "uuid" }` or
+    /// `{ "instanceId": "uuid", "beforeId": "uuid" }`.
+    /// Returns `{ "created": [<RelationSummary>, ...], "removed": [<RelationSummary>, ...] }`.
+    pub fn move_in_precedes_chain(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: MoveInPrecedesChainInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result =
+            relation_service::move_in_precedes_chain(&self.store, input).map_err(js_err)?;
         to_js(&result)
     }
 
@@ -1977,6 +2026,107 @@ mod tests {
         assert_eq!(result.created[0].target_id, "id-b");
         assert_eq!(result.created[1].source_id, "id-b");
         assert_eq!(result.created[1].target_id, "id-c");
+    }
+
+    fn precedes_chain_splice_test_srsj() -> String {
+        serde_json::json!({
+            "srsj": "2",
+            "manifest": { "dataModelRevision": 2 },
+            "data": {
+                "package/package.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                    "id": "00000000-0000-0000-0000-000000000099",
+                    "title": "Test Package",
+                    "description": "",
+                    "status": "active",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "namespace": "com.test",
+                    "name": "test-package",
+                    "version": "1",
+                    "fields": [],
+                    "types": [],
+                    "relationTypes": ["relation-types/precedes.json"]
+                },
+                "package/relation-types/precedes.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+                    "id": "00000000-0000-0000-0000-000000000001",
+                    "version": 1,
+                    "namespace": "com.semanticops.srs",
+                    "key": "precedes",
+                    "label": "Precedes",
+                    "description": "Source precedes target",
+                    "category": "association",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
+                "records/id-a.json": {"instanceId": "id-a", "sections": []},
+                "records/id-b.json": {"instanceId": "id-b", "sections": []},
+                "records/id-c.json": {"instanceId": "id-c", "sections": []},
+                "relations/dddddddd-0000-4000-8000-0000000000ab.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+                    "relationId": "dddddddd-0000-4000-8000-0000000000ab",
+                    "relationType": "precedes",
+                    "sourceInstanceId": "id-a",
+                    "targetInstanceId": "id-b",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }
+            }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn test_insert_into_precedes_chain_binding_smoke() {
+        use srs_repository::relation_service::{
+            insert_into_precedes_chain, InsertIntoPrecedesChainInput,
+        };
+        let store =
+            srs_repository::srsj::open_srsj(&precedes_chain_splice_test_srsj()).expect("load srsj");
+        let result = insert_into_precedes_chain(
+            &store,
+            InsertIntoPrecedesChainInput {
+                instance_id: "id-c".into(),
+                after_id: Some("id-a".into()),
+                before_id: None,
+            },
+        )
+        .expect("insert_into_precedes_chain should succeed");
+        assert_eq!(result.created.len(), 2);
+        assert_eq!(result.removed.len(), 1);
+    }
+
+    #[test]
+    fn test_remove_from_precedes_chain_binding_smoke() {
+        use srs_repository::relation_service::{
+            remove_from_precedes_chain, RemoveFromPrecedesChainInput,
+        };
+        let store =
+            srs_repository::srsj::open_srsj(&precedes_chain_splice_test_srsj()).expect("load srsj");
+        let result = remove_from_precedes_chain(
+            &store,
+            RemoveFromPrecedesChainInput {
+                instance_id: "id-a".into(),
+            },
+        )
+        .expect("remove_from_precedes_chain should succeed");
+        assert_eq!(result.removed.len(), 1);
+        assert!(result.created.is_empty(), "no predecessor to reconnect");
+    }
+
+    #[test]
+    fn test_move_in_precedes_chain_binding_smoke() {
+        use srs_repository::relation_service::{move_in_precedes_chain, MoveInPrecedesChainInput};
+        let store =
+            srs_repository::srsj::open_srsj(&precedes_chain_splice_test_srsj()).expect("load srsj");
+        let result = move_in_precedes_chain(
+            &store,
+            MoveInPrecedesChainInput {
+                instance_id: "id-a".into(),
+                after_id: None,
+                before_id: Some("id-c".into()),
+            },
+        )
+        .expect("move_in_precedes_chain should succeed");
+        assert!(!result.created.is_empty());
     }
 
     // Note: load_archive / export_archive route through js_sys::Uint8Array and JsValue, which

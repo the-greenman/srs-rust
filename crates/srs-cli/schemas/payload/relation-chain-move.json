@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PrecedesChainSplicePayload",
+  "description": "Shared by `relation chain-insert`, `relation chain-remove`, `relation chain-move` (srs-rust#1124) — chain-local `precedes` splice operations.",
+  "type": "object",
+  "required": [
+    "created",
+    "removed"
+  ],
+  "properties": {
+    "created": {
+      "type": "array",
+      "items": true
+    },
+    "removed": {
+      "type": "array",
+      "items": true
+    }
+  }
+}

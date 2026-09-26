@@ -518,6 +518,17 @@ pub struct RelationDeletePayload {
     pub path: String,
 }
 
+/// Shared by `relation chain-insert`, `relation chain-remove`, `relation
+/// chain-move` (srs-rust#1124) — chain-local `precedes` splice operations.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PrecedesChainSplicePayload {
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub created: Vec<RelationSummary>,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub removed: Vec<RelationSummary>,
+}
+
 // ── Relation-type payloads ────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]
