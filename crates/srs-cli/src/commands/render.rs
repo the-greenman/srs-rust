@@ -105,6 +105,8 @@ fn map_record(r: SvcRecord) -> ProjectedRecord {
         properties: r
             .properties
             .map(|rows| rows.into_iter().map(map_property_row).collect()),
+        // srs-rust#1127: children recurse through the same mapping.
+        children: r.children.into_iter().map(map_record).collect(),
     }
 }
 

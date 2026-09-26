@@ -203,7 +203,12 @@ pub fn get_blueprint_by_id(
 /// A blueprint structure entry with type names resolved alongside their ids
 /// (srs-rust#1046) — a client renders a blueprint structure table from
 /// `type_id` alone as a grid of UUID stubs.
-#[derive(Debug, Clone)]
+///
+/// Serializes camelCase (srs-rust#1127) so `srs-bindings`' `list_blueprint_structure`
+/// can return this service struct directly, same shape as the CLI's
+/// `BlueprintStructurePayload.relationSpecs` entries.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BlueprintRelationSpec {
     pub relation_type: String,
     pub source_type_id: String,
