@@ -32,7 +32,8 @@ use srs_repository::registry_service::{
     filter_registry_entries, parse_registry_json, RegistryListFilter,
 };
 use srs_repository::relation_service::{
-    self, ListRelationsFilter, OrderByPrecedesInput, RebuildPrecedesChainInput,
+    self, InsertIntoPrecedesChainInput, ListRelationsFilter, MoveInPrecedesChainInput,
+    OrderByPrecedesInput, RebuildPrecedesChainInput, RemoveFromPrecedesChainInput,
 };
 use srs_repository::render_service::{self, RenderCompositionOptions};
 use srs_repository::repository_lifecycle::{self, InitNewRepositoryInput};
@@ -507,6 +508,54 @@ impl SrsRepository {
         to_js(&result)
     }
 
+    /// Insert one instance into a `precedes` chain right after `afterId` or right
+    /// before `beforeId` (exactly one required) — chain-local: only edges incident
+    /// to the anchor and the inserted instance are touched, so a disjoint sibling
+    /// chain (srs-rust#1124) is untouched.
+    ///
+    /// `input_json` is `{ "instanceId": "uuid", "afterId": "uuid" }` or
+    /// `{ "instanceId": "uuid", "beforeId": "uuid" }`.
+    ///
+    /// Returns `{ "created": [<RelationSummary>, ...], "removed": [<RelationSummary>, ...] }`.
+    /// Errors if `instanceId` already has `precedes` edges.
+    pub fn insert_into_precedes_chain(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: InsertIntoPrecedesChainInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result =
+            relation_service::insert_into_precedes_chain(&self.store, input).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Remove one instance from its `precedes` chain, reconnecting its predecessor
+    /// to its successor when both existed — chain-local, a disjoint sibling chain
+    /// is untouched (srs-rust#1124).
+    ///
+    /// `input_json` is `{ "instanceId": "uuid" }`.
+    /// Returns `{ "created": [<RelationSummary>, ...], "removed": [<RelationSummary>, ...] }`.
+    pub fn remove_from_precedes_chain(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: RemoveFromPrecedesChainInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result =
+            relation_service::remove_from_precedes_chain(&self.store, input).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Move one instance to a new position in a `precedes` chain in one batch:
+    /// remove it from its current position (reconnecting prev→next), then insert
+    /// it after `afterId` or before `beforeId` (exactly one required) —
+    /// chain-local throughout (srs-rust#1124).
+    ///
+    /// `input_json` is `{ "instanceId": "uuid", "afterId": "uuid" }` or
+    /// `{ "instanceId": "uuid", "beforeId": "uuid" }`.
+    /// Returns `{ "created": [<RelationSummary>, ...], "removed": [<RelationSummary>, ...] }`.
+    pub fn move_in_precedes_chain(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: MoveInPrecedesChainInput =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let result =
+            relation_service::move_in_precedes_chain(&self.store, input).map_err(js_err)?;
+        to_js(&result)
+    }
+
     /// Transition a record's lifecycle state.
     /// `state` is the target state name (e.g. `"ratified"`).
     /// Returns `{ "record": <Record>, "warnings": ["LIFECYCLE_FINAL_STATE: ..."] }` as a JS value.
@@ -589,7 +638,8 @@ impl SrsRepository {
         to_js(&result)
     }
 
-    /// Render a document view. `view_id` is the view's UUID; `format` is `"json"` or `"markdown"`;
+    /// Render a document view. `view_id` is the view's UUID; `format` is one of
+    /// `"json"`, `"markdown"`, `"html"` or `"adoc"`;
     /// `container_id` optionally scopes TypeQuery sections to a container's membership;
     /// `instance_id_filter` optionally scopes ContainerSubset sections to a single record,
     /// producing a per-record export document.
@@ -598,8 +648,14 @@ impl SrsRepository {
     /// `{ $schema, compositionId, containerId: string|null, generatedAt, containerTitle,
     ///   preamble?, sections: [{ sectionId, title?, order, records: [{ instanceId, typeId,
     ///   typeVersion, typeNamespace, typeName, recordHeading?, preamble?, fields,
-    ///   orderedFieldKeys, relations?, properties? }], sections?: [<nested ProjectedSection,
-    ///   same shape, recursive>] }] }`.
+    ///   orderedFieldKeys, relations?, properties?, children?: [<nested record, same shape,
+    ///   recursive>] }], sections?: [<nested ProjectedSection, same shape, recursive>] }] }`.
+    /// `records[*].children` (srs-rust#1127) carries the record's `contains` children —
+    /// same order and same condition (the enclosing section declares a `titleFieldId`) as
+    /// the markdown/html/adoc renderer's nested-heading recursion — so a client can take
+    /// document structure from the engine instead of re-deriving it from raw `contains`
+    /// relations. Omitted when the section has no `titleFieldId`, or the record has no
+    /// `contains` children.
     /// `sections[*].sections` (RFC-042 Revision 5 [R25]) carries nested sections produced by a
     /// `container-subset` source with `containerScope: "subtree"`; it is omitted when a section
     /// renders no nested section, and its records are never flattened into the parent's `records`.
@@ -793,6 +849,18 @@ impl SrsRepository {
     /// provenance issues (missing files, duplicate IDs) surface in `diagnostics`.
     pub fn list_blueprints(&self) -> Result<JsValue, JsValue> {
         let result = blueprint_service::list_blueprints_summary(&self.store).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// List a blueprint's `structure` (RelationSpec list, with type names resolved),
+    /// sorted deterministically by `(sourceTypeId, targetTypeId, relationType)`.
+    /// `blueprint_id` is the blueprint's UUID. Same shape as the CLI's
+    /// `blueprint structure` command payload's `relationSpecs`: a JS array of
+    /// `{ relationType, sourceTypeId, sourceTypeName?, targetTypeId, targetTypeName?,
+    /// cardinality?, required? }` objects.
+    pub fn list_blueprint_structure(&self, blueprint_id: &str) -> Result<JsValue, JsValue> {
+        let result = blueprint_service::list_blueprint_structure(&self.store, blueprint_id)
+            .map_err(js_err)?;
         to_js(&result)
     }
 
@@ -1979,6 +2047,107 @@ mod tests {
         assert_eq!(result.created[1].target_id, "id-c");
     }
 
+    fn precedes_chain_splice_test_srsj() -> String {
+        serde_json::json!({
+            "srsj": "2",
+            "manifest": { "dataModelRevision": 2 },
+            "data": {
+                "package/package.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                    "id": "00000000-0000-0000-0000-000000000099",
+                    "title": "Test Package",
+                    "description": "",
+                    "status": "active",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "namespace": "com.test",
+                    "name": "test-package",
+                    "version": "1",
+                    "fields": [],
+                    "types": [],
+                    "relationTypes": ["relation-types/precedes.json"]
+                },
+                "package/relation-types/precedes.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+                    "id": "00000000-0000-0000-0000-000000000001",
+                    "version": 1,
+                    "namespace": "com.semanticops.srs",
+                    "key": "precedes",
+                    "label": "Precedes",
+                    "description": "Source precedes target",
+                    "category": "association",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                },
+                "records/id-a.json": {"instanceId": "id-a", "sections": []},
+                "records/id-b.json": {"instanceId": "id-b", "sections": []},
+                "records/id-c.json": {"instanceId": "id-c", "sections": []},
+                "relations/dddddddd-0000-4000-8000-0000000000ab.json": {
+                    "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+                    "relationId": "dddddddd-0000-4000-8000-0000000000ab",
+                    "relationType": "precedes",
+                    "sourceInstanceId": "id-a",
+                    "targetInstanceId": "id-b",
+                    "createdAt": "2026-01-01T00:00:00Z"
+                }
+            }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn test_insert_into_precedes_chain_binding_smoke() {
+        use srs_repository::relation_service::{
+            insert_into_precedes_chain, InsertIntoPrecedesChainInput,
+        };
+        let store =
+            srs_repository::srsj::open_srsj(&precedes_chain_splice_test_srsj()).expect("load srsj");
+        let result = insert_into_precedes_chain(
+            &store,
+            InsertIntoPrecedesChainInput {
+                instance_id: "id-c".into(),
+                after_id: Some("id-a".into()),
+                before_id: None,
+            },
+        )
+        .expect("insert_into_precedes_chain should succeed");
+        assert_eq!(result.created.len(), 2);
+        assert_eq!(result.removed.len(), 1);
+    }
+
+    #[test]
+    fn test_remove_from_precedes_chain_binding_smoke() {
+        use srs_repository::relation_service::{
+            remove_from_precedes_chain, RemoveFromPrecedesChainInput,
+        };
+        let store =
+            srs_repository::srsj::open_srsj(&precedes_chain_splice_test_srsj()).expect("load srsj");
+        let result = remove_from_precedes_chain(
+            &store,
+            RemoveFromPrecedesChainInput {
+                instance_id: "id-a".into(),
+            },
+        )
+        .expect("remove_from_precedes_chain should succeed");
+        assert_eq!(result.removed.len(), 1);
+        assert!(result.created.is_empty(), "no predecessor to reconnect");
+    }
+
+    #[test]
+    fn test_move_in_precedes_chain_binding_smoke() {
+        use srs_repository::relation_service::{move_in_precedes_chain, MoveInPrecedesChainInput};
+        let store =
+            srs_repository::srsj::open_srsj(&precedes_chain_splice_test_srsj()).expect("load srsj");
+        let result = move_in_precedes_chain(
+            &store,
+            MoveInPrecedesChainInput {
+                instance_id: "id-a".into(),
+                after_id: None,
+                before_id: Some("id-c".into()),
+            },
+        )
+        .expect("move_in_precedes_chain should succeed");
+        assert!(!result.created.is_empty());
+    }
+
     // Note: load_archive / export_archive route through js_sys::Uint8Array and JsValue, which
     // are not meaningful on a native target. The test below validates the service functions
     // (archive_to_vec + archive_to_tree) that back the bindings.
@@ -2251,6 +2420,7 @@ mod tests {
             ordered_field_keys: vec![],
             relations: Some(vec![row]),
             properties: None,
+            children: vec![],
         };
         let json = serde_json::to_value(&record).expect("ProjectedRecord must serialize");
         assert_eq!(json["typeVersion"].as_u64(), Some(1));
@@ -2309,6 +2479,7 @@ mod tests {
             ordered_field_keys: vec!["rows".to_string()],
             relations: None,
             properties: None,
+            children: vec![],
         };
         let json = serde_json::to_value(&record).expect("ProjectedRecord must serialize");
         assert_eq!(

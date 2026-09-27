@@ -175,6 +175,38 @@ impl Package {
             .find(|f| f.namespace == namespace && f.name == name)
     }
 
+    /// ext:type-inheritance — collect every RecordType in this package whose
+    /// `extendsTypeId` chain transitively reaches `type_id` (srs-rust#1124, Gap 1).
+    /// Matches by type id alone, not id+version — consistent with `blueprint_schema`'s
+    /// existing type_id-only (not type_id@version) `definitions` keying. Cycle-safe.
+    pub fn subtypes_of(&self, type_id: &str) -> Vec<&RecordType> {
+        self.record_types
+            .iter()
+            .filter(|rt| rt.id != type_id && self.extends_transitively(rt, type_id))
+            .collect()
+    }
+
+    fn extends_transitively(&self, record_type: &RecordType, ancestor_id: &str) -> bool {
+        use std::collections::HashSet;
+        let mut visited: HashSet<&str> = HashSet::new();
+        let mut current = record_type;
+        loop {
+            let Some(parent_id) = current.extends_type_id.as_deref() else {
+                return false;
+            };
+            if parent_id == ancestor_id {
+                return true;
+            }
+            if !visited.insert(parent_id) {
+                return false; // cycle guard
+            }
+            match self.record_types.iter().find(|rt| rt.id == parent_id) {
+                Some(p) => current = p,
+                None => return false,
+            }
+        }
+    }
+
     /// Get all fields as a slice.
     pub fn fields(&self) -> &[Field] {
         &self.fields
@@ -1224,6 +1256,19 @@ mod tests {
             lineage: None,
             provenance: None,
         }
+    }
+
+    #[test]
+    fn debug_subtypes_of_direct_child() {
+        let base = make_type("base", vec![]);
+        let child = make_child_type("child", vec![], "base", None, None);
+        let pkg = make_package_with_types(vec![base, child]);
+        let subs = pkg.subtypes_of("base");
+        eprintln!(
+            "subs = {:?}",
+            subs.iter().map(|r| &r.id).collect::<Vec<_>>()
+        );
+        assert_eq!(subs.len(), 1);
     }
 
     #[test]

@@ -518,6 +518,17 @@ pub struct RelationDeletePayload {
     pub path: String,
 }
 
+/// Shared by `relation chain-insert`, `relation chain-remove`, `relation
+/// chain-move` (srs-rust#1124) — chain-local `precedes` splice operations.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PrecedesChainSplicePayload {
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub created: Vec<RelationSummary>,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub removed: Vec<RelationSummary>,
+}
+
 // ── Relation-type payloads ────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -1263,6 +1274,12 @@ pub struct ProjectedRecord {
     pub relations: Option<Vec<ProjectedRelationRow>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<Vec<ProjectedPropertyRow>>,
+    /// srs-rust#1127: this record's `contains` children, nested recursively,
+    /// same order/condition as the markdown/html/adoc renderer's structured
+    /// heading recursion. Omitted when the section has no `titleFieldId`, or
+    /// the record has no `contains` children.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<ProjectedRecord>,
 }
 
 /// A single section in a JSON projection document.

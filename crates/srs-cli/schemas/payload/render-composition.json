@@ -109,6 +109,7 @@
       "description": "A single record in a JSON projection section.",
       "type": "object",
       "required": [
+        "children",
         "fields",
         "instanceId",
         "orderedFieldKeys",
@@ -118,6 +119,13 @@
         "typeVersion"
       ],
       "properties": {
+        "children": {
+          "description": "srs-rust#1127: this record's `contains` children, nested recursively, same order/condition as the markdown/html/adoc renderer's structured heading recursion. Omitted when the section has no `titleFieldId`, or the record has no `contains` children.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ProjectedRecord"
+          }
+        },
         "fields": {
           "description": "RFC-039 [R11]: keyed by Field.name; composites recurse under their key."
         },

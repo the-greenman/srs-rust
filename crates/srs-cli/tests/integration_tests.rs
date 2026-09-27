@@ -3671,6 +3671,167 @@ fn relation_delete_removes_relation() {
         .exists());
 }
 
+/// A temp repo with a `precedes` RelationTypeDefinition installed, a Note file
+/// for each of `ids`, and standalone `precedes` relation objects for `edges`
+/// (srs-rust#1124, chain-local splice CLI commands).
+fn create_temp_repo_with_precedes_chain(ids: &[&str], edges: &[(&str, &str)]) -> tempfile::TempDir {
+    let temp = create_temp_repo();
+
+    let package_dir = temp.path().join("package");
+    std::fs::create_dir_all(package_dir.join("relation-types")).unwrap();
+    write_json(
+        &package_dir.join("relation-types/precedes.json"),
+        serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+            "id": "rt-precedes-001",
+            "version": 1,
+            "key": "precedes",
+            "namespace": "com.semanticops.srs",
+            "label": "Precedes",
+            "description": "Source precedes target.",
+            "category": "association",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "status": "active"
+        }),
+    );
+    write_json(
+        &package_dir.join("package.json"),
+        serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+            "id": "test-pkg",
+            "namespace": "com.test",
+            "name": "test",
+            "version": "1.0.0",
+            "title": "test",
+            "description": "",
+            "status": "active",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "fields": [],
+            "types": [],
+            "relationTypes": ["relation-types/precedes.json"]
+        }),
+    );
+
+    let notes_dir = temp.path().join("records/notes");
+    std::fs::create_dir_all(&notes_dir).unwrap();
+    for id in ids {
+        std::fs::write(
+            notes_dir.join(format!("{id}.json")),
+            serde_json::json!({"instanceId": id, "sections": []}).to_string(),
+        )
+        .unwrap();
+    }
+
+    let relations_dir = temp.path().join("relations");
+    std::fs::create_dir_all(&relations_dir).unwrap();
+    for (i, (source, target)) in edges.iter().enumerate() {
+        let rid = format!("fedcba98-0000-4000-8000-{i:012}");
+        std::fs::write(
+            relations_dir.join(format!("{rid}.json")),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+                "relationId": rid,
+                "relationType": "precedes",
+                "sourceInstanceId": source,
+                "targetInstanceId": target,
+                "createdAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+
+    temp
+}
+
+fn precedes_edges_in_repo(repo: &std::path::Path) -> Vec<(String, String)> {
+    let mut edges = Vec::new();
+    for entry in std::fs::read_dir(repo.join("relations")).unwrap() {
+        let entry = entry.unwrap();
+        let content = std::fs::read_to_string(entry.path()).unwrap();
+        let value: Value = serde_json::from_str(&content).unwrap();
+        if value["relationType"] == "precedes" {
+            edges.push((
+                value["sourceInstanceId"].as_str().unwrap().to_string(),
+                value["targetInstanceId"].as_str().unwrap().to_string(),
+            ));
+        }
+    }
+    edges.sort();
+    edges
+}
+
+#[test]
+fn relation_chain_insert_splices_into_one_chain_leaving_sibling_untouched() {
+    // Two disjoint chains: a->b->c and x->y. Insert m after b — only chain 1
+    // is touched (srs-rust#1124, Gap 2).
+    let temp = create_temp_repo_with_precedes_chain(
+        &["a", "b", "c", "x", "y", "m"],
+        &[("a", "b"), ("b", "c"), ("x", "y")],
+    );
+
+    let input = serde_json::json!({
+        "instanceId": "m",
+        "afterId": "b"
+    })
+    .to_string();
+    let result = run_srs_stdin_in_dir(temp.path(), &["relation", "chain-insert"], &input);
+    assert_eq!(result["ok"], true, "relation chain-insert should succeed");
+    assert_eq!(result["payload"]["created"].as_array().unwrap().len(), 2);
+    assert_eq!(result["payload"]["removed"].as_array().unwrap().len(), 1);
+
+    assert_eq!(
+        precedes_edges_in_repo(temp.path()),
+        vec![
+            ("a".to_string(), "b".to_string()),
+            ("b".to_string(), "m".to_string()),
+            ("m".to_string(), "c".to_string()),
+            ("x".to_string(), "y".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn relation_chain_remove_reconnects_neighbours() {
+    let temp = create_temp_repo_with_precedes_chain(&["a", "b", "c"], &[("a", "b"), ("b", "c")]);
+
+    let input = serde_json::json!({ "instanceId": "b" }).to_string();
+    let result = run_srs_stdin_in_dir(temp.path(), &["relation", "chain-remove"], &input);
+    assert_eq!(result["ok"], true, "relation chain-remove should succeed");
+    assert_eq!(result["payload"]["removed"].as_array().unwrap().len(), 2);
+    assert_eq!(result["payload"]["created"].as_array().unwrap().len(), 1);
+
+    assert_eq!(
+        precedes_edges_in_repo(temp.path()),
+        vec![("a".to_string(), "c".to_string())]
+    );
+}
+
+#[test]
+fn relation_chain_move_relocates_across_disjoint_chains() {
+    let temp = create_temp_repo_with_precedes_chain(
+        &["a", "b", "c", "x", "y"],
+        &[("a", "b"), ("b", "c"), ("x", "y")],
+    );
+
+    let input = serde_json::json!({
+        "instanceId": "c",
+        "afterId": "y"
+    })
+    .to_string();
+    let result = run_srs_stdin_in_dir(temp.path(), &["relation", "chain-move"], &input);
+    assert_eq!(result["ok"], true, "relation chain-move should succeed");
+
+    assert_eq!(
+        precedes_edges_in_repo(temp.path()),
+        vec![
+            ("a".to_string(), "b".to_string()),
+            ("x".to_string(), "y".to_string()),
+            ("y".to_string(), "c".to_string()),
+        ]
+    );
+}
+
 // Phase 4's Extension command group (`srs extension {list,get,create,update,delete}`,
 // `package/records` as its storage location) was removed — RFC-038 Revision 12
 // (srs#296, srs PR #538) retired [R3]'s package-root instance-anchor branch on

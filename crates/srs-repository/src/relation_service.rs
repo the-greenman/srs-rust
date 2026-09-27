@@ -866,6 +866,357 @@ pub fn rebuild_precedes_chain(
     Ok(RebuildPrecedesChainResult { created })
 }
 
+// ── Chain-local precedes splice (srs-rust#1124, Gap 2) ──────────────────────
+//
+// `rebuild_precedes_chain` needs the full desired id list, and
+// `order_by_precedes` / `relation_graph::sort_by_precedes_chain` flatten
+// disjoint chains into one — fine for rendering a single ordered sequence,
+// wrong for an editor that wants to splice one item into (or out of, or
+// within) ONE chain without disturbing sibling sub-chains (e.g. a homepage's
+// feature-group items chain is disjoint from its features chain). These
+// three services operate purely on the edges local to the affected node(s).
+
+/// Input for [`insert_into_precedes_chain`]. Exactly one of `after_id` /
+/// `before_id` must be set.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InsertIntoPrecedesChainInput {
+    pub instance_id: String,
+    #[serde(default)]
+    pub after_id: Option<String>,
+    #[serde(default)]
+    pub before_id: Option<String>,
+}
+
+/// Input for [`remove_from_precedes_chain`].
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveFromPrecedesChainInput {
+    pub instance_id: String,
+}
+
+/// Input for [`move_in_precedes_chain`]. Exactly one of `after_id` /
+/// `before_id` must be set.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveInPrecedesChainInput {
+    pub instance_id: String,
+    #[serde(default)]
+    pub after_id: Option<String>,
+    #[serde(default)]
+    pub before_id: Option<String>,
+}
+
+/// Result shared by all three chain-splice services.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrecedesChainSpliceResult {
+    pub created: Vec<RelationSummary>,
+    pub removed: Vec<RelationSummary>,
+}
+
+/// One `precedes` edge as tracked by the splice planner. `relation_id: None`
+/// means the edge exists only in the in-memory plan (not yet persisted) —
+/// produced by [`plan_remove_from_edges`]'s prev→next reconnection so a
+/// following [`plan_insert`] call (in `move_in_precedes_chain`) can see and,
+/// if the anchor happens to land on it, cancel it before it is ever written.
+#[derive(Clone)]
+struct PlanEdge {
+    relation_id: Option<String>,
+    source: String,
+    target: String,
+}
+
+fn plan_edges_from_relations(relations: &[Relation]) -> Vec<PlanEdge> {
+    relations
+        .iter()
+        .filter(|r| r.relation_type == "precedes")
+        .map(|r| PlanEdge {
+            relation_id: Some(r.relation_id.clone()),
+            source: r.source_instance_id.clone(),
+            target: r.target_instance_id.clone(),
+        })
+        .collect()
+}
+
+/// Remove `instance_id`'s incident precedes edges from `edges` in place,
+/// reconnecting its predecessor to its successor (as a pending, not-yet-real
+/// edge) when both existed. Returns the edges taken out of the plan — filter
+/// to `relation_id.is_some()` for the ones that must actually be deleted.
+fn plan_remove_from_edges(edges: &mut Vec<PlanEdge>, instance_id: &str) -> Vec<PlanEdge> {
+    let mut removed = Vec::new();
+
+    let prev_idx = edges.iter().position(|e| e.target == instance_id);
+    let prev_source = prev_idx.map(|i| edges[i].source.clone());
+    let next_idx = edges.iter().position(|e| e.source == instance_id);
+    let next_target = next_idx.map(|i| edges[i].target.clone());
+
+    if let Some(i) = prev_idx {
+        removed.push(edges[i].clone());
+    }
+    if let Some(i) = next_idx {
+        removed.push(edges[i].clone());
+    }
+    edges.retain(|e| e.source != instance_id && e.target != instance_id);
+
+    if let (Some(p), Some(n)) = (prev_source, next_target) {
+        edges.push(PlanEdge {
+            relation_id: None,
+            source: p,
+            target: n,
+        });
+    }
+    removed
+}
+
+/// Insert `instance_id` into `edges` at the position named by exactly one of
+/// `after_id` / `before_id`. Returns (edges taken out of the plan — filter to
+/// `relation_id.is_some()` for real deletes — and new (source, target) pairs
+/// to create).
+fn plan_insert(
+    edges: &mut Vec<PlanEdge>,
+    instance_id: &str,
+    after_id: Option<&str>,
+    before_id: Option<&str>,
+) -> (Vec<PlanEdge>, Vec<(String, String)>) {
+    let mut removed = Vec::new();
+    let mut created = Vec::new();
+
+    if let Some(after) = after_id {
+        let old_idx = edges.iter().position(|e| e.source == after);
+        created.push((after.to_string(), instance_id.to_string()));
+        if let Some(i) = old_idx {
+            let old = edges.remove(i);
+            created.push((instance_id.to_string(), old.target.clone()));
+            removed.push(old);
+        }
+    } else if let Some(before) = before_id {
+        let old_idx = edges.iter().position(|e| e.target == before);
+        if let Some(i) = old_idx {
+            let old = edges.remove(i);
+            created.push((old.source.clone(), instance_id.to_string()));
+            removed.push(old);
+        }
+        created.push((instance_id.to_string(), before.to_string()));
+    }
+
+    (removed, created)
+}
+
+fn require_exactly_one_anchor(
+    instance_id: &str,
+    after_id: &Option<String>,
+    before_id: &Option<String>,
+) -> Result<(), RepositoryError> {
+    if after_id.is_some() == before_id.is_some() {
+        return Err(RepositoryError::RelationValidation {
+            relation_id: instance_id.to_string(),
+            message: "exactly one of afterId or beforeId is required".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn require_no_existing_precedes_edges(
+    relations: &[Relation],
+    instance_id: &str,
+) -> Result<(), RepositoryError> {
+    let has_edge = relations.iter().any(|r| {
+        r.relation_type == "precedes"
+            && (r.source_instance_id == instance_id || r.target_instance_id == instance_id)
+    });
+    if has_edge {
+        return Err(RepositoryError::RelationValidation {
+            relation_id: instance_id.to_string(),
+            message: format!(
+                "'{instance_id}' already has precedes edges — remove it from its \
+                 current chain before inserting it elsewhere"
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// Validate every new edge (same E1-E4 gate as `rebuild_precedes_chain`), then
+/// apply `removed_edges` (real ones only — a `relation_id: None` `PlanEdge` was
+/// never persisted and is silently dropped) and `create_pairs` as one batch.
+fn apply_precedes_splice(
+    store: &dyn RepositoryStore,
+    removed_edges: Vec<PlanEdge>,
+    create_pairs: Vec<(String, String)>,
+) -> Result<PrecedesChainSpliceResult, RepositoryError> {
+    let real_removed: Vec<PlanEdge> = removed_edges
+        .into_iter()
+        .filter(|e| e.relation_id.is_some())
+        .collect();
+
+    let new_relations: Vec<Relation> = if create_pairs.is_empty() {
+        Vec::new()
+    } else {
+        let package = store.load_package()?;
+        let (known_instance_ids, instance_type_ids) = load_validation_data(store)?;
+        let ctx = RelationValidationContext {
+            definitions: &package.relation_type_definitions,
+            known_instance_ids: &known_instance_ids,
+            instance_type_ids: &instance_type_ids,
+        };
+        let mut rels = Vec::with_capacity(create_pairs.len());
+        for (source, target) in create_pairs {
+            let relation = Relation {
+                relation_id: new_instance_id(),
+                relation_type: "precedes".to_string(),
+                source_instance_id: source,
+                target_instance_id: target,
+                created_at: None,
+                notes: None,
+                source_refs: None,
+                meta: None,
+            };
+            validate_relation(&relation, &ctx, true).map_err(|errors| {
+                RepositoryError::RelationValidation {
+                    relation_id: relation.relation_id.clone(),
+                    message: errors
+                        .iter()
+                        .map(|e| format!("{:?}: {}", e.code, e.message))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                }
+            })?;
+            schema_validate_relation(&relation)?;
+            rels.push(relation);
+        }
+        rels
+    };
+
+    store.begin_batch();
+    let write_result = (|| {
+        for e in &real_removed {
+            store.delete_relation(
+                e.relation_id
+                    .as_deref()
+                    .expect("real_removed is filtered to Some above"),
+            )?;
+        }
+        for rel in &new_relations {
+            store.save_relation(rel)?;
+        }
+        Ok(())
+    })();
+    match write_result {
+        Ok(()) => store.commit_batch()?,
+        Err(e) => {
+            let _ = store.abort_batch();
+            return Err(e);
+        }
+    }
+
+    let label_indexes = record_label::build_label_indexes(store).ok();
+    let summarize = |relation_id: String, source: &str, target: &str| RelationSummary {
+        relation_id,
+        relation_type: "precedes".to_string(),
+        source_label: label_indexes
+            .as_ref()
+            .and_then(|(fni, ifi)| resolve_endpoint_label(store, source, fni, ifi)),
+        target_label: label_indexes
+            .as_ref()
+            .and_then(|(fni, ifi)| resolve_endpoint_label(store, target, fni, ifi)),
+        source_id: source.to_string(),
+        target_id: target.to_string(),
+    };
+
+    let removed = real_removed
+        .into_iter()
+        .map(|e| summarize(e.relation_id.unwrap(), &e.source, &e.target))
+        .collect();
+    let created = new_relations
+        .into_iter()
+        .map(|r| summarize(r.relation_id, &r.source_instance_id, &r.target_instance_id))
+        .collect();
+
+    Ok(PrecedesChainSpliceResult { created, removed })
+}
+
+/// Insert `instance_id` into a `precedes` chain right after `after_id` or
+/// right before `before_id` (exactly one required). Chain-local: only edges
+/// incident to the anchor and `instance_id` are touched — a disjoint sibling
+/// chain is untouched. Errors if `instance_id` already has `precedes` edges
+/// (remove it first, or use [`move_in_precedes_chain`]).
+pub fn insert_into_precedes_chain(
+    store: &dyn RepositoryStore,
+    input: InsertIntoPrecedesChainInput,
+) -> Result<PrecedesChainSpliceResult, RepositoryError> {
+    let InsertIntoPrecedesChainInput {
+        instance_id,
+        after_id,
+        before_id,
+    } = input;
+    require_exactly_one_anchor(&instance_id, &after_id, &before_id)?;
+
+    let relations = load_relations(store)?;
+    require_no_existing_precedes_edges(&relations, &instance_id)?;
+
+    let mut edges = plan_edges_from_relations(&relations);
+    let (removed, created) = plan_insert(
+        &mut edges,
+        &instance_id,
+        after_id.as_deref(),
+        before_id.as_deref(),
+    );
+    apply_precedes_splice(store, removed, created)
+}
+
+/// Remove `instance_id` from its `precedes` chain, reconnecting its
+/// predecessor to its successor when both existed. Chain-local: a disjoint
+/// sibling chain is untouched.
+pub fn remove_from_precedes_chain(
+    store: &dyn RepositoryStore,
+    input: RemoveFromPrecedesChainInput,
+) -> Result<PrecedesChainSpliceResult, RepositoryError> {
+    let relations = load_relations(store)?;
+    let mut edges = plan_edges_from_relations(&relations);
+    let removed = plan_remove_from_edges(&mut edges, &input.instance_id);
+    let created = edges
+        .into_iter()
+        .filter(|e| e.relation_id.is_none())
+        .map(|e| (e.source, e.target))
+        .collect();
+    apply_precedes_splice(store, removed, created)
+}
+
+/// Move `instance_id` to a new position in a `precedes` chain in one batch:
+/// remove it from its current position (reconnecting prev→next), then insert
+/// it after `after_id` or before `before_id` (exactly one required). Chain-
+/// local throughout — a disjoint sibling chain is untouched.
+pub fn move_in_precedes_chain(
+    store: &dyn RepositoryStore,
+    input: MoveInPrecedesChainInput,
+) -> Result<PrecedesChainSpliceResult, RepositoryError> {
+    let MoveInPrecedesChainInput {
+        instance_id,
+        after_id,
+        before_id,
+    } = input;
+    require_exactly_one_anchor(&instance_id, &after_id, &before_id)?;
+
+    let relations = load_relations(store)?;
+    let mut edges = plan_edges_from_relations(&relations);
+    let mut removed = plan_remove_from_edges(&mut edges, &instance_id);
+    let (removed2, mut created) = plan_insert(
+        &mut edges,
+        &instance_id,
+        after_id.as_deref(),
+        before_id.as_deref(),
+    );
+    removed.extend(removed2);
+    created.extend(
+        edges
+            .into_iter()
+            .filter(|e| e.relation_id.is_none())
+            .map(|e| (e.source, e.target)),
+    );
+    apply_precedes_splice(store, removed, created)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2438,5 +2789,308 @@ mod tests {
         assert!(precedes
             .iter()
             .any(|r| r.source_id == "id-b" && r.target_id == "id-c"));
+    }
+
+    // ── Chain-local splice (srs-rust#1124, Gap 2) ─────────────────────────────
+
+    fn precedes_def() -> RelationTypeDefinition {
+        use srs_core::types::relation_type_definition::RelationTypeCategory;
+        RelationTypeDefinition {
+            schema: None,
+            id: "22222222-2222-4222-8222-222222222222".to_string(),
+            version: 1,
+            key: "precedes".to_string(),
+            namespace: "com.semanticops.srs".to_string(),
+            label: "Precedes".to_string(),
+            description: "source precedes target".to_string(),
+            category: RelationTypeCategory::Association,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: None,
+            require_same_type: None,
+            status: None,
+            updated_at: None,
+            meta: None,
+        }
+    }
+
+    /// A store whose package carries an installed `precedes` RelationTypeDefinition
+    /// (so a new precedes edge validates), with a Note file for each of `ids` and
+    /// standalone `precedes` relation objects for each `edges` pair.
+    fn store_with_precedes_chains(ids: &[&str], edges: &[(&str, &str)]) -> MemoryStore {
+        use crate::manifest::Manifest;
+        use crate::package::Package;
+
+        let manifest = Manifest {
+            container: None,
+            upstream_package: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = Package {
+            id: "test-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![],
+            record_types: vec![],
+            relation_type_definitions: vec![precedes_def()],
+            views: vec![],
+            compositions: vec![],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            package_dependencies: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = MemoryStore::new(manifest, package);
+
+        for id in ids {
+            store
+                .save_instance_json(
+                    &format!("records/notes/{id}.json"),
+                    &json!({"instanceId": id, "sections": []}),
+                )
+                .unwrap();
+        }
+
+        let relations: Vec<serde_json::Value> = edges
+            .iter()
+            .enumerate()
+            .map(|(i, (src, tgt))| {
+                json!({
+                    "relationId": format!("cccccccc-0000-4000-8000-{i:012}"),
+                    "relationType": "precedes",
+                    "sourceInstanceId": src,
+                    "targetInstanceId": tgt,
+                    "createdAt": "2026-01-01T00:00:00Z"
+                })
+            })
+            .collect();
+        crate::store::write_relations_standalone_for_test(
+            &store,
+            &json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
+                "relations": relations
+            }),
+        );
+        store
+    }
+
+    fn precedes_edges(store: &MemoryStore) -> Vec<(String, String)> {
+        let mut edges: Vec<(String, String)> = load_relations(store)
+            .unwrap()
+            .into_iter()
+            .filter(|r| r.relation_type == "precedes")
+            .map(|r| (r.source_instance_id, r.target_instance_id))
+            .collect();
+        edges.sort();
+        edges
+    }
+
+    #[test]
+    fn insert_into_precedes_chain_requires_exactly_one_anchor() {
+        let store = store_with_precedes_chains(&["a", "b"], &[("a", "b")]);
+        let err = insert_into_precedes_chain(
+            &store,
+            InsertIntoPrecedesChainInput {
+                instance_id: "m".to_string(),
+                after_id: None,
+                before_id: None,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, RepositoryError::RelationValidation { .. }));
+
+        let err2 = insert_into_precedes_chain(
+            &store,
+            InsertIntoPrecedesChainInput {
+                instance_id: "m".to_string(),
+                after_id: Some("a".to_string()),
+                before_id: Some("b".to_string()),
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err2, RepositoryError::RelationValidation { .. }));
+    }
+
+    #[test]
+    fn insert_into_precedes_chain_rejects_instance_already_in_a_chain() {
+        let store = store_with_precedes_chains(&["a", "b", "c"], &[("a", "b")]);
+        let err = insert_into_precedes_chain(
+            &store,
+            InsertIntoPrecedesChainInput {
+                instance_id: "b".to_string(),
+                after_id: Some("c".to_string()),
+                before_id: None,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::RelationValidation { .. }),
+            "expected RelationValidation, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn insert_into_precedes_chain_after_splices_in_the_middle_only_touching_that_chain() {
+        // Two disjoint chains: a->b->c and x->y. Insert m after b in chain 1.
+        let store = store_with_precedes_chains(
+            &["a", "b", "c", "x", "y", "m"],
+            &[("a", "b"), ("b", "c"), ("x", "y")],
+        );
+        let result = insert_into_precedes_chain(
+            &store,
+            InsertIntoPrecedesChainInput {
+                instance_id: "m".to_string(),
+                after_id: Some("b".to_string()),
+                before_id: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.removed.len(), 1);
+        assert_eq!(result.removed[0].source_id, "b");
+        assert_eq!(result.removed[0].target_id, "c");
+        assert_eq!(result.created.len(), 2);
+
+        let edges = precedes_edges(&store);
+        assert_eq!(
+            edges,
+            vec![
+                ("a".to_string(), "b".to_string()),
+                ("b".to_string(), "m".to_string()),
+                ("m".to_string(), "c".to_string()),
+                ("x".to_string(), "y".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn insert_into_precedes_chain_before_head_of_chain() {
+        let store = store_with_precedes_chains(&["a", "b", "m"], &[("a", "b")]);
+        insert_into_precedes_chain(
+            &store,
+            InsertIntoPrecedesChainInput {
+                instance_id: "m".to_string(),
+                after_id: None,
+                before_id: Some("a".to_string()),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            precedes_edges(&store),
+            vec![
+                ("a".to_string(), "b".to_string()),
+                ("m".to_string(), "a".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn remove_from_precedes_chain_reconnects_neighbours_leaving_sibling_chain_untouched() {
+        let store = store_with_precedes_chains(
+            &["a", "b", "c", "x", "y"],
+            &[("a", "b"), ("b", "c"), ("x", "y")],
+        );
+        let result = remove_from_precedes_chain(
+            &store,
+            RemoveFromPrecedesChainInput {
+                instance_id: "b".to_string(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.removed.len(), 2, "both incident edges removed");
+        assert_eq!(result.created.len(), 1, "reconnect edge created");
+        assert_eq!(result.created[0].source_id, "a");
+        assert_eq!(result.created[0].target_id, "c");
+
+        assert_eq!(
+            precedes_edges(&store),
+            vec![
+                ("a".to_string(), "c".to_string()),
+                ("x".to_string(), "y".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn remove_from_precedes_chain_at_head_only_drops_the_outgoing_edge() {
+        let store = store_with_precedes_chains(&["a", "b", "c"], &[("a", "b"), ("b", "c")]);
+        let result = remove_from_precedes_chain(
+            &store,
+            RemoveFromPrecedesChainInput {
+                instance_id: "a".to_string(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.removed.len(), 1);
+        assert!(result.created.is_empty(), "no predecessor to reconnect");
+        assert_eq!(
+            precedes_edges(&store),
+            vec![("b".to_string(), "c".to_string())]
+        );
+    }
+
+    #[test]
+    fn move_in_precedes_chain_moves_across_disjoint_chains_in_one_batch() {
+        // chain1: a->b->c, chain2: x->y. Move c to be after y (into chain2).
+        let store = store_with_precedes_chains(
+            &["a", "b", "c", "x", "y"],
+            &[("a", "b"), ("b", "c"), ("x", "y")],
+        );
+        move_in_precedes_chain(
+            &store,
+            MoveInPrecedesChainInput {
+                instance_id: "c".to_string(),
+                after_id: Some("y".to_string()),
+                before_id: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            precedes_edges(&store),
+            vec![
+                ("a".to_string(), "b".to_string()),
+                ("x".to_string(), "y".to_string()),
+                ("y".to_string(), "c".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn move_in_precedes_chain_within_same_chain_reorders_correctly() {
+        // a->b->c->d. Move b to be after c: a->c->b->d.
+        let store = store_with_precedes_chains(
+            &["a", "b", "c", "d"],
+            &[("a", "b"), ("b", "c"), ("c", "d")],
+        );
+        move_in_precedes_chain(
+            &store,
+            MoveInPrecedesChainInput {
+                instance_id: "b".to_string(),
+                after_id: Some("c".to_string()),
+                before_id: None,
+            },
+        )
+        .unwrap();
+
+        // precedes_edges sorts lexicographically for a stable assertion.
+        assert_eq!(
+            precedes_edges(&store),
+            vec![
+                ("a".to_string(), "c".to_string()),
+                ("b".to_string(), "d".to_string()),
+                ("c".to_string(), "b".to_string()),
+            ]
+        );
     }
 }

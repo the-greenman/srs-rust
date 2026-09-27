@@ -1340,6 +1340,16 @@ pub enum RelationCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
+    /// Insert an instance into a `precedes` chain, chain-local (reads JSON from
+    /// stdin: `{ "instanceId", "afterId" | "beforeId" }`, srs-rust#1124)
+    ChainInsert,
+    /// Remove an instance from its `precedes` chain, reconnecting its neighbours
+    /// (reads JSON from stdin: `{ "instanceId" }`, srs-rust#1124)
+    ChainRemove,
+    /// Move an instance to a new position in a `precedes` chain, chain-local, in
+    /// one batch (reads JSON from stdin: `{ "instanceId", "afterId" | "beforeId" }`,
+    /// srs-rust#1124)
+    ChainMove,
 }
 
 #[derive(Subcommand)]

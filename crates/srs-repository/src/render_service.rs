@@ -129,6 +129,18 @@ pub struct ProjectedRecord {
     pub relations: Option<Vec<ProjectedRelationRow>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<Vec<ProjectedPropertyRow>>,
+    /// srs-rust#1127: this record's `contains` children, nested recursively —
+    /// the JSON counterpart of `render_record_at_level`'s structured heading
+    /// recursion (~line 2864). Populated under the exact same condition (the
+    /// enclosing `DocumentSection.titleFieldId` is `Some`), in the exact same
+    /// order ([`relation_graph::children_by_relation_type`]'s precedes-chain
+    /// sort), via [`project_contains_children_json`] — never duplicated here.
+    /// Omitted when the section is unstructured (no `titleFieldId`) or the
+    /// record has no `contains` children — a client must not read "absent"
+    /// as "this record has no children" when `titleFieldId` is unset; see
+    /// that field's doc for the unstructured-mode contract.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<ProjectedRecord>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -801,6 +813,9 @@ fn project_record_json(
         .collect();
     let properties = (!property_rows.is_empty()).then_some(property_rows);
 
+    let children =
+        project_contains_children_json(store, package, section, record, relations, diagnostics)?;
+
     Ok(ProjectedRecord {
         instance_id: record.instance_id.clone(),
         type_id: record.type_id.clone(),
@@ -813,7 +828,60 @@ fn project_record_json(
         ordered_field_keys,
         relations: projected_relations,
         properties,
+        children,
     })
+}
+
+/// srs-rust#1127: `project_record_json`'s counterpart to
+/// `render_record_at_level`'s structured `contains` recursion (~line 2864) —
+/// same condition (`section.title_field_id.is_some()`), same child set and
+/// order ([`relation_graph::children_by_relation_type`], the one shared
+/// collection/order helper both engines call — never duplicated), and the
+/// same recursion (each child is itself projected via `project_record_json`,
+/// so a grandchild's own `contains` children nest one level further). A
+/// `contains` child that resolves to a Tier-0 Note is not representable in
+/// the JSON projection (same rule as a Note direct member, see
+/// `project_entries_json`) and is skipped with a diagnostic rather than
+/// dropped silently.
+fn project_contains_children_json(
+    store: &dyn RepositoryStore,
+    package: &Package,
+    section: &DocumentSection,
+    record: &Record,
+    relations: &[Relation],
+    diagnostics: &mut Vec<String>,
+) -> Result<Vec<ProjectedRecord>, RepositoryError> {
+    if section.title_field_id.is_none() {
+        return Ok(Vec::new());
+    }
+    let children = relation_graph::children_by_relation_type(
+        &record.instance_id,
+        "contains",
+        relations,
+        store,
+    )?;
+    let mut projected = Vec::with_capacity(children.len());
+    for child in &children {
+        match child {
+            LoadedInstance::Record(child_record) => {
+                projected.push(project_record_json(
+                    store,
+                    package,
+                    section,
+                    child_record,
+                    relations,
+                    diagnostics,
+                )?);
+            }
+            LoadedInstance::Note(note) => {
+                diagnostics.push(format!(
+                    "[section:{}] tier-0 note {} (contains child of {}) is not representable in the JSON projection; skipped",
+                    section.section_id, note.instance_id, record.instance_id
+                ));
+            }
+        }
+    }
+    Ok(projected)
 }
 
 /// Convert a resolved `RecordPropertyView` row value to its JSON-projection
@@ -15782,6 +15850,236 @@ mod tests {
         assert!(
             !out.contains("(empty)"),
             "emptyBehavior must not reach the L1 View path; got:\n{out}"
+        );
+    }
+
+    /// srs-rust#1127 fixture: a `rec-root` record with two `contains`
+    /// children (`rec-child-a`, `rec-child-b`) chained by a `precedes`
+    /// relation A→B declared in the *opposite* order to the `contains`
+    /// relations, so an order-preserving bug (contains-declaration order
+    /// leaking through instead of the precedes chain) would be caught.
+    /// `title_field_id` is the caller's knob for the section's
+    /// `titleFieldId` — `Some` arms `render_record_at_level`'s structured
+    /// descent (and this projection's counterpart), `None` leaves it off.
+    fn make_contains_children_json_store(
+        title_field_id: Option<&str>,
+    ) -> crate::store::memory::MemoryStore {
+        use srs_core::types::view::{Composition, DocumentSection, SectionSource};
+
+        let rtds = vec![
+            test_rtd("contains", "Contains", None, false),
+            test_rtd("precedes", "Precedes", None, false),
+        ];
+
+        let dv = Composition {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
+            composite_renderers: None,
+            id: "dv-children-test".to_string(),
+            namespace: "com.test".to_string(),
+            name: "children-test".to_string(),
+            version: 1,
+            description: "contains-children JSON projection test".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![DocumentSection {
+                composite_renderers: None,
+                section_id: "s-children".to_string(),
+                title: None,
+                description: None,
+                order: 0,
+                source: SectionSource::FixedInstances {
+                    instance_ids: vec!["rec-root".to_string()],
+                },
+                render_view_id: None,
+                type_dispatch: None,
+                title_field_id: title_field_id.map(|s| s.to_string()),
+                ordering: None,
+                required: None,
+                empty_behavior: None,
+                relations_presentation: None,
+            }],
+            navigation_links: None,
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some("json".to_string()),
+                omit_empty_fields: None,
+            }),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            container: None,
+            upstream_package: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = crate::package::Package {
+            id: "test-children-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![srs_core::types::field::Field::new(
+                "f-title",
+                "com.test",
+                "title",
+                srs_core::types::field::FieldType::string(),
+            )],
+            record_types: vec![],
+            relation_type_definitions: rtds,
+            views: vec![],
+            compositions: vec![dv],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            package_dependencies: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        add_rp_record(&store, "rec-root", Some(("title", "Root")));
+        add_rp_record(&store, "rec-child-a", Some(("title", "Child A")));
+        add_rp_record(&store, "rec-child-b", Some(("title", "Child B")));
+
+        let relations = [
+            test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000c1",
+                "contains",
+                "rec-root",
+                "rec-child-b",
+            ),
+            test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000c2",
+                "contains",
+                "rec-root",
+                "rec-child-a",
+            ),
+            test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000c3",
+                "precedes",
+                "rec-child-a",
+                "rec-child-b",
+            ),
+        ];
+        let coll = serde_json::json!({
+            "relations": relations.iter().map(|r| serde_json::to_value(r).unwrap()).collect::<Vec<_>>()
+        });
+        crate::store::write_relations_standalone_for_test(&store, &coll);
+
+        store
+    }
+
+    /// srs-rust#1127: a section with `titleFieldId` set arms
+    /// `render_record_at_level`'s structured `contains` descent — the JSON
+    /// projection must nest the same children, in the same precedes-chain
+    /// order, and must not also duplicate them at the section's top level.
+    #[test]
+    fn project_record_json_nests_contains_children_in_precedes_order_when_structured() {
+        let store = make_contains_children_json_store(Some("f-title"));
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: "dv-children-test",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        let proj = result.projection.unwrap();
+        let top_level = &proj.sections[0].records;
+        assert_eq!(
+            top_level.len(),
+            1,
+            "only the root should be at the section's top level; children \
+             nest under root.children — got: {top_level:?}"
+        );
+        let root = &top_level[0];
+        assert_eq!(root.instance_id, "rec-root");
+        assert_eq!(
+            root.children.len(),
+            2,
+            "root must carry both contains children, got: {:?}",
+            root.children
+        );
+        assert_eq!(
+            root.children[0].instance_id, "rec-child-a",
+            "children must be ordered by their own precedes chain (A precedes \
+             B), not by contains-relation declaration order (B was declared \
+             first); got: {:?}",
+            root.children
+        );
+        assert_eq!(root.children[1].instance_id, "rec-child-b");
+        assert!(
+            root.children[0].children.is_empty(),
+            "a leaf child with no contains children of its own must omit children, got: {:?}",
+            root.children[0].children
+        );
+    }
+
+    /// srs-rust#1127: documents the unstructured-mode contract — without a
+    /// `titleFieldId`, `render_record_at_level`'s structured descent never
+    /// fires (see `structured` at ~line 2563), so the JSON projection must
+    /// not invent structure the text renderer doesn't have either. `children`
+    /// stays empty (omitted from serialized JSON), and since these children
+    /// were never declared section members, they don't surface anywhere else
+    /// in the projection — this is pre-existing, unchanged behaviour.
+    #[test]
+    fn project_record_json_omits_children_when_section_has_no_title_field_id() {
+        let store = make_contains_children_json_store(None);
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: "dv-children-test",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        let proj = result.projection.unwrap();
+        let top_level = &proj.sections[0].records;
+        assert_eq!(top_level.len(), 1);
+        let root = &top_level[0];
+        assert!(
+            root.children.is_empty(),
+            "unstructured mode (no titleFieldId) must not populate children, got: {:?}",
+            root.children
+        );
+    }
+
+    /// srs-rust#1127: `instance_id_filter` narrows a section to one record's
+    /// per-record export, but the filtered record's own `contains` children
+    /// must still nest under it — the recursion is driven by the record's own
+    /// `contains` relations, never by section membership.
+    #[test]
+    fn project_record_json_keeps_filtered_records_children() {
+        let store = make_contains_children_json_store(Some("f-title"));
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: "dv-children-test",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: Some("rec-root"),
+        })
+        .unwrap();
+        let proj = result.projection.unwrap();
+        let root = &proj.sections[0].records[0];
+        assert_eq!(root.instance_id, "rec-root");
+        assert_eq!(
+            root.children.len(),
+            2,
+            "filtered record must keep its children, got: {:?}",
+            root.children
         );
     }
 }
