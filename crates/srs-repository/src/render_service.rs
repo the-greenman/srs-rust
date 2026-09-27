@@ -552,6 +552,7 @@ fn project_entries_json(
                     section,
                     record,
                     relations,
+                    true,
                     diagnostics,
                 )?);
             }
@@ -606,6 +607,7 @@ fn project_nested_section_json(
                     section,
                     record,
                     relations,
+                    true,
                     diagnostics,
                 )?);
             }
@@ -643,6 +645,7 @@ fn project_record_json(
     section: &DocumentSection,
     record: &Record,
     relations: &[Relation],
+    apply_ordering_to_children: bool,
     diagnostics: &mut Vec<String>,
 ) -> Result<ProjectedRecord, RepositoryError> {
     let rt = package
@@ -813,8 +816,15 @@ fn project_record_json(
         .collect();
     let properties = (!property_rows.is_empty()).then_some(property_rows);
 
-    let children =
-        project_contains_children_json(store, package, section, record, relations, diagnostics)?;
+    let children = project_contains_children_json(
+        store,
+        package,
+        section,
+        record,
+        relations,
+        apply_ordering_to_children,
+        diagnostics,
+    )?;
 
     Ok(ProjectedRecord {
         instance_id: record.instance_id.clone(),
@@ -849,17 +859,33 @@ fn project_contains_children_json(
     section: &DocumentSection,
     record: &Record,
     relations: &[Relation],
+    apply_ordering_to_children: bool,
     diagnostics: &mut Vec<String>,
 ) -> Result<Vec<ProjectedRecord>, RepositoryError> {
     if section.title_field_id.is_none() {
         return Ok(Vec::new());
     }
-    let children = relation_graph::children_by_relation_type(
+    let mut children = relation_graph::children_by_relation_type(
         &record.instance_id,
         "contains",
         relations,
         store,
     )?;
+    // srs-rust#1130: see the matching comment in `render_record_at_level` —
+    // the same single-anchor-container gap applies to the JSON projection's
+    // parallel recursion, and the same one-level-only scoping.
+    if apply_ordering_to_children {
+        children = relation_graph::apply_section_ordering(
+            children,
+            section.ordering.as_ref(),
+            None,
+            false,
+            package,
+            relations,
+            &section.section_id,
+            diagnostics,
+        );
+    }
     let mut projected = Vec::with_capacity(children.len());
     for child in &children {
         match child {
@@ -870,6 +896,7 @@ fn project_contains_children_json(
                     section,
                     child_record,
                     relations,
+                    false,
                     diagnostics,
                 )?);
             }
@@ -2160,14 +2187,45 @@ fn ordered_direct_members(
     let members = list_direct_members_degraded(store, container_id, section_id, diagnostics)?;
     let roots = filter_contains_roots(&members, relations);
     let mut records = Vec::new();
-    for id in roots {
-        if let Some(instance) = get_instance_by_id(store, &id)? {
+    for id in &roots {
+        if let Some(instance) = get_instance_by_id(store, id)? {
             records.push(instance);
         }
     }
+
+    // srs-rust#1130: a single-anchor container (e.g. a Part whose
+    // `memberInstanceIds` is the full `contains`-descendant closure of its own
+    // `rootInstanceIds` anchor) collapses to `direct(C) = {anchor}` here —
+    // `filter_contains_roots` has already dropped every other declared member
+    // as a non-root. A `memberOrder` entry naming one of those dropped ids is
+    // not a departed member (it is still a declared member, just not a *root*
+    // of this set) — it renders one level down, via the anchor's own
+    // structured `contains` recursion in `render_record_at_level` /
+    // `project_record_json`, which applies this same `ordering` to that
+    // level. Filtering those ids out of `member_order` here (silently, before
+    // `apply_member_order` ever sees them) is what keeps this call from
+    // misdiagnosing them as "not a current container member" while leaving a
+    // genuinely departed id's diagnostic intact.
+    let effective_ordering = ordering.map(|o| match &o.member_order {
+        Some(member_order) => {
+            let member_set: HashSet<&str> = members.iter().map(String::as_str).collect();
+            let root_set: HashSet<&str> = roots.iter().map(String::as_str).collect();
+            let filtered: Vec<String> = member_order
+                .iter()
+                .filter(|id| root_set.contains(id.as_str()) || !member_set.contains(id.as_str()))
+                .cloned()
+                .collect();
+            srs_core::types::view::SectionOrdering {
+                member_order: Some(filtered),
+                ..o.clone()
+            }
+        }
+        None => o.clone(),
+    });
+
     Ok(relation_graph::apply_section_ordering(
         records,
-        ordering,
+        effective_ordering.as_ref(),
         type_filter,
         is_fixed_instances,
         package,
@@ -2531,6 +2589,7 @@ fn render_section_entries(
                     record,
                     record_level,
                     relations,
+                    true,
                     diagnostics,
                 )?);
             }
@@ -2592,6 +2651,7 @@ fn render_nested_section(
                     record,
                     record_level,
                     relations,
+                    true,
                     diagnostics,
                 )?);
             }
@@ -2614,6 +2674,7 @@ fn render_nested_section(
     Ok(out)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_record_at_level(
     store: &dyn RepositoryStore,
     ctx: &RenderContext<'_>,
@@ -2621,6 +2682,7 @@ fn render_record_at_level(
     record: &Record,
     heading_level: u32,
     relations: &[Relation],
+    apply_ordering_to_children: bool,
     diagnostics: &mut Vec<String>,
 ) -> Result<String, RepositoryError> {
     let rt = ctx
@@ -2934,12 +2996,34 @@ fn render_record_at_level(
         // H6 clamp binds it uniformly — "closes a gap that predates nested
         // sections rather than one this revision creates."
         let child_level = clamp_heading_level(heading_level + 1, ctx.format, diagnostics);
-        let subsections = relation_graph::children_by_relation_type(
+        let mut subsections = relation_graph::children_by_relation_type(
             &record.instance_id,
             "contains",
             relations,
             store,
         )?;
+        // srs-rust#1130: for a single-anchor container (e.g. a Part), `direct(C)`
+        // collapses to just the anchor (`filter_contains_roots`), so the anchor's
+        // own `contains` children — the concepts a Part's `ordering.memberOrder`
+        // is meant to reorder (RFC-015 [N+29], ruling A / rfc-decision-8aed3412) —
+        // never reach `apply_member_order` via the ordinary direct-members path.
+        // Applying the enclosing section's ordering here, to the *immediate*
+        // children of the record that is itself a section entry (never to a
+        // deeper recursion — `apply_ordering_to_children` is false below), puts
+        // `memberOrder` in charge of exactly that one level without re-diagnosing
+        // ids that legitimately live deeper in the tree.
+        if apply_ordering_to_children {
+            subsections = relation_graph::apply_section_ordering(
+                subsections,
+                section.ordering.as_ref(),
+                None,
+                false,
+                ctx.package,
+                relations,
+                &section.section_id,
+                diagnostics,
+            );
+        }
         for subsection in &subsections {
             match subsection {
                 LoadedInstance::Record(sub_record) => {
@@ -2950,6 +3034,7 @@ fn render_record_at_level(
                         sub_record,
                         child_level,
                         relations,
+                        false,
                         diagnostics,
                     )?);
                 }
@@ -15977,6 +16062,253 @@ mod tests {
         crate::store::write_relations_standalone_for_test(&store, &coll);
 
         store
+    }
+
+    /// srs-rust#1130 fixture: a single-anchor container —
+    /// `rootInstanceIds: [rec-root]`, `memberInstanceIds` the full
+    /// `contains`-descendant closure `[rec-root, rec-child-a, rec-child-b]` —
+    /// matches every Part container in `srs/srs` (`manifest.container`
+    /// anchored on the Part's own concept, everything else reached only via
+    /// that concept's own `contains` edges), with a `container-subset`
+    /// section declaring `ordering.memberOrder: [rec-child-b, rec-child-a]`
+    /// over the anchor's own children. `format` picks the `Composition`'s
+    /// `exportConfig.format` (`"json"` or `"markdown"`) so both rendering
+    /// engines can be exercised against the identical fixture.
+    fn make_single_anchor_member_order_store(format: &str) -> crate::store::memory::MemoryStore {
+        use crate::container_service;
+        use srs_core::types::container::Container;
+        use srs_core::types::view::{
+            Composition, ContainerScope, DocumentSection, SectionOrdering, SectionSource,
+        };
+
+        let rtds = vec![
+            test_rtd("contains", "Contains", None, false),
+            test_rtd("precedes", "Precedes", None, false),
+        ];
+        let dv = Composition {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
+            composite_renderers: None,
+            id: "dv-part-anchor-test".to_string(),
+            namespace: "com.test".to_string(),
+            name: "part-anchor-test".to_string(),
+            version: 1,
+            description: "single-anchor container memberOrder test".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![DocumentSection {
+                composite_renderers: None,
+                section_id: "s-part".to_string(),
+                title: None,
+                description: None,
+                order: 0,
+                source: SectionSource::ContainerSubset {
+                    container_id: "00000000-0000-4000-8000-0000000000c9".to_string(),
+                    container_type: None,
+                    type_filter: None,
+                    container_scope: Some(ContainerScope::Explicit),
+                },
+                render_view_id: None,
+                type_dispatch: None,
+                title_field_id: Some("f-title".to_string()),
+                ordering: Some(SectionOrdering {
+                    field_id: None,
+                    direction: None,
+                    member_order: Some(vec!["rec-child-b".to_string(), "rec-child-a".to_string()]),
+                }),
+                required: None,
+                empty_behavior: None,
+                relations_presentation: None,
+            }],
+            navigation_links: None,
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some(format.to_string()),
+                omit_empty_fields: None,
+            }),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            container: None,
+            upstream_package: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = crate::package::Package {
+            id: "test-part-anchor-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![srs_core::types::field::Field::new(
+                "f-title",
+                "com.test",
+                "title",
+                srs_core::types::field::FieldType::string(),
+            )],
+            record_types: vec![],
+            relation_type_definitions: rtds,
+            views: vec![],
+            compositions: vec![dv],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            package_dependencies: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        add_rp_record(&store, "rec-root", Some(("title", "Root")));
+        add_rp_record(&store, "rec-child-a", Some(("title", "Child A")));
+        add_rp_record(&store, "rec-child-b", Some(("title", "Child B")));
+
+        let relations = [
+            test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000d1",
+                "contains",
+                "rec-root",
+                "rec-child-b",
+            ),
+            test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000d2",
+                "contains",
+                "rec-root",
+                "rec-child-a",
+            ),
+            test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000d3",
+                "precedes",
+                "rec-child-a",
+                "rec-child-b",
+            ),
+        ];
+        let coll = serde_json::json!({
+            "relations": relations.iter().map(|r| serde_json::to_value(r).unwrap()).collect::<Vec<_>>()
+        });
+        crate::store::write_relations_standalone_for_test(&store, &coll);
+
+        container_service::create_container(
+            &store,
+            Container {
+                container_id: "00000000-0000-4000-8000-0000000000c9".to_string(),
+                title: "Test Part".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: Some("part".to_string()),
+                identity_instance_id: None,
+                anchor_instance_id: Some("rec-root".to_string()),
+                root_instance_ids: Some(vec!["rec-root".to_string()]),
+                member_instance_ids: Some(vec![
+                    "rec-root".to_string(),
+                    "rec-child-a".to_string(),
+                    "rec-child-b".to_string(),
+                ]),
+                child_container_ids: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .unwrap();
+
+        store
+    }
+
+    /// srs-rust#1130: see [`make_single_anchor_member_order_store`] — the JSON
+    /// projection engine (`project_record_json`/`project_contains_children_json`)
+    /// must reorder the anchor's own `contains` children per `memberOrder`,
+    /// with no "not a current container member" diagnostic for an id that
+    /// legitimately renders one level down via the structured recursion.
+    #[test]
+    fn container_subset_applies_member_order_to_single_anchor_contains_children_json() {
+        let store = make_single_anchor_member_order_store("json");
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: "dv-part-anchor-test",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .all(|d| !d.contains("is not a current container member")),
+            "memberOrder entries that render one level down via the anchor's own \
+             contains children must not be diagnosed as departed members, got: {:?}",
+            result.diagnostics
+        );
+        let root = &result.projection.unwrap().sections[0].records[0];
+        assert_eq!(root.instance_id, "rec-root");
+        assert_eq!(
+            root.children.len(),
+            2,
+            "root must still carry both contains children, got: {:?}",
+            root.children
+        );
+        assert_eq!(
+            root.children[0].instance_id, "rec-child-b",
+            "memberOrder ([b, a]) must reorder the anchor's own contains \
+             children, overriding the precedes-chain fallback (a precedes b); \
+             got: {:?}",
+            root.children
+        );
+        assert_eq!(root.children[1].instance_id, "rec-child-a");
+    }
+
+    /// srs-rust#1130: markdown-engine counterpart of the JSON test above —
+    /// `render_record_at_level`'s own structured `contains` recursion must
+    /// apply the same `memberOrder`, so "Child B" renders before "Child A" in
+    /// the markdown output, with the same clean diagnostics.
+    #[test]
+    fn container_subset_applies_member_order_to_single_anchor_contains_children_markdown() {
+        let store = make_single_anchor_member_order_store("markdown");
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: "dv-part-anchor-test",
+            format: Some("markdown"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .unwrap();
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .all(|d| !d.contains("is not a current container member")),
+            "memberOrder entries that render one level down via the anchor's own \
+             contains children must not be diagnosed as departed members, got: {:?}",
+            result.diagnostics
+        );
+        let markdown = result.rendered;
+        let pos_b = markdown
+            .find("Child B")
+            .expect("Child B must appear in the rendered markdown");
+        let pos_a = markdown
+            .find("Child A")
+            .expect("Child A must appear in the rendered markdown");
+        assert!(
+            pos_b < pos_a,
+            "memberOrder ([b, a]) must reorder the anchor's own contains \
+             children in the markdown render, overriding the precedes-chain \
+             fallback (a precedes b); got: {markdown}"
+        );
     }
 
     /// srs-rust#1127: a section with `titleFieldId` set arms
