@@ -38,7 +38,7 @@
     "dataModelRevision": {
       "type": "integer",
       "minimum": 0,
-      "description": "RFC-033 / #265 — the data-model generation this bundle was generated for. Absent means revision 0. The emitter (#259) stamps this so repo stamp, bundle version, and migration-registry generation reference one number. Not dotted semver."
+      "description": "RFC-033 / #265 — the data-model generation this bundle was generated for. Absent means revision 0. The emitter (#259) stamps this so repo stamp, bundle version, and migration-registry generation reference one number. RFC-043 is the migration toRevision 8 (container members become ordered entries; rootInstanceIds and Composition memberOrder removed); a bundle embeds Compositions, so its memberOrder is migrated by the pre-load transformer (RFC-043 [R17]). Not dotted semver."
     },
     "publishedAt": {
       "type": "string",

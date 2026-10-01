@@ -117,6 +117,11 @@
         "typeName": {
           "type": "string"
         },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "RFC-043 [R11]. The effective nesting depth of this record in an arranged section, in sequence, so a consumer can rebuild the outline from the flat list. Present only when above 0; absent for depth 0 and for every flat arrangement."
+        },
         "recordHeading": {
           "type": "string",
           "description": "Value of the titleFieldId field, if the section declares one and the record has it."
