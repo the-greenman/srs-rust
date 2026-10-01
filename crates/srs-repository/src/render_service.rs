@@ -2270,7 +2270,7 @@ fn filter_contains_roots(members: &[String], relations: &[Relation]) -> Vec<Stri
 
 /// [R20]: this container's direct members (`direct(C)`), with the same-set
 /// `contains`-overlap dedup ([`filter_contains_roots`]) already applied, in
-/// final [R20] order (`ordering.memberOrder`, else `ordering.fieldId`, else
+/// final [R20] order (`ordering.fieldId`, else
 /// the [N+12] fallback — [`relation_graph::apply_section_ordering`]).
 /// Shared by the top-level `container-subset` resolution and, recursively via
 /// [`build_container_subset_entries`], by every nested child container's own
@@ -3194,13 +3194,13 @@ fn render_record_at_level(
         )?;
         // srs-rust#1130: for a single-anchor container (e.g. a Part), `direct(C)`
         // collapses to just the anchor (`filter_contains_roots`), so the anchor's
-        // own `contains` children — the concepts a Part's `ordering.memberOrder`
-        // is meant to reorder (RFC-015 [N+29], ruling A / rfc-decision-8aed3412) —
-        // never reach `apply_member_order` via the ordinary direct-members path.
+        // own `contains` children — the concepts a Part's arrangement
+        // (RFC-043; formerly `ordering.memberOrder`) is meant to reorder —
+        // never reach the arranged ordering via the ordinary direct-members path.
         // Applying the enclosing section's ordering here, to the *immediate*
         // children of the record that is itself a section entry (never to a
         // deeper recursion — `apply_ordering_to_children` is false below), puts
-        // `memberOrder` in charge of exactly that one level without re-diagnosing
+        // the arrangement in charge of exactly that one level without re-diagnosing
         // ids that legitimately live deeper in the tree.
         if let ChildOrdering::On(rank) = apply_ordering_to_children {
             subsections = match (section_is_arranged(section), rank) {
@@ -8090,6 +8090,75 @@ mod tests {
             "memberOrder: expected B→C→A, got:\n{}",
             rendered
         );
+    }
+
+    const ARR_B: &str = "00000000-0000-4000-8000-000000000003"; // B-middle
+    const ARR_C: &str = "00000000-0000-4000-8000-000000000001"; // C-last
+    const ARR_A: &str = "00000000-0000-4000-8000-000000000002"; // A-first
+    const ARR_CONTAINER: &str = "00000000-0000-4000-8000-000000000c02";
+
+    fn render_arranged(store: &crate::store::memory::MemoryStore, format: &str) -> RenderResult {
+        render_composition(RenderCompositionOptions {
+            store,
+            view_id: "dv-member-order",
+            format: Some(format),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+        })
+        .expect("render should succeed")
+    }
+
+    /// RFC-043 [R9] worked example shape: heading level = 3 + depthOffset + effective depth, and
+    /// the container's own order and nesting drive the sequence.
+    #[test]
+    fn arranged_section_renders_entries_at_their_depth() {
+        let store = make_member_order_store(vec![ARR_B.into(), ARR_C.into(), ARR_A.into()], None);
+        crate::container_service::move_member(&store, ARR_CONTAINER, ARR_C, None, Some(1)).unwrap();
+        crate::container_service::move_member(&store, ARR_CONTAINER, ARR_A, None, Some(2)).unwrap();
+        let rendered = render_arranged(&store, "markdown").rendered;
+        let heading = |text: &str| -> String {
+            rendered
+                .lines()
+                .find(|l| l.starts_with('#') && l.contains(text))
+                .unwrap_or_else(|| panic!("no heading for {text}:\n{rendered}"))
+                .split(' ')
+                .next()
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(heading("B-middle"), "###");
+        assert_eq!(heading("C-last"), "####");
+        assert_eq!(heading("A-first"), "#####");
+        let pos = |t: &str| rendered.find(t).unwrap();
+        assert!(pos("B-middle") < pos("C-last") && pos("C-last") < pos("A-first"));
+    }
+
+    /// [R9]: `desc` reverses every sibling list with children staying under their parent;
+    /// [R11]: JSON carries the effective depth (when above 0) in sequence.
+    #[test]
+    fn arranged_desc_reverses_siblings_and_json_carries_depth() {
+        // B (0), C (1), A (0)  ->  desc: A (0), B (0), C (1)
+        let store = make_member_order_store(
+            vec![ARR_B.into(), ARR_C.into(), ARR_A.into()],
+            Some(SortDirection::Desc),
+        );
+        crate::container_service::move_member(&store, ARR_CONTAINER, ARR_C, None, Some(1)).unwrap();
+        let projection = render_arranged(&store, "json")
+            .projection
+            .expect("json format carries a projection");
+        let v = serde_json::to_value(&projection).unwrap();
+        let recs = v["sections"][0]["records"].as_array().unwrap();
+        let seq: Vec<(&str, u64)> = recs
+            .iter()
+            .map(|r| {
+                (
+                    r["instanceId"].as_str().unwrap(),
+                    r.get("depth").and_then(|d| d.as_u64()).unwrap_or(0),
+                )
+            })
+            .collect();
+        assert_eq!(seq, vec![(ARR_A, 0), (ARR_B, 0), (ARR_C, 1)]);
     }
 
     /// [N+29] step (4): `direction: desc` reverses the whole combined

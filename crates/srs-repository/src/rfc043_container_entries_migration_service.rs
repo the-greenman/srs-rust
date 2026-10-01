@@ -247,11 +247,22 @@ fn load_corpus(store: &dyn RepositoryStore) -> Result<Corpus, RepositoryError> {
     let mut paths = store.list_files_recursive("relations");
     paths.sort();
     for path in paths.into_iter().filter(|p| p.ends_with(".json")) {
-        if let Ok(v) = store.load_instance_json(&path) {
-            if let Ok(r) = serde_json::from_value::<Relation>(v) {
-                relations.push(r);
-            }
+        let Ok(mut v) = store.load_instance_json(&path) else {
+            continue;
+        };
+        // The pinned `$schema` is not part of the Relation shape (RFC-038 Change E).
+        if let Some(o) = v.as_object_mut() {
+            o.remove("$schema");
         }
+        // A relation that does not parse would silently change a `precedes` order the
+        // migration freezes, so it refuses rather than skips.
+        let r = serde_json::from_value::<Relation>(v).map_err(|e| {
+            refuse(
+                "migration-relation-unreadable",
+                format!("{path} is not a relation ({e}); nothing was written"),
+            )
+        })?;
+        relations.push(r);
     }
     Ok(Corpus {
         created_at,
@@ -768,6 +779,51 @@ fn write_manifest_raw(
     store.save_manifest(&typed)
 }
 
+/// Pre-load transformer for a `.srsj` archive (RFC-043 Change I): the same outcome as the
+/// registry entry, applied to the bundle's text before any store is built. Bundle forms stay out
+/// of the registry (ADR-032's scope rule, the `migrate_rfc014` precedent). Idempotent.
+pub fn migrate_srsj_str(content: &str) -> Result<(String, Rfc043Result), RepositoryError> {
+    let store = crate::srsj::open_srsj(content)?.with_rfc038_exemption();
+    let result = migrate_rfc043_container_entries(&store)?;
+    Ok((crate::srsj::to_srsj_string(&store)?, result))
+}
+
+/// Pre-load transformer for a `package-bundle` / `.srspkg` JSON value: retire every
+/// Composition section's `ordering.memberOrder` (a `container-subset` section becomes
+/// `ordering.source: "arranged"`) and stamp revision 8. A bundle carries no containers, so the
+/// order a `memberOrder` named cannot be frozen here — that is stated, not hidden: the number of
+/// sections whose list was dropped is returned so the caller can report it.
+pub fn migrate_package_bundle_value(bundle: &mut Value) -> usize {
+    fn walk(v: &mut Value, dropped: &mut usize) {
+        match v {
+            Value::Object(o) => {
+                if let Some(ordering) = o.get_mut("ordering").and_then(|x| x.as_object_mut()) {
+                    if ordering.shift_remove("memberOrder").is_some() {
+                        *dropped += 1;
+                        ordering.insert("source".to_string(), json!("arranged"));
+                    }
+                }
+                for x in o.values_mut() {
+                    walk(x, dropped);
+                }
+            }
+            Value::Array(a) => a.iter_mut().for_each(|x| walk(x, dropped)),
+            _ => {}
+        }
+    }
+    let mut dropped = 0;
+    walk(bundle, &mut dropped);
+    if let Some(o) = bundle.as_object_mut() {
+        if o.contains_key(crate::field_type_migration_service::DATA_MODEL_REVISION_KEY) {
+            o.insert(
+                crate::field_type_migration_service::DATA_MODEL_REVISION_KEY.to_string(),
+                json!(RFC043_REVISION),
+            );
+        }
+    }
+    dropped
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -966,6 +1022,78 @@ mod tests {
                 .any(|d| d.starts_with("migration-memberorder-dropped") && d.contains(ghost)),
             "{:?}",
             r.diagnostics
+        );
+    }
+
+    #[test]
+    fn srsj_transformer_migrates_a_revision_7_archive_and_is_idempotent() {
+        let srsj = json!({
+            "srsj": "2",
+            "manifest": {
+                "srsVersion": "2.0-draft", "dataModelRevision": 7,
+                "repositoryId": "00000000-0000-4000-8000-0000000000f0",
+                "packageRef": {"mode": "local", "path": "package"},
+                "container": {"containerId": ROOT, "title": "Root", "identityInstanceId": IDENT,
+                    "rootInstanceIds": [IDENT], "memberInstanceIds": [SEC_A]}
+            },
+            "data": {
+                "package/package.json": {"id": "00000000-0000-4000-8000-00000000bbbb",
+                    "namespace": "com.test", "name": "p", "version": "1.0.0",
+                    "dataModelRevision": 7, "fields": [], "types": []},
+                "records/notes/note-a.json": note(IDENT, "2026-01-01T00:00:00Z"),
+                "records/notes/note-b.json": note(SEC_A, "2026-01-02T00:00:00Z"),
+            }
+        })
+        .to_string();
+        let (out, r) = migrate_srsj_str(&srsj).unwrap();
+        assert_eq!(r.containers_migrated, 1);
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["manifest"]["dataModelRevision"], 8);
+        assert!(v["manifest"]["container"].get("rootInstanceIds").is_none());
+        assert_eq!(
+            v["manifest"]["container"]["memberInstanceIds"],
+            json!([{"instanceId": IDENT}, {"instanceId": SEC_A}])
+        );
+        let (again, r2) = migrate_srsj_str(&out).unwrap();
+        assert_eq!(r2.containers_migrated, 0);
+        assert_eq!(
+            serde_json::from_str::<Value>(&again).unwrap(),
+            serde_json::from_str::<Value>(&out).unwrap()
+        );
+    }
+
+    #[test]
+    fn package_bundle_transformer_retires_member_order() {
+        let mut bundle = json!({"dataModelRevision": 7, "compositions": [{"sections": [
+            {"sectionId": "s", "source": {"type": "container-subset", "containerId": PART},
+             "ordering": {"memberOrder": [M1, M2], "direction": "asc"}}]}]});
+        assert_eq!(migrate_package_bundle_value(&mut bundle), 1);
+        let o = &bundle["compositions"][0]["sections"][0]["ordering"];
+        assert!(o.get("memberOrder").is_none());
+        assert_eq!(o["source"], "arranged");
+        assert_eq!(bundle["dataModelRevision"], 8);
+    }
+
+    /// [R16]: a revision-8 binary does not interpret revision-7 container shapes — the ordinary
+    /// (non-exempt) reader refuses naming RFC-043 and the migration, and `repo migrations` still
+    /// reports it `needed` through the exempt reader.
+    #[test]
+    fn revision_8_reader_refuses_a_revision_7_corpus_naming_the_migration() {
+        let tmp = tempfile::tempdir().unwrap();
+        rev7_repo(tmp.path(), json!([M3, M1]));
+        let strict = FileStore::new(tmp.path());
+        let err = strict.load_manifest().unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::Rfc043MigrationNeeded),
+            "{err:?}"
+        );
+        assert!(err.to_string().contains("rfc043-container-entries"));
+        let exempt = FileStore::new(tmp.path()).with_rfc038_exemption();
+        let listed = crate::migration_registry_service::list_migrations(&exempt).unwrap();
+        let m = listed.iter().find(|m| m.id == MIGRATION_ID).unwrap();
+        assert_eq!(
+            m.status,
+            crate::migration_registry_service::MigrationStatus::Needed
         );
     }
 }

@@ -1081,6 +1081,77 @@ mod tests {
         assert!(nav.diagnostics.is_empty());
     }
 
+    /// RFC-043 [R19]: two containers anchored on one record make the link ambiguous — reported,
+    /// and no link is chosen by position or storage order.
+    #[test]
+    fn shared_anchor_reports_section_container_ambiguous_and_links_nothing() {
+        let store = nav_store();
+        container_service::create_container(
+            &store,
+            Container {
+                container_id: "00000000-0000-4000-8000-00000000b001".to_string(),
+                title: "Articles again".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                anchor_instance_id: Some("00000000-0000-4000-8000-00000000a200".to_string()),
+                member_instance_ids: None,
+                child_container_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .unwrap();
+        let nav = super::repository_navigation(&store).unwrap();
+        let articles = nav
+            .sections
+            .iter()
+            .find(|s| s.display_label == "Articles")
+            .unwrap();
+        assert!(articles.section_container_id.is_none());
+        assert!(
+            nav.diagnostics
+                .iter()
+                .any(|d| d.starts_with("section-container-ambiguous")),
+            "{:?}",
+            nav.diagnostics
+        );
+    }
+
+    /// RFC-043 [R12]: the payload carries each entry's `depth`, in entry order.
+    #[test]
+    fn navigation_carries_entry_depth_in_order() {
+        let store = nav_store();
+        let root = "00000000-0000-4000-8000-00000000a000";
+        // [identity a100, decision log a300, articles a200] -> nest articles under decision log.
+        container_service::move_member(
+            &store,
+            root,
+            "00000000-0000-4000-8000-00000000a200",
+            None,
+            Some(1),
+        )
+        .unwrap();
+        let nav = super::repository_navigation(&store).unwrap();
+        let shape: Vec<(&str, u32)> = nav
+            .sections
+            .iter()
+            .map(|s| (s.display_label.as_str(), s.depth))
+            .collect();
+        assert_eq!(shape, vec![("Decision Log", 0), ("Articles", 1)]);
+        let json = serde_json::to_value(&nav).unwrap();
+        assert_eq!(json["sections"][1]["depth"], 1);
+        assert!(
+            json["sections"][0].get("depth").is_none(),
+            "depth 0 is omitted"
+        );
+    }
+
     #[test]
     fn repository_navigation_lists_a_single_entry_section_once() {
         let manifest = Manifest {

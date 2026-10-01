@@ -94,8 +94,9 @@ pub struct ResolvedMember {
 
 /// The structured container view: root + ordered members + column spec.
 ///
-/// `members` is the full roots-first deduped membership; when present, `root` is the
-/// container's first root and also appears as the first entry of `members`.
+/// `members` is the full deduped membership (RFC-043: in the governing section's order, or entry
+/// order); when present, `root` is the container's anchor entry and also appears in `members`
+/// wherever the arrangement puts it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerView {
@@ -228,15 +229,11 @@ pub fn resolve_container_view(
         None => None,
     };
 
-    // Resolve ordered members (roots-first, deduped). The roots-first prefix
-    // is this projection's own structural invariant (documented on
-    // `ContainerView.members`), independent of Composition-driven
-    // presentation order, so it is carved off and preserved as declared;
-    // RFC-015 [N+29]/#379 ordering — memberOrder, else authored
-    // fieldId+direction, else the [N+12] fallback, sourced from the governing
-    // section — applies only to the non-root tail. `type_filter: None` on
-    // that call — this projection's contract is "the full membership,
-    // reordered", never narrowed (`ContainerView.members` doc comment).
+    // Resolve ordered members (RFC-043 Change F: entry order only — the roots-first prefix is
+    // gone). An `arranged` governing section keeps the container's entry order; otherwise the
+    // authored fieldId+direction, else the [N+12] fallback, sourced from the governing section,
+    // applies (#379). `type_filter: None` on that call — this projection's contract is "the
+    // full membership, reordered", never narrowed (`ContainerView.members` doc comment).
     let member_ids = container_service::list_container_members(store, &container_id)?;
     // RFC-043 Change F: members are in entry order only — no roots-first prefix; the anchor
     // sits wherever the arrangement puts it.

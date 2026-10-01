@@ -2135,6 +2135,21 @@ mod tests {
         );
     }
 
+    /// RFC-043 [R6]: order is data — a copy (memory -> file) keeps entry order and depth.
+    #[test]
+    fn copy_preserves_entry_order_and_depth() {
+        let store = make_store();
+        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Outline");
+        // Deliberately not id-sorted, with nesting.
+        c.member_instance_ids = Some(vec![ContainerEntry::new(B), ContainerEntry::at(A, 1)]);
+        create_container(&store, c).unwrap();
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store).unwrap();
+        let got = get_arrangement(&file_store, "550e8400-e29b-41d4-a716-446655440000").unwrap();
+        assert_eq!(got, vec![ContainerEntry::new(B), ContainerEntry::at(A, 1)]);
+    }
+
     #[test]
     fn containers_for_instance_returns_matching_containers() {
         let store = make_store();

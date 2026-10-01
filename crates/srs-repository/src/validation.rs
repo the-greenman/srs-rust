@@ -6784,6 +6784,62 @@ mod tests {
         );
     }
 
+    /// RFC-043 [R2], [R3]: every arrangement validator code, one diagnostic per offending entry.
+    #[test]
+    fn container_arrangement_diagnostics_cover_every_code() {
+        use srs_core::types::container::{Container, ContainerEntry};
+        let known: HashSet<&str> = ["a", "b", "i"].into_iter().collect();
+        let mk = |entries: Vec<ContainerEntry>| -> Container {
+            let mut c = srs_core::types::container::Container {
+                container_id: "c".into(),
+                title: "T".into(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: Some("i".into()),
+                anchor_instance_id: Some("zz".into()),
+                member_instance_ids: Some(entries),
+                child_container_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: Default::default(),
+            };
+            c.extra
+                .insert("rootInstanceIds".into(), serde_json::json!([]));
+            c
+        };
+        let codes = |c: &Container, root: bool| -> Vec<String> {
+            container_arrangement_diagnostics(c, root, &known)
+                .into_iter()
+                .map(|(_, m)| m)
+                .collect()
+        };
+        let c = mk(vec![
+            ContainerEntry::at("a", 1),   // first entry not depth 0
+            ContainerEntry::at("b", 3),   // rises by two
+            ContainerEntry::new("a"),     // duplicate
+            ContainerEntry::new("ghost"), // unresolved
+            ContainerEntry::new("i"),
+            ContainerEntry::at("b", 1), // gives the identity a descendant (root only)
+        ]);
+        let all = codes(&c, true).join("\n");
+        for code in [
+            "arrangement-depth",
+            "arrangement-duplicate",
+            "arrangement-unresolved",
+            "arrangement-identity",
+            "arrangement-pointer", // anchor "zz" is not an entry
+            "rootInstanceIds is removed",
+        ] {
+            assert!(all.contains(code), "missing {code} in:\n{all}");
+        }
+        // The identity rule is root-container only.
+        assert!(!codes(&c, false).join("\n").contains("arrangement-identity"));
+    }
+
     // ---- RFC-013 root container invariant tests ----
 
     fn rfc013_container(
