@@ -296,7 +296,10 @@ pub enum SectionSource {
     },
     #[serde(rename_all = "camelCase")]
     ContainerSubset {
-        container_id: String,
+        /// RFC-043 Change B: optional only on an `arranged` section (absent means the
+        /// container being rendered; validator-enforced, [R10]).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        container_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         container_type: Option<String>,
         /// RFC-008 (ext:views-l2). When present and non-empty, restricts the section to container
@@ -331,14 +334,20 @@ pub struct SectionOrdering {
     pub field_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub direction: Option<SortDirection>,
-    /// RFC-015 [N+29] — the view-owned explicit presentation sequence for a
-    /// `container-subset` section: `instanceId`s in presentation order, with
-    /// unlisted members appended in [N+12] order. Declared by
-    /// `composition.json`, so a strict `SectionOrdering` has to model it or a
-    /// schema-valid Composition would stop loading. Carried, not yet consumed
-    /// — honouring it is srs-rust#567.
+    /// RFC-043 [R8]: where the section's order comes from. Absent means `Rule`.
+    /// `memberOrder` is retired (a Composition names no record).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub member_order: Option<Vec<String>>,
+    pub source: Option<OrderingSource>,
+}
+
+/// RFC-043 Change B: the ordering *source* of a section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OrderingSource {
+    /// The container's entries, in their own order and depth (Change C).
+    Arranged,
+    /// `ordering.fieldId`/`direction`, otherwise Rule [N+12]; every record at depth 0.
+    Rule,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -648,7 +657,7 @@ mod tests {
                 type_dispatch: None,
                 title_field_id: Some("field-title".to_string()),
                 ordering: Some(SectionOrdering {
-                    member_order: None,
+                    source: None,
                     field_id: Some("field-order".to_string()),
                     direction: Some(SortDirection::Asc),
                 }),
@@ -865,7 +874,7 @@ mod tests {
     #[test]
     fn container_subset_type_filter_round_trips() {
         let source = SectionSource::ContainerSubset {
-            container_id: "cid-1".to_string(),
+            container_id: Some("cid-1".to_string()),
             container_type: None,
             type_filter: Some(vec!["ns/name".to_string(), "ns/other".to_string()]),
             container_scope: None,
@@ -886,7 +895,7 @@ mod tests {
     #[test]
     fn container_subset_no_type_filter_omitted_from_json() {
         let source = SectionSource::ContainerSubset {
-            container_id: "cid-1".to_string(),
+            container_id: Some("cid-1".to_string()),
             container_type: None,
             type_filter: None,
             container_scope: None,
@@ -904,7 +913,7 @@ mod tests {
     #[test]
     fn container_subset_container_scope_round_trips() {
         let source = SectionSource::ContainerSubset {
-            container_id: "cid-1".to_string(),
+            container_id: Some("cid-1".to_string()),
             container_type: None,
             type_filter: None,
             container_scope: Some(ContainerScope::Subtree),
@@ -921,7 +930,7 @@ mod tests {
     #[test]
     fn container_subset_no_container_scope_omitted_from_json() {
         let source = SectionSource::ContainerSubset {
-            container_id: "cid-1".to_string(),
+            container_id: Some("cid-1".to_string()),
             container_type: None,
             type_filter: None,
             container_scope: None,

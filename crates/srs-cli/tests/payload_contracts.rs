@@ -201,13 +201,13 @@ fn container_members_add() {
 }
 
 #[test]
-fn container_roots_list() {
-    check::<ContainerRootsPayload>("container-roots-list");
+fn container_members_move() {
+    check::<ContainerMembersMutatePayload>("container-members-move");
 }
 
 #[test]
-fn container_roots_add() {
-    check::<ContainerRootsMutatePayload>("container-roots-add");
+fn container_members_repair() {
+    check::<ContainerMembersMutatePayload>("container-members-repair");
 }
 
 #[test]

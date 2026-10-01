@@ -310,94 +310,21 @@ pub fn validate_repository(
                     });
                 }
 
-                // Self-membership integrity (containerId must not be its own member/root)
-                if full_container
-                    .member_instance_ids
-                    .as_ref()
-                    .is_some_and(|ids| ids.iter().any(|id| id == &full_container.container_id))
-                {
-                    diagnostics.push(ValidationDiagnostic {
-                        severity: DiagnosticSeverity::Error,
-                        relative_path: "manifest.json".to_string(),
-                        schema_id: None,
-                        message: format!(
-                            "root container '{}': containerId must not appear in memberInstanceIds",
-                            root.container_id
-                        ),
-                    });
-                }
-                if full_container
-                    .root_instance_ids
-                    .as_ref()
-                    .is_some_and(|ids| ids.iter().any(|id| id == &full_container.container_id))
-                {
-                    diagnostics.push(ValidationDiagnostic {
-                        severity: DiagnosticSeverity::Error,
-                        relative_path: "manifest.json".to_string(),
-                        schema_id: None,
-                        message: format!(
-                            "root container '{}': containerId must not appear in rootInstanceIds",
-                            root.container_id
-                        ),
-                    });
-                }
-
-                // I-80: memberInstanceIds and rootInstanceIds must all be in the instance set.
-                // Uses the catalog snapshot already built above (RFC-038: no instanceIndex).
+                // RFC-043 [R2]/[R3] arrangement checks for the root container (depth rise,
+                // exactly-once, resolution, identity entry at depth 0 without descendants,
+                // identity pointer is an entry). Non-root containers get the same checks in
+                // the loop below; running them here keeps the root's `manifest.json` locator.
                 let known_ids: HashSet<&str> =
                     cat.instances.iter().map(|e| e.id.as_str()).collect();
-                if let Some(ref ids) = full_container.member_instance_ids {
-                    for id in ids {
-                        if !known_ids.contains(id.as_str()) {
-                            diagnostics.push(ValidationDiagnostic {
-                                severity: DiagnosticSeverity::Error,
-                                relative_path: "manifest.json".to_string(),
-                                schema_id: None,
-                                message: format!(
-                                    "RFC-013 I-80: memberInstanceId '{}' not found in the instance set",
-                                    id
-                                ),
-                            });
-                        }
-                    }
-                }
-                if let Some(ref ids) = full_container.root_instance_ids {
-                    for id in ids {
-                        if !known_ids.contains(id.as_str()) {
-                            diagnostics.push(ValidationDiagnostic {
-                                severity: DiagnosticSeverity::Error,
-                                relative_path: "manifest.json".to_string(),
-                                schema_id: None,
-                                message: format!(
-                                    "RFC-013 I-80: rootInstanceId '{}' not found in the instance set",
-                                    id
-                                ),
-                            });
-                        }
-                    }
-                }
-
-                // I-81: identityInstanceId must be in rootInstanceIds or memberInstanceIds
-                if let Some(ref identity_id) = root.identity_instance_id {
-                    let in_roots = full_container
-                        .root_instance_ids
-                        .as_ref()
-                        .is_some_and(|ids| ids.contains(identity_id));
-                    let in_members = full_container
-                        .member_instance_ids
-                        .as_ref()
-                        .is_some_and(|ids| ids.contains(identity_id));
-                    if !in_roots && !in_members {
-                        diagnostics.push(ValidationDiagnostic {
-                            severity: DiagnosticSeverity::Error,
-                            relative_path: "manifest.json".to_string(),
-                            schema_id: None,
-                            message: format!(
-                                "RFC-013 I-81: identityInstanceId '{}' is not in rootInstanceIds or memberInstanceIds of the root container",
-                                identity_id
-                            ),
-                        });
-                    }
+                for (severity, message) in
+                    container_arrangement_diagnostics(full_container, true, &known_ids)
+                {
+                    diagnostics.push(ValidationDiagnostic {
+                        severity,
+                        relative_path: "manifest.json".to_string(),
+                        schema_id: None,
+                        message,
+                    });
                 }
 
                 // I-82: every non-identity member should root a container (warning; suppressed
@@ -415,42 +342,28 @@ pub fn validate_repository(
                         .collect();
                     if !file_backed_container_ids.is_empty() {
                         // BTreeSet for deterministic iteration order (ADR-017).
-                        let union_members: BTreeSet<&str> = full_container
-                            .member_instance_ids
-                            .as_deref()
-                            .unwrap_or(&[])
-                            .iter()
-                            .map(String::as_str)
-                            .chain(
-                                full_container
-                                    .root_instance_ids
-                                    .as_deref()
-                                    .unwrap_or(&[])
-                                    .iter()
-                                    .map(String::as_str),
-                            )
-                            .collect();
+                        let union_members: BTreeSet<String> =
+                            full_container.member_ids().into_iter().collect();
                         if !union_members.is_empty() {
                             let mut section_container_roots: HashSet<String> = HashSet::new();
                             for container_id in file_backed_container_ids {
+                                // RFC-043 [R19]: a section root is the anchor of some container.
                                 if let Ok(c) = store.load_container(container_id) {
-                                    if let Some(ref roots) = c.root_instance_ids {
-                                        section_container_roots.extend(roots.iter().cloned());
-                                    }
+                                    section_container_roots.extend(c.anchor_instance_id);
                                 }
                             }
                             let identity_id = root.identity_instance_id.as_deref().unwrap_or("");
                             for member_id in &union_members {
-                                if *member_id == identity_id {
+                                if member_id == identity_id {
                                     continue;
                                 }
-                                if !section_container_roots.contains(*member_id) {
+                                if !section_container_roots.contains(member_id) {
                                     diagnostics.push(ValidationDiagnostic {
                                         severity: DiagnosticSeverity::Warning,
                                         relative_path: "manifest.json".to_string(),
                                         schema_id: None,
                                         message: format!(
-                                            "RFC-013 I-82: root container member '{}' is not the root of any container in the container set",
+                                            "RFC-013 I-82: root container member '{}' is not the anchor of any container in the container set",
                                             member_id
                                         ),
                                     });
@@ -1548,58 +1461,28 @@ pub fn validate_repository(
         }
     }
 
-    // --- RFC-009 I-145: Container.anchorInstanceId (srs#446) ---
-    // Runs for every container (root and file-backed), unlike I-81 (identityInstanceId,
-    // root-only): the schema's anchorInstanceId description is not root-scoped, and
-    // unlike I-63/I-64 below this needs no package/type resolution — anchorInstanceId,
-    // rootInstanceIds, and memberInstanceIds are all fields on the same loaded Container,
-    // so this must not be gated behind a successful package load.
-    for centry in &cat.containers {
-        let Some(container) = load_container_for_diagnostics(store, centry) else {
-            continue;
-        };
-        let container_id = container.container_id.clone();
-        match &container.anchor_instance_id {
-            Some(anchor_id) => {
-                let in_roots = container
-                    .root_instance_ids
-                    .as_ref()
-                    .is_some_and(|ids| ids.contains(anchor_id));
-                let in_members = container
-                    .member_instance_ids
-                    .as_ref()
-                    .is_some_and(|ids| ids.contains(anchor_id));
-                if !in_roots && !in_members {
-                    diagnostics.push(ValidationDiagnostic {
-                        severity: DiagnosticSeverity::Error,
-                        relative_path: format!("container {container_id}"),
-                        schema_id: None,
-                        message: format!(
-                            "RFC-009 I-145: container '{}' anchorInstanceId '{}' is not in rootInstanceIds or memberInstanceIds",
-                            container_id, anchor_id
-                        ),
-                    });
-                }
+    // --- RFC-043 arrangement + RFC-009 I-145 anchor, for every non-root container ---
+    // (the root container is checked above with its manifest locator). Needs no package
+    // resolution, so it is not gated behind a successful package load.
+    {
+        let known_ids: HashSet<&str> = cat.instances.iter().map(|e| e.id.as_str()).collect();
+        let root_id = manifest.container.as_ref().map(|c| c.container_id.as_str());
+        for centry in &cat.containers {
+            if Some(centry.id.as_str()) == root_id {
+                continue;
             }
-            None => {
-                // Transitional fallback (srs#446/I-145): no declared anchor, so the typing
-                // anchor resolves positionally to rootInstanceIds[0]. Nothing to report when
-                // there are no roots at all — there is no anchor to derive either way.
-                if container
-                    .root_instance_ids
-                    .as_ref()
-                    .is_some_and(|ids| !ids.is_empty())
-                {
-                    diagnostics.push(ValidationDiagnostic {
-                        severity: DiagnosticSeverity::Warning,
-                        relative_path: format!("container {container_id}"),
-                        schema_id: None,
-                        message: format!(
-                            "RFC-009 I-145: container '{}' has no anchorInstanceId; falling back to rootInstanceIds[0] as the typing anchor. This positional fallback is transitional and is withdrawn at the Continuity flip (rfc-decision-cce3c00e axis 2-8, the first full public release) — set anchorInstanceId explicitly before then",
-                            container_id
-                        ),
-                    });
-                }
+            let Some(container) = load_container_for_diagnostics(store, centry) else {
+                continue;
+            };
+            for (severity, message) in
+                container_arrangement_diagnostics(&container, false, &known_ids)
+            {
+                diagnostics.push(ValidationDiagnostic {
+                    severity,
+                    relative_path: format!("container {}", container.container_id),
+                    schema_id: None,
+                    message,
+                });
             }
         }
     }
@@ -1650,7 +1533,7 @@ pub fn validate_repository(
                         srs_core::types::view::SectionSource::ContainerSubset {
                             container_id,
                             ..
-                        } => vec![container_id.as_str()],
+                        } => container_id.as_deref().into_iter().collect(),
                         srs_core::types::view::SectionSource::DiscoveryQuery {
                             container_ids,
                             ..
@@ -2454,6 +2337,75 @@ pub(crate) fn validate_definition_write_schema(
         })
 }
 
+/// RFC-043 [R2], [R3], [R5]: every arrangement diagnostic for one container — codes
+/// `arrangement-depth`, `arrangement-duplicate`, `arrangement-unresolved`,
+/// `arrangement-identity` and `arrangement-pointer` (a declared `identityInstanceId` /
+/// `anchorInstanceId` that is not an entry). One diagnostic per offending entry.
+fn container_arrangement_diagnostics(
+    container: &srs_core::types::container::Container,
+    is_root: bool,
+    known_ids: &HashSet<&str>,
+) -> Vec<(DiagnosticSeverity, String)> {
+    use srs_core::arrangement;
+    let cid = &container.container_id;
+    let entries = container.member_instance_ids.as_deref().unwrap_or(&[]);
+    let mut out = Vec::new();
+    if container.extra.contains_key("rootInstanceIds") {
+        out.push((
+            DiagnosticSeverity::Error,
+            format!("container '{cid}': rootInstanceIds is removed at dataModelRevision 8 (RFC-043 [R4]); run `srs repo apply-migration --id rfc043-container-entries`"),
+        ));
+    }
+    if entries.iter().any(|e| &e.instance_id == cid) {
+        out.push((
+            DiagnosticSeverity::Error,
+            format!("container '{cid}': containerId must not appear in memberInstanceIds"),
+        ));
+    }
+    let root_identity = is_root
+        .then_some(container.identity_instance_id.as_deref())
+        .flatten();
+    for v in arrangement::check_entries(entries, root_identity) {
+        out.push((DiagnosticSeverity::Error, format!("container '{cid}': {v}")));
+    }
+    for e in entries {
+        if !known_ids.contains(e.instance_id.as_str()) {
+            out.push((
+                DiagnosticSeverity::Error,
+                format!(
+                    "{}: container '{cid}' memberInstanceId '{}' not found in the instance set (repair with `srs container members repair`)",
+                    arrangement::CODE_UNRESOLVED, e.instance_id
+                ),
+            ));
+        }
+    }
+    for (name, pointer, rule) in [
+        (
+            "identityInstanceId",
+            &container.identity_instance_id,
+            "RFC-013 I-81",
+        ),
+        (
+            "anchorInstanceId",
+            &container.anchor_instance_id,
+            "RFC-009 I-145",
+        ),
+    ] {
+        if let Some(id) = pointer {
+            if !container.has_member(id) {
+                out.push((
+                    DiagnosticSeverity::Error,
+                    format!(
+                        "{}: {rule}: container '{cid}' {name} '{id}' is not an entry of memberInstanceIds",
+                        arrangement::CODE_POINTER
+                    ),
+                ));
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2553,7 +2505,7 @@ mod tests {
         json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
-            "dataModelRevision": 7,
+            "dataModelRevision": 8,
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Test Repo",
             "container": {
@@ -3289,7 +3241,7 @@ mod tests {
             &json!({
                 "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
                 "srsVersion": "2.0",
-                "dataModelRevision": 7,
+                "dataModelRevision": 8,
                 "repositoryId": "00000000-0000-4000-8000-000000000099",
                 "title": "Test Repo",
                 "container": {
@@ -3396,7 +3348,7 @@ mod tests {
             &json!({
                 "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
                 "srsVersion": "2.0",
-                "dataModelRevision": 7,
+                "dataModelRevision": 8,
                 "repositoryId": "00000000-0000-4000-8000-000000000099",
                 "title": "Test Repo",
                 "container": {
@@ -3483,7 +3435,7 @@ mod tests {
             &json!({
                 "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
                 "srsVersion": "2.0",
-                "dataModelRevision": 7,
+                "dataModelRevision": 8,
                 "repositoryId": "00000000-0000-4000-8000-000000000098",
                 "title": "Test Repo",
                 "container": {
@@ -5282,7 +5234,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let record_id = "00000000-0000-4000-8000-000000000501";
         let mut manifest = minimal_manifest(json!([rfc013_instance_entry(record_id)]));
-        manifest["container"]["memberInstanceIds"] = json!([record_id]);
+        manifest["container"]["memberInstanceIds"] = json!([{"instanceId": record_id}]);
         write_json(temp.path(), "manifest.json", &manifest);
         write_json(temp.path(), "package/.srs", &json!({}));
         write_json(
@@ -5433,7 +5385,7 @@ mod tests {
             rfc013_instance_entry(from_id),
             rfc013_instance_entry(target_id)
         ]));
-        manifest["container"]["memberInstanceIds"] = json!([target_id]);
+        manifest["container"]["memberInstanceIds"] = json!([{"instanceId": target_id}]);
         write_json(temp.path(), "manifest.json", &manifest);
         write_json(temp.path(), "package/.srs", &json!({}));
         write_json(
@@ -5970,9 +5922,10 @@ mod tests {
             description: None,
             container_type: Some("not-guide".to_string()),
             identity_instance_id: None,
-            anchor_instance_id: None,
-            root_instance_ids: Some(vec![record.instance_id.clone()]),
-            member_instance_ids: None,
+            anchor_instance_id: Some(record.instance_id.clone()),
+            member_instance_ids: Some(srs_core::types::container::entries([record
+                .instance_id
+                .clone()])),
             child_container_ids: None,
             tags: None,
             created_at: None,
@@ -6091,11 +6044,10 @@ mod tests {
             container_type: Some("guide".to_string()),
             identity_instance_id: None,
             anchor_instance_id: Some(anchor_record.instance_id.clone()),
-            root_instance_ids: Some(vec![
+            member_instance_ids: Some(srs_core::types::container::entries([
                 positional_root_record.instance_id.clone(),
                 anchor_record.instance_id.clone(),
-            ]),
-            member_instance_ids: None,
+            ])),
             child_container_ids: None,
             tags: None,
             created_at: None,
@@ -6202,11 +6154,10 @@ mod tests {
             container_type: Some("guide".to_string()),
             identity_instance_id: None,
             anchor_instance_id: Some(anchor_record.instance_id.clone()),
-            root_instance_ids: Some(vec![
+            member_instance_ids: Some(srs_core::types::container::entries([
                 positional_root_record.instance_id.clone(),
                 anchor_record.instance_id.clone(),
-            ]),
-            member_instance_ids: None,
+            ])),
             child_container_ids: None,
             tags: None,
             created_at: None,
@@ -6263,7 +6214,6 @@ mod tests {
             container_type: Some("guide".to_string()),
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -6320,9 +6270,8 @@ mod tests {
             description: None,
             container_type: Some("guide".to_string()),
             identity_instance_id: None,
-            anchor_instance_id: None,
             // Root id that is not present in the manifest index.
-            root_instance_ids: Some(vec!["99999999-9999-4999-8999-999999999999".to_string()]),
+            anchor_instance_id: Some("99999999-9999-4999-8999-999999999999".to_string()),
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -6406,9 +6355,10 @@ mod tests {
             description: None,
             container_type: Some("not-guide".to_string()),
             identity_instance_id: None,
-            anchor_instance_id: None,
-            root_instance_ids: Some(vec![record.instance_id.clone()]),
-            member_instance_ids: None,
+            anchor_instance_id: Some(record.instance_id.clone()),
+            member_instance_ids: Some(srs_core::types::container::entries([record
+                .instance_id
+                .clone()])),
             child_container_ids: None,
             tags: None,
             created_at: None,
@@ -6589,7 +6539,7 @@ mod tests {
             &json!({
                 "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
                 "srsVersion": "2.0",
-                "dataModelRevision": 7,
+                "dataModelRevision": 8,
                 "repositoryId": "00000000-0000-4000-8000-000000000700",
                 "title": "Rev-3 Metamodel Test Repo",
                 "container": {
@@ -6811,7 +6761,7 @@ mod tests {
         let store = manifest_store(json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
-            "dataModelRevision": 7,
+            "dataModelRevision": 8,
             "repositoryId": "00000000-0000-4000-8000-000000000901",
             "title": "Rev-5 Test Repo",
             "container": {
@@ -6834,6 +6784,62 @@ mod tests {
         );
     }
 
+    /// RFC-043 [R2], [R3]: every arrangement validator code, one diagnostic per offending entry.
+    #[test]
+    fn container_arrangement_diagnostics_cover_every_code() {
+        use srs_core::types::container::{Container, ContainerEntry};
+        let known: HashSet<&str> = ["a", "b", "i"].into_iter().collect();
+        let mk = |entries: Vec<ContainerEntry>| -> Container {
+            let mut c = srs_core::types::container::Container {
+                container_id: "c".into(),
+                title: "T".into(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: Some("i".into()),
+                anchor_instance_id: Some("zz".into()),
+                member_instance_ids: Some(entries),
+                child_container_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: Default::default(),
+            };
+            c.extra
+                .insert("rootInstanceIds".into(), serde_json::json!([]));
+            c
+        };
+        let codes = |c: &Container, root: bool| -> Vec<String> {
+            container_arrangement_diagnostics(c, root, &known)
+                .into_iter()
+                .map(|(_, m)| m)
+                .collect()
+        };
+        let c = mk(vec![
+            ContainerEntry::at("a", 1),   // first entry not depth 0
+            ContainerEntry::at("b", 3),   // rises by two
+            ContainerEntry::new("a"),     // duplicate
+            ContainerEntry::new("ghost"), // unresolved
+            ContainerEntry::new("i"),
+            ContainerEntry::at("b", 1), // gives the identity a descendant (root only)
+        ]);
+        let all = codes(&c, true).join("\n");
+        for code in [
+            "arrangement-depth",
+            "arrangement-duplicate",
+            "arrangement-unresolved",
+            "arrangement-identity",
+            "arrangement-pointer", // anchor "zz" is not an entry
+            "rootInstanceIds is removed",
+        ] {
+            assert!(all.contains(code), "missing {code} in:\n{all}");
+        }
+        // The identity rule is root-container only.
+        assert!(!codes(&c, false).join("\n").contains("arrangement-identity"));
+    }
+
     // ---- RFC-013 root container invariant tests ----
 
     fn rfc013_container(
@@ -6849,16 +6855,16 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
-            anchor_instance_id: None,
-            member_instance_ids: if members.is_empty() {
-                None
-            } else {
-                Some(members.iter().map(|s| s.to_string()).collect())
-            },
-            root_instance_ids: if roots.is_empty() {
-                None
-            } else {
-                Some(roots.iter().map(|s| s.to_string()).collect())
+            // RFC-043: a former root is the anchor entry; roots and members are one list.
+            anchor_instance_id: roots.first().map(|s| s.to_string()),
+            member_instance_ids: {
+                let mut all: Vec<&str> = Vec::new();
+                for id in roots.iter().chain(members.iter()) {
+                    if !all.contains(id) {
+                        all.push(id);
+                    }
+                }
+                (!all.is_empty()).then(|| srs_core::types::container::entries(all))
             },
             child_container_ids: None,
             tags: None,
@@ -6906,7 +6912,7 @@ mod tests {
             "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "Test I-80",
-            "container": {"containerId": root_id, "title": "Root", "memberInstanceIds": [member_id]},
+            "container": {"containerId": root_id, "title": "Root", "memberInstanceIds": [{"instanceId": member_id}]},
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
@@ -6944,7 +6950,7 @@ mod tests {
             "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "Test I-80 root",
-            "container": {"containerId": root_id, "title": "Root", "rootInstanceIds": [root_member_id]},
+            "container": {"containerId": root_id, "title": "Root", "memberInstanceIds": [{"instanceId": root_member_id}], "anchorInstanceId": root_member_id},
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
@@ -6986,9 +6992,7 @@ mod tests {
                 "containerId": root_id,
                 "title": "Root",
                 "identityInstanceId": identity_id,
-                "memberInstanceIds": [member_id],
-                "rootInstanceIds": [member_id]
-            },
+                "memberInstanceIds": [{"instanceId": member_id}], "anchorInstanceId": member_id},
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
@@ -7038,8 +7042,7 @@ mod tests {
                 "containerId": root_id,
                 "title": "Root",
                 "anchorInstanceId": anchor_id,
-                "memberInstanceIds": [member_id],
-                "rootInstanceIds": [member_id]
+                "memberInstanceIds": [{"instanceId": member_id}]
             },
             "createdAt": "2026-01-01T00:00:00Z"
         });
@@ -7086,60 +7089,6 @@ mod tests {
     }
 
     #[test]
-    fn srs446_i145_no_anchor_warns_transitional_fallback_naming_continuity_flip() {
-        let temp = TempDir::new().unwrap();
-        let root_id = "00000000-0000-4000-8000-000000000320";
-        let member_id = "00000000-0000-4000-8000-000000000321";
-
-        // No anchorInstanceId at all — a pre-srs#446 container relying on the
-        // transitional rootInstanceIds[0] fallback.
-        let manifest = json!({
-            "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
-            "srsVersion": "2.0",
-            "dataModelRevision": 2,
-            "repositoryId": root_id,
-            "title": "Test I-145 transitional",
-            "container": {
-                "containerId": root_id,
-                "title": "Root",
-                "rootInstanceIds": [member_id]
-            },
-            "createdAt": "2026-01-01T00:00:00Z"
-        });
-        write_json(temp.path(), "manifest.json", &manifest);
-        write_json(
-            temp.path(),
-            &format!("records/{member_id}.json"),
-            &json!({
-                "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
-                "instanceId": member_id,
-                "typeId": "t1",
-                "typeVersion": 1,
-                "typeNamespace": "ns",
-                "typeName": "Section",
-                "fieldValues": {}
-            }),
-        );
-
-        let store = crate::store::FileStore::new(temp.path());
-        let report = validate_repository(&store).unwrap();
-        let warnings: Vec<_> = report
-            .diagnostics
-            .iter()
-            .filter(|d| {
-                d.severity == DiagnosticSeverity::Warning
-                    && d.message.contains("I-145")
-                    && d.message.contains("Continuity flip")
-            })
-            .collect();
-        assert!(
-            !warnings.is_empty(),
-            "expected I-145 transitional-fallback warning naming the Continuity flip, got: {:?}",
-            report.diagnostics
-        );
-    }
-
-    #[test]
     fn rfc013_i81_identity_in_root_instance_ids_ok() {
         let temp = TempDir::new().unwrap();
         let root_id = "00000000-0000-4000-8000-000000000400";
@@ -7156,9 +7105,7 @@ mod tests {
                 "containerId": root_id,
                 "title": "Root",
                 "identityInstanceId": identity_id,
-                "memberInstanceIds": [identity_id],
-                "rootInstanceIds": [identity_id]
-            },
+                "memberInstanceIds": [{"instanceId": identity_id}], "anchorInstanceId": identity_id},
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
@@ -7210,7 +7157,7 @@ mod tests {
                 "containerId": root_id,
                 "title": "Root",
                 "identityInstanceId": identity_id,
-                "memberInstanceIds": [identity_id]
+                "memberInstanceIds": [{"instanceId": identity_id}]
             },
             "createdAt": "2026-01-01T00:00:00Z"
         });
@@ -7265,9 +7212,7 @@ mod tests {
                 "containerId": root_id,
                 "title": "Root",
                 "identityInstanceId": identity_id,
-                "memberInstanceIds": [member_id],
-                "rootInstanceIds": [member_id]
-            },
+                "memberInstanceIds": [{"instanceId": member_id}], "anchorInstanceId": member_id},
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let store = manifest_store(manifest_val);
@@ -7348,9 +7293,7 @@ mod tests {
             "container": {
                 "containerId": root_id,
                 "title": "Root",
-                "memberInstanceIds": [member_id],
-                "rootInstanceIds": [member_id]
-            },
+                "memberInstanceIds": [{"instanceId": member_id}], "anchorInstanceId": member_id},
             "createdAt": "2026-01-01T00:00:00Z"
         });
         // Use manifest_store + with_data to insert the section container file and the
@@ -7421,9 +7364,7 @@ mod tests {
                 "containerId": root_id,
                 "title": "Root",
                 "identityInstanceId": identity_id,
-                "memberInstanceIds": [identity_id],
-                "rootInstanceIds": [section_id]
-            },
+                "memberInstanceIds": [{"instanceId": section_id}, {"instanceId": identity_id}], "anchorInstanceId": section_id},
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let record_json = |id: &str| {
@@ -7490,9 +7431,7 @@ mod tests {
                 "containerId": root_id,
                 "title": "Root",
                 "identityInstanceId": identity_id,
-                "memberInstanceIds": [identity_id, section_id],
-                "rootInstanceIds": [section_id]
-            },
+                "memberInstanceIds": [{"instanceId": section_id}, {"instanceId": identity_id}], "anchorInstanceId": section_id},
             "createdAt": "2026-01-01T00:00:00Z"
         });
         let record_json = |id: &str| {
@@ -7551,9 +7490,10 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: Some(identity_id.to_string()),
-            anchor_instance_id: None,
-            member_instance_ids: Some(vec![identity_id.to_string()]),
-            root_instance_ids: Some(vec![section_id.to_string()]),
+            member_instance_ids: Some(srs_core::types::container::entries(vec![
+                identity_id.to_string()
+            ])),
+            anchor_instance_id: Some(section_id.to_string()),
             child_container_ids: None,
             tags: None,
             created_at: None,
@@ -7650,7 +7590,7 @@ mod tests {
                 "containerId": root_id,
                 "title": "Embed Only",
                 "identityInstanceId": identity_id,
-                "memberInstanceIds": [identity_id]
+                "memberInstanceIds": [{"instanceId": identity_id}]
             },
             "createdAt": "2026-01-01T00:00:00Z"
         });
@@ -7708,9 +7648,7 @@ mod tests {
                 "containerId": root_id,
                 "title": "Root",
                 "identityInstanceId": identity_id,
-                "memberInstanceIds": [identity_id, section_id],
-                "rootInstanceIds": [identity_id]
-            },
+                "memberInstanceIds": [{"instanceId": identity_id}, {"instanceId": section_id}], "anchorInstanceId": identity_id},
             "createdAt": "2026-01-01T00:00:00Z"
         });
         write_json(temp.path(), "manifest.json", &manifest);
@@ -7719,9 +7657,7 @@ mod tests {
         let section_container = json!({
             "containerId": section_container_id,
             "title": "Section",
-            "memberInstanceIds": [section_id],
-            "rootInstanceIds": [section_id]
-        });
+            "memberInstanceIds": [{"instanceId": section_id}], "anchorInstanceId": section_id});
         write_json(temp.path(), "containers/section.json", &section_container);
 
         // Write instance records: identity uses com.semanticops.core/purpose so the
@@ -7787,7 +7723,7 @@ mod tests {
             "dataModelRevision": 2,
             "repositoryId": root_id,
             "title": "Cross-Store I-80",
-            "container": {"containerId": root_id, "title": "Root", "memberInstanceIds": [member_id]},
+            "container": {"containerId": root_id, "title": "Root", "memberInstanceIds": [{"instanceId": member_id}]},
             "createdAt": "2026-01-01T00:00:00Z"
         });
 
@@ -8164,7 +8100,7 @@ mod tests {
                 "containerId": "00000000-0000-4000-8000-000000000098",
                 "title": "Root",
                 "identityInstanceId": identity_id,
-                "memberInstanceIds": [identity_id]
+                "memberInstanceIds": [{"instanceId": identity_id}]
             },
             "createdAt": "2026-01-01T00:00:00Z"
         })

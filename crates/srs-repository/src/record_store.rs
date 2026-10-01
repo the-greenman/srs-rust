@@ -1054,7 +1054,7 @@ pub fn create_record_in_context(
     }
 
     if let Some(ref cid) = container_id {
-        if let Err(e) = container_service::add_member(store, cid, &record.instance_id) {
+        if let Err(e) = container_service::add_member(store, cid, &record.instance_id, None, None) {
             attempt_rollback_delete(store, &record.instance_id);
             return Err(e);
         }
@@ -1132,7 +1132,9 @@ pub fn create_record_in_container(
         store.record_tier_dir(RecordTier::Tier2),
     )?;
 
-    if let Err(e) = container_service::add_member(store, &input.container_id, &record.instance_id) {
+    if let Err(e) =
+        container_service::add_member(store, &input.container_id, &record.instance_id, None, None)
+    {
         attempt_rollback_delete(store, &record.instance_id);
         return Err(e);
     }
@@ -6190,7 +6192,6 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -6485,7 +6486,6 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: Some(vec![child_id]),
             tags: None,

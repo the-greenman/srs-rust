@@ -98,7 +98,7 @@ fn definition_types_reject_unknown_keys() {
 }
 
 /// Strictness must not reject a key the schema declares. `srs-core` never
-/// acts on `DocumentSection.ordering.memberOrder` itself — per
+/// acts on `DocumentSection.ordering.source` itself — per
 /// `docs/architecture/capability-layering.md`, ordering is business logic and
 /// lives in `srs-repository` (`relation_graph::apply_section_ordering`,
 /// srs-rust#567), not in this crate's serde/validation layer. This is the
@@ -115,25 +115,25 @@ fn composition_accepts_schema_declared_but_unconsumed_keys() {
             "sectionId": "s1",
             "order": 0,
             "source": {"type": "container-subset", "containerId": "c1"},
-            "ordering": {"memberOrder": [
-                "11111111-1111-4111-8111-111111111111",
-                "22222222-2222-4222-8222-222222222222"
-            ]}
+            "ordering": {"source": "arranged"}
         }],
         "createdAt": "2026-01-01T00:00:00Z"
     }))
-    .expect("memberOrder is declared by composition.json");
+    .expect("ordering.source is declared by composition.json (RFC-043)");
     let ordering = dv.sections[0].ordering.as_ref().expect("ordering");
-    assert_eq!(ordering.member_order.as_ref().map(Vec::len), Some(2));
-    // Carried back out — an unconsumed key must not be a silently dropped one.
+    assert!(ordering.source.is_some());
     let back = serde_json::to_value(&dv).unwrap();
-    assert_eq!(
-        back["sections"][0]["ordering"]["memberOrder"]
-            .as_array()
-            .unwrap()
-            .len(),
-        2
-    );
+    assert_eq!(back["sections"][0]["ordering"]["source"], "arranged");
+    // memberOrder is retired (RFC-043 [R8]): a Composition carrying it no longer loads.
+    assert!(serde_json::from_value::<Composition>(serde_json::json!({
+        "id": "00000000-0000-4000-8000-000000000002",
+        "namespace": "com.test", "name": "dv", "version": 1, "description": "d",
+        "sections": [{"sectionId": "s1", "order": 0,
+            "source": {"type": "container-subset", "containerId": "c1"},
+            "ordering": {"memberOrder": []}}],
+        "createdAt": "2026-01-01T00:00:00Z"
+    }))
+    .is_err());
 }
 
 /// The `$schema` pointer every definition schema declares is a *known* key —

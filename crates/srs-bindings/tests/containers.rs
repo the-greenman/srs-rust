@@ -106,21 +106,21 @@ fn add_then_remove_member_round_trips() {
         .unwrap_or_default()
         .len();
 
-    let after_add = add_member(&store, container_id, new_id).expect("add must succeed");
+    let after_add = add_member(&store, container_id, new_id, None, None).expect("add must succeed");
     assert!(
-        after_add.iter().any(|id| id == new_id),
+        after_add.members.iter().any(|e| e.instance_id == new_id),
         "new member present"
     );
-    assert_eq!(after_add.len(), before + 1);
+    assert_eq!(after_add.members.len(), before + 1);
 
     // Idempotent: adding again does not duplicate.
-    let again = add_member(&store, container_id, new_id).expect("idempotent add");
-    assert_eq!(again.len(), before + 1, "add is idempotent");
+    let again = add_member(&store, container_id, new_id, None, None).expect("idempotent add");
+    assert_eq!(again.members.len(), before + 1, "add is idempotent");
 
     let after_remove = remove_member(&store, container_id, new_id).expect("remove must succeed");
     assert!(
-        !after_remove.iter().any(|id| id == new_id),
+        !after_remove.members.iter().any(|e| e.instance_id == new_id),
         "member removed"
     );
-    assert_eq!(after_remove.len(), before);
+    assert_eq!(after_remove.members.len(), before);
 }

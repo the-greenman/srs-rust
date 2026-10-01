@@ -456,6 +456,11 @@ pub enum RepositoryError {
     #[error("manifest.json declares retired property '{property}' — removed by RFC-038 [R2]; run the rfc038-storage migration")]
     RetiredManifestProperty { property: String },
 
+    /// RFC-043 [R16]: a revision-8 binary does not interpret revision-7 container shapes
+    /// (`rootInstanceIds`, string `memberInstanceIds`); it names the registry migration instead.
+    #[error("manifest.json carries a dataModelRevision 7 container shape (rootInstanceIds or bare-id memberInstanceIds); this build reads dataModelRevision 8 (RFC-043 [R16]) — run `srs repo apply-migration --id rfc043-container-entries`")]
+    Rfc043MigrationNeeded,
+
     /// RFC-038 [R21]: a repository below storage generation 2 is not
     /// supported. Feature-inactive until the Phase-6 flip; fired only under
     /// the crate-internal test activation until then.

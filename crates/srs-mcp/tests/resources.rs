@@ -508,9 +508,10 @@ async fn read_tree_agent_index_and_descent_hook() {
             description: None,
             container_type: None,
             identity_instance_id: None,
-            anchor_instance_id: None,
-            root_instance_ids: Some(vec![fx.identity_id.clone()]),
-            member_instance_ids: None,
+            anchor_instance_id: Some(fx.identity_id.clone()),
+            member_instance_ids: Some(srs_core::types::container::entries([fx
+                .identity_id
+                .clone()])),
             child_container_ids: None,
             tags: None,
             created_at: None,

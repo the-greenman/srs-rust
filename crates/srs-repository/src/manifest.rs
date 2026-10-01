@@ -76,6 +76,11 @@ pub(crate) mod rfc038 {
         if declared < MIN_SUPPORTED_DATA_MODEL_REVISION {
             return Err(RepositoryError::StorageGenerationUnsupported { declared });
         }
+        // RFC-043 [R16]: refuse (naming the migration) rather than misread a revision-7 shape.
+        if crate::rfc043_container_entries_migration_service::raw_manifest_container_is_legacy(raw)
+        {
+            return Err(RepositoryError::Rfc043MigrationNeeded);
+        }
         for prop in RETIRED_PROPERTIES {
             if raw.get(*prop).is_some() {
                 return Err(RepositoryError::RetiredManifestProperty {

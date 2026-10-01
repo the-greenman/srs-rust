@@ -71,11 +71,10 @@ fn bound_view_srsj() -> String {
             "containers/22222222-2222-4222-8222-222222222222.json": {
                 "containerId": CONTAINER_ID,
                 "containerType": "document",
-                "rootInstanceIds": [ROOT_ID],
-                "memberInstanceIds": [ROOT_ID],
+
+                "memberInstanceIds": [{"instanceId": ROOT_ID}],
                 "title": "Bound document",
-                "createdAt": "2026-01-01T00:00:00Z"
-            },
+                "createdAt": "2026-01-01T00:00:00Z", "anchorInstanceId": ROOT_ID},
             "records/tier-2/33333333-3333-4333-8333-333333333333.json": {
                 "instanceId": ROOT_ID,
                 "typeId": TYPE_ID,

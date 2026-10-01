@@ -1,4 +1,4 @@
-use crate::container_service::{add_container_member, add_root, create_container};
+use crate::container_service::{add_container_member, create_container};
 use crate::error::RepositoryError;
 use crate::manifest_service::{set_manifest_root_container, SetManifestRootContainerInput};
 use crate::record_store::{create_record_in_context, CreateRecordInput};
@@ -180,7 +180,6 @@ pub fn scaffold_governance_repo(
             description: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -211,7 +210,16 @@ pub fn scaffold_governance_repo(
         None,
     )?;
     let dl_root_id = dl_root.record.instance_id.clone();
-    add_root(store, &dl_container_id, &dl_root_id)?;
+    // RFC-043: the decision-log root is the container's anchor entry (replaces add_root).
+    add_container_member(store, &dl_container_id, &dl_root_id, None, None)?;
+    crate::container_service::update_container(
+        store,
+        &dl_container_id,
+        crate::container_service::ContainerPatch {
+            anchor_instance_id: Some(dl_root_id.clone()),
+            ..Default::default()
+        },
+    )?;
 
     // 3. Root container: untyped structural anchor.
     //    Members: identity + dl root (navigation reads memberInstanceIds for sections).
@@ -227,7 +235,6 @@ pub fn scaffold_governance_repo(
             description: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -239,9 +246,8 @@ pub fn scaffold_governance_repo(
     )?;
     let root_container_id = root_container.container_id.clone();
 
-    add_container_member(store, &root_container_id, &identity_id)?;
-    add_container_member(store, &root_container_id, &dl_root_id)?;
-    add_root(store, &root_container_id, &identity_id)?;
+    add_container_member(store, &root_container_id, &identity_id, None, None)?;
+    add_container_member(store, &root_container_id, &dl_root_id, None, None)?;
 
     set_manifest_root_container(
         store,
@@ -325,10 +331,13 @@ fn rebind_compositions_to_scaffold(
 
             let keep = match &mut section.source {
                 SectionSource::ContainerSubset { container_id, .. } => {
-                    if container_exists(store, container_id) {
+                    if container_id
+                        .as_deref()
+                        .is_none_or(|cid| container_exists(store, cid))
+                    {
                         true
                     } else if is_decision_section {
-                        *container_id = decision_log_container_id.to_string();
+                        *container_id = Some(decision_log_container_id.to_string());
                         changed = true;
                         true
                     } else {
@@ -544,7 +553,7 @@ mod tests {
             for section in &view.sections {
                 let refs: Vec<&str> = match &section.source {
                     SectionSource::ContainerSubset { container_id, .. } => {
-                        vec![container_id.as_str()]
+                        container_id.as_deref().into_iter().collect()
                     }
                     SectionSource::DiscoveryQuery { container_ids, .. } => container_ids
                         .as_deref()

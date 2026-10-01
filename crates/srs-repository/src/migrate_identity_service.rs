@@ -171,7 +171,9 @@ pub fn migrate_identity(
                 container
                     .member_instance_ids
                     .get_or_insert_with(Vec::new)
-                    .push(new_id.clone());
+                    .push(srs_core::types::container::ContainerEntry::new(
+                        new_id.clone(),
+                    ));
             }
             writer::write_manifest(store, &manifest)?;
             // Load the real container file (which holds pre-existing section members),
@@ -190,7 +192,9 @@ pub fn migrate_identity(
             persisted_container
                 .member_instance_ids
                 .get_or_insert_with(Vec::new)
-                .push(new_id.clone());
+                .push(srs_core::types::container::ContainerEntry::new(
+                    new_id.clone(),
+                ));
             store.save_container(&persisted_container)?;
             Ok(new_id)
         })();
@@ -273,7 +277,7 @@ pub fn migrate_identity(
             mc.identity_instance_id = Some(new_id.clone());
         }
         writer::write_manifest(store, &manifest)?;
-        container_service::add_container_member(store, &root_container_id, &new_id)?;
+        container_service::add_container_member(store, &root_container_id, &new_id, None, None)?;
         container_service::remove_container_member(store, &root_container_id, &old_id)?;
         // Update the persisted Container record's identityInstanceId in lockstep with the
         // manifest embed. Without this the container file disagrees with manifest.container
@@ -350,7 +354,6 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -578,7 +581,7 @@ mod tests {
             make_store_with_identity(old_id, Some("Repo"), one_section("Content."));
         let result = migrate_identity(&store).unwrap();
         let container = get_container(&store, &container_id).unwrap();
-        let members = container.member_instance_ids.unwrap_or_default();
+        let members = container.member_ids();
         assert!(
             members.contains(&result.new_identity_id),
             "expected new_identity_id in members, got: {members:?}"
@@ -697,7 +700,7 @@ mod tests {
         // Verify the container in the target still has the purpose record as a member,
         // and that identityInstanceId was carried across (regression for #462).
         let container = get_container(&target, &container_id).unwrap();
-        let members = container.member_instance_ids.unwrap_or_default();
+        let members = container.member_ids();
         assert!(
             members.contains(&result.new_identity_id),
             "purpose record must remain in container members after roundtrip"
@@ -769,7 +772,7 @@ mod tests {
         let (store, container_id) = make_store_without_identity("My Repo", Some("We build SRS."));
         let result = migrate_identity(&store).unwrap();
         let container = get_container(&store, &container_id).unwrap();
-        let members = container.member_instance_ids.unwrap_or_default();
+        let members = container.member_ids();
         assert!(
             members.contains(&result.new_identity_id),
             "new_identity_id must be in container members, got: {members:?}"
@@ -843,7 +846,7 @@ mod tests {
         assert_eq!(entry.tier, Some(2));
 
         let container = get_container(&target, &container_id).unwrap();
-        let members = container.member_instance_ids.unwrap_or_default();
+        let members = container.member_ids();
         assert!(
             members.contains(&result.new_identity_id),
             "purpose record must be in container members after roundtrip"
@@ -907,7 +910,9 @@ mod tests {
         // Pre-existing section member that must survive migration. Must be a real
         // catalog-valid instance — a member id with no backing file is a fatal
         // SRS038-R13-DANGLING-REFERENCE.
-        container.member_instance_ids = Some(vec![section_member_id.to_string()]);
+        container.member_instance_ids = Some(srs_core::types::container::entries(vec![
+            section_member_id.to_string(),
+        ]));
         let section_note = make_note(section_member_id, Some("Section"), one_section("Body."));
         write_note(&store, &section_note, "records/notes/section.json").unwrap();
         let mut manifest = store.load_manifest().unwrap();
@@ -917,7 +922,7 @@ mod tests {
         let result = migrate_identity(&store).unwrap();
 
         let persisted = get_container(&store, container_id).unwrap();
-        let members = persisted.member_instance_ids.unwrap_or_default();
+        let members = persisted.member_ids();
         assert!(
             members.contains(&section_member_id.to_string()),
             "pre-existing section member must survive None-branch migration, got: {members:?}"

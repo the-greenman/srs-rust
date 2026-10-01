@@ -32,7 +32,7 @@ fn tier0_fixture_srsj() -> String {
                 "containerId": ROOT_CONTAINER_ID,
                 "title": "Test Repo",
                 "identityInstanceId": NOTE_ID,
-                "memberInstanceIds": [NOTE_ID]
+                "memberInstanceIds": [{"instanceId": NOTE_ID}]
             },
             "packageRef": {"mode": "local", "path": "package"}
         },
@@ -219,7 +219,7 @@ fn sections_survive_migrate_identity() {
                 "containerId": SECTIONS_ROOT_CTR_ID,
                 "title": "My Governance Repo",
                 "description": "We govern with SRS.",
-                "memberInstanceIds": [ARTICLES_RECORD_ID]
+                "memberInstanceIds": [{"instanceId": ARTICLES_RECORD_ID}]
                 // No identityInstanceId — triggers None-branch
             },
             "packageRef": {"mode": "local", "path": "package"}
@@ -264,9 +264,8 @@ fn sections_survive_migrate_identity() {
                 "containerId": ARTICLES_CTR_ID,
                 "containerType": "document",
                 "title": "Articles",
-                "rootInstanceIds": [ARTICLES_RECORD_ID],
-                "createdAt": "2026-01-01T00:00:00Z"
-            }
+
+                "createdAt": "2026-01-01T00:00:00Z", "memberInstanceIds": [{"instanceId": ARTICLES_RECORD_ID}], "anchorInstanceId": ARTICLES_RECORD_ID}
         }
     })
     .to_string();

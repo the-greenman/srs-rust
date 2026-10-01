@@ -259,7 +259,9 @@ pub fn create_note_in_context(
     let result = create_note(store, input.note)?;
 
     if let Some(ref cid) = input.container_id {
-        if let Err(e) = container_service::add_member(store, cid, &result.note.instance_id) {
+        if let Err(e) =
+            container_service::add_member(store, cid, &result.note.instance_id, None, None)
+        {
             // Best-effort rollback — same caveats as ADR-024.
             // TODO: fault-injection test for this error arm pending a FailStore test double (see ADR-024).
             let _ = delete_note(store, &result.note.instance_id);
@@ -1762,7 +1764,6 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,

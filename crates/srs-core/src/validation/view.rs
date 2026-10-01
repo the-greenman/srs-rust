@@ -1,5 +1,7 @@
 use crate::error::CoreError;
-use crate::types::view::{Composition, ContainerScope, SectionSource, View, ViewRow};
+use crate::types::view::{
+    Composition, ContainerScope, OrderingSource, SectionSource, View, ViewRow,
+};
 use std::collections::HashSet;
 
 pub fn validate_view(view: &View) -> Result<(), CoreError> {
@@ -54,14 +56,49 @@ pub fn validate_composition(dv: &Composition) -> Result<(), CoreError> {
                 section_id: section.section_id.clone(),
             });
         }
-        // RFC-015 [N+29]: memberOrder and fieldId are mutually exclusive
-        // ordering mechanisms on the same section.
-        if let Some(ordering) = &section.ordering {
-            if ordering.member_order.is_some() && ordering.field_id.is_some() {
-                return Err(CoreError::SectionOrderingConflict {
-                    section_id: section.section_id.clone(),
-                });
+        // RFC-043 [R10]: `arranged` is valid only on `container-subset`, never with
+        // `fieldId`, never with `containerScope: "subtree"`; `containerId` may be omitted
+        // only on an arranged section.
+        let arranged = section
+            .ordering
+            .as_ref()
+            .is_some_and(|o| o.source == Some(OrderingSource::Arranged));
+        let violation = |reason: &str| CoreError::SectionOrderingConflict {
+            section_id: section.section_id.clone(),
+            reason: reason.to_string(),
+        };
+        if arranged {
+            if section
+                .ordering
+                .as_ref()
+                .is_some_and(|o| o.field_id.is_some())
+            {
+                return Err(violation(
+                    "ordering.source 'arranged' MUST NOT be combined with ordering.fieldId",
+                ));
             }
+            match &section.source {
+                SectionSource::ContainerSubset {
+                    container_scope, ..
+                } => {
+                    if *container_scope == Some(ContainerScope::Subtree) {
+                        return Err(violation("ordering.source 'arranged' MUST NOT be combined with containerScope 'subtree'"));
+                    }
+                }
+                _ => {
+                    return Err(violation(
+                        "ordering.source 'arranged' is valid only on a container-subset section",
+                    ));
+                }
+            }
+        } else if matches!(
+            &section.source,
+            SectionSource::ContainerSubset {
+                container_id: None,
+                ..
+            }
+        ) {
+            return Err(violation("a container-subset section may omit containerId only when ordering.source is 'arranged'"));
         }
         // RFC-042 Revision 5 [R21]: `containerScope: "repository"` is invalid
         // on a `container-subset` source.
@@ -293,39 +330,52 @@ mod tests {
         assert!(validate_view(&view).is_ok());
     }
 
-    /// RFC-015 [N+29]: `memberOrder` and `fieldId` MUST NOT coexist on the
-    /// same section.
-    #[test]
-    fn validate_member_order_and_field_id_conflict_fails() {
-        use crate::types::view::{SectionOrdering, SortDirection};
-
+    fn subset(
+        container_id: Option<&str>,
+        scope: Option<ContainerScope>,
+        source: Option<OrderingSource>,
+        field_id: Option<&str>,
+    ) -> Composition {
+        use crate::types::view::SectionOrdering;
         let mut dv = minimal_composition();
+        dv.sections[0].source = SectionSource::ContainerSubset {
+            container_id: container_id.map(str::to_string),
+            container_type: None,
+            type_filter: None,
+            container_scope: scope,
+        };
         dv.sections[0].ordering = Some(SectionOrdering {
-            field_id: Some("f1".to_string()),
-            direction: Some(SortDirection::Asc),
-            member_order: Some(vec!["a".to_string()]),
+            field_id: field_id.map(str::to_string),
+            direction: None,
+            source,
         });
-
-        assert_eq!(
-            validate_composition(&dv),
-            Err(CoreError::SectionOrderingConflict {
-                section_id: "s1".to_string()
-            })
-        );
+        dv
     }
 
+    /// RFC-043 [R10].
     #[test]
-    fn validate_member_order_alone_passes() {
-        use crate::types::view::SectionOrdering;
-
+    fn arranged_section_rules() {
+        let a = Some(OrderingSource::Arranged);
+        assert!(validate_composition(&subset(None, None, a, None)).is_ok());
+        assert!(validate_composition(&subset(Some("c"), None, a, None)).is_ok());
+        // arranged + fieldId, arranged + subtree: rejected
+        assert!(validate_composition(&subset(None, None, a, Some("f"))).is_err());
+        assert!(
+            validate_composition(&subset(None, Some(ContainerScope::Subtree), a, None)).is_err()
+        );
+        // containerId omitted on a rule (or unspecified) section: rejected
+        assert!(
+            validate_composition(&subset(None, None, Some(OrderingSource::Rule), None)).is_err()
+        );
+        assert!(validate_composition(&subset(None, None, None, None)).is_err());
+        // arranged on a non container-subset section: rejected
         let mut dv = minimal_composition();
-        dv.sections[0].ordering = Some(SectionOrdering {
+        dv.sections[0].ordering = Some(crate::types::view::SectionOrdering {
             field_id: None,
             direction: None,
-            member_order: Some(vec!["a".to_string()]),
+            source: a,
         });
-
-        assert!(validate_composition(&dv).is_ok());
+        assert!(validate_composition(&dv).is_err());
     }
 
     #[test]

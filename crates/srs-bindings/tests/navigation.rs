@@ -31,9 +31,7 @@ fn nav_fixture_srsj() -> String {
                 "containerId": ROOT_CONTAINER_ID,
                 "title": "Governance Repo",
                 "identityInstanceId": IDENTITY_ID,
-                "memberInstanceIds": [IDENTITY_ID, ARTICLES_ID, DECISIONS_ID],
-                "rootInstanceIds": [IDENTITY_ID]
-            },
+                "memberInstanceIds": [{"instanceId": IDENTITY_ID}, {"instanceId": ARTICLES_ID}, {"instanceId": DECISIONS_ID}], "anchorInstanceId": IDENTITY_ID},
             "packageRef": {"mode": "local", "path": "package"}
         },
         "data": {
@@ -93,16 +91,14 @@ fn nav_fixture_srsj() -> String {
                 "containerId": ARTICLES_CONTAINER_ID,
                 "containerType": "document",
                 "title": "Articles",
-                "rootInstanceIds": [ARTICLES_ID],
-                "createdAt": "2026-01-01T00:00:00Z"
-            },
+
+                "createdAt": "2026-01-01T00:00:00Z", "memberInstanceIds": [{"instanceId": ARTICLES_ID}], "anchorInstanceId": ARTICLES_ID},
             format!("containers/{DECISIONS_CONTAINER_ID}.json"): {
                 "containerId": DECISIONS_CONTAINER_ID,
                 "containerType": "document",
                 "title": "Decision Log",
-                "rootInstanceIds": [DECISIONS_ID],
-                "createdAt": "2026-01-01T00:00:00Z"
-            },
+
+                "createdAt": "2026-01-01T00:00:00Z", "memberInstanceIds": [{"instanceId": DECISIONS_ID}], "anchorInstanceId": DECISIONS_ID},
             "relations/eeeeeeee-0000-4000-8000-000000000001.json": {
                 "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
                 "relationId": "eeeeeeee-0000-4000-8000-000000000001",
@@ -182,7 +178,7 @@ fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
                 "containerId": ROOT_CONTAINER_ID,
                 "title": "Governance Repo",
                 "identityInstanceId": NOTE_INSTANCE_ID,
-                "memberInstanceIds": [NOTE_INSTANCE_ID, ARTICLES_ID, DECISIONS_ID]
+                "memberInstanceIds": [{"instanceId": NOTE_INSTANCE_ID}, {"instanceId": ARTICLES_ID}, {"instanceId": DECISIONS_ID}]
             },
             "packageRef": {"mode": "local", "path": "package"}
         },
@@ -236,16 +232,14 @@ fn tier0_nav_fixture_srsj(note_title: Option<&str>) -> String {
                 "containerId": ARTICLES_CONTAINER_ID,
                 "containerType": "document",
                 "title": "Articles",
-                "rootInstanceIds": [ARTICLES_ID],
-                "createdAt": "2026-01-01T00:00:00Z"
-            },
+
+                "createdAt": "2026-01-01T00:00:00Z", "memberInstanceIds": [{"instanceId": ARTICLES_ID}], "anchorInstanceId": ARTICLES_ID},
             format!("containers/{DECISIONS_CONTAINER_ID}.json"): {
                 "containerId": DECISIONS_CONTAINER_ID,
                 "containerType": "document",
                 "title": "Decision Log",
-                "rootInstanceIds": [DECISIONS_ID],
-                "createdAt": "2026-01-01T00:00:00Z"
-            },
+
+                "createdAt": "2026-01-01T00:00:00Z", "memberInstanceIds": [{"instanceId": DECISIONS_ID}], "anchorInstanceId": DECISIONS_ID},
             "relations/eeeeeeee-0000-4000-8000-0000000000aa.json": {
                 "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
                 "relationId": "eeeeeeee-0000-4000-8000-0000000000aa",
@@ -331,9 +325,7 @@ fn repository_navigation_root_is_member_of_its_own_sub_container() {
                 "containerId": ROOT_CONTAINER_ID,
                 "title": "Governance Repo",
                 "identityInstanceId": IDENTITY_ID,
-                "memberInstanceIds": [IDENTITY_ID, ARTICLES_ID, DECISIONS_ID],
-                "rootInstanceIds": [IDENTITY_ID]
-            },
+                "memberInstanceIds": [{"instanceId": IDENTITY_ID}, {"instanceId": ARTICLES_ID}, {"instanceId": DECISIONS_ID}], "anchorInstanceId": IDENTITY_ID},
             "packageRef": {"mode": "local", "path": "package"}
         },
         "data": {
@@ -395,18 +387,16 @@ fn repository_navigation_root_is_member_of_its_own_sub_container() {
                 "containerId": ARTICLES_CONTAINER_ID,
                 "containerType": "document",
                 "title": "Articles",
-                "rootInstanceIds": [ARTICLES_ID],
-                "memberInstanceIds": [ARTICLES_ID],
-                "createdAt": "2026-01-01T00:00:00Z"
-            },
+
+                "memberInstanceIds": [{"instanceId": ARTICLES_ID}],
+                "createdAt": "2026-01-01T00:00:00Z", "anchorInstanceId": ARTICLES_ID},
             format!("containers/{DECISIONS_CONTAINER_ID}.json"): {
                 "containerId": DECISIONS_CONTAINER_ID,
                 "containerType": "document",
                 "title": "Decision Log",
-                "rootInstanceIds": [DECISIONS_ID],
-                "memberInstanceIds": [DECISIONS_ID],
-                "createdAt": "2026-01-01T00:00:00Z"
-            },
+
+                "memberInstanceIds": [{"instanceId": DECISIONS_ID}],
+                "createdAt": "2026-01-01T00:00:00Z", "anchorInstanceId": DECISIONS_ID},
             "relations/eeeeeeee-0000-4000-8000-0000000000aa.json": {
                 "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
                 "relationId": "eeeeeeee-0000-4000-8000-0000000000aa",

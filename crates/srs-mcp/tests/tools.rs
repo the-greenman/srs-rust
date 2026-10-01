@@ -190,7 +190,6 @@ fn make_lifecycle_fixture() -> LifecycleFixture {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -1016,14 +1015,14 @@ async fn tool_container_member_add_then_remove() {
         Some(false),
         "container_member_add failed: {add:?}"
     );
-    let members = add.structured_content.as_ref().unwrap()["memberInstanceIds"]
+    let members = add.structured_content.as_ref().unwrap()["members"]
         .as_array()
         .unwrap();
     assert!(
         members
             .iter()
-            .any(|m| m.as_str() == Some(instance_id.as_str())),
-        "added instance must appear in memberInstanceIds: {members:?}"
+            .any(|m| m["instanceId"].as_str() == Some(instance_id.as_str())),
+        "added instance must appear in the arrangement: {members:?}"
     );
 
     // Idempotent add — no error.
@@ -1053,14 +1052,14 @@ async fn tool_container_member_add_then_remove() {
         Some(false),
         "container_member_remove failed: {remove:?}"
     );
-    let members_after = remove.structured_content.as_ref().unwrap()["memberInstanceIds"]
+    let members_after = remove.structured_content.as_ref().unwrap()["members"]
         .as_array()
         .unwrap();
     assert!(
         !members_after
             .iter()
-            .any(|m| m.as_str() == Some(instance_id.as_str())),
-        "removed instance must not appear in memberInstanceIds: {members_after:?}"
+            .any(|m| m["instanceId"].as_str() == Some(instance_id.as_str())),
+        "removed instance must not appear in the arrangement: {members_after:?}"
     );
 
     // Repository still consistent: no error diagnostics. Non-error

@@ -28,22 +28,30 @@ pub fn validate_container(container: &Container) -> Result<(), CoreError> {
         "anchorInstanceId",
         container.anchor_instance_id.iter().map(String::as_str),
     )?;
-    reject_blank_ids(
-        "rootInstanceIds",
-        container
-            .root_instance_ids
-            .iter()
-            .flatten()
-            .map(String::as_str),
-    )?;
+    // RFC-043 [R4]: `rootInstanceIds` is removed; a Container carrying it is invalid.
+    if container.extra.contains_key("rootInstanceIds") {
+        return Err(CoreError::InvalidFieldValue {
+            key: "rootInstanceIds".to_string(),
+            reason: "removed at dataModelRevision 8 (RFC-043 [R4]); use `anchorInstanceId` and ordered `memberInstanceIds` entries".to_string(),
+        });
+    }
     reject_blank_ids(
         "memberInstanceIds",
         container
             .member_instance_ids
             .iter()
             .flatten()
-            .map(String::as_str),
+            .map(|e| e.instance_id.as_str()),
     )?;
+    // RFC-043 [R2]: first entry depth 0, depth rises by <= 1, each id once.
+    if let Some(entries) = &container.member_instance_ids {
+        if let Some(violation) = crate::arrangement::check_entries(entries, None).first() {
+            return Err(CoreError::InvalidFieldValue {
+                key: "memberInstanceIds".to_string(),
+                reason: violation.to_string(),
+            });
+        }
+    }
     reject_blank_ids(
         "childContainerIds",
         container
@@ -99,7 +107,6 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -160,16 +167,25 @@ mod tests {
     }
 
     #[test]
-    fn validate_container_blank_root_instance_id_fails() {
+    fn validate_container_root_instance_ids_is_removed() {
         let mut c = minimal();
-        c.root_instance_ids = Some(vec![String::new()]);
-        assert_eq!(validate_container(&c), blank("rootInstanceIds"));
+        c.extra
+            .insert("rootInstanceIds".to_string(), serde_json::json!(["x"]));
+        assert!(validate_container(&c).is_err());
+    }
+
+    #[test]
+    fn validate_container_rejects_depth_jump() {
+        use crate::types::container::ContainerEntry;
+        let mut c = minimal();
+        c.member_instance_ids = Some(vec![ContainerEntry::new("a"), ContainerEntry::at("b", 2)]);
+        assert!(validate_container(&c).is_err());
     }
 
     #[test]
     fn validate_container_whitespace_member_instance_id_fails() {
         let mut c = minimal();
-        c.member_instance_ids = Some(vec!["   ".to_string()]);
+        c.member_instance_ids = Some(vec![crate::types::container::ContainerEntry::new("   ")]);
         assert_eq!(validate_container(&c), blank("memberInstanceIds"));
     }
 
@@ -213,8 +229,7 @@ mod tests {
         let id = "6ba7b810-9dad-11d1-80b4-00c04fd430c8".to_string();
         c.identity_instance_id = Some(id.clone());
         c.anchor_instance_id = Some(id.clone());
-        c.root_instance_ids = Some(vec![id.clone()]);
-        c.member_instance_ids = Some(vec![id]);
+        c.member_instance_ids = Some(vec![crate::types::container::ContainerEntry::new(id)]);
         assert!(validate_container(&c).is_ok());
     }
 }

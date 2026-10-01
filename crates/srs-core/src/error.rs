@@ -89,13 +89,9 @@ pub enum CoreError {
     #[error("duplicate document section id: {section_id}")]
     DuplicateDocumentSectionId { section_id: String },
 
-    /// RFC-015 [N+29]: `ordering.memberOrder` and `ordering.fieldId` are two
-    /// different ordering mechanisms for the same section; declaring both is
-    /// invalid, not merely redundant — a validator MUST reject it.
-    #[error(
-        "section '{section_id}' declares both ordering.memberOrder and ordering.fieldId (RFC-015 [N+29]): a section MUST use exactly one ordering mechanism"
-    )]
-    SectionOrderingConflict { section_id: String },
+    /// RFC-043 [R10]: an invalid `ordering.source` / `containerId` combination.
+    #[error("section '{section_id}' (RFC-043 [R10]): {reason}")]
+    SectionOrderingConflict { section_id: String, reason: String },
 
     /// RFC-042 Revision 5 [R21]: `containerScope: "repository"` is invalid on a
     /// `container-subset` `SectionSource` — the source already names exactly

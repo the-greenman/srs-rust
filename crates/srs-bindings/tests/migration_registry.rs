@@ -51,7 +51,7 @@ fn available_migrations_lists_the_registered_migrations_with_status() {
     let migrations =
         migration_registry_service::list_migrations(&store).expect("list_migrations must succeed");
 
-    assert_eq!(migrations.len(), 12, "expected exactly twelve migrations");
+    assert_eq!(migrations.len(), 13, "expected exactly thirteen migrations");
     assert_eq!(migrations[0].id, "graduated-at-cleanup");
     assert_eq!(migrations[1].id, "revisions-sidecar-cleanup");
     assert_eq!(migrations[2].id, "field-type");
@@ -61,9 +61,10 @@ fn available_migrations_lists_the_registered_migrations_with_status() {
     assert_eq!(migrations[6].id, "substrate-properties-to-meta");
     assert_eq!(migrations[7].id, "composition-cutover");
     assert_eq!(migrations[8].id, "discovery-query-cutover");
-    assert_eq!(migrations[9].id, "migrate-identity");
-    assert_eq!(migrations[10].id, "repo-upgrade");
-    assert_eq!(migrations[11].id, "rfc038-storage");
+    assert_eq!(migrations[9].id, "rfc043-container-entries");
+    assert_eq!(migrations[10].id, "migrate-identity");
+    assert_eq!(migrations[11].id, "repo-upgrade");
+    assert_eq!(migrations[12].id, "rfc038-storage");
 
     // No legacy graduatedAt Notes → graduated-at-cleanup AlreadyApplied; no
     // .revisions.json sidecars → revisions-sidecar-cleanup AlreadyApplied;
@@ -82,9 +83,10 @@ fn available_migrations_lists_the_registered_migrations_with_status() {
     assert_eq!(migrations[6].status, MigrationStatus::Needed);
     assert_eq!(migrations[7].status, MigrationStatus::Needed);
     assert_eq!(migrations[8].status, MigrationStatus::Needed);
-    assert_eq!(migrations[9].status, MigrationStatus::NotApplicable);
-    assert_eq!(migrations[10].status, MigrationStatus::AlreadyApplied);
-    assert_eq!(migrations[11].status, MigrationStatus::Needed);
+    assert_eq!(migrations[9].status, MigrationStatus::Needed);
+    assert_eq!(migrations[10].status, MigrationStatus::NotApplicable);
+    assert_eq!(migrations[11].status, MigrationStatus::AlreadyApplied);
+    assert_eq!(migrations[12].status, MigrationStatus::Needed);
 
     // Result serialises in camelCase for to_js.
     let json = serde_json::to_value(&migrations[0]).expect("must serialise");
@@ -143,7 +145,7 @@ fn apply_migration_via_registry_migrate_identity() {
                 "containerId": container_id,
                 "title": "Test Repo",
                 "identityInstanceId": note_id,
-                "memberInstanceIds": [note_id]
+                "memberInstanceIds": [{"instanceId": note_id}]
             },
             "packageRef": {"mode": "local", "path": "package"}
         },

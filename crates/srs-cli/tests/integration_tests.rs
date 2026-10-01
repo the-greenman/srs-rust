@@ -127,9 +127,8 @@ fn create_navigation_repo() -> TempDir {
                 "containerId": root_container,
                 "title": "Example Governance",
                 "identityInstanceId": identity,
-                "rootInstanceIds": [identity],
-                "memberInstanceIds": [decisions, articles]
-            },
+
+                "memberInstanceIds": [{"instanceId": identity}, {"instanceId": articles}, {"instanceId": decisions}], "anchorInstanceId": identity},
         }),
     );
 
@@ -204,18 +203,14 @@ fn create_navigation_repo() -> TempDir {
         serde_json::json!({
             "containerId": articles_container,
             "title": "Articles",
-            "containerType": "stale-hint-is-not-a-key",
-            "rootInstanceIds": [articles]
-        }),
+            "containerType": "stale-hint-is-not-a-key", "memberInstanceIds": [{"instanceId": articles}], "anchorInstanceId": articles}),
     );
     write_json(
         &root.join("containers/decisions.json"),
         serde_json::json!({
             "containerId": decisions_container,
             "title": "Decision Log",
-            "containerType": "another-stale-hint",
-            "rootInstanceIds": [decisions]
-        }),
+            "containerType": "another-stale-hint", "memberInstanceIds": [{"instanceId": decisions}], "anchorInstanceId": decisions}),
     );
     write_json(
         &root.join("relations/00000000-0000-4000-8000-00000000d000.json"),
@@ -3859,7 +3854,7 @@ fn create_temp_repo_with_protocol_package() -> TempDir {
         serde_json::to_string_pretty(&serde_json::json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
-            "dataModelRevision": 7,
+            "dataModelRevision": 8,
             "repositoryId": "00000000-0000-4000-8000-000000009900",
             "title": "Protocol Test Repo",
             "container": {
@@ -4405,7 +4400,7 @@ fn container_update_list_reflects_new_title() {
 }
 
 #[test]
-fn container_update_patches_root_instance_ids() {
+fn container_update_patches_anchor_instance_id() {
     let temp = make_container_test_repo();
     let payload = serde_json::json!({
         "containerId":"00000000-0000-4000-8000-000000000001",
@@ -4413,9 +4408,7 @@ fn container_update_patches_root_instance_ids() {
     })
     .to_string();
     run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
-    let patch = serde_json::json!({
-        "rootInstanceIds":["11111111-1111-4111-8111-111111111111"]
-    })
+    let patch = serde_json::json!({"memberInstanceIds": [{"instanceId": "11111111-1111-4111-8111-111111111111"}], "anchorInstanceId": "11111111-1111-4111-8111-111111111111"})
     .to_string();
     let updated = run_srs_stdin_in_dir(
         temp.path(),
@@ -4428,16 +4421,19 @@ fn container_update_patches_root_instance_ids() {
     );
     assert_eq!(updated["ok"], true);
     assert_eq!(
-        updated["payload"]["container"]["rootInstanceIds"],
-        serde_json::json!(["11111111-1111-4111-8111-111111111111"])
+        updated["payload"]["container"]["anchorInstanceId"],
+        "11111111-1111-4111-8111-111111111111"
     );
+    assert!(updated["payload"]["container"]
+        .get("rootInstanceIds")
+        .is_none());
     let got = run_srs_in_dir(
         temp.path(),
         &["container", "get", "00000000-0000-4000-8000-000000000001"],
     );
     assert_eq!(
-        got["payload"]["container"]["rootInstanceIds"],
-        serde_json::json!(["11111111-1111-4111-8111-111111111111"])
+        got["payload"]["container"]["anchorInstanceId"],
+        "11111111-1111-4111-8111-111111111111"
     );
 }
 
@@ -4451,7 +4447,7 @@ fn container_update_patches_member_instance_ids() {
     .to_string();
     run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
     let patch = serde_json::json!({
-        "memberInstanceIds":["22222222-2222-4222-8222-222222222222"]
+        "memberInstanceIds":[{"instanceId": "22222222-2222-4222-8222-222222222222"}]
     })
     .to_string();
     let updated = run_srs_stdin_in_dir(
@@ -4466,7 +4462,7 @@ fn container_update_patches_member_instance_ids() {
     assert_eq!(updated["ok"], true);
     assert_eq!(
         updated["payload"]["container"]["memberInstanceIds"],
-        serde_json::json!(["22222222-2222-4222-8222-222222222222"])
+        serde_json::json!([{"instanceId": "22222222-2222-4222-8222-222222222222"}])
     );
 }
 
@@ -4548,7 +4544,7 @@ fn container_members_add_list_remove() {
         ],
     );
     assert_eq!(listed["ok"], true);
-    assert_eq!(listed["payload"]["memberInstanceIds"][0], member);
+    assert_eq!(listed["payload"]["members"][0]["instanceId"], member);
     let removed = run_srs_in_dir(
         temp.path(),
         &[
@@ -4560,56 +4556,69 @@ fn container_members_add_list_remove() {
         ],
     );
     assert_eq!(removed["ok"], true);
-    assert_eq!(
-        removed["payload"]["memberInstanceIds"],
-        serde_json::json!([])
-    );
+    assert_eq!(removed["payload"]["members"], serde_json::json!([]));
 }
 
+/// RFC-043 Change D through the CLI: add with position and depth, move, set depth, promoting
+/// removal, and a rejected depth jump that changes nothing.
 #[test]
-fn container_roots_add_list_remove() {
+fn container_members_arrange_with_depth_move_and_promoting_removal() {
     let temp = make_container_test_repo();
-    let payload = serde_json::json!({
-        "containerId":"00000000-0000-4000-8000-000000000001",
-        "title":"Roots"
-    })
-    .to_string();
+    let cid = "00000000-0000-4000-8000-000000000001";
+    let payload = serde_json::json!({ "containerId": cid, "title": "Outline" }).to_string();
     run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
-    let root = "11111111-1111-4111-8111-111111111111";
+    let a = "11111111-1111-4111-8111-111111111111";
+    let b = "22222222-2222-4222-8222-222222222222";
+
+    run_srs_in_dir(temp.path(), &["container", "members", "add", cid, a]);
     let added = run_srs_in_dir(
         temp.path(),
-        &[
-            "container",
-            "roots",
-            "add",
-            "00000000-0000-4000-8000-000000000001",
-            root,
-        ],
+        &["container", "members", "add", cid, b, "--depth", "1"],
     );
-    assert_eq!(added["ok"], true);
-    let listed = run_srs_in_dir(
+    assert_eq!(
+        added["payload"]["members"],
+        serde_json::json!([{"instanceId": a}, {"instanceId": b, "depth": 1}])
+    );
+
+    // A depth jump is rejected whole.
+    let (_, rejected) = run_srs_any_status_in_dir(
+        temp.path(),
+        &["container", "members", "move", cid, b, "--depth", "2"],
+    );
+    assert_eq!(rejected["ok"], false);
+    assert!(
+        rejected.to_string().contains("arrangement-depth"),
+        "{rejected}"
+    );
+    let listed = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
+    assert_eq!(listed["payload"]["members"].as_array().unwrap().len(), 2);
+
+    // Move b to the front at depth 0, then nest a under it and remove b: a is promoted.
+    run_srs_in_dir(
         temp.path(),
         &[
             "container",
-            "roots",
-            "list",
-            "00000000-0000-4000-8000-000000000001",
+            "members",
+            "move",
+            cid,
+            b,
+            "--position",
+            "0",
+            "--depth",
+            "0",
         ],
     );
-    assert_eq!(listed["ok"], true);
-    assert_eq!(listed["payload"]["rootInstanceIds"][0], root);
-    let removed = run_srs_in_dir(
+    run_srs_in_dir(
         temp.path(),
-        &[
-            "container",
-            "roots",
-            "remove",
-            "00000000-0000-4000-8000-000000000001",
-            root,
-        ],
+        &["container", "members", "move", cid, a, "--depth", "1"],
     );
-    assert_eq!(removed["ok"], true);
-    assert_eq!(removed["payload"]["rootInstanceIds"], serde_json::json!([]));
+    let removed = run_srs_in_dir(temp.path(), &["container", "members", "remove", cid, b]);
+    assert_eq!(
+        removed["payload"]["members"],
+        serde_json::json!([{"instanceId": a}])
+    );
+    assert_eq!(removed["payload"]["promoted"], serde_json::json!([a]));
+    assert_eq!(removed["payload"]["removed"], serde_json::json!([b]));
 }
 
 // --- srs-rust#841: a membership write must never brick the repository ---
@@ -4623,18 +4632,18 @@ fn make_guarded_container(temp: &TempDir) -> &'static str {
 }
 
 #[test]
-fn container_roots_add_rejects_blank_instance_id() {
+fn container_members_add_rejects_blank_instance_id() {
     let temp = make_container_test_repo();
     let cid = make_guarded_container(&temp);
     for blank in ["", "   "] {
         let (_, result) =
-            run_srs_any_status_in_dir(temp.path(), &["container", "roots", "add", cid, blank]);
+            run_srs_any_status_in_dir(temp.path(), &["container", "members", "add", cid, blank]);
         assert_eq!(result["ok"], false, "blank id must be rejected: {result}");
     }
     // The repository still loads — nothing was persisted.
-    let listed = run_srs_in_dir(temp.path(), &["container", "roots", "list", cid]);
+    let listed = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
     assert_eq!(listed["ok"], true);
-    assert_eq!(listed["payload"]["rootInstanceIds"], serde_json::json!([]));
+    assert_eq!(listed["payload"]["members"], serde_json::json!([]));
 }
 
 #[test]
@@ -4647,10 +4656,7 @@ fn container_members_add_rejects_unresolvable_instance_id() {
     assert_eq!(result["ok"], false, "unresolvable id must be rejected");
     let listed = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
     assert_eq!(listed["ok"], true);
-    assert_eq!(
-        listed["payload"]["memberInstanceIds"],
-        serde_json::json!([])
-    );
+    assert_eq!(listed["payload"]["members"], serde_json::json!([]));
 }
 
 /// `container create` may not persist a membership id that resolves to nothing
@@ -4660,12 +4666,13 @@ fn container_members_add_rejects_unresolvable_instance_id() {
 fn container_create_rejects_unresolvable_membership_id() {
     let temp = make_container_test_repo();
     let ghost = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
-    for key in ["rootInstanceIds", "memberInstanceIds"] {
+    {
+        let key = "memberInstanceIds";
         let cid = "00000000-0000-4000-8000-000000000001";
         let payload = serde_json::json!({
             "containerId": cid,
             "title": "Bricked",
-            key: [ghost],
+            key: [{"instanceId": ghost}],
         })
         .to_string();
         let (_, result) =
@@ -4691,50 +4698,53 @@ fn container_update_rejects_unresolvable_membership_id() {
     let temp = make_container_test_repo();
     let cid = make_guarded_container(&temp);
     let ghost = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
-    for key in ["rootInstanceIds", "memberInstanceIds"] {
-        let payload = serde_json::json!({ key: [ghost] }).to_string();
+    {
+        let key = "memberInstanceIds";
+        let payload = serde_json::json!({ key: [{"instanceId": ghost}] }).to_string();
         let (_, result) =
             run_srs_stdin_any_status_in_dir(temp.path(), &["container", "update", cid], &payload);
         assert_eq!(
             result["ok"], false,
             "{key}: unresolvable id must be rejected"
         );
-        let listed = run_srs_in_dir(temp.path(), &["container", "roots", "list", cid]);
+        let listed = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
         assert_eq!(listed["ok"], true, "{key}: repository must still load");
-        assert_eq!(listed["payload"]["rootInstanceIds"], serde_json::json!([]));
+        assert_eq!(listed["payload"]["members"], serde_json::json!([]));
     }
 }
 
-/// The recovery half (ADR-045): a repository already bricked by a dangling
+/// The recovery half (ADR-045, RFC-043 [R20]): a repository already bricked by a dangling
 /// container reference is repairable through the CLI alone.
 #[test]
-fn container_roots_remove_repairs_bricked_repository() {
+fn container_members_repair_unbricks_a_bricked_repository() {
     let temp = make_container_test_repo();
     let cid = "00000000-0000-4000-8000-000000000001";
     let ghost = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
     // No CLI writer can reach this state any more (srs-rust#841 closed the add
     // path, #845 the create/update path), which is the point: the repository was
-    // damaged by something other than this tool, and `remove` is still the way
+    // damaged by something other than this tool, and `repair` is still the way
     // back out.
     write_json(
         &temp.path().join("containers/bricked.json"),
         serde_json::json!({
             "containerId": cid,
             "title": "Bricked",
-            "rootInstanceIds": [ghost],
+            "memberInstanceIds": [{"instanceId": ghost}]
         }),
     );
 
     // Every ordinary read routes through the checked catalog and now fails.
-    let (_, bricked) = run_srs_any_status_in_dir(temp.path(), &["container", "roots", "list", cid]);
+    let (_, bricked) =
+        run_srs_any_status_in_dir(temp.path(), &["container", "members", "list", cid]);
     assert_eq!(bricked["ok"], false, "repository should be bricked");
 
-    let repaired = run_srs_in_dir(temp.path(), &["container", "roots", "remove", cid, ghost]);
-    assert_eq!(repaired["ok"], true, "removal must work on a bricked repo");
+    let repaired = run_srs_in_dir(temp.path(), &["container", "members", "repair", cid]);
+    assert_eq!(repaired["ok"], true, "repair must work on a bricked repo");
+    assert_eq!(repaired["payload"]["removed"], serde_json::json!([ghost]));
 
-    let after = run_srs_in_dir(temp.path(), &["container", "roots", "list", cid]);
+    let after = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
     assert_eq!(after["ok"], true, "repository must load again: {after}");
-    assert_eq!(after["payload"]["rootInstanceIds"], serde_json::json!([]));
+    assert_eq!(after["payload"]["members"], serde_json::json!([]));
 }
 
 #[test]
@@ -4800,15 +4810,25 @@ fn container_list_member_and_root_filters() {
     run_srs_stdin_in_dir(temp.path(), &["container", "create"], &a);
     run_srs_stdin_in_dir(temp.path(), &["container", "create"], &b);
     let id = "11111111-1111-4111-8111-111111111111";
+    // RFC-043: "root" is the anchor entry — an ordinary member that is also the anchor.
     run_srs_in_dir(
         temp.path(),
         &[
             "container",
-            "roots",
+            "members",
             "add",
             "00000000-0000-4000-8000-000000000001",
             id,
         ],
+    );
+    run_srs_stdin_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "update",
+            "00000000-0000-4000-8000-000000000001",
+        ],
+        &serde_json::json!({ "anchorInstanceId": id }).to_string(),
     );
     run_srs_in_dir(
         temp.path(),
@@ -4907,10 +4927,10 @@ fn container_scope_note_create_adds_to_container() {
     assert_eq!(created["ok"], true);
 
     let members = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
-    let arr = members["payload"]["memberInstanceIds"].as_array().unwrap();
+    let arr = members["payload"]["members"].as_array().unwrap();
     assert!(arr
         .iter()
-        .any(|v| v == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"));
+        .any(|v| v["instanceId"] == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"));
 }
 
 #[test]
@@ -5005,10 +5025,7 @@ fn container_scope_note_delete_removes_membership() {
     );
     assert_eq!(got["ok"], false);
     let members = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
-    assert_eq!(
-        members["payload"]["memberInstanceIds"],
-        serde_json::json!([])
-    );
+    assert_eq!(members["payload"]["members"], serde_json::json!([]));
 }
 
 #[test]
@@ -7862,7 +7879,7 @@ fn repo_migrations_lists_the_registered_migrations() {
     let migrations = result["payload"]["migrations"]
         .as_array()
         .expect("migrations must be an array");
-    assert_eq!(migrations.len(), 12, "expected exactly twelve migrations");
+    assert_eq!(migrations.len(), 13, "expected exactly thirteen migrations");
 
     let ids: Vec<&str> = migrations
         .iter()
@@ -7880,6 +7897,7 @@ fn repo_migrations_lists_the_registered_migrations() {
             "substrate-properties-to-meta",
             "composition-cutover",
             "discovery-query-cutover",
+            "rfc043-container-entries",
             "migrate-identity",
             "repo-upgrade",
             "rfc038-storage"
@@ -7926,6 +7944,7 @@ fn repo_migrations_lists_the_registered_migrations() {
     assert_eq!(status("substrate-properties-to-meta", "needed"), true);
     assert_eq!(status("composition-cutover", "needed"), true);
     assert_eq!(status("discovery-query-cutover", "needed"), true);
+    assert_eq!(status("rfc043-container-entries", "needed"), true);
     assert_eq!(status("rfc038-storage", "alreadyApplied"), true);
     assert_eq!(status("migrate-identity", "notApplicable"), true);
     assert_eq!(status("repo-upgrade", "alreadyApplied"), true);
@@ -8189,6 +8208,16 @@ fn repo_apply_migration_field_type_rewrites_a_legacy_field_end_to_end() {
         discovery_query_cutover["ok"], true,
         "expected ok: {discovery_query_cutover:?}"
     );
+    let rfc043 = run_srs_in_dir(
+        repo,
+        &[
+            "repo",
+            "apply-migration",
+            "--id",
+            "rfc043-container-entries",
+        ],
+    );
+    assert_eq!(rfc043["ok"], true, "expected ok: {rfc043:?}");
     let storage = run_srs_in_dir(repo, &["repo", "apply-migration", "--id", "rfc038-storage"]);
     assert_eq!(storage["ok"], true, "expected ok: {storage:?}");
     let after = run_srs_in_dir(repo, &["repo", "validate"]);
@@ -8313,7 +8342,7 @@ fn create_repo_with_tier0_identity() -> TempDir {
                 "containerId": container_id,
                 "title": "Test Repo",
                 "identityInstanceId": note_id,
-                "memberInstanceIds": [note_id]
+                "memberInstanceIds": [{"instanceId": note_id}]
             },
         }),
     );

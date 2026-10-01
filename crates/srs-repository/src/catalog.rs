@@ -136,6 +136,9 @@ pub mod codes {
     pub const CANDIDATE_MALFORMED: &str = "SRS038-R9-CANDIDATE-MALFORMED";
     /// A non-candidate file under a reserved location's closed candidate policy ([R9]).
     pub const CANDIDATE_UNRECOGNISED: &str = "SRS038-R9-CANDIDATE-UNRECOGNISED";
+    /// RFC-043 [R16]: a container file still carries a revision-7 shape; run the
+    /// `rfc043-container-entries` registry migration.
+    pub const RFC043_MIGRATION_NEEDED: &str = "SRS043-R16-MIGRATION-NEEDED";
     /// Relation filename disagrees with the in-file `relationId` ([R11]).
     pub const RELATION_FILENAME_MISMATCH: &str = "SRS038-R11-FILENAME-MISMATCH";
     /// A file nested in a subdirectory of `relations/`, which must be flat ([R11]).
@@ -593,13 +596,9 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
 
     if let Some(container) = &manifest.container {
         let locator = ROOT_CONTAINER_LOCATOR.to_string();
-        if let Some(ids) = &container.root_instance_ids {
+        if container.member_instance_ids.is_some() {
             b.container_refs
-                .push((locator.clone(), "rootInstanceIds", ids.clone()));
-        }
-        if let Some(ids) = &container.member_instance_ids {
-            b.container_refs
-                .push((locator.clone(), "memberInstanceIds", ids.clone()));
+                .push((locator.clone(), "memberInstanceIds", container.member_ids()));
         }
         b.entries.containers.push(CatalogEntry {
             id: container.container_id.clone(),
@@ -897,6 +896,17 @@ impl Builder<'_> {
             return;
         };
         let registry = SchemaRegistry::global();
+        if crate::rfc043_container_entries_migration_service::container_value_is_legacy(&value) {
+            self.error(
+                codes::RFC043_MIGRATION_NEEDED,
+                vec![path.to_string()],
+                "container carries a dataModelRevision 7 shape (rootInstanceIds or bare-id \
+                 memberInstanceIds); this build reads revision 8 (RFC-043 [R16]) — run \
+                 `srs repo apply-migration --id rfc043-container-entries`"
+                    .to_string(),
+            );
+            return;
+        }
         if let Some(declared) = value.get("$schema").and_then(|v| v.as_str()) {
             if declared != srs_schema::CONTAINER_SCHEMA_ID {
                 let code = if registry.schema_ids().contains(&declared) {
@@ -934,20 +944,15 @@ impl Builder<'_> {
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .to_string();
-        for prop in ["rootInstanceIds", "memberInstanceIds"] {
-            if let Some(ids) = value.get(prop).and_then(|v| v.as_array()) {
-                let ids: Vec<String> = ids
-                    .iter()
-                    .filter_map(|v| v.as_str().map(str::to_string))
-                    .collect();
-                let prop_static: &'static str = if prop == "rootInstanceIds" {
-                    "rootInstanceIds"
-                } else {
-                    "memberInstanceIds"
-                };
-                self.container_refs
-                    .push((path.to_string(), prop_static, ids));
-            }
+        // RFC-043 [R1]: entries are `{instanceId, depth?}`; only the ids are references.
+        if let Some(entries) = value.get("memberInstanceIds").and_then(|v| v.as_array()) {
+            let ids: Vec<String> = entries
+                .iter()
+                .filter_map(|e| e.get("instanceId").and_then(|v| v.as_str()))
+                .map(str::to_string)
+                .collect();
+            self.container_refs
+                .push((path.to_string(), "memberInstanceIds", ids));
         }
         self.entries.containers.push(CatalogEntry {
             id,

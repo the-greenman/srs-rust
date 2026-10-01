@@ -82,6 +82,12 @@ pub const ALL_SCHEMA_IDS: &[&str] = &[
     VIEW_SCHEMA_ID,
 ];
 
+macro_rules! include_staged_schema {
+    ($filename:literal) => {
+        include_str!(concat!("../schemas/staged/rfc-043/", $filename))
+    };
+}
+
 macro_rules! include_schema {
     ($filename:literal) => {
         include_str!(concat!("../schemas/2.0/", $filename))
@@ -90,14 +96,20 @@ macro_rules! include_schema {
 
 static SCHEMA_SOURCES: &[(&str, &str)] = &[
     (BLUEPRINT_SCHEMA_ID, include_schema!("blueprint.json")),
-    (CONTAINER_SCHEMA_ID, include_schema!("container.json")),
-    (COMPOSITION_SCHEMA_ID, include_schema!("composition.json")),
+    (
+        CONTAINER_SCHEMA_ID,
+        include_staged_schema!("container.json"),
+    ),
+    (
+        COMPOSITION_SCHEMA_ID,
+        include_staged_schema!("composition.json"),
+    ),
     (
         DOCUMENT_VIEW_OUTPUT_SCHEMA_ID,
-        include_schema!("document-view-output.json"),
+        include_staged_schema!("document-view-output.json"),
     ),
     (FIELD_SCHEMA_ID, include_schema!("field.json")),
-    (MANIFEST_SCHEMA_ID, include_schema!("manifest.json")),
+    (MANIFEST_SCHEMA_ID, include_staged_schema!("manifest.json")),
     (NOTE_SCHEMA_ID, include_schema!("note.json")),
     (
         PACKAGE_BUNDLE_SCHEMA_ID,
@@ -124,7 +136,7 @@ static SCHEMA_SOURCES: &[(&str, &str)] = &[
     ),
     (
         SRSJ_ENVELOPE_SCHEMA_ID,
-        include_schema!("srsj-envelope.json"),
+        include_staged_schema!("srsj-envelope.json"),
     ),
     (TERM_SCHEMA_ID, include_schema!("term.json")),
     (VOCABULARY_SCHEMA_ID, include_schema!("vocabulary.json")),

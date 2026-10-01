@@ -81,9 +81,8 @@ fn main() {
     write_schema!("container-members-list", ContainerMembersPayload);
     write_schema!("container-members-add", ContainerMembersMutatePayload);
     write_schema!("container-members-remove", ContainerMembersMutatePayload);
-    write_schema!("container-roots-list", ContainerRootsPayload);
-    write_schema!("container-roots-add", ContainerRootsMutatePayload);
-    write_schema!("container-roots-remove", ContainerRootsMutatePayload);
+    write_schema!("container-members-move", ContainerMembersMutatePayload);
+    write_schema!("container-members-repair", ContainerMembersMutatePayload);
     write_schema!("container-validate", ContainerValidatePayload);
     write_schema!("container-resolve-view", ContainerViewPayload);
 

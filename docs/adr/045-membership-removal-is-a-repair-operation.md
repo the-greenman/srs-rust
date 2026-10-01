@@ -16,6 +16,11 @@ whole. Every ordinary command builds the catalog through `store.catalog()` →
 `catalog::build_checked`, so a single dangling container reference does not merely make one
 command fail — it makes *all* of them fail.
 
+> **Amended by RFC-043 (srs-rust#1141, dataModelRevision 8).** `rootInstanceIds` is removed, so
+> `remove_root` and `container roots` are gone; `remove_member` (promoting removal, pointer-guarded)
+> and the new `repair_members` (`container members repair`, exempt from the pointer guard) are the
+> repair seam. The reasoning below is otherwise unchanged.
+
 srs-rust#841 showed that this is reachable through the CLI. `container roots add` and
 `container members add` accepted an instance id that resolved to nothing (an empty string, a
 whitespace-only string, or a well-formed but non-existent UUID), reported `ok: true`, and

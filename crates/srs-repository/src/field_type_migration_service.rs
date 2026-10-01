@@ -27,7 +27,7 @@ use serde::Serialize;
 /// is revision 5; Tier 1 (TypedRecord) retirement is revision 4; RFC-040's
 /// metamodel v1.1.0 engine sync is revision 3; RFC-039's carrier model is
 /// revision 2; RFC-032's fieldType model is revision 1.
-pub const CURRENT_DATA_MODEL_REVISION: u64 = 7;
+pub const CURRENT_DATA_MODEL_REVISION: u64 = 8;
 /// The revision the RFC-032 `field-type` migration produces.
 pub const FIELD_TYPE_REVISION: u64 = 1;
 /// The revision RFC-040's metamodel v1.1.0 engine sync produces. This is
@@ -104,6 +104,10 @@ pub const COMPOSITION_CUTOVER_REVISION: u64 = 6;
 /// (ADR-045-style repair seam), same as `composition-cutover`.
 pub const DISCOVERY_QUERY_CUTOVER_REVISION: u64 = 7;
 
+/// The revision the RFC-043 `rfc043-container-entries` migration produces (migration #8:
+/// container members become ordered entries; `rootInstanceIds` and `memberOrder` removed).
+pub const RFC043_CONTAINER_ENTRIES_REVISION: u64 = 8;
+
 /// The manifest property carrying the generation stamp (RFC-033 [R6] / #265).
 pub const DATA_MODEL_REVISION_KEY: &str = "dataModelRevision";
 
@@ -123,12 +127,29 @@ pub struct FieldTypeMigrationResult {
 
 /// Read a repository's declared data-model generation. Absent ⇒ 0 (RFC-033 [R6]).
 pub fn data_model_revision(store: &dyn RepositoryStore) -> Result<u64, RepositoryError> {
-    let manifest = store.load_manifest()?;
-    Ok(manifest
-        .extra
-        .get(DATA_MODEL_REVISION_KEY)
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0))
+    match store.load_manifest() {
+        Ok(manifest) => Ok(manifest
+            .extra
+            .get(DATA_MODEL_REVISION_KEY)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)),
+        // A revision-7 root container (bare-id members) does not parse as a typed Manifest
+        // (RFC-043 [R16]); the stamp is still readable from the raw text, so the migration
+        // ladder and `repo migrations` keep working on it.
+        Err(RepositoryError::ManifestParse { .. } | RepositoryError::Rfc043MigrationNeeded) => {
+            let text = store.load_manifest_raw_text()?;
+            let raw: serde_json::Value =
+                serde_json::from_str(&text).map_err(|source| RepositoryError::ManifestParse {
+                    path: std::path::PathBuf::from("manifest.json"),
+                    source,
+                })?;
+            Ok(raw
+                .get(DATA_MODEL_REVISION_KEY)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Whether this repository still needs migration #1.
@@ -360,6 +381,13 @@ pub fn composition_cutover_migration_needed(
     store: &dyn RepositoryStore,
 ) -> Result<bool, RepositoryError> {
     Ok(data_model_revision(store)? < COMPOSITION_CUTOVER_REVISION)
+}
+
+/// Whether this repository still needs migration #8 (RFC-043).
+pub fn rfc043_container_entries_migration_needed(
+    store: &dyn RepositoryStore,
+) -> Result<bool, RepositoryError> {
+    Ok(crate::rfc043_container_entries_migration_service::migration_needed(store))
 }
 
 /// Whether this repository still needs migration #7.

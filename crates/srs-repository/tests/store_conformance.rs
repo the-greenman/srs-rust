@@ -114,7 +114,6 @@ fn make_container(id: &str, title: &str) -> Container {
         container_type: None,
         identity_instance_id: None,
         anchor_instance_id: None,
-        root_instance_ids: None,
         member_instance_ids: None,
         child_container_ids: None,
         tags: None,

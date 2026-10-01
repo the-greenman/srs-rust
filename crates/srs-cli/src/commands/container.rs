@@ -1,18 +1,15 @@
-use crate::commands::{
-    with_store, CliContext, ContainerCommand, ContainerMembersCommand, ContainerRootsCommand,
-};
+use crate::commands::{with_store, CliContext, ContainerCommand, ContainerMembersCommand};
 use crate::output;
 use crate::payload::{
     ContainerDeletePayload, ContainerListPayload, ContainerMembersMutatePayload,
-    ContainerMembersPayload, ContainerPayload, ContainerRootsMutatePayload, ContainerRootsPayload,
-    ContainerValidatePayload, ContainerViewPayload,
+    ContainerMembersPayload, ContainerPayload, ContainerValidatePayload, ContainerViewPayload,
 };
 use anyhow::Result;
 use srs_core::types::container::Container;
 use srs_repository::container_service::{
-    add_container_member, add_root, create_container, delete_container, get_container,
-    list_container_members, list_containers, list_roots, remove_container_member, remove_root,
-    update_container, validate_container_invariants, ContainerListFilter, ContainerPatch,
+    add_container_member, create_container, delete_container, get_arrangement, get_container,
+    list_containers, move_member, remove_container_member, repair_members, update_container,
+    validate_container_invariants, ArrangementResult, ContainerListFilter, ContainerPatch,
 };
 use srs_repository::container_view_service::{resolve_container_view, ResolveContainerViewInput};
 
@@ -28,7 +25,6 @@ pub fn dispatch(ctx: CliContext, cmd: ContainerCommand) -> Result<String> {
         ContainerCommand::Update { container_id } => cmd_update(ctx, container_id),
         ContainerCommand::Delete { container_id } => cmd_delete(ctx, container_id),
         ContainerCommand::Members(sub) => dispatch_members(ctx, sub),
-        ContainerCommand::Roots(sub) => dispatch_roots(ctx, sub),
         ContainerCommand::Validate { container_id } => cmd_validate(ctx, container_id),
         ContainerCommand::ResolveView {
             container_id,
@@ -117,98 +113,89 @@ fn cmd_delete(ctx: CliContext, container_id: String) -> Result<String> {
     }
 }
 
+fn mutate_payload(
+    container_id: String,
+    instance_id: Option<String>,
+    r: ArrangementResult,
+) -> ContainerMembersMutatePayload {
+    ContainerMembersMutatePayload {
+        container_id,
+        instance_id,
+        members: r.members,
+        promoted: r.promoted,
+        removed: r.removed,
+    }
+}
+
 fn dispatch_members(ctx: CliContext, cmd: ContainerMembersCommand) -> Result<String> {
     match cmd {
         ContainerMembersCommand::List { container_id } => {
-            let member_instance_ids = with_store(&ctx, |store| {
-                Ok(list_container_members(store, &container_id)?)
-            })?;
+            let members = with_store(&ctx, |store| Ok(get_arrangement(store, &container_id)?))?;
             output::serialize(
                 "container members list",
                 ContainerMembersPayload {
                     container_id,
-                    member_instance_ids,
+                    members,
                 },
             )
         }
         ContainerMembersCommand::Add {
             container_id,
             instance_id,
+            position,
+            depth,
         } => {
-            let member_instance_ids = with_store(&ctx, |store| {
-                Ok(add_container_member(store, &container_id, &instance_id)?)
+            let r = with_store(&ctx, |store| {
+                Ok(add_container_member(
+                    store,
+                    &container_id,
+                    &instance_id,
+                    position,
+                    depth,
+                )?)
             })?;
             output::serialize(
                 "container members add",
-                ContainerMembersMutatePayload {
-                    container_id,
-                    instance_id,
-                    member_instance_ids,
-                },
+                mutate_payload(container_id, Some(instance_id), r),
             )
         }
         ContainerMembersCommand::Remove {
             container_id,
             instance_id,
         } => {
-            let member_instance_ids = with_store(&ctx, |store| {
+            let r = with_store(&ctx, |store| {
                 Ok(remove_container_member(store, &container_id, &instance_id)?)
             })?;
             output::serialize(
                 "container members remove",
-                ContainerMembersMutatePayload {
-                    container_id,
-                    instance_id,
-                    member_instance_ids,
-                },
+                mutate_payload(container_id, Some(instance_id), r),
             )
         }
-    }
-}
-
-fn dispatch_roots(ctx: CliContext, cmd: ContainerRootsCommand) -> Result<String> {
-    match cmd {
-        ContainerRootsCommand::List { container_id } => {
-            let root_instance_ids =
-                with_store(&ctx, |store| Ok(list_roots(store, &container_id)?))?;
-            output::serialize(
-                "container roots list",
-                ContainerRootsPayload {
-                    container_id,
-                    root_instance_ids,
-                },
-            )
-        }
-        ContainerRootsCommand::Add {
+        ContainerMembersCommand::Move {
             container_id,
             instance_id,
+            position,
+            depth,
         } => {
-            let root_instance_ids = with_store(&ctx, |store| {
-                Ok(add_root(store, &container_id, &instance_id)?)
+            let r = with_store(&ctx, |store| {
+                Ok(move_member(
+                    store,
+                    &container_id,
+                    &instance_id,
+                    position,
+                    depth,
+                )?)
             })?;
             output::serialize(
-                "container roots add",
-                ContainerRootsMutatePayload {
-                    container_id,
-                    instance_id,
-                    root_instance_ids,
-                },
+                "container members move",
+                mutate_payload(container_id, Some(instance_id), r),
             )
         }
-        ContainerRootsCommand::Remove {
-            container_id,
-            instance_id,
-        } => {
-            let root_instance_ids = with_store(&ctx, |store| {
-                Ok(remove_root(store, &container_id, &instance_id)?)
-            })?;
+        ContainerMembersCommand::Repair { container_id } => {
+            let r = with_store(&ctx, |store| Ok(repair_members(store, &container_id)?))?;
             output::serialize(
-                "container roots remove",
-                ContainerRootsMutatePayload {
-                    container_id,
-                    instance_id,
-                    root_instance_ids,
-                },
+                "container members repair",
+                mutate_payload(container_id, None, r),
             )
         }
     }

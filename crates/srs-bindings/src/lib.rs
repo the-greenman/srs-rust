@@ -753,7 +753,8 @@ impl SrsRepository {
     }
 
     /// List container summaries. `filter_json` is a JSON string matching
-    /// `{ "containerType"?: string, "memberInstanceId"?: string, "rootInstanceId"?: string }`;
+    /// `{ "containerType"?: string, "memberInstanceId"?: string, "rootInstanceId"?: string }`
+    /// (`rootInstanceId` matches the container's `anchorInstanceId`, RFC-043 [R4]);
     /// pass `"{}"` for all containers. Returns a JS array of `ContainerSummary` objects.
     pub fn list_containers(&self, filter_json: &str) -> Result<JsValue, JsValue> {
         let parsed: ContainerListBindingFilter = serde_json::from_str(filter_json)
@@ -767,7 +768,7 @@ impl SrsRepository {
         to_js(&summaries)
     }
 
-    /// Get a single container by ID, including its `rootInstanceIds` and `memberInstanceIds`.
+    /// Get a single container by ID, including its ordered `memberInstanceIds` entries.
     /// Returns the `Container` as a JS value.
     pub fn get_container(&self, container_id: &str) -> Result<JsValue, JsValue> {
         let container =
@@ -775,30 +776,71 @@ impl SrsRepository {
         to_js(&container)
     }
 
-    /// Add an instance to a container's `memberInstanceIds` (idempotent).
-    /// Returns the updated member-id list as a JS array of strings.
+    /// Add an instance to a container's ordered `memberInstanceIds` outline (RFC-043).
+    /// `position` (0-based; omit to append) and `depth` (omit for 0). Idempotent when neither is
+    /// given. Returns `{ members: [{instanceId, depth?}], promoted, removed }`.
     pub fn add_container_member(
         &self,
         container_id: &str,
         instance_id: &str,
+        position: Option<u32>,
+        depth: Option<u32>,
     ) -> Result<JsValue, JsValue> {
-        let members =
-            container_service::add_container_member(&self.store, container_id, instance_id)
-                .map_err(js_err)?;
-        to_js(&members)
+        let result = container_service::add_container_member(
+            &self.store,
+            container_id,
+            instance_id,
+            position.map(|p| p as usize),
+            depth,
+        )
+        .map_err(js_err)?;
+        to_js(&result)
     }
 
-    /// Remove an instance from a container's `memberInstanceIds`.
-    /// Returns the updated member-id list as a JS array of strings.
+    /// Remove an instance from a container's outline, promoting its descendants. Same result
+    /// shape as `add_container_member`.
     pub fn remove_container_member(
         &self,
         container_id: &str,
         instance_id: &str,
     ) -> Result<JsValue, JsValue> {
-        let members =
+        let result =
             container_service::remove_container_member(&self.store, container_id, instance_id)
                 .map_err(js_err)?;
-        to_js(&members)
+        to_js(&result)
+    }
+
+    /// Move an entry's run to `position` and/or set its `depth` (RFC-043 move / set depth).
+    pub fn move_container_member(
+        &self,
+        container_id: &str,
+        instance_id: &str,
+        position: Option<u32>,
+        depth: Option<u32>,
+    ) -> Result<JsValue, JsValue> {
+        let result = container_service::move_member(
+            &self.store,
+            container_id,
+            instance_id,
+            position.map(|p| p as usize),
+            depth,
+        )
+        .map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Remove every entry that no longer resolves to an instance (RFC-043 repair).
+    pub fn repair_container_members(&self, container_id: &str) -> Result<JsValue, JsValue> {
+        let result =
+            container_service::repair_members(&self.store, container_id).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// The container's arrangement: its entries with `depth`, in order (RFC-043 [R15]).
+    pub fn get_container_arrangement(&self, container_id: &str) -> Result<JsValue, JsValue> {
+        let entries =
+            container_service::get_arrangement(&self.store, container_id).map_err(js_err)?;
+        to_js(&entries)
     }
 
     /// List the containers an instance belongs to — every container whose `memberInstanceIds`
@@ -1705,7 +1747,7 @@ mod tests {
         let container =
             container_service::get_container(&store, "cccccccc-cccc-4ccc-8ccc-cccccccccccc")
                 .expect("container loaded");
-        let members = container.member_instance_ids.unwrap_or_default();
+        let members = container.member_ids();
         assert!(
             members.contains(&instance_id.to_string()),
             "instanceId must appear in container memberInstanceIds"
@@ -2467,6 +2509,7 @@ mod tests {
             relations: Some(vec![row]),
             properties: None,
             children: vec![],
+            depth: None,
         };
         let json = serde_json::to_value(&record).expect("ProjectedRecord must serialize");
         assert_eq!(json["typeVersion"].as_u64(), Some(1));
@@ -2526,6 +2569,7 @@ mod tests {
             relations: None,
             properties: None,
             children: vec![],
+            depth: None,
         };
         let json = serde_json::to_value(&record).expect("ProjectedRecord must serialize");
         assert_eq!(
