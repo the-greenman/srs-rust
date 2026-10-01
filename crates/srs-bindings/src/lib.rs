@@ -91,6 +91,7 @@ pub struct SrsRepository {
 #[wasm_bindgen]
 pub struct McpSession {
     dispatcher: srs_mcp_core::McpDispatcher<srs_mcp_core::SrsMcpApplication<FileStore>>,
+    store: FileStore,
 }
 
 #[wasm_bindgen]
@@ -99,6 +100,14 @@ impl McpSession {
     /// or `undefined` for a notification (host answers 202 / no body).
     pub fn handle(&mut self, message: &str) -> Option<String> {
         self.dispatcher.dispatch_str(message)
+    }
+
+    /// Write generation of the underlying repository (shared with the
+    /// `SrsRepository` handle). Compare before/after `handle` to learn whether
+    /// a request mutated it: reads and rejected writes leave it unchanged.
+    /// Exposed as `f64` (exact below 2^53) because JS numbers are doubles.
+    pub fn write_epoch(&self) -> f64 {
+        self.store.write_epoch() as f64
     }
 
     /// Whether the client has completed `initialize`.
@@ -115,6 +124,7 @@ impl SrsRepository {
         let application = srs_mcp_core::SrsMcpApplication::open(self.store.clone())
             .map_err(|e| js_err(e.message))?;
         Ok(McpSession {
+            store: self.store.clone(),
             dispatcher: srs_mcp_core::McpDispatcher::new(application),
         })
     }
