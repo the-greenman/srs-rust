@@ -227,17 +227,15 @@ async fn list_resources_enumerates_containers_and_views() {
     client.cancel().await.unwrap();
 }
 
+/// The native rmcp model must carry the core's JSON catalogue losslessly: the
+/// stdio server serves exactly what the browser dispatcher serves.
 #[test]
-fn core_resource_catalogue_matches_native_for_dynamic_fixture() {
+fn core_resource_catalogue_round_trips_through_rmcp_models() {
     let fx = make_fixture();
     let store = store_for(&fx);
-    let native = srs_mcp::McpApplication::new(&store, &fx.repo_id)
-        .list_resources()
-        .unwrap();
-    assert_eq!(
-        srs_resources::list_resources(&store, &fx.repo_id).unwrap(),
-        serde_json::to_value(native).unwrap()
-    );
+    let core = srs_resources::list_resources(&store, &fx.repo_id).unwrap();
+    let native: rmcp::model::ListResourcesResult = serde_json::from_value(core.clone()).unwrap();
+    assert_eq!(serde_json::to_value(native).unwrap(), core);
 }
 
 async fn read_text(

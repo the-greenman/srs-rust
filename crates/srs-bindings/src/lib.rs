@@ -81,8 +81,44 @@ pub struct SrsRepository {
     store: FileStore,
 }
 
+/// A browser-hosted MCP session over an already-open repository (srs-rust#1057).
+///
+/// Wraps the transport-agnostic `srs-mcp-core` dispatcher over a clone of the
+/// repository's store. Clones share the in-memory VFS (and catalog-cache
+/// validity), so MCP writes are visible to this repository handle's reads and
+/// to `export_*`; nothing is persisted until the host explicitly saves/exports.
+/// Transport (Streamable HTTP framing, auth, origin policy) is the host's job.
+#[wasm_bindgen]
+pub struct McpSession {
+    dispatcher: srs_mcp_core::McpDispatcher<srs_mcp_core::SrsMcpApplication<FileStore>>,
+}
+
+#[wasm_bindgen]
+impl McpSession {
+    /// Handle one JSON-RPC message (text). Returns the JSON-RPC response text,
+    /// or `undefined` for a notification (host answers 202 / no body).
+    pub fn handle(&mut self, message: &str) -> Option<String> {
+        self.dispatcher.dispatch_str(message)
+    }
+
+    /// Whether the client has completed `initialize`.
+    pub fn is_initialized(&self) -> bool {
+        self.dispatcher.is_initialized()
+    }
+}
+
 #[wasm_bindgen]
 impl SrsRepository {
+    /// Open an MCP session over this repository (resources, prompts, and the
+    /// validated tool surface — the same application `srs mcp serve` runs).
+    pub fn open_mcp_session(&self) -> Result<McpSession, JsValue> {
+        let application = srs_mcp_core::SrsMcpApplication::open(self.store.clone())
+            .map_err(|e| js_err(e.message))?;
+        Ok(McpSession {
+            dispatcher: srs_mcp_core::McpDispatcher::new(application),
+        })
+    }
+
     /// Load a repository from a `.srsj` JSON string.
     ///
     /// `.srsj` is a boundary codec (ADR-038, RFC-038 [R19]): the envelope is

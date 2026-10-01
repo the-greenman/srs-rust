@@ -22,7 +22,7 @@ use srs_core::validation::relation_type_definition::validate_relation_type_defin
 use srs_core::validation::theme::validate_theme;
 use srs_core::validation::view::{validate_composition, validate_view};
 use srs_schema::{NOTE_SCHEMA_ID, RECORD_SCHEMA_ID};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -866,15 +866,20 @@ pub struct FileStore {
     /// requests. `RefCell` (not `Mutex`) because `FileStore` already holds an
     /// `Rc<dyn Vfs>` and is single-threaded by construction.
     ///
-    /// ponytail: two live `FileStore` instances over the same directory do
-    /// not see each other's writes (each has its own cache, and neither
-    /// invalidates the other's). Out of scope: store lifetime is one
-    /// command/request, never shared across concurrent writers.
+    /// Clones of one store share a write epoch (see `epoch`), so they do see
+    /// each other's writes. ponytail: two independently constructed
+    /// `FileStore`s over the same directory still do not; out of scope.
     catalog_cache: RefCell<Option<Rc<crate::catalog::RepositoryCatalog>>>,
     /// Separate memo for `catalog_unchecked()` (build) — it returns a
     /// different (unchecked) snapshot than `catalog()` (build_checked) and
     /// must never serve the other's cached value.
     catalog_unchecked_cache: RefCell<Option<Rc<crate::catalog::RepositoryCatalog>>>,
+    /// Write generation shared by every clone of this store (they share one
+    /// `Rc<dyn Vfs>`): a write through any clone bumps it, and each handle drops
+    /// its memoized catalogs when its own `cache_epoch` is behind (srs-rust#1057:
+    /// a browser MCP session and the UI repository handle share one VFS).
+    epoch: Rc<Cell<u64>>,
+    cache_epoch: Cell<u64>,
 }
 
 // Manual Clone: `#[derive(Clone)]` would carry the cached `Rc<RepositoryCatalog>`
@@ -891,6 +896,8 @@ impl Clone for FileStore {
             rfc038_exempt: self.rfc038_exempt,
             catalog_cache: RefCell::new(None),
             catalog_unchecked_cache: RefCell::new(None),
+            epoch: self.epoch.clone(),
+            cache_epoch: Cell::new(self.epoch.get()),
         }
     }
 }
@@ -905,6 +912,8 @@ impl FileStore {
             rfc038_exempt: false,
             catalog_cache: RefCell::new(None),
             catalog_unchecked_cache: RefCell::new(None),
+            epoch: Rc::new(Cell::new(0)),
+            cache_epoch: Cell::new(0),
         }
     }
 
@@ -917,6 +926,8 @@ impl FileStore {
             rfc038_exempt: false,
             catalog_cache: RefCell::new(None),
             catalog_unchecked_cache: RefCell::new(None),
+            epoch: Rc::new(Cell::new(0)),
+            cache_epoch: Cell::new(0),
         }
     }
 
@@ -1000,8 +1011,18 @@ impl FileStore {
     // write it didn't invalidate for.
 
     fn invalidate_catalog_cache(&self) {
-        self.catalog_cache.borrow_mut().take();
-        self.catalog_unchecked_cache.borrow_mut().take();
+        self.epoch.set(self.epoch.get() + 1);
+        self.sync_cache_epoch();
+    }
+
+    /// Drop memoized catalogs if any clone of this store has written since
+    /// they were built.
+    fn sync_cache_epoch(&self) {
+        if self.cache_epoch.get() != self.epoch.get() {
+            self.cache_epoch.set(self.epoch.get());
+            self.catalog_cache.borrow_mut().take();
+            self.catalog_unchecked_cache.borrow_mut().take();
+        }
     }
 
     /// Rc-returning core of `catalog()`: populate-or-hit the memo without the
@@ -1019,6 +1040,7 @@ impl FileStore {
     /// 150k+ times over a ~800-instance corpus by tree depth 3 alone) a full
     /// per-call catalog clone is itself expensive enough to erase the gain.
     fn cached_catalog(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
+        self.sync_cache_epoch();
         if let Some(cached) = self.catalog_cache.borrow().as_ref() {
             return Ok(cached.clone());
         }
@@ -2030,6 +2052,7 @@ impl RepositoryStore for FileStore {
     fn catalog_unchecked(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
         // Separate memo from `catalog()` — build() and build_checked() return
         // different snapshots; never let one serve the other's cache.
+        self.sync_cache_epoch();
         if let Some(cached) = self.catalog_unchecked_cache.borrow().as_ref() {
             return Ok((**cached).clone());
         }
@@ -5642,6 +5665,28 @@ mod tests {
             "save_record must invalidate the memoized catalog so the next \
              lookup sees the new instance"
         );
+    }
+
+    /// srs-rust#1057: clones share one VFS, so a write through one clone must
+    /// invalidate the memoized catalog of every other clone.
+    #[test]
+    fn catalog_cache_invalidated_by_write_through_a_clone() {
+        let temp = tempfile::TempDir::new().unwrap();
+        write_catalog_ready_file_repo(&temp);
+        let store = FileStore::new(temp.path());
+        let clone = store.clone();
+        let id = "20000000-0000-4000-8000-000000000001";
+
+        // Warm both caches.
+        assert!(store.find_instance(id).unwrap().is_none());
+        assert!(clone.find_instance(id).unwrap().is_none());
+
+        clone
+            .save_record(&minimal_record_for_store(id, "R", None))
+            .unwrap();
+
+        assert!(store.find_instance(id).unwrap().is_some());
+        assert!(clone.find_instance(id).unwrap().is_some());
     }
 
     #[test]

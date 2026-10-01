@@ -1,102 +1,102 @@
-//! Transport-independent SRS MCP application surface.
+//! Native rmcp adapter over the transport-agnostic [`SrsMcpApplication`].
 //!
-//! The application owns MCP capabilities and dispatch over an already-open
-//! [`RepositoryStore`].  Native stdio remains an adapter in `server`; browser
-//! bindings can invoke this same surface over their in-memory store.
+//! All SRS semantics (resources, prompts, tools, schemas) live in
+//! `srs-mcp-core`. This module only translates between rmcp's typed models and
+//! the core's JSON-native results (ADR-037), so the stdio server and the
+//! browser dispatcher cannot drift.
 
 use rmcp::model::{
-    CallToolResult, GetPromptResult, Implementation, InitializeResult, ListPromptsResult,
-    ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, ProtocolVersion,
-    ReadResourceResult, ServerCapabilities, ServerInfo,
+    CallToolResult, ErrorCode, GetPromptResult, Implementation, InitializeResult,
+    ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult, ListToolsResult,
+    ProtocolVersion, ReadResourceResult, ServerCapabilities, ServerInfo,
 };
 use rmcp::ErrorData as McpError;
-use srs_mcp_core::srs_metadata;
-use srs_repository::store::RepositoryStore;
+use serde::de::DeserializeOwned;
+use serde_json::{json, Value};
+use srs_mcp_core::{srs_metadata, McpApplication as _, McpApplicationError, SrsMcpApplication};
+use srs_repository::store::FileStore;
 
-use crate::{prompts, resources, tools};
+pub(crate) type App = SrsMcpApplication<FileStore>;
 
-/// A complete SRS MCP application backed by one active repository store.
-///
-/// It has no filesystem, transport, runtime, or provider ownership.  The
-/// caller decides the lifetime and persistence semantics of `store`.
-pub struct McpApplication<'store> {
-    store: &'store dyn RepositoryStore,
-    repository_id: &'store str,
+fn mcp_error(error: McpApplicationError) -> McpError {
+    McpError::new(
+        ErrorCode(error.code as i32),
+        error.message,
+        error.data.filter(|data| !data.is_null()),
+    )
 }
 
-impl<'store> McpApplication<'store> {
-    pub fn new(store: &'store dyn RepositoryStore, repository_id: &'store str) -> Self {
-        Self {
-            store,
-            repository_id,
-        }
-    }
-
-    pub fn repository_id(&self) -> &str {
-        self.repository_id
-    }
-
-    pub fn store(&self) -> &dyn RepositoryStore {
-        self.store
-    }
-
-    pub fn server_info() -> ServerInfo {
-        InitializeResult::new(server_capabilities())
-            // The JSON core and Streamable HTTP fixture intentionally pin the
-            // browser-compatible profile. Do not inherit rmcp's moving
-            // default here or native stdio will silently advertise another
-            // protocol revision.
-            .with_protocol_version(ProtocolVersion::V_2025_06_18)
-            .with_server_info(
-                Implementation::new("srs-mcp", srs_metadata::release_version())
-                    .with_description(srs_metadata::release_generation_description()),
-            )
-            .with_instructions(srs_metadata::instructions())
-    }
-
-    pub fn list_resources(&self) -> Result<ListResourcesResult, McpError> {
-        resources::list_resources(self.store, self.repository_id)
-    }
-
-    pub fn list_resource_templates(&self) -> ListResourceTemplatesResult {
-        resources::list_resource_templates(self.repository_id)
-    }
-
-    pub fn read_resource(&self, uri: &str) -> Result<ReadResourceResult, McpError> {
-        resources::read_resource(self.store, self.repository_id, uri)
-    }
-
-    pub fn list_tools(&self) -> ListToolsResult {
-        tools::list_tools()
-    }
-
-    pub fn call_tool(
-        &self,
-        name: &str,
-        arguments: Option<rmcp::model::JsonObject>,
-    ) -> Result<CallToolResult, McpError> {
-        tools::call_tool(self.store, name, arguments)
-    }
-
-    pub fn list_prompts(&self) -> Result<ListPromptsResult, McpError> {
-        prompts::list_prompts(self.store)
-    }
-
-    pub fn get_prompt(
-        &self,
-        name: &str,
-        arguments: Option<&rmcp::model::JsonObject>,
-    ) -> Result<GetPromptResult, McpError> {
-        prompts::get_prompt(self.store, name, arguments)
-    }
+/// One core call, translated into an rmcp result model.
+fn call<T: DeserializeOwned>(
+    app: &mut App,
+    method: &str,
+    params: Option<Value>,
+) -> Result<T, McpError> {
+    let value = app.call(method, params.as_ref()).map_err(mcp_error)?;
+    serde_json::from_value(value).map_err(|e| McpError::internal_error(e.to_string(), None))
 }
 
-/// Capabilities advertised by every SRS MCP application, independent of its
-/// storage backend or transport adapter.
-pub(crate) fn server_capabilities() -> ServerCapabilities {
-    ServerCapabilities::builder()
-        .enable_prompts()
-        .enable_resources()
-        .enable_tools()
-        .build()
+pub(crate) fn server_info() -> ServerInfo {
+    InitializeResult::new(
+        ServerCapabilities::builder()
+            .enable_prompts()
+            .enable_resources()
+            .enable_tools()
+            .build(),
+    )
+    // The JSON core and Streamable HTTP fixture intentionally pin the
+    // browser-compatible profile. Do not inherit rmcp's moving default here or
+    // native stdio would silently advertise another protocol revision.
+    .with_protocol_version(ProtocolVersion::V_2025_06_18)
+    .with_server_info(
+        Implementation::new("srs-mcp", srs_metadata::release_version())
+            .with_description(srs_metadata::release_generation_description()),
+    )
+    .with_instructions(srs_metadata::instructions())
+}
+
+pub(crate) fn list_resources(app: &mut App) -> Result<ListResourcesResult, McpError> {
+    call(app, "resources/list", None)
+}
+
+pub(crate) fn list_resource_templates(
+    app: &mut App,
+) -> Result<ListResourceTemplatesResult, McpError> {
+    call(app, "resources/templates/list", None)
+}
+
+pub(crate) fn read_resource(app: &mut App, uri: &str) -> Result<ReadResourceResult, McpError> {
+    call(app, "resources/read", Some(json!({ "uri": uri })))
+}
+
+pub(crate) fn list_tools(app: &mut App) -> Result<ListToolsResult, McpError> {
+    call(app, "tools/list", None)
+}
+
+pub(crate) fn call_tool(
+    app: &mut App,
+    name: &str,
+    arguments: Option<rmcp::model::JsonObject>,
+) -> Result<CallToolResult, McpError> {
+    call(
+        app,
+        "tools/call",
+        Some(json!({ "name": name, "arguments": arguments })),
+    )
+}
+
+pub(crate) fn list_prompts(app: &mut App) -> Result<ListPromptsResult, McpError> {
+    call(app, "prompts/list", None)
+}
+
+pub(crate) fn get_prompt(
+    app: &mut App,
+    name: &str,
+    arguments: Option<&rmcp::model::JsonObject>,
+) -> Result<GetPromptResult, McpError> {
+    call(
+        app,
+        "prompts/get",
+        Some(json!({ "name": name, "arguments": arguments })),
+    )
 }
