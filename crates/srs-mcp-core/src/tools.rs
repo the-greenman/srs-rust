@@ -1,4 +1,8 @@
-//! MCP tool handlers — discovery and the validated write workflows.
+//! MCP tool catalogue and handlers — discovery and the validated write workflows.
+//!
+//! This module is the single owner of tool names, descriptions, input schemas
+//! and dispatch; native rmcp and browser adapters only translate transport.
+//! Results are JSON-native MCP values (no `rmcp` models).
 //!
 //! Input structs here are deliberate *shadows* of the canonical service inputs
 //! (ADR-011 forbids schemars on library crates, so the service types cannot
@@ -9,13 +13,10 @@
 //! Tool description strings are single-source `pub const` items; the
 //! `srs-usage.md` MCP section is written from these constants.
 
-use std::sync::Arc;
-
-use rmcp::model::{CallToolResult, ContentBlock, JsonObject, ListToolsResult, Tool};
-use rmcp::ErrorData as McpError;
+use crate::McpApplicationError;
 use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Map, Value};
 use srs_core::types::note::{Note, NoteSection};
 use srs_core::types::record::{FieldMeta, FieldValues};
 use srs_core::types::relation::Relation;
@@ -683,140 +684,151 @@ pub struct ProtocolRunListToolResult {
 
 // ── Tool listing ──────────────────────────────────────────────────────────────
 
-fn input_schema<T: JsonSchema>() -> Arc<JsonObject> {
+fn input_schema<T: JsonSchema>() -> Value {
     let schema = schemars::SchemaGenerator::default().into_root_schema_for::<T>();
     match serde_json::to_value(schema) {
-        Ok(Value::Object(map)) => Arc::new(map),
-        _ => Arc::new(JsonObject::default()),
+        Ok(Value::Object(map)) => Value::Object(map),
+        _ => json!({}),
     }
 }
 
-pub(crate) fn list_tools() -> ListToolsResult {
-    ListToolsResult::with_all_items(vec![
-        Tool::new(
+fn tool(name: &str, description: &str, input_schema: Value) -> Value {
+    json!({ "name": name, "description": description, "inputSchema": input_schema })
+}
+
+/// The `tools/list` result.
+pub fn list_tools() -> Value {
+    json!({ "tools": [
+        tool(
             TOOL_REPO_VALIDATE,
             DESC_REPO_VALIDATE,
             input_schema::<EmptyToolInput>(),
         ),
-        Tool::new(TOOL_FIND, DESC_FIND, input_schema::<FindToolInput>()),
-        Tool::new(
+        tool(TOOL_FIND, DESC_FIND, input_schema::<FindToolInput>()),
+        tool(
             TOOL_RECORD_CREATE,
             DESC_RECORD_CREATE,
             input_schema::<RecordCreateToolInput>(),
         ),
-        Tool::new(
+        tool(
             TOOL_RELATION_CREATE,
             DESC_RELATION_CREATE,
             input_schema::<RelationCreateToolInput>(),
         ),
-        Tool::new(
+        tool(
             TOOL_NOTE_CREATE,
             DESC_NOTE_CREATE,
             input_schema::<NoteCreateToolInput>(),
         ),
-        Tool::new(
+        tool(
             TOOL_TYPE_SCHEMA,
             DESC_TYPE_SCHEMA,
             input_schema::<TypeSchemaToolInput>(),
         ),
         // Second-wave write tools (#680)
-        Tool::new(
+        tool(
             TOOL_RECORD_UPDATE,
             DESC_RECORD_UPDATE,
             input_schema::<RecordUpdateToolInput>(),
         ),
-        Tool::new(
+        tool(
             TOOL_RECORD_TRANSITION,
             DESC_RECORD_TRANSITION,
             input_schema::<RecordTransitionToolInput>(),
         ),
-        Tool::new(
+        tool(
             TOOL_RECORD_ALLOWED_TRANSITIONS,
             DESC_RECORD_ALLOWED_TRANSITIONS,
             input_schema::<RecordAllowedTransitionsToolInput>(),
         ),
-        Tool::new(
+        tool(
             TOOL_RECORD_SUCCESSOR,
             DESC_RECORD_SUCCESSOR,
             input_schema::<RecordSuccessorToolInput>(),
         ),
-        Tool::new(
+        tool(
             TOOL_NOTE_GRADUATE,
             DESC_NOTE_GRADUATE,
             input_schema::<NoteGraduateToolInput>(),
         ),
-        Tool::new(
+        tool(
             TOOL_CONTAINER_MEMBER_ADD,
             DESC_CONTAINER_MEMBER_ADD,
             input_schema::<ContainerMemberToolInput>(),
         ),
-        Tool::new(
+        tool(
             TOOL_CONTAINER_MEMBER_REMOVE,
             DESC_CONTAINER_MEMBER_REMOVE,
             input_schema::<ContainerMemberToolInput>(),
         ),
         // Protocol run execution tools (#977)
-        Tool::new(
+        tool(
             TOOL_PROTOCOL_RUN_CREATE,
             DESC_PROTOCOL_RUN_CREATE,
             input_schema::<ProtocolRunCreateToolInput>(),
         ),
-        Tool::new(
+        tool(
             TOOL_PROTOCOL_RUN_ADVANCE,
             DESC_PROTOCOL_RUN_ADVANCE,
             input_schema::<ProtocolRunAdvanceToolInput>(),
         ),
-        Tool::new(
+        tool(
             TOOL_PROTOCOL_RUN_GET,
             DESC_PROTOCOL_RUN_GET,
             input_schema::<ProtocolRunIdToolInput>(),
         ),
-        Tool::new(
+        tool(
             TOOL_PROTOCOL_RUN_LIST,
             DESC_PROTOCOL_RUN_LIST,
             input_schema::<ProtocolRunListToolInput>(),
         ),
-        Tool::new(
+        tool(
             TOOL_PROTOCOL_RUN_COMPLETE,
             DESC_PROTOCOL_RUN_COMPLETE,
             input_schema::<ProtocolRunIdToolInput>(),
         ),
-        Tool::new(
+        tool(
             TOOL_PROTOCOL_RUN_ABANDON,
             DESC_PROTOCOL_RUN_ABANDON,
             input_schema::<ProtocolRunIdToolInput>(),
         ),
-    ])
+    ] })
 }
 
 // ── Tool dispatch ─────────────────────────────────────────────────────────────
 
-fn parse_args<T: for<'de> Deserialize<'de>>(arguments: Option<JsonObject>) -> Result<T, McpError> {
+fn parse_args<T: for<'de> Deserialize<'de>>(
+    arguments: Option<Map<String, Value>>,
+) -> Result<T, McpApplicationError> {
     serde_json::from_value(Value::Object(arguments.unwrap_or_default()))
-        .map_err(|e| McpError::invalid_params(e.to_string(), None))
+        .map_err(|e| McpApplicationError::invalid_params(e.to_string()))
 }
 
 /// Success result: the service struct serialized as JSON text + structured content.
-fn tool_ok<T: serde::Serialize>(value: &T) -> Result<CallToolResult, McpError> {
+fn tool_ok<T: serde::Serialize>(value: &T) -> Result<Value, McpApplicationError> {
     let structured =
-        serde_json::to_value(value).map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        serde_json::to_value(value).map_err(|e| McpApplicationError::internal(e.to_string()))?;
     let text = serde_json::to_string_pretty(&structured)
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-    let mut result = CallToolResult::success(vec![ContentBlock::text(text)]);
-    result.structured_content = Some(structured);
-    Ok(result)
+        .map_err(|e| McpApplicationError::internal(e.to_string()))?;
+    Ok(json!({
+        "content": [{ "type": "text", "text": text }],
+        "structuredContent": structured,
+        "isError": false
+    }))
 }
 
 /// Service rejection → tool-level error the model can read (not a protocol error).
-fn tool_err(message: String) -> CallToolResult {
-    CallToolResult::error(vec![ContentBlock::text(message)])
+fn tool_err(message: String) -> Value {
+    json!({ "content": [{ "type": "text", "text": message }], "isError": true })
 }
 
-pub(crate) fn call_tool(
+/// The `tools/call` result. Validated service rejections are tool results with
+/// `isError: true`; only malformed calls are protocol (`McpApplicationError`) errors.
+pub fn call_tool(
     store: &dyn RepositoryStore,
     name: &str,
-    arguments: Option<JsonObject>,
-) -> Result<CallToolResult, McpError> {
+    arguments: Option<Map<String, Value>>,
+) -> Result<Value, McpApplicationError> {
     match name {
         TOOL_REPO_VALIDATE => {
             let _: EmptyToolInput = parse_args(arguments)?;
@@ -982,10 +994,9 @@ pub(crate) fn call_tool(
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
-        other => Err(McpError::invalid_params(
-            format!("unknown tool '{other}'"),
-            None,
-        )),
+        other => Err(McpApplicationError::invalid_params(format!(
+            "unknown tool '{other}'"
+        ))),
     }
 }
 
@@ -1135,8 +1146,8 @@ mod tests {
 
     #[test]
     fn list_tools_advertises_all_nineteen_with_schemas() {
-        let tools = list_tools().tools;
-        let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
+        let tools = list_tools()["tools"].as_array().unwrap().clone();
+        let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(
             names,
             vec![
@@ -1162,24 +1173,24 @@ mod tests {
             ]
         );
         for tool in &tools {
-            assert!(tool.description.is_some());
+            assert!(tool["description"].is_string());
             assert!(
-                !tool.input_schema.is_empty(),
+                !tool["inputSchema"].as_object().unwrap().is_empty(),
                 "tool {} has an empty input schema",
-                tool.name
+                tool["name"]
             );
         }
     }
 
     #[test]
     fn membership_tool_descriptions_distinguish_membership_semantics_and_presentation_order() {
-        let tools = list_tools().tools;
+        let tools = list_tools()["tools"].as_array().unwrap().clone();
 
         for name in [TOOL_CONTAINER_MEMBER_ADD, TOOL_CONTAINER_MEMBER_REMOVE] {
             let description = tools
                 .iter()
-                .find(|tool| tool.name.as_ref() == name)
-                .and_then(|tool| tool.description.as_deref())
+                .find(|tool| tool["name"] == name)
+                .and_then(|tool| tool["description"].as_str())
                 .expect("membership tool must advertise a description");
 
             assert!(description.contains("changes membership only"));

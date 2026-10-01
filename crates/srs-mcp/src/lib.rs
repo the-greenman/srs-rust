@@ -6,15 +6,12 @@
 //! result serialized. No business logic lives here.
 
 mod application;
-pub mod json_application;
-mod prompts;
-mod resources;
 pub mod server;
-pub mod tools;
-mod uri;
 
-pub use application::McpApplication;
 pub use server::SrsMcpServer;
+/// The tool catalogue and handlers live in `srs-mcp-core`; re-exported so the
+/// existing `srs_mcp::tools` paths (names, descriptions) stay stable.
+pub use srs_mcp_core::tools;
 
 use std::path::PathBuf;
 

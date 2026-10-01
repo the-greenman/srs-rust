@@ -80,6 +80,7 @@ full brief as rendered markdown — AI guidance, required types, structure, and 
     }
 }
 
+pub mod tools;
 pub mod uri;
 
 /// JSON-native portions of the generic SRS resource contract.
@@ -88,11 +89,25 @@ pub mod uri;
 /// service calls. Templates are intentionally extracted first because they
 /// have no runtime dependency and make a precise parity boundary.
 pub mod srs_resources {
+    use crate::McpApplicationError;
     use serde_json::{json, Value};
+    use srs_repository::agent_index_service::build_agent_index;
+    use srs_repository::analysis::build_repo_map;
     use srs_repository::container_service::{list_containers, ContainerListFilter};
+    use srs_repository::container_view_service::{
+        resolve_container_view, ResolveContainerViewInput,
+    };
+    use srs_repository::error::RepositoryError;
     use srs_repository::package_service::{list_types_filtered, TypeListFilter};
-    use srs_repository::protocol_service::list_protocols;
+    use srs_repository::protocol_service::{
+        get_protocol_by_id, list_protocol_stages, list_protocols, GetProtocolResult,
+    };
+    use srs_repository::record_store::get_record_by_id;
+    use srs_repository::render_service::{render_composition, RenderCompositionOptions};
+    use srs_repository::repository_navigation_service::repository_navigation;
     use srs_repository::store::RepositoryStore;
+    use srs_repository::tree_service::{build_tree, TreeOptions};
+    use srs_repository::type_schema_service::{type_schema, TypeSchemaInput};
     use srs_repository::view_service::{list_compositions_summary, CompositionListFilter};
 
     use crate::uri;
@@ -175,6 +190,115 @@ pub mod srs_resources {
         Ok(json!({ "resources": resources }))
     }
 
+    fn service_err(e: RepositoryError) -> McpApplicationError {
+        McpApplicationError::internal(e.to_string())
+    }
+
+    fn contents(uri: &str, mime_type: &str, text: String) -> Value {
+        json!({ "contents": [{ "uri": uri, "mimeType": mime_type, "text": text }] })
+    }
+
+    fn json_contents<T: serde::Serialize>(
+        value: &T,
+        uri: &str,
+    ) -> Result<Value, McpApplicationError> {
+        let text = serde_json::to_string_pretty(value)
+            .map_err(|e| McpApplicationError::internal(e.to_string()))?;
+        Ok(contents(uri, MIME_JSON, text))
+    }
+
+    /// The `resources/read` result. Each arm is one repository-service call
+    /// whose typed result is serialized verbatim (ADR-010/ADR-037).
+    pub fn read_resource(
+        store: &dyn RepositoryStore,
+        repository_id: &str,
+        raw_uri: &str,
+    ) -> Result<Value, McpApplicationError> {
+        let not_found =
+            || McpApplicationError::resource_not_found(format!("resource not found: {raw_uri}"));
+        let parsed = uri::parse(raw_uri, repository_id)
+            .map_err(|e| McpApplicationError::invalid_params(e.to_string()))?;
+        match parsed {
+            uri::SrsUri::Map => {
+                json_contents(&build_repo_map(store).map_err(service_err)?, raw_uri)
+            }
+            uri::SrsUri::Navigation => {
+                json_contents(&repository_navigation(store).map_err(service_err)?, raw_uri)
+            }
+            uri::SrsUri::Tree => json_contents(
+                &build_tree(store, TreeOptions::default()).map_err(service_err)?,
+                raw_uri,
+            ),
+            uri::SrsUri::TreeFrom(id) => json_contents(
+                &build_tree(
+                    store,
+                    TreeOptions {
+                        root_ids: Some(vec![id]),
+                        ..TreeOptions::default()
+                    },
+                )
+                .map_err(service_err)?,
+                raw_uri,
+            ),
+            uri::SrsUri::AgentIndex => {
+                json_contents(&build_agent_index(store).map_err(service_err)?, raw_uri)
+            }
+            // `Ok(None)` is not a service error, so the not-found text is adapter-authored.
+            uri::SrsUri::Record(id) => match get_record_by_id(store, &id).map_err(service_err)? {
+                None => Err(not_found()),
+                Some(record) => json_contents(&record, raw_uri),
+            },
+            uri::SrsUri::Container(id) => json_contents(
+                &resolve_container_view(
+                    store,
+                    ResolveContainerViewInput {
+                        container_id: id,
+                        view_id: None,
+                    },
+                )
+                .map_err(service_err)?,
+                raw_uri,
+            ),
+            uri::SrsUri::Composition(id) => {
+                let result = render_composition(RenderCompositionOptions {
+                    store,
+                    view_id: &id,
+                    format: Some("markdown"),
+                    theme_variant: None,
+                    container_id: None,
+                    instance_id_filter: None,
+                })
+                .map_err(service_err)?;
+                Ok(contents(raw_uri, MIME_MARKDOWN, result.rendered))
+            }
+            uri::SrsUri::Type(id) => json_contents(
+                &type_schema(
+                    store,
+                    TypeSchemaInput {
+                        type_id: id,
+                        type_version: None,
+                    },
+                )
+                .map_err(service_err)?,
+                raw_uri,
+            ),
+            uri::SrsUri::ProtocolList => json_contents(
+                &json!({ "protocols": list_protocols(store).map_err(service_err)? }),
+                raw_uri,
+            ),
+            // `srs protocol get` + `srs protocol stages` in one read.
+            uri::SrsUri::Protocol(id) => {
+                match get_protocol_by_id(store, &id).map_err(service_err)? {
+                    GetProtocolResult::NotFound => Err(not_found()),
+                    GetProtocolResult::Found(protocol) => {
+                        let stages = list_protocol_stages(store, &id).map_err(service_err)?;
+                        json_contents(&json!({ "protocol": protocol, "stages": stages }), raw_uri)
+                    }
+                }
+            }
+        }
+    }
+
     pub fn list_resource_templates(repository_id: &str) -> Value {
         json!({ "resourceTemplates": [
             {
@@ -209,6 +333,176 @@ pub mod srs_resources {
     }
 }
 
+/// The MCP prompts surface — one prompt per package blueprint. Prompt `name`
+/// is the blueprint UUID so `prompts/get` passes it straight to the service.
+pub mod srs_prompts {
+    use serde_json::{json, Map, Value};
+    use srs_repository::blueprint_brief_service::{
+        blueprint_brief, render_brief_markdown, BlueprintBriefInput,
+    };
+    use srs_repository::blueprint_service::list_blueprints_summary;
+    use srs_repository::error::RepositoryError;
+    use srs_repository::store::RepositoryStore;
+
+    use crate::McpApplicationError;
+
+    fn service_err(e: RepositoryError) -> McpApplicationError {
+        McpApplicationError::internal(e.to_string())
+    }
+
+    /// The `prompts/list` result. Non-fatal blueprint diagnostics are not
+    /// surfaced: `prompts/list` has no warnings channel.
+    pub fn list_prompts(store: &dyn RepositoryStore) -> Result<Value, McpApplicationError> {
+        let result = list_blueprints_summary(store).map_err(service_err)?;
+        let prompts: Vec<Value> = result
+            .summaries
+            .into_iter()
+            .map(|s| {
+                json!({
+                    "name": s.id,
+                    "description": format!(
+                        "{}/{} v{}: {}", s.namespace, s.name, s.version, s.description
+                    )
+                })
+            })
+            .collect();
+        Ok(json!({ "prompts": prompts }))
+    }
+
+    /// The `prompts/get` result. Role is `user`: a blueprint brief is guidance
+    /// the agent consumes as user-context, not pre-authored assistant output.
+    pub fn get_prompt(
+        store: &dyn RepositoryStore,
+        name: &str,
+        arguments: Option<&Map<String, Value>>,
+    ) -> Result<Value, McpApplicationError> {
+        if arguments.is_some_and(|a| !a.is_empty()) {
+            return Err(McpApplicationError::invalid_params(format!(
+                "prompt '{name}' takes no arguments"
+            )));
+        }
+        let result = blueprint_brief(
+            store,
+            BlueprintBriefInput {
+                blueprint_id: name.to_string(),
+            },
+        )
+        .map_err(|e| match e {
+            RepositoryError::BlueprintNotFound { .. } => {
+                McpApplicationError::invalid_params(format!("prompt not found: {name}"))
+            }
+            other => service_err(other),
+        })?;
+        Ok(json!({
+            "messages": [{
+                "role": "user",
+                "content": { "type": "text", "text": render_brief_markdown(&result) }
+            }]
+        }))
+    }
+}
+
+/// The complete SRS MCP application over one repository store: resources,
+/// prompts and tools, as JSON-native MCP results. Owns no transport, runtime or
+/// filesystem; the caller decides the store's lifetime and persistence.
+pub struct SrsMcpApplication<S> {
+    store: S,
+    repository_id: String,
+}
+
+impl<S: srs_repository::store::RepositoryStore> SrsMcpApplication<S> {
+    pub fn new(store: S, repository_id: impl Into<String>) -> Self {
+        Self {
+            store,
+            repository_id: repository_id.into(),
+        }
+    }
+
+    /// Read `repositoryId` from the store's manifest (`"unknown"` when absent).
+    pub fn open(store: S) -> Result<Self, McpApplicationError> {
+        let manifest = store
+            .load_manifest()
+            .map_err(|e| McpApplicationError::internal(e.to_string()))?;
+        let repository_id = manifest
+            .extra
+            .get("repositoryId")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        Ok(Self::new(store, repository_id))
+    }
+
+    pub fn repository_id(&self) -> &str {
+        &self.repository_id
+    }
+
+    pub fn store(&self) -> &S {
+        &self.store
+    }
+}
+
+fn arguments(
+    fields: &mut serde_json::Map<String, Value>,
+) -> Result<Option<serde_json::Map<String, Value>>, McpApplicationError> {
+    match fields.remove("arguments") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Object(arguments)) => Ok(Some(arguments)),
+        Some(_) => Err(McpApplicationError::invalid_params(
+            "arguments must be an object",
+        )),
+    }
+}
+
+impl<S: srs_repository::store::RepositoryStore> McpApplication for SrsMcpApplication<S> {
+    fn initialize(&mut self, _params: &Value) -> Result<Value, McpApplicationError> {
+        Ok(srs_metadata::initialize_result())
+    }
+
+    fn call(&mut self, method: &str, params: Option<&Value>) -> Result<Value, McpApplicationError> {
+        let mut fields = match params {
+            None | Some(Value::Null) => serde_json::Map::new(),
+            Some(Value::Object(object)) => object.clone(),
+            Some(_) => {
+                return Err(McpApplicationError::invalid_params(
+                    "params must be an object",
+                ))
+            }
+        };
+        let store: &dyn srs_repository::store::RepositoryStore = &self.store;
+        match method {
+            "resources/list" => srs_resources::list_resources(store, &self.repository_id)
+                .map_err(McpApplicationError::internal),
+            "resources/templates/list" => {
+                Ok(srs_resources::list_resource_templates(&self.repository_id))
+            }
+            "resources/read" => {
+                let uri = fields
+                    .get("uri")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| McpApplicationError::invalid_params("uri must be a string"))?;
+                srs_resources::read_resource(store, &self.repository_id, uri)
+            }
+            "tools/list" => Ok(tools::list_tools()),
+            "tools/call" => {
+                let name = fields
+                    .remove("name")
+                    .and_then(|v| v.as_str().map(ToString::to_string))
+                    .ok_or_else(|| McpApplicationError::invalid_params("name must be a string"))?;
+                tools::call_tool(store, &name, arguments(&mut fields)?)
+            }
+            "prompts/list" => srs_prompts::list_prompts(store),
+            "prompts/get" => {
+                let name = fields
+                    .remove("name")
+                    .and_then(|v| v.as_str().map(ToString::to_string))
+                    .ok_or_else(|| McpApplicationError::invalid_params("name must be a string"))?;
+                srs_prompts::get_prompt(store, &name, arguments(&mut fields)?.as_ref())
+            }
+            _ => Err(McpApplicationError::method_not_found(method)),
+        }
+    }
+}
+
 pub const JSON_RPC_VERSION: &str = "2.0";
 pub const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
 
@@ -235,6 +529,23 @@ impl McpApplicationError {
         Self {
             code: -32602,
             message: message.into(),
+            data: None,
+        }
+    }
+
+    /// MCP `-32002` resource-not-found.
+    pub fn resource_not_found(message: impl Into<String>) -> Self {
+        Self {
+            code: -32002,
+            message: message.into(),
+            data: None,
+        }
+    }
+
+    pub fn method_not_found(method: &str) -> Self {
+        Self {
+            code: -32601,
+            message: format!("Method not found: {method}"),
             data: None,
         }
     }
@@ -273,6 +584,16 @@ impl<A: McpApplication> McpDispatcher<A> {
 
     pub fn application_mut(&mut self) -> &mut A {
         &mut self.application
+    }
+
+    /// Dispatch one JSON-RPC message given as text — the shape a browser or
+    /// HTTP body arrives in. Unparseable text is a `-32700` parse error.
+    pub fn dispatch_str(&mut self, message: &str) -> Option<String> {
+        let response = match serde_json::from_str::<Value>(message) {
+            Ok(message) => self.dispatch(message),
+            Err(_) => Some(error(Value::Null, -32700, "Parse error", None)),
+        };
+        response.map(|response| response.to_string())
     }
 
     /// Dispatch one JSON-RPC message. Notifications yield `None`; callers are
@@ -445,6 +766,26 @@ mod tests {
                 .dispatch(request(json!(2), "echo", json!({ "value": "browser" })))
                 .unwrap()["result"],
             json!({ "value": "browser" })
+        );
+    }
+
+    #[test]
+    fn dispatch_str_reports_parse_errors_and_swallows_notifications() {
+        let mut dispatcher = McpDispatcher::new(EchoApplication);
+        let parsed: Value =
+            serde_json::from_str(&dispatcher.dispatch_str("{not json").unwrap()).unwrap();
+        assert_eq!(parsed["error"]["code"], -32700);
+        assert_eq!(parsed["id"], Value::Null);
+        dispatcher
+            .dispatch_str(
+                &json!({"jsonrpc":"2.0","id":1,"method":"initialize",
+                        "params":{"protocolVersion": MCP_PROTOCOL_VERSION}})
+                .to_string(),
+            )
+            .unwrap();
+        assert_eq!(
+            dispatcher.dispatch_str(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#),
+            None
         );
     }
 
