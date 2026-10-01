@@ -183,10 +183,12 @@ fn ext_discovery_fixture_scenarios() {
         .get("dataModelRevision")
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
-    if fixture_revision < 2 {
+    // RFC-043: this build reads dataModelRevision 8 (container entries). The `srs` corpus is
+    // migrated, and its fixture updated, by the phase-2 corpus-migration PR (srs#852).
+    if fixture_revision < 8 {
         println!(
             "Skipping: srs/conformance/discovery fixture-repo is at dataModelRevision \
-             {fixture_revision} (< 2) — pre-cutover spec repo, awaiting the srs #242 migration"
+             {fixture_revision} (< 8) — awaiting the srs corpus migration (RFC-043, srs#852)"
         );
         return;
     }

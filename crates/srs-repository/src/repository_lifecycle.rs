@@ -65,7 +65,6 @@ pub(crate) fn default_repository_container(container_id: &str, title: &str) -> C
         container_type: None,
         identity_instance_id: None,
         anchor_instance_id: None,
-        root_instance_ids: None,
         member_instance_ids: None,
         child_container_ids: None,
         tags: None,
@@ -145,7 +144,6 @@ fn scaffold_purpose_record(
         container_type: None,
         identity_instance_id: None,
         anchor_instance_id: None,
-        root_instance_ids: None,
         member_instance_ids: None,
         child_container_ids: None,
         tags: None,
@@ -158,7 +156,9 @@ fn scaffold_purpose_record(
     container
         .member_instance_ids
         .get_or_insert_with(Vec::new)
-        .push(instance_id.clone());
+        .push(srs_core::types::container::ContainerEntry::new(
+            instance_id.clone(),
+        ));
 
     store.save_manifest(&manifest)?;
     let container = manifest
@@ -819,7 +819,7 @@ mod tests {
             .and_then(|c| c.member_instance_ids.as_ref())
             .expect("member_instance_ids must be set");
         assert!(
-            members.contains(&id),
+            members.iter().any(|e| e.instance_id == id),
             "purpose record must be in member_instance_ids"
         );
     }

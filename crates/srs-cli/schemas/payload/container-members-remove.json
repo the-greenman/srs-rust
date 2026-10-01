@@ -4,17 +4,34 @@
   "type": "object",
   "required": [
     "containerId",
-    "instanceId",
-    "memberInstanceIds"
+    "members",
+    "promoted",
+    "removed"
   ],
   "properties": {
     "containerId": {
       "type": "string"
     },
     "instanceId": {
-      "type": "string"
+      "description": "The entry the operation addressed (absent for `repair`).",
+      "type": [
+        "string",
+        "null"
+      ]
     },
-    "memberInstanceIds": {
+    "members": {
+      "type": "array",
+      "items": true
+    },
+    "promoted": {
+      "description": "Entries whose depth a promoting removal lowered ([R7]).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "removed": {
+      "description": "Entries the operation removed.",
       "type": "array",
       "items": {
         "type": "string"

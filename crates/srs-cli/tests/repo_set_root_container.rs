@@ -54,7 +54,7 @@ fn set_root_container_writes_canonical_manifest_embed() {
     );
     assert_eq!(
         manifest_val["container"]["memberInstanceIds"],
-        serde_json::json!([IDENTITY_ID])
+        serde_json::json!([{"instanceId": IDENTITY_ID}])
     );
 }
 

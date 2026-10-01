@@ -5,7 +5,9 @@
     "title": "com.example.treefix",
     "identityInstanceId": "b3b90185-00a6-435f-b322-62fe8ecbeb86",
     "memberInstanceIds": [
-      "b3b90185-00a6-435f-b322-62fe8ecbeb86"
+      {
+        "instanceId": "b3b90185-00a6-435f-b322-62fe8ecbeb86"
+      }
     ]
   },
   "srsVersion": "2.0-draft",

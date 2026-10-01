@@ -4398,7 +4398,6 @@ mod tests {
             description: None,
             container_type: None,
             tags: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             created_at: None,

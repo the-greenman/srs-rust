@@ -111,7 +111,7 @@ fn spec_repo_is_migrated(spec: &Path) -> bool {
         return false;
     };
     value.get("instanceIndex").is_none()
-        && value.get("dataModelRevision").and_then(|v| v.as_u64()) >= Some(7)
+        && value.get("dataModelRevision").and_then(|v| v.as_u64()) >= Some(8)
 }
 
 fn type_id_of(store: &FileStore, namespace: &str, name: &str) -> String {

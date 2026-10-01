@@ -450,10 +450,10 @@ pub enum ContainerCommand {
         /// Filter by containerType
         #[arg(long = "type")]
         container_type: Option<String>,
-        /// Return only containers where this instance appears in memberInstanceIds OR rootInstanceIds
+        /// Return only containers where this instance appears in memberInstanceIds (or a child container's)
         #[arg(long = "member")]
         member_instance_id: Option<String>,
-        /// Return only containers where this instance appears specifically in rootInstanceIds
+        /// Return only containers whose anchorInstanceId is this instance (RFC-043: roots are gone)
         #[arg(long = "root")]
         root_instance_id: Option<String>,
     },
@@ -468,9 +468,6 @@ pub enum ContainerCommand {
     /// Member instance management
     #[command(subcommand)]
     Members(ContainerMembersCommand),
-    /// Root instance management
-    #[command(subcommand)]
-    Roots(ContainerRootsCommand),
     /// Validate container invariants
     Validate { container_id: String },
     /// Resolve a structured container view: root + ordered members + Composition-driven
@@ -486,32 +483,37 @@ pub enum ContainerCommand {
 
 #[derive(Subcommand)]
 pub enum ContainerMembersCommand {
-    List {
-        container_id: String,
-    },
+    /// List the container's arrangement: entries `{instanceId, depth?}` in order (RFC-043)
+    List { container_id: String },
+    /// Add a member; appends at depth 0 unless --position / --depth are given
     Add {
         container_id: String,
         instance_id: String,
+        /// 0-based position to insert at (default: append)
+        #[arg(long)]
+        position: Option<usize>,
+        /// Nesting depth (default 0)
+        #[arg(long)]
+        depth: Option<u32>,
     },
+    /// Remove a member; its descendants are promoted one level
     Remove {
         container_id: String,
         instance_id: String,
     },
-}
-
-#[derive(Subcommand)]
-pub enum ContainerRootsCommand {
-    List {
-        container_id: String,
-    },
-    Add {
+    /// Move an entry's run to --position and/or set its --depth
+    Move {
         container_id: String,
         instance_id: String,
+        /// 0-based position, against the list without the moved run (default: stay)
+        #[arg(long)]
+        position: Option<usize>,
+        /// New depth for the entry (its descendants shift with it)
+        #[arg(long)]
+        depth: Option<u32>,
     },
-    Remove {
-        container_id: String,
-        instance_id: String,
-    },
+    /// Remove every entry whose instance no longer resolves (RFC-043 repair)
+    Repair { container_id: String },
 }
 
 #[derive(Subcommand)]

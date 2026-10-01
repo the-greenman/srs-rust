@@ -51,6 +51,9 @@ pub const TOOL_RECORD_SUCCESSOR: &str = "record_successor";
 pub const TOOL_NOTE_GRADUATE: &str = "note_graduate";
 pub const TOOL_CONTAINER_MEMBER_ADD: &str = "container_member_add";
 pub const TOOL_CONTAINER_MEMBER_REMOVE: &str = "container_member_remove";
+// RFC-043 Change D: arrangement operations
+pub const TOOL_CONTAINER_MEMBER_MOVE: &str = "container_member_move";
+pub const TOOL_CONTAINER_MEMBER_REPAIR: &str = "container_member_repair";
 // Protocol run execution tools (#977 — follow-up to #955)
 pub const TOOL_PROTOCOL_RUN_CREATE: &str = "protocol_run_create";
 pub const TOOL_PROTOCOL_RUN_ADVANCE: &str = "protocol_run_advance";
@@ -135,20 +138,28 @@ provenance record. Optional containerId adds the Record to a container. The Note
 preserved unchanged — it is not deleted, and its graduatedAt field is never stamped. Returns \
 both the Note and the new Record.";
 
-pub const DESC_CONTAINER_MEMBER_ADD: &str = "Add an instance to a container's \
-memberInstanceIds. This changes membership only; the returned memberInstanceIds array has no \
-semantic or presentation-order authority. Use a precedes relation when order is a semantic claim. \
-For display or curation order, author a container-subset Composition's ordering.memberOrder via \
-the definition-authoring or CLI surface; MCP currently has no definition/view update tool. \
-Idempotent — adding an already-present member is not an error. Returns the updated \
-memberInstanceIds list.";
+pub const DESC_CONTAINER_MEMBER_ADD: &str = "Add an instance to a container's ordered \
+memberInstanceIds outline (RFC-043). With no position it appends at depth 0; `position` (0-based) \
+inserts there and `depth` (default 0) sets the nesting level (an entry's parent is the nearest \
+preceding entry with a smaller depth; depth may rise by at most one per entry). Order and depth are \
+layout only: use a precedes relation when order is a semantic claim. Idempotent — adding an \
+already-present member with no position or depth is not an error. Returns the container's entries \
+({instanceId, depth?}) in order.";
 
-pub const DESC_CONTAINER_MEMBER_REMOVE: &str = "Remove an instance from a container's \
-memberInstanceIds. This changes membership only; the returned memberInstanceIds array has no \
-semantic or presentation-order authority. Use a precedes relation when order is a semantic claim. \
-For display or curation order, author a container-subset Composition's ordering.memberOrder via \
-the definition-authoring or CLI surface; MCP currently has no definition/view update tool. Returns \
-the updated memberInstanceIds list. No-op if the instance is not a member.";
+pub const DESC_CONTAINER_MEMBER_REMOVE: &str = "Remove an instance from a container's outline. \
+Its descendants are promoted one level (RFC-043 promoting removal) and reported in `promoted`. \
+Rejected (arrangement-pointer) when the entry is the container's identityInstanceId or \
+anchorInstanceId. No-op if the instance is not a member. Returns the container's entries in order.";
+
+pub const DESC_CONTAINER_MEMBER_MOVE: &str = "Move an entry (with its descendants, which keep \
+their relative depths) to `position` (0-based, against the list without that run; default: where \
+it is) and/or give it `depth` (default: its current depth; setting only `depth` indents or outdents \
+the run). Rejected whole, changing nothing, if the result would break the outline rules (first \
+entry depth 0, depth rises by at most one). Returns the container's entries in order.";
+
+pub const DESC_CONTAINER_MEMBER_REPAIR: &str = "Remove every outline entry whose instanceId no \
+longer resolves to an instance, promoting descendants, and report each in `removed`. Idempotent. \
+Never changes identityInstanceId or anchorInstanceId (a dangling pointer stays a validation error).";
 
 // Protocol run execution tool descriptions (#977 — follow-up to #955)
 
@@ -591,13 +602,31 @@ pub struct ContainerMemberToolInput {
     pub instance_id: String,
 }
 
-/// Wraps the `Vec<String>` returned by container membership writes so the MCP
-/// response is a named object (`{memberInstanceIds: [...]}`) rather than a bare
-/// JSON array.
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ContainerMembersToolResult {
-    pub member_instance_ids: Vec<String>,
+/// `container_member_add`: `position` (0-based; default append) and `depth` (default 0) per
+/// RFC-043 Change D.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ContainerMemberAddToolInput {
+    pub container_id: String,
+    pub instance_id: String,
+    pub position: Option<usize>,
+    pub depth: Option<u32>,
+}
+
+/// `container_member_move`: move (position) and/or set depth (depth) of an entry's whole run.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ContainerMemberMoveToolInput {
+    pub container_id: String,
+    pub instance_id: String,
+    pub position: Option<usize>,
+    pub depth: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ContainerMemberRepairToolInput {
+    pub container_id: String,
 }
 
 // ── Protocol run shadow input structs (#977) ──────────────────────────────────
@@ -754,12 +783,22 @@ pub fn list_tools() -> Value {
         tool(
             TOOL_CONTAINER_MEMBER_ADD,
             DESC_CONTAINER_MEMBER_ADD,
-            input_schema::<ContainerMemberToolInput>(),
+            input_schema::<ContainerMemberAddToolInput>(),
         ),
         tool(
             TOOL_CONTAINER_MEMBER_REMOVE,
             DESC_CONTAINER_MEMBER_REMOVE,
             input_schema::<ContainerMemberToolInput>(),
+        ),
+        tool(
+            TOOL_CONTAINER_MEMBER_MOVE,
+            DESC_CONTAINER_MEMBER_MOVE,
+            input_schema::<ContainerMemberMoveToolInput>(),
+        ),
+        tool(
+            TOOL_CONTAINER_MEMBER_REPAIR,
+            DESC_CONTAINER_MEMBER_REPAIR,
+            input_schema::<ContainerMemberRepairToolInput>(),
         ),
         // Protocol run execution tools (#977)
         tool(
@@ -922,15 +961,15 @@ pub fn call_tool(
             }
         }
         TOOL_CONTAINER_MEMBER_ADD => {
-            let input: ContainerMemberToolInput = parse_args(arguments)?;
+            let input: ContainerMemberAddToolInput = parse_args(arguments)?;
             match container_service::add_container_member(
                 store,
                 &input.container_id,
                 &input.instance_id,
+                input.position,
+                input.depth,
             ) {
-                Ok(members) => tool_ok(&ContainerMembersToolResult {
-                    member_instance_ids: members,
-                }),
+                Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
@@ -941,9 +980,27 @@ pub fn call_tool(
                 &input.container_id,
                 &input.instance_id,
             ) {
-                Ok(members) => tool_ok(&ContainerMembersToolResult {
-                    member_instance_ids: members,
-                }),
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_CONTAINER_MEMBER_MOVE => {
+            let input: ContainerMemberMoveToolInput = parse_args(arguments)?;
+            match container_service::move_member(
+                store,
+                &input.container_id,
+                &input.instance_id,
+                input.position,
+                input.depth,
+            ) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_CONTAINER_MEMBER_REPAIR => {
+            let input: ContainerMemberRepairToolInput = parse_args(arguments)?;
+            match container_service::repair_members(store, &input.container_id) {
+                Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
@@ -1145,7 +1202,7 @@ mod tests {
     }
 
     #[test]
-    fn list_tools_advertises_all_nineteen_with_schemas() {
+    fn list_tools_advertises_all_twenty_one_with_schemas() {
         let tools = list_tools()["tools"].as_array().unwrap().clone();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(
@@ -1164,6 +1221,8 @@ mod tests {
                 TOOL_NOTE_GRADUATE,
                 TOOL_CONTAINER_MEMBER_ADD,
                 TOOL_CONTAINER_MEMBER_REMOVE,
+                TOOL_CONTAINER_MEMBER_MOVE,
+                TOOL_CONTAINER_MEMBER_REPAIR,
                 TOOL_PROTOCOL_RUN_CREATE,
                 TOOL_PROTOCOL_RUN_ADVANCE,
                 TOOL_PROTOCOL_RUN_GET,
@@ -1183,22 +1242,29 @@ mod tests {
     }
 
     #[test]
-    fn membership_tool_descriptions_distinguish_membership_semantics_and_presentation_order() {
+    fn arrangement_tool_descriptions_state_outline_semantics() {
         let tools = list_tools()["tools"].as_array().unwrap().clone();
-
-        for name in [TOOL_CONTAINER_MEMBER_ADD, TOOL_CONTAINER_MEMBER_REMOVE] {
-            let description = tools
+        let description = |name: &str| -> String {
+            tools
                 .iter()
                 .find(|tool| tool["name"] == name)
                 .and_then(|tool| tool["description"].as_str())
-                .expect("membership tool must advertise a description");
-
-            assert!(description.contains("changes membership only"));
-            assert!(description.contains("no semantic or presentation-order authority"));
-            assert!(description.contains("precedes relation when order is a semantic claim"));
-            assert!(description.contains("container-subset Composition's ordering.memberOrder"));
-            assert!(description.contains("MCP currently has no definition/view update tool"));
-        }
+                .expect("arrangement tool must advertise a description")
+                .to_string()
+        };
+        // Order and depth are layout, never a semantic claim (RFC-043 [R5], [R13]).
+        let add = description(TOOL_CONTAINER_MEMBER_ADD);
+        assert!(add.contains("layout only"));
+        assert!(add.contains("precedes relation when order is a semantic claim"));
+        assert!(add.contains("appends at depth 0"));
+        let remove = description(TOOL_CONTAINER_MEMBER_REMOVE);
+        assert!(remove.contains("promoted"));
+        assert!(remove.contains("arrangement-pointer"));
+        assert!(
+            description(TOOL_CONTAINER_MEMBER_MOVE).contains("whole run")
+                || description(TOOL_CONTAINER_MEMBER_MOVE).contains("with its descendants")
+        );
+        assert!(description(TOOL_CONTAINER_MEMBER_REPAIR).contains("Idempotent"));
     }
 
     #[test]

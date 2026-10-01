@@ -54,6 +54,7 @@ pub mod resolver;
 pub mod revisions_sidecar_cleanup_service;
 pub mod rfc038_storage_migration_service;
 pub mod rfc039_carrier_migration_service;
+pub mod rfc043_container_entries_migration_service;
 #[cfg(test)]
 mod selector_parity_tests;
 pub mod services;

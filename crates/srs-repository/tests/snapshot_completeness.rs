@@ -145,8 +145,8 @@ fn six_set_repository(root: &Path) {
               "containerId": "{CONTAINER_ID}",
               "title": "Main",
               "createdAt": "2026-01-01T00:00:00Z",
-              "rootInstanceIds": ["{RECORD_ID}"],
-              "memberInstanceIds": ["{RECORD_ID}", "{NOTE_ID}"]
+              "anchorInstanceId": "{RECORD_ID}",
+              "memberInstanceIds": [{{"instanceId": "{RECORD_ID}"}}, {{"instanceId": "{NOTE_ID}"}}]
             }}"#
         ),
     );

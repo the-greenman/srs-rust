@@ -74,7 +74,6 @@ fn container(id: &str, title: &str) -> Container {
         container_type: None,
         identity_instance_id: None,
         anchor_instance_id: None,
-        root_instance_ids: None,
         member_instance_ids: None,
         child_container_ids: None,
         tags: None,
@@ -306,7 +305,10 @@ const SURVIVOR_ID: &str = "bbbbbbbb-0000-4000-8000-000000000b03";
 fn run_dangling_membership_suite(store: &dyn RepositoryStore) {
     store.save_note(&note(SURVIVOR_ID)).unwrap();
     let mut section = container(SECTION_ID, "Section");
-    section.member_instance_ids = Some(vec![GHOST_ID.to_string(), SURVIVOR_ID.to_string()]);
+    section.member_instance_ids = Some(srs_core::types::container::entries(vec![
+        GHOST_ID.to_string(),
+        SURVIVOR_ID.to_string(),
+    ]));
     // ADR-045: constructing an already-incoherent container is the sanctioned
     // way to build this fixture — the repair seam standing in for external
     // damage, not a widening of it.
@@ -329,8 +331,7 @@ fn run_dangling_membership_suite(store: &dyn RepositoryStore) {
         .expect("repository must load clean after the membership repair");
     let members = container_service::get_container(store, SECTION_ID)
         .unwrap()
-        .member_instance_ids
-        .unwrap_or_default();
+        .member_ids();
     assert_eq!(members, vec![SURVIVOR_ID.to_string()]);
 }
 
@@ -728,7 +729,9 @@ fn a_pending_manifest_fix_hides_catalog_findings_from_dry_run_but_fix_clears_bot
     // resolves the manifest through the checked path internally, so it must
     // land before the manifest itself is bricked.
     let mut section = container(SECTION_ID, "Section");
-    section.member_instance_ids = Some(vec![GHOST_ID.to_string()]);
+    section.member_instance_ids = Some(srs_core::types::container::entries(vec![
+        GHOST_ID.to_string()
+    ]));
     store.save_container_unchecked(&section).unwrap();
 
     let mut manifest = store.load_manifest().unwrap();
@@ -885,7 +888,9 @@ fn dry_run_leaves_the_tree_byte_identical() {
     let (tmp, store) = file_store();
     plant_duplicate(&store);
     let mut section = container(SECTION_ID, "Section");
-    section.member_instance_ids = Some(vec![GHOST_ID.to_string()]);
+    section.member_instance_ids = Some(srs_core::types::container::entries(vec![
+        GHOST_ID.to_string()
+    ]));
     store.save_container_unchecked(&section).unwrap();
 
     let before = snapshot_tree(tmp.path());

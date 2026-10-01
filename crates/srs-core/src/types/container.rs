@@ -22,17 +22,16 @@ pub struct Container {
     /// Container's typing anchor — what RFC-009 `rootTypeRefs` matching (I-63) and RFC-010's
     /// (Draft) three-way-merge conflict detection resolve against. Declared, never positional
     /// (`rfc-decision-cce3c00e`, cell Containment: "declaration over location"). When present,
-    /// MUST equal a member id in `rootInstanceIds`/`memberInstanceIds` (I-145). When absent,
-    /// resolution falls back to `rootInstanceIds[0]` — transitional, withdrawn at the
-    /// Continuity flip (`rfc-decision-cce3c00e` axis 2-8). RFC-010 merge semantics (once an
+    /// MUST equal a member id in `memberInstanceIds` (I-145, RFC-043 [R3]). The
+    /// `rootInstanceIds[0]` fallback is withdrawn (RFC-043 [R4]). RFC-010 merge semantics (once an
     /// engine exists): merges as a declared scalar, the same as `identityInstanceId` — a
     /// `container-root` conflict on divergence, never resolved by precedence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub anchor_instance_id: Option<String>,
+    /// RFC-043 [R1]: the ordered outline of this container's members. Flat ids are
+    /// `direct(C)` ([`Container::member_ids`]); array order and `depth` are layout.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub root_instance_ids: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub member_instance_ids: Option<Vec<String>>,
+    pub member_instance_ids: Option<Vec<ContainerEntry>>,
     /// RFC-034 Change B. Container ids of directly nested child scopes — the one
     /// place a Container references another Container. Effective membership
     /// (`effective(C)`) is the recursive, deduplicated closure over this edge;
@@ -50,6 +49,64 @@ pub struct Container {
     pub meta: Option<serde_json::Value>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+/// RFC-043 [R1]: one entry of `Container.memberInstanceIds` — a member id and an optional
+/// nesting `depth` (absent means 0). No other property is allowed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ContainerEntry {
+    pub instance_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth: Option<u32>,
+}
+
+impl ContainerEntry {
+    pub fn new(instance_id: impl Into<String>) -> Self {
+        Self {
+            instance_id: instance_id.into(),
+            depth: None,
+        }
+    }
+
+    pub fn at(instance_id: impl Into<String>, depth: u32) -> Self {
+        Self {
+            instance_id: instance_id.into(),
+            // Writers SHOULD omit 0 ([R1]).
+            depth: (depth > 0).then_some(depth),
+        }
+    }
+
+    pub fn depth(&self) -> u32 {
+        self.depth.unwrap_or(0)
+    }
+}
+
+/// Flat entries (depth 0) from bare ids — the common construction in callers and tests.
+pub fn entries<I, S>(ids: I) -> Vec<ContainerEntry>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    ids.into_iter().map(ContainerEntry::new).collect()
+}
+
+impl Container {
+    /// `direct(C)` read flat (RFC-043 [R3]): the entry ids in array order, depth ignored.
+    pub fn member_ids(&self) -> Vec<String> {
+        self.member_instance_ids
+            .iter()
+            .flatten()
+            .map(|e| e.instance_id.clone())
+            .collect()
+    }
+
+    pub fn has_member(&self, instance_id: &str) -> bool {
+        self.member_instance_ids
+            .iter()
+            .flatten()
+            .any(|e| e.instance_id == instance_id)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -87,8 +144,9 @@ mod tests {
             container_type: Some("project".to_string()),
             identity_instance_id: Some("aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa".to_string()),
             anchor_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
-            root_instance_ids: Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]),
-            member_instance_ids: Some(vec!["22222222-2222-4222-8222-222222222222".to_string()]),
+            member_instance_ids: Some(vec![ContainerEntry::new(
+                "22222222-2222-4222-8222-222222222222",
+            )]),
             child_container_ids: Some(vec!["33333333-3333-4333-8333-333333333333".to_string()]),
             tags: Some(vec!["alpha".to_string()]),
             created_at: Some("2026-01-01T00:00:00Z".to_string()),
@@ -113,7 +171,6 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -204,7 +261,6 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,

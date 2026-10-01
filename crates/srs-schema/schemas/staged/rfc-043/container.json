@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/container.json",
+  "title": "SRS Container",
+  "description": "A lightweight grouping boundary over a collection of instances. Containers answer scoping questions — which instances belong together — that the Relation graph alone cannot answer.",
+  "type": "object",
+  "required": ["containerId", "title"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://srs.semanticops.com/schema/2.0/container.json"
+    },
+    "containerId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable UUID for this Container. Must not appear in Relation.sourceInstanceId or targetInstanceId."
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-readable label for this Container."
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Optional namespace grouping."
+    },
+    "name": {
+      "type": "string",
+      "description": "Optional machine-readable name within the namespace."
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional description of the Container's purpose."
+    },
+    "containerType": {
+      "type": "string",
+      "deprecated": true,
+      "description": "Soft-deprecated hint (RFC-009). When anchorInstanceId is present, SHOULD equal the anchor record's resolved Type name (bare name, not namespace/name). A mismatch is diagnostic-only; the Container remains valid. See RFC-009 I-64."
+    },
+    "memberInstanceIds": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ContainerEntry" },
+      "description": "RFC-043 [R1]-[R3]. The Container's membership and its layout in one list: an ordered, flat outline of entries. The set of instanceId values is the Container's direct membership (direct(C), RFC-034 [R1]), read flat and ignoring depth; array order is the sequence; nesting is derived from depth (an entry's parent is the nearest preceding entry with a smaller depth) and never stored. Each instanceId MUST appear exactly once and MUST resolve to an instance; the first entry MUST have depth 0 and each later entry's depth MUST be at most one more than the previous entry's (enforced by the validator, [R2], not by this schema). Order is data: no tool may sort or reorder the entries ([R6]). In the root container (manifest.container) the entry order is the navigation order and a depth-0 entry is a navigation section ([R12]). An omitted memberInstanceIds means the Container has no direct members; it does not opt into Relation traversal (RFC-034 Change A). Nested scopes are declared through childContainerIds, not listed here."
+    },
+    "childContainerIds": {
+      "type": "array",
+      "items": { "type": "string", "format": "uuid" },
+      "uniqueItems": true,
+      "description": "RFC-034 Change B. Container IDs of directly nested child scopes — the one place a Container references another Container. Nesting is declared here, never inferred from membership overlap ([R2]). Effective membership is the recursive, deduplicated closure over this edge ([R3]); every entry MUST resolve to an existing, distinct Container and the graph MUST be acyclic ([R7]). Holds containerIds, not instance ids: never valid as a memberInstanceIds entry's instanceId or a Relation endpoint (I-20). Order carries no meaning."
+    },
+    "identityInstanceId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "RFC-013 / RFC-029. The instance id of the record that is this Container's identity / purpose statement. On the root container (manifest.container), names the repository's identity record. Reassignable; when present MUST equal an instanceId among the memberInstanceIds entries (RFC-013 I-81; RFC-043 [R3]). On the root container the identity entry MUST be at depth 0 and MUST have no descendants (RFC-043 [R2]). RFC-029 additionally requires that on the root container (manifest.container), this MUST reference a Tier-2 Record of type com.semanticops.core/purpose (RFC-029 I-87); for non-root containers this type constraint does not apply. See RFC-013 I-81, RFC-029 R5."
+    },
+    "anchorInstanceId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "RFC-009 (amended by srs#446). The instance id of the record whose Type (typeId + typeVersion) is this Container's typing anchor — the type RFC-009 rootTypeRefs matching (I-63) and RFC-010 three-way-merge conflict detection resolve against. Declared, never positional (rfc-decision-cce3c00e, cell Containment: 'declaration over location'). When present, MUST equal an instanceId among the memberInstanceIds entries (I-145; RFC-043 [R3]). It is also the link from a record to its section container: the section container of a record is the Container whose anchorInstanceId equals the record's id (RFC-043 [R19]). The rootInstanceIds[0] positional fallback is withdrawn at dataModelRevision 8 (RFC-043 [R4]): the migration writes anchorInstanceId explicitly where the fallback applied. Entry order and depth carry no role here (RFC-043 [R5])."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Vocabulary-backed topic labels (RFC-009 + RFC-006). When a Vocabulary in the package declares Terms for a tag key, tags MUST resolve per RFC-006 vocabulary resolution rules. Free-string tags are valid when no Vocabulary governs the key."
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "meta": {
+      "type": "object",
+      "description": "Implementation-local metadata. Cross-system keys should be namespaced."
+    }
+  },
+  "$defs": {
+    "ContainerEntry": {
+      "type": "object",
+      "required": ["instanceId"],
+      "additionalProperties": false,
+      "description": "RFC-043 [R1]. One placed member: the record it places and its nesting level. An entry carries no other property; editor state such as fold or visibility is application-private and is not part of the specification.",
+      "properties": {
+        "instanceId": { "type": "string", "format": "uuid", "description": "The member this entry places." },
+        "depth": { "type": "integer", "minimum": 0, "description": "Nesting level, layout only. Absent means 0 and writers SHOULD omit 0. The parent of an entry is the nearest preceding entry with a smaller depth (RFC-043 [R5]). Validity (first entry 0, rise of at most one per entry) is enforced by the validator ([R2])." }
+      }
+    }
+  }
+}

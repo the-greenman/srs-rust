@@ -349,6 +349,48 @@ static MIGRATIONS: &[MigrationDefinition] = &[
             })
         },
     },
+    // Ordered after `discovery-query-cutover` (it requires revision 7 first) and raw-tree: an
+    // unmigrated manifest or container fails the revision-8 schemas on load (RFC-043 [R16]/[R17]).
+    MigrationDefinition {
+        id: "rfc043-container-entries",
+        title: "Adopt RFC-043 ordered container entries and Composition ordering sources",
+        description: "Rewrites every Container's memberInstanceIds (and the root container's) \
+                       as ordered `{instanceId, depth?}` entries at depth 0, in the order in \
+                       effect today (ids a Composition section's memberOrder names, then Rule \
+                       [N+12]; the root container keeps its identity first and today's \
+                       navigation order), folds rootInstanceIds[0] into anchorInstanceId where \
+                       absent and removes rootInstanceIds, retires every Composition section's \
+                       ordering.memberOrder (a container-subset section becomes \
+                       ordering.source: \"arranged\"), and stamps dataModelRevision: 8. This is \
+                       data-model migration #8 (revision 7 -> 8), per srs-rust#1141 (RFC-043, \
+                       srs#849). Reads and writes the raw file tree — the sole sanctioned reader \
+                       of the revision-7 container and Composition shapes (retired under \
+                       srs-rust#1138). All-or-nothing: every refusal (a container named by two \
+                       sections with different memberOrder lists, a memberOrder disagreeing with \
+                       the root navigation order, memberOrder with containerScope subtree, a \
+                       gate difference) is decided before the first write \
+                       (`migration-memberorder-conflict`); every memberOrder id dropped because \
+                       it is not a member is reported (`migration-memberorder-dropped`). \
+                       Requires revision 7 (discovery-query-cutover) first.",
+        status_fn: |store| {
+            if crate::field_type_migration_service::rfc043_container_entries_migration_needed(
+                store,
+            )? {
+                Ok(MigrationStatus::Needed)
+            } else {
+                Ok(MigrationStatus::AlreadyApplied)
+            }
+        },
+        apply_fn: |store| {
+            let result =
+                crate::rfc043_container_entries_migration_service::migrate_rfc043_container_entries(store)?;
+            serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!(
+                    "failed to serialize rfc043-container-entries migration result: {e}"
+                ),
+            })
+        },
+    },
     MigrationDefinition {
         id: "migrate-identity",
         title: "Graduate identity to purpose record",
@@ -478,6 +520,12 @@ pub fn list_migrations(
                 // missing manifest, real I/O failure, ...) still propagates
                 // unchanged.
                 Err(RepositoryError::CatalogLoad { .. }) => MigrationStatus::Needed,
+                // A revision-7 root container does not parse as a typed Manifest (RFC-043
+                // [R16]); the typed-manifest probes cannot run, so report the conservative
+                // `Needed` rather than failing the listing that tells the user what to do.
+                Err(
+                    RepositoryError::ManifestParse { .. } | RepositoryError::Rfc043MigrationNeeded,
+                ) => MigrationStatus::Needed,
                 Err(e) => return Err(e),
             };
             Ok(MigrationSummary {
@@ -532,7 +580,6 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -604,7 +651,7 @@ mod tests {
     fn list_migrations_returns_every_entry_for_store_with_no_identity_note() {
         let store = make_store_with_container_no_identity();
         let migrations = list_migrations(&store).unwrap();
-        assert_eq!(migrations.len(), 12);
+        assert_eq!(migrations.len(), 13);
         assert_eq!(migrations[0].id, "graduated-at-cleanup");
         assert_eq!(migrations[1].id, "revisions-sidecar-cleanup");
         assert_eq!(migrations[2].id, "field-type");
@@ -614,9 +661,10 @@ mod tests {
         assert_eq!(migrations[6].id, "substrate-properties-to-meta");
         assert_eq!(migrations[7].id, "composition-cutover");
         assert_eq!(migrations[8].id, "discovery-query-cutover");
-        assert_eq!(migrations[9].id, "migrate-identity");
-        assert_eq!(migrations[10].id, "repo-upgrade");
-        assert_eq!(migrations[11].id, "rfc038-storage");
+        assert_eq!(migrations[9].id, "rfc043-container-entries");
+        assert_eq!(migrations[10].id, "migrate-identity");
+        assert_eq!(migrations[11].id, "repo-upgrade");
+        assert_eq!(migrations[12].id, "rfc038-storage");
         // No legacy graduatedAt Notes → AlreadyApplied
         assert_eq!(migrations[0].status, MigrationStatus::AlreadyApplied);
         // No .revisions.json sidecars → AlreadyApplied
@@ -635,12 +683,14 @@ mod tests {
         assert_eq!(migrations[7].status, MigrationStatus::Needed);
         // Revision < 7 → discovery-query-cutover Needed
         assert_eq!(migrations[8].status, MigrationStatus::Needed);
-        // Container exists but identity_instance_id is None → migrate-identity Needed
+        // Revision < 8 → rfc043-container-entries Needed
         assert_eq!(migrations[9].status, MigrationStatus::Needed);
+        // Container exists but identity_instance_id is None → migrate-identity Needed
+        assert_eq!(migrations[10].status, MigrationStatus::Needed);
         // Zero instances → all paths canonical → AlreadyApplied
-        assert_eq!(migrations[10].status, MigrationStatus::AlreadyApplied);
+        assert_eq!(migrations[11].status, MigrationStatus::AlreadyApplied);
         // MemoryStore is not a file tree — there is no storage layout to place.
-        assert_eq!(migrations[11].status, MigrationStatus::NotApplicable);
+        assert_eq!(migrations[12].status, MigrationStatus::NotApplicable);
     }
 
     fn indexed_srsj_store() -> crate::store::FileStore {

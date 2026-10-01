@@ -767,7 +767,7 @@ mod tests {
                 description: None,
                 order: 0,
                 source: SectionSource::ContainerSubset {
-                    container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+                    container_id: Some("00000000-0000-4000-8000-000000000c01".to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,
@@ -1127,7 +1127,7 @@ mod tests {
 
         let mut dv = minimal_composition("bad-scope");
         dv.sections[0].source = SectionSource::ContainerSubset {
-            container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+            container_id: Some("00000000-0000-4000-8000-000000000c01".to_string()),
             container_type: None,
             type_filter: None,
             container_scope: Some(ContainerScope::Repository),
@@ -1151,7 +1151,7 @@ mod tests {
         // `containerScope` on `container-subset` at all.
         let mut ok_dv = minimal_composition("ok-scope");
         ok_dv.sections[0].source = SectionSource::ContainerSubset {
-            container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+            container_id: Some("00000000-0000-4000-8000-000000000c01".to_string()),
             container_type: None,
             type_filter: None,
             container_scope: Some(ContainerScope::Subtree),
@@ -1603,8 +1603,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
-            anchor_instance_id: None,
-            root_instance_ids: Some(vec![instance_id.to_string()]),
+            anchor_instance_id: Some(instance_id.to_string()),
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -1649,8 +1648,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
-            anchor_instance_id: None,
-            root_instance_ids: Some(vec![instance_id.to_string()]),
+            anchor_instance_id: Some(instance_id.to_string()),
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -1711,12 +1709,13 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
+            // RFC-043: position is layout — the mismatched-type instance is the FIRST entry,
+            // the declared anchor comes second; the anchor (not the first entry) types the match.
             anchor_instance_id: Some(anchor_instance_id.to_string()),
-            root_instance_ids: Some(vec![
-                other_root_instance_id.to_string(),
-                anchor_instance_id.to_string(),
-            ]),
-            member_instance_ids: None,
+            member_instance_ids: Some(srs_core::types::container::entries([
+                other_root_instance_id,
+                anchor_instance_id,
+            ])),
             child_container_ids: None,
             tags: None,
             created_at: None,
@@ -1731,7 +1730,7 @@ mod tests {
             result.len(),
             1,
             "expected the declared anchor's type to drive the match, not the \
-             positionally-first root's mismatched type"
+             first entry's mismatched type"
         );
         assert_eq!(result[0].id, "dv-test-id");
     }
@@ -1757,7 +1756,6 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -1876,8 +1874,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
-            anchor_instance_id: None,
-            root_instance_ids: Some(vec![instance_id.to_string()]),
+            anchor_instance_id: Some(instance_id.to_string()),
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -1944,8 +1941,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
-            anchor_instance_id: None,
-            root_instance_ids: Some(vec![instance_id.to_string()]),
+            anchor_instance_id: Some(instance_id.to_string()),
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,

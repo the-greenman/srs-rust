@@ -1,0 +1,548 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://srs.semanticops.com/schema/2.0/composition.json",
+  "title": "SRS Document View Definition (ext:views-l2)",
+  "description": "A versioned, Container-level projection. Assembles multiple Records from a Container into a coherent, ordered document. Depends on ext:views-l1.",
+  "type": "object",
+  "required": [
+    "$schema",
+    "id",
+    "namespace",
+    "name",
+    "version",
+    "description",
+    "sections",
+    "createdAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://srs.semanticops.com/schema/2.0/composition.json"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable UUID for this Composition."
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Logical namespace, e.g. 'com.semanticops.srs'."
+    },
+    "name": {
+      "type": "string",
+      "description": "Machine-readable name within the namespace, kebab-case."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "description": {
+      "type": "string",
+      "description": "What kind of document this produces; intended audience."
+    },
+    "containerType": {
+      "type": "string",
+      "deprecated": true,
+      "description": "Soft-deprecated back-compat hint. When rootTypeRefs is present, MUST NOT be used for Container matching. Retained for pre-RFC-009 tools."
+    },
+    "rootTypeRefs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ExactTypeRef"
+      },
+      "description": "When set, this Composition applies to Containers whose root Record's resolved Type (typeId + typeVersion) matches one of these refs (version-exact, RFC-009). When absent, no root-type restriction applies."
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/DocumentSection"
+      },
+      "description": "Ordered list of sections that make up the document."
+    },
+    "compositeRenderers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CompositeRendererDirective"
+      },
+      "description": "RFC-036 — document-wide default composite renderer dispatch, applied to any section that declares no matching DocumentSection.compositeRenderers entry. Lowest-precedence declaration site ([CR-036-6]); a section or FieldView cancels it with renderer: 'baseline'."
+    },
+    "navigationLinks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/NavigationLink"
+      },
+      "description": "Assembly-time cross-section reading aids. Do not appear in the Relation graph."
+    },
+    "exportConfig": {
+      "$ref": "#/$defs/ExportConfig",
+      "description": "The shared render-output configuration shape (ext:views-l1), also carried by View. format/preamble here govern this Composition's document-level rendering (all section rendering, the document title/preamble). When a section dispatches per-record rendering to an L1 View (renderViewId/typeDispatch), that View's own exportConfig continues to govern its own render context (per-record preamble, omitEmptyFields) -- a different render context, not an override of this one (srs#525: one shape, two attachment points, no precedence semantics between them)."
+    },
+    "depthOffset": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Shifts all auto-rendered heading levels by this amount. Default: 0. At 0: document title H1, sections H2, records H3. Implementations SHOULD emit a warning diagnostic when depthOffset > 4."
+    },
+    "themeRef": {
+      "$ref": "#/$defs/ThemeReference",
+      "description": "Default Theme (ext:themes-l1). Applied when no variant is selected at render time. Ignored when ext:themes-l1 is not declared."
+    },
+    "themeVariants": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ThemeVariant"
+      },
+      "description": "Named alternative themes selectable at render invocation. Variant names MUST be unique within this array. Ignored when ext:themes-l1 is not declared."
+    },
+    "aiGuidance": {
+      "type": "object"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "lineage": {
+      "type": "object"
+    },
+    "provenance": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "DocumentSection": {
+      "type": "object",
+      "required": [
+        "sectionId",
+        "order",
+        "source"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sectionId": {
+          "type": "string",
+          "description": "Stable identifier for this section within the Composition."
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source": {
+          "$ref": "#/$defs/SectionSource"
+        },
+        "renderViewId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "View (ext:views-l1) used to render each instance in this section. When absent, implementations MUST use the default rendering baseline. When typeDispatch is present, it is consulted first per RFC-008 [DV-Dx2]; renderViewId is the fallback for unmatched types."
+        },
+        "typeDispatch": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "description": "RFC-008 (ext:views-l2). Map from a record's resolved type key (namespace/name, version-independent) to the ext:views-l1 View UUID used to render records of that type within this section. Consulted before renderViewId; unmatched types fall back to renderViewId then the default baseline. The value-is-existing-view constraint is enforced at render/package-validation time, not by this schema. Keys are namespace/name strings; bare names are permitted only in single-system Compositions not included in a Package."
+        },
+        "titleFieldId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The fieldId whose value provides the per-record heading within this section. RFC-032 Rev-7 [N+1]: the Field must be effective-single (fieldType.cardinality absent/single — the sole cardinality mechanism since the #242 Phase-B cutover removed FieldAssignment.repeatable, RFC-039 [R7]), datatype string, valueDomain absent/open, and format absent/plain/markdown. Closed-domain, URI/UUID/email, non-string, list, and composite Fields are ineligible. When the record's Type's effective field set does not contain the designated field (RFC-020 Rule [N+37], amended Rev 7 — srs#728), implementations SHOULD fall back to rendering the heading from the record's Type's effective identityFieldId, if present, and MUST omit the heading only when no effective identityFieldId is present either — enabling heterogeneous sections (e.g. container-subset). This differs from a titleFieldId that resolves to a field present in the effective field set but fails the eligibility test above: that case MUST omit the heading with no identity fallback (unchanged, srs-rust PR #341). Enforced at render time."
+        },
+        "ordering": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fieldId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "direction": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "description": "Default: 'asc'."
+            },
+            "source": {
+              "type": "string",
+              "enum": ["arranged", "rule"],
+              "description": "RFC-043 [R8]-[R11]. Where this section's order comes from. 'rule' (the default when absent): order direct(C) by ordering.fieldId with its direction where present, otherwise by the Rule [N+12] order, and render every record at depth 0, ignoring entry depth. 'arranged': render the container's entries in their own sequence and at their own depth (RFC-043 Change C); the Composition names no record and does not know the order. 'arranged' is valid only on a container-subset section, MUST NOT be combined with ordering.fieldId, and MUST NOT be combined with containerScope 'subtree' ([R10]); each is checkable from the Composition alone and is a package-validation error. Retires ordering.memberOrder (RFC-015 [N+29], Invariants I-126 and I-127)."
+            }
+          }
+        },
+        "required": {
+          "type": "boolean",
+          "description": "When true, an empty section is always shown regardless of emptyBehavior."
+        },
+        "emptyBehavior": {
+          "type": "string",
+          "enum": [
+            "hide",
+            "show-placeholder"
+          ],
+          "description": "What to do when the section has no records. Default: hide."
+        },
+        "compositeRenderers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CompositeRendererDirective"
+          },
+          "description": "RFC-036 — composite renderer dispatch for records rendered by this section. The primary ext:views-l2 declaration site, following RFC-027's placement of relationsPresentation. Resolved after FieldView.compositeRenderer and before Composition.compositeRenderers ([CR-036-6]). More than one entry for the same fieldId is a validation diagnostic; the first in array order wins."
+        },
+        "relationsPresentation": {
+          "$ref": "#/$defs/RelationsPresentation",
+          "description": "RFC-027. When present, render a deterministic per-member links block (the member's Relations of the declared types) after each member this section renders. Applies to every SectionSource variant and every member tier. Independent of emptyBehavior: a member with no surviving edges emits no block."
+        }
+      }
+    },
+    "RelationsPresentation": {
+      "type": "object",
+      "required": [
+        "include"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "include": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/RelationPresentationEntry"
+          },
+          "description": "Which relation types to display, in display order. Duplicate relationType entries are a repository-validation diagnostic (RFC-027 [I-027-2a])."
+        },
+        "label": {
+          "type": "string",
+          "description": "Reserved for a future grouped/headed presentation. RFC-027 defines no rendering behaviour for it; implementations MUST ignore it when rendering."
+        }
+      }
+    },
+    "RelationPresentationEntry": {
+      "type": "object",
+      "required": [
+        "relationType"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "relationType": {
+          "type": "string",
+          "description": "Relation type key (bare canonical, e.g. 'supersedes', or namespace/name for custom types). Expected to resolve to an installed RelationTypeDefinition; checked at repository validation time, and skipped with a diagnostic at render time when non-resolving, retired-only, or conflict-ambiguous (RFC-027 [I-027-2a]/[I-027-2b])."
+        },
+        "directions": {
+          "type": "string",
+          "enum": [
+            "forward",
+            "inverse",
+            "both"
+          ],
+          "description": "Which edge directions to display for the member. Default: 'forward'. Display-only — inverse Relations are never stored or synthesised (Invariant 16, RFC-027 [I-027-3])."
+        },
+        "forwardLabel": {
+          "type": "string",
+          "description": "Row-label override for edges where the member is the source. Default ladder: installed RelationTypeDefinition.label, then humanized relation type key (RFC-027 Change B)."
+        },
+        "inverseLabel": {
+          "type": "string",
+          "description": "Row-label override for edges where the member is the target. Default ladder: humanized declared inverseType query label (RFC-005), then forward label + ' (incoming)' (RFC-027 Change B)."
+        }
+      }
+    },
+    "SectionSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "query"
+          ],
+          "additionalProperties": false,
+          "description": "RFC-012/RFC-011 collapse (srs#525): a section names its selection via the one structured query mechanism (DiscoveryQuery, ext:discovery) and adds container-scope arrangement directives on top. Replaces the retired type-query variant (srs-rust#910, owner ruling on #383, srs#372/#481/#524/#525, rfc-decision-c8704763, rfc-decision-cce3c00e) — SectionSource no longer re-implements discovery axes divergently.",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "discovery-query"
+            },
+            "query": {
+              "$ref": "#/$defs/DiscoveryQuery",
+              "description": "The selection predicate (ext:discovery). typeNamespace + typeName together replace the retired typeKey (namespace/name) axis; lifecycleState/lifecycleStates/excludeLifecycleStates replace SectionSource.type-query's own copies of the same axes (RFC-011 Changes A/B, now governed by RFC-012 — I-142/I-143)."
+            },
+            "containerIds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "description": "Container-scope arrangement, not selection — layered on top of query per srs#525. Which containers bound the candidate set; see containerScope."
+            },
+            "containerScope": {
+              "type": "string",
+              "enum": [
+                "explicit",
+                "repository",
+                "subtree"
+              ],
+              "description": "RFC-011 [N+27]/I-144 (unchanged by the srs#525 collapse — remains a SectionSource-level arrangement directive, not a DiscoveryQuery predicate, because DiscoveryQuery.containerId is single-valued and takes one container's effective membership). Controls which containers are queried, using RFC-034's one scoping vocabulary ([R8]). 'explicit' (default): direct(C) of each listed container — its own members, no nested subtree. 'repository': all containers, ignores containerIds and any cli container override. 'subtree': effective(C) — the recursive closure over childContainerIds of each listed container; follows declared child edges only, never contains Relations (v1: falls back to explicit with diagnostic when containerIds absent)."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "container-subset"
+            },
+            "containerId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "RFC-043 Change B / [R10]. Optional. Absent means the container being rendered (the container supplied to the render operation); it MAY be absent only when the section's ordering.source is 'arranged', which the validator enforces because this schema can only make the property optional on every container-subset section. A literal still names that container and wins over the supplied one (a differing supplied container is a diagnostic). Authors of new arranged sections SHOULD omit it: a literal is a type-layer template naming a specific container, the layer leak srs#851 removes."
+            },
+            "containerType": {
+              "type": "string"
+            },
+            "typeFilter": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "RFC-008 (ext:views-l2). When present and non-empty, restricts the section to container members whose resolved type (namespace/name, version-independent) matches one of these keys. Ordering is the base-spec [N+12] order computed over the full container, then projected onto the survivors (filter-then-project); on an arranged section an excluded entry is dropped by the promoting removal (its descendants move up one level, RFC-043 [R7]). Absent or empty array = all members (no-op). Exclusive to the container-subset source."
+            },
+            "containerScope": {
+              "type": "string",
+              "enum": [
+                "explicit",
+                "subtree"
+              ],
+              "description": "RFC-042 Revision 5 [R21], using RFC-034 [R8]'s one scoping vocabulary. Controls whether this section descends into the named container's declared child containers. 'explicit' (the default, and the behaviour of every section authored before RFC-042 Revision 5): render direct(C) alone — the ids of the container's own memberInstanceIds entries — with no nested section. 'subtree': additionally render each container named in childContainerIds as a nested section one heading level deeper, titled by that child container's title, holding its own direct members in the same order (the container's arrangement where ordering.source is 'arranged', then ordering.fieldId, then Rule [N+12]; RFC-043 [R9]), recursively over the declared child graph. Follows declared child edges only, never contains Relations. 'repository' is not admitted on this variant — the source already names exactly one container; a container-subset section declaring it is invalid."
+            }
+          }
+        }
+      ]
+    },
+    "DiscoveryQuery": {
+      "type": "object",
+      "description": "A conjunction of zero or more structured filter predicates. An instance matches if and only if it satisfies all predicates whose values are specified (unspecified predicates are wildcards).",
+      "additionalProperties": false,
+      "properties": {
+        "typeId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Exact match on Record.typeId. Only Tier 2 Records carry typeId; Tier 0 instances do not match this predicate."
+        },
+        "typeNamespace": {
+          "type": "string",
+          "description": "Exact match on Record.typeNamespace. Independent predicate; can be combined with typeId."
+        },
+        "typeName": {
+          "type": "string",
+          "description": "Exact match on Record.typeName. Independent predicate; can be combined with typeId."
+        },
+        "containerId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Instance is a member of this container: instanceId ∈ effective(C), the recursive closure over the Container's declared memberInstanceIds entries (ids read flat) and childContainerIds (RFC-034 [R8]; I-118). Membership is declared — a contains Relation never contributes (RFC-034 [R4]); this replaces the pre-RFC-034 three-condition rule that included transitive contains traversal."
+        },
+        "tag": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "AND-conjunction: the instance's tags array must contain ALL of the specified values. RFC-006 vocabulary resolution is applied before comparison when a Vocabulary is declared."
+        },
+        "lifecycleState": {
+          "type": "string",
+          "description": "Exact match on Record.lifecycleState (case-sensitive). Requires ext:lifecycle. Instances without a lifecycleState field do not match."
+        },
+        "lifecycleStates": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "RFC-012 Rev 11 (srs#525) — inclusive multi-value lifecycle filter, OR semantics: matches an instance whose Record.lifecycleState equals ANY listed value. An instance with no lifecycleState does not match when this predicate is present and non-empty. Independent of the exact-match lifecycleState predicate above (do not combine the two on one query). Formerly SectionSource.type-query's own lifecycleStates axis (RFC-011 Change A, I-142); carried forward here as the SectionSource → DiscoveryQuery collapse's one query mechanism (srs#525). Requires ext:lifecycle; instances without ext:lifecycle declared MUST ignore this predicate."
+        },
+        "excludeLifecycleStates": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Exclusion filter (parity with the former RFC-011 type-query axis of the same name, now retired in its favor — srs#525): an instance whose Record.lifecycleState matches ANY listed value is excluded. Applied after lifecycleState/lifecycleStates. Lets an authored view declare default-hidden states (e.g. superseded, closed) while a client offers a runtime show-all override by passing an empty list. Requires ext:lifecycle; instances with no lifecycleState are never excluded by this axis."
+        },
+        "tier": {
+          "enum": [
+            0,
+            2
+          ],
+          "description": "Instance tier filter. 0 = Note, 2 = Record. Tier 1 (TypedRecord) was removed (rfc-decision-53635966); the gap in numbering is retained deliberately for reference stability."
+        },
+        "contentMatch": {
+          "type": "string",
+          "description": "Free-text recall-floor predicate. The implementation MUST include every instance whose Text Projection contains at least one segment whose normalized text contains the normalized form of this string as a substring (NFC + Unicode simple lowercasing)."
+        }
+      }
+    },
+    "NavigationLink": {
+      "type": "object",
+      "required": [
+        "fromSectionId",
+        "toSectionId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "fromSectionId": {
+          "type": "string"
+        },
+        "toSectionId": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "bidirectional": {
+          "type": "boolean",
+          "description": "Default: false."
+        }
+      }
+    },
+    "ThemeReference": {
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "additionalProperties": false,
+      "description": "A pointer to a Theme (ext:themes-l1). Follows the same mode-based reference pattern as packageRef in the manifest.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "local",
+            "remote",
+            "bundled"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "description": "Path to a Theme JSON file. Required when mode === 'local'."
+        },
+        "url": {
+          "type": "string",
+          "description": "URL to a Theme JSON file. Required when mode === 'remote'."
+        },
+        "themeId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "References Theme.id in Package.themes[]. Required when mode === 'bundled'."
+        }
+      }
+    },
+    "ThemeVariant": {
+      "type": "object",
+      "required": [
+        "name",
+        "themeRef"
+      ],
+      "additionalProperties": false,
+      "description": "A named alternative theme selectable at render time instead of Composition.themeRef.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Case-sensitive identifier. MUST be unique within Composition.themeVariants."
+        },
+        "description": {
+          "type": "string"
+        },
+        "themeRef": {
+          "$ref": "#/$defs/ThemeReference"
+        }
+      }
+    },
+    "CompositeRendererDirective": {
+      "type": "object",
+      "required": [
+        "fieldId",
+        "renderer"
+      ],
+      "additionalProperties": false,
+      "description": "RFC-036 Change B (ext:views-l2) — a CompositeRendererBinding (view.json) plus the composite-range Field it binds. Presentation only ([CR-036-20]).",
+      "properties": {
+        "fieldId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The composite-range Field this directive binds. MUST resolve to a Field whose fieldType.datatype is 'ref' and mode is 'inline' ([CR-036-3]); a fieldId absent from a rendered instance's Type is ignored without a diagnostic ([CR-036-4])."
+        },
+        "renderer": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Composite renderer identifier, as view.json $defs.CompositeRendererBinding.renderer. 'baseline' is the reserved sentinel meaning explicitly no renderer, used to cancel a broader declaration site. Grammar enforced at render and validation time, not here ([CR-036-1])."
+        },
+        "roles": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "description": "Explicit, UUID-anchored role -> Field.id binding, overriding the by-name defaults of [CR-036-8]."
+        }
+      }
+    },
+    "ExactTypeRef": {
+      "$comment": "Canonical source: field.json $defs.ExactTypeRef. Kept byte-identical here rather than a cross-file $ref because scripts/lib/json-schema-lite.mjs (the validate-all package/record validator) only resolves local '#/...' refs — see RFC-009 I-78, rfc-decision-c8704763 (ExactTypeRef collapsed to one shared definition).",
+      "type": "object",
+      "required": [
+        "typeId",
+        "typeVersion"
+      ],
+      "additionalProperties": false,
+      "description": "RFC-009 I-78. A version-exact reference to a Type in the Package (PINNED, rfc-decision-c8704763). Both typeId and typeVersion are required. The pre-RFC-009 version-optional Protocol TypeRef this once contrasted with is retired — Protocol.outputType is now a bare-UUID LINEAGE reference (typeVersion dropped; version-optional hybrids are forbidden).",
+      "properties": {
+        "typeId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID of the Type."
+        },
+        "typeVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Version of the Type this ref targets (required — version-exact anchor validated against the Package)."
+        }
+      }
+    },
+    "ExportConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Configuration for rendering a Record through this View as an exportable document.",
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "Target output format. Portable values: 'markdown', 'adoc', 'html', 'text'. Governs this View's own render context: standalone rendering when the View is used outside any Composition, and per-record rendering when a Composition section dispatches to this View (renderViewId/typeDispatch) -- but a dispatching Composition's document-level format comes from that Composition's own exportConfig.format, not from here (srs#525: one shape, two attachment points, no precedence between them)."
+        },
+        "preamble": {
+          "type": "string",
+          "description": "Template string rendered before field values. Standard variables: {{instance-id}}, {{date}}, {{status}}, {{namespace}}, {{name}}. In section rendering context, {{heading-3}} is also available (resolves to heading level 3 + depthOffset)."
+        },
+        "omitEmptyFields": {
+          "type": "boolean",
+          "description": "Default: false. When true, fields with no value are omitted from output."
+        }
+      }
+    }
+  }
+}

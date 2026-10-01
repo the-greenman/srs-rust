@@ -584,30 +584,24 @@ pub struct ContainerDeletePayload {
 #[serde(rename_all = "camelCase")]
 pub struct ContainerMembersPayload {
     pub container_id: String,
-    pub member_instance_ids: Vec<String>,
+    /// RFC-043 [R15]: the arrangement — `{instanceId, depth?}` entries in order.
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub members: Vec<srs_core::types::container::ContainerEntry>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerMembersMutatePayload {
     pub container_id: String,
-    pub instance_id: String,
-    pub member_instance_ids: Vec<String>,
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ContainerRootsPayload {
-    pub container_id: String,
-    pub root_instance_ids: Vec<String>,
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ContainerRootsMutatePayload {
-    pub container_id: String,
-    pub instance_id: String,
-    pub root_instance_ids: Vec<String>,
+    /// The entry the operation addressed (absent for `repair`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub members: Vec<srs_core::types::container::ContainerEntry>,
+    /// Entries whose depth a promoting removal lowered ([R7]).
+    pub promoted: Vec<String>,
+    /// Entries the operation removed.
+    pub removed: Vec<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

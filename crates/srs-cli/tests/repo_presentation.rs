@@ -52,7 +52,7 @@ fn create_test_composition(store: &FileStore, name: &str) -> String {
             description: None,
             order: 0,
             source: SectionSource::ContainerSubset {
-                container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+                container_id: Some("00000000-0000-4000-8000-000000000c01".to_string()),
                 container_type: None,
                 type_filter: None,
                 container_scope: None,
