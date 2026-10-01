@@ -1010,6 +1010,12 @@ impl FileStore {
     // `delete_file` above or these wrappers, so the cache can never see a
     // write it didn't invalidate for.
 
+    /// Monotonic write generation shared by every clone of this store: it
+    /// advances iff a mutation reached the underlying VFS (srs-rust#1139).
+    pub fn write_epoch(&self) -> u64 {
+        self.epoch.get()
+    }
+
     fn invalidate_catalog_cache(&self) {
         self.epoch.set(self.epoch.get() + 1);
         self.sync_cache_epoch();
