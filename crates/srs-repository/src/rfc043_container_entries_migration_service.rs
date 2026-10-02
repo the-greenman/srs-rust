@@ -347,45 +347,84 @@ struct CompositionPlan {
     doc: Value,
 }
 
-fn is_container_subset(section: &Value) -> bool {
-    section
-        .get("source")
-        .and_then(|s| s.get("type"))
-        .and_then(|t| t.as_str())
-        == Some("container-subset")
+/// One Composition section whose `ordering.memberOrder` was retired.
+struct RetiredSection {
+    /// `{at}#{sectionId}`, the section's location in diagnostics.
+    here: String,
+    /// `true`: a `container-subset` section, now `ordering.source: "arranged"`.
+    flipped: bool,
+    container_id: Option<String>,
+    listed: Vec<String>,
 }
 
-/// Outcome of [`rewrite_section_ordering`] on a section that carried `ordering.memberOrder`.
-enum SectionOutcome {
-    /// `container-subset`: `memberOrder` removed, `ordering.source` set to `arranged`.
-    Flipped,
-    /// Any other section: `memberOrder` removed, no `arranged` (ignored under [N+29]).
-    Stripped,
-    /// `container-subset` + `containerScope: "subtree"` (invalid, [R10]); section untouched.
-    Conflict,
-}
-
-/// The one rule for retiring a Composition section's `memberOrder`, shared by the store
-/// migration and the bundle transformer. `None` when the section has no `memberOrder`.
-fn rewrite_section_ordering(section: &mut Value) -> Option<SectionOutcome> {
-    section.get("ordering")?.get("memberOrder")?;
-    let subset = is_container_subset(section);
-    let subtree = section
-        .get("source")
-        .and_then(|s| s.get("containerScope"))
-        .and_then(|c| c.as_str())
-        == Some("subtree");
-    if subset && subtree {
-        return Some(SectionOutcome::Conflict);
+/// The one rule for retiring `ordering.memberOrder` on a Composition's sections (RFC-043 apply
+/// step 3), shared by the store migration and the bundle transformer; `at` names the
+/// Composition in diagnostics. A `container-subset` section drops the list and becomes
+/// `ordering.source: "arranged"`; any other section (ignored under [N+29]) is stripped and
+/// reported as `migration-memberorder-dropped`; `memberOrder` with `containerScope: "subtree"`
+/// is refused ([R10]), leaving `composition` part-rewritten, so callers write nothing on error.
+fn retire_member_order(
+    composition: &mut Value,
+    at: &str,
+    result: &mut Rfc043Result,
+) -> Result<Vec<RetiredSection>, RepositoryError> {
+    let mut retired = Vec::new();
+    let Some(sections) = composition
+        .get_mut("sections")
+        .and_then(|s| s.as_array_mut())
+    else {
+        return Ok(retired);
+    };
+    for section in sections {
+        let Some(ordering) = section.get("ordering") else {
+            continue;
+        };
+        if ordering.get("memberOrder").is_none() {
+            continue;
+        }
+        let listed = str_list(ordering, "memberOrder");
+        let sid = section.get("sectionId").and_then(|s| s.as_str());
+        let here = format!("{at}#{}", sid.unwrap_or("?"));
+        let source = |k: &str| {
+            section
+                .get("source")
+                .and_then(|s| s.get(k))
+                .and_then(|v| v.as_str())
+        };
+        let flipped = source("type") == Some("container-subset");
+        if flipped && source("containerScope") == Some("subtree") {
+            return Err(refuse(
+                "migration-memberorder-conflict",
+                format!(
+                    "{here} combines memberOrder with containerScope 'subtree' \
+                     (invalid under RFC-043 [R10]); nothing was written"
+                ),
+            ));
+        }
+        let container_id = source("containerId").map(str::to_string);
+        if let Some(o) = section.get_mut("ordering").and_then(|o| o.as_object_mut()) {
+            o.shift_remove("memberOrder");
+            if flipped {
+                o.insert("source".to_string(), json!("arranged"));
+            }
+        }
+        if flipped {
+            result.sections_flipped_to_arranged += 1;
+        } else {
+            result.member_order_stripped_not_container_subset += 1;
+            result.diagnostics.push(format!(
+                "migration-memberorder-dropped: {here} carried memberOrder on a section that is \
+                 not container-subset (ignored under [N+29]); stripped"
+            ));
+        }
+        retired.push(RetiredSection {
+            here,
+            flipped,
+            container_id,
+            listed,
+        });
     }
-    let o = section.get_mut("ordering")?.as_object_mut()?;
-    o.shift_remove("memberOrder");
-    if subset {
-        o.insert("source".to_string(), json!("arranged"));
-        Some(SectionOutcome::Flipped)
-    } else {
-        Some(SectionOutcome::Stripped)
-    }
+    Ok(retired)
 }
 
 pub fn migrate_rfc043_container_entries(
@@ -425,75 +464,25 @@ pub fn migrate_rfc043_container_entries(
                 Ok(d) => d,
                 Err(_) => continue,
             };
-            let mut changed = false;
-            if let Some(sections) = doc.get_mut("sections").and_then(|s| s.as_array_mut()) {
-                for section in sections.iter_mut() {
-                    let Some(list_val) = section
-                        .get("ordering")
-                        .and_then(|o| o.get("memberOrder"))
-                        .cloned()
-                    else {
-                        continue;
-                    };
-                    let listed: Vec<String> = list_val
-                        .as_array()
-                        .map(|a| {
-                            a.iter()
-                                .filter_map(|x| x.as_str().map(str::to_string))
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    let sid = section
-                        .get("sectionId")
-                        .and_then(|s| s.as_str())
-                        .unwrap_or("?")
-                        .to_string();
-                    let here = format!("{path}#{sid}");
-                    let subset = is_container_subset(section);
-                    let cid = section
-                        .get("source")
-                        .and_then(|s| s.get("containerId"))
-                        .and_then(|c| c.as_str())
-                        .map(str::to_string);
-                    if let Some(SectionOutcome::Conflict) = rewrite_section_ordering(section) {
-                        {
-                            return Err(refuse(
-                                "migration-memberorder-conflict",
-                                format!(
-                                    "{here} combines memberOrder with containerScope 'subtree' \
-                                     (invalid under RFC-043 [R10]); nothing was written"
-                                ),
-                            ));
-                        }
+            let retired = retire_member_order(&mut doc, &path, &mut result)?;
+            for s in retired.iter().filter(|s| s.flipped) {
+                let Some(cid) = s.container_id.as_deref() else {
+                    continue;
+                };
+                match listed_by_container.get(cid) {
+                    Some((prev, prev_at)) if *prev != s.listed => conflicts.push(format!(
+                        "container {cid} is named by two sections with different memberOrder \
+                         lists: {prev_at} and {}",
+                        s.here
+                    )),
+                    Some(_) => {}
+                    None => {
+                        listed_by_container
+                            .insert(cid.to_string(), (s.listed.clone(), s.here.clone()));
                     }
-                    if subset {
-                        result.sections_flipped_to_arranged += 1;
-                        if let Some(cid) = cid.as_deref() {
-                            match listed_by_container.get(cid) {
-                                Some((prev, prev_at)) if *prev != listed => {
-                                    conflicts.push(format!(
-                                        "container {cid} is named by two sections with different \
-                                     memberOrder lists: {prev_at} and {here}"
-                                    ))
-                                }
-                                Some(_) => {}
-                                None => {
-                                    listed_by_container
-                                        .insert(cid.to_string(), (listed, here.clone()));
-                                }
-                            }
-                        }
-                    } else {
-                        result.member_order_stripped_not_container_subset += 1;
-                        result.diagnostics.push(format!(
-                            "migration-memberorder-dropped: {here} carried memberOrder on a \
-                             section that is not container-subset (ignored under [N+29]); stripped"
-                        ));
-                    }
-                    changed = true;
                 }
             }
-            if changed {
+            if !retired.is_empty() {
                 compositions.push(CompositionPlan { path, doc });
             }
         }
@@ -812,77 +801,38 @@ pub fn migrate_srsj_str(content: &str) -> Result<(String, Rfc043Result), Reposit
     Ok((crate::srsj::to_srsj_string(&store)?, result))
 }
 
-/// Pre-load transformer for a `package-bundle` / `.srspkg` JSON value: retire every
-/// Composition section's `ordering.memberOrder` (a `container-subset` section becomes
-/// `ordering.source: "arranged"`) and stamp revision 8. A bundle carries no containers, so the
-/// order a `memberOrder` named cannot be frozen here — that is stated, not hidden: the number of
-/// sections whose list was dropped is returned so the caller can report it.
-pub fn migrate_package_bundle_value(
-    bundle: &mut Value,
-) -> Result<(usize, Vec<String>), RepositoryError> {
-    fn walk(
-        v: &mut Value,
-        dropped: &mut usize,
-        diags: &mut Vec<String>,
-    ) -> Result<(), RepositoryError> {
-        match v {
-            Value::Object(o) => {
-                if let Some(sections) = o.get_mut("sections").and_then(|s| s.as_array_mut()) {
-                    for section in sections.iter_mut() {
-                        let sid = section
-                            .get("sectionId")
-                            .and_then(|s| s.as_str())
-                            .unwrap_or("?")
-                            .to_string();
-                        match rewrite_section_ordering(section) {
-                            Some(SectionOutcome::Conflict) => {
-                                return Err(refuse(
-                                    "migration-memberorder-conflict",
-                                    format!(
-                                        "bundle section {sid} combines memberOrder with \
-                                         containerScope 'subtree' (invalid under RFC-043 [R10]); \
-                                         nothing was written"
-                                    ),
-                                ))
-                            }
-                            Some(SectionOutcome::Stripped) => {
-                                *dropped += 1;
-                                diags.push(format!(
-                                    "migration-memberorder-dropped: bundle section {sid} carried \
-                                     memberOrder on a section that is not container-subset \
-                                     (ignored under [N+29]); stripped"
-                                ));
-                            }
-                            Some(SectionOutcome::Flipped) => *dropped += 1,
-                            None => {}
-                        }
-                    }
-                }
-                for x in o.values_mut() {
-                    walk(x, dropped, diags)?;
-                }
-            }
-            Value::Array(a) => {
-                for x in a.iter_mut() {
-                    walk(x, dropped, diags)?;
-                }
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-    let mut dropped = 0;
-    let mut diags = Vec::new();
-    walk(bundle, &mut dropped, &mut diags)?;
-    if let Some(o) = bundle.as_object_mut() {
-        if o.contains_key(crate::field_type_migration_service::DATA_MODEL_REVISION_KEY) {
-            o.insert(
-                crate::field_type_migration_service::DATA_MODEL_REVISION_KEY.to_string(),
-                json!(RFC043_REVISION),
+/// Pre-load transformer for a `package-bundle` / `.srspkg` JSON value: retire every embedded
+/// Composition's `ordering.memberOrder` by the same rule as the registry entry
+/// ([`retire_member_order`]) and stamp revision 8. A bundle carries no containers, so the order
+/// a `memberOrder` named cannot be frozen here — that is stated, not hidden: the result counts
+/// every section whose list was dropped. Refuses (writing nothing the caller should keep) where
+/// the registry entry refuses. Idempotent.
+pub fn migrate_package_bundle_value(bundle: &mut Value) -> Result<Rfc043Result, RepositoryError> {
+    let key = crate::field_type_migration_service::DATA_MODEL_REVISION_KEY;
+    let mut result = Rfc043Result {
+        from_revision: bundle.get(key).and_then(|v| v.as_u64()).unwrap_or(0),
+        to_revision: RFC043_REVISION,
+        ..Default::default()
+    };
+    if let Some(comps) = bundle
+        .get_mut("compositions")
+        .and_then(|c| c.as_array_mut())
+    {
+        for comp in comps {
+            let at = format!(
+                "bundle composition {}",
+                comp.get("id").and_then(|i| i.as_str()).unwrap_or("?")
             );
+            retire_member_order(comp, &at, &mut result)?;
         }
     }
-    Ok((dropped, diags))
+    if let Some(o) = bundle.as_object_mut() {
+        if o.contains_key(key) {
+            o.insert(key.to_string(), json!(RFC043_REVISION));
+            result.packages_stamped = 1;
+        }
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -1128,7 +1078,12 @@ mod tests {
         let mut bundle = json!({"dataModelRevision": 7, "compositions": [{"sections": [
             {"sectionId": "s", "source": {"type": "container-subset", "containerId": PART},
              "ordering": {"memberOrder": [M1, M2], "direction": "asc"}}]}]});
-        assert_eq!(migrate_package_bundle_value(&mut bundle).unwrap().0, 1);
+        assert_eq!(
+            migrate_package_bundle_value(&mut bundle)
+                .unwrap()
+                .sections_flipped_to_arranged,
+            1
+        );
         let o = &bundle["compositions"][0]["sections"][0]["ordering"];
         assert!(o.get("memberOrder").is_none());
         assert_eq!(o["source"], "arranged");
@@ -1146,9 +1101,11 @@ mod tests {
         let mut bundle = json!({"dataModelRevision": 7, "compositions": [comp(json!([
             {"sectionId": "a", "order": 0, "source": {"type": "container-subset", "containerId": PART}, "ordering": mo},
             {"sectionId": "b", "order": 0, "source": {"type": "fixed-instances", "instanceIds": [M1]}, "ordering": mo}]))]});
-        let (dropped, diags) = migrate_package_bundle_value(&mut bundle).unwrap();
-        assert_eq!(dropped, 2);
-        assert_eq!(diags.len(), 1);
+        let r = migrate_package_bundle_value(&mut bundle).unwrap();
+        assert_eq!(r.sections_flipped_to_arranged, 1);
+        assert_eq!(r.member_order_stripped_not_container_subset, 1);
+        assert_eq!(r.diagnostics.len(), 1);
+        assert!(r.diagnostics[0].starts_with("migration-memberorder-dropped: bundle composition"));
         let secs = &bundle["compositions"][0]["sections"];
         assert_eq!(secs[0]["ordering"]["source"], "arranged");
         assert!(secs[1]["ordering"].get("source").is_none());
@@ -1159,7 +1116,10 @@ mod tests {
         let mut bad = json!({"compositions": [comp(json!([{"sectionId": "c", "order": 0,
             "source": {"type": "container-subset", "containerId": PART, "containerScope": "subtree"},
             "ordering": mo}]))]});
-        assert!(migrate_package_bundle_value(&mut bad).is_err());
+        let err = migrate_package_bundle_value(&mut bad)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("migration-memberorder-conflict"), "{err}");
     }
 
     /// [R16]: a revision-8 binary does not interpret revision-7 container shapes — the ordinary
