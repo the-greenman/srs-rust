@@ -166,6 +166,18 @@ impl SrsRepository {
         Ok(SrsRepository { store })
     }
 
+    /// Create a blank repository in memory (no seed): the same core service as
+    /// `srs repo create`. `input_json` is `CreateBlankRepositoryInput`:
+    /// `{ "namespace": string, "title"?, "description"?, "repositoryId"?,
+    /// "srsVersion"?, "packageId"?, "packageName"?, "packageVersion"?,
+    /// "packageNamespace"? }` — defaults are the core's. Export with
+    /// `export_srsj()` / `export_tree()` / `export_archive()`.
+    pub fn create(input_json: &str) -> Result<SrsRepository, JsValue> {
+        Ok(SrsRepository {
+            store: create_blank_from_json(input_json).map_err(js_err)?,
+        })
+    }
+
     /// Load a repository from an exploded file tree (ADR-038).
     ///
     /// `files` is a JS object mapping repo-relative forward-slash paths to
@@ -1521,6 +1533,15 @@ struct CompositionListBindingFilter {
     root_type_id: Option<String>,
 }
 
+/// `create` core. Free function so native tests exercise it.
+fn create_blank_from_json(input_json: &str) -> Result<srs_repository::FileStore, String> {
+    let input: repository_lifecycle::CreateBlankRepositoryInput =
+        serde_json::from_str(input_json).map_err(|e| format!("invalid input: {e}"))?;
+    let store = srs_repository::new_tree_session();
+    repository_lifecycle::create_blank_repository(&store, input).map_err(|e| e.to_string())?;
+    Ok(store)
+}
+
 /// `create_container` core: parse the container JSON and call the one core service.
 /// Free function so native tests exercise it (`to_js` panics off-wasm).
 fn create_container_from_json(
@@ -1610,6 +1631,48 @@ struct LinkAttachmentBindingInput {
 
 #[cfg(test)]
 mod tests {
+    use srs_repository::RepositoryStore;
+    #[test]
+    fn create_blank_validates_and_round_trips() {
+        let store = super::create_blank_from_json(
+            r#"{"title":"T","description":"Why","namespace":"com.t.x"}"#,
+        )
+        .unwrap();
+        let report = srs_repository::validation::validate_repository(&store).unwrap();
+        assert_eq!(report.summary.errors, 0, "{:?}", report.diagnostics);
+        let m = store.load_manifest().unwrap();
+        assert_eq!(m.extra["dataModelRevision"], 8);
+        let c = m.container.as_ref().unwrap();
+        let id = c.identity_instance_id.clone().unwrap();
+        let members = c.member_instance_ids.as_ref().unwrap();
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].instance_id, id);
+        assert!(members[0].depth.unwrap_or(0) == 0);
+        assert!(!c.extra.contains_key("rootInstanceIds"));
+
+        // session round trip: export_srsj -> load
+        let srsj = srs_repository::srsj::to_srsj_string(&store).unwrap();
+        let again = srs_repository::srsj::open_srsj(&srsj).unwrap();
+        let r2 = srs_repository::validation::validate_repository(&again).unwrap();
+        assert_eq!(r2.summary.errors, 0);
+        assert_eq!(
+            again.load_manifest().unwrap().extra["repositoryId"],
+            m.extra["repositoryId"]
+        );
+        assert!(
+            super::create_blank_from_json("{}").is_err(),
+            "namespace required"
+        );
+        assert!(
+            super::create_blank_from_json(r#"{"namespace":"a.b","purpose":"x"}"#).is_err(),
+            "unknown keys refused"
+        );
+        assert!(
+            super::create_blank_from_json(r#"{"namespace":"a.b","title":" "}"#).is_err(),
+            "blank title refused"
+        );
+    }
+
     use super::create_container_from_json;
     use serde_json::json;
     use srs_repository::record_store::CreateRecordInput;

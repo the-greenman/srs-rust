@@ -661,18 +661,18 @@ pub enum RepoCommand {
         /// Repository description
         #[arg(long)]
         description: Option<String>,
-        /// SRS version stored in manifest
-        #[arg(long = "srs-version", default_value = "2.0-draft")]
-        srs_version: String,
+        /// SRS version stored in manifest (default: 2.0-draft)
+        #[arg(long = "srs-version")]
+        srs_version: Option<String>,
         /// Primary package ID (UUID); auto-generated if omitted
         #[arg(long = "package-id")]
         package_id: Option<String>,
-        /// Primary package name
-        #[arg(long = "package-name", default_value = "primary")]
-        package_name: String,
-        /// Primary package version
-        #[arg(long = "package-version", default_value = "1.0.0")]
-        package_version: String,
+        /// Primary package name (default: primary)
+        #[arg(long = "package-name")]
+        package_name: Option<String>,
+        /// Primary package version (default: 1.0.0)
+        #[arg(long = "package-version")]
+        package_version: Option<String>,
         /// Primary package namespace (defaults to repository namespace)
         #[arg(long = "package-namespace")]
         package_namespace: Option<String>,
