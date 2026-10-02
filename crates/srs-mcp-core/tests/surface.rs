@@ -586,4 +586,116 @@ mod write_guard {
             json!({ "instanceId": a, "fieldValues": { "body": "x" } }),
         );
     }
+
+    #[test]
+    fn container_create_cannot_overwrite_a_guarded_container() {
+        let (_dir, mut d) = guarded();
+        let c = tool(&mut d, "container_create", json!({ "title": "Essay" }));
+        let cid = c["result"]["structuredContent"]["containerId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let p = create(
+            &mut d,
+            "com.example.surface/para2",
+            json!({ "body": "a" }),
+            Some(&cid),
+        );
+        guard(&mut d, json!({ "containerIds": [cid] }));
+        let before = epoch(&d);
+        let r = tool(
+            &mut d,
+            "container_create",
+            json!({ "containerId": cid, "title": "Empty" }),
+        );
+        assert_eq!(r["result"]["isError"], true, "{r}");
+        assert_eq!(epoch(&d), before);
+        let members =
+            srs_repository::container_service::list_members(d.application().store(), &cid).unwrap();
+        assert_eq!(members, vec![p]);
+    }
+
+    #[test]
+    fn child_containers_of_a_guarded_container_are_guarded() {
+        let (_dir, mut d) = guarded();
+        let ty = "com.example.surface/para2";
+        let child = tool(&mut d, "container_create", json!({ "title": "Child" }));
+        let child = child["result"]["structuredContent"]["containerId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let p = create(&mut d, ty, json!({ "body": "a" }), Some(&child));
+        let parent = tool(
+            &mut d,
+            "container_create",
+            json!({ "title": "Parent", "childContainerIds": [child] }),
+        );
+        let parent = parent["result"]["structuredContent"]["containerId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        guard(&mut d, json!({ "containerIds": [parent] }));
+        assert_rejected(
+            &mut d,
+            "container_member_remove",
+            json!({ "containerId": child, "instanceId": p }),
+        );
+        assert_rejected(
+            &mut d,
+            "container_member_move",
+            json!({ "containerId": child, "instanceId": p, "position": 0 }),
+        );
+        assert_rejected(
+            &mut d,
+            "record_update",
+            json!({ "instanceId": p, "fieldValues": { "body": "x" } }),
+        );
+    }
+
+    #[test]
+    fn field_meta_meta_tags_and_type_version_cannot_be_rewritten() {
+        let (_dir, mut d) = guarded();
+        let r = tool(
+            &mut d,
+            "record_create",
+            json!({ "type": "com.example.surface/para2", "fieldValues": { "body": "a" },
+                    "fieldMeta": { "body": { "source": "human" } } }),
+        );
+        let id = r["result"]["structuredContent"]["instanceId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        guard(
+            &mut d,
+            json!({ "instanceIds": [id], "fillOnlyFields": ["paragraph_title"] }),
+        );
+        let base = |extra: Value| {
+            let mut a = json!({ "instanceId": id, "fieldValues": { "body": "a" } });
+            a.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            a
+        };
+        assert_rejected(&mut d, "record_update", base(json!({ "fieldMeta": {} })));
+        assert_rejected(&mut d, "record_update", base(json!({ "tags": ["x"] })));
+        assert_rejected(&mut d, "record_update", base(json!({ "meta": { "k": 1 } })));
+        assert_rejected(&mut d, "record_update", base(json!({ "typeVersion": 1 })));
+    }
+
+    #[test]
+    fn record_successor_of_a_guarded_record_is_rejected() {
+        let (_dir, mut d) = guarded();
+        let id = create(
+            &mut d,
+            "com.example.surface/para2",
+            json!({ "body": "a" }),
+            None,
+        );
+        guard(&mut d, json!({ "instanceIds": [id] }));
+        assert_rejected(
+            &mut d,
+            "record_successor",
+            json!({ "predecessorId": id, "relationType": "supersedes", "fieldValues": { "body": "n" } }),
+        );
+    }
 }

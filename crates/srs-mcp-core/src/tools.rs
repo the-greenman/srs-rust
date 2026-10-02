@@ -286,7 +286,7 @@ impl From<FieldMetaInput> for FieldMeta {
     }
 }
 
-fn field_meta_map(
+pub(crate) fn field_meta_map(
     input: Option<std::collections::BTreeMap<String, FieldMetaInput>>,
 ) -> Option<indexmap::IndexMap<String, FieldMeta>> {
     input.map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())

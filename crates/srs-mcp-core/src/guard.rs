@@ -2,7 +2,8 @@
 //!
 //! Protected containers and records are read-only to the session, except that
 //! `fillOnlyFields` may be set while unset. Membership is resolved at write time
-//! through `container_service::list_members`, never snapshotted.
+//! through `container_service::list_members`, never snapshotted. Session-only:
+//! the stdio `srs mcp serve` has no guard (deferred per the issue).
 
 use crate::tools::{
     self, ContainerIdToolInput, ContainerMemberAddToolInput, ContainerMemberMoveToolInput,
@@ -11,7 +12,8 @@ use crate::tools::{
 };
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{Map, Value};
-use srs_repository::{container_service, record_store, store::RepositoryStore};
+use srs_repository::container_service::{self, ContainerCreateInput};
+use srs_repository::{record_store, store::RepositoryStore};
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -42,16 +44,34 @@ impl WriteGuard {
         format!("Rejected by the session write guard: {what}")
     }
 
-    fn container_guarded(&self, id: &str) -> bool {
-        self.container_ids.iter().any(|c| c == id)
+    /// Guarded containers plus their `childContainerIds` closure. A container
+    /// that cannot be loaded fails closed: `Err` rejects the write.
+    fn guarded_containers(&self, store: &dyn RepositoryStore) -> Result<Vec<String>, String> {
+        let mut all = Vec::new();
+        for c in &self.container_ids {
+            let closure = container_service::container_closure(store, c)
+                .map_err(|e| self.deny(&format!("cannot resolve guarded container '{c}': {e}")))?;
+            all.extend(closure);
+        }
+        Ok(all)
     }
 
-    fn record_guarded(&self, store: &dyn RepositoryStore, id: &str) -> bool {
-        self.instance_ids.iter().any(|i| i == id)
-            || self.container_ids.iter().any(|c| {
-                container_service::list_members(store, c)
-                    .is_ok_and(|members| members.iter().any(|m| m == id))
-            })
+    fn container_guarded(&self, store: &dyn RepositoryStore, id: &str) -> Result<bool, String> {
+        Ok(self.guarded_containers(store)?.iter().any(|c| c == id))
+    }
+
+    fn record_guarded(&self, store: &dyn RepositoryStore, id: &str) -> Result<bool, String> {
+        if self.instance_ids.iter().any(|i| i == id) {
+            return Ok(true);
+        }
+        for c in &self.container_ids {
+            let members = container_service::list_members(store, c)
+                .map_err(|e| self.deny(&format!("cannot resolve guarded container '{c}': {e}")))?;
+            if members.iter().any(|m| m == id) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// `Err(message)` when the session's write guard forbids this tool call.
@@ -62,97 +82,84 @@ impl WriteGuard {
         args: Option<&Map<String, Value>>,
     ) -> Result<(), String> {
         let Some(args) = args else { return Ok(()) };
-        let locked = |id: &str, tool: &str| {
-            Err(self.deny(&format!(
-                "record '{id}' is protected; {tool} is not allowed on it"
-            )))
-        };
-        let container_locked = |id: &str, tool: &str| {
-            Err(self.deny(&format!(
-                "container '{id}' is protected; {tool} is not allowed on it"
-            )))
-        };
-        match name {
-            tools::TOOL_RECORD_UPDATE => {
-                let Some(input) = parse::<RecordUpdateToolInput>(args) else {
-                    return Ok(());
-                };
-                if !self.record_guarded(store, &input.instance_id) {
-                    return Ok(());
-                }
-                self.check_update(store, &input)
+        // Container structure writes and instance creation filed into a container.
+        let container = match name {
+            tools::TOOL_CONTAINER_MEMBER_ADD => {
+                parse::<ContainerMemberAddToolInput>(args).map(|i| i.container_id)
             }
-            tools::TOOL_RECORD_TRANSITION => match parse::<RecordTransitionToolInput>(args) {
-                Some(i) if self.record_guarded(store, &i.instance_id) => {
-                    locked(&i.instance_id, name)
-                }
-                _ => Ok(()),
-            },
-            tools::TOOL_RECORD_SUCCESSOR => match parse::<RecordSuccessorToolInput>(args) {
-                Some(i) if self.record_guarded(store, &i.predecessor_id) => {
-                    locked(&i.predecessor_id, name)
-                }
-                _ => Ok(()),
-            },
-            tools::TOOL_CONTAINER_MEMBER_ADD => match parse::<ContainerMemberAddToolInput>(args) {
-                Some(i) if self.container_guarded(&i.container_id) => {
-                    container_locked(&i.container_id, name)
-                }
-                _ => Ok(()),
-            },
-            tools::TOOL_CONTAINER_MEMBER_REMOVE => match parse::<ContainerMemberToolInput>(args) {
-                Some(i) if self.container_guarded(&i.container_id) => {
-                    container_locked(&i.container_id, name)
-                }
-                _ => Ok(()),
-            },
+            tools::TOOL_CONTAINER_MEMBER_REMOVE => {
+                parse::<ContainerMemberToolInput>(args).map(|i| i.container_id)
+            }
             tools::TOOL_CONTAINER_MEMBER_MOVE => {
-                match parse::<ContainerMemberMoveToolInput>(args) {
-                    Some(i) if self.container_guarded(&i.container_id) => {
-                        container_locked(&i.container_id, name)
-                    }
-                    _ => Ok(()),
+                parse::<ContainerMemberMoveToolInput>(args).map(|i| i.container_id)
+            }
+            tools::TOOL_CONTAINER_MEMBER_REPAIR => {
+                parse::<ContainerIdToolInput>(args).map(|i| i.container_id)
+            }
+            tools::TOOL_RECORD_CREATE => {
+                parse::<RecordCreateToolInput>(args).and_then(|i| i.container_id)
+            }
+            tools::TOOL_NOTE_CREATE => {
+                parse::<NoteCreateToolInput>(args).and_then(|i| i.container_id)
+            }
+            tools::TOOL_NOTE_GRADUATE => {
+                parse::<NoteGraduateToolInput>(args).and_then(|i| i.container_id)
+            }
+            _ => None,
+        };
+        if let Some(c) = container {
+            if self.container_guarded(store, &c)? {
+                return Err(self.deny(&format!(
+                    "container '{c}' is protected; {name} is not allowed on it"
+                )));
+            }
+            return Ok(());
+        }
+        // `container_create` over an existing id replaces that container (core
+        // callers rely on create-as-upsert), so a guarded id is rejected here.
+        if name == tools::TOOL_CONTAINER_CREATE {
+            if let Some(c) = parse::<ContainerCreateInput>(args).and_then(|i| i.container_id) {
+                if self.container_guarded(store, &c)? {
+                    return Err(self.deny(&format!(
+                        "container '{c}' is protected; {name} would overwrite it"
+                    )));
                 }
             }
-            tools::TOOL_CONTAINER_MEMBER_REPAIR => match parse::<ContainerIdToolInput>(args) {
-                Some(i) if self.container_guarded(&i.container_id) => {
-                    container_locked(&i.container_id, name)
-                }
-                _ => Ok(()),
-            },
-            // Creating an instance is allowed, but filing it into a guarded
-            // container is a membership write.
-            tools::TOOL_RECORD_CREATE => self.check_new_in(
-                parse::<RecordCreateToolInput>(args).and_then(|i| i.container_id),
-                name,
-            ),
-            tools::TOOL_NOTE_CREATE => self.check_new_in(
-                parse::<NoteCreateToolInput>(args).and_then(|i| i.container_id),
-                name,
-            ),
-            tools::TOOL_NOTE_GRADUATE => self.check_new_in(
-                parse::<NoteGraduateToolInput>(args).and_then(|i| i.container_id),
-                name,
-            ),
-            _ => Ok(()),
+            return Ok(());
         }
+        let record = match name {
+            tools::TOOL_RECORD_UPDATE => {
+                parse::<RecordUpdateToolInput>(args).map(|i| i.instance_id)
+            }
+            tools::TOOL_RECORD_TRANSITION => {
+                parse::<RecordTransitionToolInput>(args).map(|i| i.instance_id)
+            }
+            tools::TOOL_RECORD_SUCCESSOR => {
+                parse::<RecordSuccessorToolInput>(args).map(|i| i.predecessor_id)
+            }
+            _ => None,
+        };
+        let Some(id) = record else { return Ok(()) };
+        if !self.record_guarded(store, &id)? {
+            return Ok(());
+        }
+        if name == tools::TOOL_RECORD_UPDATE {
+            if let Some(input) = parse::<RecordUpdateToolInput>(args) {
+                return self.check_update(store, input);
+            }
+        }
+        Err(self.deny(&format!(
+            "record '{id}' is protected; {name} is not allowed on it"
+        )))
     }
 
-    fn check_new_in(&self, container_id: Option<String>, tool: &str) -> Result<(), String> {
-        match container_id {
-            Some(c) if self.container_guarded(&c) => Err(self.deny(&format!(
-                "container '{c}' is protected; {tool} may not add a new instance to it"
-            ))),
-            _ => Ok(()),
-        }
-    }
-
-    /// `record_update` replaces the whole `fieldValues`, so compare against the
-    /// stored record: only a fill-only field that is currently unset may differ.
+    /// `record_update` replaces the whole `fieldValues` and `fieldMeta`, so
+    /// compare against the stored record: only a fill-only field that is
+    /// currently unset may differ.
     fn check_update(
         &self,
         store: &dyn RepositoryStore,
-        input: &RecordUpdateToolInput,
+        input: RecordUpdateToolInput,
     ) -> Result<(), String> {
         let id = &input.instance_id;
         if input.tags.is_some() || input.type_version.is_some() || input.meta.is_some() {
@@ -181,10 +188,18 @@ impl WriteGuard {
                 )));
             }
         }
-        if let Some(meta) = &input.field_meta {
-            if let Some(key) = meta.keys().find(|k| !self.fill_only_fields.contains(*k)) {
+        // Provenance of every non-fill field must survive a whole-map replace.
+        if let Some(meta) = tools::field_meta_map(input.field_meta) {
+            let stored = serde_json::to_value(&record.field_meta).unwrap_or(Value::Null);
+            let sent = serde_json::to_value(&meta).unwrap_or(Value::Null);
+            let keep = |v: &Value| {
+                let mut m = v.as_object().cloned().unwrap_or_default();
+                m.retain(|k, _| !self.fill_only_fields.contains(k));
+                m
+            };
+            if keep(&stored) != keep(&sent) {
                 return Err(self.deny(&format!(
-                    "record '{id}' is protected; fieldMeta for '{key}' cannot be changed"
+                    "record '{id}' is protected; fieldMeta of non-fill fields cannot be changed"
                 )));
             }
         }
