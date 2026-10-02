@@ -355,6 +355,39 @@ fn is_container_subset(section: &Value) -> bool {
         == Some("container-subset")
 }
 
+/// Outcome of [`rewrite_section_ordering`] on a section that carried `ordering.memberOrder`.
+enum SectionOutcome {
+    /// `container-subset`: `memberOrder` removed, `ordering.source` set to `arranged`.
+    Flipped,
+    /// Any other section: `memberOrder` removed, no `arranged` (ignored under [N+29]).
+    Stripped,
+    /// `container-subset` + `containerScope: "subtree"` (invalid, [R10]); section untouched.
+    Conflict,
+}
+
+/// The one rule for retiring a Composition section's `memberOrder`, shared by the store
+/// migration and the bundle transformer. `None` when the section has no `memberOrder`.
+fn rewrite_section_ordering(section: &mut Value) -> Option<SectionOutcome> {
+    section.get("ordering")?.get("memberOrder")?;
+    let subset = is_container_subset(section);
+    let subtree = section
+        .get("source")
+        .and_then(|s| s.get("containerScope"))
+        .and_then(|c| c.as_str())
+        == Some("subtree");
+    if subset && subtree {
+        return Some(SectionOutcome::Conflict);
+    }
+    let o = section.get_mut("ordering")?.as_object_mut()?;
+    o.shift_remove("memberOrder");
+    if subset {
+        o.insert("source".to_string(), json!("arranged"));
+        Some(SectionOutcome::Flipped)
+    } else {
+        Some(SectionOutcome::Stripped)
+    }
+}
+
 pub fn migrate_rfc043_container_entries(
     store: &dyn RepositoryStore,
 ) -> Result<Rfc043Result, RepositoryError> {
@@ -417,34 +450,25 @@ pub fn migrate_rfc043_container_entries(
                         .to_string();
                     let here = format!("{path}#{sid}");
                     let subset = is_container_subset(section);
-                    let subtree = section
+                    let cid = section
                         .get("source")
-                        .and_then(|s| s.get("containerScope"))
+                        .and_then(|s| s.get("containerId"))
                         .and_then(|c| c.as_str())
-                        == Some("subtree");
-                    if subset && subtree {
-                        return Err(refuse(
-                            "migration-memberorder-conflict",
-                            format!(
-                                "{here} combines memberOrder with containerScope 'subtree' \
-                                 (invalid under RFC-043 [R10]); nothing was written"
-                            ),
-                        ));
-                    }
-                    if let Some(o) = section.get_mut("ordering").and_then(|o| o.as_object_mut()) {
-                        o.shift_remove("memberOrder");
+                        .map(str::to_string);
+                    if let Some(SectionOutcome::Conflict) = rewrite_section_ordering(section) {
+                        {
+                            return Err(refuse(
+                                "migration-memberorder-conflict",
+                                format!(
+                                    "{here} combines memberOrder with containerScope 'subtree' \
+                                     (invalid under RFC-043 [R10]); nothing was written"
+                                ),
+                            ));
+                        }
                     }
                     if subset {
-                        if let Some(o) = section.get_mut("ordering").and_then(|o| o.as_object_mut())
-                        {
-                            o.insert("source".to_string(), json!("arranged"));
-                        }
                         result.sections_flipped_to_arranged += 1;
-                        if let Some(cid) = section
-                            .get("source")
-                            .and_then(|s| s.get("containerId"))
-                            .and_then(|c| c.as_str())
-                        {
+                        if let Some(cid) = cid.as_deref() {
                             match listed_by_container.get(cid) {
                                 Some((prev, prev_at)) if *prev != listed => {
                                     conflicts.push(format!(
@@ -793,26 +817,63 @@ pub fn migrate_srsj_str(content: &str) -> Result<(String, Rfc043Result), Reposit
 /// `ordering.source: "arranged"`) and stamp revision 8. A bundle carries no containers, so the
 /// order a `memberOrder` named cannot be frozen here — that is stated, not hidden: the number of
 /// sections whose list was dropped is returned so the caller can report it.
-pub fn migrate_package_bundle_value(bundle: &mut Value) -> usize {
-    fn walk(v: &mut Value, dropped: &mut usize) {
+pub fn migrate_package_bundle_value(
+    bundle: &mut Value,
+) -> Result<(usize, Vec<String>), RepositoryError> {
+    fn walk(
+        v: &mut Value,
+        dropped: &mut usize,
+        diags: &mut Vec<String>,
+    ) -> Result<(), RepositoryError> {
         match v {
             Value::Object(o) => {
-                if let Some(ordering) = o.get_mut("ordering").and_then(|x| x.as_object_mut()) {
-                    if ordering.shift_remove("memberOrder").is_some() {
-                        *dropped += 1;
-                        ordering.insert("source".to_string(), json!("arranged"));
+                if let Some(sections) = o.get_mut("sections").and_then(|s| s.as_array_mut()) {
+                    for section in sections.iter_mut() {
+                        let sid = section
+                            .get("sectionId")
+                            .and_then(|s| s.as_str())
+                            .unwrap_or("?")
+                            .to_string();
+                        match rewrite_section_ordering(section) {
+                            Some(SectionOutcome::Conflict) => {
+                                return Err(refuse(
+                                    "migration-memberorder-conflict",
+                                    format!(
+                                        "bundle section {sid} combines memberOrder with \
+                                         containerScope 'subtree' (invalid under RFC-043 [R10]); \
+                                         nothing was written"
+                                    ),
+                                ))
+                            }
+                            Some(SectionOutcome::Stripped) => {
+                                *dropped += 1;
+                                diags.push(format!(
+                                    "migration-memberorder-dropped: bundle section {sid} carried \
+                                     memberOrder on a section that is not container-subset \
+                                     (ignored under [N+29]); stripped"
+                                ));
+                            }
+                            Some(SectionOutcome::Flipped) => *dropped += 1,
+                            None => {}
+                        }
                     }
                 }
                 for x in o.values_mut() {
-                    walk(x, dropped);
+                    walk(x, dropped, diags)?;
                 }
             }
-            Value::Array(a) => a.iter_mut().for_each(|x| walk(x, dropped)),
+            Value::Array(a) => {
+                for x in a.iter_mut() {
+                    walk(x, dropped, diags)?;
+                }
+            }
             _ => {}
         }
+        Ok(())
     }
     let mut dropped = 0;
-    walk(bundle, &mut dropped);
+    let mut diags = Vec::new();
+    walk(bundle, &mut dropped, &mut diags)?;
     if let Some(o) = bundle.as_object_mut() {
         if o.contains_key(crate::field_type_migration_service::DATA_MODEL_REVISION_KEY) {
             o.insert(
@@ -821,7 +882,7 @@ pub fn migrate_package_bundle_value(bundle: &mut Value) -> usize {
             );
         }
     }
-    dropped
+    Ok((dropped, diags))
 }
 
 #[cfg(test)]
@@ -1067,11 +1128,38 @@ mod tests {
         let mut bundle = json!({"dataModelRevision": 7, "compositions": [{"sections": [
             {"sectionId": "s", "source": {"type": "container-subset", "containerId": PART},
              "ordering": {"memberOrder": [M1, M2], "direction": "asc"}}]}]});
-        assert_eq!(migrate_package_bundle_value(&mut bundle), 1);
+        assert_eq!(migrate_package_bundle_value(&mut bundle).unwrap().0, 1);
         let o = &bundle["compositions"][0]["sections"][0]["ordering"];
         assert!(o.get("memberOrder").is_none());
         assert_eq!(o["source"], "arranged");
         assert_eq!(bundle["dataModelRevision"], 8);
+    }
+
+    /// srs-rust#1155: a bundle mixing section kinds migrates to Compositions the engine accepts.
+    #[test]
+    fn package_bundle_mixed_sections_pass_engine_validation() {
+        let comp = |sections: Value| {
+            json!({
+            "id": M1, "namespace": "n", "name": "c", "version": 1, "description": "d", "createdAt": "2026-05-29T00:00:00Z", "sections": sections})
+        };
+        let mo = json!({"memberOrder": [M1, M2]});
+        let mut bundle = json!({"dataModelRevision": 7, "compositions": [comp(json!([
+            {"sectionId": "a", "order": 0, "source": {"type": "container-subset", "containerId": PART}, "ordering": mo},
+            {"sectionId": "b", "order": 0, "source": {"type": "fixed-instances", "instanceIds": [M1]}, "ordering": mo}]))]});
+        let (dropped, diags) = migrate_package_bundle_value(&mut bundle).unwrap();
+        assert_eq!(dropped, 2);
+        assert_eq!(diags.len(), 1);
+        let secs = &bundle["compositions"][0]["sections"];
+        assert_eq!(secs[0]["ordering"]["source"], "arranged");
+        assert!(secs[1]["ordering"].get("source").is_none());
+        let c: srs_core::types::view::Composition =
+            serde_json::from_value(bundle["compositions"][0].clone()).unwrap();
+        srs_core::validation::view::validate_composition(&c).unwrap();
+
+        let mut bad = json!({"compositions": [comp(json!([{"sectionId": "c", "order": 0,
+            "source": {"type": "container-subset", "containerId": PART, "containerScope": "subtree"},
+            "ordering": mo}]))]});
+        assert!(migrate_package_bundle_value(&mut bad).is_err());
     }
 
     /// [R16]: a revision-8 binary does not interpret revision-7 container shapes — the ordinary
