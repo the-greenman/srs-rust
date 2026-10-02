@@ -436,20 +436,28 @@ impl<S: srs_repository::store::RepositoryStore> SrsMcpApplication<S> {
     }
 
     /// Client handle (srs-rust#1177): fill the session actor's `name` from
-    /// `params.clientInfo.name` (trimmed, capped at [`CLIENT_HANDLE_MAX_CHARS`]; empty or
+    /// `params.clientInfo.name` (control characters stripped, trimmed, capped at [`CLIENT_HANDLE_MAX_CHARS`]; empty or
     /// missing leaves `name` absent). Display-only (RFC-046 `Actor.name` is a hint). The
-    /// host owns `kind`/`id` and any `name` it set (a present `name` key wins); the client
+    /// host owns `kind`/`id` and any `name` it set (a non-empty string `name` wins; null or "" does not count as fixed); the client
     /// can never change them. Runs once per session: a second `initialize` is refused.
     fn apply_client_handle(&self, params: &Value) {
         let Some(Value::Object(mut actor)) = self.store.session_actor() else {
             return;
         };
-        if actor.contains_key("name") {
+        // Host-fixed = a non-empty string `name`; null/"" count as absent.
+        if actor
+            .get("name")
+            .and_then(Value::as_str)
+            .is_some_and(|n| !n.is_empty())
+        {
             return;
         }
         let handle: String = params["clientInfo"]["name"]
             .as_str()
             .unwrap_or_default()
+            .chars()
+            .filter(|c| !c.is_control())
+            .collect::<String>()
             .trim()
             .chars()
             .take(CLIENT_HANDLE_MAX_CHARS)

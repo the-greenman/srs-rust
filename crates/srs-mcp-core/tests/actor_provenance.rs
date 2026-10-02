@@ -212,3 +212,62 @@ fn no_session_actor_means_no_handle_stamp() {
     );
     assert!(stamped(&mut d).is_null());
 }
+
+#[test]
+fn multibyte_cap_and_control_chars() {
+    let (_t, mut d) = handle_session(
+        json!({"kind":"ai","id":"a"}),
+        json!({"name":"é".repeat(200)}),
+    );
+    assert_eq!(
+        stamped(&mut d)["name"].as_str().unwrap().chars().count(),
+        120
+    );
+    let (_t, mut d) = handle_session(json!({"kind":"ai","id":"a"}), json!({"name":"a\nb\u{0}c"}));
+    assert_eq!(stamped(&mut d)["name"], "abc");
+    let (_t, mut d) = handle_session(json!({"kind":"ai","id":"a"}), json!({"name":"\n\u{0}\t"}));
+    assert_eq!(stamped(&mut d), json!({"kind":"ai","id":"a"}));
+}
+
+#[test]
+fn null_or_empty_host_name_is_not_fixed() {
+    for n in [Value::Null, json!("")] {
+        let (_t, mut d) =
+            handle_session(json!({"kind":"ai","id":"a","name":n}), json!({"name":"h"}));
+        assert_eq!(stamped(&mut d)["name"], "h");
+    }
+}
+
+#[test]
+fn later_set_actor_replaces_actor_and_drops_handle() {
+    let (_t, mut d) = handle_session(json!({"kind":"ai","id":"a"}), json!({"name":"h"}));
+    d.application_mut()
+        .set_session_actor(Some(json!({"kind":"ai","id":"b"})));
+    assert_eq!(stamped(&mut d), json!({"kind":"ai","id":"b"}));
+}
+
+#[test]
+fn initialized_notification_and_tool_args_leave_actor_unchanged() {
+    let (_t, mut d) = handle_session(json!({"kind":"ai","id":"a"}), json!({"name":"h"}));
+    d.dispatch(json!({"jsonrpc":"2.0","method":"notifications/initialized"}));
+    let mut args = NOTE();
+    args["actor"] = json!({"kind":"human","id":"x","name":"evil"});
+    args["name"] = json!("evil");
+    let _ = tool(&mut d, "note_create", args);
+    assert_eq!(stamped(&mut d), json!({"kind":"ai","id":"a","name":"h"}));
+}
+
+#[test]
+fn record_create_stamps_host_id_and_handle() {
+    let (_t, mut d) = handle_session(json!({"kind":"ai","id":"agent-1"}), json!({"name":"cc"}));
+    let r = tool(
+        &mut d,
+        "record_create",
+        json!({"type":"com.semanticops.core/purpose","fieldValues":{"statement":"s"}}),
+    );
+    assert_eq!(r["isError"], false, "{r}");
+    assert_eq!(
+        r["structuredContent"]["createdBy"],
+        json!({"kind":"ai","id":"agent-1","name":"cc"})
+    );
+}
