@@ -1,13 +1,17 @@
-use crate::commands::{with_store, CliContext, PackageCommand};
+use crate::commands::{with_store, CliContext, PackageCommand, PackageDependencyCommand};
 use crate::output;
 use crate::payload::{
-    PackageCreatePayload, PackageImportPayload, PackageImportsPayload, PackageInstallConflictEntry,
-    PackageInstallKindEntry, PackageInstallPayload, PackageListEntry, PackageListPayload,
-    PackageRefEntry, PackageRefPayload, PackageUpdatePayload,
+    PackageCreatePayload, PackageDependenciesPayload, PackageImportPayload, PackageImportsPayload,
+    PackageInstallConflictEntry, PackageInstallKindEntry, PackageInstallPayload, PackageListEntry,
+    PackageListPayload, PackageRefEntry, PackageRefPayload, PackageUpdatePayload,
 };
 use anyhow::Result;
 use srs_core::extensions::import_tracking::ImportMode;
 use srs_repository::manifest_service::{add_package_ref, remove_package_ref};
+use srs_repository::package_dependency_service::{
+    add_package_dependency, check_bundle, list_package_dependencies, remove_package_dependency,
+    AddPackageDependencyInput, BundleRequirements, RemovePackageDependencyInput,
+};
 use srs_repository::package_install_service::{install_package, InstallPackageInput};
 use srs_repository::package_service::{
     create_package, import_package_local, list_package_imports, list_packages,
@@ -45,6 +49,7 @@ pub fn dispatch(ctx: CliContext, cmd: PackageCommand) -> Result<String> {
             boundary_path,
         } => cmd_package_create(ctx, id, namespace, name, version, boundary_path),
         PackageCommand::Imports => cmd_package_imports(ctx),
+        PackageCommand::Dependency(sub) => cmd_package_dependency(ctx, sub),
         PackageCommand::Enable { path } => cmd_package_enable(ctx, path),
         PackageCommand::Disable { path } => cmd_package_disable(ctx, path),
     }
@@ -223,4 +228,57 @@ fn cmd_package_imports(ctx: CliContext) -> Result<String> {
         )?)
     })?;
     output::serialize("package imports", PackageImportsPayload::from(result))
+}
+
+fn cmd_package_dependency(ctx: CliContext, cmd: PackageDependencyCommand) -> Result<String> {
+    let (command, result) = match cmd {
+        PackageDependencyCommand::List { selector } => (
+            "package dependency list",
+            with_store(&ctx, |store| {
+                Ok(list_package_dependencies(store, selector.clone())?)
+            })?,
+        ),
+        PackageDependencyCommand::Add {
+            selector,
+            package_id,
+            version,
+            repair_legacy,
+        } => {
+            let input = AddPackageDependencyInput {
+                selector,
+                package_id,
+                version,
+                repair_legacy,
+            };
+            (
+                "package dependency add",
+                with_store(&ctx, |store| {
+                    Ok(add_package_dependency(store, input.clone())?)
+                })?,
+            )
+        }
+        PackageDependencyCommand::Check => {
+            let bundle: BundleRequirements = crate::input::from_stdin("package requirements")?;
+            (
+                "package dependency check",
+                with_store(&ctx, |store| Ok(check_bundle(store, &bundle)?))?,
+            )
+        }
+        PackageDependencyCommand::Remove {
+            selector,
+            package_id,
+        } => {
+            let input = RemovePackageDependencyInput {
+                selector,
+                package_id,
+            };
+            (
+                "package dependency remove",
+                with_store(&ctx, |store| {
+                    Ok(remove_package_dependency(store, input.clone())?)
+                })?,
+            )
+        }
+    };
+    output::serialize(command, PackageDependenciesPayload::from(result))
 }

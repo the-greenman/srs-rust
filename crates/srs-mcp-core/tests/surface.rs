@@ -63,14 +63,51 @@ fn application_reads_repository_id_from_manifest() {
 }
 
 #[test]
-fn tool_catalogue_has_all_twenty_three_tools_and_core_owns_the_schemas() {
+fn tool_catalogue_has_all_twenty_six_tools_and_core_owns_the_schemas() {
     let (_dir, mut d) = setup();
     let listed = rpc(&mut d, "tools/list", json!({}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 23);
+    assert_eq!(tools.len(), 26);
     assert!(tools
         .iter()
         .all(|t| t["description"].is_string() && t["inputSchema"]["type"] == "object"));
+}
+
+#[test]
+fn package_dependency_tools_use_the_core_service() {
+    let (_dir, mut d) = setup();
+    // The core package is always installed (RFC-044 Change D item 4).
+    let core = "3a000001-0000-4000-a000-000000000001";
+    let set = tool(
+        &mut d,
+        "package_dependency_set",
+        json!({ "packageId": core, "version": "1.0.0" }),
+    );
+    let r = &set["result"]["structuredContent"];
+    assert_eq!(r["action"], "added", "{set}");
+    assert_eq!(r["dependencies"][0]["namespace"], "com.semanticops.core");
+    assert_eq!(r["dependencies"][0]["satisfied"], true);
+    // Labels are never guessed: an uninstalled id is a tool error.
+    let refused = tool(
+        &mut d,
+        "package_dependency_set",
+        json!({ "packageId": "e0000007-0000-4000-a000-000000000007", "version": "1.0.0" }),
+    );
+    assert_eq!(refused["result"]["isError"], true);
+    let listed = tool(&mut d, "package_dependency_list", json!({}));
+    assert_eq!(
+        listed["result"]["structuredContent"]["dependencies"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let removed = tool(
+        &mut d,
+        "package_dependency_remove",
+        json!({ "packageId": core }),
+    );
+    assert_eq!(removed["result"]["structuredContent"]["action"], "removed");
 }
 
 #[test]

@@ -216,6 +216,7 @@ fn main() {
     write_schema!("package-import", PackageImportPayload);
     write_schema!("package-install", PackageInstallPayload);
     write_schema!("package-update", PackageUpdatePayload);
+    write_schema!("package-dependencies", PackageDependenciesPayload);
     write_schema!("package-refs", PackageRefPayload);
     write_schema!("package-imports", PackageImportsPayload);
 

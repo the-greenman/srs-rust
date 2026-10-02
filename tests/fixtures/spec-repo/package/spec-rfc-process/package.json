@@ -9,6 +9,7 @@
   "status": "draft",
   "packageDependencies": [
     {
+      "packageId": "4a000001-0000-4000-a000-000000000001",
       "namespace": "com.semanticops.spec",
       "name": "spec-authoring-core",
       "version": "1.0.0"

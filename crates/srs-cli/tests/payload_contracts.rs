@@ -531,6 +531,11 @@ fn package_update() {
 }
 
 #[test]
+fn package_dependencies() {
+    check::<PackageDependenciesPayload>("package-dependencies");
+}
+
+#[test]
 fn package_refs() {
     check::<PackageRefPayload>("package-refs");
 }

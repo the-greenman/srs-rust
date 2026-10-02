@@ -17,6 +17,7 @@ use srs_repository::governance_scaffold_service::{self, CreateGovernanceReposito
 use srs_repository::manifest_service;
 use srs_repository::migrate_identity_service;
 use srs_repository::migration_registry_service;
+use srs_repository::package_dependency_service;
 use srs_repository::package_service::{
     self, FieldListFilter, GetFieldResult, GetTypeResult, ListPackageImportsFilter,
     RelationTypeListFilter, TypeListFilter,
@@ -232,8 +233,9 @@ impl SrsRepository {
     /// Validate the repository. Returns a `RepositoryValidationReport` as a JS value with two
     /// top-level keys:
     ///
-    /// - `diagnostics`: array of `{ severity, path, schemaId, message }` objects. Entries with
-    ///   `severity: "warning"` are non-blocking advisories; they do not affect `summary.errors`
+    /// - `diagnostics`: array of `{ severity, path, schemaId, message }` objects; `severity` is
+    ///   `"error"`, `"warning"` or `"info"`. Entries with `severity: "warning"` (and `"info"`,
+    ///   counted in neither summary total) are non-blocking advisories; they do not affect `summary.errors`
     ///   and the repository still passes validation when they are present. RFC-017 I-107
     ///   attachment size-limit violations (emitted when a `com.semanticops.base/repo_settings`
     ///   record specifies `max_per_file_bytes`) are one example of a warning source.
@@ -1178,6 +1180,21 @@ impl SrsRepository {
     pub fn list_packages(&self) -> Result<JsValue, JsValue> {
         let packages = package_service::list_packages(&self.store).map_err(js_err)?;
         to_js(&packages)
+    }
+
+    /// RFC-044 requirement check before install (same service as `srs package dependency
+    /// check`): `input_json` is `{ "packageId"?: uuid, "packageDependencies": DependencyRef[] }`
+    /// — a package bundle, or a requirement list that is not a package's (srs-web's
+    /// `EditorDefinition` requires; omit `packageId`). Returns `{ selector: null, packageId,
+    /// action: null, dependencies: [{packageId?, namespace, name, version, satisfied,
+    /// reason?, candidateVersions, mismatchedLabels}] }`; `reason` is one of RFC-044's seven
+    /// codes. Clients present the outcome; they never compare versions themselves.
+    pub fn check_package_requirements(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: package_dependency_service::BundleRequirements =
+            serde_json::from_str(input_json).map_err(js_err)?;
+        let result =
+            package_dependency_service::check_bundle(&self.store, &input).map_err(js_err)?;
+        to_js(&result)
     }
 
     /// Aggregate import records across all boundaries and run live divergence detection.

@@ -23,6 +23,9 @@ use srs_core::types::record::{FieldMeta, FieldValues};
 use srs_core::types::relation::Relation;
 use srs_repository::container_service::{self, ContainerCreateInput};
 use srs_repository::discovery_service::{self, DiscoveryQuery};
+use srs_repository::package_dependency_service::{
+    self, AddPackageDependencyInput, RemovePackageDependencyInput,
+};
 use srs_repository::protocol_run_service::{
     self, AdvanceStageInput, CreateRunInput, GetRunResult, RunListFilter, RunSummary,
 };
@@ -66,14 +69,38 @@ pub const TOOL_PROTOCOL_RUN_GET: &str = "protocol_run_get";
 pub const TOOL_PROTOCOL_RUN_LIST: &str = "protocol_run_list";
 pub const TOOL_PROTOCOL_RUN_COMPLETE: &str = "protocol_run_complete";
 pub const TOOL_PROTOCOL_RUN_ABANDON: &str = "protocol_run_abandon";
+// RFC-044 package requirements (srs-rust#1168) — one core service,
+// `package_dependency_service`
+pub const TOOL_PACKAGE_DEPENDENCY_LIST: &str = "package_dependency_list";
+pub const TOOL_PACKAGE_DEPENDENCY_SET: &str = "package_dependency_set";
+pub const TOOL_PACKAGE_DEPENDENCY_REMOVE: &str = "package_dependency_remove";
 
 // ── Tool descriptions — single source (srs-usage.md MCP section mirrors these) ─
 
 pub const DESC_REPO_VALIDATE: &str = "Validate the whole repository and return the diagnostics \
 array plus a summary. Run this after every write batch. summary.errors == 0 (equivalently, no \
 error diagnostics) means the repository is consistent. Warnings are non-blocking, but review \
-them. An empty diagnostics array means the repository is completely clean. Diagnostics are \
+them; info diagnostics are informational and counted in neither total. An empty diagnostics array means the repository is completely clean. Diagnostics are \
 data, not a tool error: the tool succeeds even when problems are found.";
+
+pub const DESC_PACKAGE_DEPENDENCY_LIST: &str = "List a package's packageDependencies \
+(RFC-044 package requirements) with each entry's check outcome: satisfied, or the reason \
+(no-package-id, self-requirement, missing, version-unknown, incompatible, prerelease-excluded, \
+version-too-low), the installed candidate versions, and stale labels. selector is the package \
+boundary path (omit for the primary package).";
+
+pub const DESC_PACKAGE_DEPENDENCY_SET: &str = "Require another installed package, keyed by its \
+packageId (UUID), at a SemVer 2.0.0 version (satisfied by the same compatibility band at an \
+equal or higher version; below 1.0 the MINOR acts as the major). The namespace/name labels are \
+filled from the installed package, never guessed: an id that resolves to no installed package \
+is refused. An existing entry with that packageId is replaced. A legacy entry without packageId \
+whose labels equal the installed package's labels is replaced only when repairLegacy is true \
+(without it the call is refused, since a missing packageId is never supplied by matching labels); \
+other entries are kept verbatim. selector is the requiring package boundary path (omit for the primary package).";
+
+pub const DESC_PACKAGE_DEPENDENCY_REMOVE: &str = "Remove a package's requirement on a packageId \
+(every packageDependencies entry with that id). Refused when there is none. selector is the \
+requiring package boundary path (omit for the primary package).";
 
 pub const DESC_FIND: &str = "Deterministic discovery query (ext:discovery). All axes are \
 optional and AND-combined: typeId, typeNamespace, typeName, containerId, tag (repeatable; \
@@ -658,6 +685,60 @@ pub struct ContainerMemberMoveToolInput {
     pub shift: Option<String>,
 }
 
+/// `package_dependency_list`: the requiring boundary.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PackageDependencyListToolInput {
+    /// Package boundary path; omit for the primary package.
+    pub selector: Option<String>,
+}
+
+/// Mirrors `package_dependency_service::AddPackageDependencyInput` field-for-field.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PackageDependencySetToolInput {
+    /// Requiring package boundary path; omit for the primary package.
+    pub selector: Option<String>,
+    /// The required package's `id` (UUID).
+    pub package_id: String,
+    /// SemVer 2.0.0 requirement version.
+    pub version: String,
+    /// Replace the legacy entry (no packageId) whose namespace/name equal the
+    /// installed package's labels exactly. Default false.
+    #[serde(default)]
+    pub repair_legacy: bool,
+}
+
+impl From<PackageDependencySetToolInput> for AddPackageDependencyInput {
+    fn from(input: PackageDependencySetToolInput) -> Self {
+        AddPackageDependencyInput {
+            selector: input.selector,
+            package_id: input.package_id,
+            version: input.version,
+            repair_legacy: input.repair_legacy,
+        }
+    }
+}
+
+/// Mirrors `package_dependency_service::RemovePackageDependencyInput` field-for-field.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PackageDependencyRemoveToolInput {
+    /// Requiring package boundary path; omit for the primary package.
+    pub selector: Option<String>,
+    /// The required package's `id` (UUID).
+    pub package_id: String,
+}
+
+impl From<PackageDependencyRemoveToolInput> for RemovePackageDependencyInput {
+    fn from(input: PackageDependencyRemoveToolInput) -> Self {
+        RemovePackageDependencyInput {
+            selector: input.selector,
+            package_id: input.package_id,
+        }
+    }
+}
+
 /// `container_member_repair` / `container_outline`: the container alone.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -877,6 +958,22 @@ pub fn list_tools() -> Value {
             DESC_PROTOCOL_RUN_ABANDON,
             input_schema::<ProtocolRunIdToolInput>(),
         ),
+        // RFC-044 package requirements (srs-rust#1168)
+        tool(
+            TOOL_PACKAGE_DEPENDENCY_LIST,
+            DESC_PACKAGE_DEPENDENCY_LIST,
+            input_schema::<PackageDependencyListToolInput>(),
+        ),
+        tool(
+            TOOL_PACKAGE_DEPENDENCY_SET,
+            DESC_PACKAGE_DEPENDENCY_SET,
+            input_schema::<PackageDependencySetToolInput>(),
+        ),
+        tool(
+            TOOL_PACKAGE_DEPENDENCY_REMOVE,
+            DESC_PACKAGE_DEPENDENCY_REMOVE,
+            input_schema::<PackageDependencyRemoveToolInput>(),
+        ),
     ] })
 }
 
@@ -1062,6 +1159,27 @@ pub fn call_tool(
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
+        TOOL_PACKAGE_DEPENDENCY_LIST => {
+            let input: PackageDependencyListToolInput = parse_args(arguments)?;
+            match package_dependency_service::list_package_dependencies(store, input.selector) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_PACKAGE_DEPENDENCY_SET => {
+            let input: PackageDependencySetToolInput = parse_args(arguments)?;
+            match package_dependency_service::add_package_dependency(store, input.into()) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_PACKAGE_DEPENDENCY_REMOVE => {
+            let input: PackageDependencyRemoveToolInput = parse_args(arguments)?;
+            match package_dependency_service::remove_package_dependency(store, input.into()) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
         TOOL_CONTAINER_MEMBER_REMOVE => {
             let input: ContainerMemberToolInput = parse_args(arguments)?;
             match container_service::remove_member(store, &input.container_id, &input.instance_id) {
@@ -1170,6 +1288,28 @@ mod tests {
 
     /// Drift guard: populate EVERY field of each shadow input and assert the
     /// conversion carries all of them into the service type (plan review AR-1).
+    #[test]
+    fn package_dependency_tool_inputs_convert_every_field() {
+        let set: AddPackageDependencyInput = PackageDependencySetToolInput {
+            selector: Some("packages/a".into()),
+            package_id: "pid".into(),
+            version: "1.2.0".into(),
+            repair_legacy: true,
+        }
+        .into();
+        assert!(set.repair_legacy);
+        assert_eq!(set.selector.as_deref(), Some("packages/a"));
+        assert_eq!(set.package_id, "pid");
+        assert_eq!(set.version, "1.2.0");
+        let rm: RemovePackageDependencyInput = PackageDependencyRemoveToolInput {
+            selector: None,
+            package_id: "pid".into(),
+        }
+        .into();
+        assert_eq!(rm.selector, None);
+        assert_eq!(rm.package_id, "pid");
+    }
+
     #[test]
     fn tool_input_conversion_exercises_every_field() {
         // Find → DiscoveryQuery
@@ -1309,7 +1449,7 @@ mod tests {
     }
 
     #[test]
-    fn list_tools_advertises_all_twenty_three_with_schemas() {
+    fn list_tools_advertises_all_twenty_six_with_schemas() {
         let tools = list_tools()["tools"].as_array().unwrap().clone();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(
@@ -1338,6 +1478,9 @@ mod tests {
                 TOOL_PROTOCOL_RUN_LIST,
                 TOOL_PROTOCOL_RUN_COMPLETE,
                 TOOL_PROTOCOL_RUN_ABANDON,
+                TOOL_PACKAGE_DEPENDENCY_LIST,
+                TOOL_PACKAGE_DEPENDENCY_SET,
+                TOOL_PACKAGE_DEPENDENCY_REMOVE,
             ]
         );
         for tool in &tools {

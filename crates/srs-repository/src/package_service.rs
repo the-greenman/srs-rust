@@ -1104,6 +1104,7 @@ pub fn create_package(
         relation_type_paths: vec![],
         lifecycle_paths: vec![],
         composition_paths: vec![],
+        package_dependencies: None,
     };
     store.save_package_boundary_metadata(&boundary)?;
     store.register_package_boundary(&selector)?;
@@ -2751,6 +2752,7 @@ mod tests {
             namespace: "com.lpi.pkg".to_string(),
             name: "lpi".to_string(),
             version: "1.0.0".to_string(),
+            package_dependencies: None,
             definitions: vec![PackageSourceDefinition {
                 kind: DefinitionKind::Field,
                 rel_path: "fields/alpha.json".to_string(),

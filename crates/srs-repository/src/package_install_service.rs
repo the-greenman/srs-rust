@@ -102,6 +102,10 @@ pub struct PackageSourceBundle {
     pub namespace: String,
     pub name: String,
     pub version: String,
+    /// The source manifest's raw `packageDependencies` (RFC-044), copied
+    /// verbatim onto a newly created boundary so the installed package's
+    /// requirements stay checkable. `None` = absent.
+    pub package_dependencies: Option<Vec<serde_json::Value>>,
     pub definitions: Vec<PackageSourceDefinition>,
 }
 
@@ -144,6 +148,7 @@ pub fn load_package_source_dir(source_dir: &Path) -> Result<PackageSourceBundle,
         namespace: meta_str("namespace")?,
         name: meta_str("name")?,
         version: meta_str("version")?,
+        package_dependencies: pkg_json["packageDependencies"].as_array().cloned(),
         definitions: Vec::new(),
     };
 
@@ -730,6 +735,12 @@ pub fn install_package_bundle(
                     boundary_path: Some(requested_path.clone()),
                 },
             )?;
+            if bundle.package_dependencies.is_some() {
+                let selector = Some(requested_path.clone());
+                let mut boundary = store.load_package_boundary(&selector)?;
+                boundary.package_dependencies = bundle.package_dependencies.clone();
+                store.save_package_boundary_metadata(&boundary)?;
+            }
             requested_path
         }
     };
@@ -962,6 +973,7 @@ mod tests {
             namespace: "com.ext.pkg".to_string(),
             name: "ext".to_string(),
             version: "1.0.0".to_string(),
+            package_dependencies: None,
             definitions: vec![
                 PackageSourceDefinition {
                     kind: DefinitionKind::Field,
