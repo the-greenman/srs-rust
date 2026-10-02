@@ -1142,8 +1142,8 @@ pub fn repair_members(
     let known: HashSet<String> = store
         .catalog_unchecked()?
         .instances
-        .into_iter()
-        .map(|e| e.id)
+        .iter()
+        .map(|e| e.id.clone())
         .collect();
     let entries = container.member_instance_ids.clone().unwrap_or_default();
     let (out, removed, promoted) = arrangement::retain_promoting(&entries, |id| known.contains(id));
@@ -1280,7 +1280,7 @@ pub fn validate_container_invariants(
 
     // RFC-013 [R6]/[R9] as amended by RFC-038 [R25]: resolved against the
     // same snapshot's instance set, not `manifest.instanceIndex`.
-    let known_ids: HashSet<String> = cat.instances.into_iter().map(|e| e.id).collect();
+    let known_ids: HashSet<String> = cat.instances.iter().map(|e| e.id.clone()).collect();
 
     if let Some(ref entries) = container.member_instance_ids {
         for e in entries {

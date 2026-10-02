@@ -828,7 +828,7 @@ pub trait RepositoryStore {
     /// the repair seam (ADR-045). Every diagnostic travels in the result instead
     /// of failing the call, so an operation that can only *reduce* incoherence
     /// still works on a repository no ordinary command can load.
-    fn catalog_unchecked(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+    fn catalog_unchecked(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
         Err(RepositoryError::CatalogUnsupported)
     }
 
@@ -2026,17 +2026,16 @@ impl RepositoryStore for FileStore {
         Ok(built)
     }
 
-    fn catalog_unchecked(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+    fn catalog_unchecked(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
         // Separate memo from `catalog()` — build() and build_checked() return
         // different snapshots; never let one serve the other's cache.
         self.sync_cache_epoch();
         if let Some(cached) = self.catalog_unchecked_cache.borrow().as_ref() {
-            return Ok((**cached).clone());
+            return Ok(cached.clone());
         }
-        let built = crate::catalog::build(self)?;
-        let built = Rc::new(built);
+        let built = Rc::new(crate::catalog::build(self)?);
         *self.catalog_unchecked_cache.borrow_mut() = Some(built.clone());
-        Ok((*built).clone())
+        Ok(built)
     }
 
     fn catalog_validity_token(&self) -> Result<String, RepositoryError> {
@@ -2493,7 +2492,7 @@ fn unchecked_file_container_locator<S: RepositoryStore + ?Sized>(
     container_id: &str,
 ) -> Result<Option<String>, RepositoryError> {
     Ok(file_container_locator_in(
-        &store.catalog_unchecked()?,
+        &*store.catalog_unchecked()?,
         container_id,
     ))
 }
@@ -3599,7 +3598,9 @@ pub mod memory {
             crate::catalog::build_checked(self).map(Rc::new)
         }
 
-        fn catalog_unchecked(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+        fn catalog_unchecked(
+            &self,
+        ) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
             let should_fail = matches!(*self.fail_at.borrow(), Some(FailPoint::CatalogUnchecked));
             if should_fail {
                 *self.fail_at.borrow_mut() = None;
@@ -3608,7 +3609,7 @@ pub mod memory {
                     source: std::io::Error::other("injected fault: catalog_unchecked"),
                 });
             }
-            crate::catalog::build(self)
+            crate::catalog::build(self).map(Rc::new)
         }
 
         fn catalog_validity_token(&self) -> Result<String, RepositoryError> {
@@ -5588,8 +5589,25 @@ mod tests {
     fn catalog_hit_shares_the_memo_instead_of_copying_it() {
         let store = FileStore::from_vfs(std::rc::Rc::new(minimal_mem_repo()));
         let a = store.catalog().unwrap();
-        let b = store.catalog().unwrap();
-        assert!(Rc::ptr_eq(&a, &b));
+        assert!(Rc::ptr_eq(&a, &store.catalog().unwrap()));
+        let u = store.catalog_unchecked().unwrap();
+        assert!(Rc::ptr_eq(&u, &store.catalog_unchecked().unwrap()));
+
+        // A write still invalidates: the next read is a fresh snapshot, and a
+        // snapshot held across the write keeps its old contents.
+        let before = a.instances.len();
+        store
+            .save_record(&minimal_record_for_store(
+                "10000000-0000-4000-8000-000000000002",
+                "R",
+                None,
+            ))
+            .unwrap();
+        let c = store.catalog().unwrap();
+        assert!(!Rc::ptr_eq(&a, &c));
+        assert_eq!(a.instances.len(), before);
+        assert_eq!(c.instances.len(), before + 1);
+        assert!(!Rc::ptr_eq(&u, &store.catalog_unchecked().unwrap()));
     }
 
     #[test]
