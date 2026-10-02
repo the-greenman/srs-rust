@@ -36,7 +36,7 @@
     "rootTypes": {
       "type": "array",
       "items": { "$ref": "#/$defs/ExactTypeRef" },
-      "description": "The Record Type(s) this Blueprint produces as root Records when instantiated into a Container. Each entry is an ExactTypeRef (both typeId and typeVersion required per RFC-009 I-78). When non-empty, the first entry is the canonical root Type whose instanceId will be set as Container.anchorInstanceId (RFC-009, amended by srs#446). Pre-#446 repositories instead rely on that instanceId appearing at Container.rootInstanceIds[0] (transitional fallback, see container.json). An empty array is valid for extraction-context blueprints that do not prescribe a root type. Each entry MUST resolve to a Type in the Package at load time."
+      "description": "The Record Type(s) this Blueprint produces as root Records when instantiated into a Container. Each entry is an ExactTypeRef (both typeId and typeVersion required per RFC-009 I-78). When non-empty, the first entry is the canonical root Type whose instanceId will be set as Container.anchorInstanceId (RFC-009, amended by srs#446). (The pre-#446 rootInstanceIds[0] fallback is withdrawn at dataModelRevision 8, RFC-043 [R4]; the migration writes anchorInstanceId explicitly.) An empty array is valid for extraction-context blueprints that do not prescribe a root type. Each entry MUST resolve to a Type in the Package at load time."
     },
     "structure": {
       "type": "array",
