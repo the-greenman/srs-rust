@@ -817,7 +817,10 @@ pub trait RepositoryStore {
     // and MemoryStore override with the one shared walker in `crate::catalog`.
 
     /// Enumerate the repository into a [`crate::catalog::RepositoryCatalog`].
-    fn catalog(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+    ///
+    /// Returned as the store's shared snapshot (`Rc`): stores that memoize hand out the
+    /// memo itself, so a per-id lookup never deep-copies the whole repository.
+    fn catalog(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
         Err(RepositoryError::CatalogUnsupported)
     }
 
@@ -825,7 +828,7 @@ pub trait RepositoryStore {
     /// the repair seam (ADR-045). Every diagnostic travels in the result instead
     /// of failing the call, so an operation that can only *reduce* incoherence
     /// still works on a repository no ordinary command can load.
-    fn catalog_unchecked(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+    fn catalog_unchecked(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
         Err(RepositoryError::CatalogUnsupported)
     }
 
@@ -1029,30 +1032,6 @@ impl FileStore {
             self.catalog_cache.borrow_mut().take();
             self.catalog_unchecked_cache.borrow_mut().take();
         }
-    }
-
-    /// Rc-returning core of `catalog()`: populate-or-hit the memo without the
-    /// callers of the public-by-value `catalog()` cloning the whole
-    /// `RepositoryCatalog` on every access.
-    ///
-    /// `catalog()` still returns an owned value (trait contract, many call
-    /// sites), so it clones once here. But `find_instance` — the specific
-    /// per-node hot path srs-rust#1108 names (`build_node`/`child_ids` call
-    /// it once per tree node) — reads this Rc directly and clones nothing
-    /// but the single matched entry, which is what turns the fix from "same
-    /// O(nodes x corpus) with a cheaper constant" into an actual O(nodes)
-    /// win: on a corpus with heavy structural revisits (a DAG walked without
-    /// a global visited-node memo — muSrs `repo navigation` calls `find_instance`
-    /// 150k+ times over a ~800-instance corpus by tree depth 3 alone) a full
-    /// per-call catalog clone is itself expensive enough to erase the gain.
-    fn cached_catalog(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
-        self.sync_cache_epoch();
-        if let Some(cached) = self.catalog_cache.borrow().as_ref() {
-            return Ok(cached.clone());
-        }
-        let built = Rc::new(crate::catalog::build_checked(self)?);
-        *self.catalog_cache.borrow_mut() = Some(built.clone());
-        Ok(built)
     }
 
     fn vfs_write(&self, rel: &str, content: &[u8]) -> Result<(), RepositoryError> {
@@ -2032,40 +2011,31 @@ impl RepositoryStore for FileStore {
 
     // --- Catalog (RFC-038; one walker over the Vfs seam: DiskVfs and MemVfs) ---
 
-    fn catalog(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+    fn catalog(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
         // srs-rust#1108: memoized per FileStore instance. Every mutation path
         // (vfs_write/vfs_remove/vfs_create_dir_all above) clears this before
-        // the next read, so a hit here is always current for this store's
-        // lifetime (one CLI command / one srs-mcp request). See
-        // `cached_catalog` for why the hottest reader (`find_instance`,
-        // overridden below) bypasses this by-value clone.
-        Ok((*self.cached_catalog()?).clone())
+        // the next read, so a hit here is always current. The memo is handed
+        // out as the shared Rc: a per-id lookup (`load_record_by_id` per
+        // listed record) cloning the whole catalog made listings O(n^2).
+        self.sync_cache_epoch();
+        if let Some(cached) = self.catalog_cache.borrow().as_ref() {
+            return Ok(cached.clone());
+        }
+        let built = Rc::new(crate::catalog::build_checked(self)?);
+        *self.catalog_cache.borrow_mut() = Some(built.clone());
+        Ok(built)
     }
 
-    /// Override the trait default: read the memoized catalog through the Rc
-    /// (`cached_catalog`) instead of `catalog()`'s owned clone. `find_instance`
-    /// is the per-tree-node hot path srs-rust#1108 names, and the default's
-    /// `let cat = self.catalog()?` clones every entry in the whole repository
-    /// just to search it once and discard it.
-    fn find_instance(&self, instance_id: &str) -> Result<Option<InstanceRef>, RepositoryError> {
-        let cat = self.cached_catalog()?;
-        let Some(entry) = cat.instances.iter().find(|e| e.id == instance_id) else {
-            return Ok(None);
-        };
-        Ok(Some(catalog_instance_ref(self, entry)?))
-    }
-
-    fn catalog_unchecked(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+    fn catalog_unchecked(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
         // Separate memo from `catalog()` — build() and build_checked() return
         // different snapshots; never let one serve the other's cache.
         self.sync_cache_epoch();
         if let Some(cached) = self.catalog_unchecked_cache.borrow().as_ref() {
-            return Ok((**cached).clone());
+            return Ok(cached.clone());
         }
-        let built = crate::catalog::build(self)?;
-        let built = Rc::new(built);
+        let built = Rc::new(crate::catalog::build(self)?);
         *self.catalog_unchecked_cache.borrow_mut() = Some(built.clone());
-        Ok((*built).clone())
+        Ok(built)
     }
 
     fn catalog_validity_token(&self) -> Result<String, RepositoryError> {
@@ -2422,9 +2392,9 @@ fn catalog_require_instance_locator<S: RepositoryStore + ?Sized>(
 ) -> Result<String, RepositoryError> {
     let cat = store.catalog()?;
     cat.instances
-        .into_iter()
+        .iter()
         .find(|e| e.id == instance_id)
-        .and_then(|e| e.locator)
+        .and_then(|e| e.locator.clone())
         .ok_or_else(|| RepositoryError::InstanceNotFound {
             id: instance_id.to_string(),
         })
@@ -2485,9 +2455,9 @@ fn catalog_save_instance<S: RepositoryStore + ?Sized>(
     let cat = store.catalog()?;
     let existing = cat
         .instances
-        .into_iter()
+        .iter()
         .find(|e| e.id == instance_id)
-        .and_then(|e| e.locator);
+        .and_then(|e| e.locator.clone());
     let path = match existing {
         Some(p) => p,
         None => {
@@ -2511,7 +2481,7 @@ fn catalog_file_container_locator<S: RepositoryStore + ?Sized>(
     store: &S,
     container_id: &str,
 ) -> Result<Option<String>, RepositoryError> {
-    Ok(file_container_locator_in(store.catalog()?, container_id))
+    Ok(file_container_locator_in(&*store.catalog()?, container_id))
 }
 
 /// [`catalog_file_container_locator`] over the **unchecked** builder: a fatal
@@ -2522,20 +2492,20 @@ fn unchecked_file_container_locator<S: RepositoryStore + ?Sized>(
     container_id: &str,
 ) -> Result<Option<String>, RepositoryError> {
     Ok(file_container_locator_in(
-        store.catalog_unchecked()?,
+        &*store.catalog_unchecked()?,
         container_id,
     ))
 }
 
 fn file_container_locator_in(
-    cat: crate::catalog::RepositoryCatalog,
+    cat: &crate::catalog::RepositoryCatalog,
     container_id: &str,
 ) -> Option<String> {
     cat.containers
-        .into_iter()
+        .iter()
         .filter(|e| e.locator.as_deref() != Some(crate::catalog::ROOT_CONTAINER_LOCATOR))
         .find(|e| e.id == container_id)
-        .and_then(|e| e.locator)
+        .and_then(|e| e.locator.clone())
 }
 
 /// The body shared by `load_container` and `load_container_unchecked` — the two
@@ -3624,11 +3594,13 @@ pub mod memory {
         // --- Catalog (RFC-038): the shared walker enumerates this store's
         // object maps through `list_files_recursive`/`load_instance_json` ---
 
-        fn catalog(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
-            crate::catalog::build_checked(self)
+        fn catalog(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
+            crate::catalog::build_checked(self).map(Rc::new)
         }
 
-        fn catalog_unchecked(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+        fn catalog_unchecked(
+            &self,
+        ) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
             let should_fail = matches!(*self.fail_at.borrow(), Some(FailPoint::CatalogUnchecked));
             if should_fail {
                 *self.fail_at.borrow_mut() = None;
@@ -3637,7 +3609,7 @@ pub mod memory {
                     source: std::io::Error::other("injected fault: catalog_unchecked"),
                 });
             }
-            crate::catalog::build(self)
+            crate::catalog::build(self).map(Rc::new)
         }
 
         fn catalog_validity_token(&self) -> Result<String, RepositoryError> {
@@ -5608,6 +5580,34 @@ mod tests {
             serde_json::to_vec_pretty(&catalog_ready_package_json()).unwrap(),
         );
         MemVfs::from_map(files)
+    }
+
+    /// A cache hit hands out the memo itself, never a deep copy: per-id lookups
+    /// (`load_record_by_id` once per listed record) cloned the whole catalog
+    /// each, so listing a muSrs-sized repo by type cost ~120 ms in WASM.
+    #[test]
+    fn catalog_hit_shares_the_memo_instead_of_copying_it() {
+        let store = FileStore::from_vfs(std::rc::Rc::new(minimal_mem_repo()));
+        let a = store.catalog().unwrap();
+        assert!(Rc::ptr_eq(&a, &store.catalog().unwrap()));
+        let u = store.catalog_unchecked().unwrap();
+        assert!(Rc::ptr_eq(&u, &store.catalog_unchecked().unwrap()));
+
+        // A write still invalidates: the next read is a fresh snapshot, and a
+        // snapshot held across the write keeps its old contents.
+        let before = a.instances.len();
+        store
+            .save_record(&minimal_record_for_store(
+                "10000000-0000-4000-8000-000000000002",
+                "R",
+                None,
+            ))
+            .unwrap();
+        let c = store.catalog().unwrap();
+        assert!(!Rc::ptr_eq(&a, &c));
+        assert_eq!(a.instances.len(), before);
+        assert_eq!(c.instances.len(), before + 1);
+        assert!(!Rc::ptr_eq(&u, &store.catalog_unchecked().unwrap()));
     }
 
     #[test]

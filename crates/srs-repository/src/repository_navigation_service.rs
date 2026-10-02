@@ -116,8 +116,9 @@ pub fn repository_navigation_with_depth(
             let note_entry = store
                 .catalog()?
                 .instances
-                .into_iter()
-                .find(|e| &e.id == identity_id && e.tier == Some(0));
+                .iter()
+                .find(|e| &e.id == identity_id && e.tier == Some(0))
+                .cloned();
             Some(if let Some(entry) = note_entry {
                 // Transitional grace for un-migrated repos whose identityInstanceId points to a
                 // Tier-0 note. Surface a diagnostic and use the catalog-derived title as the
@@ -170,7 +171,8 @@ pub fn repository_navigation_with_depth(
     // longer surface a Tier-1 member for this loop to special-case: every
     // resolvable member is now Tier 0 or Tier 2, both of which load through
     // the tier-aware `get_instance_by_id` seam below.
-    let instances = store.catalog()?.instances;
+    let cat = store.catalog()?;
+    let instances = &cat.instances;
     let (section_containers, link_diagnostics) = section_containers_by_root(store)?;
     diagnostics.extend(link_diagnostics);
     let mut sections: Vec<NavigationNode> = Vec::new();
