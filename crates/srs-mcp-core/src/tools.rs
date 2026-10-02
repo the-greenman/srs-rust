@@ -17,6 +17,7 @@ use crate::McpApplicationError;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
+use srs_core::arrangement::RelativeMove;
 use srs_core::types::container::{Container, ContainerEntry};
 use srs_core::types::note::{Note, NoteSection};
 use srs_core::types::record::{FieldMeta, FieldValues};
@@ -57,6 +58,8 @@ pub const TOOL_CONTAINER_CREATE: &str = "container_create";
 // RFC-043 Change D: arrangement operations
 pub const TOOL_CONTAINER_MEMBER_MOVE: &str = "container_member_move";
 pub const TOOL_CONTAINER_MEMBER_REPAIR: &str = "container_member_repair";
+// Issue #1156: the structured outline read
+pub const TOOL_CONTAINER_OUTLINE: &str = "container_outline";
 // Protocol run execution tools (#977 — follow-up to #955)
 pub const TOOL_PROTOCOL_RUN_CREATE: &str = "protocol_run_create";
 pub const TOOL_PROTOCOL_RUN_ADVANCE: &str = "protocol_run_advance";
@@ -155,8 +158,9 @@ memberInstanceIds outline (RFC-043). With no position it appends at depth 0; `po
 inserts there and `depth` (default 0) sets the nesting level (an entry's parent is the nearest \
 preceding entry with a smaller depth; depth may rise by at most one per entry). Order and depth are \
 layout only: use a precedes relation when order is a semantic claim. Idempotent — adding an \
-already-present member with no position or depth is not an error. Returns the container's entries \
-({instanceId, depth?}) in order.";
+already-present member with no position or depth is not an error. Instead of position/depth, \
+`relativeTo` + `placement` (before | after | into) adds it beside or as the last child of another \
+entry, in one write. Returns the container's entries ({instanceId, depth?}) in order.";
 
 pub const DESC_CONTAINER_MEMBER_REMOVE: &str = "Remove an instance from a container's outline. \
 Its descendants are promoted one level (RFC-043 promoting removal) and reported in `promoted`. \
@@ -167,7 +171,17 @@ pub const DESC_CONTAINER_MEMBER_MOVE: &str = "Move an entry (with its descendant
 their relative depths) to `position` (0-based, against the list without that run; default: where \
 it is) and/or give it `depth` (default: its current depth; setting only `depth` indents or outdents \
 the run). Rejected whole, changing nothing, if the result would break the outline rules (first \
-entry depth 0, depth rises by at most one). Returns the container's entries in order.";
+entry depth 0, depth rises by at most one). Instead of position/depth, give `relativeTo` + `placement` \
+(before | after = beside that entry's run; into = its last child), or `shift`: indent (depth + 1, \
+clamped to the previous entry's depth + 1), outdent (depth - 1), up / down (swap with the previous / \
+next sibling; a no-op at the first / last). Placing an entry relative to itself or its own descendant \
+is rejected, as is any result that nests or gives children to the root identity entry. Returns the container's entries in order.";
+
+pub const DESC_CONTAINER_OUTLINE: &str = "Read a container's outline: `entries` (the whole \
+arrangement) and `body` (the document body: entries without the container's anchor and identity \
+entries, whose descendants are promoted), each as {instanceId, depth, parentInstanceId, hasChildren, \
+runSize, runEnd} (runEnd = exclusive index of the entry's run in the same list). Use this instead \
+of deriving parents or run ends from the flat entries.";
 
 pub const DESC_CONTAINER_MEMBER_REPAIR: &str = "Remove every outline entry whose instanceId no \
 longer resolves to an instance, promoting descendants, and report each in `removed`. Idempotent. \
@@ -676,6 +690,10 @@ pub struct ContainerMemberAddToolInput {
     pub instance_id: String,
     pub position: Option<usize>,
     pub depth: Option<u32>,
+    /// With `placement`: add beside / inside this entry instead of by `position` / `depth`.
+    pub relative_to: Option<String>,
+    /// `before` | `after` | `into` (with `relativeTo`).
+    pub placement: Option<String>,
 }
 
 /// `container_member_move`: move (position) and/or set depth (depth) of an entry's whole run.
@@ -686,11 +704,18 @@ pub struct ContainerMemberMoveToolInput {
     pub instance_id: String,
     pub position: Option<usize>,
     pub depth: Option<u32>,
+    /// With `placement`: move beside / inside this entry (replaces `position` / `depth`).
+    pub relative_to: Option<String>,
+    /// `before` | `after` | `into` (with `relativeTo`).
+    pub placement: Option<String>,
+    /// `indent` | `outdent` | `up` | `down` (replaces `position` / `depth` / `relativeTo`).
+    pub shift: Option<String>,
 }
 
+/// `container_member_repair` / `container_outline`: the container alone.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ContainerMemberRepairToolInput {
+pub struct ContainerIdToolInput {
     pub container_id: String,
 }
 
@@ -868,7 +893,12 @@ pub fn list_tools() -> Value {
         tool(
             TOOL_CONTAINER_MEMBER_REPAIR,
             DESC_CONTAINER_MEMBER_REPAIR,
-            input_schema::<ContainerMemberRepairToolInput>(),
+            input_schema::<ContainerIdToolInput>(),
+        ),
+        tool(
+            TOOL_CONTAINER_OUTLINE,
+            DESC_CONTAINER_OUTLINE,
+            input_schema::<ContainerIdToolInput>(),
         ),
         // Protocol run execution tools (#977)
         tool(
@@ -911,6 +941,24 @@ fn parse_args<T: for<'de> Deserialize<'de>>(
 ) -> Result<T, McpApplicationError> {
     serde_json::from_value(Value::Object(arguments.unwrap_or_default()))
         .map_err(|e| McpApplicationError::invalid_params(e.to_string()))
+}
+
+/// Parse the relative-placement arguments; mixing them with absolute `position` / `depth` is
+/// an invalid-params error (one way per goal).
+fn relative_move(
+    relative_to: Option<&str>,
+    placement: Option<&str>,
+    shift: Option<&str>,
+    has_absolute: bool,
+) -> Result<Option<RelativeMove>, McpApplicationError> {
+    let mv = RelativeMove::parse(relative_to, placement, shift)
+        .map_err(McpApplicationError::invalid_params)?;
+    if mv.is_some() && has_absolute {
+        return Err(McpApplicationError::invalid_params(
+            "relativeTo / placement / shift cannot be combined with position or depth".to_string(),
+        ));
+    }
+    Ok(mv)
 }
 
 /// Success result: the service struct serialized as JSON text + structured content.
@@ -1039,13 +1087,31 @@ pub fn call_tool(
         }
         TOOL_CONTAINER_MEMBER_ADD => {
             let input: ContainerMemberAddToolInput = parse_args(arguments)?;
-            match container_service::add_container_member(
-                store,
-                &input.container_id,
-                &input.instance_id,
-                input.position,
-                input.depth,
-            ) {
+            let relative = relative_move(
+                input.relative_to.as_deref(),
+                input.placement.as_deref(),
+                None,
+                input.position.is_some() || input.depth.is_some(),
+            )?;
+            let result = match relative {
+                Some(RelativeMove::Place { target, placement }) => {
+                    container_service::add_member_relative(
+                        store,
+                        &input.container_id,
+                        &input.instance_id,
+                        &target,
+                        placement,
+                    )
+                }
+                _ => container_service::add_container_member(
+                    store,
+                    &input.container_id,
+                    &input.instance_id,
+                    input.position,
+                    input.depth,
+                ),
+            };
+            match result {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
@@ -1063,20 +1129,42 @@ pub fn call_tool(
         }
         TOOL_CONTAINER_MEMBER_MOVE => {
             let input: ContainerMemberMoveToolInput = parse_args(arguments)?;
-            match container_service::move_member(
-                store,
-                &input.container_id,
-                &input.instance_id,
-                input.position,
-                input.depth,
-            ) {
+            let relative = relative_move(
+                input.relative_to.as_deref(),
+                input.placement.as_deref(),
+                input.shift.as_deref(),
+                input.position.is_some() || input.depth.is_some(),
+            )?;
+            let result = match relative {
+                Some(mv) => container_service::move_member_relative(
+                    store,
+                    &input.container_id,
+                    &input.instance_id,
+                    &mv,
+                ),
+                None => container_service::move_member(
+                    store,
+                    &input.container_id,
+                    &input.instance_id,
+                    input.position,
+                    input.depth,
+                ),
+            };
+            match result {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
         TOOL_CONTAINER_MEMBER_REPAIR => {
-            let input: ContainerMemberRepairToolInput = parse_args(arguments)?;
+            let input: ContainerIdToolInput = parse_args(arguments)?;
             match container_service::repair_members(store, &input.container_id) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_CONTAINER_OUTLINE => {
+            let input: ContainerIdToolInput = parse_args(arguments)?;
+            match container_service::get_outline(store, &input.container_id) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
@@ -1279,7 +1367,7 @@ mod tests {
     }
 
     #[test]
-    fn list_tools_advertises_all_twenty_two_with_schemas() {
+    fn list_tools_advertises_all_twenty_three_with_schemas() {
         let tools = list_tools()["tools"].as_array().unwrap().clone();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(
@@ -1301,6 +1389,7 @@ mod tests {
                 TOOL_CONTAINER_MEMBER_REMOVE,
                 TOOL_CONTAINER_MEMBER_MOVE,
                 TOOL_CONTAINER_MEMBER_REPAIR,
+                TOOL_CONTAINER_OUTLINE,
                 TOOL_PROTOCOL_RUN_CREATE,
                 TOOL_PROTOCOL_RUN_ADVANCE,
                 TOOL_PROTOCOL_RUN_GET,

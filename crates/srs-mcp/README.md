@@ -27,7 +27,7 @@ existing SRS identifier (see ADR-037 §6).
 **Tools**: `repo_validate`, `find`, `record_create`, `record_update`,
 `record_transition`, `record_allowed_transitions`, `record_successor`,
 `relation_create`, `note_create`, `note_graduate`, `container_create`, `container_member_add`,
-`container_member_remove`, `container_member_move`, `container_member_repair`, `type_schema`, `protocol_run_create`,
+`container_member_remove`, `container_member_move`, `container_member_repair`, `container_outline`, `type_schema`, `protocol_run_create`,
 `protocol_run_advance`, `protocol_run_get`, `protocol_run_list`,
 `protocol_run_complete`, `protocol_run_abandon` — the validated write
 workflows plus discovery. The protocol run tools mirror the CLI's `srs

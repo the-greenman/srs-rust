@@ -963,18 +963,105 @@ pub fn move_member(
     position: Option<usize>,
     depth: Option<u32>,
 ) -> Result<ArrangementResult, RepositoryError> {
+    rearrange(store, container_id, |entries, identity| {
+        arrangement::move_run(entries, instance_id, position, depth, identity)
+            .map_err(arrangement_error)
+    })
+}
+
+/// The shared write path of the arrangement edits: load the container, apply `op` to its
+/// entries with the root container's identity (for the [R2] identity rule), persist the result.
+fn rearrange(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    op: impl FnOnce(&[ContainerEntry], Option<&str>) -> Result<Vec<ContainerEntry>, RepositoryError>,
+) -> Result<ArrangementResult, RepositoryError> {
     let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
     let entries = container.member_instance_ids.clone().unwrap_or_default();
     let identity = is_root_container(store, container_id)
         .then_some(container.identity_instance_id.as_deref())
         .flatten();
-    let out = arrangement::move_run(&entries, instance_id, position, depth, identity)
-        .map_err(arrangement_error)?;
+    let out = op(&entries, identity)?;
     store_entries(&mut container, out.clone());
     save_container_syncing_embed(store, &container, is_embed_only, false)?;
     Ok(ArrangementResult {
         members: out,
         ..Default::default()
+    })
+}
+
+/// **move relative** (Change D, issue #1156): `before` / `after` / `into` another entry,
+/// `indent` / `outdent`, or `up` / `down` one sibling step — each resolved to the one
+/// `move_run` validity path in `srs_core::arrangement`.
+pub fn move_member_relative(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    instance_id: &str,
+    mv: &arrangement::RelativeMove,
+) -> Result<ArrangementResult, RepositoryError> {
+    rearrange(store, container_id, |entries, identity| {
+        mv.apply(entries, instance_id, identity)
+            .map_err(arrangement_error)
+    })
+}
+
+/// **add relative**: add a new member and place it `before` / `after` / `into` `target` in one
+/// write. Rejected (nothing written) when `instance_id` is already a member.
+pub fn add_member_relative(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    instance_id: &str,
+    target: &str,
+    placement: arrangement::Placement,
+) -> Result<ArrangementResult, RepositoryError> {
+    require_resolvable_instances(store, [instance_id])?;
+    rearrange(store, container_id, |entries, identity| {
+        if entries.iter().any(|e| e.instance_id == instance_id) {
+            return Err(RepositoryError::InvalidInput {
+                message: format!(
+                    "{instance_id} is already a member of {container_id}; use move to reposition it"
+                ),
+            });
+        }
+        arrangement::insert(entries, ContainerEntry::new(instance_id), None, identity)
+            .and_then(|e| arrangement::place(&e, instance_id, target, placement, identity))
+            .map_err(arrangement_error)
+    })
+}
+
+/// The structured outline read ([R15], issue #1156): the whole arrangement with derived
+/// parent / run (`entries`) and the document `body` — the entries that remain once the
+/// container's anchor and identity entries are set aside by the promoting removal ([R7]).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerOutline {
+    pub container_id: String,
+    pub anchor_instance_id: Option<String>,
+    pub identity_instance_id: Option<String>,
+    pub entries: Vec<arrangement::OutlineEntry>,
+    pub body: Vec<arrangement::OutlineEntry>,
+}
+
+/// Read a container's outline. The body rule is the renderer's: the anchor is the section
+/// lead and never a plain member ([`r22_position_anchor_instance_id`]); the identity entry
+/// is the container's identity record, which navigation excludes (`identityInstanceId`).
+pub fn get_outline(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+) -> Result<ContainerOutline, RepositoryError> {
+    let container = get_container(store, container_id)?;
+    let entries = container.member_instance_ids.clone().unwrap_or_default();
+    let anchor = r22_position_anchor_instance_id(&container);
+    let identity = container.identity_instance_id.clone();
+    let (body, _) = arrangement::retain_promoting(&entries, |id| {
+        anchor.as_deref() != Some(id) && identity.as_deref() != Some(id)
+    });
+    Ok(ContainerOutline {
+        container_id: container.container_id.clone(),
+        anchor_instance_id: anchor,
+        identity_instance_id: identity,
+        entries: arrangement::outline(&entries),
+        body: arrangement::outline(&body),
     })
 }
 
@@ -1692,6 +1779,45 @@ mod tests {
         assert_eq!(ids(&r), vec![(A.into(), 0)]);
         assert_eq!(r.promoted, vec![A.to_string()]);
         assert_eq!(r.removed, vec![B.to_string()]);
+    }
+
+    #[test]
+    fn relative_moves_and_outline_read() {
+        use srs_core::arrangement::{Placement, RelativeMove, Shift};
+        const C: &str = "33333333-3333-4333-8333-333333333333";
+        let store = make_store();
+        seed_instance(&store, C);
+        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Rel");
+        c.member_instance_ids = Some(srs_core::types::container::entries([A, B]));
+        c.anchor_instance_id = Some(A.to_string());
+        let c = create_container(&store, c).unwrap();
+        let id = &c.container_id;
+        // anchor A leads; body is [B]
+        let o = get_outline(&store, id).unwrap();
+        assert_eq!(o.entries.len(), 2);
+        assert_eq!(o.body.len(), 1);
+        assert_eq!(o.body[0].instance_id, B);
+        // indent B under A (A is first entry), then outdent back
+        let r = move_member_relative(&store, id, B, &RelativeMove::Shift(Shift::Indent)).unwrap();
+        assert_eq!(ids(&r), vec![(A.into(), 0), (B.into(), 1)]);
+        let o = get_outline(&store, id).unwrap();
+        assert_eq!(o.entries[1].parent_instance_id.as_deref(), Some(A));
+        assert_eq!(o.body[0].depth, 0); // anchor set aside: B promoted in the body view
+        let r = move_member_relative(&store, id, B, &RelativeMove::Shift(Shift::Outdent)).unwrap();
+        assert_eq!(ids(&r), vec![(A.into(), 0), (B.into(), 0)]);
+        let place = |t: &str, p| RelativeMove::Place {
+            target: t.into(),
+            placement: p,
+        };
+        let err = move_member_relative(&store, id, A, &place(A, Placement::Into)).unwrap_err();
+        assert!(err.to_string().contains("arrangement-target"), "{err}");
+        let r = move_member_relative(&store, id, B, &place(A, Placement::Before)).unwrap();
+        assert_eq!(ids(&r), vec![(B.into(), 0), (A.into(), 0)]);
+        assert!(add_member_relative(&store, id, B, A, Placement::After).is_err());
+        // add relative: C into B, atomic and persisted
+        let r = add_member_relative(&store, id, C, B, Placement::Into).unwrap();
+        assert_eq!(ids(&r), vec![(B.into(), 0), (C.into(), 1), (A.into(), 0)]);
+        assert_eq!(get_arrangement(&store, id).unwrap(), r.members);
     }
 
     #[test]

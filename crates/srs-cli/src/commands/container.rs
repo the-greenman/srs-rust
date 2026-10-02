@@ -2,16 +2,20 @@ use crate::commands::{with_store, CliContext, ContainerCommand, ContainerMembers
 use crate::output;
 use crate::payload::{
     ContainerDeletePayload, ContainerListPayload, ContainerMembersMutatePayload,
-    ContainerMembersPayload, ContainerPayload, ContainerValidatePayload, ContainerViewPayload,
+    ContainerMembersOutlinePayload, ContainerMembersPayload, ContainerPayload,
+    ContainerValidatePayload, ContainerViewPayload,
 };
 use anyhow::Result;
+use srs_core::arrangement::RelativeMove;
 use srs_core::types::container::Container;
 use srs_repository::container_service::{
-    add_container_member, create_container, delete_container, get_arrangement, get_container,
-    list_containers, move_member, remove_container_member, repair_members, update_container,
-    validate_container_invariants, ArrangementResult, ContainerListFilter, ContainerPatch,
+    add_container_member, add_member_relative, create_container, delete_container, get_arrangement,
+    get_container, get_outline, list_containers, move_member, move_member_relative,
+    remove_container_member, repair_members, update_container, validate_container_invariants,
+    ArrangementResult, ContainerListFilter, ContainerPatch,
 };
 use srs_repository::container_view_service::{resolve_container_view, ResolveContainerViewInput};
+use srs_repository::error::RepositoryError;
 
 pub fn dispatch(ctx: CliContext, cmd: ContainerCommand) -> Result<String> {
     match cmd {
@@ -127,6 +131,20 @@ fn mutate_payload(
     }
 }
 
+/// Fold the `--before/--after/--into <ID>` flags into the `(relativeTo, placement)` pair.
+fn relative_flags(
+    before: Option<String>,
+    after: Option<String>,
+    into: Option<String>,
+) -> (Option<String>, Option<&'static str>) {
+    match (before, after, into) {
+        (Some(t), _, _) => (Some(t), Some("before")),
+        (_, Some(t), _) => (Some(t), Some("after")),
+        (_, _, Some(t)) => (Some(t), Some("into")),
+        _ => (None, None),
+    }
+}
+
 fn dispatch_members(ctx: CliContext, cmd: ContainerMembersCommand) -> Result<String> {
     match cmd {
         ContainerMembersCommand::List { container_id } => {
@@ -139,20 +157,48 @@ fn dispatch_members(ctx: CliContext, cmd: ContainerMembersCommand) -> Result<Str
                 },
             )
         }
+        ContainerMembersCommand::Outline { container_id } => {
+            let o = with_store(&ctx, |store| Ok(get_outline(store, &container_id)?))?;
+            output::serialize(
+                "container members outline",
+                ContainerMembersOutlinePayload {
+                    container_id: o.container_id,
+                    anchor_instance_id: o.anchor_instance_id,
+                    identity_instance_id: o.identity_instance_id,
+                    entries: o.entries,
+                    body: o.body,
+                },
+            )
+        }
         ContainerMembersCommand::Add {
             container_id,
             instance_id,
             position,
             depth,
+            before,
+            after,
+            into,
         } => {
+            let (rel, placement) = relative_flags(before, after, into);
             let r = with_store(&ctx, |store| {
-                Ok(add_container_member(
-                    store,
-                    &container_id,
-                    &instance_id,
-                    position,
-                    depth,
-                )?)
+                match RelativeMove::parse(rel.as_deref(), placement, None)
+                    .map_err(|message| RepositoryError::InvalidInput { message })?
+                {
+                    Some(RelativeMove::Place { target, placement }) => Ok(add_member_relative(
+                        store,
+                        &container_id,
+                        &instance_id,
+                        &target,
+                        placement,
+                    )?),
+                    _ => Ok(add_container_member(
+                        store,
+                        &container_id,
+                        &instance_id,
+                        position,
+                        depth,
+                    )?),
+                }
             })?;
             output::serialize(
                 "container members add",
@@ -176,15 +222,41 @@ fn dispatch_members(ctx: CliContext, cmd: ContainerMembersCommand) -> Result<Str
             instance_id,
             position,
             depth,
+            before,
+            after,
+            into,
+            indent,
+            outdent,
+            up,
+            down,
         } => {
+            let (rel, placement) = relative_flags(before, after, into);
+            let shift = [
+                (indent, "indent"),
+                (outdent, "outdent"),
+                (up, "up"),
+                (down, "down"),
+            ]
+            .into_iter()
+            .find_map(|(on, name)| on.then_some(name));
             let r = with_store(&ctx, |store| {
-                Ok(move_member(
-                    store,
-                    &container_id,
-                    &instance_id,
-                    position,
-                    depth,
-                )?)
+                match RelativeMove::parse(rel.as_deref(), placement, shift)
+                    .map_err(|message| RepositoryError::InvalidInput { message })?
+                {
+                    Some(mv) => Ok(move_member_relative(
+                        store,
+                        &container_id,
+                        &instance_id,
+                        &mv,
+                    )?),
+                    None => Ok(move_member(
+                        store,
+                        &container_id,
+                        &instance_id,
+                        position,
+                        depth,
+                    )?),
+                }
             })?;
             output::serialize(
                 "container members move",
