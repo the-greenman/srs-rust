@@ -70,7 +70,7 @@ pub struct ContainerValidationReport {
 pub struct ContainerListFilter {
     pub container_type: Option<String>,
     pub member_instance_id: Option<String>,
-    pub root_instance_id: Option<String>,
+    pub anchor_instance_id: Option<String>,
 }
 
 pub fn list_containers(
@@ -108,7 +108,7 @@ pub fn list_containers(
                 continue;
             }
         }
-        if let Some(ref root_filter) = filter.root_instance_id {
+        if let Some(ref root_filter) = filter.anchor_instance_id {
             // RFC-043 [R4]: roots are gone; "root" now means the declared anchor entry.
             if container.anchor_instance_id.as_deref() != Some(root_filter.as_str()) {
                 continue;
@@ -135,6 +135,71 @@ pub fn containers_for_instance(
             ..Default::default()
         },
     )
+}
+
+/// The one `container_create` input contract (RFC-043 revision-8 shape, no `rootInstanceIds`),
+/// shared by the CLI, the WASM binding and the MCP tool so every adapter applies the same
+/// rules: unknown keys are rejected, `containerId` is minted when omitted. It carries every
+/// authorable property of `container.json` (only the `$schema` marker is left out), so no
+/// adapter can set less than another.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[cfg_attr(feature = "mcp-schema", derive(schemars::JsonSchema))]
+pub struct ContainerCreateInput {
+    pub container_id: Option<String>,
+    pub title: String,
+    pub namespace: Option<String>,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub container_type: Option<String>,
+    pub anchor_instance_id: Option<String>,
+    pub identity_instance_id: Option<String>,
+    pub member_instance_ids: Option<Vec<ContainerEntryInput>>,
+    /// RFC-034 Change B: container ids of directly nested child scopes.
+    pub child_container_ids: Option<Vec<String>>,
+    pub tags: Option<Vec<String>>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    /// Implementation-local metadata; cross-system keys should be namespaced.
+    pub meta: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+/// One outline entry of [`ContainerCreateInput`].
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[cfg_attr(feature = "mcp-schema", derive(schemars::JsonSchema))]
+pub struct ContainerEntryInput {
+    pub instance_id: String,
+    pub depth: Option<u32>,
+}
+
+impl From<ContainerCreateInput> for Container {
+    fn from(i: ContainerCreateInput) -> Self {
+        Container {
+            container_id: i.container_id.unwrap_or_default(),
+            title: i.title,
+            namespace: i.namespace,
+            name: i.name,
+            description: i.description,
+            container_type: i.container_type,
+            identity_instance_id: i.identity_instance_id,
+            anchor_instance_id: i.anchor_instance_id,
+            member_instance_ids: i.member_instance_ids.map(|v| {
+                v.into_iter()
+                    .map(|e| ContainerEntry {
+                        instance_id: e.instance_id,
+                        depth: e.depth,
+                    })
+                    .collect()
+            }),
+            child_container_ids: i.child_container_ids,
+            tags: i.tags,
+            created_at: i.created_at,
+            updated_at: i.updated_at,
+            meta: i.meta.map(serde_json::Value::Object),
+            extra: Default::default(),
+        }
+    }
 }
 
 pub fn create_container(
@@ -685,7 +750,7 @@ fn require_valid_child_containers(
 /// resolve-view`, the MCP container resource, `containers_for_instance`,
 /// RFC-012 `containerId` filtering (via `list_records_filtered`). RFC-011
 /// `containerScope: "explicit"` wants [`list_direct_members`] instead.
-pub(crate) fn list_members(
+pub fn list_members(
     store: &dyn RepositoryStore,
     container_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
@@ -775,14 +840,7 @@ fn require_valid_arrangement(
     let Some(entries) = &container.member_instance_ids else {
         return Ok(());
     };
-    let is_root = store
-        .load_manifest()
-        .ok()
-        .and_then(|m| m.container)
-        .is_some_and(|c| c.container_id == container.container_id);
-    let identity = is_root
-        .then_some(container.identity_instance_id.as_deref())
-        .flatten();
+    let identity = root_identity(store, &container.container_id, container);
     match arrangement::check_entries(entries, identity)
         .into_iter()
         .next()
@@ -908,9 +966,7 @@ pub fn add_member(
             ..Default::default()
         });
     }
-    let identity = is_root_container(store, container_id)
-        .then_some(container.identity_instance_id.as_deref())
-        .flatten();
+    let identity = root_identity(store, container_id, &container);
     let out = arrangement::insert(
         &entries,
         ContainerEntry::at(instance_id, depth.unwrap_or(0)),
@@ -969,6 +1025,17 @@ pub fn move_member(
     })
 }
 
+/// The identity entry the [R2] identity rule pins: only the root container has one.
+fn root_identity<'a>(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    container: &'a Container,
+) -> Option<&'a str> {
+    is_root_container(store, container_id)
+        .then_some(container.identity_instance_id.as_deref())
+        .flatten()
+}
+
 /// The shared write path of the arrangement edits: load the container, apply `op` to its
 /// entries with the root container's identity (for the [R2] identity rule), persist the result.
 fn rearrange(
@@ -978,9 +1045,7 @@ fn rearrange(
 ) -> Result<ArrangementResult, RepositoryError> {
     let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
     let entries = container.member_instance_ids.clone().unwrap_or_default();
-    let identity = is_root_container(store, container_id)
-        .then_some(container.identity_instance_id.as_deref())
-        .flatten();
+    let identity = root_identity(store, container_id, &container);
     let out = op(&entries, identity)?;
     store_entries(&mut container, out.clone());
     save_container_syncing_embed(store, &container, is_embed_only, false)?;
@@ -1053,7 +1118,7 @@ pub fn get_outline(
     let entries = container.member_instance_ids.clone().unwrap_or_default();
     let anchor = r22_position_anchor_instance_id(&container);
     let identity = container.identity_instance_id.clone();
-    let (body, _) = arrangement::retain_promoting(&entries, |id| {
+    let (body, _, _) = arrangement::retain_promoting(&entries, |id| {
         anchor.as_deref() != Some(id) && identity.as_deref() != Some(id)
     });
     Ok(ContainerOutline {
@@ -1081,19 +1146,13 @@ pub fn repair_members(
         .map(|e| e.id)
         .collect();
     let entries = container.member_instance_ids.clone().unwrap_or_default();
-    let (out, removed) = arrangement::retain_promoting(&entries, |id| known.contains(id));
+    let (out, removed, promoted) = arrangement::retain_promoting(&entries, |id| known.contains(id));
     if removed.is_empty() {
         return Ok(ArrangementResult {
             members: entries,
             ..Default::default()
         });
     }
-    let promoted: Vec<String> = out
-        .iter()
-        .zip(entries.iter().filter(|e| !removed.contains(&e.instance_id)))
-        .filter(|(after, before)| after.depth() != before.depth())
-        .map(|(after, _)| after.instance_id.clone())
-        .collect();
     store_entries(&mut container, out.clone());
     save_container_for_repair(store, &container, is_embed_only)?;
     Ok(ArrangementResult {
@@ -1129,43 +1188,17 @@ pub fn list_roots(
 /// permits both the inline-root manifest write and the file-backed container
 /// writes below.
 ///
-/// `containers_for_instance` matches `memberInstanceIds` *and* `rootInstanceIds`
-/// across file-backed containers and the inline root alike — exactly the set the
-/// catalog draws its container references from.
+/// `containers_for_instance` matches `memberInstanceIds` across file-backed containers and
+/// the inline root alike — exactly the set the catalog draws its container references from.
 ///
-/// `identityInstanceId` is cleared in the same edit when it names the deleted
-/// instance. It is not an [R13] reference — the catalog does not resolve it — but
-/// leaving it behind only trades the fatal diagnostic for an invalid repository:
-/// `validate` reports **I-81 as an error** ("identityInstanceId is not in
-/// rootInstanceIds or memberInstanceIds") and `repository_navigation` fails
-/// outright on the unresolvable identity. RFC-029 states that a root container
-/// with no `identityInstanceId` is valid, so clearing is the state that stays
-/// valid; `srs container update` re-points an identity when a successor exists
-/// (clearing one deliberately has no encoding — srs-rust#837).
+/// Revision 8 (RFC-043 [R7]): each container drops the entry by the promoting removal
+/// (descendants move up one level). An entry named by `identityInstanceId` or
+/// `anchorInstanceId` is never silently cleared; the cascade is rejected whole
+/// (`arrangement-pointer`) before any container is written, so the caller must re-point or
+/// clear the pointer first.
 ///
-/// Two consequences worth knowing, neither introduced here:
-/// - a root container left with no identity *and* no roots has no navigation —
-///   `repository_navigation` returns `NotFound`, which is what `repo create`'s
-///   scaffolded shape becomes once its sole purpose record is deleted;
-/// - when roots do remain, navigation silently promotes the first one to the
-///   identity node and drops it from `sections`. That fallback predates this
-///   cascade and fires for any identity-less root container — srs-rust#838.
-///
-/// `anchorInstanceId` (srs#446/I-145) is cleared the same way and for the same reason:
-/// leaving it behind trades a fatal `validate` diagnostic ("I-145: anchorInstanceId is
-/// not a member") for an invalid repository, and — unlike identity — clearing it always
-/// falls back cleanly to the transitional `rootInstanceIds[0]` typing-anchor rule rather
-/// than leaving the container without any usable state.
-///
-/// Only containers that list the instance are visited, so an identity or anchor naming a
-/// non-member is not reached. RFC-013/I-81 requires an identity to be a member (enforced
-/// on the root container), and I-145 requires the same of `anchorInstanceId` (enforced on
-/// every container), so that shape is already invalid.
-///
-/// The edits are applied to one loaded container and written once rather than
-/// through `remove_member`/`remove_root`: they must land in a single write (the
-/// inline root's is a non-atomic `manifest.json` truncate), and no existing
-/// helper can clear an identity.
+/// The edits are applied to each loaded container and written once, rather than through
+/// [`remove_member`], so the pointer check covers every container before the first write.
 pub(crate) fn remove_instance_from_all_containers(
     store: &dyn RepositoryStore,
     instance_id: &str,
@@ -1199,34 +1232,6 @@ pub(crate) fn is_member(
 ) -> Result<bool, RepositoryError> {
     let members = list_members(store, container_id)?;
     Ok(members.iter().any(|id| id == instance_id))
-}
-
-/// Add a member to a container — public entry point for membership management commands.
-pub fn add_container_member(
-    store: &dyn RepositoryStore,
-    container_id: &str,
-    instance_id: &str,
-    position: Option<usize>,
-    depth: Option<u32>,
-) -> Result<ArrangementResult, RepositoryError> {
-    add_member(store, container_id, instance_id, position, depth)
-}
-
-/// Remove a member from a container — public entry point for membership management commands.
-pub fn remove_container_member(
-    store: &dyn RepositoryStore,
-    container_id: &str,
-    instance_id: &str,
-) -> Result<ArrangementResult, RepositoryError> {
-    remove_member(store, container_id, instance_id)
-}
-
-/// List members of a container — public entry point for membership inspection commands.
-pub fn list_container_members(
-    store: &dyn RepositoryStore,
-    container_id: &str,
-) -> Result<Vec<String>, RepositoryError> {
-    list_members(store, container_id)
 }
 
 pub fn validate_container_invariants(
@@ -1290,10 +1295,8 @@ pub fn validate_container_invariants(
                 ));
             }
         }
-        let root_identity = is_root_container(store, container_id)
-            .then_some(container.identity_instance_id.as_deref())
-            .flatten();
-        for v in arrangement::check_entries(entries, root_identity) {
+        for v in arrangement::check_entries(entries, root_identity(store, container_id, &container))
+        {
             errors.push(v.to_string());
         }
     }
@@ -2351,7 +2354,7 @@ mod tests {
         let out = list_containers(
             &store,
             &ContainerListFilter {
-                root_instance_id: Some(id.to_string()),
+                anchor_instance_id: Some(id.to_string()),
                 ..Default::default()
             },
         )

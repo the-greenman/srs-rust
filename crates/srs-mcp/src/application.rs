@@ -6,9 +6,8 @@
 //! browser dispatcher cannot drift.
 
 use rmcp::model::{
-    CallToolResult, ErrorCode, GetPromptResult, Implementation, InitializeResult,
-    ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult, ListToolsResult,
-    ProtocolVersion, ReadResourceResult, ServerCapabilities, ServerInfo,
+    CallToolResult, ErrorCode, GetPromptResult, ListPromptsResult, ListResourceTemplatesResult,
+    ListResourcesResult, ListToolsResult, ReadResourceResult, ServerInfo,
 };
 use rmcp::ErrorData as McpError;
 use serde::de::DeserializeOwned;
@@ -36,23 +35,11 @@ fn call<T: DeserializeOwned>(
     serde_json::from_value(value).map_err(|e| McpError::internal_error(e.to_string(), None))
 }
 
+/// The stdio server's `initialize` result: the one definition lives in
+/// `srs_metadata::initialize_result()` (shared with the browser dispatcher), parsed here.
 pub(crate) fn server_info() -> ServerInfo {
-    InitializeResult::new(
-        ServerCapabilities::builder()
-            .enable_prompts()
-            .enable_resources()
-            .enable_tools()
-            .build(),
-    )
-    // The JSON core and Streamable HTTP fixture intentionally pin the
-    // browser-compatible profile. Do not inherit rmcp's moving default here or
-    // native stdio would silently advertise another protocol revision.
-    .with_protocol_version(ProtocolVersion::V_2025_06_18)
-    .with_server_info(
-        Implementation::new("srs-mcp", srs_metadata::release_version())
-            .with_description(srs_metadata::release_generation_description()),
-    )
-    .with_instructions(srs_metadata::instructions())
+    serde_json::from_value(srs_metadata::initialize_result())
+        .expect("srs_metadata::initialize_result() is a valid rmcp InitializeResult")
 }
 
 pub(crate) fn list_resources(app: &mut App) -> Result<ListResourcesResult, McpError> {

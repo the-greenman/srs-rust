@@ -127,23 +127,30 @@ pub fn remove_promoting(
 }
 
 /// Remove every entry whose id fails `keep`, each by the promoting removal. Used by
-/// repair, slices and `typeFilter` (render-time virtual removal). Returns the new list
-/// and the ids that were dropped.
+/// repair, slices and `typeFilter` (render-time virtual removal). Returns the new list,
+/// the ids that were dropped, and the surviving ids that were promoted (each once).
 pub fn retain_promoting(
     entries: &[ContainerEntry],
     keep: impl Fn(&str) -> bool,
-) -> (Vec<ContainerEntry>, Vec<String>) {
+) -> (Vec<ContainerEntry>, Vec<String>, Vec<String>) {
     let mut cur = entries.to_vec();
     let mut dropped = Vec::new();
+    let mut promoted: Vec<String> = Vec::new();
     for e in entries {
         if !keep(&e.instance_id) {
-            if let Some((next, _)) = remove_promoting(&cur, &e.instance_id) {
+            if let Some((next, p)) = remove_promoting(&cur, &e.instance_id) {
                 cur = next;
                 dropped.push(e.instance_id.clone());
+                for id in p {
+                    if !promoted.contains(&id) {
+                        promoted.push(id);
+                    }
+                }
             }
         }
     }
-    (cur, dropped)
+    promoted.retain(|id| !dropped.contains(id));
+    (cur, dropped, promoted)
 }
 
 fn validated(
@@ -496,7 +503,7 @@ mod tests {
 
     #[test]
     fn typefilter_exclusion_matches_the_worked_example() {
-        let (out, _) = retain_promoting(&outline(PQRST), |id| id != "Q");
+        let (out, _, _) = retain_promoting(&outline(PQRST), |id| id != "Q");
         assert_eq!(shape(&out), s(&[("P", 0), ("R", 1), ("S", 1), ("T", 0)]));
     }
 

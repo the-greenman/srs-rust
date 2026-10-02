@@ -42,7 +42,7 @@ fn list_containers_filters_by_root() {
     let summaries = list_containers(
         &store,
         &ContainerListFilter {
-            root_instance_id: Some("5bbf9209-1dc9-44b2-b0a3-f2192db5a879".to_string()),
+            anchor_instance_id: Some("5bbf9209-1dc9-44b2-b0a3-f2192db5a879".to_string()),
             ..Default::default()
         },
     )

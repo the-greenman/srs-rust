@@ -22,6 +22,14 @@ hex = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 unicode-normalization = { workspace = true }
 zip = { workspace = true }
+# ADR-011/ADR-037 amendment (srs-rust#1157): optional, enabled only by srs-mcp-core, which
+# already depends on schemars 1, so no new crate enters any build. It derives the MCP tool
+# schema from the one shared create-input type instead of a hand-written shadow copy. Not the
+# workspace's schemars 0.8 (that one is srs-cli's payload-golden generator).
+schemars = { version = "1", optional = true }
+
+[features]
+mcp-schema = ["dep:schemars"]
 
 [dev-dependencies]
 tempfile = "3"

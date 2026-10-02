@@ -2351,7 +2351,7 @@ fn arranged_direct_members(
             }
         }
     }
-    let (kept, _) = srs_core::arrangement::retain_promoting(&entries, |id| {
+    let (kept, _, _) = srs_core::arrangement::retain_promoting(&entries, |id| {
         loaded.get(id).is_some_and(|inst| match type_filter {
             Some(f) => relation_graph::passes_type_filter(inst, f, package),
             None => true,

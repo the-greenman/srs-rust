@@ -137,7 +137,7 @@ pub fn resolve_container_view(
 
     // Validate the container exists and read its root binding directly. Composition
     // matching and member ordering below go through `compositions_for_container` and
-    // `list_container_members`, which each re-load the container — an acceptable cost on
+    // `list_members`, which each re-load the container — an acceptable cost on
     // this Layer-1 read path in exchange for reusing the tested membership/matching logic
     // rather than duplicating it here.
     let container = container_service::get_container(store, &container_id)?;
@@ -234,7 +234,7 @@ pub fn resolve_container_view(
     // authored fieldId+direction, else the [N+12] fallback, sourced from the governing section,
     // applies (#379). `type_filter: None` on that call — this projection's contract is "the
     // full membership, reordered", never narrowed (`ContainerView.members` doc comment).
-    let member_ids = container_service::list_container_members(store, &container_id)?;
+    let member_ids = container_service::list_members(store, &container_id)?;
     // RFC-043 Change F: members are in entry order only — no roots-first prefix; the anchor
     // sits wherever the arrangement puts it.
     let tail_members = member_ids;

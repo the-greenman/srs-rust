@@ -18,11 +18,10 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use srs_core::arrangement::RelativeMove;
-use srs_core::types::container::{Container, ContainerEntry};
 use srs_core::types::note::{Note, NoteSection};
 use srs_core::types::record::{FieldMeta, FieldValues};
 use srs_core::types::relation::Relation;
-use srs_repository::container_service;
+use srs_repository::container_service::{self, ContainerCreateInput};
 use srs_repository::discovery_service::{self, DiscoveryQuery};
 use srs_repository::protocol_run_service::{
     self, AdvanceStageInput, CreateRunInput, GetRunResult, RunListFilter, RunSummary,
@@ -618,59 +617,6 @@ impl From<NoteGraduateToolInput> for GraduateNoteInput {
     }
 }
 
-/// One outline entry — mirrors `srs_core::types::container::ContainerEntry`.
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ContainerEntryToolInput {
-    pub instance_id: String,
-    pub depth: Option<u32>,
-}
-
-/// `container_create`: the revision-8 container shape (no `rootInstanceIds`) — converts
-/// field-for-field to `srs_core::types::container::Container` for
-/// `container_service::create_container`, the same service the CLI and WASM binding use.
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ContainerCreateToolInput {
-    pub container_id: Option<String>,
-    pub title: String,
-    pub description: Option<String>,
-    pub container_type: Option<String>,
-    pub anchor_instance_id: Option<String>,
-    pub identity_instance_id: Option<String>,
-    pub member_instance_ids: Option<Vec<ContainerEntryToolInput>>,
-    pub tags: Option<Vec<String>>,
-}
-
-impl From<ContainerCreateToolInput> for Container {
-    fn from(i: ContainerCreateToolInput) -> Self {
-        Container {
-            container_id: i.container_id.unwrap_or_default(),
-            title: i.title,
-            namespace: None,
-            name: None,
-            description: i.description,
-            container_type: i.container_type,
-            identity_instance_id: i.identity_instance_id,
-            anchor_instance_id: i.anchor_instance_id,
-            member_instance_ids: i.member_instance_ids.map(|v| {
-                v.into_iter()
-                    .map(|e| ContainerEntry {
-                        instance_id: e.instance_id,
-                        depth: e.depth,
-                    })
-                    .collect()
-            }),
-            child_container_ids: None,
-            tags: i.tags,
-            created_at: None,
-            updated_at: None,
-            meta: None,
-            extra: Default::default(),
-        }
-    }
-}
-
 /// Shared by `container_member_add` and `container_member_remove` — fields are
 /// passed directly to the service; no service struct conversion needed (follows
 /// the `EmptyToolInput` / `repo_validate` pattern).
@@ -873,7 +819,7 @@ pub fn list_tools() -> Value {
         tool(
             TOOL_CONTAINER_CREATE,
             DESC_CONTAINER_CREATE,
-            input_schema::<ContainerCreateToolInput>(),
+            input_schema::<ContainerCreateInput>(),
         ),
         tool(
             TOOL_CONTAINER_MEMBER_ADD,
@@ -1079,7 +1025,7 @@ pub fn call_tool(
             }
         }
         TOOL_CONTAINER_CREATE => {
-            let input: ContainerCreateToolInput = parse_args(arguments)?;
+            let input: ContainerCreateInput = parse_args(arguments)?;
             match container_service::create_container(store, input.into()) {
                 Ok(container) => tool_ok(&container),
                 Err(e) => Ok(tool_err(e.to_string())),
@@ -1103,7 +1049,7 @@ pub fn call_tool(
                         placement,
                     )
                 }
-                _ => container_service::add_container_member(
+                _ => container_service::add_member(
                     store,
                     &input.container_id,
                     &input.instance_id,
@@ -1118,11 +1064,7 @@ pub fn call_tool(
         }
         TOOL_CONTAINER_MEMBER_REMOVE => {
             let input: ContainerMemberToolInput = parse_args(arguments)?;
-            match container_service::remove_container_member(
-                store,
-                &input.container_id,
-                &input.instance_id,
-            ) {
+            match container_service::remove_member(store, &input.container_id, &input.instance_id) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
