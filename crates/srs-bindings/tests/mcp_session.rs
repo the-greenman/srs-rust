@@ -164,3 +164,68 @@ fn write_epoch_tracks_mutation_only() {
         "validated write must bump the epoch"
     );
 }
+
+#[test]
+fn mcp_container_create_then_add_members() {
+    let repo = open_repo();
+    let mut session = repo.open_mcp_session().ok().unwrap();
+    send(
+        &mut session,
+        1,
+        "initialize",
+        json!({ "protocolVersion": "2025-06-18" }),
+    );
+    let mut note = |id: i64, title: &str| -> String {
+        let r = send(
+            &mut session,
+            id,
+            "tools/call",
+            json!({ "name": "note_create", "arguments": { "title": title, "sections": [] }}),
+        );
+        assert_eq!(r["result"]["isError"], false, "{r}");
+        r["result"]["structuredContent"]["instanceId"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let (intro, body) = (note(2, "Intro"), note(3, "Body"));
+
+    let created = send(
+        &mut session,
+        4,
+        "tools/call",
+        json!({ "name": "container_create", "arguments": {
+            "title": "Essay", "containerType": "essay",
+            "anchorInstanceId": intro, "identityInstanceId": intro,
+            "memberInstanceIds": [{ "instanceId": intro }]
+        }}),
+    );
+    assert_eq!(created["result"]["isError"], false, "{created}");
+    let cid = created["result"]["structuredContent"]["containerId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let added = send(
+        &mut session,
+        5,
+        "tools/call",
+        json!({ "name": "container_member_add",
+                "arguments": { "containerId": cid, "instanceId": body, "depth": 0 }}),
+    );
+    assert_eq!(added["result"]["isError"], false, "{added}");
+    let members = added["result"]["structuredContent"]["members"]
+        .as_array()
+        .unwrap();
+    assert_eq!(members.len(), 2);
+
+    // Validation failure: unresolvable member is a tool error, nothing created.
+    let bad = send(
+        &mut session,
+        6,
+        "tools/call",
+        json!({ "name": "container_create", "arguments": {
+            "title": "Bad", "memberInstanceIds": [{ "instanceId": "no-such-id" }] }}),
+    );
+    assert_eq!(bad["result"]["isError"], true, "{bad}");
+}
