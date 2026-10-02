@@ -589,6 +589,21 @@ pub struct ContainerMembersPayload {
     pub members: Vec<srs_core::types::container::ContainerEntry>,
 }
 
+/// Issue #1156: the derived outline — `entries` is the whole arrangement and `body` the
+/// document body (anchor and identity entries set aside), each entry carrying
+/// `{instanceId, depth, parentInstanceId, hasChildren, runSize, runEnd}`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerMembersOutlinePayload {
+    pub container_id: String,
+    pub anchor_instance_id: Option<String>,
+    pub identity_instance_id: Option<String>,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub entries: Vec<srs_core::arrangement::OutlineEntry>,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub body: Vec<srs_core::arrangement::OutlineEntry>,
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerMembersMutatePayload {

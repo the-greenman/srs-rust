@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use srs_core::arrangement::RelativeMove;
 use srs_core::types::record::{FieldMeta, FieldValues};
 use srs_repository::attachment_service::{
     self as attachment_service, AddAttachmentInput, GetAttachmentBytesInput,
@@ -837,6 +838,64 @@ impl SrsRepository {
         )
         .map_err(js_err)?;
         to_js(&result)
+    }
+
+    /// Relative move (issue #1156): give `relative_to` + `placement` (`"before"` | `"after"` |
+    /// `"into"`) or `shift` (`"indent"` | `"outdent"` | `"up"` | `"down"`), not both. The core
+    /// resolves it against the outline, so no client arithmetic is needed. Same result shape as
+    /// `move_container_member`; a JS error carries a rejection (illegal target, identity pin, [R2]).
+    pub fn move_container_member_relative(
+        &self,
+        container_id: &str,
+        instance_id: &str,
+        relative_to: Option<String>,
+        placement: Option<String>,
+        shift: Option<String>,
+    ) -> Result<JsValue, JsValue> {
+        let mv = RelativeMove::parse(
+            relative_to.as_deref(),
+            placement.as_deref(),
+            shift.as_deref(),
+        )
+        .map_err(|e| JsValue::from_str(&e))?
+        .ok_or_else(|| JsValue::from_str("give relativeTo with placement, or shift"))?;
+        let result =
+            container_service::move_member_relative(&self.store, container_id, instance_id, &mv)
+                .map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Add an instance and place it `before` / `after` / `into` `relative_to` in one write.
+    pub fn add_container_member_relative(
+        &self,
+        container_id: &str,
+        instance_id: &str,
+        relative_to: &str,
+        placement: &str,
+    ) -> Result<JsValue, JsValue> {
+        let Some(RelativeMove::Place { target, placement }) =
+            RelativeMove::parse(Some(relative_to), Some(placement), None)
+                .map_err(|e| JsValue::from_str(&e))?
+        else {
+            return Err(JsValue::from_str("relativeTo and placement are required"));
+        };
+        let result = container_service::add_member_relative(
+            &self.store,
+            container_id,
+            instance_id,
+            &target,
+            placement,
+        )
+        .map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// The derived outline: `{ containerId, anchorInstanceId, identityInstanceId, entries, body }`
+    /// where each entry is `{ instanceId, depth, parentInstanceId, hasChildren, runSize, runEnd }`
+    /// and `body` excludes the anchor and identity entries (the renderer's rule).
+    pub fn get_container_outline(&self, container_id: &str) -> Result<JsValue, JsValue> {
+        let outline = container_service::get_outline(&self.store, container_id).map_err(js_err)?;
+        to_js(&outline)
     }
 
     /// Remove every entry that no longer resolves to an instance (RFC-043 repair).

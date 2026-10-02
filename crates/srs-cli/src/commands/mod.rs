@@ -481,36 +481,70 @@ pub enum ContainerCommand {
     },
 }
 
+const RELATIVE_FLAGS: [&str; 7] = ["before", "after", "into", "indent", "outdent", "up", "down"];
+
 #[derive(Subcommand)]
 pub enum ContainerMembersCommand {
     /// List the container's arrangement: entries `{instanceId, depth?}` in order (RFC-043)
     List { container_id: String },
-    /// Add a member; appends at depth 0 unless --position / --depth are given
+    /// The derived outline: entries and document body with parent, depth and run (RFC-043)
+    Outline { container_id: String },
+    /// Add a member; appends at depth 0 unless --position / --depth / --before|--after|--into
     Add {
         container_id: String,
         instance_id: String,
         /// 0-based position to insert at (default: append)
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["before", "after", "into"])]
         position: Option<usize>,
         /// Nesting depth (default 0)
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["before", "after", "into"])]
         depth: Option<u32>,
+        /// Place just before this entry (its sibling)
+        #[arg(long, value_name = "ID", conflicts_with_all = ["after", "into"])]
+        before: Option<String>,
+        /// Place just after this entry's run (its sibling)
+        #[arg(long, value_name = "ID", conflicts_with = "into")]
+        after: Option<String>,
+        /// Place as the last child of this entry
+        #[arg(long, value_name = "ID")]
+        into: Option<String>,
     },
     /// Remove a member; its descendants are promoted one level
     Remove {
         container_id: String,
         instance_id: String,
     },
-    /// Move an entry's run to --position and/or set its --depth
+    /// Move an entry's run: --position/--depth (absolute), or one relative flag
     Move {
         container_id: String,
         instance_id: String,
         /// 0-based position, against the list without the moved run (default: stay)
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = RELATIVE_FLAGS)]
         position: Option<usize>,
         /// New depth for the entry (its descendants shift with it)
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = RELATIVE_FLAGS)]
         depth: Option<u32>,
+        /// Move just before this entry (its sibling)
+        #[arg(long, value_name = "ID", conflicts_with_all = ["after", "into", "indent", "outdent", "up", "down"])]
+        before: Option<String>,
+        /// Move just after this entry's run (its sibling)
+        #[arg(long, value_name = "ID", conflicts_with_all = ["into", "indent", "outdent", "up", "down"])]
+        after: Option<String>,
+        /// Move to be the last child of this entry
+        #[arg(long, value_name = "ID", conflicts_with_all = ["indent", "outdent", "up", "down"])]
+        into: Option<String>,
+        /// Depth + 1, clamped to the previous entry's depth + 1
+        #[arg(long, conflicts_with_all = ["outdent", "up", "down"])]
+        indent: bool,
+        /// Depth - 1
+        #[arg(long, conflicts_with_all = ["up", "down"])]
+        outdent: bool,
+        /// Swap with the previous sibling
+        #[arg(long, conflicts_with = "down")]
+        up: bool,
+        /// Swap with the next sibling
+        #[arg(long)]
+        down: bool,
     },
     /// Remove every entry whose instance no longer resolves (RFC-043 repair)
     Repair { container_id: String },

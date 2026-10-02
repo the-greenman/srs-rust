@@ -980,6 +980,85 @@ async fn tool_note_graduate_promotes_to_record() {
 }
 
 #[tokio::test]
+async fn tool_container_relative_moves_and_outline() {
+    let fx = make_lifecycle_fixture();
+    let client = connect(&fx.base).await;
+    let mut ids = Vec::new();
+    for title in ["One", "Two", "Three"] {
+        let c = call(
+            &client,
+            "record_create",
+            serde_json::json!({ "type": format!("{NS}/decision"), "fieldValues": { "title": title } }),
+        )
+        .await;
+        assert_eq!(c.is_error, Some(false), "{c:?}");
+        let id = c.structured_content.as_ref().unwrap()["instanceId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let a = call(
+            &client,
+            "container_member_add",
+            serde_json::json!({ "containerId": fx.container_id, "instanceId": id }),
+        )
+        .await;
+        assert_eq!(a.is_error, Some(false), "{a:?}");
+        ids.push(id);
+    }
+    let mv = |args: serde_json::Value| {
+        let client = &client;
+        let cid = fx.container_id.clone();
+        async move {
+            let mut a = args;
+            a["containerId"] = cid.into();
+            call(client, "container_member_move", a).await
+        }
+    };
+    // into: Three becomes a child of Two
+    let r =
+        mv(serde_json::json!({ "instanceId": ids[2], "relativeTo": ids[1], "placement": "into" }))
+            .await;
+    assert_eq!(r.is_error, Some(false), "{r:?}");
+    let o = call(
+        &client,
+        "container_outline",
+        serde_json::json!({ "containerId": fx.container_id }),
+    )
+    .await;
+    assert_eq!(o.is_error, Some(false), "{o:?}");
+    let entries = o.structured_content.as_ref().unwrap()["entries"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let three = entries
+        .iter()
+        .find(|e| e["instanceId"] == ids[2].as_str())
+        .unwrap();
+    assert_eq!(three["parentInstanceId"], ids[1].as_str());
+    assert_eq!(three["depth"], 1);
+    // outdent + step up, then an illegal mix and an illegal self-target are rejected
+    let r = mv(serde_json::json!({ "instanceId": ids[2], "shift": "outdent" })).await;
+    assert_eq!(r.is_error, Some(false), "{r:?}");
+    let r = mv(serde_json::json!({ "instanceId": ids[2], "shift": "up" })).await;
+    assert_eq!(r.is_error, Some(false), "{r:?}");
+    let members = r.structured_content.as_ref().unwrap()["members"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let order: Vec<&str> = members
+        .iter()
+        .map(|m| m["instanceId"].as_str().unwrap())
+        .collect();
+    let pos = |i: &String| order.iter().position(|x| x == i).unwrap();
+    assert!(pos(&ids[2]) < pos(&ids[1]), "{order:?}");
+    let r =
+        mv(serde_json::json!({ "instanceId": ids[0], "relativeTo": ids[0], "placement": "into" }))
+            .await;
+    assert_eq!(r.is_error, Some(true), "{r:?}");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn tool_container_member_add_then_remove() {
     let fx = make_lifecycle_fixture();
     let client = connect(&fx.base).await;

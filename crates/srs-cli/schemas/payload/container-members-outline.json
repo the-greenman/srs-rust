@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ContainerMembersOutlinePayload",
+  "description": "Issue #1156: the derived outline — `entries` is the whole arrangement and `body` the document body (anchor and identity entries set aside), each entry carrying `{instanceId, depth, parentInstanceId, hasChildren, runSize, runEnd}`.",
+  "type": "object",
+  "required": [
+    "body",
+    "containerId",
+    "entries"
+  ],
+  "properties": {
+    "anchorInstanceId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "body": {
+      "type": "array",
+      "items": true
+    },
+    "containerId": {
+      "type": "string"
+    },
+    "entries": {
+      "type": "array",
+      "items": true
+    },
+    "identityInstanceId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

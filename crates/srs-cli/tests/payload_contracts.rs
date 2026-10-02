@@ -196,6 +196,11 @@ fn container_members_list() {
 }
 
 #[test]
+fn container_members_outline() {
+    check::<ContainerMembersOutlinePayload>("container-members-outline");
+}
+
+#[test]
 fn container_members_add() {
     check::<ContainerMembersMutatePayload>("container-members-add");
 }

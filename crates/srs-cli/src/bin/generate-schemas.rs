@@ -79,6 +79,7 @@ fn main() {
     write_schema!("container-update", ContainerPayload);
     write_schema!("container-delete", ContainerDeletePayload);
     write_schema!("container-members-list", ContainerMembersPayload);
+    write_schema!("container-members-outline", ContainerMembersOutlinePayload);
     write_schema!("container-members-add", ContainerMembersMutatePayload);
     write_schema!("container-members-remove", ContainerMembersMutatePayload);
     write_schema!("container-members-move", ContainerMembersMutatePayload);
