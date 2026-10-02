@@ -166,8 +166,10 @@ impl SrsRepository {
     }
 
     /// Create a blank repository in memory (no seed): the same core service as
-    /// `srs repo create`. `input_json` is `{ "title": string, "purpose"?: string,
-    /// "namespace"?: string, "repositoryId"?: string }`. Export with
+    /// `srs repo create`. `input_json` is `CreateBlankRepositoryInput`:
+    /// `{ "namespace": string, "title"?, "description"?, "repositoryId"?,
+    /// "srsVersion"?, "packageId"?, "packageName"?, "packageVersion"?,
+    /// "packageNamespace"? }` — defaults are the core's. Export with
     /// `export_srsj()` / `export_tree()` / `export_archive()`.
     pub fn create(input_json: &str) -> Result<SrsRepository, JsValue> {
         Ok(SrsRepository {
@@ -1573,9 +1575,10 @@ mod tests {
     use srs_repository::RepositoryStore;
     #[test]
     fn create_blank_validates_and_round_trips() {
-        let store =
-            super::create_blank_from_json(r#"{"title":"T","purpose":"Why","namespace":"com.t.x"}"#)
-                .unwrap();
+        let store = super::create_blank_from_json(
+            r#"{"title":"T","description":"Why","namespace":"com.t.x"}"#,
+        )
+        .unwrap();
         let report = srs_repository::validation::validate_repository(&store).unwrap();
         assert_eq!(report.summary.errors, 0, "{:?}", report.diagnostics);
         let m = store.load_manifest().unwrap();
@@ -1597,7 +1600,18 @@ mod tests {
             again.load_manifest().unwrap().extra["repositoryId"],
             m.extra["repositoryId"]
         );
-        assert!(super::create_blank_from_json("{}").is_err());
+        assert!(
+            super::create_blank_from_json("{}").is_err(),
+            "namespace required"
+        );
+        assert!(
+            super::create_blank_from_json(r#"{"namespace":"a.b","purpose":"x"}"#).is_err(),
+            "unknown keys refused"
+        );
+        assert!(
+            super::create_blank_from_json(r#"{"namespace":"a.b","title":" "}"#).is_err(),
+            "blank title refused"
+        );
     }
 
     use super::create_container_from_json;
