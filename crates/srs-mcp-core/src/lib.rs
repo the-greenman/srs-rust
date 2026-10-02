@@ -403,6 +403,9 @@ pub mod srs_prompts {
     }
 }
 
+/// Length cap (chars) on the client-supplied handle used as `Actor.name`.
+pub const CLIENT_HANDLE_MAX_CHARS: usize = 120;
+
 /// The complete SRS MCP application over one repository store: resources,
 /// prompts and tools, as JSON-native MCP results. Owns no transport, runtime or
 /// filesystem; the caller decides the store's lifetime and persistence.
@@ -430,6 +433,33 @@ impl<S: srs_repository::store::RepositoryStore> SrsMcpApplication<S> {
     /// session creates. Host-supplied only — never read from tool arguments.
     pub fn set_session_actor(&self, actor: Option<Value>) {
         self.store.set_session_actor(actor);
+    }
+
+    /// Client handle (srs-rust#1177): fill the session actor's `name` from
+    /// `params.clientInfo.name` (trimmed, capped at [`CLIENT_HANDLE_MAX_CHARS`]; empty or
+    /// missing leaves `name` absent). Display-only (RFC-046 `Actor.name` is a hint). The
+    /// host owns `kind`/`id` and any `name` it set (a present `name` key wins); the client
+    /// can never change them. Runs once per session: a second `initialize` is refused.
+    fn apply_client_handle(&self, params: &Value) {
+        let Some(Value::Object(mut actor)) = self.store.session_actor() else {
+            return;
+        };
+        if actor.contains_key("name") {
+            return;
+        }
+        let handle: String = params["clientInfo"]["name"]
+            .as_str()
+            .unwrap_or_default()
+            .trim()
+            .chars()
+            .take(CLIENT_HANDLE_MAX_CHARS)
+            .collect();
+        let handle = handle.trim_end();
+        if handle.is_empty() {
+            return;
+        }
+        actor.insert("name".into(), json!(handle));
+        self.store.set_session_actor(Some(Value::Object(actor)));
     }
 
     /// Read `repositoryId` from the store's manifest (`"unknown"` when absent).
@@ -468,7 +498,8 @@ fn arguments(
 }
 
 impl<S: srs_repository::store::RepositoryStore> McpApplication for SrsMcpApplication<S> {
-    fn initialize(&mut self, _params: &Value) -> Result<Value, McpApplicationError> {
+    fn initialize(&mut self, params: &Value) -> Result<Value, McpApplicationError> {
+        self.apply_client_handle(params);
         Ok(srs_metadata::initialize_result())
     }
 

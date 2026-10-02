@@ -129,6 +129,11 @@ impl McpSession {
 
     /// Set the session actor (RFC-046) stamped as `createdBy` on everything this MCP
     /// session creates: `{"kind":"human|ai","id":"<non-empty>","name":"<optional>"}`.
+    /// The host fixes `kind` and `id`; omit `name` and the session fills it from the MCP
+    /// `initialize` `clientInfo.name` (trimmed, capped at 120 chars; none if empty). That
+    /// handle is client-supplied and display-only (RFC-046 `Actor.name` is a hint, never
+    /// identity); a `name` the host sets wins, and the client can never change `kind`/`id`.
+    /// Call before `initialize`; a later `set_actor` replaces the actor, handle included.
     /// Host-supplied only — never from tool arguments. The JSON is not validated here:
     /// an invalid actor refuses every creating tool call with `actor-invalid` (R12),
     /// and an actor on a corpus below dataModelRevision 9 with `revision-too-old` (R11).
