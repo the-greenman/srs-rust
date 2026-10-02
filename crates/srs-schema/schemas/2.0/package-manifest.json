@@ -99,8 +99,8 @@
     "packageDependencies": {
       "type": "array",
       "items": { "$ref": "#/$defs/DependencyRef" },
-      "description": "Other packages this package depends on. Consumers must resolve these before using this package.",
-      "$comment": "srs-rust#873/#910: renamed from `dependencyRefs` (srs#478, rfc-decision-c8704763 item 2) — the fold rides srs-rust#910's shared dataModelRevision 6 stamp per the map's accepted (unvetoed) proposal on srs#524. The old name is read only by the `composition-cutover` migration (#6), never the runtime load path."
+      "description": "The packages this package requires (DependencyRef[]), keyed by packageId; absent means it requires nothing. Not the list of definition References a bundle's content points at, which is the bundle's dependencyRefs (RFC-044 [R7]). A consumer MAY check each entry against the repository's installed packages and reports an unsatisfied entry as package-dependency-unsatisfied, never as a load failure (RFC-044, ext:repository).",
+      "$comment": "srs-rust#873/#910: renamed from `dependencyRefs` (srs#478, rfc-decision-c8704763 item 2) — the fold rides srs-rust#910's shared dataModelRevision 6 stamp per the map's accepted (unvetoed) proposal on srs#524. The old name is read only by the `composition-cutover` migration (#6), never the runtime load path. RFC-044 (srs#855): entries are keyed by the required package's packageId (successor decision to rfc-decision-c8704763's package-dependency sentence); no dataModelRevision bump, existing entries repaired directly."
     },
     "createdAt": {
       "type": "string",
@@ -114,14 +114,32 @@
   "$defs": {
     "DependencyRef": {
       "type": "object",
-      "required": ["namespace", "name", "version"],
+      "description": "A requirement on another package (RFC-044 [R1]). packageId is the key; namespace and name are display labels and never decide whether the requirement is satisfied. version is a SemVer 2.0.0 string: an installed version satisfies it when it is in the same compatibility band (same MAJOR; below 1.0 the same 0.MINOR; for 0.0.z the same release), is not a pre-release of a different release, and has equal or higher precedence (RFC-044 [R3]).",
+      "required": [
+        "packageId",
+        "namespace",
+        "name",
+        "version"
+      ],
       "additionalProperties": false,
       "properties": {
-        "namespace": { "type": "string" },
-        "name": { "type": "string" },
+        "packageId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The id of the required package: the value its package manifest carries as id and its bundle carries as packageId. The key of the requirement."
+        },
+        "namespace": {
+          "type": "string",
+          "description": "Display label: the required package's namespace. Never used to decide satisfaction."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display label: the required package's name. Never used to decide satisfaction."
+        },
         "version": {
           "type": "string",
-          "description": "Semver version of the depended-upon package."
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+          "description": "SemVer 2.0.0 version the requiring package is authored against; satisfied by an installed version under the RFC-044 version rule ([R2], [R3])."
         }
       }
     }
