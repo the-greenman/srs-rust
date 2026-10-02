@@ -1,4 +1,4 @@
-use crate::container_service::{add_container_member, create_container};
+use crate::container_service::{add_member, create_container};
 use crate::error::RepositoryError;
 use crate::manifest_service::{set_manifest_root_container, SetManifestRootContainerInput};
 use crate::record_store::{create_record_in_context, CreateRecordInput};
@@ -211,7 +211,7 @@ pub fn scaffold_governance_repo(
     )?;
     let dl_root_id = dl_root.record.instance_id.clone();
     // RFC-043: the decision-log root is the container's anchor entry (replaces add_root).
-    add_container_member(store, &dl_container_id, &dl_root_id, None, None)?;
+    add_member(store, &dl_container_id, &dl_root_id, None, None)?;
     crate::container_service::update_container(
         store,
         &dl_container_id,
@@ -246,8 +246,8 @@ pub fn scaffold_governance_repo(
     )?;
     let root_container_id = root_container.container_id.clone();
 
-    add_container_member(store, &root_container_id, &identity_id, None, None)?;
-    add_container_member(store, &root_container_id, &dl_root_id, None, None)?;
+    add_member(store, &root_container_id, &identity_id, None, None)?;
+    add_member(store, &root_container_id, &dl_root_id, None, None)?;
 
     set_manifest_root_container(
         store,

@@ -7,12 +7,11 @@ use crate::payload::{
 };
 use anyhow::Result;
 use srs_core::arrangement::RelativeMove;
-use srs_core::types::container::Container;
 use srs_repository::container_service::{
-    add_container_member, add_member_relative, create_container, delete_container, get_arrangement,
-    get_container, get_outline, list_containers, move_member, move_member_relative,
-    remove_container_member, repair_members, update_container, validate_container_invariants,
-    ArrangementResult, ContainerListFilter, ContainerPatch,
+    add_member, add_member_relative, create_container, delete_container, get_arrangement,
+    get_container, get_outline, list_containers, move_member, move_member_relative, remove_member,
+    repair_members, update_container, validate_container_invariants, ArrangementResult,
+    ContainerCreateInput, ContainerListFilter, ContainerPatch,
 };
 use srs_repository::container_view_service::{resolve_container_view, ResolveContainerViewInput};
 use srs_repository::error::RepositoryError;
@@ -22,8 +21,8 @@ pub fn dispatch(ctx: CliContext, cmd: ContainerCommand) -> Result<String> {
         ContainerCommand::List {
             container_type,
             member_instance_id,
-            root_instance_id,
-        } => cmd_list(ctx, container_type, member_instance_id, root_instance_id),
+            anchor_instance_id,
+        } => cmd_list(ctx, container_type, member_instance_id, anchor_instance_id),
         ContainerCommand::Create => cmd_create(ctx),
         ContainerCommand::Get { container_id } => cmd_get(ctx, container_id),
         ContainerCommand::Update { container_id } => cmd_update(ctx, container_id),
@@ -59,23 +58,23 @@ fn cmd_list(
     ctx: CliContext,
     container_type: Option<String>,
     member_instance_id: Option<String>,
-    root_instance_id: Option<String>,
+    anchor_instance_id: Option<String>,
 ) -> Result<String> {
     let filter = ContainerListFilter {
         container_type,
         member_instance_id,
-        root_instance_id,
+        anchor_instance_id,
     };
     let containers = with_store(&ctx, |store| Ok(list_containers(store, &filter)?))?;
     output::serialize("container list", ContainerListPayload { containers })
 }
 
 fn cmd_create(ctx: CliContext) -> Result<String> {
-    let container: Container = match crate::input::from_stdin("container") {
+    let input: ContainerCreateInput = match crate::input::from_stdin("container") {
         Ok(v) => v,
         Err(e) => return Ok(output::err("container create", vec![e.to_string()])),
     };
-    match with_store(&ctx, |store| Ok(create_container(store, container)?)) {
+    match with_store(&ctx, |store| Ok(create_container(store, input.into())?)) {
         Ok(container) => output::serialize("container create", ContainerPayload { container }),
         Err(e) => Ok(output::err("container create", vec![e.to_string()])),
     }
@@ -191,7 +190,7 @@ fn dispatch_members(ctx: CliContext, cmd: ContainerMembersCommand) -> Result<Str
                         &target,
                         placement,
                     )?),
-                    _ => Ok(add_container_member(
+                    _ => Ok(add_member(
                         store,
                         &container_id,
                         &instance_id,
@@ -210,7 +209,7 @@ fn dispatch_members(ctx: CliContext, cmd: ContainerMembersCommand) -> Result<Str
             instance_id,
         } => {
             let r = with_store(&ctx, |store| {
-                Ok(remove_container_member(store, &container_id, &instance_id)?)
+                Ok(remove_member(store, &container_id, &instance_id)?)
             })?;
             output::serialize(
                 "container members remove",

@@ -58,7 +58,7 @@ pub fn export_okf_bundle(
     input: OkfExportInput,
 ) -> Result<OkfBundle, RepositoryError> {
     let container = container_service::get_container(store, &input.container_id)?;
-    let member_ids = container_service::list_container_members(store, &input.container_id)?;
+    let member_ids = container_service::list_members(store, &input.container_id)?;
 
     let package = store.load_package()?;
     let (fni, ifi) = record_label::build_label_indexes_from_package(&package);

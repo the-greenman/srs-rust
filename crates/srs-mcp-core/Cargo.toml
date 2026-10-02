@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-srs-repository = { workspace = true }
+srs-repository = { workspace = true, features = ["mcp-schema"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 srs-core = { workspace = true }

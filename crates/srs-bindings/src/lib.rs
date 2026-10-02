@@ -119,6 +119,13 @@ impl McpSession {
 
 #[wasm_bindgen]
 impl SrsRepository {
+    /// Write generation of this repository: advances on every successful mutation (UI
+    /// service calls and MCP writes alike), never on reads. The same store counter
+    /// `McpSession::write_epoch` reads. `f64` because JS numbers are doubles (exact below 2^53).
+    pub fn write_epoch(&self) -> f64 {
+        self.store.write_epoch() as f64
+    }
+
     /// Open an MCP session over this repository (resources, prompts, and the
     /// validated tool surface — the same application `srs mcp serve` runs).
     pub fn open_mcp_session(&self) -> Result<McpSession, JsValue> {
@@ -766,8 +773,8 @@ impl SrsRepository {
     }
 
     /// List container summaries. `filter_json` is a JSON string matching
-    /// `{ "containerType"?: string, "memberInstanceId"?: string, "rootInstanceId"?: string }`
-    /// (`rootInstanceId` matches the container's `anchorInstanceId`, RFC-043 [R4]);
+    /// `{ "containerType"?: string, "memberInstanceId"?: string, "anchorInstanceId"?: string }`
+    /// (matches the container's `anchorInstanceId`, RFC-043 [R4]; `rootInstanceId` is accepted as an alias);
     /// pass `"{}"` for all containers. Returns a JS array of `ContainerSummary` objects.
     pub fn list_containers(&self, filter_json: &str) -> Result<JsValue, JsValue> {
         let parsed: ContainerListBindingFilter = serde_json::from_str(filter_json)
@@ -775,7 +782,7 @@ impl SrsRepository {
         let filter = ContainerListFilter {
             container_type: parsed.container_type,
             member_instance_id: parsed.member_instance_id,
-            root_instance_id: parsed.root_instance_id,
+            anchor_instance_id: parsed.anchor_instance_id,
         };
         let summaries = container_service::list_containers(&self.store, &filter).map_err(js_err)?;
         to_js(&summaries)
@@ -809,7 +816,7 @@ impl SrsRepository {
         position: Option<u32>,
         depth: Option<u32>,
     ) -> Result<JsValue, JsValue> {
-        let result = container_service::add_container_member(
+        let result = container_service::add_member(
             &self.store,
             container_id,
             instance_id,
@@ -827,9 +834,8 @@ impl SrsRepository {
         container_id: &str,
         instance_id: &str,
     ) -> Result<JsValue, JsValue> {
-        let result =
-            container_service::remove_container_member(&self.store, container_id, instance_id)
-                .map_err(js_err)?;
+        let result = container_service::remove_member(&self.store, container_id, instance_id)
+            .map_err(js_err)?;
         to_js(&result)
     }
 
@@ -1276,7 +1282,7 @@ impl SrsRepository {
     /// List all known migrations with their applicability status for this repository.
     ///
     /// Returns a JSON array of `{ id, title, description, status }` objects where
-    /// `status` has exactly one of `needed`, `alreadyApplied`, or `notApplicable` set to `true`.
+    /// `status` is a string: `needed`, `alreadyApplied` or `notApplicable`.
     pub fn available_migrations(&self) -> Result<JsValue, JsValue> {
         let result = migration_registry_service::list_migrations(&self.store).map_err(js_err)?;
         to_js(&result)
@@ -1548,9 +1554,9 @@ fn create_container_from_json(
     store: &srs_repository::FileStore,
     input_json: &str,
 ) -> Result<srs_core::types::container::Container, String> {
-    let container: srs_core::types::container::Container =
+    let input: container_service::ContainerCreateInput =
         serde_json::from_str(input_json).map_err(|e| format!("invalid input: {e}"))?;
-    container_service::create_container(store, container).map_err(|e| e.to_string())
+    container_service::create_container(store, input.into()).map_err(|e| e.to_string())
 }
 
 /// Input shape for `list_containers` — parsed from caller-supplied JSON.
@@ -1561,8 +1567,8 @@ struct ContainerListBindingFilter {
     container_type: Option<String>,
     #[serde(default)]
     member_instance_id: Option<String>,
-    #[serde(default)]
-    root_instance_id: Option<String>,
+    #[serde(default, alias = "rootInstanceId")]
+    anchor_instance_id: Option<String>,
 }
 
 /// Input shape for `list_fields` — parsed from caller-supplied JSON.
@@ -1631,7 +1637,48 @@ struct LinkAttachmentBindingInput {
 
 #[cfg(test)]
 mod tests {
+    use super::SrsRepository;
     use srs_repository::RepositoryStore;
+
+    #[test]
+    fn repository_write_epoch_advances_on_ui_writes_not_reads() {
+        let store = super::create_blank_from_json(
+            r#"{"title":"T","description":"Why","namespace":"com.t.x"}"#,
+        )
+        .unwrap();
+        let identity = store
+            .load_manifest()
+            .unwrap()
+            .container
+            .unwrap()
+            .identity_instance_id
+            .unwrap();
+        let repo = SrsRepository { store };
+        let e0 = repo.write_epoch();
+
+        let c = super::create_container_from_json(&repo.store, r#"{"title":"C"}"#).unwrap();
+        let e1 = repo.write_epoch();
+        assert!(e1 > e0, "container create must advance the epoch");
+
+        srs_repository::container_service::get_container(&repo.store, &c.container_id).unwrap();
+        srs_repository::container_service::list_containers(&repo.store, &Default::default())
+            .unwrap();
+        assert_eq!(repo.write_epoch(), e1, "reads must not advance it");
+
+        srs_repository::container_service::add_member(
+            &repo.store,
+            &c.container_id,
+            &identity,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(repo.write_epoch() > e1, "member add must advance the epoch");
+
+        assert!(
+            super::create_container_from_json(&repo.store, r#"{"title":"x","bogus":1}"#).is_err()
+        );
+    }
     #[test]
     fn create_blank_validates_and_round_trips() {
         let store = super::create_blank_from_json(

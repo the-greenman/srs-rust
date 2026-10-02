@@ -455,7 +455,7 @@ pub enum ContainerCommand {
         member_instance_id: Option<String>,
         /// Return only containers whose anchorInstanceId is this instance (RFC-043: roots are gone)
         #[arg(long = "root")]
-        root_instance_id: Option<String>,
+        anchor_instance_id: Option<String>,
     },
     /// Create a new container (reads JSON from stdin)
     Create,

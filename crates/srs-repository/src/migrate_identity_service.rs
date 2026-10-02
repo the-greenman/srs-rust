@@ -277,8 +277,8 @@ pub fn migrate_identity(
             mc.identity_instance_id = Some(new_id.clone());
         }
         writer::write_manifest(store, &manifest)?;
-        container_service::add_container_member(store, &root_container_id, &new_id, None, None)?;
-        container_service::remove_container_member(store, &root_container_id, &old_id)?;
+        container_service::add_member(store, &root_container_id, &new_id, None, None)?;
+        container_service::remove_member(store, &root_container_id, &old_id)?;
         // Update the persisted Container record's identityInstanceId in lockstep with the
         // manifest embed. Without this the container file disagrees with manifest.container
         // (issue #462).
