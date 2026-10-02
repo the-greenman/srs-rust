@@ -37,6 +37,7 @@ pub mod migrate_identity_service;
 pub mod migration_registry_service;
 pub mod okf_export_service;
 pub mod package;
+pub mod package_dependency_service;
 pub mod package_install_service;
 pub mod package_service;
 pub mod package_types;

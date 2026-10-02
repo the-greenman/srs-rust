@@ -38,7 +38,7 @@ srs://<repositoryId>/protocol/{protocolId} (definition plus stages in order). Us
 relation_create, and note_create enforce the repository's type and relation contracts and \
 return diagnostics on rejection. Run repo_validate after a write batch and check its \
 summary: summary.errors == 0 means the repository is consistent. Warnings are non-blocking, \
-but review them. An empty diagnostics array means the repository is completely clean. \
+but review them; info diagnostics are informational. An empty diagnostics array means the repository is completely clean. \
 Prompts: this server exposes one MCP prompt per installed blueprint. Call prompts/list \
 to discover available blueprints; call prompts/get with a blueprint UUID to retrieve its \
 full brief as rendered markdown — AI guidance, required types, structure, and protocol.";

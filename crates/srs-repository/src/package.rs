@@ -58,13 +58,19 @@ pub struct LoadedBlueprint {
     pub source_package: Option<String>,
 }
 
-/// ext:type-inheritance — a declared external package dependency reference.
-#[derive(Debug, Clone, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DependencyRef {
-    pub namespace: String,
-    pub name: String,
-    pub version: String,
+/// RFC-044 package requirement — canonical type in `srs-core`.
+pub use srs_core::types::package_dependency::DependencyRef;
+
+/// Deserialize `packageDependencies` without ever failing the load (RFC-044
+/// [R9]): a non-array reads as empty and each entry reads leniently. Shape
+/// problems are reported by `repo validate`, never here.
+pub(crate) fn lenient_dependency_refs<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<DependencyRef>, D::Error> {
+    let v = <serde_json::Value as serde::Deserialize>::deserialize(d)?;
+    Ok(v.as_array()
+        .map(|a| a.iter().map(DependencyRef::from_value_lenient).collect())
+        .unwrap_or_default())
 }
 
 /// Unified view of a resolved lifecycle — returned by `Package::effective_lifecycle`.
