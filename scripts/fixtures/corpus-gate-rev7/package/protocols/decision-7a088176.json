@@ -1,0 +1,185 @@
+{
+  "createdAt": "2026-06-25T00:00:00Z",
+  "description": "Nine-stage facilitation protocol for capturing a governance decision: from scene-setting through deliberation to the settled commitment, rationale, review triggers, and follow-up actions.",
+  "id": "7a088176-977f-4ed9-9d0e-f8608c8a944b",
+  "name": "decision",
+  "namespace": "governance",
+  "stages": [
+    {
+      "aiGuidance": {
+        "purpose": "Look for background information stated before the decision point: prior agreements, historical context, changes in circumstances, or what happened to prompt this discussion. Extract the scene, not the problem. Do not include the friction or problem itself — that belongs in the Friction stage."
+      },
+      "completionCriteria": "The scene is set: prior agreements, historical context, or the trigger event are described without naming the problem itself.",
+      "contributesTo": [
+        {
+          "fieldId": "9889052c-9313-5e2f-a2ac-15baa3c6983e"
+        }
+      ],
+      "dependsOn": [],
+      "name": "Background",
+      "order": 1,
+      "purpose": "Establishes the history, constraints, and trigger event that make this decision matter — the scene before the problem itself is named.",
+      "question": "What is the history or circumstance that makes this decision necessary?",
+      "stageId": "5e15928e-23b4-4057-a7a4-650d3a8ac0db"
+    },
+    {
+      "aiGuidance": {
+        "purpose": "Look for expressions of frustration, tension, or a named gap in current practice. The friction answers why this needs to be decided today. Extract it as a concrete condition, not a wish. Do not describe what the group wants to do about the friction — that belongs in Alternatives or the Decision Statement."
+      },
+      "completionCriteria": "A concrete forcing function is named — not what the group wants to do about it, but why it cannot be left unresolved.",
+      "contributesTo": [
+        {
+          "fieldId": "1a1c0a5d-a1df-5d03-95f2-32af73bb71da"
+        }
+      ],
+      "dependsOn": [
+        "5e15928e-23b4-4057-a7a4-650d3a8ac0db"
+      ],
+      "name": "Friction",
+      "order": 2,
+      "purpose": "Names the specific pain, conflict, or gap that is forcing a decision right now — the concrete thing that cannot be left unresolved.",
+      "question": "What is the specific problem, tension, or gap that makes this decision necessary today?",
+      "stageId": "611a1a55-a804-4d7f-9e6c-59b0d347d448"
+    },
+    {
+      "aiGuidance": {
+        "purpose": "Look for the moment someone names what is actually being decided: 'so the question is...', 'what we are deciding is...', or an implicit framing that narrows discussion to one choice point. If no explicit question was stated, infer the minimal question the decision statement answers."
+      },
+      "completionCriteria": "One specific question is stated that the decision statement will directly answer.",
+      "contributesTo": [
+        {
+          "fieldId": "73cd845a-3623-5bc6-8ade-42a7cd64740c"
+        }
+      ],
+      "dependsOn": [
+        "611a1a55-a804-4d7f-9e6c-59b0d347d448"
+      ],
+      "name": "Decision question",
+      "order": 3,
+      "purpose": "Narrows the discussion to one concrete choice point — the single question the decision statement will directly answer.",
+      "question": "What is the single concrete question this decision settles?",
+      "stageId": "c5b159ef-e997-42ac-beef-70c1940a6755"
+    },
+    {
+      "aiGuidance": {
+        "purpose": "Look for options mentioned, proposals floated, or alternatives explicitly compared. Include any option that received real consideration, even if dismissed quickly. Include doing nothing or no change if the group acknowledged it. Do not write 'none' unless truly no alternatives were discussed. Do not merge distinct alternatives into a single blended option."
+      },
+      "completionCriteria": "All options that received real consideration are listed, including any 'do nothing' option if the group acknowledged it. Distinct alternatives are not merged.",
+      "contributesTo": [
+        {
+          "fieldId": "636ce948-2110-57b4-a3ed-04354ec17843"
+        }
+      ],
+      "dependsOn": [
+        "c5b159ef-e997-42ac-beef-70c1940a6755"
+      ],
+      "name": "Alternatives",
+      "order": 4,
+      "purpose": "Records the genuine options the group weighed before settling on a direction — including doing nothing — to show the decision was a real choice, not a foregone conclusion.",
+      "question": "What options did the group genuinely consider, including the status quo?",
+      "stageId": "413d4b43-6fec-41d0-8867-a1949a3b58f8"
+    },
+    {
+      "aiGuidance": {
+        "purpose": "Look for statements about what matters most, explicit trade-offs named, objections raised, and any disagreement about the decision or its criteria. Extract both the criteria used and any tension between them."
+      },
+      "completionCriteria": "The criteria used to evaluate options are named, along with any tension between criteria or recorded objections.",
+      "contributesTo": [
+        {
+          "fieldId": "a952604c-d150-5315-bfc1-7229ddc1d636"
+        }
+      ],
+      "dependsOn": [
+        "c5b159ef-e997-42ac-beef-70c1940a6755"
+      ],
+      "name": "Key requirements",
+      "order": 5,
+      "purpose": "Captures the judging criteria, trade-offs acknowledged, and any recorded disagreement that shaped how the alternatives were evaluated.",
+      "question": "What standards, constraints, and trade-offs guided the evaluation of options?",
+      "stageId": "8e46b286-ef7d-4c1f-ac5d-45fba6f30dcc"
+    },
+    {
+      "aiGuidance": {
+        "purpose": "Look for the moment agreement is reached — signalled by 'so we are agreed', 'let us go with', or a direct statement of resolution. Extract the commitment itself, not the discussion around it. One sentence."
+      },
+      "completionCriteria": "One concise, active-voice sentence states the settled commitment. It directly answers the decision question.",
+      "contributesTo": [
+        {
+          "fieldId": "de1296e0-e083-58d9-97a0-cb2b91fec02e"
+        }
+      ],
+      "dependsOn": [
+        "413d4b43-6fec-41d0-8867-a1949a3b58f8",
+        "8e46b286-ef7d-4c1f-ac5d-45fba6f30dcc"
+      ],
+      "name": "Verdict",
+      "order": 6,
+      "purpose": "Records the settled commitment — what the group agreed to do — in one concise, active-voice sentence.",
+      "question": "What did the group agree to do?",
+      "stageId": "4f3e5d2e-2236-46bf-b92a-b3f8fda44af1"
+    },
+    {
+      "aiGuidance": {
+        "purpose": "Look for statements about why the group chose what they chose: the reasoning given for the final decision, what made this option preferable to the others. Capture the outcome logic, not the deliberation process. Do not write a blow-by-blow account of the discussion. Do not include objections that were not ultimately deciding factors."
+      },
+      "completionCriteria": "One to three sentences capture the core reasoning that made this option preferable. The rationale is the deciding logic, not a summary of the meeting.",
+      "contributesTo": [
+        {
+          "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5"
+        }
+      ],
+      "dependsOn": [
+        "4f3e5d2e-2236-46bf-b92a-b3f8fda44af1"
+      ],
+      "name": "Why",
+      "order": 7,
+      "purpose": "Explains the deciding factor — why this option was chosen over the alternatives. Captures the outcome logic, not the deliberation process.",
+      "question": "Why did the group choose this option over the alternatives?",
+      "stageId": "ae9bbedc-ea0e-4611-b3c9-445c954424c0"
+    },
+    {
+      "aiGuidance": {
+        "purpose": "Look for statements about when to revisit, what would change the decision, or what review conditions were set. Prefer condition-based triggers, which may reference a date as an anchor. Avoid bare dates without a condition — 'revisit in December' is weaker than 'revisit if attendance consistently drops or at the end of the pilot period'."
+      },
+      "completionCriteria": "A condition-based trigger is named. Bare dates without a condition are insufficient — dates may anchor a condition but should not replace one.",
+      "contributesTo": [
+        {
+          "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e"
+        }
+      ],
+      "dependsOn": [
+        "4f3e5d2e-2236-46bf-b92a-b3f8fda44af1"
+      ],
+      "name": "Review triggers",
+      "order": 8,
+      "purpose": "Names the condition or event that should trigger a review of this decision — tied to the underlying reasoning so the review moment is meaningful.",
+      "question": "Under what conditions or at what event should this decision be revisited?",
+      "stageId": "d7451c29-44f5-43c2-92c2-dc2f0d3697fa"
+    },
+    {
+      "aiGuidance": {
+        "purpose": "Look for action assignments after the decision point: 'X will do Y by Z', 'the first step is...', or concrete commitments. Extract owner and timing if named."
+      },
+      "completionCriteria": "Follow-up actions are listed with named owners and timing where stated. May be empty if no follow-up actions were recorded.",
+      "contributesTo": [
+        {
+          "fieldId": "4181f210-f4be-5587-950e-890eda2a5590"
+        }
+      ],
+      "dependsOn": [
+        "4f3e5d2e-2236-46bf-b92a-b3f8fda44af1"
+      ],
+      "name": "Next steps",
+      "order": 9,
+      "purpose": "Lists concrete follow-up actions that emerge from the decision, with named owners and timing where stated.",
+      "question": "What concrete actions follow from this decision, and who owns them?",
+      "stageId": "adb176b6-cc16-4ee9-b791-8dde3a6c18c4"
+    }
+  ],
+  "tags": [
+    "governance",
+    "decision"
+  ],
+  "targetType": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+  "version": 1
+}

@@ -1,0 +1,23 @@
+{
+  "aiGuidance": {
+    "examples": [
+      {
+        "description": "Meeting-frequency decision",
+        "output": "Fortnightly maintains momentum without becoming a burden. Monthly felt too infrequent for a new group still finding its rhythm; quarterly too sparse to build shared understanding."
+      }
+    ],
+    "extraction": "Look for statements about why the group chose what they chose: the reasoning given for the final decision, what made this option preferable to the others. Capture the outcome logic, not the deliberation process.",
+    "negativeGuidance": "Do not write a blow-by-blow account of the discussion. Do not include objections that were not ultimately deciding factors. The rationale is the deciding logic, not a summary of the meeting.",
+    "purpose": "Explains the deciding factor — why this option was chosen over the alternatives. One to three sentences capturing the core reasoning."
+  },
+  "createdAt": "2026-05-25T00:00:00Z",
+  "description": "Why this option over the alternatives.",
+  "id": "3340532b-d845-5e54-92b3-819ed05365c5",
+  "name": "rationale",
+  "namespace": "governance",
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
+  "version": 1
+}

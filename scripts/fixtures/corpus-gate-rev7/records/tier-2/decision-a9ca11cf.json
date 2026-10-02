@@ -1,0 +1,20 @@
+{
+  "createdAt": "2026-05-31T14:55:35.221994141+00:00",
+  "fieldValues": {
+    "title": "Closure obligations",
+    "decision_question": "What specific obligations do we commit to if and when the project closes?",
+    "context": "The founding meeting discussed the importance of being honest with artists about what happens if the project ends. Article A-006 states the constitutional commitment; this decision makes it operational and specific.",
+    "decision_statement": "On closure the group commits to: (1) returning all artworks to their makers within 14 days of the closure decision; (2) making good all fixings and mounts within 28 days; (3) settling any outstanding commitments to artists before disbanding; (4) transferring any remaining group funds to the Party Utility. The Clerk records when each obligation is discharged.",
+    "rationale": "Specific timelines make the commitment real. Without them, 'we will return work' is a statement of intent that can drift indefinitely."
+  },
+  "instanceId": "a9ca11cf-fd34-4901-b5f6-51e20737cb56",
+  "lifecycleState": "ratified",
+  "tags": [
+    "governance"
+  ],
+  "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+  "typeName": "decision",
+  "typeNamespace": "governance",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T09:51:59.490548812+00:00"
+}

@@ -1,0 +1,17 @@
+{
+  "containerId": "f7562aa3-98c7-44be-b4c5-5474df6441f2",
+  "containerType": "document",
+  "createdAt": "2026-05-31T00:00:00Z",
+  "memberInstanceIds": [
+    "0482c489-37b4-4342-adaa-36e69dc6f780",
+    "31291422-cd8b-4840-b884-d55023d938cb",
+    "7560efe9-27e3-4186-8b9d-6ab48283f1df",
+    "ad159754-2edd-4bf8-a70f-a29a617e5809",
+    "c503fae5-c3ab-452e-a0b4-5682ca204288",
+    "cc58c0dd-8e3a-4dc5-9b58-f3273911a9a9"
+  ],
+  "rootInstanceIds": [
+    "ad159754-2edd-4bf8-a70f-a29a617e5809"
+  ],
+  "title": "Articles"
+}

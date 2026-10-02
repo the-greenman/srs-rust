@@ -1,0 +1,84 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "createdAt": "2026-05-25T00:00:00Z",
+  "description": "A settled commitment, choice, policy, or direction of action.",
+  "fields": [
+    {
+      "displayLabel": "Title",
+      "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+      "order": 0,
+      "required": true
+    },
+    {
+      "displayLabel": "Decision Question",
+      "fieldId": "73cd845a-3623-5bc6-8ade-42a7cd64740c",
+      "order": 1,
+      "required": false
+    },
+    {
+      "displayLabel": "Context",
+      "fieldId": "9889052c-9313-5e2f-a2ac-15baa3c6983e",
+      "order": 2,
+      "required": false
+    },
+    {
+      "displayLabel": "Friction",
+      "fieldId": "1a1c0a5d-a1df-5d03-95f2-32af73bb71da",
+      "order": 3,
+      "required": false
+    },
+    {
+      "displayLabel": "Alternatives Considered",
+      "fieldId": "636ce948-2110-57b4-a3ed-04354ec17843",
+      "order": 4,
+      "required": false
+    },
+    {
+      "displayLabel": "Key Requirements",
+      "fieldId": "a952604c-d150-5315-bfc1-7229ddc1d636",
+      "order": 5,
+      "required": false
+    },
+    {
+      "displayLabel": "Decision Statement",
+      "fieldId": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
+      "order": 6,
+      "required": true
+    },
+    {
+      "displayLabel": "Rationale",
+      "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+      "order": 7,
+      "required": false
+    },
+    {
+      "displayLabel": "Revisit When",
+      "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+      "order": 8,
+      "required": false
+    },
+    {
+      "displayLabel": "Next Steps",
+      "fieldId": "4181f210-f4be-5587-950e-890eda2a5590",
+      "order": 9,
+      "required": false
+    },
+    {
+      "displayLabel": "Owner",
+      "fieldId": "4b34847c-26d1-56be-bc10-844aeb704df7",
+      "order": 10,
+      "required": false
+    },
+    {
+      "displayLabel": "External Links",
+      "fieldId": "fc434475-b25e-46d5-8536-c2cc2e4e5f98",
+      "order": 11,
+      "required": false
+    }
+  ],
+  "id": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+  "lifecycleRef": "3c504040-7920-43aa-8fbd-eda21dc7c07b",
+  "name": "decision",
+  "namespace": "governance",
+  "version": 1
+}

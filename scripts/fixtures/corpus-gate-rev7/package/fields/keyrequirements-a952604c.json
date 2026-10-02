@@ -1,0 +1,22 @@
+{
+  "aiGuidance": {
+    "examples": [
+      {
+        "description": "Meeting-frequency decision",
+        "output": "Availability across time zones; not overwhelming volunteers; meeting minimum coordination needs for the pilot period. One member felt fortnightly was still too frequent for their schedule."
+      }
+    ],
+    "extraction": "Look for statements about what matters most, explicit trade-offs named, objections raised, and any disagreement about the decision or its criteria. Extract both the criteria used and any tension between them.",
+    "purpose": "Captures the judging criteria, trade-offs acknowledged, and any recorded disagreement that shaped how the alternatives were evaluated."
+  },
+  "createdAt": "2026-05-26T00:00:00Z",
+  "description": "The standards, values, constraints, and trade-offs used to evaluate options.",
+  "id": "a952604c-d150-5315-bfc1-7229ddc1d636",
+  "name": "key_requirements",
+  "namespace": "governance",
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
+  "version": 1
+}

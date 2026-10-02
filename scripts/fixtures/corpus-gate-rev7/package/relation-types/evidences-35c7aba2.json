@@ -1,0 +1,11 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+  "id": "35c7aba2-72f3-42ef-8e44-e3ddd9db969e",
+  "version": 1,
+  "key": "evidences",
+  "namespace": "governance",
+  "label": "Evidences",
+  "description": "Source provides evidence for or supports the target.",
+  "category": "evidence",
+  "createdAt": "2026-05-31T00:00:00Z"
+}

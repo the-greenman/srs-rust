@@ -1,0 +1,14 @@
+{
+  "aiGuidance": {
+    "purpose": ""
+  },
+  "createdAt": "2026-05-26T00:00:00Z",
+  "description": "The person, team, group, or function currently holding this role.",
+  "id": "a6c19b95-4f8f-5b07-93f8-3426c545277e",
+  "name": "role_holder",
+  "namespace": "governance",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

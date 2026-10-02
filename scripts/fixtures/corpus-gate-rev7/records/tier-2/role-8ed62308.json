@@ -1,0 +1,18 @@
+{
+  "createdAt": "2026-05-31T14:55:35.198208984+00:00",
+  "fieldValues": {
+    "title": "R-002 Curatorial Lead",
+    "role_holder": "Immo Klink",
+    "authority": "May select which works are exhibited and which artists are invited to show during Phase 1. May decide placement and arrangement within the space, subject to Building Authority approval of any installation method. May set the thematic direction of a show.",
+    "boundary": "Cannot approve installation methods or fixings — that is Building Authority. Cannot commit to showing work that would require structural changes not yet approved. Cannot enter financial agreements on behalf of the group.",
+    "source_of_authority": "Delegated by the founding group at the founding meeting, May 2026. Role is Phase 1 scoped — to be reviewed at the pilot review in December 2026.",
+    "revisit_when": "December 2026 pilot review."
+  },
+  "instanceId": "8ed62308-f7b4-47e1-b1a2-5490908efd86",
+  "typeId": "e53dce11-6b83-5714-a8fe-f730edb500fa",
+  "typeName": "role",
+  "typeNamespace": "governance",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-08T21:05:18.757652487+00:00",
+  "lifecycleState": "ratified"
+}

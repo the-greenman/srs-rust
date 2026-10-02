@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-06-28T21:50:00.570223896+00:00",
+  "fieldValues": {
+    "title": "Original branding palette",
+    "decision_statement": "Use the teal/orange palette for all materials."
+  },
+  "instanceId": "38501856-26a5-4227-a877-eada79ce591a",
+  "lifecycleState": "superseded",
+  "tags": [
+    "branding"
+  ],
+  "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+  "typeName": "decision",
+  "typeNamespace": "governance",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T09:51:59.507910974+00:00"
+}

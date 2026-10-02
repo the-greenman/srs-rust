@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-05-31T14:55:35.184158383+00:00",
+  "fieldValues": {
+    "article_number": "A-004",
+    "title": "How we make decisions",
+    "article_text": "Decisions are made by talk and agreement. We do not vote. Where we cannot agree, the matter stays open or is recorded as an exercise. Once a decision is agreed, it is written down in the decision log and does not change silently — a new decision supersedes an old one by name. These Articles may be amended by unanimous agreement of all current members. The Clerk is responsible for maintaining the coherence of the record.",
+    "rationale": "Writing things down is the mechanism by which we hold ourselves accountable and remain honest with artists who exhibit with us.",
+    "amendment_rule": "Unanimous agreement of all current members."
+  },
+  "instanceId": "0482c489-37b4-4342-adaa-36e69dc6f780",
+  "typeId": "a1142ac3-5385-5c0e-8630-1dd3432cdf7f",
+  "typeName": "article",
+  "typeNamespace": "governance",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-08T21:05:17.133891065+00:00",
+  "lifecycleState": "ratified"
+}

@@ -1,0 +1,13 @@
+{
+  "createdAt": "2026-06-25T16:10:09.498884770+00:00",
+  "fieldValues": {
+    "title": "Limoma Project Decision Log"
+  },
+  "instanceId": "bf64442b-1e2b-4597-95e7-a665439c7f6f",
+  "lifecycleState": "draft",
+  "typeId": "5a061505-dd0e-4c8d-9e20-fa28a3c42b68",
+  "typeName": "decision_log",
+  "typeNamespace": "governance",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-25T16:10:09.498893750+00:00"
+}

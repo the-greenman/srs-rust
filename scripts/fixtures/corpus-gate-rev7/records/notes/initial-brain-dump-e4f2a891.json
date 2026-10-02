@@ -1,0 +1,41 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "createdAt": "2026-05-25T00:00:00Z",
+  "instanceId": "e4f2a891-3c7d-4b5e-9f12-8a6d0b1c2e3f",
+  "sections": [
+    {
+      "content": "Put art in the back stairwell of the town hall. Immo has work. Sam and Brian can do the mounting. Lets just try it. The space is underused and a bit grim - it could be something. Not a gallery exactly. More like making the building interesting to be in.",
+      "name": "the_idea"
+    },
+    {
+      "content": "Immo - has the work and the eye. Would need to be curatorial lead, he should pick what goes up.\nSam - his building, or close to it. Party Utility liaison. Knows what we can and cant fix to walls. Nothing happens without him knowing.\nBrian - practical, knows how to mount things properly.\nPeter - holding the project together, writing things down.",
+      "name": "people"
+    },
+    {
+      "content": "Its Limehouse Town Hall. Party Utility runs it. The back stairwell is the obvious place to start - its ours to use and nobody has done anything with it. The main hallway might come later but thats more complicated, more visible, more people have opinions.\nWe cannot leave the walls in a worse state than we found them. That has to be a given. Whatever we put up has to come down cleanly or be finished properly.",
+      "name": "building"
+    },
+    {
+      "content": "Not a commercial gallery. Not trying to be one. We dont own the work. We just show it. We dont manage the building - we work inside it.",
+      "name": "what_we_are_not"
+    },
+    {
+      "content": "How long do we run this? Is it permanent or are we doing a pilot?\nDo we need formal sign-off from Party Utility or does Sam being involved cover that?\nWhat happens to the work if we stop - whos responsible for getting it back to the artists?\nAre other tenants going to have views about this?\nDo we need to insure the work? Probably not but we should think about it.\nPainting - the walls are not great. Does the work need a clean ground or can we work with what we have?",
+      "name": "open_questions"
+    },
+    {
+      "content": "Keep it simple. Start small. Back stairs only. Get one show up and see how it feels. We can always extend. Harder to walk back something that got complicated.",
+      "name": "instinct"
+    },
+    {
+      "content": "Walked the space in the meeting. More wall than we thought - the whole run of the stairwell plus the hallway into the back office. Old plaster walls. Not solid. If you keep drilling you crumble them. The back hallway could do with some TLC but thats not a blocker. Lighting is a separate problem - existing fittings are there but not ideal. Summer show might not need it resolved because its a sauna up there anyway and gets natural light most of the day.",
+      "name": "space_assessment"
+    },
+    {
+      "content": "Long discussion about how to hang things. Hanging rails came up early - ruled out, looks institutional and inflexible for this space. Command strips - Brian has bad experience taking them down, Sam says they always fail in this building after a week or so. The walls need to be completely grease-free and they are not. Something permanent seems right but we are not sure yet whether that means simple plugs and screws or something more engineered. Brian had ideas about bars, bolts, a sacrificial layer. We did not land anywhere by the end of this phase.",
+      "name": "mounting_first_thoughts"
+    }
+  ],
+  "tags": [],
+  "title": "Initial brain dump"
+}
