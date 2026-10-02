@@ -70,6 +70,17 @@ pub fn creation_actor(
     Ok(actor)
 }
 
+/// The ONE raw-input check for a creation request (CLI stdin, WASM, MCP tool arguments):
+/// run it on the raw JSON object BEFORE the typed parse, so a malformed `createdBy`
+/// (e.g. `"x"`) is `actor-supplied` rather than a serde error, and precedence stays
+/// `actor-invalid` > `actor-supplied` > `revision-too-old`. No-op when the key is absent.
+pub fn reject_supplied_created_by(
+    store: &dyn RepositoryStore,
+    raw: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), RepositoryError> {
+    creation_actor(store, raw.contains_key(CREATED_BY_KEY)).map(|_| ())
+}
+
 fn same(request: &serde_json::Value, stored: &Option<Actor>) -> bool {
     match stored {
         None => request.is_null(),

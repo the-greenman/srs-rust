@@ -939,21 +939,27 @@ pub fn call_tool(
     // fields) so it gets the specified diagnostic: `actor-supplied` on a creating tool,
     // `actor-changed` (unless identical) on `record_update`.
     let mut arguments = arguments;
-    let supplied_created_by = match name {
+    let mut supplied_created_by = None;
+    match name {
         TOOL_RECORD_CREATE
         | TOOL_RELATION_CREATE
         | TOOL_NOTE_CREATE
         | TOOL_RECORD_SUCCESSOR
-        | TOOL_NOTE_GRADUATE
-        | TOOL_RECORD_UPDATE => arguments
-            .as_mut()
-            .and_then(|a| a.remove(srs_repository::actor_service::CREATED_BY_KEY)),
-        _ => None,
-    };
-    if supplied_created_by.is_some() && name != TOOL_RECORD_UPDATE {
-        if let Err(e) = srs_repository::actor_service::creation_actor(store, true) {
-            return Ok(tool_err(e.to_string()));
+        | TOOL_NOTE_GRADUATE => {
+            if let Some(args) = &arguments {
+                if let Err(e) =
+                    srs_repository::actor_service::reject_supplied_created_by(store, args)
+                {
+                    return Ok(tool_err(e.to_string()));
+                }
+            }
         }
+        TOOL_RECORD_UPDATE => {
+            supplied_created_by = arguments
+                .as_mut()
+                .and_then(|a| a.remove(srs_repository::actor_service::CREATED_BY_KEY));
+        }
+        _ => {}
     }
     match name {
         TOOL_REPO_VALIDATE => {

@@ -573,6 +573,10 @@ impl SrsRepository {
     pub fn create_relation(&self, input_json: &str) -> Result<JsValue, JsValue> {
         let raw: serde_json::Value = serde_json::from_str(input_json)
             .map_err(|e| js_err(format!("invalid relation input: {e}")))?;
+        if let Some(obj) = raw.as_object() {
+            srs_repository::actor_service::reject_supplied_created_by(&self.store, obj)
+                .map_err(js_err)?;
+        }
         let relation = relation_service::parse_relation_input(raw).map_err(js_err)?;
         let result =
             relation_service::create_relation_auto(&self.store, relation).map_err(js_err)?;

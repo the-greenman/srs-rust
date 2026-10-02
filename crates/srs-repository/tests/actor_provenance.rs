@@ -652,3 +652,76 @@ fn migration_is_idempotent_and_refuses_below_revision_8() {
         migration_registry_service::apply_migration(&store, "rfc046-actor-provenance").is_err()
     );
 }
+
+// ── [R13]: transport never writes into an existing corpus ───────────────────
+
+#[test]
+fn transport_into_an_existing_pre_9_corpus_is_refused_and_writes_nothing() {
+    let (_d, source) = new_repo(Some(agent()));
+    let r = make_record(&source, "stamped");
+    let n = make_note(&source, "n");
+    relation_service::create_relation_auto(&source, relation(&r.instance_id, &n.instance_id))
+        .unwrap();
+
+    let (_t, target) = new_repo(None);
+    stamp_data_model_revision(&target, 8).unwrap();
+    let before = snapshot(&target);
+    let rels_before = target.list_relations().unwrap().len();
+
+    // copy (snapshot import) into the existing store
+    let e = srs_repository::repository_portability::copy_repository(&source, &target)
+        .unwrap_err()
+        .to_string();
+    assert!(e.to_lowercase().contains("not empty"), "{e}");
+
+    // archive unpack into the existing store
+    let mut buf = Cursor::new(Vec::new());
+    srs_repository::archive_pack(&source, &mut buf).unwrap();
+    assert!(srs_repository::archive_unpack(Cursor::new(buf.into_inner()), &target).is_err());
+
+    // .srsj: copying into an existing store backed by a loaded document is refused too
+    let srsj = srs_repository::srsj::to_srsj_string(&target).unwrap();
+    let existing = srs_repository::srsj::open_srsj(&srsj).unwrap();
+    assert!(srs_repository::repository_portability::copy_repository(&source, &existing).is_err());
+
+    assert_eq!(snapshot(&target), before, "nothing written");
+    assert_eq!(target.list_relations().unwrap().len(), rels_before);
+    assert!(before.iter().all(|v| v.get("createdBy").is_none()));
+}
+
+// ── malformed createdBy on create is actor-supplied, after actor-invalid ────
+
+#[test]
+fn malformed_created_by_on_raw_create_input_is_actor_supplied_not_a_parse_error() {
+    let (_d, store) = new_repo(Some(agent()));
+    let raw = json!({"createdBy": "x"});
+    let e =
+        srs_repository::actor_service::reject_supplied_created_by(&store, raw.as_object().unwrap())
+            .unwrap_err()
+            .to_string();
+    assert!(e.starts_with("actor-supplied"), "{e}");
+    // absent key: no-op
+    assert!(srs_repository::actor_service::reject_supplied_created_by(
+        &store,
+        json!({}).as_object().unwrap()
+    )
+    .is_ok());
+    // invalid session actor wins; too-old comes last
+    store.set_session_actor(Some(json!({"kind": "ai", "id": ""})));
+    assert!(srs_repository::actor_service::reject_supplied_created_by(
+        &store,
+        raw.as_object().unwrap()
+    )
+    .unwrap_err()
+    .to_string()
+    .starts_with("actor-invalid"));
+    store.set_session_actor(Some(agent()));
+    stamp_data_model_revision(&store, 8).unwrap();
+    assert!(srs_repository::actor_service::reject_supplied_created_by(
+        &store,
+        raw.as_object().unwrap()
+    )
+    .unwrap_err()
+    .to_string()
+    .starts_with("actor-supplied"));
+}

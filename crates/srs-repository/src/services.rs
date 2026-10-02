@@ -589,10 +589,7 @@ pub fn update_note(
     }
     // RFC-046 [R5]: a whole-object update keeps the stored createdBy; an identical
     // one is allowed, a different/new one is `actor-changed`.
-    let stored = store
-        .load_note_by_id(&note.instance_id)
-        .ok()
-        .and_then(|n| n.created_by);
+    let stored = store.load_note_by_id(&note.instance_id)?.created_by;
     note.created_by = crate::actor_service::check_update_actor(&note.created_by, &stored)?;
 
     // Schema validation before core validation

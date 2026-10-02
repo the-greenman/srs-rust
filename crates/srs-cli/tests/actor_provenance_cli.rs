@@ -118,3 +118,21 @@ fn supplied_invalid_and_too_old_are_refused_with_their_codes() {
         true
     );
 }
+
+#[test]
+fn malformed_created_by_is_actor_supplied_and_precedence_holds() {
+    let repo = new_repo();
+    let note = r#"{"title":"T","sections":[{"name":"i","content":"x"}],"createdBy":"x"}"#;
+    let rel = r#"{"relationType":"evidences","sourceInstanceId":"a","targetInstanceId":"b","createdBy":"x"}"#;
+    for (cmd, body) in [("note", note), ("relation", rel)] {
+        let r = srs(repo.path(), &["--actor", AGENT, cmd, "create"], None, body);
+        assert!(refusal(&r).contains("actor-supplied"), "{cmd}: {r}");
+        let r = srs(repo.path(), &[cmd, "create"], None, body);
+        assert!(
+            refusal(&r).contains("actor-supplied"),
+            "{cmd} (no actor): {r}"
+        );
+        let r = srs(repo.path(), &["--actor", "bad", cmd, "create"], None, body);
+        assert!(refusal(&r).contains("actor-invalid"), "{cmd}: {r}");
+    }
+}

@@ -87,6 +87,10 @@ fn host_set_actor_is_stamped_and_tool_args_cannot_forge_one() {
                "createdBy":{"kind":"human","id":"x"}}),
     );
     assert!(text(&r).starts_with("actor-supplied"), "{}", text(&r));
+    // A malformed (non-object) createdBy is still actor-supplied, not a parse error.
+    let mut malformed = NOTE();
+    malformed["createdBy"] = json!("x");
+    assert!(text(&tool(&mut d, "note_create", malformed)).starts_with("actor-supplied"));
     // Update with a createdBy that is not the stored value: actor-changed.
     let r = tool(
         &mut d,
