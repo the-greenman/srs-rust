@@ -1675,9 +1675,33 @@ mod tests {
         .unwrap();
         assert!(repo.write_epoch() > e1, "member add must advance the epoch");
 
-        assert!(
-            super::create_container_from_json(&repo.store, r#"{"title":"x","bogus":1}"#).is_err()
-        );
+        // One counter: an MCP session over this repository reads the same epoch.
+        let session = repo.open_mcp_session().unwrap();
+        assert_eq!(session.write_epoch(), repo.write_epoch());
+        super::create_container_from_json(&repo.store, r#"{"title":"D"}"#).unwrap();
+        assert_eq!(session.write_epoch(), repo.write_epoch());
+    }
+
+    #[test]
+    fn create_container_accepts_child_containers_and_meta_and_rejects_unknown_keys() {
+        let store = super::create_blank_from_json(
+            r#"{"title":"T","description":"Why","namespace":"com.t.x"}"#,
+        )
+        .unwrap();
+        let child = super::create_container_from_json(&store, r#"{"title":"C"}"#).unwrap();
+        let parent = super::create_container_from_json(
+            &store,
+            &serde_json::json!({
+                "title": "P",
+                "childContainerIds": [child.container_id],
+                "meta": { "x": 1 }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(parent.child_container_ids, Some(vec![child.container_id]));
+        assert_eq!(parent.meta, Some(serde_json::json!({ "x": 1 })));
+        assert!(super::create_container_from_json(&store, r#"{"title":"x","bogus":1}"#).is_err());
     }
     #[test]
     fn create_blank_validates_and_round_trips() {

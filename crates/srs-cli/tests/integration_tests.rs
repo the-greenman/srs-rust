@@ -4318,6 +4318,35 @@ fn container_create_returns_container() {
 }
 
 #[test]
+fn container_create_accepts_child_containers_and_meta_and_rejects_unknown_keys() {
+    let temp = make_container_test_repo();
+    let child = run_srs_stdin_in_dir(
+        temp.path(),
+        &["container", "create"],
+        r#"{"title":"Child"}"#,
+    );
+    let child_id = child["payload"]["container"]["containerId"].clone();
+    let payload = serde_json::json!({
+        "title": "Parent",
+        "childContainerIds": [child_id],
+        "meta": { "x": 1 }
+    })
+    .to_string();
+    let result = run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+    assert_eq!(result["ok"], true, "{result}");
+    let c = &result["payload"]["container"];
+    assert_eq!(c["childContainerIds"], serde_json::json!([child_id]));
+    assert_eq!(c["meta"], serde_json::json!({ "x": 1 }));
+
+    let bad = run_srs_stdin_in_dir(
+        temp.path(),
+        &["container", "create"],
+        r#"{"title":"x","bogus":1}"#,
+    );
+    assert_eq!(bad["ok"], false, "{bad}");
+}
+
+#[test]
 fn container_create_without_id_mints_uuid() {
     let temp = make_container_test_repo();
     let payload = serde_json::json!({

@@ -217,3 +217,46 @@ fn prompt_errors_use_invalid_params() {
     );
     assert_eq!(with_args["error"]["code"], -32602);
 }
+
+#[test]
+fn container_create_accepts_the_complete_field_set_and_rejects_unknown_keys() {
+    let (_dir, mut d) = setup();
+    let listed = rpc(&mut d, "tools/list", json!({}));
+    let schema = listed["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "container_create")
+        .unwrap()["inputSchema"]
+        .clone();
+    for key in [
+        "childContainerIds",
+        "meta",
+        "namespace",
+        "name",
+        "createdAt",
+    ] {
+        assert!(schema["properties"][key].is_object(), "schema lacks {key}");
+    }
+
+    let child = tool(&mut d, "container_create", json!({ "title": "Child" }));
+    let child_id = child["result"]["structuredContent"]["containerId"].clone();
+    let parent = tool(
+        &mut d,
+        "container_create",
+        json!({ "title": "Parent", "childContainerIds": [child_id], "meta": { "x": 1 } }),
+    );
+    assert_eq!(parent["result"]["isError"], false, "{parent}");
+    let c = &parent["result"]["structuredContent"];
+    assert_eq!(c["childContainerIds"], json!([child_id]));
+    assert_eq!(c["meta"], json!({ "x": 1 }));
+
+    assert_eq!(
+        tool(
+            &mut d,
+            "container_create",
+            json!({ "title": "x", "bogus": 1 })
+        )["error"]["code"],
+        -32602
+    );
+}

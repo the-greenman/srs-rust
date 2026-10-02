@@ -139,27 +139,35 @@ pub fn containers_for_instance(
 
 /// The one `container_create` input contract (RFC-043 revision-8 shape, no `rootInstanceIds`),
 /// shared by the CLI, the WASM binding and the MCP tool so every adapter applies the same
-/// rules: unknown keys are rejected, `containerId` is minted when omitted.
+/// rules: unknown keys are rejected, `containerId` is minted when omitted. It carries every
+/// authorable property of `container.json` (only the `$schema` marker is left out), so no
+/// adapter can set less than another.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[cfg_attr(feature = "mcp-schema", derive(schemars1::JsonSchema))]
-#[cfg_attr(feature = "mcp-schema", schemars(crate = "schemars1"))]
+#[cfg_attr(feature = "mcp-schema", derive(schemars::JsonSchema))]
 pub struct ContainerCreateInput {
     pub container_id: Option<String>,
     pub title: String,
+    pub namespace: Option<String>,
+    pub name: Option<String>,
     pub description: Option<String>,
     pub container_type: Option<String>,
     pub anchor_instance_id: Option<String>,
     pub identity_instance_id: Option<String>,
     pub member_instance_ids: Option<Vec<ContainerEntryInput>>,
+    /// RFC-034 Change B: container ids of directly nested child scopes.
+    pub child_container_ids: Option<Vec<String>>,
     pub tags: Option<Vec<String>>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    /// Implementation-local metadata; cross-system keys should be namespaced.
+    pub meta: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 /// One outline entry of [`ContainerCreateInput`].
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[cfg_attr(feature = "mcp-schema", derive(schemars1::JsonSchema))]
-#[cfg_attr(feature = "mcp-schema", schemars(crate = "schemars1"))]
+#[cfg_attr(feature = "mcp-schema", derive(schemars::JsonSchema))]
 pub struct ContainerEntryInput {
     pub instance_id: String,
     pub depth: Option<u32>,
@@ -170,8 +178,8 @@ impl From<ContainerCreateInput> for Container {
         Container {
             container_id: i.container_id.unwrap_or_default(),
             title: i.title,
-            namespace: None,
-            name: None,
+            namespace: i.namespace,
+            name: i.name,
             description: i.description,
             container_type: i.container_type,
             identity_instance_id: i.identity_instance_id,
@@ -184,11 +192,11 @@ impl From<ContainerCreateInput> for Container {
                     })
                     .collect()
             }),
-            child_container_ids: None,
+            child_container_ids: i.child_container_ids,
             tags: i.tags,
-            created_at: None,
-            updated_at: None,
-            meta: None,
+            created_at: i.created_at,
+            updated_at: i.updated_at,
+            meta: i.meta.map(serde_json::Value::Object),
             extra: Default::default(),
         }
     }
@@ -832,14 +840,7 @@ fn require_valid_arrangement(
     let Some(entries) = &container.member_instance_ids else {
         return Ok(());
     };
-    let is_root = store
-        .load_manifest()
-        .ok()
-        .and_then(|m| m.container)
-        .is_some_and(|c| c.container_id == container.container_id);
-    let identity = is_root
-        .then_some(container.identity_instance_id.as_deref())
-        .flatten();
+    let identity = root_identity(store, &container.container_id, container);
     match arrangement::check_entries(entries, identity)
         .into_iter()
         .next()
@@ -1294,10 +1295,8 @@ pub fn validate_container_invariants(
                 ));
             }
         }
-        let root_identity = is_root_container(store, container_id)
-            .then_some(container.identity_instance_id.as_deref())
-            .flatten();
-        for v in arrangement::check_entries(entries, root_identity) {
+        for v in arrangement::check_entries(entries, root_identity(store, container_id, &container))
+        {
             errors.push(v.to_string());
         }
     }
