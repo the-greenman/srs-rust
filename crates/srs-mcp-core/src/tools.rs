@@ -17,6 +17,7 @@ use crate::McpApplicationError;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
+use srs_core::types::container::{Container, ContainerEntry};
 use srs_core::types::note::{Note, NoteSection};
 use srs_core::types::record::{FieldMeta, FieldValues};
 use srs_core::types::relation::Relation;
@@ -51,6 +52,8 @@ pub const TOOL_RECORD_SUCCESSOR: &str = "record_successor";
 pub const TOOL_NOTE_GRADUATE: &str = "note_graduate";
 pub const TOOL_CONTAINER_MEMBER_ADD: &str = "container_member_add";
 pub const TOOL_CONTAINER_MEMBER_REMOVE: &str = "container_member_remove";
+// Container creation (#1133) — one core service, `container_service::create_container`
+pub const TOOL_CONTAINER_CREATE: &str = "container_create";
 // RFC-043 Change D: arrangement operations
 pub const TOOL_CONTAINER_MEMBER_MOVE: &str = "container_member_move";
 pub const TOOL_CONTAINER_MEMBER_REPAIR: &str = "container_member_repair";
@@ -137,6 +140,15 @@ derived-from Relation (Record -> Note) is asserted atomically as the graduation'
 provenance record. Optional containerId adds the Record to a container. The Note is \
 preserved unchanged — it is not deleted, and its graduatedAt field is never stamped. Returns \
 both the Note and the new Record.";
+
+pub const DESC_CONTAINER_CREATE: &str = "Create a container (an essay, a section, a document \
+boundary). `title` is required; `containerId` is minted when omitted. `memberInstanceIds` is the \
+initial ordered outline of `{instanceId, depth?}` entries (each must resolve to an existing \
+instance; first entry depth 0, depth rises by at most one per entry). `anchorInstanceId` (the \
+typing anchor) and `identityInstanceId` (the container's identity/purpose record) should each \
+name an entry (an anchor outside the members is reported by repo_validate, I-145). Invalid input \
+is rejected whole with the validation message. \
+Returns the created container.";
 
 pub const DESC_CONTAINER_MEMBER_ADD: &str = "Add an instance to a container's ordered \
 memberInstanceIds outline (RFC-043). With no position it appends at depth 0; `position` (0-based) \
@@ -592,6 +604,59 @@ impl From<NoteGraduateToolInput> for GraduateNoteInput {
     }
 }
 
+/// One outline entry — mirrors `srs_core::types::container::ContainerEntry`.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ContainerEntryToolInput {
+    pub instance_id: String,
+    pub depth: Option<u32>,
+}
+
+/// `container_create`: the revision-8 container shape (no `rootInstanceIds`) — converts
+/// field-for-field to `srs_core::types::container::Container` for
+/// `container_service::create_container`, the same service the CLI and WASM binding use.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ContainerCreateToolInput {
+    pub container_id: Option<String>,
+    pub title: String,
+    pub description: Option<String>,
+    pub container_type: Option<String>,
+    pub anchor_instance_id: Option<String>,
+    pub identity_instance_id: Option<String>,
+    pub member_instance_ids: Option<Vec<ContainerEntryToolInput>>,
+    pub tags: Option<Vec<String>>,
+}
+
+impl From<ContainerCreateToolInput> for Container {
+    fn from(i: ContainerCreateToolInput) -> Self {
+        Container {
+            container_id: i.container_id.unwrap_or_default(),
+            title: i.title,
+            namespace: None,
+            name: None,
+            description: i.description,
+            container_type: i.container_type,
+            identity_instance_id: i.identity_instance_id,
+            anchor_instance_id: i.anchor_instance_id,
+            member_instance_ids: i.member_instance_ids.map(|v| {
+                v.into_iter()
+                    .map(|e| ContainerEntry {
+                        instance_id: e.instance_id,
+                        depth: e.depth,
+                    })
+                    .collect()
+            }),
+            child_container_ids: None,
+            tags: i.tags,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: Default::default(),
+        }
+    }
+}
+
 /// Shared by `container_member_add` and `container_member_remove` — fields are
 /// passed directly to the service; no service struct conversion needed (follows
 /// the `EmptyToolInput` / `repo_validate` pattern).
@@ -781,6 +846,11 @@ pub fn list_tools() -> Value {
             input_schema::<NoteGraduateToolInput>(),
         ),
         tool(
+            TOOL_CONTAINER_CREATE,
+            DESC_CONTAINER_CREATE,
+            input_schema::<ContainerCreateToolInput>(),
+        ),
+        tool(
             TOOL_CONTAINER_MEMBER_ADD,
             DESC_CONTAINER_MEMBER_ADD,
             input_schema::<ContainerMemberAddToolInput>(),
@@ -957,6 +1027,13 @@ pub fn call_tool(
             let input: NoteGraduateToolInput = parse_args(arguments)?;
             match services::graduate_note(store, input.into()) {
                 Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_CONTAINER_CREATE => {
+            let input: ContainerCreateToolInput = parse_args(arguments)?;
+            match container_service::create_container(store, input.into()) {
+                Ok(container) => tool_ok(&container),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
@@ -1202,7 +1279,7 @@ mod tests {
     }
 
     #[test]
-    fn list_tools_advertises_all_twenty_one_with_schemas() {
+    fn list_tools_advertises_all_twenty_two_with_schemas() {
         let tools = list_tools()["tools"].as_array().unwrap().clone();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(
@@ -1219,6 +1296,7 @@ mod tests {
                 TOOL_RECORD_ALLOWED_TRANSITIONS,
                 TOOL_RECORD_SUCCESSOR,
                 TOOL_NOTE_GRADUATE,
+                TOOL_CONTAINER_CREATE,
                 TOOL_CONTAINER_MEMBER_ADD,
                 TOOL_CONTAINER_MEMBER_REMOVE,
                 TOOL_CONTAINER_MEMBER_MOVE,

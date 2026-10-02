@@ -776,6 +776,16 @@ impl SrsRepository {
         to_js(&container)
     }
 
+    /// Create a container (RFC-043 revision-8 shape; same service as `srs container create` and
+    /// the MCP `container_create` tool). `input_json` is
+    /// `{ "title": string, "containerId"?: uuid (minted if omitted), "description"?, "containerType"?,
+    /// "anchorInstanceId"?, "identityInstanceId"?, "memberInstanceIds"?: [{instanceId, depth?}],
+    /// "tags"? }`. Returns the created `Container`; a JS error carries the validation message.
+    pub fn create_container(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let container = create_container_from_json(&self.store, input_json).map_err(js_err)?;
+        to_js(&container)
+    }
+
     /// Add an instance to a container's ordered `memberInstanceIds` outline (RFC-043).
     /// `position` (0-based; omit to append) and `depth` (omit for 0). Idempotent when neither is
     /// given. Returns `{ members: [{instanceId, depth?}], promoted, removed }`.
@@ -1452,6 +1462,17 @@ struct CompositionListBindingFilter {
     root_type_id: Option<String>,
 }
 
+/// `create_container` core: parse the container JSON and call the one core service.
+/// Free function so native tests exercise it (`to_js` panics off-wasm).
+fn create_container_from_json(
+    store: &srs_repository::FileStore,
+    input_json: &str,
+) -> Result<srs_core::types::container::Container, String> {
+    let container: srs_core::types::container::Container =
+        serde_json::from_str(input_json).map_err(|e| format!("invalid input: {e}"))?;
+    container_service::create_container(store, container).map_err(|e| e.to_string())
+}
+
 /// Input shape for `list_containers` — parsed from caller-supplied JSON.
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1530,6 +1551,8 @@ struct LinkAttachmentBindingInput {
 
 #[cfg(test)]
 mod tests {
+    use super::create_container_from_json;
+    use serde_json::json;
     use srs_repository::record_store::CreateRecordInput;
     use srs_repository::services::{graduate_note as graduate_note_service, GraduateNoteInput};
 
@@ -2580,5 +2603,93 @@ mod tests {
             json.get("fieldGroups").is_none(),
             "fieldGroups key no longer exists on ProjectedRecord"
         );
+    }
+
+    fn empty_store() -> srs_repository::FileStore {
+        use srs_repository::repository_lifecycle::{
+            create_repository, InitializeRepositoryInput, PrimaryPackageMetadata,
+            RepositoryMetadata,
+        };
+        let store = srs_repository::tree_session::new_tree_session();
+        create_repository(
+            &store,
+            &InitializeRepositoryInput {
+                repository: RepositoryMetadata {
+                    repository_id: "parity".into(),
+                    namespace: "com.example.parity".into(),
+                    srs_version: "2.0".into(),
+                    title: Some("Parity".into()),
+                    description: None,
+                },
+                primary_package: PrimaryPackageMetadata {
+                    id: "pkg".into(),
+                    namespace: "com.example.parity".into(),
+                    name: "fixture".into(),
+                    version: "1.0.0".into(),
+                },
+            },
+        )
+        .unwrap();
+        store
+    }
+
+    /// WASM `create_container` and the MCP `container_create` tool take the same JSON and
+    /// persist the same container (#1133 parity).
+    #[test]
+    fn create_container_wasm_and_mcp_agree() {
+        let wasm_store = empty_store();
+        let mcp_store = empty_store();
+        let note = |store: &srs_repository::FileStore| {
+            srs_repository::services::create_note(
+                store,
+                srs_core::types::note::Note {
+                    instance_id: String::new(),
+                    title: Some("Intro".into()),
+                    tags: None,
+                    sections: vec![],
+                    graduated_at: None,
+                    source_refs: None,
+                    created_at: None,
+                    updated_at: None,
+                    meta: None,
+                },
+            )
+            .unwrap()
+            .note
+            .instance_id
+        };
+        let (a, b) = (note(&wasm_store), note(&mcp_store));
+        let args = |id: &str| {
+            json!({
+                "containerId": "c0000000-0000-4000-8000-000000000001",
+                "title": "Essay", "containerType": "essay",
+                "anchorInstanceId": id, "identityInstanceId": id,
+                "memberInstanceIds": [{"instanceId": id}]
+            })
+        };
+        let wasm = create_container_from_json(&wasm_store, &args(&a).to_string()).unwrap();
+
+        let app = srs_mcp_core::SrsMcpApplication::open(mcp_store.clone()).unwrap();
+        let mut d = srs_mcp_core::McpDispatcher::new(app);
+        d.dispatch_str(r#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#);
+        d.dispatch_str(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#);
+        let call = json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
+            "params":{"name":"container_create","arguments":args(&b)}});
+        let resp: serde_json::Value =
+            serde_json::from_str(&d.dispatch_str(&call.to_string()).unwrap()).unwrap();
+        assert_eq!(resp["result"]["isError"], false, "{resp}");
+        let mcp: srs_core::types::container::Container =
+            serde_json::from_value(resp["result"]["structuredContent"].clone()).unwrap();
+
+        let norm = |mut c: srs_core::types::container::Container, id: &str| {
+            c.created_at = None;
+            c.updated_at = None;
+            serde_json::to_string(&c).unwrap().replace(id, "<id>")
+        };
+        assert_eq!(norm(wasm, &a), norm(mcp, &b));
+
+        // An unresolvable member is rejected with a message, not persisted.
+        let bad = json!({"title":"x","memberInstanceIds":[{"instanceId":"nope"}]}).to_string();
+        assert!(create_container_from_json(&wasm_store, &bad).is_err());
     }
 }
