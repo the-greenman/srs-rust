@@ -126,6 +126,7 @@ fn make_container(id: &str, title: &str) -> Container {
 
 fn make_record(id: &str, type_name: &str, tags: Option<Vec<String>>) -> Record {
     Record {
+        created_by: None,
         field_meta: None,
         instance_id: id.to_string(),
         type_id: "00000000-0000-4000-8000-000000000001".to_string(),
@@ -143,6 +144,7 @@ fn make_record(id: &str, type_name: &str, tags: Option<Vec<String>>) -> Record {
 
 fn make_note(id: &str, title: &str, tags: Option<Vec<String>>) -> Note {
     Note {
+        created_by: None,
         instance_id: id.to_string(),
         title: Some(title.to_string()),
         tags,

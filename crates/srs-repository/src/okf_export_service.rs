@@ -449,6 +449,7 @@ mod tests {
 
     fn minimal_record(id: &str, created_at: Option<&str>) -> Record {
         Record {
+            created_by: None,
             field_meta: None,
             instance_id: id.to_string(),
             type_id: "t-test-0001".to_string(),
@@ -466,6 +467,7 @@ mod tests {
 
     fn minimal_note(id: &str, title: Option<&str>, sections: Vec<NoteSection>) -> Note {
         Note {
+            created_by: None,
             instance_id: id.to_string(),
             title: title.map(|s| s.to_string()),
             tags: None,
@@ -494,6 +496,7 @@ mod tests {
 
     fn make_relation(id: &str, relation_type: &str, src: &str, tgt: &str) -> Relation {
         Relation {
+            created_by: None,
             relation_id: id.to_string(),
             relation_type: relation_type.to_string(),
             source_instance_id: src.to_string(),

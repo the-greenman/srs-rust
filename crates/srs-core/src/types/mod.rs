@@ -1,3 +1,4 @@
+pub mod actor;
 pub mod address;
 pub mod blueprint;
 pub mod container;

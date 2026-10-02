@@ -1351,6 +1351,7 @@ mod tests {
     fn seed_instance(store: &MemoryStore, id: &str) {
         store
             .save_note(&srs_core::types::note::Note {
+                created_by: None,
                 instance_id: id.to_string(),
                 title: None,
                 tags: None,
@@ -1535,6 +1536,7 @@ mod tests {
         .unwrap();
         store
             .save_relation(&srs_core::types::relation::Relation {
+                created_by: None,
                 relation_id: "de000001-0000-4000-a000-000000000001".to_string(),
                 relation_type: "contains".to_string(),
                 source_instance_id: created.container_id.clone(),

@@ -43,6 +43,7 @@ use srs_repository::repository_navigation_service;
 use srs_repository::services::{
     self, graduate_note as graduate_note_service, GraduateNoteInput, ListNotesFilter,
 };
+use srs_repository::store::RepositoryStore as _;
 use srs_repository::tag_service;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation;
@@ -126,6 +127,25 @@ impl McpSession {
         Ok(())
     }
 
+    /// Set the session actor (RFC-046) stamped as `createdBy` on everything this MCP
+    /// session creates: `{"kind":"human|ai","id":"<non-empty>","name":"<optional>"}`.
+    /// Host-supplied only — never from tool arguments. The JSON is not validated here:
+    /// an invalid actor refuses every creating tool call with `actor-invalid` (R12),
+    /// and an actor on a corpus below dataModelRevision 9 with `revision-too-old` (R11).
+    pub fn set_actor(&mut self, json: &str) -> Result<(), JsValue> {
+        let actor: serde_json::Value =
+            serde_json::from_str(json).map_err(|e| js_err(e.to_string()))?;
+        self.dispatcher
+            .application_mut()
+            .set_session_actor(Some(actor));
+        Ok(())
+    }
+
+    /// Clear the session actor: subsequent creations are unattributed.
+    pub fn clear_actor(&mut self) {
+        self.dispatcher.application_mut().set_session_actor(None);
+    }
+
     /// Remove the session's write guard.
     pub fn clear_write_guard(&mut self) {
         self.dispatcher.application_mut().set_write_guard(None);
@@ -144,6 +164,22 @@ impl SrsRepository {
     /// `McpSession::write_epoch` reads. `f64` because JS numbers are doubles (exact below 2^53).
     pub fn write_epoch(&self) -> f64 {
         self.store.write_epoch() as f64
+    }
+
+    /// Set the session actor (RFC-046) stamped as `createdBy` on everything created through
+    /// this handle (UI writes), as `{"kind":"human|ai","id":"<non-empty>","name":"<optional>"}`.
+    /// Independent of any MCP session's actor. Not validated here (see
+    /// `McpSession::set_actor`).
+    pub fn set_actor(&self, json: &str) -> Result<(), JsValue> {
+        let actor: serde_json::Value =
+            serde_json::from_str(json).map_err(|e| js_err(e.to_string()))?;
+        self.store.set_session_actor(Some(actor));
+        Ok(())
+    }
+
+    /// Clear this handle's session actor: subsequent creations are unattributed.
+    pub fn clear_actor(&self) {
+        self.store.set_session_actor(None);
     }
 
     /// Open an MCP session over this repository (resources, prompts, and the
@@ -416,6 +452,13 @@ impl SrsRepository {
     ) -> Result<JsValue, JsValue> {
         let input: CreateRecordBindingInput =
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        srs_repository::actor_service::creation_actor(
+            &self.store,
+            input
+                .extra
+                .contains_key(srs_repository::actor_service::CREATED_BY_KEY),
+        )
+        .map_err(js_err)?;
         let record = record_store::create_record(
             &self.store,
             type_id,
@@ -456,6 +499,7 @@ impl SrsRepository {
                 field_values: input.field_values,
                 field_meta: input.field_meta,
                 tags: input.tags,
+                extra: input.extra,
             },
         )
         .map_err(js_err)?;
@@ -531,6 +575,10 @@ impl SrsRepository {
     pub fn create_relation(&self, input_json: &str) -> Result<JsValue, JsValue> {
         let raw: serde_json::Value = serde_json::from_str(input_json)
             .map_err(|e| js_err(format!("invalid relation input: {e}")))?;
+        if let Some(obj) = raw.as_object() {
+            srs_repository::actor_service::reject_supplied_created_by(&self.store, obj)
+                .map_err(js_err)?;
+        }
         let relation = relation_service::parse_relation_input(raw).map_err(js_err)?;
         let result =
             relation_service::create_relation_auto(&self.store, relation).map_err(js_err)?;
@@ -1650,6 +1698,9 @@ struct CreateRecordBindingInput {
     field_meta: Option<indexmap::IndexMap<String, FieldMeta>>,
     #[serde(default)]
     tags: Option<Vec<String>>,
+    /// Only so a request-supplied `createdBy` is caught (`actor-supplied`, RFC-046).
+    #[serde(flatten)]
+    extra: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -1707,6 +1758,49 @@ mod tests {
         s.clear_write_guard();
         assert!(s.handle(&call).unwrap().contains("\"isError\":false"));
         assert!(s.write_epoch() > e0);
+    }
+
+    /// RFC-046: the actor is host-set per handle — the MCP session's actor and the UI
+    /// handle's actor are independent, and neither comes from tool arguments.
+    #[test]
+    fn session_actors_are_per_handle_and_stamp_createdby() {
+        let store = super::create_blank_from_json(
+            r#"{"title":"T","description":"Why","namespace":"com.t.x"}"#,
+        )
+        .unwrap();
+        let repo = SrsRepository { store };
+        let mut s = repo.open_mcp_session().unwrap();
+        s.handle(r#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#)
+            .unwrap();
+        let note = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"note_create","arguments":{"title":"N","sections":[{"name":"b","content":"x"}]}}}"#;
+
+        s.set_actor(r#"{"kind":"ai","id":"agent-1"}"#).unwrap();
+        let stamped = s.handle(note).unwrap();
+        assert!(
+            stamped.contains(r#"\"createdBy\""#) && stamped.contains("agent-1"),
+            "{stamped}"
+        );
+
+        // The UI handle has its own (here: no) actor — its writes are unattributed.
+        let ui = srs_repository::services::create_note(
+            &repo.store,
+            serde_json::from_str(r#"{"title":"U","sections":[{"name":"b","content":"x"}]}"#)
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(ui.note.created_by.is_none());
+        repo.set_actor(r#"{"kind":"human","id":"user-7"}"#).unwrap();
+        let ui = srs_repository::services::create_note(
+            &repo.store,
+            serde_json::from_str(r#"{"title":"U2","sections":[{"name":"b","content":"x"}]}"#)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(ui.note.created_by.unwrap().id, "user-7");
+
+        s.clear_actor();
+        let anon = s.handle(note).unwrap();
+        assert!(!anon.contains("createdBy"), "{anon}");
     }
 
     #[test]
@@ -1781,7 +1875,7 @@ mod tests {
         let report = srs_repository::validation::validate_repository(&store).unwrap();
         assert_eq!(report.summary.errors, 0, "{:?}", report.diagnostics);
         let m = store.load_manifest().unwrap();
-        assert_eq!(m.extra["dataModelRevision"], 8);
+        assert_eq!(m.extra["dataModelRevision"], 9);
         let c = m.container.as_ref().unwrap();
         let id = c.identity_instance_id.clone().unwrap();
         let members = c.member_instance_ids.as_ref().unwrap();
@@ -2019,6 +2113,7 @@ mod tests {
                 ),
                 field_meta: None,
                 tags: None,
+                extra: Default::default(),
             },
         )
         .expect("create_record_in_container should succeed");
@@ -2905,6 +3000,7 @@ mod tests {
             srs_repository::services::create_note(
                 store,
                 srs_core::types::note::Note {
+                    created_by: None,
                     instance_id: String::new(),
                     title: Some("Intro".into()),
                     tags: None,

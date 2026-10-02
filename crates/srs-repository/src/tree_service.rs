@@ -558,6 +558,7 @@ mod tests {
 
     fn make_relation(relation_type: &str, from: &str, to: &str) -> Relation {
         Relation {
+            created_by: None,
             relation_id: uuid::Uuid::new_v4().to_string(),
             relation_type: relation_type.to_string(),
             source_instance_id: from.to_string(),

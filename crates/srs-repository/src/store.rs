@@ -193,6 +193,19 @@ pub trait RepositoryStore {
     fn load_manifest(&self) -> Result<Manifest, RepositoryError>;
     fn save_manifest(&self, manifest: &Manifest) -> Result<(), RepositoryError>;
 
+    /// RFC-046 session actor: host-supplied raw JSON (CLI env, MCP/WASM host
+    /// setter), `None` for an unattributed session. Never read from a request.
+    /// Validated only when a creating operation needs it
+    /// ([`crate::actor_service::creation_actor`]) so an invalid one yields
+    /// `actor-invalid` rather than silently meaning "no actor" ([R12]).
+    fn session_actor(&self) -> Option<serde_json::Value> {
+        None
+    }
+
+    /// Host-only setter for [`RepositoryStore::session_actor`] (adapters call this;
+    /// requests never do). A no-op for stores that cannot carry a session actor.
+    fn set_session_actor(&self, _actor: Option<serde_json::Value>) {}
+
     // --- Batch write mode (ADR-021) ---
     //
     // Opt-in for stores that benefit from deferred flushing during bulk
@@ -883,6 +896,9 @@ pub struct FileStore {
     /// a browser MCP session and the UI repository handle share one VFS).
     epoch: Rc<Cell<u64>>,
     cache_epoch: Cell<u64>,
+    /// RFC-046 session actor (raw, unvalidated JSON) — see
+    /// [`RepositoryStore::session_actor`].
+    session_actor: RefCell<Option<serde_json::Value>>,
 }
 
 // Manual Clone: `#[derive(Clone)]` would carry the cached `Rc<RepositoryCatalog>`
@@ -901,6 +917,7 @@ impl Clone for FileStore {
             catalog_unchecked_cache: RefCell::new(None),
             epoch: self.epoch.clone(),
             cache_epoch: Cell::new(self.epoch.get()),
+            session_actor: RefCell::new(self.session_actor.borrow().clone()),
         }
     }
 }
@@ -917,6 +934,7 @@ impl FileStore {
             catalog_unchecked_cache: RefCell::new(None),
             epoch: Rc::new(Cell::new(0)),
             cache_epoch: Cell::new(0),
+            session_actor: RefCell::new(None),
         }
     }
 
@@ -931,6 +949,7 @@ impl FileStore {
             catalog_unchecked_cache: RefCell::new(None),
             epoch: Rc::new(Cell::new(0)),
             cache_epoch: Cell::new(0),
+            session_actor: RefCell::new(None),
         }
     }
 
@@ -1297,6 +1316,14 @@ fn load_package_from_dir(
 }
 
 impl RepositoryStore for FileStore {
+    fn session_actor(&self) -> Option<serde_json::Value> {
+        self.session_actor.borrow().clone()
+    }
+
+    fn set_session_actor(&self, actor: Option<serde_json::Value>) {
+        *self.session_actor.borrow_mut() = actor;
+    }
+
     fn rfc038_exempt(&self) -> bool {
         self.rfc038_exempt
     }
@@ -4471,6 +4498,7 @@ mod tests {
 
     fn minimal_record_for_store(id: &str, type_name: &str, tags: Option<Vec<String>>) -> Record {
         Record {
+            created_by: None,
             field_meta: None,
             instance_id: id.to_string(),
             type_id: "type-xyz-0001".to_string(),
@@ -4488,6 +4516,7 @@ mod tests {
 
     fn minimal_note_for_store(id: &str, title: &str, tags: Option<Vec<String>>) -> Note {
         Note {
+            created_by: None,
             instance_id: id.to_string(),
             title: Some(title.to_string()),
             tags,
@@ -4562,6 +4591,7 @@ mod tests {
 
     fn minimal_relation_for_store(id: &str) -> srs_core::types::relation::Relation {
         srs_core::types::relation::Relation {
+            created_by: None,
             relation_id: id.to_string(),
             relation_type: "precedes".to_string(),
             source_instance_id: "aaaa0001-0000-4000-a000-000000000001".to_string(),
@@ -5795,6 +5825,7 @@ mod tests {
         for (i, (from, to)) in edges.iter().enumerate() {
             store
                 .save_relation(&srs_core::types::relation::Relation {
+                    created_by: None,
                     relation_id: format!("60000000-0000-4000-a000-{i:012}"),
                     relation_type: "contains".to_string(),
                     source_instance_id: from.to_string(),

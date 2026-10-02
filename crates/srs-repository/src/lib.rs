@@ -1,3 +1,4 @@
+pub mod actor_service;
 pub mod agent_index_service;
 pub mod analysis;
 pub mod archive;

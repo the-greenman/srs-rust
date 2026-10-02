@@ -366,6 +366,7 @@ mod tests {
 
     fn make_note(id: &str, title: Option<&str>, sections: Vec<NoteSection>) -> Note {
         Note {
+            created_by: None,
             instance_id: id.to_string(),
             title: title.map(|t| t.to_string()),
             sections,

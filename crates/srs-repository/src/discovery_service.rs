@@ -400,6 +400,7 @@ mod tests {
 
     fn record(id: &str, title: &str, statement: &str, lifecycle: &str, tags: &[&str]) -> Record {
         Record {
+            created_by: None,
             field_meta: None,
             instance_id: id.to_string(),
             type_id: "00000000-0000-4000-8000-00000000d100".to_string(),
@@ -470,6 +471,7 @@ mod tests {
 
     fn note_fixture(id: &str, title: &str, sections: &[(&str, &str)], tags: &[&str]) -> Note {
         Note {
+            created_by: None,
             instance_id: id.to_string(),
             title: Some(title.to_string()),
             tags: (!tags.is_empty()).then(|| tags.iter().map(|t| t.to_string()).collect()),

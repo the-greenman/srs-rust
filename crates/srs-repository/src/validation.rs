@@ -105,6 +105,30 @@ const BASE_MAX_TOTAL_BYTES_FIELD: &str = "max_total_bytes";
 /// Schema violations are returned as diagnostics inside the report.
 /// RFC-033 [R6] — compare the repository's `dataModelRevision` stamp against the
 /// generation this build writes, and say something actionable either way.
+/// RFC-046 [R10]: `createdBy` in a corpus declaring dataModelRevision < 9.
+fn created_by_revision_diagnostic(
+    manifest_value: &Value,
+    rel_path: &str,
+) -> Option<ValidationDiagnostic> {
+    use crate::field_type_migration_service::{
+        DATA_MODEL_REVISION_KEY, RFC046_ACTOR_PROVENANCE_REVISION,
+    };
+    let declared = manifest_value
+        .get(DATA_MODEL_REVISION_KEY)
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    (declared < RFC046_ACTOR_PROVENANCE_REVISION).then(|| ValidationDiagnostic {
+        severity: DiagnosticSeverity::Error,
+        relative_path: rel_path.to_string(),
+        schema_id: None,
+        message: format!(
+            "createdBy requires dataModelRevision >= {RFC046_ACTOR_PROVENANCE_REVISION} (RFC-046 \
+             [R10]); the manifest declares {declared} — run `srs repo apply-migration --id \
+             rfc046-actor-provenance`"
+        ),
+    })
+}
+
 fn data_model_revision_diagnostics(manifest_value: &Value) -> Vec<ValidationDiagnostic> {
     use crate::field_type_migration_service::{
         CURRENT_DATA_MODEL_REVISION, DATA_MODEL_REVISION_KEY,
@@ -509,6 +533,13 @@ pub fn validate_repository(
         };
 
         checked += 1;
+
+        // RFC-046 [R10]: a corpus containing any createdBy must declare revision 9+.
+        if value.get(crate::actor_service::CREATED_BY_KEY).is_some() {
+            if let Some(d) = created_by_revision_diagnostic(&manifest_value, &rel_path) {
+                diagnostics.push(d);
+            }
+        }
 
         // Determine expected schema from tier
         let tier_schema_id = tier_to_schema_id(tier);
@@ -1434,6 +1465,13 @@ pub fn validate_repository(
                     };
                     for relation in &standalone {
                         let rel_path = format!("relations/{}.json", relation.relation_id);
+                        if relation.created_by.is_some() {
+                            if let Some(d) =
+                                created_by_revision_diagnostic(&manifest_value, &rel_path)
+                            {
+                                diagnostics.push(d);
+                            }
+                        }
                         if let Err(errs) = validate_relation(relation, &ctx, false) {
                             for e in errs {
                                 diagnostics.push(ValidationDiagnostic {
@@ -2526,7 +2564,7 @@ mod tests {
         json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
-            "dataModelRevision": 8,
+            "dataModelRevision": 9,
             "repositoryId": "00000000-0000-4000-8000-000000000099",
             "title": "Test Repo",
             "container": {
@@ -3262,7 +3300,7 @@ mod tests {
             &json!({
                 "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
                 "srsVersion": "2.0",
-                "dataModelRevision": 8,
+                "dataModelRevision": 9,
                 "repositoryId": "00000000-0000-4000-8000-000000000099",
                 "title": "Test Repo",
                 "container": {
@@ -3369,7 +3407,7 @@ mod tests {
             &json!({
                 "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
                 "srsVersion": "2.0",
-                "dataModelRevision": 8,
+                "dataModelRevision": 9,
                 "repositoryId": "00000000-0000-4000-8000-000000000099",
                 "title": "Test Repo",
                 "container": {
@@ -3456,7 +3494,7 @@ mod tests {
             &json!({
                 "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
                 "srsVersion": "2.0",
-                "dataModelRevision": 8,
+                "dataModelRevision": 9,
                 "repositoryId": "00000000-0000-4000-8000-000000000098",
                 "title": "Test Repo",
                 "container": {
@@ -6560,7 +6598,7 @@ mod tests {
             &json!({
                 "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
                 "srsVersion": "2.0",
-                "dataModelRevision": 8,
+                "dataModelRevision": 9,
                 "repositoryId": "00000000-0000-4000-8000-000000000700",
                 "title": "Rev-3 Metamodel Test Repo",
                 "container": {
@@ -6782,7 +6820,7 @@ mod tests {
         let store = manifest_store(json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
-            "dataModelRevision": 8,
+            "dataModelRevision": 9,
             "repositoryId": "00000000-0000-4000-8000-000000000901",
             "title": "Rev-5 Test Repo",
             "container": {

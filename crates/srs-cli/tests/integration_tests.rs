@@ -3857,7 +3857,7 @@ fn create_temp_repo_with_protocol_package() -> TempDir {
         serde_json::to_string_pretty(&serde_json::json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
-            "dataModelRevision": 8,
+            "dataModelRevision": 9,
             "repositoryId": "00000000-0000-4000-8000-000000009900",
             "title": "Protocol Test Repo",
             "container": {
@@ -7911,7 +7911,7 @@ fn repo_migrations_lists_the_registered_migrations() {
     let migrations = result["payload"]["migrations"]
         .as_array()
         .expect("migrations must be an array");
-    assert_eq!(migrations.len(), 13, "expected exactly thirteen migrations");
+    assert_eq!(migrations.len(), 14, "expected exactly fourteen migrations");
 
     let ids: Vec<&str> = migrations
         .iter()
@@ -7930,6 +7930,7 @@ fn repo_migrations_lists_the_registered_migrations() {
             "composition-cutover",
             "discovery-query-cutover",
             "rfc043-container-entries",
+            "rfc046-actor-provenance",
             "migrate-identity",
             "repo-upgrade",
             "rfc038-storage"
@@ -7977,6 +7978,7 @@ fn repo_migrations_lists_the_registered_migrations() {
     assert_eq!(status("composition-cutover", "needed"), true);
     assert_eq!(status("discovery-query-cutover", "needed"), true);
     assert_eq!(status("rfc043-container-entries", "needed"), true);
+    assert_eq!(status("rfc046-actor-provenance", "needed"), true);
     assert_eq!(status("rfc038-storage", "alreadyApplied"), true);
     assert_eq!(status("migrate-identity", "notApplicable"), true);
     assert_eq!(status("repo-upgrade", "alreadyApplied"), true);
@@ -8250,6 +8252,11 @@ fn repo_apply_migration_field_type_rewrites_a_legacy_field_end_to_end() {
         ],
     );
     assert_eq!(rfc043["ok"], true, "expected ok: {rfc043:?}");
+    let rfc046 = run_srs_in_dir(
+        repo,
+        &["repo", "apply-migration", "--id", "rfc046-actor-provenance"],
+    );
+    assert_eq!(rfc046["ok"], true, "expected ok: {rfc046:?}");
     let storage = run_srs_in_dir(repo, &["repo", "apply-migration", "--id", "rfc038-storage"]);
     assert_eq!(storage["ok"], true, "expected ok: {storage:?}");
     let after = run_srs_in_dir(repo, &["repo", "validate"]);

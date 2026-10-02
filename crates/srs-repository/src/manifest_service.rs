@@ -944,6 +944,7 @@ mod tests {
     fn seed_note(store: &MemoryStore, id: &str) {
         store
             .save_note(&srs_core::types::note::Note {
+                created_by: None,
                 instance_id: id.to_string(),
                 title: Some("seed".to_string()),
                 tags: None,

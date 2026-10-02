@@ -426,6 +426,12 @@ impl<S: srs_repository::store::RepositoryStore> SrsMcpApplication<S> {
         self.write_guard = guard;
     }
 
+    /// Set (or clear) the RFC-046 session actor stamped on everything this
+    /// session creates. Host-supplied only — never read from tool arguments.
+    pub fn set_session_actor(&self, actor: Option<Value>) {
+        self.store.set_session_actor(actor);
+    }
+
     /// Read `repositoryId` from the store's manifest (`"unknown"` when absent).
     pub fn open(store: S) -> Result<Self, McpApplicationError> {
         let manifest = store

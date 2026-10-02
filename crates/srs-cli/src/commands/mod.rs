@@ -228,8 +228,25 @@ pub struct Cli {
     #[arg(long = "container", global = true)]
     pub container_id: Option<String>,
 
+    /// Session actor for everything this invocation creates (RFC-046 `createdBy`):
+    /// JSON `{"kind":"human|ai","id":"<non-empty>","name":"<optional>"}`. Defaults to the
+    /// `SRS_ACTOR` environment variable; with neither, creations are unattributed. Host
+    /// configuration only — a request payload never carries it. An invalid value refuses
+    /// every creating command (`actor-invalid`); a corpus below dataModelRevision 9 refuses
+    /// an actor session (`revision-too-old`) until `repo apply-migration --id
+    /// rfc046-actor-provenance`.
+    #[arg(long, global = true)]
+    pub actor: Option<String>,
+
     #[command(subcommand)]
     pub command: Commands,
+}
+
+/// Parse the host-supplied actor text. Text that is not JSON is kept as a JSON
+/// string so it fails R1 at the first creating operation (`actor-invalid`) rather
+/// than silently meaning "no actor".
+pub(crate) fn parse_actor_arg(raw: &str) -> serde_json::Value {
+    serde_json::from_str(raw).unwrap_or_else(|_| serde_json::Value::String(raw.to_string()))
 }
 
 /// Global CLI context passed to command handlers
@@ -240,6 +257,8 @@ pub struct CliContext {
     pub format: OutputFormat,
     pub pretty: bool,
     pub container_id: Option<String>,
+    /// RFC-046 session actor (raw JSON), from `--actor` / `SRS_ACTOR`.
+    pub actor: Option<serde_json::Value>,
 }
 
 pub fn with_store<T>(
@@ -249,6 +268,7 @@ pub fn with_store<T>(
     match ctx.store {
         StoreBackend::File => {
             let store = FileStore::new(&ctx.repo);
+            store.set_session_actor(ctx.actor.clone());
             f(&store)
         }
         StoreBackend::Json => {
@@ -258,6 +278,7 @@ pub fn with_store<T>(
             let mut session = SrsjSession::open(&ctx.repo).with_context(|| {
                 format!("Failed to open .srsj session at {}", ctx.repo.display())
             })?;
+            session.store().set_session_actor(ctx.actor.clone());
             let result = f(session.store())?;
             session.flush()?;
             Ok(result)
@@ -1853,6 +1874,11 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         format: cli.format,
         pretty: cli.pretty,
         container_id: cli.container_id,
+        actor: cli
+            .actor
+            .or_else(|| std::env::var("SRS_ACTOR").ok())
+            .filter(|raw| !raw.trim().is_empty())
+            .map(|raw| parse_actor_arg(&raw)),
     };
 
     match cli.command {

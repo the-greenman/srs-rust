@@ -52,6 +52,7 @@ fn note_value(id: &str) -> serde_json::Value {
 
 fn note(id: &str) -> Note {
     Note {
+        created_by: None,
         instance_id: id.to_string(),
         title: Some("Note".to_string()),
         tags: None,
@@ -86,6 +87,7 @@ fn container(id: &str, title: &str) -> Container {
 
 fn relation(id: &str, source: &str, target: &str) -> Relation {
     Relation {
+        created_by: None,
         relation_id: id.to_string(),
         relation_type: "depends-on".to_string(),
         source_instance_id: source.to_string(),

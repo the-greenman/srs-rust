@@ -5654,6 +5654,7 @@ mod tests {
         relation_service::create_relation_auto(
             &store,
             Relation {
+                created_by: None,
                 relation_id: String::new(),
                 relation_type: "precedes".to_string(),
                 source_instance_id: text_id.clone(),
@@ -5938,6 +5939,7 @@ mod tests {
         relation_service::create_relation_auto(
             &store,
             Relation {
+                created_by: None,
                 relation_id: String::new(),
                 relation_type: "contains".to_string(),
                 source_instance_id: root_id.clone(),
@@ -5952,6 +5954,7 @@ mod tests {
         relation_service::create_relation_auto(
             &store,
             Relation {
+                created_by: None,
                 relation_id: String::new(),
                 relation_type: "contains".to_string(),
                 source_instance_id: child_id.clone(),
@@ -6163,6 +6166,7 @@ mod tests {
         crate::services::create_note(
             &store,
             Note {
+                created_by: None,
                 instance_id: NOTE_ID.to_string(),
                 title: Some("Narrative Note Title".to_string()),
                 tags: None,
@@ -6189,6 +6193,7 @@ mod tests {
         relation_service::create_relation_auto(
             &store,
             Relation {
+                created_by: None,
                 relation_id: String::new(),
                 relation_type: "contains".to_string(),
                 source_instance_id: root_id.clone(),
@@ -6464,6 +6469,7 @@ mod tests {
         // rfc/rfc-decision record carries after `create_record` auto-assigns
         // the bound Lifecycle's `initial_state` (also "accepted" here).
         let record = srs_core::types::record::Record {
+            created_by: None,
             instance_id: record_id.clone(),
             type_id: "t-rfc".to_string(),
             type_version: 1,
@@ -6792,6 +6798,7 @@ mod tests {
         fv.insert("title", serde_json::json!("Target"));
         store
             .save_record(&srs_core::types::record::Record {
+                created_by: None,
                 instance_id: target_id.clone(),
                 type_id: "t-rfc".to_string(),
                 type_version: 1,
@@ -6923,6 +6930,7 @@ mod tests {
 
         // Create two records with different created_at — "later" has more recent timestamp.
         let make_record = |id: &str, created: &str| Record {
+            created_by: None,
             field_meta: None,
             instance_id: id.to_string(),
             type_id: "t1".to_string(),
@@ -7731,6 +7739,7 @@ mod tests {
 
         for (id, title) in &records_data {
             let record = Record {
+                created_by: None,
                 field_meta: None,
                 instance_id: id.to_string(),
                 type_id: "t-record".to_string(),
@@ -8005,6 +8014,7 @@ mod tests {
 
         for (id, title) in &records_data {
             let record = Record {
+                created_by: None,
                 field_meta: None,
                 instance_id: id.to_string(),
                 type_id: "t-record".to_string(),
@@ -8446,6 +8456,7 @@ mod tests {
 
         fn save_item(store: &crate::store::memory::MemoryStore, id: &str, heading: &str) {
             let record = Record {
+                created_by: None,
                 field_meta: None,
                 instance_id: id.to_string(),
                 type_id: RFC042_ITEM_TYPE_ID.to_string(),
@@ -9067,6 +9078,7 @@ mod tests {
 
         for (i, id) in record_ids.iter().enumerate() {
             let record = Record {
+                created_by: None,
                 field_meta: None,
                 instance_id: id.clone(),
                 type_id: "00000000-0000-4000-c000-000000000002".to_string(),
@@ -9963,6 +9975,7 @@ mod tests {
         relation_service::create_relation_auto(
             &store,
             Relation {
+                created_by: None,
                 relation_id: String::new(),
                 relation_type: "precedes".to_string(),
                 source_instance_id: text_id.clone(),
@@ -10253,6 +10266,7 @@ mod tests {
         relation_service::create_relation_auto(
             &store,
             Relation {
+                created_by: None,
                 relation_id: String::new(),
                 relation_type: "precedes".to_string(),
                 source_instance_id: table_id,
@@ -10377,6 +10391,7 @@ mod tests {
 
         for (id, state) in records {
             let record = srs_core::types::record::Record {
+                created_by: None,
                 field_meta: None,
                 instance_id: id.to_string(),
                 type_id: "t-decision".to_string(),
@@ -10821,6 +10836,7 @@ mod tests {
         };
         let store = crate::store::memory::MemoryStore::new(manifest, package);
         let record = srs_core::types::record::Record {
+            created_by: None,
             field_meta: None,
             instance_id: DECISION_ID.to_string(),
             type_id: "t-decision".to_string(),
@@ -10993,6 +11009,7 @@ mod tests {
         std::fs::create_dir_all(repo_root.join("records")).unwrap();
         for (id, state) in records {
             let record = srs_core::types::record::Record {
+                created_by: None,
                 field_meta: None,
                 instance_id: id.to_string(),
                 type_id: "t-decision".to_string(),
@@ -11977,6 +11994,7 @@ mod tests {
             let mut fv = srs_core::types::record::FieldValues::new();
             fv.insert("heading", serde_json::json!(heading));
             let record = srs_core::types::record::Record {
+                created_by: None,
                 instance_id: instance_id.to_string(),
                 type_id: type_id.to_string(),
                 type_version: 1,
@@ -13215,6 +13233,7 @@ mod tests {
         let note = crate::services::create_note(
             &store,
             Note {
+                created_by: None,
                 instance_id: String::new(),
                 title: Some("Guides".to_string()),
                 tags: None,
@@ -13425,6 +13444,7 @@ mod tests {
         crate::services::create_note(
             &store,
             Note {
+                created_by: None,
                 instance_id: NOTE_ID.to_string(),
                 title: Some("Skipped Note Title".to_string()),
                 tags: None,
@@ -13586,6 +13606,7 @@ mod tests {
         let store = crate::store::memory::MemoryStore::new(manifest, package);
 
         let make_note = |id: &str, title: &str| Note {
+            created_by: None,
             instance_id: id.to_string(),
             title: Some(title.to_string()),
             tags: None,
@@ -13609,6 +13630,7 @@ mod tests {
         relation_service::create_relation_auto(
             &store,
             Relation {
+                created_by: None,
                 relation_id: String::new(),
                 relation_type: "refers-to".to_string(),
                 source_instance_id: SOURCE_ID.to_string(),
@@ -13682,6 +13704,7 @@ mod tests {
 
     fn test_rel(id: &str, rtype: &str, src: &str, tgt: &str) -> Relation {
         Relation {
+            created_by: None,
             relation_id: id.to_string(),
             relation_type: rtype.to_string(),
             source_instance_id: src.to_string(),
@@ -13751,6 +13774,7 @@ mod tests {
         }
 
         let record = Record {
+            created_by: None,
             field_meta: None,
             instance_id: id.to_string(),
             type_id: "t-test".to_string(),
@@ -13800,6 +13824,7 @@ mod tests {
 
     fn src_rec(id: &str) -> srs_core::types::record::Record {
         srs_core::types::record::Record {
+            created_by: None,
             field_meta: None,
             instance_id: id.to_string(),
             type_id: "t-test".to_string(),
@@ -14298,6 +14323,7 @@ mod tests {
         crate::store::write_relations_standalone_for_test(&store, &relations_coll);
 
         let target = Record {
+            created_by: None,
             field_meta: None,
             instance_id: "rec-named".to_string(),
             type_id: "t-named".to_string(),
@@ -14367,6 +14393,7 @@ mod tests {
         add_rp_record(&store, "rec-src", None);
 
         let target = Record {
+            created_by: None,
             field_meta: None,
             instance_id: "rec-titled".to_string(),
             type_id: "t-test".to_string(),
@@ -15015,6 +15042,7 @@ mod tests {
         std::fs::create_dir_all(repo_root.join("records")).unwrap();
         for id in &[src_id, tgt_id] {
             let record = srs_core::types::record::Record {
+                created_by: None,
                 field_meta: None,
                 instance_id: id.to_string(),
                 type_id: "t-test".to_string(),

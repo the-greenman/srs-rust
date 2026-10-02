@@ -15,7 +15,7 @@ pub fn dispatch(ctx: CliContext, cmd: McpCommand) -> Result<String> {
         // it exits directly. Pre-serve failures go to stderr, not stdout.
         // Global --pretty/--container parse but are accepted-and-ignored here.
         McpCommand::Serve => {
-            if let Err(e) = srs_mcp::serve_stdio(ctx.repo) {
+            if let Err(e) = srs_mcp::serve_stdio(ctx.repo, ctx.actor) {
                 eprintln!("srs mcp serve: {e:#}");
                 std::process::exit(1);
             }

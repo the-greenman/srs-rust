@@ -74,6 +74,7 @@ pub(crate) fn build_purpose_record(
 ) -> Record {
     let spec = purpose_record_spec(statement, title);
     Record {
+        created_by: None,
         instance_id: instance_id.to_string(),
         type_id: spec.type_id,
         type_version: spec.type_version,

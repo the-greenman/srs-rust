@@ -691,6 +691,7 @@ mod tests {
 
     fn record(instance_id: &str, title_field_name: &str, title: &str) -> Record {
         Record {
+            created_by: None,
             field_meta: None,
             instance_id: instance_id.to_string(),
             type_id: TYPE_ID.to_string(),
@@ -2346,6 +2347,7 @@ mod tests {
             provenance: None,
         };
         let root = Record {
+            created_by: None,
             field_meta: None,
             instance_id: ROOT.to_string(),
             type_id: TYPE_A.to_string(),

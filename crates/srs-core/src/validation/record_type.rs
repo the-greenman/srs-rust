@@ -131,6 +131,7 @@ pub fn validate_cross_field_rules_for_type(
     };
     let field_types = cross_field_type_map(fields, record_type);
     let phantom = Record {
+        created_by: None,
         instance_id: String::new(),
         type_id: record_type.id.clone(),
         type_version: record_type.version,
@@ -442,6 +443,7 @@ mod tests {
             fv.insert(id, val);
         }
         Record {
+            created_by: None,
             instance_id: "rec-1".to_string(),
             type_id: "rt-1".to_string(),
             type_name: "test-type".to_string(),

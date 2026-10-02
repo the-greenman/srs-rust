@@ -64,12 +64,13 @@ fn cmd_relation_create(ctx: CliContext) -> Result<String> {
         Ok(raw) => raw,
         Err(e) => return Ok(output::err("relation create", vec![e.to_string()])),
     };
-    let relation = match parse_relation_input(raw) {
-        Ok(relation) => relation,
-        Err(e) => return Ok(output::err("relation create", vec![e.to_string()])),
-    };
-
-    match with_store(&ctx, |store| Ok(create_relation_auto(store, relation)?)) {
+    match with_store(&ctx, |store| {
+        if let Some(obj) = raw.as_object() {
+            srs_repository::actor_service::reject_supplied_created_by(store, obj)?;
+        }
+        let relation = parse_relation_input(raw)?;
+        Ok(create_relation_auto(store, relation)?)
+    }) {
         Ok(result) => output::serialize(
             "relation create",
             RelationPayload {

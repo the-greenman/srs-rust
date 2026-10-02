@@ -410,6 +410,7 @@ mod tests {
 
     fn record(id: &str, title: &str, created_at: &str) -> Record {
         Record {
+            created_by: None,
             field_meta: None,
             instance_id: id.to_string(),
             type_id: format!("type-{id}"),
@@ -652,6 +653,7 @@ mod tests {
         let note_id = "00000000-0000-4000-8000-00000000a250";
         store
             .save_note(&srs_core::types::note::Note {
+                created_by: None,
                 instance_id: note_id.to_string(),
                 title: Some("Middle Note".to_string()),
                 tags: None,

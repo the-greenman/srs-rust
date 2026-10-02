@@ -119,16 +119,18 @@ fn scaffold_purpose_record(
     container_title: &str,
     record_title: Option<&str>,
     description: Option<&str>,
+    created_by: Option<srs_core::types::actor::Actor>,
 ) -> Result<String, RepositoryError> {
     let instance_id = new_instance_id();
     let now = Utc::now().to_rfc3339();
-    let record = core_purpose::build_purpose_record(
+    let mut record = core_purpose::build_purpose_record(
         &instance_id,
         description.unwrap_or(""),
         record_title,
         &now,
     );
 
+    record.created_by = created_by;
     write_new_record(store, &record, store.record_tier_dir(RecordTier::Tier2))?;
 
     // Membership comes from the tree ([R1]); only `manifest.container` is a
@@ -191,6 +193,10 @@ pub fn create_repository_with_intent(
             message: "repository.repository_id must be a UUID".to_string(),
         });
     }
+    // RFC-046 [R3]/[R12]: the scaffolded purpose record is a creation — stamp it, and refuse an
+    // invalid session actor before anything is written. No revision check: the corpus is
+    // born at the current revision.
+    let created_by = crate::actor_service::validated_session_actor(store)?;
     let mut result = create_repository(store, input)?;
 
     // Effective title matches the normalization applied in create_repository.
@@ -205,6 +211,7 @@ pub fn create_repository_with_intent(
         effective_title,
         input.repository.title.as_deref(),
         input.repository.description.as_deref(),
+        created_by,
     )?;
     result.identity_instance_id = Some(identity_instance_id);
 
@@ -461,7 +468,7 @@ mod tests {
         let m = store.load_manifest().unwrap();
         assert_eq!(m.extra["srsVersion"], "2.0-draft");
         assert_eq!(m.extra["title"], "com.t.blank");
-        assert_eq!(m.extra["dataModelRevision"], 8);
+        assert_eq!(m.extra["dataModelRevision"], 9);
         let c = m.container.unwrap();
         assert_eq!(c.identity_instance_id, result.identity_instance_id);
         assert!(
