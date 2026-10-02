@@ -921,7 +921,7 @@ fn tool_ok<T: serde::Serialize>(value: &T) -> Result<Value, McpApplicationError>
 }
 
 /// Service rejection → tool-level error the model can read (not a protocol error).
-fn tool_err(message: String) -> Value {
+pub(crate) fn tool_err(message: String) -> Value {
     json!({ "content": [{ "type": "text", "text": message }], "isError": true })
 }
 
