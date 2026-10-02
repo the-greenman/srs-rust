@@ -1233,12 +1233,9 @@ pub fn validate_repository(
     // package.json is infrastructure, not an instance — not counted in `checked`.
     if let Ok(pkg_value) = store.load_instance_json("package/package.json") {
         // RFC-044: `packageDependencies` is shape-checked by
-        // `package_dependency_service::shape_diagnostics` (above), under the
-        // RFC's rule rather than whichever schema mirror is embedded.
-        let mut schema_value = pkg_value.clone();
-        if let Some(obj) = schema_value.as_object_mut() {
-            obj.remove("packageDependencies");
-        }
+        // `package_dependency_service::shape_diagnostics` (above).
+        let schema_value =
+            crate::package_dependency_service::without_package_dependencies(&pkg_value);
         if let Some(report) = validate_value_against_schema(
             &schema_value,
             "package/package.json",

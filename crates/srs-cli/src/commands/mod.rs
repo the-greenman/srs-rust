@@ -1698,7 +1698,8 @@ pub enum PackageDependencyCommand {
     },
     /// Add or replace the requirement on an installed package, by packageId.
     /// Labels (namespace/name) are filled from the installed package, never
-    /// guessed; a legacy entry (no packageId) with the same labels is repaired.
+    /// guessed. A legacy entry (no packageId) labelled like that package is
+    /// rewritten only with --repair-legacy; without it the add is refused.
     Add {
         /// Requiring package boundary path (omit for primary package)
         #[arg(long = "selector")]
@@ -1709,7 +1710,15 @@ pub enum PackageDependencyCommand {
         /// Minimum SemVer 2.0.0 version, same compatibility band (RFC-044 [R3])
         #[arg(long)]
         version: String,
+        /// Replace the legacy entry (no packageId) whose namespace/name equal
+        /// the installed package's labels exactly with this packageId
+        #[arg(long = "repair-legacy")]
+        repair_legacy: bool,
     },
+    /// Check a requirement list against the installed set before install
+    /// (reads `{packageId?, packageDependencies: [...]}` JSON from stdin, e.g.
+    /// a package bundle); each entry with its outcome. Never writes.
+    Check,
     /// Remove the requirement on a packageId
     Remove {
         /// Requiring package boundary path (omit for primary package)

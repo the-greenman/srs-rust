@@ -9,8 +9,8 @@ use anyhow::Result;
 use srs_core::extensions::import_tracking::ImportMode;
 use srs_repository::manifest_service::{add_package_ref, remove_package_ref};
 use srs_repository::package_dependency_service::{
-    add_package_dependency, list_package_dependencies, remove_package_dependency,
-    AddPackageDependencyInput, RemovePackageDependencyInput,
+    add_package_dependency, check_bundle, list_package_dependencies, remove_package_dependency,
+    AddPackageDependencyInput, BundleRequirements, RemovePackageDependencyInput,
 };
 use srs_repository::package_install_service::{install_package, InstallPackageInput};
 use srs_repository::package_service::{
@@ -242,17 +242,26 @@ fn cmd_package_dependency(ctx: CliContext, cmd: PackageDependencyCommand) -> Res
             selector,
             package_id,
             version,
+            repair_legacy,
         } => {
             let input = AddPackageDependencyInput {
                 selector,
                 package_id,
                 version,
+                repair_legacy,
             };
             (
                 "package dependency add",
                 with_store(&ctx, |store| {
                     Ok(add_package_dependency(store, input.clone())?)
                 })?,
+            )
+        }
+        PackageDependencyCommand::Check => {
+            let bundle: BundleRequirements = crate::input::from_stdin("package requirements")?;
+            (
+                "package dependency check",
+                with_store(&ctx, |store| Ok(check_bundle(store, &bundle)?))?,
             )
         }
         PackageDependencyCommand::Remove {

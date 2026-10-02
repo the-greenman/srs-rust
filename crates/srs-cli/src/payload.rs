@@ -1544,7 +1544,8 @@ pub struct RepoDiffPayload {
 #[serde(rename_all = "camelCase")]
 pub struct RepoValidatePayload {
     /// Diagnostic entries serialized from `ValidationDiagnostic` objects.
-    /// Each entry contains `severity`, `path`, `schemaId?`, and `message`.
+    /// Each entry contains `severity` (`error`, `warning` or `info`; `info` is
+    /// counted in neither summary total), `path`, `schemaId?`, and `message`.
     pub diagnostics: Vec<serde_json::Value>,
     pub summary: RepoValidateSummary,
 }
@@ -1671,17 +1672,18 @@ pub struct PackageUpdatePayload {
     pub version: String,
 }
 
-/// `package dependency list|add|remove` (RFC-044, srs-rust#1168): the
-/// requiring boundary's `packageDependencies` after the operation, each with
-/// its consumer-check outcome. Mirrors `PackageDependenciesResult`.
+/// `package dependency list|add|remove|check` (RFC-044, srs-rust#1168): the
+/// requiring boundary's `packageDependencies` after the operation (for
+/// `check`, the stdin requirement list), each with its consumer-check
+/// outcome. Mirrors `PackageDependenciesResult`.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PackageDependenciesPayload {
-    /// Requiring boundary path; `null` for the primary package.
+    /// Requiring boundary path; `null` for the primary package and for `check`.
     pub selector: Option<String>,
-    /// The requiring package's own `id`.
+    /// The requiring package's own `id` (for `check`, the input's, possibly empty).
     pub package_id: String,
-    /// `added` | `updated` | `repaired` | `removed`; `null` for `list`.
+    /// `added` | `updated` | `repaired` | `removed`; `null` for `list` and `check`.
     pub action: Option<String>,
     pub dependencies: Vec<PackageDependencyEntry>,
 }

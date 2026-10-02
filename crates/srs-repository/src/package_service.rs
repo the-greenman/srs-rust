@@ -2752,6 +2752,7 @@ mod tests {
             namespace: "com.lpi.pkg".to_string(),
             name: "lpi".to_string(),
             version: "1.0.0".to_string(),
+            package_dependencies: None,
             definitions: vec![PackageSourceDefinition {
                 kind: DefinitionKind::Field,
                 rel_path: "fields/alpha.json".to_string(),

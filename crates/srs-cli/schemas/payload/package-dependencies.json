@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "PackageDependenciesPayload",
-  "description": "`package dependency list|add|remove` (RFC-044, srs-rust#1168): the requiring boundary's `packageDependencies` after the operation, each with its consumer-check outcome. Mirrors `PackageDependenciesResult`.",
+  "description": "`package dependency list|add|remove|check` (RFC-044, srs-rust#1168): the requiring boundary's `packageDependencies` after the operation (for `check`, the stdin requirement list), each with its consumer-check outcome. Mirrors `PackageDependenciesResult`.",
   "type": "object",
   "required": [
     "dependencies",
@@ -9,7 +9,7 @@
   ],
   "properties": {
     "action": {
-      "description": "`added` | `updated` | `repaired` | `removed`; `null` for `list`.",
+      "description": "`added` | `updated` | `repaired` | `removed`; `null` for `list` and `check`.",
       "type": [
         "string",
         "null"
@@ -22,11 +22,11 @@
       }
     },
     "packageId": {
-      "description": "The requiring package's own `id`.",
+      "description": "The requiring package's own `id` (for `check`, the input's, possibly empty).",
       "type": "string"
     },
     "selector": {
-      "description": "Requiring boundary path; `null` for the primary package.",
+      "description": "Requiring boundary path; `null` for the primary package and for `check`.",
       "type": [
         "string",
         "null"

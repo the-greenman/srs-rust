@@ -46,47 +46,47 @@ fn dep(pid: &str, ns: &str, name: &str, version: &str) -> Value {
 /// a pre-release-only package, an unknown-version package. `packageRef`
 /// (singular) and `upstreamPackage` are present and must contribute nothing.
 fn repo(arg_deps: Value) -> FileStore {
-    open_srsj(
-        &json!({
-            "srsj": "2",
-            "manifest": {
-                "$schema": srs_schema::MANIFEST_SCHEMA_ID,
-                "srsVersion": "2.0-draft",
-                "dataModelRevision": CURRENT_DATA_MODEL_REVISION,
-                "repositoryId": "00000000-0000-4000-8000-00000000dddd",
-                "namespace": "com.example.deps",
+    open_srsj(&repo_srsj(arg_deps).to_string()).unwrap()
+}
+
+fn repo_srsj(arg_deps: Value) -> Value {
+    json!({
+        "srsj": "2",
+        "manifest": {
+            "$schema": srs_schema::MANIFEST_SCHEMA_ID,
+            "srsVersion": "2.0-draft",
+            "dataModelRevision": CURRENT_DATA_MODEL_REVISION,
+            "repositoryId": "00000000-0000-4000-8000-00000000dddd",
+            "namespace": "com.example.deps",
+            "title": "Package dependency fixture",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "container": {
+                "containerId": "00000000-0000-4000-8000-00000000eeee",
                 "title": "Package dependency fixture",
-                "createdAt": "2026-01-01T00:00:00Z",
-                "container": {
-                    "containerId": "00000000-0000-4000-8000-00000000eeee",
-                    "title": "Package dependency fixture",
-                },
-                "packageRef": { "mode": "local", "path": "package/singular" },
-                "upstreamPackage": {
-                    "packageId": UPSTREAM, "namespace": "com.example", "name": "up",
-                    "version": "1.0.0", "installedAt": "2026-01-01T00:00:00Z",
-                },
-                "packageRefs": [
-                    { "mode": "local", "path": "package/gov-1" },
-                    { "mode": "local", "path": "package/gov-2" },
-                    { "mode": "local", "path": "package/argument" },
-                    { "mode": "local", "path": "package/pre" },
-                    { "mode": "local", "path": "package/unknown" },
-                ],
             },
-            "data": {
-                "package/package.json": pkg("00000000-0000-4000-8000-00000000a0a0", "com.example.deps", "primary", "1.0.0", None),
-                "package/singular/package.json": pkg(SINGULAR, "com.example", "singular", "1.0.0", None),
-                "package/gov-1/package.json": pkg(G, "com.mudemocracy.governance", "governance", "1.0.0", None),
-                "package/gov-2/package.json": pkg(G, "com.mudemocracy.governance", "governance", "1.2.1", None),
-                "package/argument/package.json": pkg(A, "com.mudemocracy.argument", "argument", "1.3.0", Some(arg_deps)),
-                "package/pre/package.json": pkg(P, "com.example", "pre", "1.3.0-rc.1", None),
-                "package/unknown/package.json": pkg(U, "com.example", "unknown", "latest", None),
+            "packageRef": { "mode": "local", "path": "package/singular" },
+            "upstreamPackage": {
+                "packageId": UPSTREAM, "namespace": "com.example", "name": "up",
+                "version": "1.0.0", "installedAt": "2026-01-01T00:00:00Z",
             },
-        })
-        .to_string(),
-    )
-    .unwrap()
+            "packageRefs": [
+                { "mode": "local", "path": "package/gov-1" },
+                { "mode": "local", "path": "package/gov-2" },
+                { "mode": "local", "path": "package/argument" },
+                { "mode": "local", "path": "package/pre" },
+                { "mode": "local", "path": "package/unknown" },
+            ],
+        },
+        "data": {
+            "package/package.json": pkg("00000000-0000-4000-8000-00000000a0a0", "com.example.deps", "primary", "1.0.0", None),
+            "package/singular/package.json": pkg(SINGULAR, "com.example", "singular", "1.0.0", None),
+            "package/gov-1/package.json": pkg(G, "com.mudemocracy.governance", "governance", "1.0.0", None),
+            "package/gov-2/package.json": pkg(G, "com.mudemocracy.governance", "governance", "1.2.1", None),
+            "package/argument/package.json": pkg(A, "com.mudemocracy.argument", "argument", "1.3.0", Some(arg_deps)),
+            "package/pre/package.json": pkg(P, "com.example", "pre", "1.3.0-rc.1", None),
+            "package/unknown/package.json": pkg(U, "com.example", "unknown", "latest", None),
+        },
+    })
 }
 
 fn unsatisfied_reasons(findings: &[PackageDependencyFinding]) -> Vec<&'static str> {
@@ -260,28 +260,95 @@ fn malformed_entries_are_errors_not_load_failures() {
 #[test]
 fn bundle_check_before_install() {
     let store = repo(json!([]));
-    let bundle = |id: &str, deps: Value| BundleRequirements {
-        package_id: id.to_string(),
-        package_dependencies: serde_json::from_value(deps).unwrap(),
+    let check = |bundle: Value| -> Vec<Option<&'static str>> {
+        let b: BundleRequirements = serde_json::from_value(bundle).unwrap();
+        check_bundle(&store, &b)
+            .unwrap()
+            .dependencies
+            .iter()
+            .map(|d| d.reason.map(|r| r.as_str()))
+            .collect()
     };
-    let f = check_bundle(&store, &bundle(G, json!([]))).unwrap();
-    assert!(f.is_empty());
+    assert!(check(json!({"packageId": G, "packageDependencies": []})).is_empty());
     // Rule 2: the bundle's own id is already installed (another version).
-    let f = check_bundle(&store, &bundle(G, json!([dep(G, "x", "y", "1.0.0")]))).unwrap();
-    assert_eq!(unsatisfied_reasons(&f), ["self-requirement"]);
-    assert_eq!(f[0].path, "bundle");
-    let f = check_bundle(
+    assert_eq!(
+        check(json!({"packageId": G, "packageDependencies": [dep(G, "x", "y", "1.0.0")]})),
+        [Some("self-requirement")]
+    );
+    assert_eq!(
+        check(json!({"packageId": NOWHERE, "packageDependencies": [
+            dep(A, "com.mudemocracy.argument", "argument", "1.0.0"),
+            dep(G, "com.mudemocracy.governance", "governance", "1.5.0"),
+        ]})),
+        [None, Some("version-too-low")]
+    );
+    // A requirement list that is not a package's (no packageId), with a
+    // malformed and a legacy entry: reported, never refused ([R9]).
+    assert_eq!(
+        check(json!({"packageDependencies": [
+            dep(G, "com.mudemocracy.governance", "governance", "1.0.0"),
+            {"namespace": "a", "name": "b", "version": "1.0.0"},
+            {"packageId": G, "version": 3},
+        ]})),
+        [None, Some("no-package-id"), Some("incompatible")]
+    );
+}
+
+/// RFC-044's non-fatal carve-out is exactly one property: any other
+/// package-manifest schema violation still fails the load.
+#[test]
+fn only_package_dependencies_leaves_the_fatal_check() {
+    let mut src = repo_srsj(json!([{"bogus": 1}]));
+    catalog::build_checked(&open_srsj(&src.to_string()).unwrap())
+        .expect("a malformed packageDependencies must not fail the load");
+    src["data"]["package/argument/package.json"]["unknownProperty"] = json!(true);
+    assert!(
+        catalog::build_checked(&open_srsj(&src.to_string()).unwrap()).is_err(),
+        "an unknown manifest property must stay fatal"
+    );
+    src["data"]["package/argument/package.json"]
+        .as_object_mut()
+        .unwrap()
+        .remove("unknownProperty");
+    src["data"]["package/argument/package.json"]["fields"] = json!("not-an-array");
+    assert!(
+        catalog::build_checked(&open_srsj(&src.to_string()).unwrap()).is_err(),
+        "a malformed definition array must stay fatal"
+    );
+}
+
+/// Installing a package keeps its requirement list verbatim, so the check
+/// sees an installed package's requirements.
+#[test]
+fn install_carries_package_dependencies() {
+    use srs_repository::package_install_service::{
+        install_package_bundle, InstallBundleOptions, PackageSourceBundle,
+    };
+    let store = repo(json!([]));
+    let deps = vec![
+        dep(G, "com.mudemocracy.governance", "governance", "9.0.0"),
+        json!({"namespace": "legacy", "name": "kept", "version": "1.0.0"}),
+    ];
+    install_package_bundle(
         &store,
-        &bundle(
-            NOWHERE,
-            json!([
-                dep(A, "com.mudemocracy.argument", "argument", "1.0.0"),
-                dep(G, "com.mudemocracy.governance", "governance", "1.5.0"),
-            ]),
-        ),
+        &PackageSourceBundle {
+            id: NOWHERE.to_string(),
+            namespace: "com.example".to_string(),
+            name: "installed".to_string(),
+            version: "1.0.0".to_string(),
+            package_dependencies: Some(deps.clone()),
+            definitions: vec![],
+        },
+        InstallBundleOptions::default(),
     )
     .unwrap();
-    assert_eq!(unsatisfied_reasons(&f), ["version-too-low"]);
+    assert_eq!(
+        raw_deps(&store, "packages/installed/package.json"),
+        Value::Array(deps)
+    );
+    let reasons = unsatisfied_reasons(&check_repository(&store).unwrap());
+    assert!(reasons.contains(&"incompatible"), "{reasons:?}");
+    assert!(reasons.contains(&"no-package-id"), "{reasons:?}");
 }
 
 fn raw_deps(store: &FileStore, path: &str) -> Value {
@@ -296,19 +363,36 @@ fn write_path_repairs_updates_adds_and_removes() {
         legacy_other.clone(),
     ]));
     let sel = Some("package/argument".to_string());
-    let add = |pid: &str, version: &str| {
+    let add_with = |pid: &str, version: &str, repair_legacy: bool| {
         add_package_dependency(
             &store,
             AddPackageDependencyInput {
                 selector: sel.clone(),
                 package_id: pid.to_string(),
                 version: version.to_string(),
+                repair_legacy,
             },
         )
     };
+    let add = |pid: &str, version: &str| add_with(pid, version, false);
 
-    // Repair: the caller supplies the id; labels come from the installed package.
-    let r = add(G, "1.0.0").unwrap();
+    // [R11]: without the explicit opt-in, a label-matching legacy entry is
+    // never rewritten — the add is refused and the file is untouched.
+    let before = raw_deps(&store, "package/argument/package.json");
+    assert!(add(G, "1.0.0")
+        .unwrap_err()
+        .to_string()
+        .contains("--repair-legacy"));
+    assert_eq!(raw_deps(&store, "package/argument/package.json"), before);
+    // Opting in with no label-matching legacy entry is refused too.
+    assert!(add_with(CORE, "1.0.0", true)
+        .unwrap_err()
+        .to_string()
+        .contains("no legacy"));
+
+    // Repair: the caller supplies the id and opts in; labels come from the
+    // installed package and only locate the legacy entry.
+    let r = add_with(G, "1.0.0", true).unwrap();
     assert_eq!(r.action, Some(DependencyWriteAction::Repaired));
     assert_eq!(r.package_id, A);
     let raw = raw_deps(&store, "package/argument/package.json");

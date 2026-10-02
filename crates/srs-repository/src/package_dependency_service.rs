@@ -65,6 +65,25 @@ pub struct PackageDependencyFinding {
     pub message: String,
 }
 
+/// RFC-044 [R9]/[R11]: a package manifest value with `packageDependencies`
+/// taken out, for the package-manifest schema validations (the catalog's
+/// fatal [R4] anchor check and `repo validate`'s report). That one property is
+/// shape-checked by [`shape_diagnostics`] instead, non-fatally and under the
+/// RFC's rule whichever schema mirror is embedded; every other manifest
+/// property keeps its schema check.
+pub fn without_package_dependencies(manifest: &Value) -> std::borrow::Cow<'_, Value> {
+    match manifest.as_object() {
+        Some(obj) if obj.contains_key("packageDependencies") => {
+            let mut v = manifest.clone();
+            if let Some(o) = v.as_object_mut() {
+                o.remove("packageDependencies");
+            }
+            std::borrow::Cow::Owned(v)
+        }
+        _ => std::borrow::Cow::Borrowed(manifest),
+    }
+}
+
 fn str_of<'a>(v: &'a Value, k: &str) -> Option<&'a str> {
     v.get(k).and_then(|x| x.as_str()).filter(|s| !s.is_empty())
 }
@@ -233,29 +252,36 @@ pub fn check_repository(
         .collect())
 }
 
-/// The package-level requirement a bundle declares (`package-bundle.json`
-/// `packageId` + `packageDependencies`).
+/// The package-level requirement list a bundle declares
+/// (`package-bundle.json` `packageId` + `packageDependencies`). A client
+/// checking a requirement list that is not a package's (srs-web's
+/// `EditorDefinition` requires, srs-web#340) omits `packageId`: an empty id
+/// is never a candidate, so no entry is a self-requirement.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BundleRequirements {
-    pub package_id: String,
     #[serde(default)]
+    pub package_id: String,
+    /// Read leniently: a malformed entry is reported, never refused ([R9]).
+    #[serde(default, deserialize_with = "crate::package::lenient_dependency_refs")]
     pub package_dependencies: Vec<DependencyRef>,
 }
 
 /// The pre-install check (Change D, bundle paragraph): the bundle's own
-/// entries against the target repository's installed set. Not recursive.
+/// entries against the target repository's installed set, each with its
+/// outcome. Not recursive. Exposed as `srs package dependency check` (stdin),
+/// the WASM `check_package_requirements` binding.
 pub fn check_bundle(
     store: &dyn RepositoryStore,
     bundle: &BundleRequirements,
-) -> Result<Vec<PackageDependencyFinding>, RepositoryError> {
+) -> Result<PackageDependenciesResult, RepositoryError> {
     let set = packages(&installed_set(store)?);
-    Ok(check_requirements(
-        &bundle.package_id,
-        "bundle",
-        &bundle.package_dependencies,
-        &set,
-    ))
+    Ok(PackageDependenciesResult {
+        selector: None,
+        package_id: bundle.package_id.clone(),
+        action: None,
+        dependencies: statuses(&bundle.package_id, &bundle.package_dependencies, &set),
+    })
 }
 
 /// [R1]/[R2] over the `packageDependencies` of every package manifest at
@@ -336,6 +362,14 @@ pub struct AddPackageDependencyInput {
     pub selector: PackageSelector,
     pub package_id: String,
     pub version: String,
+    /// Replace the legacy entry (no `packageId`) whose `namespace`/`name`
+    /// equal the resolved package's labels exactly. The caller supplies the
+    /// id and opts in; the labels only locate which legacy entry the caller
+    /// means. Without it, such an entry is never rewritten ([R11]: no writer
+    /// supplies a missing `packageId` by matching labels) and the add is
+    /// refused so the requirement is not declared twice.
+    #[serde(default)]
+    pub repair_legacy: bool,
 }
 
 /// Input for `srs package dependency remove`.
@@ -354,8 +388,9 @@ pub enum DependencyWriteAction {
     Added,
     /// The entry with this `packageId` was replaced.
     Updated,
-    /// A legacy entry (no `packageId`) whose labels equal the resolved
-    /// package's labels was replaced by the caller-supplied `packageId`.
+    /// On the caller's explicit `repair_legacy`: the legacy entry (no
+    /// `packageId`) whose labels equal the resolved package's labels was
+    /// replaced by the caller-supplied `packageId`.
     Repaired,
     /// Every entry with this `packageId` was removed.
     Removed,
@@ -384,17 +419,21 @@ pub struct PackageDependenciesResult {
     pub dependencies: Vec<PackageDependencyStatus>,
 }
 
+fn lenient(raw: &[Value]) -> Vec<DependencyRef> {
+    raw.iter().map(DependencyRef::from_value_lenient).collect()
+}
+
 fn statuses(
     requiring_id: &str,
-    raw: &[Value],
+    entries: &[DependencyRef],
     members: &[InstalledPackage],
 ) -> Vec<PackageDependencyStatus> {
-    raw.iter()
-        .map(|e| {
-            let entry = DependencyRef::from_value_lenient(e);
-            let o = check_entry(requiring_id, &entry, members);
+    entries
+        .iter()
+        .map(|entry| {
+            let o = check_entry(requiring_id, entry, members);
             PackageDependencyStatus {
-                entry,
+                entry: entry.clone(),
                 satisfied: o.reason.is_none(),
                 reason: o.reason,
                 candidate_versions: o.candidate_versions,
@@ -412,7 +451,11 @@ pub fn list_package_dependencies(
     let b = store.load_package_boundary(&selector)?;
     let set = packages(&installed_set(store)?);
     Ok(PackageDependenciesResult {
-        dependencies: statuses(&b.id, &b.package_dependencies.unwrap_or_default(), &set),
+        dependencies: statuses(
+            &b.id,
+            &lenient(&b.package_dependencies.unwrap_or_default()),
+            &set,
+        ),
         selector,
         package_id: b.id,
         action: None,
@@ -425,8 +468,8 @@ fn invalid(message: String) -> RepositoryError {
 
 /// Add (or replace) the requirement on `package_id`. Labels are filled from
 /// the installed package with that id; an id that resolves to no installed
-/// package is refused ([R11]: never guessed). A legacy entry whose labels
-/// equal the resolved package's labels is replaced (the repair).
+/// package is refused ([R11]: never guessed). A legacy entry is rewritten
+/// only on the caller's explicit `repair_legacy` (see that field).
 pub fn add_package_dependency(
     store: &dyn RepositoryStore,
     input: AddPackageDependencyInput,
@@ -473,21 +516,39 @@ pub fn add_package_dependency(
     {
         raw[i] = new_entry;
         DependencyWriteAction::Updated
-    } else if let Some(i) = views.iter().position(|d| {
-        d.package_id.is_none() && d.namespace == target.namespace && d.name == target.name
-    }) {
-        raw[i] = new_entry;
-        DependencyWriteAction::Repaired
     } else {
-        raw.push(new_entry);
-        DependencyWriteAction::Added
+        let legacy = views.iter().position(|d| {
+            d.package_id.is_none() && d.namespace == target.namespace && d.name == target.name
+        });
+        match (legacy, input.repair_legacy) {
+            (Some(i), true) => {
+                raw[i] = new_entry;
+                DependencyWriteAction::Repaired
+            }
+            (None, true) => {
+                return Err(invalid(format!(
+                    "repair requested, but package {} has no legacy packageDependencies entry (no packageId) labelled {}/{}",
+                    b.id, target.namespace, target.name
+                )))
+            }
+            (Some(_), false) => {
+                return Err(invalid(format!(
+                    "package {} has a legacy packageDependencies entry (no packageId) labelled {}/{}; pass repair_legacy (CLI --repair-legacy) to replace it with packageId {pid}, or remove it by hand (RFC-044 [R11]: a missing packageId is never supplied by matching labels)",
+                    b.id, target.namespace, target.name
+                )))
+            }
+            (None, false) => {
+                raw.push(new_entry);
+                DependencyWriteAction::Added
+            }
+        }
     };
     b.package_dependencies = Some(raw);
     store.save_package_boundary_metadata(&b)?;
     Ok(PackageDependenciesResult {
         dependencies: statuses(
             &b.id,
-            b.package_dependencies.as_deref().unwrap_or(&[]),
+            &lenient(b.package_dependencies.as_deref().unwrap_or(&[])),
             &set,
         ),
         selector: input.selector,
@@ -520,7 +581,7 @@ pub fn remove_package_dependency(
     Ok(PackageDependenciesResult {
         dependencies: statuses(
             &b.id,
-            b.package_dependencies.as_deref().unwrap_or(&[]),
+            &lenient(b.package_dependencies.as_deref().unwrap_or(&[])),
             &set,
         ),
         selector: input.selector,

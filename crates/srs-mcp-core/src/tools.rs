@@ -80,7 +80,7 @@ pub const TOOL_PACKAGE_DEPENDENCY_REMOVE: &str = "package_dependency_remove";
 pub const DESC_REPO_VALIDATE: &str = "Validate the whole repository and return the diagnostics \
 array plus a summary. Run this after every write batch. summary.errors == 0 (equivalently, no \
 error diagnostics) means the repository is consistent. Warnings are non-blocking, but review \
-them. An empty diagnostics array means the repository is completely clean. Diagnostics are \
+them; info diagnostics are informational and counted in neither total. An empty diagnostics array means the repository is completely clean. Diagnostics are \
 data, not a tool error: the tool succeeds even when problems are found.";
 
 pub const DESC_PACKAGE_DEPENDENCY_LIST: &str = "List a package's packageDependencies \
@@ -93,9 +93,10 @@ pub const DESC_PACKAGE_DEPENDENCY_SET: &str = "Require another installed package
 packageId (UUID), at a SemVer 2.0.0 version (satisfied by the same compatibility band at an \
 equal or higher version; below 1.0 the MINOR acts as the major). The namespace/name labels are \
 filled from the installed package, never guessed: an id that resolves to no installed package \
-is refused. An existing entry with that packageId is replaced; a legacy entry without packageId \
-whose labels equal the installed package's labels is repaired in place; other entries are kept \
-verbatim. selector is the requiring package boundary path (omit for the primary package).";
+is refused. An existing entry with that packageId is replaced. A legacy entry without packageId \
+whose labels equal the installed package's labels is replaced only when repairLegacy is true \
+(without it the call is refused, since a missing packageId is never supplied by matching labels); \
+other entries are kept verbatim. selector is the requiring package boundary path (omit for the primary package).";
 
 pub const DESC_PACKAGE_DEPENDENCY_REMOVE: &str = "Remove a package's requirement on a packageId \
 (every packageDependencies entry with that id). Refused when there is none. selector is the \
@@ -702,6 +703,10 @@ pub struct PackageDependencySetToolInput {
     pub package_id: String,
     /// SemVer 2.0.0 requirement version.
     pub version: String,
+    /// Replace the legacy entry (no packageId) whose namespace/name equal the
+    /// installed package's labels exactly. Default false.
+    #[serde(default)]
+    pub repair_legacy: bool,
 }
 
 impl From<PackageDependencySetToolInput> for AddPackageDependencyInput {
@@ -710,6 +715,7 @@ impl From<PackageDependencySetToolInput> for AddPackageDependencyInput {
             selector: input.selector,
             package_id: input.package_id,
             version: input.version,
+            repair_legacy: input.repair_legacy,
         }
     }
 }
@@ -1288,8 +1294,10 @@ mod tests {
             selector: Some("packages/a".into()),
             package_id: "pid".into(),
             version: "1.2.0".into(),
+            repair_legacy: true,
         }
         .into();
+        assert!(set.repair_legacy);
         assert_eq!(set.selector.as_deref(), Some("packages/a"));
         assert_eq!(set.package_id, "pid");
         assert_eq!(set.version, "1.2.0");

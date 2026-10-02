@@ -8,7 +8,7 @@
   ],
   "properties": {
     "diagnostics": {
-      "description": "Diagnostic entries serialized from `ValidationDiagnostic` objects. Each entry contains `severity`, `path`, `schemaId?`, and `message`.",
+      "description": "Diagnostic entries serialized from `ValidationDiagnostic` objects. Each entry contains `severity` (`error`, `warning` or `info`; `info` is counted in neither summary total), `path`, `schemaId?`, and `message`.",
       "type": "array",
       "items": true
     },

@@ -510,10 +510,7 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
         // entry shapes — legacy (no `packageId`) and RFC-044 — read under
         // either schema mirror; every other manifest property keeps its
         // fatal check.
-        let mut anchor_value = value.clone();
-        if let Some(obj) = anchor_value.as_object_mut() {
-            obj.remove("packageDependencies");
-        }
+        let anchor_value = crate::package_dependency_service::without_package_dependencies(&value);
         match SchemaRegistry::global()
             .validate_by_id(srs_schema::PACKAGE_MANIFEST_SCHEMA_ID, &anchor_value)
         {
