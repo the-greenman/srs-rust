@@ -25,7 +25,7 @@
         "containerId": {
           "type": "string",
           "format": "uuid",
-          "description": "Instance is a member of this container: instanceId ∈ effective(C), the recursive closure over the Container's declared rootInstanceIds, memberInstanceIds and childContainerIds (RFC-034 [R8]; I-118). Membership is declared — a contains Relation never contributes (RFC-034 [R4]); this replaces the pre-RFC-034 three-condition rule that included transitive contains traversal."
+          "description": "Instance is a member of this container: instanceId ∈ effective(C), the recursive closure over the Container's declared memberInstanceIds entries (ids read flat) and childContainerIds (RFC-034 [R8]; I-118). Membership is declared — a contains Relation never contributes (RFC-034 [R4]); this replaces the pre-RFC-034 three-condition rule that included transitive contains traversal."
         },
         "tag": {
           "type": "array",

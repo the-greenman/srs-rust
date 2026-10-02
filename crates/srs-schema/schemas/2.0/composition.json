@@ -179,13 +179,10 @@
               ],
               "description": "Default: 'asc'."
             },
-            "memberOrder": {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "format": "uuid"
-              },
-              "description": "RFC-015 [N+29]. View-owned explicit presentation sequence for container-subset sections. Lists instanceIds in presentation order. Container members not listed are appended in [N+12] order (precedes topological sort, createdAt tiebreak). MUST NOT be combined with fieldId on the same section. Ignored with a diagnostic on non-container-subset sections."
+            "source": {
+              "type": "string",
+              "enum": ["arranged", "rule"],
+              "description": "RFC-043 [R8]-[R11]. Where this section's order comes from. 'rule' (the default when absent): order direct(C) by ordering.fieldId with its direction where present, otherwise by the Rule [N+12] order, and render every record at depth 0, ignoring entry depth. 'arranged': render the container's entries in their own sequence and at their own depth (RFC-043 Change C); the Composition names no record and does not know the order. 'arranged' is valid only on a container-subset section, MUST NOT be combined with ordering.fieldId, and MUST NOT be combined with containerScope 'subtree' ([R10]); each is checkable from the Composition alone and is a package-validation error. Retires ordering.memberOrder (RFC-015 [N+29], Invariants I-126 and I-127)."
             }
           }
         },
@@ -306,8 +303,7 @@
         {
           "type": "object",
           "required": [
-            "type",
-            "containerId"
+            "type"
           ],
           "additionalProperties": false,
           "properties": {
@@ -317,7 +313,8 @@
             },
             "containerId": {
               "type": "string",
-              "format": "uuid"
+              "format": "uuid",
+              "description": "RFC-043 Change B / [R10]. Optional. Absent means the container being rendered (the container supplied to the render operation); it MAY be absent only when the section's ordering.source is 'arranged', which the validator enforces because this schema can only make the property optional on every container-subset section. A literal names a container, but the container supplied to the render overrides it, as before (a differing supplied container is a diagnostic; RFC-043 [R9], ruling Q). Authors of new arranged sections SHOULD omit it: a literal is a type-layer template naming a specific container, the layer leak srs#851 removes."
             },
             "containerType": {
               "type": "string"
@@ -327,7 +324,7 @@
               "items": {
                 "type": "string"
               },
-              "description": "RFC-008 (ext:views-l2). When present and non-empty, restricts the section to container members whose resolved type (namespace/name, version-independent) matches one of these keys. Ordering is the base-spec [N+12] order computed over the full container, then projected onto the survivors (filter-then-project). Absent or empty array = all members (no-op). Exclusive to the container-subset source."
+              "description": "RFC-008 (ext:views-l2). When present and non-empty, restricts the section to container members whose resolved type (namespace/name, version-independent) matches one of these keys. Ordering is the base-spec [N+12] order computed over the full container, then projected onto the survivors (filter-then-project); on an arranged section an excluded entry is dropped by the promoting removal (its descendants move up one level, RFC-043 [R7]). Absent or empty array = all members (no-op). Exclusive to the container-subset source."
             },
             "containerScope": {
               "type": "string",
@@ -335,7 +332,7 @@
                 "explicit",
                 "subtree"
               ],
-              "description": "RFC-042 Revision 5 [R21], using RFC-034 [R8]'s one scoping vocabulary. Controls whether this section descends into the named container's declared child containers. 'explicit' (the default, and the behaviour of every section authored before RFC-042 Revision 5): render direct(C) alone — the container's own rootInstanceIds and memberInstanceIds — with no nested section. 'subtree': additionally render each container named in childContainerIds as a nested section one heading level deeper, titled by that child container's title, holding its own direct members in the same order (RFC-015 [N+29], then ordering.fieldId, then Rule [N+12]), recursively over the declared child graph. Follows declared child edges only, never contains Relations. 'repository' is not admitted on this variant — the source already names exactly one container; a container-subset section declaring it is invalid."
+              "description": "RFC-042 Revision 5 [R21], using RFC-034 [R8]'s one scoping vocabulary. Controls whether this section descends into the named container's declared child containers. 'explicit' (the default, and the behaviour of every section authored before RFC-042 Revision 5): render direct(C) alone — the ids of the container's own memberInstanceIds entries — with no nested section. 'subtree': additionally render each container named in childContainerIds as a nested section one heading level deeper, titled by that child container's title, holding its own direct members in the same order (the container's arrangement where ordering.source is 'arranged', then ordering.fieldId, then Rule [N+12]; RFC-043 [R9]), recursively over the declared child graph. Follows declared child edges only, never contains Relations. 'repository' is not admitted on this variant — the source already names exactly one container; a container-subset section declaring it is invalid."
             }
           }
         }
@@ -362,7 +359,7 @@
         "containerId": {
           "type": "string",
           "format": "uuid",
-          "description": "Instance is a member of this container: instanceId ∈ effective(C), the recursive closure over the Container's declared rootInstanceIds, memberInstanceIds and childContainerIds (RFC-034 [R8]; I-118). Membership is declared — a contains Relation never contributes (RFC-034 [R4]); this replaces the pre-RFC-034 three-condition rule that included transitive contains traversal."
+          "description": "Instance is a member of this container: instanceId ∈ effective(C), the recursive closure over the Container's declared memberInstanceIds entries (ids read flat) and childContainerIds (RFC-034 [R8]; I-118). Membership is declared — a contains Relation never contributes (RFC-034 [R4]); this replaces the pre-RFC-034 three-condition rule that included transitive contains traversal."
         },
         "tag": {
           "type": "array",

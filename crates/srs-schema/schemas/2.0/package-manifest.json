@@ -31,7 +31,7 @@
     "dataModelRevision": {
       "type": "integer",
       "minimum": 0,
-      "description": "RFC-033 / #265 — the data-model generation this package's definitions were authored/generated for. Absent means revision 0. Distinct from the package's own semver version. Not dotted semver."
+      "description": "RFC-033 / #265 — the data-model generation this package's definitions were authored/generated for. Absent means revision 0. Distinct from the package's own semver version. RFC-043 is the migration toRevision 8 (container members become ordered entries; rootInstanceIds and Composition memberOrder removed); a package carries Compositions, so its memberOrder is migrated with it (RFC-043 [R17]). Not dotted semver."
     },
     "title": {
       "type": "string",
