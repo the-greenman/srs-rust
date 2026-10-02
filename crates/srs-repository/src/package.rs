@@ -1632,6 +1632,7 @@ mod tests {
         let resolver = |_: &str, _: u32| -> Option<Vec<EffectiveField>> { None };
 
         let record = Record {
+            created_by: None,
             field_meta: None,
             instance_id: "r1".to_string(),
             type_id: "child".to_string(),

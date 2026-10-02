@@ -63,6 +63,8 @@ const RESERVED_RECORD_ENVELOPE_KEYS: &[&str] = &[
     "tags",
     "createdAt",
     "updatedAt",
+    // RFC-046: stamped from the session actor, never carried as an extra.
+    "createdBy",
 ];
 
 /// Reject an envelope `extra` bag that carries one of `Record`'s own field
@@ -248,6 +250,8 @@ pub(crate) fn create_record_at_dir(
     tags: Option<Vec<String>>,
     relative_dir: &str,
 ) -> Result<Record, RepositoryError> {
+    // RFC-046 [R3]: the one place a new record is stamped; refuses before any write.
+    let created_by = crate::actor_service::creation_actor(store, false)?;
     let package = store.load_package()?;
     let record_type = package.resolve_type(type_id, type_version).ok_or_else(|| {
         RepositoryError::TypeNotFound {
@@ -287,6 +291,7 @@ pub(crate) fn create_record_at_dir(
     let effective_fields = package.resolved_effective_fields(record_type)?;
     let field_values = normalize_field_value_order(field_values, &effective_fields);
     let mut record = Record {
+        created_by,
         instance_id: String::new(),
         type_id: type_id.to_string(),
         type_version,
@@ -428,12 +433,17 @@ pub fn update_record(
     // `extra` is an open-ended bag rather than a single value (srs-rust#1031:
     // this used to unconditionally keep the stored `extra`, silently dropping
     // whatever the caller sent).
-    reject_reserved_envelope_keys(&input.extra)?;
+    // RFC-046 [R5]: an identical createdBy is allowed (whole-object round trips),
+    // a different/new one is `actor-changed`; the stored value is always kept.
+    let mut input_extra = input.extra;
+    crate::actor_service::reconcile_update_extra(&mut input_extra, &record.created_by)?;
+    reject_reserved_envelope_keys(&input_extra)?;
     let mut updated_extra = record.extra;
-    updated_extra.extend(input.extra);
+    updated_extra.extend(input_extra);
 
     let effective_fields = package.resolved_effective_fields(record_type)?;
     let updated_record = Record {
+        created_by: record.created_by,
         instance_id: record.instance_id,
         type_id: record.type_id,
         type_version: effective_type_version,
@@ -503,6 +513,7 @@ pub fn validate_record_input(
     };
 
     let record = Record {
+        created_by: None,
         instance_id: String::new(),
         type_id: input.type_id.clone(),
         type_version: input.type_version,
@@ -957,6 +968,15 @@ pub fn create_record_in_context(
 ) -> Result<CreateRecordResult, RepositoryError> {
     let dir = dir_override.unwrap_or(store.record_tier_dir(RecordTier::Tier2));
 
+    // RFC-046 [R4]/[R12]: refuse a request-supplied createdBy (and an invalid session
+    // actor / too-old corpus) before anything else — `actor-invalid` first.
+    crate::actor_service::creation_actor(
+        store,
+        input
+            .extra
+            .contains_key(crate::actor_service::CREATED_BY_KEY),
+    )?;
+
     // Parse namespace/name
     let parts: Vec<&str> = type_filter.splitn(2, '/').collect();
     if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
@@ -1105,6 +1125,10 @@ pub struct CreateRecordInContainerInput {
     pub field_meta: Option<indexmap::IndexMap<String, srs_core::types::record::FieldMeta>>,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
+    /// Only here so a request-supplied `createdBy` is caught (`actor-supplied`, RFC-046 [R4])
+    /// instead of being silently ignored.
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 /// Create a Tier-2 record and add it to a container in one call (caller-omission atomic).
@@ -1120,6 +1144,12 @@ pub fn create_record_in_container(
     store: &dyn RepositoryStore,
     input: CreateRecordInContainerInput,
 ) -> Result<CreateRecordResult, RepositoryError> {
+    crate::actor_service::creation_actor(
+        store,
+        input
+            .extra
+            .contains_key(crate::actor_service::CREATED_BY_KEY),
+    )?;
     container_service::get_container(store, &input.container_id)?;
 
     let record = create_record_at_dir(
@@ -1546,6 +1576,7 @@ fn assert_fulfillment_relation(
     let result = relation_service::create_relation_auto(
         store,
         Relation {
+            created_by: None,
             relation_id: String::new(),
             relation_type: relation_type.to_string(),
             source_instance_id,
@@ -1626,6 +1657,12 @@ pub fn create_record_successor(
     predecessor_id: &str,
     input: CreateRecordSuccessorInput,
 ) -> Result<CreateRecordSuccessorResult, RepositoryError> {
+    crate::actor_service::creation_actor(
+        store,
+        input
+            .extra
+            .contains_key(crate::actor_service::CREATED_BY_KEY),
+    )?;
     let predecessor =
         get_record_by_id(store, predecessor_id)?.ok_or_else(|| RepositoryError::NotFound {
             path: std::path::PathBuf::from("records"),
@@ -1693,6 +1730,7 @@ pub fn create_record_successor(
     let rel_result = match relation_service::create_relation(
         store,
         Relation {
+            created_by: None,
             relation_id: String::new(),
             relation_type: input.relation_type,
             source_instance_id: successor.instance_id.clone(),
@@ -2896,6 +2934,7 @@ mod tests {
         // …one incident standalone object, and one untouched bystander edge.
         store
             .save_relation(&srs_core::types::relation::Relation {
+                created_by: None,
                 relation_id: "dc000002-0000-4000-a000-000000000002".to_string(),
                 relation_type: "refines".to_string(),
                 source_instance_id: record_b.instance_id.clone(),
@@ -2908,6 +2947,7 @@ mod tests {
             .unwrap();
         store
             .save_relation(&srs_core::types::relation::Relation {
+                created_by: None,
                 relation_id: "dc000003-0000-4000-a000-000000000003".to_string(),
                 relation_type: "refines".to_string(),
                 source_instance_id: record_a.instance_id.clone(),
@@ -6213,6 +6253,7 @@ mod tests {
         let result = create_record_in_container(
             &store,
             CreateRecordInContainerInput {
+                extra: Default::default(),
                 field_meta: None,
                 container_id: container_id.clone(),
                 type_id: "type-test-001".to_string(),
@@ -6241,6 +6282,7 @@ mod tests {
         let result = create_record_in_container(
             &store,
             CreateRecordInContainerInput {
+                extra: Default::default(),
                 field_meta: None,
                 container_id: "does-not-exist".to_string(),
                 type_id: "type-test-001".to_string(),
@@ -6271,6 +6313,7 @@ mod tests {
         let result = create_record_in_container(
             &store,
             CreateRecordInContainerInput {
+                extra: Default::default(),
                 field_meta: None,
                 container_id: container_id.clone(),
                 type_id: "type-does-not-exist".to_string(),
@@ -6297,6 +6340,7 @@ mod tests {
         let result = create_record_in_container(
             &store,
             CreateRecordInContainerInput {
+                extra: Default::default(),
                 field_meta: None,
                 container_id: container_id.clone(),
                 type_id: "type-test-001".to_string(),
@@ -7033,6 +7077,7 @@ mod tests {
         let store = make_store_with_package();
 
         let record = Record {
+            created_by: None,
             field_meta: None,
             instance_id: "aaaabbbb-0000-4000-8000-000000000001".to_string(),
             type_id: "type-test-001".to_string(),

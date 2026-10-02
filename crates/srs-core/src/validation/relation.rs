@@ -334,6 +334,7 @@ mod tests {
 
     fn make_relation(rel_type: &str, src: &str, tgt: &str) -> Relation {
         Relation {
+            created_by: None,
             relation_id: "r0000001-0000-4000-a000-000000000001".to_string(),
             relation_type: rel_type.to_string(),
             source_instance_id: src.to_string(),

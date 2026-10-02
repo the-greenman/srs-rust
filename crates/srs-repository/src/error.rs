@@ -461,6 +461,12 @@ pub enum RepositoryError {
     #[error("manifest.json carries a dataModelRevision 7 container shape (rootInstanceIds or bare-id memberInstanceIds); this build reads dataModelRevision 8 (RFC-043 [R16]) — run `srs repo apply-migration --id rfc043-container-entries`")]
     Rfc043MigrationNeeded,
 
+    /// RFC-046 actor-provenance refusal. `code` is one of `actor-invalid`,
+    /// `actor-supplied`, `actor-changed`, `revision-too-old` ([R4]/[R5]/[R11]-[R13]);
+    /// nothing was written.
+    #[error("{code}: {message}")]
+    ActorProvenance { code: &'static str, message: String },
+
     /// RFC-038 [R21]: a repository below storage generation 2 is not
     /// supported. Feature-inactive until the Phase-6 flip; fired only under
     /// the crate-internal test activation until then.

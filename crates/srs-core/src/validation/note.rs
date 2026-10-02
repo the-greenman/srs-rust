@@ -43,6 +43,7 @@ mod tests {
 
     fn minimal_note() -> Note {
         Note {
+            created_by: None,
             instance_id: "test-id".to_string(),
             title: None,
             tags: None,

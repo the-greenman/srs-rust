@@ -392,6 +392,35 @@ static MIGRATIONS: &[MigrationDefinition] = &[
         },
     },
     MigrationDefinition {
+        id: "rfc046-actor-provenance",
+        title: "Adopt RFC-046 actor provenance (createdBy)",
+        description: "Stamps dataModelRevision: 9. This is data-model migration #9 \
+                       (revision 8 -> 9), per srs-rust#1171 (RFC-046, srs#850). A pure \
+                       re-stamp: no existing instance carries `createdBy`, so no instance \
+                       data changes and every existing instance is preserved exactly ([R6]). \
+                       A corpus at revision 9 may contain `createdBy`; a session with an \
+                       actor refuses to create in a corpus below revision 9 ([R11]). \
+                       Requires the rfc043-container-entries migration (#8) first.",
+        status_fn: |store| {
+            if crate::field_type_migration_service::rfc046_actor_provenance_migration_needed(
+                store,
+            )? {
+                Ok(MigrationStatus::Needed)
+            } else {
+                Ok(MigrationStatus::AlreadyApplied)
+            }
+        },
+        apply_fn: |store| {
+            let result =
+                crate::field_type_migration_service::migrate_rfc046_actor_provenance(store)?;
+            serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!(
+                    "failed to serialize rfc046-actor-provenance migration result: {e}"
+                ),
+            })
+        },
+    },
+    MigrationDefinition {
         id: "migrate-identity",
         title: "Graduate identity to purpose record",
         description: "Converts a Tier-0 note identity (or a container with no identity \
@@ -599,6 +628,7 @@ mod tests {
         let container_id = "550e8400-e29b-41d4-a716-446655440000";
 
         let note = Note {
+            created_by: None,
             instance_id: note_id.to_string(),
             title: note_title.map(|t| t.to_string()),
             sections,
@@ -651,7 +681,7 @@ mod tests {
     fn list_migrations_returns_every_entry_for_store_with_no_identity_note() {
         let store = make_store_with_container_no_identity();
         let migrations = list_migrations(&store).unwrap();
-        assert_eq!(migrations.len(), 13);
+        assert_eq!(migrations.len(), 14);
         assert_eq!(migrations[0].id, "graduated-at-cleanup");
         assert_eq!(migrations[1].id, "revisions-sidecar-cleanup");
         assert_eq!(migrations[2].id, "field-type");
@@ -662,9 +692,10 @@ mod tests {
         assert_eq!(migrations[7].id, "composition-cutover");
         assert_eq!(migrations[8].id, "discovery-query-cutover");
         assert_eq!(migrations[9].id, "rfc043-container-entries");
-        assert_eq!(migrations[10].id, "migrate-identity");
-        assert_eq!(migrations[11].id, "repo-upgrade");
-        assert_eq!(migrations[12].id, "rfc038-storage");
+        assert_eq!(migrations[10].id, "rfc046-actor-provenance");
+        assert_eq!(migrations[11].id, "migrate-identity");
+        assert_eq!(migrations[12].id, "repo-upgrade");
+        assert_eq!(migrations[13].id, "rfc038-storage");
         // No legacy graduatedAt Notes → AlreadyApplied
         assert_eq!(migrations[0].status, MigrationStatus::AlreadyApplied);
         // No .revisions.json sidecars → AlreadyApplied
@@ -685,12 +716,14 @@ mod tests {
         assert_eq!(migrations[8].status, MigrationStatus::Needed);
         // Revision < 8 → rfc043-container-entries Needed
         assert_eq!(migrations[9].status, MigrationStatus::Needed);
-        // Container exists but identity_instance_id is None → migrate-identity Needed
+        // Revision < 9 → rfc046-actor-provenance Needed
         assert_eq!(migrations[10].status, MigrationStatus::Needed);
+        // Container exists but identity_instance_id is None → migrate-identity Needed
+        assert_eq!(migrations[11].status, MigrationStatus::Needed);
         // Zero instances → all paths canonical → AlreadyApplied
-        assert_eq!(migrations[11].status, MigrationStatus::AlreadyApplied);
+        assert_eq!(migrations[12].status, MigrationStatus::AlreadyApplied);
         // MemoryStore is not a file tree — there is no storage layout to place.
-        assert_eq!(migrations[12].status, MigrationStatus::NotApplicable);
+        assert_eq!(migrations[13].status, MigrationStatus::NotApplicable);
     }
 
     fn indexed_srsj_store() -> crate::store::FileStore {
@@ -898,6 +931,7 @@ mod tests {
         // otherwise poison `store.catalog()` for the whole repository,
         // including `migrate-identity`'s status probe.
         let legacy_note = Note {
+            created_by: None,
             instance_id: "22222222-2222-4222-8222-222222222225".to_string(),
             title: Some("Legacy graduated note".to_string()),
             sections: one_section("hello"),
@@ -949,6 +983,7 @@ mod tests {
 
         let instance_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
         let note = Note {
+            created_by: None,
             instance_id: instance_id.to_string(),
             title: Some("My Note".to_string()),
             sections: one_section("content"),

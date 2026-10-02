@@ -28,6 +28,8 @@ use crate::application;
 pub struct SrsMcpServer {
     repo_path: PathBuf,
     repository_id: String,
+    /// RFC-046 host-supplied session actor, applied to every per-request store.
+    session_actor: Option<serde_json::Value>,
 }
 
 impl SrsMcpServer {
@@ -61,7 +63,14 @@ impl SrsMcpServer {
         Ok(Self {
             repo_path,
             repository_id,
+            session_actor: None,
         })
+    }
+
+    /// Set the RFC-046 session actor stamped on everything this server creates.
+    pub fn with_session_actor(mut self, actor: Option<serde_json::Value>) -> Self {
+        self.session_actor = actor;
+        self
     }
 
     /// The repository identity from the manifest (`repositoryId`).
@@ -72,7 +81,10 @@ impl SrsMcpServer {
     /// A fresh application (and `FileStore`) for one request — per-invocation
     /// semantics, like the CLI.
     pub(crate) fn open_app(&self) -> application::App {
-        SrsMcpApplication::new(FileStore::new(&self.repo_path), self.repository_id.clone())
+        let app =
+            SrsMcpApplication::new(FileStore::new(&self.repo_path), self.repository_id.clone());
+        app.set_session_actor(self.session_actor.clone());
+        app
     }
 }
 
@@ -167,6 +179,7 @@ mod tests {
         let info = SrsMcpServer {
             repo_path: PathBuf::from("/nonexistent"),
             repository_id: "test".into(),
+            session_actor: None,
         }
         .get_info();
         assert_eq!(info.server_info.name, "srs-mcp");
@@ -185,6 +198,7 @@ mod tests {
         let info = SrsMcpServer {
             repo_path: PathBuf::from("/nonexistent"),
             repository_id: "test".into(),
+            session_actor: None,
         }
         .get_info();
         assert_eq!(

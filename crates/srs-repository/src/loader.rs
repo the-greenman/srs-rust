@@ -31,6 +31,7 @@ mod tests {
     fn load_note_roundtrips_from_memory() {
         let store = MemoryStore::default();
         let note = srs_core::types::note::Note {
+            created_by: None,
             instance_id: "test-123".to_string(),
             title: Some("Test Note".to_string()),
             tags: Some(vec!["test".to_string()]),
@@ -80,6 +81,7 @@ mod tests {
         use srs_core::types::source_reference::{SourceReference, SourceRole, SourceType};
 
         let note = Note {
+            created_by: None,
             instance_id: "attach-roundtrip-001".to_string(),
             title: None,
             tags: None,

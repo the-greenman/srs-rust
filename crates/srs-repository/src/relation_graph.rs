@@ -376,6 +376,7 @@ mod tests {
 
     fn make_record(id: &str, created_at: &str) -> Record {
         Record {
+            created_by: None,
             field_meta: None,
             instance_id: id.to_string(),
             type_id: "t-test".to_string(),
@@ -393,6 +394,7 @@ mod tests {
 
     fn make_precedes(src: &str, tgt: &str) -> Relation {
         Relation {
+            created_by: None,
             relation_id: format!("rel-{src}-precedes-{tgt}"),
             relation_type: "precedes".to_string(),
             source_instance_id: src.to_string(),

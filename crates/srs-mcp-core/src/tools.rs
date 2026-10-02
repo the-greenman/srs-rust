@@ -364,6 +364,7 @@ pub struct RelationCreateToolInput {
 impl From<RelationCreateToolInput> for Relation {
     fn from(input: RelationCreateToolInput) -> Self {
         Relation {
+            created_by: None,
             relation_id: input.relation_id.unwrap_or_default(),
             relation_type: input.relation_type,
             source_instance_id: input.source_instance_id,
@@ -418,6 +419,7 @@ impl From<NoteCreateToolInput> for CreateNoteInput {
     fn from(input: NoteCreateToolInput) -> Self {
         CreateNoteInput {
             note: Note {
+                created_by: None,
                 instance_id: input.instance_id.unwrap_or_default(),
                 title: input.title,
                 tags: input.tags,
@@ -932,6 +934,27 @@ pub fn call_tool(
     name: &str,
     arguments: Option<Map<String, Value>>,
 ) -> Result<Value, McpApplicationError> {
+    // RFC-046 [R4]/[R5]: the actor is host-set, never a tool argument. A `createdBy` in the
+    // arguments of a write tool is lifted out before parsing (the input structs deny unknown
+    // fields) so it gets the specified diagnostic: `actor-supplied` on a creating tool,
+    // `actor-changed` (unless identical) on `record_update`.
+    let mut arguments = arguments;
+    let supplied_created_by = match name {
+        TOOL_RECORD_CREATE
+        | TOOL_RELATION_CREATE
+        | TOOL_NOTE_CREATE
+        | TOOL_RECORD_SUCCESSOR
+        | TOOL_NOTE_GRADUATE
+        | TOOL_RECORD_UPDATE => arguments
+            .as_mut()
+            .and_then(|a| a.remove(srs_repository::actor_service::CREATED_BY_KEY)),
+        _ => None,
+    };
+    if supplied_created_by.is_some() && name != TOOL_RECORD_UPDATE {
+        if let Err(e) = srs_repository::actor_service::creation_actor(store, true) {
+            return Ok(tool_err(e.to_string()));
+        }
+    }
     match name {
         TOOL_REPO_VALIDATE => {
             let _: EmptyToolInput = parse_args(arguments)?;
@@ -989,7 +1012,13 @@ pub fn call_tool(
         TOOL_RECORD_UPDATE => {
             let input: RecordUpdateToolInput = parse_args(arguments)?;
             let instance_id = input.instance_id.clone();
-            match record_store::update_record(store, &instance_id, input.into()) {
+            let mut update: UpdateRecordInput = input.into();
+            if let Some(v) = supplied_created_by {
+                update
+                    .extra
+                    .insert(srs_repository::actor_service::CREATED_BY_KEY.to_string(), v);
+            }
+            match record_store::update_record(store, &instance_id, update) {
                 Ok(record) => tool_ok(&record),
                 Err(e) => Ok(tool_err(e.to_string())),
             }

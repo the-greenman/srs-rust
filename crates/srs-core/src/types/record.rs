@@ -116,6 +116,10 @@ pub struct Record {
     pub created_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
+    /// RFC-046: who created this instance — stamped once by the creating
+    /// service from the session actor, preserved by every other operation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<super::actor::Actor>,
     /// Envelope extras (`$schema`, `meta`, `sourceRefs`, …). `BTreeMap` for
     /// deterministic serialisation (ADR-043 canonical-types discipline).
     #[serde(flatten)]
@@ -168,6 +172,7 @@ mod tests {
 
     fn minimal_record() -> Record {
         Record {
+            created_by: None,
             instance_id: "00000000-0000-4000-8000-000000000001".to_string(),
             type_id: "00000000-0000-4000-8000-000000000002".to_string(),
             type_version: 1,

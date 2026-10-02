@@ -295,6 +295,7 @@ mod tests {
             field_values.insert(name, value);
         }
         Record {
+            created_by: None,
             field_meta: None,
             instance_id: "r1".to_string(),
             type_id: "t1".to_string(),
@@ -487,6 +488,7 @@ mod tests {
     fn note(title: Option<&str>, sections: Vec<(&str, &str)>, tags: Option<Vec<&str>>) -> Note {
         use srs_core::types::note::NoteSection;
         Note {
+            created_by: None,
             instance_id: "n1".to_string(),
             title: title.map(str::to_string),
             tags: tags.map(|ts| ts.into_iter().map(str::to_string).collect()),

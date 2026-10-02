@@ -80,6 +80,7 @@ fn container(id: &str, title: &str) -> Container {
 
 fn note(id: &str) -> Note {
     Note {
+        created_by: None,
         instance_id: id.to_string(),
         title: Some("Note".to_string()),
         tags: None,
@@ -97,6 +98,7 @@ fn note(id: &str) -> Note {
 fn populate(store: &dyn RepositoryStore) {
     store
         .save_record(&Record {
+            created_by: None,
             field_meta: None,
             instance_id: RECORD_ID.to_string(),
             type_id: "00000000-0000-4000-8000-000000000001".to_string(),

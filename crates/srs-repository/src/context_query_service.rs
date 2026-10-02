@@ -461,6 +461,7 @@ mod tests {
         create_relation(
             &store,
             Relation {
+                created_by: None,
                 relation_id: String::new(),
                 relation_type: "depends-on".to_string(),
                 source_instance_id: src.instance_id.clone(),
@@ -477,6 +478,7 @@ mod tests {
         create_relation(
             &store,
             Relation {
+                created_by: None,
                 relation_id: String::new(),
                 relation_type: "depends-on".to_string(),
                 source_instance_id: unrelated.instance_id.clone(),

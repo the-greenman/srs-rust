@@ -16,6 +16,9 @@ pub struct Relation {
     pub target_instance_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
+    /// RFC-046: creator, stamped from the session actor; see `Record::created_by`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<super::actor::Actor>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
     // SourceReference omits deny_unknown_fields intentionally (forward-compat);
@@ -42,6 +45,7 @@ mod tests {
     #[test]
     fn relation_roundtrips_json() {
         let r = Relation {
+            created_by: None,
             relation_id: "d0000001-0000-4000-a000-000000000001".to_string(),
             relation_type: "precedes".to_string(),
             source_instance_id: "aaaa0001-0000-4000-a000-000000000001".to_string(),
@@ -106,7 +110,7 @@ mod tests {
     }
 
     /// Regression test for srs-rust#1022: `assertedBy`, `confidence`,
-    /// `status`, `createdBy`, `validFrom`, `validUntil`, `sourceRepositoryId`,
+    /// `status`, `validFrom`, `validUntil`, `sourceRepositoryId`,
     /// `targetRepositoryId` were removed from the canonical schema by srs#441
     /// but survived on the Rust struct — so `srs relation create` accepted
     /// them at parse time and only failed later, at the repository's schema
@@ -119,7 +123,6 @@ mod tests {
             r#""assertedBy": "human""#,
             r#""confidence": 0.8"#,
             r#""status": "active""#,
-            r#""createdBy": "someone""#,
             r#""validFrom": "2026-01-01T00:00:00Z""#,
             r#""validUntil": "2026-12-31T00:00:00Z""#,
             r#""sourceRepositoryId": "repo-a""#,
@@ -156,6 +159,7 @@ mod tests {
     #[test]
     fn relation_struct_matches_relations_collection_relation_def_property_set() {
         let sample = Relation {
+            created_by: None,
             relation_id: "d0000001-0000-4000-a000-000000000001".to_string(),
             relation_type: "precedes".to_string(),
             source_instance_id: "aaaa0001-0000-4000-a000-000000000001".to_string(),
@@ -166,6 +170,7 @@ mod tests {
             meta: None,
         };
         let Relation {
+            created_by: _,
             relation_id: _,
             relation_type: _,
             source_instance_id: _,
