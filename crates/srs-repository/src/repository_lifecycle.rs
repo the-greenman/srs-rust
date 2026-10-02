@@ -204,6 +204,51 @@ pub fn create_repository_with_intent(
     Ok(result)
 }
 
+/// Seedless-create input for non-CLI callers (WASM): everything the CLI
+/// defaults is defaulted here, once. `purpose` becomes the purpose record's
+/// description.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateBlankRepositoryInput {
+    pub title: String,
+    pub purpose: Option<String>,
+    /// Defaults to `com.example.blank`.
+    pub namespace: Option<String>,
+    /// Defaults to a fresh UUID v4.
+    pub repository_id: Option<String>,
+}
+
+/// `create_repository_with_intent` with the CLI's defaults (srs 2.0-draft,
+/// package `primary` 1.0.0, minted ids). Works on any store, incl. a tree session.
+pub fn create_blank_repository(
+    store: &dyn RepositoryStore,
+    input: CreateBlankRepositoryInput,
+) -> Result<CreateRepositoryResult, RepositoryError> {
+    let namespace = input
+        .namespace
+        .unwrap_or_else(|| "com.example.blank".to_string());
+    create_repository_with_intent(
+        store,
+        &InitializeRepositoryInput {
+            repository: RepositoryMetadata {
+                repository_id: input
+                    .repository_id
+                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+                namespace: namespace.clone(),
+                srs_version: "2.0-draft".to_string(),
+                title: Some(input.title),
+                description: input.purpose,
+            },
+            primary_package: PrimaryPackageMetadata {
+                id: uuid::Uuid::new_v4().to_string(),
+                namespace,
+                name: "primary".to_string(),
+                version: "1.0.0".to_string(),
+            },
+        },
+    )
+}
+
 pub fn get_repository_status(
     store: &dyn RepositoryStore,
 ) -> Result<RepositoryStatus, RepositoryError> {
