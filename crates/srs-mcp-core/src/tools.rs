@@ -174,8 +174,8 @@ the run). Rejected whole, changing nothing, if the result would break the outlin
 entry depth 0, depth rises by at most one). Instead of position/depth, give `relativeTo` + `placement` \
 (before | after = beside that entry's run; into = its last child), or `shift`: indent (depth + 1, \
 clamped to the previous entry's depth + 1), outdent (depth - 1), up / down (swap with the previous / \
-next sibling; a no-op at the first / last). Placing an entry relative to itself or its own descendant, \
-or moving the root identity entry, is rejected. Returns the container's entries in order.";
+next sibling; a no-op at the first / last). Placing an entry relative to itself or its own descendant \
+is rejected, as is any result that nests or gives children to the root identity entry. Returns the container's entries in order.";
 
 pub const DESC_CONTAINER_OUTLINE: &str = "Read a container's outline: `entries` (the whole \
 arrangement) and `body` (the document body: entries without the container's anchor and identity \
@@ -712,9 +712,10 @@ pub struct ContainerMemberMoveToolInput {
     pub shift: Option<String>,
 }
 
+/// `container_member_repair` / `container_outline`: the container alone.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ContainerMemberRepairToolInput {
+pub struct ContainerIdToolInput {
     pub container_id: String,
 }
 
@@ -892,12 +893,12 @@ pub fn list_tools() -> Value {
         tool(
             TOOL_CONTAINER_MEMBER_REPAIR,
             DESC_CONTAINER_MEMBER_REPAIR,
-            input_schema::<ContainerMemberRepairToolInput>(),
+            input_schema::<ContainerIdToolInput>(),
         ),
         tool(
             TOOL_CONTAINER_OUTLINE,
             DESC_CONTAINER_OUTLINE,
-            input_schema::<ContainerMemberRepairToolInput>(),
+            input_schema::<ContainerIdToolInput>(),
         ),
         // Protocol run execution tools (#977)
         tool(
@@ -1155,14 +1156,14 @@ pub fn call_tool(
             }
         }
         TOOL_CONTAINER_MEMBER_REPAIR => {
-            let input: ContainerMemberRepairToolInput = parse_args(arguments)?;
+            let input: ContainerIdToolInput = parse_args(arguments)?;
             match container_service::repair_members(store, &input.container_id) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
         TOOL_CONTAINER_OUTLINE => {
-            let input: ContainerMemberRepairToolInput = parse_args(arguments)?;
+            let input: ContainerIdToolInput = parse_args(arguments)?;
             match container_service::get_outline(store, &input.container_id) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),

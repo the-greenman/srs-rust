@@ -156,9 +156,15 @@ fn relative_move_and_outline_match_the_service() {
     assert_eq!(outline.entries.len(), r.members.len());
     let moved = outline.entries.iter().find(|e| e.instance_id == a).unwrap();
     assert_eq!(moved.parent_instance_id.as_deref(), Some(b.as_str()));
-    // rejection reaches the caller as an error, nothing written
-    let bad = RelativeMove::parse(Some(&b), Some("into"), None)
+    // rejection (into itself) reaches the caller, nothing written
+    let into_self = RelativeMove::parse(Some(&b), Some("into"), None)
         .unwrap()
         .unwrap();
-    assert!(container_service::move_member_relative(&store, &id, &b, &bad).is_err());
+    assert!(container_service::move_member_relative(&store, &id, &b, &into_self).is_err());
+    assert_eq!(
+        container_service::get_outline(&store, &id).unwrap().entries,
+        outline.entries
+    );
+    // the binding's "neither given" case is parse's Ok(None)
+    assert_eq!(RelativeMove::parse(None, None, None), Ok(None));
 }

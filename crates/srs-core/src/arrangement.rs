@@ -180,10 +180,7 @@ pub fn move_run(
     depth: Option<u32>,
     root_identity: Option<&str>,
 ) -> Result<Vec<ContainerEntry>, Violation> {
-    let i = entries
-        .iter()
-        .position(|e| e.instance_id == id)
-        .ok_or_else(|| v(CODE_UNRESOLVED, id, "not an entry of this container"))?;
+    let i = index_of(entries, id)?;
     let run = run_len(entries, i);
     let base = entries[i].depth();
     let target = depth.unwrap_or(base);
@@ -205,10 +202,7 @@ pub fn set_depth(
     depth: u32,
     root_identity: Option<&str>,
 ) -> Result<Vec<ContainerEntry>, Violation> {
-    let i = entries
-        .iter()
-        .position(|e| e.instance_id == id)
-        .ok_or_else(|| v(CODE_UNRESOLVED, id, "not an entry of this container"))?;
+    let i = index_of(entries, id)?;
     move_run(entries, id, Some(i), Some(depth), root_identity)
 }
 
@@ -321,18 +315,6 @@ fn index_of(entries: &[ContainerEntry], id: &str) -> Result<usize, Violation> {
         .ok_or_else(|| v(CODE_UNRESOLVED, id, "not an entry of this container"))
 }
 
-/// The root container's identity entry never moves ([R12]); every relative op refuses it.
-fn require_movable(id: &str, root_identity: Option<&str>) -> Result<(), Violation> {
-    match root_identity == Some(id) {
-        true => Err(v(
-            CODE_IDENTITY,
-            id,
-            "the identity entry of the root container is pinned",
-        )),
-        false => Ok(()),
-    }
-}
-
 /// **place**: move the run of `id` before / after `target`'s run (as its sibling, at the
 /// target's depth) or into it (as its last child). `target` must lie outside the moved run.
 pub fn place(
@@ -342,7 +324,6 @@ pub fn place(
     placement: Placement,
     root_identity: Option<&str>,
 ) -> Result<Vec<ContainerEntry>, Violation> {
-    require_movable(id, root_identity)?;
     let i = index_of(entries, id)?;
     let t = index_of(entries, target)?;
     let run = run_len(entries, i);
@@ -373,7 +354,6 @@ pub fn indent(
     id: &str,
     root_identity: Option<&str>,
 ) -> Result<Vec<ContainerEntry>, Violation> {
-    require_movable(id, root_identity)?;
     let i = index_of(entries, id)?;
     let max = i.checked_sub(1).map_or(0, |p| entries[p].depth() + 1);
     set_depth(
@@ -391,7 +371,6 @@ pub fn outdent(
     id: &str,
     root_identity: Option<&str>,
 ) -> Result<Vec<ContainerEntry>, Violation> {
-    require_movable(id, root_identity)?;
     let d = entries[index_of(entries, id)?].depth();
     set_depth(entries, id, d.saturating_sub(1), root_identity)
 }
@@ -404,7 +383,6 @@ pub fn step(
     down: bool,
     root_identity: Option<&str>,
 ) -> Result<Vec<ContainerEntry>, Violation> {
-    require_movable(id, root_identity)?;
     let i = index_of(entries, id)?;
     let d = entries[i].depth();
     let sibling = if down {
@@ -420,7 +398,6 @@ pub fn step(
     let Some(sibling) = sibling else {
         return Ok(entries.to_vec());
     };
-    require_movable(&sibling.instance_id, root_identity)?;
     let placement = if down {
         Placement::After
     } else {
@@ -639,21 +616,31 @@ mod tests {
     }
 
     #[test]
-    fn identity_is_pinned() {
+    fn identity_rule_is_r2_not_a_pin() {
+        // RFC-043 [R2]/[R12]: the root identity entry stays at depth 0 with no descendants;
+        // its position is free (navigation excludes it). Relative ops add no rule of their own.
         let e = outline(&[("I", 0), ("a", 0), ("b", 0)]);
         let id = Some("I");
-        assert_eq!(step(&e, "I", true, id).unwrap_err().code, CODE_IDENTITY);
-        assert_eq!(step(&e, "a", false, id).unwrap_err().code, CODE_IDENTITY);
+        let sh = |r: Result<Vec<ContainerEntry>, Violation>| shape(&r.unwrap());
         assert_eq!(
-            place(&e, "I", "b", Placement::After, id).unwrap_err().code,
-            CODE_IDENTITY
+            sh(step(&e, "I", true, id)),
+            s(&[("a", 0), ("I", 0), ("b", 0)])
         );
-        // nothing may become the identity's child
+        assert_eq!(
+            sh(step(&e, "a", false, id)),
+            s(&[("a", 0), ("I", 0), ("b", 0)])
+        );
+        // nothing may become the identity's child, and it may not be nested
         assert_eq!(
             place(&e, "a", "I", Placement::Into, id).unwrap_err().code,
             CODE_IDENTITY
         );
-        assert!(step(&e, "a", true, id).is_ok());
+        assert_eq!(indent(&e, "a", id).unwrap_err().code, CODE_IDENTITY);
+        assert_eq!(indent(&e, "I", id), Ok(e.clone())); // first entry: clamped no-op
+        assert_eq!(
+            place(&e, "I", "a", Placement::Into, id).unwrap_err().code,
+            CODE_IDENTITY
+        );
     }
 
     #[test]

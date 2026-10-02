@@ -963,13 +963,25 @@ pub fn move_member(
     position: Option<usize>,
     depth: Option<u32>,
 ) -> Result<ArrangementResult, RepositoryError> {
+    rearrange(store, container_id, |entries, identity| {
+        arrangement::move_run(entries, instance_id, position, depth, identity)
+            .map_err(arrangement_error)
+    })
+}
+
+/// The shared write path of the arrangement edits: load the container, apply `op` to its
+/// entries with the root container's identity (for the [R2] identity rule), persist the result.
+fn rearrange(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    op: impl FnOnce(&[ContainerEntry], Option<&str>) -> Result<Vec<ContainerEntry>, RepositoryError>,
+) -> Result<ArrangementResult, RepositoryError> {
     let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
     let entries = container.member_instance_ids.clone().unwrap_or_default();
     let identity = is_root_container(store, container_id)
         .then_some(container.identity_instance_id.as_deref())
         .flatten();
-    let out = arrangement::move_run(&entries, instance_id, position, depth, identity)
-        .map_err(arrangement_error)?;
+    let out = op(&entries, identity)?;
     store_entries(&mut container, out.clone());
     save_container_syncing_embed(store, &container, is_embed_only, false)?;
     Ok(ArrangementResult {
@@ -980,26 +992,16 @@ pub fn move_member(
 
 /// **move relative** (Change D, issue #1156): `before` / `after` / `into` another entry,
 /// `indent` / `outdent`, or `up` / `down` one sibling step — each resolved to the one
-/// `move_run` validity path in `srs_core::arrangement`. The root identity entry is pinned.
+/// `move_run` validity path in `srs_core::arrangement`.
 pub fn move_member_relative(
     store: &dyn RepositoryStore,
     container_id: &str,
     instance_id: &str,
     mv: &arrangement::RelativeMove,
 ) -> Result<ArrangementResult, RepositoryError> {
-    let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
-    let entries = container.member_instance_ids.clone().unwrap_or_default();
-    let identity = is_root_container(store, container_id)
-        .then_some(container.identity_instance_id.as_deref())
-        .flatten();
-    let out = mv
-        .apply(&entries, instance_id, identity)
-        .map_err(arrangement_error)?;
-    store_entries(&mut container, out.clone());
-    save_container_syncing_embed(store, &container, is_embed_only, false)?;
-    Ok(ArrangementResult {
-        members: out,
-        ..Default::default()
+    rearrange(store, container_id, |entries, identity| {
+        mv.apply(entries, instance_id, identity)
+            .map_err(arrangement_error)
     })
 }
 
@@ -1013,32 +1015,17 @@ pub fn add_member_relative(
     placement: arrangement::Placement,
 ) -> Result<ArrangementResult, RepositoryError> {
     require_resolvable_instances(store, [instance_id])?;
-    let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
-    let entries = container.member_instance_ids.clone().unwrap_or_default();
-    if entries.iter().any(|e| e.instance_id == instance_id) {
-        return Err(RepositoryError::InvalidInput {
-            message: format!(
-                "{instance_id} is already a member of {container_id}; use move to reposition it"
-            ),
-        });
-    }
-    let identity = is_root_container(store, container_id)
-        .then_some(container.identity_instance_id.as_deref())
-        .flatten();
-    let out = arrangement::insert(&entries, ContainerEntry::new(instance_id), None, identity)
-        .and_then(|e| arrangement::place(&e, instance_id, target, placement, None))
-        .and_then(
-            |e| match arrangement::check_entries(&e, identity).into_iter().next() {
-                Some(v) => Err(v),
-                None => Ok(e),
-            },
-        )
-        .map_err(arrangement_error)?;
-    store_entries(&mut container, out.clone());
-    save_container_syncing_embed(store, &container, is_embed_only, false)?;
-    Ok(ArrangementResult {
-        members: out,
-        ..Default::default()
+    rearrange(store, container_id, |entries, identity| {
+        if entries.iter().any(|e| e.instance_id == instance_id) {
+            return Err(RepositoryError::InvalidInput {
+                message: format!(
+                    "{instance_id} is already a member of {container_id}; use move to reposition it"
+                ),
+            });
+        }
+        arrangement::insert(entries, ContainerEntry::new(instance_id), None, identity)
+            .and_then(|e| arrangement::place(&e, instance_id, target, placement, identity))
+            .map_err(arrangement_error)
     })
 }
 
