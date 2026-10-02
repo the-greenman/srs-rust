@@ -40,6 +40,10 @@
       "type": "string",
       "format": "date-time"
     },
+    "createdBy": {
+      "$ref": "#/$defs/Actor",
+      "description": "RFC-046. The actor that created this instance, stamped by the implementation from the session actor at creation and never taken from a request. Optional: absent means unattributed, never invalid, and no actor is inferred. Set once and preserved by every other operation. Testimony, never authority: it never affects validity."
+    },
     "notes": {
       "type": "string"
     },
@@ -54,6 +58,28 @@
     }
   },
   "$defs": {
+    "Actor": {
+      "type": "object",
+      "description": "RFC-046 [R1]. Who performed an act. Exactly kind and id are required; no other property is allowed. The $defs/Actor entry is repeated byte-identically in record.json, note.json and relation.json (checked by scripts/check-actor-defs-identical.mjs). Testimony, never authority: it informs trust and diagnosis and never affects validity (RFC-046 [R8]).",
+      "required": ["kind", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["human", "ai"],
+          "description": "human: a person stands directly behind the act. ai: an AI agent performed it, even when a person started or supervises it. These are the actor values of FieldMeta.source: one actor vocabulary (RFC-046 [R9])."
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable, opaque identifier issued by whatever authenticated the session. Compared by exact string equality and carries no other meaning (RFC-046 [R7])."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display label captured when the stamp was made. A hint only: it may go stale and never identifies; on disagreement the id wins."
+        }
+      }
+    },
     "SourceReference": {
       "type": "object",
       "required": [
