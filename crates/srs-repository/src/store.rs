@@ -1078,7 +1078,7 @@ struct PackageMetadata {
     blueprints: Vec<String>,
     #[serde(default)]
     protocols: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::package::lenient_dependency_refs")]
     package_dependencies: Vec<crate::package::DependencyRef>,
     #[serde(default)]
     vocabularies: Vec<String>,
@@ -2190,6 +2190,9 @@ impl RepositoryStore for FileStore {
             );
             obj.insert("name".to_string(), serde_json::json!(boundary.name));
             obj.insert("version".to_string(), serde_json::json!(boundary.version));
+            if let Some(deps) = &boundary.package_dependencies {
+                obj.insert("packageDependencies".to_string(), serde_json::json!(deps));
+            }
         }
         self.write_json(&pkg_json_rel, &pkg_json)
     }
@@ -2712,6 +2715,7 @@ pub mod memory {
                 relation_type_paths: vec![],
                 lifecycle_paths: vec![],
                 composition_paths: vec![],
+                package_dependencies: None,
             };
             let mut boundaries = HashMap::new();
             boundaries.insert(None, primary_boundary);
@@ -3800,6 +3804,7 @@ pub mod memory {
             entry.namespace = boundary.namespace.clone();
             entry.name = boundary.name.clone();
             entry.version = boundary.version.clone();
+            entry.package_dependencies = boundary.package_dependencies.clone();
             // field_paths and type_paths intentionally not updated — managed by
             // add_definition_to_boundary / remove_definition_from_boundary only.
             Ok(())
@@ -3829,6 +3834,7 @@ pub mod memory {
                     relation_type_paths: vec![],
                     lifecycle_paths: vec![],
                     composition_paths: vec![],
+                    package_dependencies: None,
                 }
             });
             drop(boundaries);

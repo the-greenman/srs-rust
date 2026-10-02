@@ -1104,6 +1104,7 @@ pub fn create_package(
         relation_type_paths: vec![],
         lifecycle_paths: vec![],
         composition_paths: vec![],
+        package_dependencies: None,
     };
     store.save_package_boundary_metadata(&boundary)?;
     store.register_package_boundary(&selector)?;

@@ -1671,6 +1671,9 @@ pub enum PackageCommand {
     },
     /// List all imported definitions with live divergence state
     Imports,
+    /// Package requirements (`packageDependencies`, RFC-044), keyed by packageId
+    #[command(subcommand)]
+    Dependency(PackageDependencyCommand),
     /// [Deprecated: use `package import` instead] Enable a local sub-package
     #[command(hide = true)]
     Enable {
@@ -1682,6 +1685,39 @@ pub enum PackageCommand {
     Disable {
         /// Relative path to the sub-package directory (e.g. package/spec-authoring-core)
         path: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PackageDependencyCommand {
+    /// List a package's requirements with each entry's check outcome
+    List {
+        /// Requiring package boundary path (omit for primary package)
+        #[arg(long = "selector")]
+        selector: Option<String>,
+    },
+    /// Add or replace the requirement on an installed package, by packageId.
+    /// Labels (namespace/name) are filled from the installed package, never
+    /// guessed; a legacy entry (no packageId) with the same labels is repaired.
+    Add {
+        /// Requiring package boundary path (omit for primary package)
+        #[arg(long = "selector")]
+        selector: Option<String>,
+        /// The required package's `id` (UUID)
+        #[arg(long = "package-id")]
+        package_id: String,
+        /// Minimum SemVer 2.0.0 version, same compatibility band (RFC-044 [R3])
+        #[arg(long)]
+        version: String,
+    },
+    /// Remove the requirement on a packageId
+    Remove {
+        /// Requiring package boundary path (omit for primary package)
+        #[arg(long = "selector")]
+        selector: Option<String>,
+        /// The required package's `id` (UUID)
+        #[arg(long = "package-id")]
+        package_id: String,
     },
 }
 

@@ -1671,6 +1671,72 @@ pub struct PackageUpdatePayload {
     pub version: String,
 }
 
+/// `package dependency list|add|remove` (RFC-044, srs-rust#1168): the
+/// requiring boundary's `packageDependencies` after the operation, each with
+/// its consumer-check outcome. Mirrors `PackageDependenciesResult`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageDependenciesPayload {
+    /// Requiring boundary path; `null` for the primary package.
+    pub selector: Option<String>,
+    /// The requiring package's own `id`.
+    pub package_id: String,
+    /// `added` | `updated` | `repaired` | `removed`; `null` for `list`.
+    pub action: Option<String>,
+    pub dependencies: Vec<PackageDependencyEntry>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageDependencyEntry {
+    /// The required package's `id`; `null` for a legacy entry ([R11]).
+    pub package_id: Option<String>,
+    /// Display label.
+    pub namespace: String,
+    /// Display label.
+    pub name: String,
+    /// SemVer 2.0.0 requirement (RFC-044 [R3]).
+    pub version: String,
+    pub satisfied: bool,
+    /// One of `no-package-id`, `self-requirement`, `missing`,
+    /// `version-unknown`, `incompatible`, `prerelease-excluded`,
+    /// `version-too-low`; `null` when satisfied.
+    pub reason: Option<String>,
+    /// Installed version of each candidate (`null` = unknown).
+    pub candidate_versions: Vec<Option<String>>,
+    /// Candidate `namespace/name` labels that differ from the entry's.
+    pub mismatched_labels: Vec<String>,
+}
+
+impl From<srs_repository::package_dependency_service::PackageDependenciesResult>
+    for PackageDependenciesPayload
+{
+    fn from(r: srs_repository::package_dependency_service::PackageDependenciesResult) -> Self {
+        let text = |v: serde_json::Value| v.as_str().map(str::to_string);
+        Self {
+            selector: r.selector,
+            package_id: r.package_id,
+            action: r
+                .action
+                .and_then(|a| serde_json::to_value(a).ok().and_then(text)),
+            dependencies: r
+                .dependencies
+                .into_iter()
+                .map(|d| PackageDependencyEntry {
+                    package_id: d.entry.package_id,
+                    namespace: d.entry.namespace,
+                    name: d.entry.name,
+                    version: d.entry.version,
+                    satisfied: d.satisfied,
+                    reason: d.reason.map(|r| r.as_str().to_string()),
+                    candidate_versions: d.candidate_versions,
+                    mismatched_labels: d.mismatched_labels,
+                })
+                .collect(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PackageRefPayload {

@@ -36,6 +36,9 @@ pub struct ValidationDiagnostic {
 pub enum DiagnosticSeverity {
     Error,
     Warning,
+    /// Informational; counted in neither `errors` nor `warnings` (RFC-044
+    /// `package-dependency-label-mismatch`).
+    Info,
 }
 
 // --- srs-rust#1046: diagnostic messages must not leak bare UUIDs where a name
@@ -261,6 +264,20 @@ pub fn validate_repository(
             schema_id: None,
             message: format!("{}: {}", d.code, d.message),
         });
+    }
+
+    // --- RFC-044: DependencyRef shape ([R1]/[R2]) and the optional consumer
+    // check ([R9]/[R10]). Diagnostics only — never a load failure.
+    {
+        use crate::package_dependency_service::{check_repository, shape_diagnostics};
+        let mut findings = shape_diagnostics(store, &cat.package_roots);
+        findings.extend(check_repository(store)?);
+        diagnostics.extend(findings.into_iter().map(|f| ValidationDiagnostic {
+            severity: f.severity,
+            relative_path: f.path,
+            schema_id: None,
+            message: f.message,
+        }));
     }
 
     // --- RFC-013 root container invariants (I-79, I-80, I-81, I-82) ---
@@ -1215,8 +1232,15 @@ pub fn validate_repository(
     // --- Validate package/package.json if present ---
     // package.json is infrastructure, not an instance — not counted in `checked`.
     if let Ok(pkg_value) = store.load_instance_json("package/package.json") {
+        // RFC-044: `packageDependencies` is shape-checked by
+        // `package_dependency_service::shape_diagnostics` (above), under the
+        // RFC's rule rather than whichever schema mirror is embedded.
+        let mut schema_value = pkg_value.clone();
+        if let Some(obj) = schema_value.as_object_mut() {
+            obj.remove("packageDependencies");
+        }
         if let Some(report) = validate_value_against_schema(
-            &pkg_value,
+            &schema_value,
             "package/package.json",
             srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
             reg,

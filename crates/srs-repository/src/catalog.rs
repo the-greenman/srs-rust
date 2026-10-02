@@ -502,8 +502,20 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
             == Some(srs_schema::PACKAGE_MANIFEST_SCHEMA_ID);
         let srs_shaped = value.get("namespace").is_some()
             && (value.get("fields").is_some() || value.get("types").is_some());
+        // RFC-044 [R9]/[R11]: a `DependencyRef` that fails schema validation
+        // MUST NOT fail the load. `packageDependencies` is therefore taken out
+        // of the [R4] anchor validation (whose failure is fatal under [R24])
+        // and checked by `repo validate` instead
+        // (`package_dependency_service::shape_diagnostics`), non-fatally. Both
+        // entry shapes — legacy (no `packageId`) and RFC-044 — read under
+        // either schema mirror; every other manifest property keeps its
+        // fatal check.
+        let mut anchor_value = value.clone();
+        if let Some(obj) = anchor_value.as_object_mut() {
+            obj.remove("packageDependencies");
+        }
         match SchemaRegistry::global()
-            .validate_by_id(srs_schema::PACKAGE_MANIFEST_SCHEMA_ID, &value)
+            .validate_by_id(srs_schema::PACKAGE_MANIFEST_SCHEMA_ID, &anchor_value)
         {
             Ok(()) => {
                 // RFC-038 Revision 12 (srs#296, srs PR #538) retires [R3]'s
