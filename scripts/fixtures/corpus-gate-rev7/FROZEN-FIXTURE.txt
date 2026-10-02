@@ -1,0 +1,5 @@
+FROZEN TEST FIXTURE - do not edit, migrate, or treat as a corpus.
+The srs gallery example (docs/spec/examples/gallery-project-v2) at dataModelRevision 7, copied
+verbatim from the-greenman/srs@0a808811 (the commit before srs#852 migrated it to revision 8).
+Used only by scripts/check-corpus-conformance.test.sh (srs-rust#1145) to exercise the release
+corpus gate's migration path offline and deterministically.

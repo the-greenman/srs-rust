@@ -6,7 +6,8 @@
 #   2. an older-revision corpus the binary refuses passes as "migration pending: <ids>", and the
 #      corpus on disk is left untouched;
 #   3. a corpus that migrates but fails validation afterwards fails;
-#   4. a corpus that neither loads nor migrates fails, and so does a vanished path.
+#   4. a corpus that neither loads nor migrates fails, and so does a vanished path;
+#   5. a migration still reported needed after it was applied fails (no retry loop).
 #
 # The older-revision corpus is scripts/fixtures/corpus-gate-rev7: the srs gallery example
 # (docs/spec/examples/gallery-project-v2) at dataModelRevision 7, copied from srs@0a808811 — the
@@ -49,7 +50,8 @@ before="$(cd "$FIXTURE" && find . -type f -exec sha256sum {} + | sort)"
 out="$(gate 0 rev7="$FIXTURE")"
 grep -q "rev7: migration pending: rfc043-container-entries" <<<"$out" \
   || fail "rev-7 corpus was not reported as migration pending" "$out"
-grep -q "migration pending" "${WORK}/summary.md" || fail "job summary does not report migration pending"
+grep -q "migration pending.*dataModelRevision 7 ->" "${WORK}/summary.md" \
+  || fail "job summary does not report migration pending with the revision change"
 after="$(cd "$FIXTURE" && find . -type f -exec sha256sum {} + | sort)"
 [ "$before" = "$after" ] || fail "the gate wrote to the corpus it was checking"
 echo "ok - older-revision corpus passes as migration pending; corpus untouched"
@@ -80,5 +82,18 @@ gate 1 junk="${WORK}/junk" >/dev/null
 gate 1 gone="${WORK}/does-not-exist" >/dev/null
 gate 1 rev7="$FIXTURE" gone="${WORK}/does-not-exist" >/dev/null
 echo "ok - unloadable/unmigratable and vanished corpora fail"
+
+# 5. A migration that "succeeds" but is still reported needed fails instead of looping: a stub srs
+#    that forwards everything except apply-migration, which it acknowledges without doing anything.
+cat > "${WORK}/stub-srs" <<STUB
+#!/usr/bin/env bash
+case " \$* " in *" apply-migration "*) echo '{"ok":true,"payload":{}}' ;; *) exec "$SRS" "\$@" ;; esac
+STUB
+chmod +x "${WORK}/stub-srs"
+rc=0
+out="$(timeout 60 bash "$GATE" --srs "${WORK}/stub-srs" rev7="$FIXTURE" 2>&1)" || rc=$?
+[ "$rc" -eq 1 ] || fail "non-converging migration: expected exit 1, got $rc" "$out"
+grep -q "still reports it needed" <<<"$out" || fail "non-converging migration was not reported" "$out"
+echo "ok - a migration that does not converge fails rather than looping"
 
 echo "PASS: check-corpus-conformance.sh"

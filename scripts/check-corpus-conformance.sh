@@ -135,10 +135,11 @@ validate() {
 
 # migrate <label> <copy> — apply every `needed` registry migration to the temp copy, earliest in
 # registry order first, re-listing after each apply (a migration's status depends on the ones
-# before it). Each id is applied at most once, so the loop ends. Applied ids land in $applied.
+# before it). A migration still reported `needed` after it was applied is a failure, not a retry,
+# so the loop ends. Applied ids land in $applied.
 applied=""
 migrate() {
-  local label="$1" copy="$2" list next res
+  local label="$1" copy="$2" list next again res
   applied=""
   while :; do
     list="$("$SRS" repo migrations --repo "$copy" 2>/dev/null)" || true
@@ -147,9 +148,14 @@ migrate() {
       printf '%s' "$list" | jq -r '.diagnostics[]? | "::error::'"$label"': \(.)"' 2>/dev/null || printf '%s\n' "$list" | head -c 2000
       return 1
     fi
-    next="$(printf '%s' "$list" | jq -r --arg done " $applied " \
+    again="$(printf '%s' "$list" | jq -r --arg done " $applied " \
       '[.payload.migrations[] | select(.status.needed) | .id
-        | select(. as $id | $done | contains(" " + $id + " ") | not)][0] // empty')"
+        | select(. as $id | $done | contains(" " + $id + " "))][0] // empty')"
+    if [ -n "$again" ]; then
+      echo "::error::$label: srs repo apply-migration --id $again succeeded but the registry still reports it needed — the migration does not converge."
+      return 1
+    fi
+    next="$(printf '%s' "$list" | jq -r '[.payload.migrations[] | select(.status.needed) | .id][0] // empty')"
     [ -z "$next" ] && return 0
     res="$("$SRS" repo apply-migration --repo "$copy" --id "$next" 2>/dev/null)" || true
     if [ "$(printf '%s' "$res" | jq -r '.ok' 2>/dev/null)" != "true" ]; then
@@ -198,6 +204,7 @@ for spec in "$@"; do
   echo "$label: migrating a temporary copy through the registry"
   copy="$work/$n"
   cp -a "$path" "$copy"
+  rev_from="$(jq -r '.dataModelRevision // 0' "$copy/manifest.json" 2>/dev/null || echo '?')"
   if ! migrate "$label" "$copy"; then
     summary "- ✗ **$label**: refused, and the registry migration failed"
     failed=1
@@ -222,8 +229,12 @@ for spec in "$@"; do
     failed=1
     continue
   fi
-  echo "::notice::$label: migration pending: $applied — validates after migration; migrate the corpus repository."
-  summary "- ⚠ **$label**: migration pending: \`$applied\` — validates after migration"
+  # The registry does not say which migrations bump the data-model revision (some are structural,
+  # e.g. a path rename), so report the manifest's revision change alongside the applied ids.
+  rev_to="$(jq -r '.dataModelRevision // 0' "$copy/manifest.json" 2>/dev/null || echo '?')"
+  if [ "$rev_from" = "$rev_to" ]; then revnote="dataModelRevision $rev_to unchanged"; else revnote="dataModelRevision $rev_from -> $rev_to"; fi
+  echo "::notice::$label: migration pending: $applied ($revnote) — validates after migration; migrate the corpus repository."
+  summary "- ⚠ **$label**: migration pending: \`$applied\` ($revnote) — the corpus is not broken; it validates once migrated"
   pending=$((pending + 1))
 done
 
