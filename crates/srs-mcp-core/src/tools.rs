@@ -286,7 +286,7 @@ impl From<FieldMetaInput> for FieldMeta {
     }
 }
 
-fn field_meta_map(
+pub(crate) fn field_meta_map(
     input: Option<std::collections::BTreeMap<String, FieldMetaInput>>,
 ) -> Option<indexmap::IndexMap<String, FieldMeta>> {
     input.map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())
@@ -921,7 +921,7 @@ fn tool_ok<T: serde::Serialize>(value: &T) -> Result<Value, McpApplicationError>
 }
 
 /// Service rejection → tool-level error the model can read (not a protocol error).
-fn tool_err(message: String) -> Value {
+pub(crate) fn tool_err(message: String) -> Value {
     json!({ "content": [{ "type": "text", "text": message }], "isError": true })
 }
 

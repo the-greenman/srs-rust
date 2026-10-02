@@ -111,6 +111,25 @@ impl McpSession {
         self.store.write_epoch() as f64
     }
 
+    /// Install a write guard for this session, replacing any previous one
+    /// (srs-rust#1165): `{"containerIds":[..],"instanceIds":[..],"fillOnlyFields":[..]}`,
+    /// every key optional. Guarded records are read-only to MCP writes except
+    /// `fillOnlyFields` while unset; rejections are tool errors. The UI's own
+    /// writes through `SrsRepository` are unaffected.
+    pub fn set_write_guard(&mut self, json: &str) -> Result<(), JsValue> {
+        let guard: srs_mcp_core::guard::WriteGuard =
+            serde_json::from_str(json).map_err(|e| js_err(e.to_string()))?;
+        self.dispatcher
+            .application_mut()
+            .set_write_guard(Some(guard));
+        Ok(())
+    }
+
+    /// Remove the session's write guard.
+    pub fn clear_write_guard(&mut self) {
+        self.dispatcher.application_mut().set_write_guard(None);
+    }
+
     /// Whether the client has completed `initialize`.
     pub fn is_initialized(&self) -> bool {
         self.dispatcher.is_initialized()
@@ -1639,6 +1658,39 @@ struct LinkAttachmentBindingInput {
 mod tests {
     use super::SrsRepository;
     use srs_repository::RepositoryStore;
+
+    #[test]
+    fn mcp_session_write_guard_rejects_then_clears() {
+        let store = super::create_blank_from_json(
+            r#"{"title":"T","description":"Why","namespace":"com.t.x"}"#,
+        )
+        .unwrap();
+        let identity = store
+            .load_manifest()
+            .unwrap()
+            .container
+            .unwrap()
+            .identity_instance_id
+            .unwrap();
+        let c = super::create_container_from_json(&store, r#"{"title":"C"}"#).unwrap();
+        let repo = SrsRepository { store };
+        let mut s = repo.open_mcp_session().unwrap();
+        let init = r#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#;
+        s.handle(init).unwrap();
+        s.set_write_guard(&format!(r#"{{"containerIds":["{}"]}}"#, c.container_id))
+            .unwrap();
+        let call = format!(
+            r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"container_member_add","arguments":{{"containerId":"{}","instanceId":"{identity}"}}}}}}"#,
+            c.container_id
+        );
+        let e0 = s.write_epoch();
+        let rejected = s.handle(&call).unwrap();
+        assert!(rejected.contains("write guard") && rejected.contains("\"isError\":true"));
+        assert_eq!(s.write_epoch(), e0, "rejection must not advance the epoch");
+        s.clear_write_guard();
+        assert!(s.handle(&call).unwrap().contains("\"isError\":false"));
+        assert!(s.write_epoch() > e0);
+    }
 
     #[test]
     fn repository_write_epoch_advances_on_ui_writes_not_reads() {

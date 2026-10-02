@@ -758,6 +758,25 @@ pub fn list_members(
     effective_member_ids(store, &container)
 }
 
+/// `container_id` plus every container reachable through `childContainerIds`
+/// (the containers whose members make up `list_members`).
+pub fn container_closure(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+) -> Result<Vec<String>, RepositoryError> {
+    let mut out: Vec<String> = Vec::new();
+    let mut stack = vec![container_id.to_string()];
+    while let Some(id) = stack.pop() {
+        if out.contains(&id) {
+            continue;
+        }
+        let (c, _) = load_container_with_embed_fallback(store, &id)?;
+        stack.extend(c.child_container_ids.into_iter().flatten());
+        out.push(id);
+    }
+    Ok(out)
+}
+
 /// Direct membership (RFC-034 [R1]) — this container's own `rootInstanceIds`
 /// ∪ `memberInstanceIds`, with no recursion into `childContainerIds`. RFC-011
 /// `containerScope: "explicit"`'s scope; every other membership consumer

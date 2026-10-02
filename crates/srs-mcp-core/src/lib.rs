@@ -80,6 +80,7 @@ full brief as rendered markdown — AI guidance, required types, structure, and 
     }
 }
 
+pub mod guard;
 pub mod tools;
 pub mod uri;
 
@@ -408,6 +409,7 @@ pub mod srs_prompts {
 pub struct SrsMcpApplication<S> {
     store: S,
     repository_id: String,
+    write_guard: Option<guard::WriteGuard>,
 }
 
 impl<S: srs_repository::store::RepositoryStore> SrsMcpApplication<S> {
@@ -415,7 +417,13 @@ impl<S: srs_repository::store::RepositoryStore> SrsMcpApplication<S> {
         Self {
             store,
             repository_id: repository_id.into(),
+            write_guard: None,
         }
+    }
+
+    /// Replace the session's write guard (srs-rust#1165); `None` clears it.
+    pub fn set_write_guard(&mut self, guard: Option<guard::WriteGuard>) {
+        self.write_guard = guard;
     }
 
     /// Read `repositoryId` from the store's manifest (`"unknown"` when absent).
@@ -488,7 +496,13 @@ impl<S: srs_repository::store::RepositoryStore> McpApplication for SrsMcpApplica
                     .remove("name")
                     .and_then(|v| v.as_str().map(ToString::to_string))
                     .ok_or_else(|| McpApplicationError::invalid_params("name must be a string"))?;
-                tools::call_tool(store, &name, arguments(&mut fields)?)
+                let arguments = arguments(&mut fields)?;
+                if let Some(guard) = &self.write_guard {
+                    if let Err(message) = guard.check(store, &name, arguments.as_ref()) {
+                        return Ok(tools::tool_err(message));
+                    }
+                }
+                tools::call_tool(store, &name, arguments)
             }
             "prompts/list" => srs_prompts::list_prompts(store),
             "prompts/get" => {
