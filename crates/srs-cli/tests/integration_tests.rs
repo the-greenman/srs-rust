@@ -8445,3 +8445,14 @@ fn tree_accepts_positional_root_instance_id() {
     assert_eq!(roots.len(), 1);
     assert_eq!(roots[0]["instanceId"], articles);
 }
+
+#[test]
+fn render_markdown_stdin_needs_no_repo() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = run_srs_stdin_in_dir(dir.path(), &["render", "markdown"], "*a* <b>x</b>");
+    assert_eq!(out["ok"], true);
+    assert_eq!(
+        out["payload"]["html"],
+        "<p><em>a</em> &lt;b&gt;x&lt;/b&gt;</p>\n"
+    );
+}

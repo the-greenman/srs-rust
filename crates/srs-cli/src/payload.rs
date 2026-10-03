@@ -2465,6 +2465,13 @@ pub struct OkfBundlePayload {
     pub diagnostics: Vec<String>,
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RenderMarkdownPayload {
+    /// Safe HTML (raw HTML escaped, link/image URLs restricted); injectable with innerHTML.
+    pub html: String,
+}
+
 // ── Archive payloads ──────────────────────────────────────────────────────────
 
 /// Payload for `srs archive pack`.

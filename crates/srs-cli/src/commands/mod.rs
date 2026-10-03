@@ -1612,6 +1612,8 @@ pub enum RenderCommand {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Render markdown read from stdin to safe HTML (pure; needs no repository)
+    Markdown,
 }
 
 #[derive(Subcommand)]
@@ -1861,6 +1863,11 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         // archive unpack creates a new repository at --target; it does not need an
         // existing source repository. The placeholder is never used by the handler.
         Commands::Archive(ArchiveCommand::Unpack { .. }) => RepositoryLocation {
+            path: std::path::PathBuf::from("."),
+            store: StoreBackend::File,
+        },
+        // render markdown is a pure stdin → HTML transform; no repository involved.
+        Commands::Render(RenderCommand::Markdown) => RepositoryLocation {
             path: std::path::PathBuf::from("."),
             store: StoreBackend::File,
         },
