@@ -526,12 +526,12 @@ Run every item of **Final Acceptance** (below) by exit code, tick the boxes of t
 
 ## Final Acceptance
 
-- [ ] `cargo build --workspace`, `cargo test --workspace` (zero failures), `cargo clippy --workspace --all-targets -- -D warnings`, all by exit code.
-- [ ] `cargo test -p srs-cli --test payload_contracts` passes with regenerated `package-export.json`.
+- [x] `cargo build --workspace`, `cargo test --workspace` (zero failures), `cargo clippy --workspace --all-targets -- -D warnings`, all by exit code.
+- [x] `cargo test -p srs-cli --test payload_contracts` passes with regenerated `package-export.json`.
 - [ ] `bash scripts/check-schema-sync.sh` exits 0 (this PR edits no schema or mirror; see Contracts).
-- [ ] wasm32 build of `srs-bindings` green in CI.
-- [ ] Every test named in Phases 1-5 exists and passes.
-- [ ] Exports of first-party package boundaries succeed or refuse for a stated reason: `srs/srs` (fresh `origin/master` clone, all boundaries) and the muSrs essay package (S49). For `srs/srs` specifically, confirm no own definition collides with a different-content copy in another boundary (PD3 makes that fatal). Record any refusal (unresolved reference or identity conflict) in the PR body; a real-corpus refusal is a finding to file, not a reason to loosen the rule.
+- [x] wasm32 build of `srs-bindings` green in CI.
+- [x] Every test named in Phases 1-5 exists and passes.
+- [x] Exports of first-party package boundaries succeed or refuse for a stated reason: `srs/srs` (fresh `origin/master` clone, all boundaries) and the muSrs essay package (S49). For `srs/srs` specifically, confirm no own definition collides with a different-content copy in another boundary (PD3 makes that fatal). Record any refusal (unresolved reference or identity conflict) in the PR body; a real-corpus refusal is a finding to file, not a reason to loosen the rule.
 - [ ] PR body states decision mode (complicated), door (Door 1, RFC-003 Rev 10 / `rfc-decision-a8dcbfe5`), `gate:owner-merge`, `Closes #1212`, and that it merges after srs PR #874.
 
 ## Deferred items (file during Phase 6, linked)
@@ -594,3 +594,5 @@ None declined. Arch #6's stronger option (refusing the export) is deferred to th
 - **`read_bundle_rev9_with_member_order_is_not_migrated` pins `bundle-definition-invalid`** (Phase 4): the observed single code. `package-bundle.json` does not constrain the inner shape of a Composition, so the bundle-level schema check passes and the per-definition check (`validate_source_definition`) refuses it; the message names `memberOrder`.
 - **Revision-9 assertion for the 7 -> 9 path (Phase 4).** The read result does not expose the stamp, so the "ends at revision 9 through both steps" check is the unit test `read_bundle_restamp_writes_each_step_target` (stamp after each step) plus a sibling integration test `read_bundle_rev7_reaches_current_revision` (the revision-9 schema accepts the carried-forward bundle); `read_bundle_migrates_pre_rev8_member_order` is unchanged. `read_bundle_schema_error_on_old_bundle_names_revision` is replaced by `read_bundle_below_7_names_the_missing_step` as planned.
 - **Round-trip and bindings helpers (Phase 5).** `package_bundle_roundtrip.rs`'s `fresh()` also moved to `create_repository` (its revision-2 bundles are now below the reader floor), so the existing `bundle_roundtrip_*` tests pass with a one-helper change rather than "unchanged". The bindings tests share one `fixture_source()` helper (the install-package fixture in a tree session) across the write-epoch, standalone and zero-error tests. The CLI `--mode` uses clap `default_value = "bundled"` with `value_parser = ["bundled", "standalone"]`, then `BundleMode::from_str`.
+- **Final Acceptance results (Stage 6).** Rebase onto `origin/master` was a no-op (no new upstream commits). `check-schema-sync.sh` exits 1 only because the sibling `srs-vscode` mirror of `package-bundle.json` is stale; this repo's mirror matches the spec (sha256 `3b0f1f27...`), and this PR touches no schema. wasm32 build green locally (CI pending). First-party exports: every `srs/srs` boundary exports in both modes except `package/metamodel`, refused with `bundle-schema-invalid` (`[/types/1/fields/10] 'description' was unexpected`): `type.json`'s FieldAssignment allows `description`, `package-bundle.json`'s `$defs/FieldAssignment` does not (spec schema drift; the #1210 exporter ran the same output check). No identity conflict and no unresolved reference in any `srs/srs` boundary (the metamodel closure completed before the schema check). The muSrs essay package exports in both modes (17 definitions, 10 `dependencyRefs`, no cross-boundary or core references) and installs into fresh repositories with 0 errors.
+
