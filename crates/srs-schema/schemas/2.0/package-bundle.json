@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://srs.semanticops.com/schema/2.0/package-bundle.json",
   "title": "SRS Package Bundle",
-  "description": "A distributable package artifact containing Field and Type definitions inlined as objects. Self-contained when mode is 'bundled'; declares external dependencies when mode is 'standalone'. Produced by the package distribution tooling from a package-manifest.json source tree.",
+  "description": "A distributable package artifact containing Field and Type definitions inlined as objects. Self-contained when mode is 'bundled'; declares external dependencies when mode is 'standalone'. Produced by the package distribution tooling from a package-manifest.json source tree. A bundle written to a file by a package export is one JSON document with the suffix .srspkg (RFC-003 [C5]); a bundle carries definitions only and is never an SRS repository (RFC-003 [C2]).",
   "type": "object",
   "required": [
     "schemaVersion",
@@ -66,7 +66,7 @@
         "bundled",
         "standalone"
       ],
-      "description": "Governs definitions only. bundled: all referenced Fields, Types, and Views are included inline. standalone: dependencies are expected pre-installed; dependencyRefs is the required manifest of definition References. packageDependencies (the package requirement list) is checked identically in both modes."
+      "description": "Governs definitions only. bundled: every referenced definition is included inline, except definitions of the RFC-029 core package, which every implementation embeds: those are listed in dependencyRefs and not carried (RFC-003 [C1]). standalone: dependencies are expected pre-installed; dependencyRefs is the required manifest of definition References. packageDependencies (the package requirement list) is checked identically in both modes."
     },
     "fields": {
       "type": "array",
@@ -318,7 +318,9 @@
       "properties": {
         "fieldId": {
           "type": "string",
-          "format": "uuid"
+          "format": "uuid",
+          "x-srs-range-type": "com.semanticops.srs/field@1",
+          "title": "Field"
         },
         "order": {
           "type": "integer",
@@ -328,9 +330,12 @@
           "type": "boolean"
         },
         "displayLabel": {
-          "type": "string"
+          "type": "string",
+          "title": "Display Label"
         },
-        "defaultValue": {}
+        "description": {
+          "type": "string"
+        }
       }
     },
     "Reference": {
