@@ -7,8 +7,11 @@
     "byteLength",
     "dataModelRevision",
     "definitionCount",
+    "dependencyRefCount",
     "inlined",
     "kinds",
+    "mode",
+    "notes",
     "outputPath",
     "packageId",
     "packageName",
@@ -24,7 +27,7 @@
       "minimum": 0.0
     },
     "dataModelRevision": {
-      "description": "The `dataModelRevision` stamped into the bundle.",
+      "description": "The `dataModelRevision` stamped into the bundle: the repository's own stamp.",
       "type": "integer",
       "format": "uint64",
       "minimum": 0.0
@@ -34,8 +37,14 @@
       "format": "uint",
       "minimum": 0.0
     },
+    "dependencyRefCount": {
+      "description": "Entries in the bundle's `dependencyRefs` (every reached definition).",
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    },
     "inlined": {
-      "description": "Definition ids inlined from other boundaries by the closure (sorted).",
+      "description": "Ids carried from other package boundaries by the closure (sorted); core definitions are listed, never carried.",
       "type": "array",
       "items": {
         "type": "string"
@@ -46,6 +55,17 @@
       "type": "array",
       "items": {
         "$ref": "#/definitions/PackageExportKindEntry"
+      }
+    },
+    "mode": {
+      "description": "The bundle's `mode`: `bundled` or `standalone`.",
+      "type": "string"
+    },
+    "notes": {
+      "description": "Non-fatal export notes (e.g. `bundle-below-reader-floor`).",
+      "type": "array",
+      "items": {
+        "type": "string"
       }
     },
     "outputPath": {

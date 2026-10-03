@@ -454,14 +454,14 @@ Verification Agent runs after this phase. Tick boxes, commit.
 
 #### Tasks
 
-- [ ] `tests/package_bundle_roundtrip.rs`: add a test-only `assert_package_invariants(bundle: &Value)` written from the invariant texts, independent of `REFERENCE_SITES`: I-8 (every `field` entry in `dependencyRefs` is in `fields[]` or a core id), I-15 (vacuous: no View Type site; documented), I-35 (`renderViewId` in `views[]` or a core `dependencyRefs` entry, and listed), I-36 (Blueprint type refs listed as `type` and carried), I-37 (Protocol target/output types and `contributesTo` fieldIds listed and carried), I-43 (base-Type closure listed and carried).
-- [ ] CLI: `--mode` flag on `package export` (clap `value_parser = ["bundled", "standalone"]`, parsed with `BundleMode::from_str`) and `--homepage`; `PackageExportPayload.dependency_ref_count`, `.mode` and `.notes` + mapping; `cargo run --bin generate-schemas`; update `package_install_cli.rs` expectations that read `dataModelRevision`.
-- [ ] Bindings: switch `gallery_bundle()` users (`tree_session_install_advances_write_epoch`, `tree_session_export_does_not_advance_write_epoch`) to the `install-package` fixture (PD10).
+- [x] `tests/package_bundle_roundtrip.rs`: add a test-only `assert_package_invariants(bundle: &Value)` written from the invariant texts, independent of `REFERENCE_SITES`: I-8 (every `field` entry in `dependencyRefs` is in `fields[]` or a core id), I-15 (vacuous: no View Type site; documented), I-35 (`renderViewId` in `views[]` or a core `dependencyRefs` entry, and listed), I-36 (Blueprint type refs listed as `type` and carried), I-37 (Protocol target/output types and `contributesTo` fieldIds listed and carried), I-43 (base-Type closure listed and carried).
+- [x] CLI: `--mode` flag on `package export` (clap `value_parser = ["bundled", "standalone"]`, parsed with `BundleMode::from_str`) and `--homepage`; `PackageExportPayload.dependency_ref_count`, `.mode` and `.notes` + mapping; `cargo run --bin generate-schemas`; update `package_install_cli.rs` expectations that read `dataModelRevision`.
+- [x] Bindings: switch `gallery_bundle()` users (`tree_session_install_advances_write_epoch`, `tree_session_export_does_not_advance_write_epoch`) to the `install-package` fixture (PD10).
 
 #### Acceptance Criteria
 
-- [ ] Round trip installs with zero validation errors and the invariants hold on the exported bundle.
-- [ ] Golden schema regenerated and payload contract test green.
+- [x] Round trip installs with zero validation errors and the invariants hold on the exported bundle.
+- [x] Golden schema regenerated and payload contract test green.
 
 #### Testing
 
@@ -593,3 +593,4 @@ None declined. Arch #6's stronger option (refusing the export) is deferred to th
 
 - **`read_bundle_rev9_with_member_order_is_not_migrated` pins `bundle-definition-invalid`** (Phase 4): the observed single code. `package-bundle.json` does not constrain the inner shape of a Composition, so the bundle-level schema check passes and the per-definition check (`validate_source_definition`) refuses it; the message names `memberOrder`.
 - **Revision-9 assertion for the 7 -> 9 path (Phase 4).** The read result does not expose the stamp, so the "ends at revision 9 through both steps" check is the unit test `read_bundle_restamp_writes_each_step_target` (stamp after each step) plus a sibling integration test `read_bundle_rev7_reaches_current_revision` (the revision-9 schema accepts the carried-forward bundle); `read_bundle_migrates_pre_rev8_member_order` is unchanged. `read_bundle_schema_error_on_old_bundle_names_revision` is replaced by `read_bundle_below_7_names_the_missing_step` as planned.
+- **Round-trip and bindings helpers (Phase 5).** `package_bundle_roundtrip.rs`'s `fresh()` also moved to `create_repository` (its revision-2 bundles are now below the reader floor), so the existing `bundle_roundtrip_*` tests pass with a one-helper change rather than "unchanged". The bindings tests share one `fixture_source()` helper (the install-package fixture in a tree session) across the write-epoch, standalone and zero-error tests. The CLI `--mode` uses clap `default_value = "bundled"` with `value_parser = ["bundled", "standalone"]`, then `BundleMode::from_str`.

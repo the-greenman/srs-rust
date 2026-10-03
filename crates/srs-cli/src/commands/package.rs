@@ -45,7 +45,19 @@ pub fn dispatch(ctx: CliContext, cmd: PackageCommand) -> Result<String> {
             output,
             published_at,
             publisher,
-        } => cmd_package_export(ctx, selector, output, published_at, publisher),
+            homepage,
+            mode,
+        } => cmd_package_export(
+            ctx,
+            output,
+            ExportPackageInput {
+                selector,
+                published_at,
+                publisher,
+                homepage,
+                mode: mode.parse().map_err(|e: String| anyhow::anyhow!(e))?,
+            },
+        ),
         PackageCommand::Update {
             selector,
             namespace,
@@ -130,17 +142,9 @@ fn cmd_package_import(ctx: CliContext, path: String, mode: String) -> Result<Str
 
 fn cmd_package_export(
     ctx: CliContext,
-    selector: Option<String>,
     out_path: PathBuf,
-    published_at: Option<String>,
-    publisher: Option<String>,
+    input: ExportPackageInput,
 ) -> Result<String> {
-    let input = ExportPackageInput {
-        selector,
-        published_at,
-        publisher,
-        ..Default::default()
-    };
     let export = with_store(&ctx, |s| Ok(export_package_bundle(s, input.clone())?))?;
     std::fs::write(&out_path, &export.text)
         .map_err(|e| anyhow::anyhow!("cannot write {}: {e}", out_path.display()))?;
