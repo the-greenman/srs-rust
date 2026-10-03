@@ -880,6 +880,20 @@ impl SrsRepository {
         to_js(&container)
     }
 
+    /// Patch a container (srs-rust#1199; same service as `srs container update`). `patch_json` is
+    /// the CLI's `ContainerPatch`: any of `{ title, namespace, name, description, containerType,
+    /// tags, meta, identityInstanceId, anchorInstanceId, memberInstanceIds, childContainerIds }`;
+    /// omitted keys are untouched, unknown keys are rejected. Returns `{ container, diagnostics }`.
+    pub fn update_container(
+        &self,
+        container_id: &str,
+        patch_json: &str,
+    ) -> Result<JsValue, JsValue> {
+        let result =
+            update_container_from_json(&self.store, container_id, patch_json).map_err(js_err)?;
+        to_js(&result)
+    }
+
     /// Copy a container (srs-rust#1136; same service as `srs container copy` and the MCP
     /// `container_copy` tool): shares the member records, forks only the anchor.
     /// `input_json` is `{ "title"?: string, "containerId"?: uuid }` (may be empty/`{}`).
@@ -1678,6 +1692,19 @@ fn create_container_from_json(
     container_service::create_container(store, input.into()).map_err(|e| e.to_string())
 }
 
+/// `update_container` core: parse the patch and call the one core service.
+fn update_container_from_json(
+    store: &srs_repository::FileStore,
+    container_id: &str,
+    patch_json: &str,
+) -> Result<serde_json::Value, String> {
+    let patch: container_service::ContainerPatch =
+        serde_json::from_str(patch_json).map_err(|e| format!("invalid input: {e}"))?;
+    let r = container_service::update_container(store, container_id, patch)
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "container": r.container, "diagnostics": r.diagnostics }))
+}
+
 /// `copy_container` core: parse the optional input and call the one core service.
 fn copy_container_from_json(
     store: &srs_repository::FileStore,
@@ -1902,6 +1929,20 @@ mod tests {
         assert_eq!(session.write_epoch(), repo.write_epoch());
         super::create_container_from_json(&repo.store, r#"{"title":"D"}"#).unwrap();
         assert_eq!(session.write_epoch(), repo.write_epoch());
+    }
+
+    #[test]
+    fn update_container_patches_title_and_rejects_unknown_keys() {
+        let store =
+            super::create_blank_from_json(r#"{"title":"T","namespace":"com.t.x"}"#).unwrap();
+        let c = super::create_container_from_json(&store, r#"{"title":"Old"}"#).unwrap();
+        let r = super::update_container_from_json(&store, &c.container_id, r#"{"title":"New"}"#)
+            .unwrap();
+        assert_eq!(r["container"]["title"], "New");
+        assert_eq!(r["diagnostics"], serde_json::json!([]));
+        assert!(
+            super::update_container_from_json(&store, &c.container_id, r#"{"bogus":1}"#).is_err()
+        );
     }
 
     #[test]
