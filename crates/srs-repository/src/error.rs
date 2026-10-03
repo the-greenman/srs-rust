@@ -183,6 +183,11 @@ pub enum RepositoryError {
     #[error("container not found: {container_id}")]
     ContainerNotFound { container_id: String },
 
+    /// srs-rust#1167: `container create` is a create, not an upsert. A caller that means
+    /// "replace" must go through `container_service::update_container` instead.
+    #[error("container '{container_id}' already exists; use `container update` to replace it")]
+    ContainerAlreadyExists { container_id: String },
+
     /// Owner ruling srs-rust#742 (2026-09-08): identity is a very explicit modification.
     /// `container delete` must refuse the repository's root container (the RFC-013
     /// `manifest.container` embed) rather than making the repository rootless as a side
@@ -649,6 +654,10 @@ impl PartialEq for RepositoryError {
             (
                 RepositoryError::ContainerIsRepositoryRoot { container_id: a },
                 RepositoryError::ContainerIsRepositoryRoot { container_id: b },
+            ) => a == b,
+            (
+                RepositoryError::ContainerAlreadyExists { container_id: a },
+                RepositoryError::ContainerAlreadyExists { container_id: b },
             ) => a == b,
             (
                 RepositoryError::ContainerValidation { source: sa },
