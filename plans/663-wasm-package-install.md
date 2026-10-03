@@ -503,14 +503,14 @@ Update this file, commit (`feat(cli): package export + install --bundle (#632, #
 
 #### Tasks
 
-- [ ] `export_package_bundle` and `install_package_bundle` on `SrsRepository` (signatures and doc comments above). No logic beyond (de)serialization.
-- [ ] Confirm the `list_package_imports_json` doc already states the `conflictState` values (PD7); no change.
+- [x] `export_package_bundle` and `install_package_bundle` on `SrsRepository` (signatures and doc comments above). No logic beyond (de)serialization.
+- [x] Confirm the `list_package_imports_json` doc already states the `conflictState` values (PD7); no change.
 
 #### Acceptance Criteria
 
-- [ ] `cargo build --target wasm32-unknown-unknown -p srs-bindings` succeeds.
-- [ ] WASM results are the service structs (`PackageBundleExport`, `InstallPackageResult`) serialized as-is: same field names as the CLI payloads, plus `text` on export (parity).
-- [ ] **Thinness of the two `#[wasm_bindgen]` methods is verified by audit only.** srs-bindings has no wasm-bindgen-test harness (its tests are native and never call `to_js`), and adding one is out of scope. The Verification Agent checks each body is exactly: deserialize -> one service call -> `to_js`. The JSON input contracts are tested in srs-repository (`install_options_json_maps_to_install_bundle_options`, `export_input_json_maps_to_export_package_input`).
+- [x] `cargo build --target wasm32-unknown-unknown -p srs-bindings` succeeds.
+- [x] WASM results are the service structs (`PackageBundleExport`, `InstallPackageResult`) serialized as-is: same field names as the CLI payloads, plus `text` on export (parity).
+- [x] **Thinness of the two `#[wasm_bindgen]` methods is verified by audit only.** srs-bindings has no wasm-bindgen-test harness (its tests are native and never call `to_js`), and adding one is out of scope. The Verification Agent checks each body is exactly: deserialize -> one service call -> `to_js`. The JSON input contracts are tested in srs-repository (`install_options_json_maps_to_install_bundle_options`, `export_input_json_maps_to_export_package_input`).
 
 #### Testing
 
@@ -608,6 +608,7 @@ Already tracked, no new issue: MCP tool (srs-rust#1153), readme in `.srspkg` (sr
 - Phase 2: `load_boundary_definitions` reports an unloadable listed file as `InvalidRepositoryInitialization` naming the boundary and path (the existing generic install error variant).
 - Phase 3: rustfmt expands the struct literals, so after formatting the handler bodies are 14 lines (`cmd_package_export`) and 21 lines (`cmd_package_install`), not <= 15. Each branch is still one flag-to-struct mapping plus one service call, with no logic and no `json!`. The `(None, None)` arm is replaced by `source_dir.context(..)?` (clap already enforces it), which makes the handler shorter.
 - Phase 3: `crates/srs-cli/Cargo.toml` gains `sha2` and `hex` as dev-dependencies (both are workspace deps already in the lockfile) so the CLI test can recompute the file hash. A `package_install` golden contract test was also added, because `package-install.json` changes and had no contract test before.
+- Phase 4: `tree_session_install_then_validate_has_zero_errors` uses the srs-repository `install-package` fixture as its source (installed into a blank tree session, exported, then installed into a second blank tree session), not the gallery. The gallery fixture itself fails validation: it has three V8 errors (types `decision`/`article`/`role` carry `lifecycleRef` `3c504040-...`, which resolves nowhere) and no root container. A faithful bundle carries those errors along. The two `write_epoch` tests still use the gallery. Binding thinness was audited: each method is deserialize -> one service call -> `to_js`. `list_package_imports_json` already documents `conflictState` "clean" | "local-ahead" (PD7), so it is unchanged.
 
 ## Coordination Rules
 

@@ -17,7 +17,9 @@ use srs_repository::governance_scaffold_service::{self, CreateGovernanceReposito
 use srs_repository::manifest_service;
 use srs_repository::migrate_identity_service;
 use srs_repository::migration_registry_service;
+use srs_repository::package_bundle;
 use srs_repository::package_dependency_service;
+use srs_repository::package_install_service;
 use srs_repository::package_service::{
     self, FieldListFilter, GetFieldResult, GetTypeResult, ListPackageImportsFilter,
     RelationTypeListFilter, TypeListFilter,
@@ -1291,6 +1293,39 @@ impl SrsRepository {
             serde_json::from_str(input_json).map_err(js_err)?;
         let result =
             package_dependency_service::check_bundle(&self.store, &input).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Export a package boundary as a deterministic .srspkg (same service as `srs package export`).
+    /// input_json: {"selector"?: string|null, "publishedAt"?: string, "publisher"?: string}.
+    /// Pass a fixed publishedAt for a reproducible sha256. Returns {text, summary}
+    /// (PackageBundleExport; summary.sha256 is "sha256:<hex>"). Read-only: write_epoch does not move.
+    pub fn export_package_bundle(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: package_bundle::ExportPackageInput =
+            serde_json::from_str(input_json).map_err(js_err)?;
+        let result = package_bundle::export_package_bundle(&self.store, input).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Install a .srspkg (same service as `srs package install --bundle`). bundle_json is the file's
+    /// text (verify its sha256 over the file bytes before calling); options_json:
+    /// {"boundaryPath"?: string, "strict"?: bool} ("{}" for defaults). Returns InstallPackageResult
+    /// (same fields as the CLI payload, incl. notes). Advances write_epoch; the session is dirty.
+    /// Call check_package_requirements(bundle_json) first for RFC-044 requirement outcomes
+    /// (BundleRequirements reads packageId/packageDependencies from the same text).
+    pub fn install_package_bundle(
+        &self,
+        bundle_json: &str,
+        options_json: &str,
+    ) -> Result<JsValue, JsValue> {
+        let options: package_install_service::InstallBundleOptions =
+            serde_json::from_str(options_json).map_err(js_err)?;
+        let result = package_install_service::install_package_bundle_bytes(
+            &self.store,
+            bundle_json.as_bytes(),
+            options,
+        )
+        .map_err(js_err)?;
         to_js(&result)
     }
 
