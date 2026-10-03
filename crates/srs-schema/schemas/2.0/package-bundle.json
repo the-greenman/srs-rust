@@ -150,9 +150,23 @@
         "$ref": "#/$defs/DependencyRef"
       },
       "description": "The packages this bundle's package requires, with exactly the shape and meaning of package-manifest.json's packageDependencies (RFC-044 [R8]); may be empty. A whole-package export carries the source manifest's list, except that an entry for a package whose every definition the bundle inlines MAY be omitted (RFC-044 [R5])."
+    },
+    "readme": {
+      "$ref": "#/$defs/BundledReadme",
+      "description": "RFC-045. Optional: the package's readme, its path relative to the package directory (the directory holding package.json; never package.json itself) and its text. Absence is never an error or a warning. If present, an implementation that writes the bundle out as a package directory writes it at path ([R3], [R6]), and any rewrite of the bundle keeps it unchanged ([R5])."
     }
   },
   "$defs": {
+    "BundledReadme": {
+      "type": "object",
+      "required": ["path", "content"],
+      "additionalProperties": false,
+      "description": "RFC-045. A readme carried by a travelling form: the file's actual path within the artifact and its text. Optional, never required; opaque, so no implementation derives any model fact from it ([R1]). The path rules ([R4]) and the content rule ([R2]) are checked by implementations, not by this schema, so a schema-valid readme can still be invalid (diagnostic readme-invalid).",
+      "properties": {
+        "path": { "type": "string", "description": "The readme's actual path, relative to the root of the artifact this form carries, with '/' separators. Restored at this path on unpack, never over an existing file ([R6]); carried unchanged on every rewrite of the same artifact ([R5])." },
+        "content": { "type": "string", "description": "The file's bytes decoded as UTF-8 with no other change: line endings and any byte-order mark are carried as characters. Unicode scalar values only (no unpaired surrogates, [R2])." }
+      }
+    },
     "Field": {
       "type": "object",
       "required": [
