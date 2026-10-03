@@ -631,7 +631,7 @@ pub(crate) fn find_field_path(
 /// field/type/relation-type/view/composition/theme/blueprint/protocol creators and the
 /// `.srspkg` reader. Not (yet) by `lifecycle_service`/`vocabulary_service`, whose slug maps
 /// every non-alphanumeric character to `-` (e.g. `a_b` -> `a-b`, here `a_b`); converging
-/// them would rename files those creators write today.
+/// them would rename files those creators write today (srs-rust#1209).
 pub(crate) fn definition_rel_path(kind: DefinitionKind, slug_source: &str, id: &str) -> String {
     let dir = match kind {
         DefinitionKind::Field => "fields",
