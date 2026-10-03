@@ -14,8 +14,18 @@
     "typeNamespace"
   ],
   "properties": {
+    "containerId": {
+      "description": "Present with the global `--container`: the container the arrangement was read from.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "displayLabel": {
       "type": "string"
+    },
+    "entry": {
+      "description": "This record's outline entry in `container_id`."
     },
     "fieldValues": {
       "description": "RFC-039 carrier: object keyed by Field.name ([R2b])."
@@ -28,7 +38,16 @@
       "type": "string"
     },
     "relations": {
+      "description": "Both directions; each entry is a RelationSummary plus `direction` (out|in) and the other endpoint inline as `neighbour`.",
       "type": "array",
+      "items": true
+    },
+    "subtree": {
+      "description": "Descendant outline entries of `entry`.",
+      "type": [
+        "array",
+        "null"
+      ],
       "items": true
     },
     "taggedChunks": {

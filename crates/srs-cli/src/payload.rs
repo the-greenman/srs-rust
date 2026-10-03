@@ -2219,8 +2219,21 @@ pub struct ContextRecordPayload {
     /// RFC-039 carrier: object keyed by Field.name ([R2b]).
     #[schemars(with = "serde_json::Value")]
     pub field_values: srs_core::types::record::FieldValues,
+    /// Both directions; each entry is a RelationSummary plus `direction` (out|in) and the
+    /// other endpoint inline as `neighbour`.
     #[schemars(with = "Vec<serde_json::Value>")]
-    pub relations: Vec<srs_repository::relation_service::RelationSummary>,
+    pub relations: Vec<srs_repository::context_query_service::ContextRelation>,
+    /// Present with the global `--container`: the container the arrangement was read from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_id: Option<String>,
+    /// This record's outline entry in `container_id`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<serde_json::Value>")]
+    pub entry: Option<srs_core::arrangement::OutlineEntry>,
+    /// Descendant outline entries of `entry`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<Vec<serde_json::Value>>")]
+    pub subtree: Option<Vec<srs_core::arrangement::OutlineEntry>>,
     pub tagged_chunks: Vec<serde_json::Value>,
     pub protocol_run_history: Vec<serde_json::Value>,
 }

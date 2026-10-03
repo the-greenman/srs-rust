@@ -2,8 +2,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
-use crate::{package_service, protocol_run_service, record_store, relation_service};
+use crate::{
+    container_service, package_service, protocol_run_service, record_store, relation_service,
+};
 use relation_service::ListRelationsFilter;
+use srs_core::arrangement::OutlineEntry;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,6 +19,39 @@ pub struct FieldContextQuery {
 #[serde(rename_all = "camelCase")]
 pub struct RecordContextQuery {
     pub record_id: String,
+    /// When set, the record must be a member of this container and the result carries its
+    /// arrangement `entry` and `subtree` (#1134).
+    #[serde(default)]
+    pub container_id: Option<String>,
+}
+
+/// Which end of the edge the context record sits on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EdgeDirection {
+    /// The context record is the relation's source.
+    Out,
+    /// The context record is the relation's target.
+    In,
+}
+
+/// A relation neighbour, loaded by tier (`LoadedInstance` is not `Serialize`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ContextInstance {
+    Record(srs_core::types::record::Record),
+    Note(srs_core::types::note::Note),
+}
+
+/// One edge touching the context record: the relation, which way it points, and the
+/// instance at the other end inline (`None` when it does not resolve).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextRelation {
+    pub direction: EdgeDirection,
+    #[serde(flatten)]
+    pub relation: crate::relation_service::RelationSummary,
+    pub neighbour: Option<ContextInstance>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,7 +64,7 @@ pub struct FieldContextResult {
     /// None when field not in package, or when field.ai_guidance.purpose is empty
     pub ai_guidance: Option<serde_json::Value>,
     pub current_value: Option<serde_json::Value>,
-    /// Always empty; placeholder for tagged-chunk storage (#252)
+    /// Always empty; placeholder for tagged-chunk storage (#582)
     pub tagged_chunks: Vec<serde_json::Value>,
 }
 
@@ -43,8 +79,18 @@ pub struct RecordContextResult {
     pub type_namespace: String,
     pub display_label: String,
     pub field_values: srs_core::types::record::FieldValues,
-    pub relations: Vec<crate::relation_service::RelationSummary>,
-    /// Always empty; placeholder for tagged-chunk storage (#252)
+    /// Every relation touching the record, both directions, sorted by relationType, then
+    /// neighbour `createdAt`, then relationId (a comment thread reads chronologically).
+    pub relations: Vec<ContextRelation>,
+    /// Set with `RecordContextQuery::container_id`: this record's arrangement entry.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub container_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub entry: Option<OutlineEntry>,
+    /// Descendants of `entry` in that container (outline entries only).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub subtree: Option<Vec<OutlineEntry>>,
+    /// Always empty; placeholder for tagged-chunk storage (#582)
     pub tagged_chunks: Vec<serde_json::Value>,
     /// Always empty; placeholder for protocol run history (#252)
     pub protocol_run_history: Vec<serde_json::Value>,
@@ -101,7 +147,8 @@ pub fn get_field_context(
     })
 }
 
-/// Assemble record context: all field values and source-filtered relations.
+/// Assemble record context: all field values, every relation touching the record (both
+/// directions, neighbour inline) and, given a container, the record's arrangement subtree.
 pub fn get_record_context(
     store: &dyn RepositoryStore,
     query: RecordContextQuery,
@@ -113,16 +160,74 @@ pub fn get_record_context(
             }
         })?;
 
-    // Intentionally source-only: outbound relations give the context of what this record
-    // depends on / contains / supersedes. Inbound edges are part of the stage-context
-    // pattern deferred to #252.
-    let relations = relation_service::list_relations(
-        store,
-        ListRelationsFilter {
-            source: Some(query.record_id.clone()),
-            ..Default::default()
-        },
-    )?;
+    let mut relations = Vec::new();
+    for (direction, filter) in [
+        (
+            EdgeDirection::Out,
+            ListRelationsFilter {
+                source: Some(query.record_id.clone()),
+                ..Default::default()
+            },
+        ),
+        (
+            EdgeDirection::In,
+            ListRelationsFilter {
+                target: Some(query.record_id.clone()),
+                ..Default::default()
+            },
+        ),
+    ] {
+        for relation in relation_service::list_relations(store, filter)? {
+            let other = match direction {
+                EdgeDirection::Out => &relation.target_id,
+                EdgeDirection::In => &relation.source_id,
+            };
+            let neighbour = record_store::get_instance_by_id(store, other)?;
+            let created = neighbour
+                .as_ref()
+                .and_then(|n| n.created_at())
+                .map(str::to_string);
+            let neighbour = neighbour.map(|n| match n {
+                record_store::LoadedInstance::Record(r) => ContextInstance::Record(r),
+                record_store::LoadedInstance::Note(n) => ContextInstance::Note(n),
+            });
+            relations.push((
+                created,
+                ContextRelation {
+                    direction,
+                    relation,
+                    neighbour,
+                },
+            ));
+        }
+    }
+    relations.sort_by(|(ca, a), (cb, b)| {
+        // createdAt: None sorts last (Option's own order puts it first).
+        let key = |c: &Option<String>| (c.is_none(), c.clone());
+        (&a.relation.relation_type, key(ca), &a.relation.relation_id).cmp(&(
+            &b.relation.relation_type,
+            key(cb),
+            &b.relation.relation_id,
+        ))
+    });
+    let relations = relations.into_iter().map(|(_, r)| r).collect();
+
+    let (entry, subtree) = match query.container_id.as_deref() {
+        None => (None, None),
+        Some(cid) => {
+            let outline = container_service::get_outline(store, cid)?;
+            let i = outline
+                .entries
+                .iter()
+                .position(|e| e.instance_id == query.record_id)
+                .ok_or_else(|| RepositoryError::InvalidInput {
+                    message: format!("{} is not a member of container {cid}", query.record_id),
+                })?;
+            let entry = outline.entries[i].clone();
+            let subtree = outline.entries[i + 1..entry.run_end].to_vec();
+            (Some(entry), Some(subtree))
+        }
+    };
 
     let protocol_run_history = protocol_run_service::list_runs_for_record(store, &query.record_id)
         .unwrap_or_else(|_| vec![])
@@ -138,6 +243,9 @@ pub fn get_record_context(
         display_label: summary.display_label.clone(),
         field_values: summary.record.field_values.clone(),
         relations,
+        container_id: query.container_id,
+        entry,
+        subtree,
         tagged_chunks: vec![],
         protocol_run_history,
     })
@@ -403,6 +511,7 @@ mod tests {
             &store,
             RecordContextQuery {
                 record_id: rec.instance_id.clone(),
+                container_id: None,
             },
         )
         .unwrap();
@@ -496,13 +605,211 @@ mod tests {
             &store,
             RecordContextQuery {
                 record_id: src.instance_id.clone(),
+                container_id: None,
             },
         )
         .unwrap();
 
-        assert_eq!(result.relations.len(), 1);
-        assert_eq!(result.relations[0].source_id, src.instance_id);
-        assert_eq!(result.relations[0].target_id, tgt.instance_id);
+        // Both directions are returned; the unrelated record's edge TO src is the inbound one.
+        assert_eq!(result.relations.len(), 2);
+        let out = result
+            .relations
+            .iter()
+            .find(|r| r.direction == EdgeDirection::Out)
+            .unwrap();
+        assert_eq!(out.relation.source_id, src.instance_id);
+        assert_eq!(out.relation.target_id, tgt.instance_id);
+        assert!(
+            matches!(&out.neighbour, Some(ContextInstance::Record(r)) if r.instance_id == tgt.instance_id)
+        );
+        let inn = result
+            .relations
+            .iter()
+            .find(|r| r.direction == EdgeDirection::In)
+            .unwrap();
+        assert_eq!(inn.relation.source_id, unrelated.instance_id);
+        assert!(
+            matches!(&inn.neighbour, Some(ContextInstance::Record(r)) if r.instance_id == unrelated.instance_id)
+        );
+        assert!(result.entry.is_none() && result.subtree.is_none());
+    }
+
+    #[test]
+    fn record_context_note_neighbour_dangling_and_order() {
+        use crate::relation_service::create_relation;
+        use srs_core::types::relation::Relation;
+        let store = make_store();
+        let mk = |n: &str| {
+            record_store::create_record(
+                &store,
+                "type-test-001",
+                1,
+                make_field_values("test-name", json!(n)),
+                None,
+                None,
+            )
+            .unwrap()
+        };
+        let defs = vec![
+            srs_core::types::relation_type_definition::RelationTypeDefinition {
+                schema: None,
+                id: "rtd-depends-on".to_string(),
+                version: 1,
+                key: "depends-on".to_string(),
+                namespace: "com.test".to_string(),
+                label: "depends-on".to_string(),
+                description: "d".to_string(),
+                category:
+                    srs_core::types::relation_type_definition::RelationTypeCategory::Dependency,
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+                canonical_direction: None,
+                inverse_type: None,
+                irreflexive: None,
+                require_same_type: None,
+                status: None,
+                updated_at: None,
+                meta: None,
+            },
+        ];
+        let para = mk("para");
+        let rel = |src: &str, tgt: &str| Relation {
+            created_by: None,
+            relation_id: String::new(),
+            relation_type: "depends-on".to_string(),
+            source_instance_id: src.to_string(),
+            target_instance_id: tgt.to_string(),
+            created_at: None,
+            notes: None,
+            source_refs: None,
+            meta: None,
+        };
+        // Two inbound edges created second-then-first: the thread must come back by neighbour
+        // createdAt (creation order), not by call order or relationId.
+        let first = mk("first");
+        let second = mk("second");
+        for n in [&second, &first] {
+            create_relation(&store, rel(&n.instance_id, &para.instance_id), &defs).unwrap();
+        }
+        let r = get_record_context(
+            &store,
+            RecordContextQuery {
+                record_id: para.instance_id.clone(),
+                container_id: None,
+            },
+        )
+        .unwrap();
+        let ids: Vec<_> = r
+            .relations
+            .iter()
+            .map(|e| e.relation.source_id.clone())
+            .collect();
+        assert_eq!(ids.len(), 2);
+        let created = |id: &str| {
+            r.relations
+                .iter()
+                .find(|e| e.relation.source_id == id)
+                .and_then(|e| match &e.neighbour {
+                    Some(ContextInstance::Record(rec)) => rec.created_at.clone(),
+                    _ => None,
+                })
+        };
+        assert!(created(&ids[0]) <= created(&ids[1]));
+        assert!(r.relations.iter().all(|e| e.direction == EdgeDirection::In));
+    }
+
+    #[test]
+    fn record_context_subtree_slice() {
+        use srs_core::types::container::{Container, ContainerEntry};
+        let store = make_store();
+        let mk = |n: &str| {
+            record_store::create_record(
+                &store,
+                "type-test-001",
+                1,
+                make_field_values("test-name", json!(n)),
+                None,
+                None,
+            )
+            .unwrap()
+            .instance_id
+        };
+        let (a, b, c, d) = (mk("a"), mk("b"), mk("c"), mk("d"));
+        let entry = |id: &String, depth| ContainerEntry {
+            instance_id: id.clone(),
+            depth,
+        };
+        // a(0) > b(1) > c(2); d(0)
+        let container = Container {
+            container_id: String::new(),
+            title: "doc".into(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: None,
+            anchor_instance_id: None,
+            member_instance_ids: Some(vec![
+                entry(&a, None),
+                entry(&b, Some(1)),
+                entry(&c, Some(2)),
+                entry(&d, None),
+            ]),
+            child_container_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: Default::default(),
+        };
+        let cid = container_service::create_container(&store, container)
+            .unwrap()
+            .container_id;
+        let ctx = |id: &String| {
+            get_record_context(
+                &store,
+                RecordContextQuery {
+                    record_id: id.clone(),
+                    container_id: Some(cid.clone()),
+                },
+            )
+            .unwrap()
+        };
+        let ra = ctx(&a);
+        let ids = |r: &RecordContextResult| -> Vec<String> {
+            r.subtree
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|e| e.instance_id.clone())
+                .collect()
+        };
+        assert_eq!(ids(&ra), vec![b.clone(), c.clone()]);
+        assert_eq!(ra.entry.as_ref().unwrap().instance_id, a);
+        assert_eq!(ids(&ctx(&b)), vec![c.clone()]);
+        assert!(ids(&ctx(&c)).is_empty());
+        assert!(ids(&ctx(&d)).is_empty());
+    }
+
+    #[test]
+    fn record_context_non_member_container_errors() {
+        let store = make_store();
+        let rec = record_store::create_record(
+            &store,
+            "type-test-001",
+            1,
+            make_field_values("test-name", json!("x")),
+            None,
+            None,
+        )
+        .unwrap();
+        let err = get_record_context(
+            &store,
+            RecordContextQuery {
+                record_id: rec.instance_id,
+                container_id: Some("no-such-container".into()),
+            },
+        );
+        assert!(err.is_err());
     }
 
     #[test]
@@ -530,6 +837,7 @@ mod tests {
             &store,
             RecordContextQuery {
                 record_id: rec.instance_id.clone(),
+                container_id: None,
             },
         )
         .unwrap();
