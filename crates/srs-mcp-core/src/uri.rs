@@ -17,6 +17,11 @@ pub enum SrsUri {
     Tree,
     TreeFrom(String),
     AgentIndex,
+    /// `context/{instanceId}` or `context/{containerId}/{instanceId}` (#1134).
+    Context {
+        container_id: Option<String>,
+        instance_id: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,6 +46,19 @@ pub fn parse(uri: &str, repository_id: &str) -> Result<SrsUri, UriError> {
         return Err(UriError(format!(
             "uri names repository '{repo}' but this server serves '{repository_id}'"
         )));
+    }
+    if let Some(ids) = path.strip_prefix("context/") {
+        return match ids.split('/').collect::<Vec<_>>().as_slice() {
+            [iid] if !iid.is_empty() => Ok(SrsUri::Context {
+                container_id: None,
+                instance_id: iid.to_string(),
+            }),
+            [cid, iid] if !cid.is_empty() && !iid.is_empty() => Ok(SrsUri::Context {
+                container_id: Some(cid.to_string()),
+                instance_id: iid.to_string(),
+            }),
+            _ => Err(UriError(format!("malformed resource path in '{uri}'"))),
+        };
     }
     match path.split_once('/') {
         None => match path {
@@ -77,6 +95,14 @@ pub fn format(kind: &SrsUri, repository_id: &str) -> String {
         SrsUri::Tree => format!("{SCHEME}{repository_id}/tree"),
         SrsUri::TreeFrom(id) => format!("{SCHEME}{repository_id}/tree/{id}"),
         SrsUri::AgentIndex => format!("{SCHEME}{repository_id}/agent-index"),
+        SrsUri::Context {
+            container_id: None,
+            instance_id,
+        } => format!("{SCHEME}{repository_id}/context/{instance_id}"),
+        SrsUri::Context {
+            container_id: Some(cid),
+            instance_id,
+        } => format!("{SCHEME}{repository_id}/context/{cid}/{instance_id}"),
     }
 }
 
@@ -86,6 +112,10 @@ pub fn record_template(repository_id: &str) -> String {
 
 pub fn tree_template(repository_id: &str) -> String {
     format!("{SCHEME}{repository_id}/tree/{{instanceId}}")
+}
+
+pub fn context_template(repository_id: &str) -> String {
+    format!("{SCHEME}{repository_id}/context/{{containerId}}/{{instanceId}}")
 }
 
 pub fn type_template(repository_id: &str) -> String {
@@ -103,6 +133,16 @@ mod tests {
     const REPO: &str = "11111111-2222-3333-4444-555555555555";
 
     #[test]
+    fn context_uri_rejects_malformed() {
+        for bad in ["context/", "context/a/", "context//b", "context/a/b/c"] {
+            assert!(
+                parse(&format!("srs://{REPO}/{bad}"), REPO).is_err(),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
     fn uri_roundtrip_all_kinds() {
         let kinds = [
             SrsUri::Map,
@@ -116,6 +156,14 @@ mod tests {
             SrsUri::Tree,
             SrsUri::TreeFrom("mno".into()),
             SrsUri::AgentIndex,
+            SrsUri::Context {
+                container_id: None,
+                instance_id: "i".into(),
+            },
+            SrsUri::Context {
+                container_id: Some("c".into()),
+                instance_id: "i".into(),
+            },
         ];
         for kind in kinds {
             let uri = format(&kind, REPO);

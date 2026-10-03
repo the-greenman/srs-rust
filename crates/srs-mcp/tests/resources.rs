@@ -209,12 +209,19 @@ async fn list_resources_enumerates_containers_and_views() {
         .await
         .unwrap()
         .resource_templates;
-    assert_eq!(templates.len(), 4);
+    assert_eq!(templates.len(), 5);
     let tmpl_uris: Vec<&str> = templates.iter().map(|t| t.uri_template.as_str()).collect();
     assert!(tmpl_uris.contains(&format!("srs://{}/record/{{instanceId}}", fx.repo_id).as_str()));
     assert!(tmpl_uris.contains(&format!("srs://{}/type/{{typeId}}", fx.repo_id).as_str()));
     assert!(tmpl_uris.contains(&format!("srs://{}/protocol/{{protocolId}}", fx.repo_id).as_str()));
     assert!(tmpl_uris.contains(&format!("srs://{}/tree/{{instanceId}}", fx.repo_id).as_str()));
+    assert!(tmpl_uris.contains(
+        &format!(
+            "srs://{}/context/{{containerId}}/{{instanceId}}",
+            fx.repo_id
+        )
+        .as_str()
+    ));
 
     // Protocols: one list resource plus one concrete resource per definition.
     assert!(uris.contains(&format!("srs://{}/protocol", fx.repo_id).as_str()));
