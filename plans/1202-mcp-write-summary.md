@@ -14,10 +14,10 @@ No spec change required. The summary is session-scoped transient telemetry: it i
 
 | Role | Agent |
 |---|---|
-| Lead Integrator | — |
-| Store/Core Worker (srs-repository) | — |
-| MCP/Bindings Worker (srs-mcp-core, srs-bindings) | — |
-| Verification | — |
+| Lead Integrator | this session |
+| Repository Worker (crates/srs-repository) | this session |
+| Bindings Worker (srs-bindings) + MCP-core edits in srs-mcp-core/src/lib.rs | this session |
+| Verification | Verification Agent (read-only) |
 
 See [agents.md](agents.md).
 
@@ -28,9 +28,10 @@ See [agents.md](agents.md).
 | [ADR-048](../docs/adr/048-implementation-decision-rules.md) | Rule 2 layer test: recording lives once in the store (core); MCP/WASM only expose; srs-web only presents. Rule 3 one way per goal: ONE recorder, no per-tool summary builders. | applies |
 | [capability-layering](../docs/architecture/capability-layering.md) | Core owns the capability, adapters expose it, clients present. Replaces srs-web's request/result parsing. | applies |
 | [ADR-037](../docs/adr/037-mcp-adapter-surface.md) | MCP adapter stays thin: no `json!()` construction of semantics, one typed struct serialized. | applies |
-| ADR-011 | Only if D5 = CLI mirror (payload struct + golden schema). Recommended: not applicable. | conditional |
+| ADR-011 | Not applicable (D5: no CLI mirror, no payload struct). | n/a |
+| ADR-024 | Partial failure reports what reached the Vfs. | applies |
 | ADR-013 | WASM binding is a thin adapter returning the typed struct as JSON. | applies |
-| [ADR-049](../docs/adr/049-write-recording-is-a-store-concern.md) | Write recording is a store concern: one recorder at the FileStore write seam; per-service summaries and snapshot diffs rejected. Also ADR-038 (Vfs seam) is the seam this hooks. | proposed (accepted on ship) |
+| [ADR-049](../docs/adr/049-write-recording-is-a-store-concern.md) | Write recording is a store concern: one recorder at the FileStore write seam; per-service summaries and snapshot diffs rejected. Also ADR-038 (Vfs seam) is the seam this hooks. | proposed now; flipped to accepted in the final commit before merge |
 
 ---
 
@@ -49,9 +50,12 @@ No schema under `srs/docs/schema/2.0/` changes. `check-schema-sync.sh` unaffecte
 - Core recorder in `FileStore` (srs-repository): inside `vfs_write` / `vfs_remove` (so `write_json`, `delete_file` and the raw-content writes all pass through), push a `ChangeEntry` to a store-shared drain buffer (same `Rc` sharing as `epoch`, so McpSession's store clone sees it).
   - Classification by path prefix: `records/` -> instance (id = `instanceId` of the written JSON), `relations/` -> relation, `containers/` -> container (manifest root container writes via `save_manifest` -> container). Package/definition files are not instance changes and are ignored by default.
   - `created` = target path did not exist before the write; `updated` = it did; `deleted` = `delete_file` on a classified path (id read from the file before removal, or parsed from the path for relations).
-  - Coalesce per (kind-class, id) within one request: created+updated -> created; any+deleted -> deleted (created then deleted -> dropped).
+  - Coalesce per (target, id) within one drain window: created+updated -> created; created+deleted -> deleted; deleted+created -> updated (a path move rewrites the same id; nothing is dropped); otherwise latest kind wins.
+  - Only `containers/*.json` are containers; the root container lives in `manifest.json` and is NOT reported in v1 (stated limit). A record file is recorded only if its JSON has `instanceId`; removal of an absent file records nothing; relation id comes from the JSON `relationId`.
+  - Opt-in: `RepositoryStore::set_change_recording(bool)` (default no-op; FileStore flag shared by clones). `SrsMcpApplication::new` turns it on, so CLI and bulk paths never record. Buffer is bounded by distinct ids (coalesced) and drained on every `tools/call`.
+  - Partial failure (ADR-024 best-effort rollback): the summary reports what actually reached the Vfs, error result or not; honesty over silence.
 - Trait surface: `RepositoryStore::drain_changes(&self) -> Vec<ChangeEntry>` with a default empty impl (stores that cannot record return none, mirroring `session_actor`).
-- Dispatcher/application (srs-mcp-core): `SrsMcpApplication` wraps `tools/call`: drain before, call, drain after; if non-empty, attach `{ tool, changed }` to the call result (D3). Failed/rejected writes leave nothing (rejection already does not bump the epoch).
+- Application (srs-mcp-core/src/lib.rs): `SrsMcpApplication::call("tools/call")`: discard pending changes (UI writes between requests), call the tool, drain; store `WriteSummary { tool, changed }` as `last_summary` (None if empty). `take_write_summary()` on the application returns and clears it. The MCP response is NOT modified (D3=A). Assumes synchronous dispatch, so nothing else writes during the call. Failed/rejected writes leave nothing (rejection already does not bump the epoch).
 - Bindings: `McpSession.take_write_summary()` (D3) returning JSON or `undefined`.
 - Replace nothing in srs-web here; a follow-up srs-web issue swaps `writeFrom` for the summary (client work, separate PR).
 
@@ -76,12 +80,11 @@ No schema under `srs/docs/schema/2.0/` changes. `check-schema-sync.sh` unaffecte
 
 #### Acceptance Criteria
 - [ ] record create -> one `created` instance entry (+ `updated` container entry when filed into a container; relations as `created` relation entries).
-- [ ] reads and rejected writes produce no entries; entries exist iff `write_epoch` moved.
+- [ ] reads and guard-rejected writes produce no entries; entries imply `write_epoch` moved (not the converse: package/manifest writes move the epoch unreported).
 - [ ] clones share the buffer.
 
 #### Testing
-- `store_records_create_update_delete` - kinds and coalescing.
-- `drain_empty_when_epoch_unmoved` - invariant tying recorder to epoch.
+- In `crates/srs-repository/src/store.rs` tests: `recorder_reports_create_update_delete_and_coalesces` (kinds, coalescing, path move, absent file, opt-in off), `recorder_is_empty_when_epoch_unmoved`, `no_vfs_mutation_bypasses_the_wrappers` (source scan of the non-test part of store.rs).
 
 #### Milestone gate
 `cargo test -p srs-repository && cargo clippy -p srs-repository -- -D warnings`; tick boxes; commit `(#1202)`.
