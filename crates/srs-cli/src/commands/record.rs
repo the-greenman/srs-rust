@@ -40,7 +40,7 @@ pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
         } => cmd_record_delete(ctx, id, cascade),
         RecordCommand::Transition { id } => cmd_record_transition(ctx, id),
         RecordCommand::Successor { id } => cmd_record_successor(ctx, id),
-        RecordCommand::Fork { id, container } => cmd_record_fork(ctx, id, container),
+        RecordCommand::Fork { id } => cmd_record_fork(ctx, id),
         RecordCommand::AllowedTransitions { id } => cmd_record_allowed_transitions(ctx, id),
         RecordCommand::Attachments { id } => cmd_record_attachments(ctx, id),
         RecordCommand::Tag(tag_cmd) => dispatch_tag(ctx, tag_cmd),
@@ -253,7 +253,13 @@ fn cmd_record_successor(ctx: CliContext, id: String) -> Result<String> {
     }
 }
 
-fn cmd_record_fork(ctx: CliContext, id: String, container: String) -> Result<String> {
+fn cmd_record_fork(ctx: CliContext, id: String) -> Result<String> {
+    let Some(container) = ctx.container_id.clone() else {
+        return Ok(output::err(
+            "record fork",
+            vec!["--container <ID> is required: the container the fork is swapped into".into()],
+        ));
+    };
     match with_store(&ctx, |store| {
         Ok(srs_repository::fork_service::fork_subtree(
             store, &container, &id,

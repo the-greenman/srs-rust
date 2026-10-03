@@ -925,7 +925,7 @@ pub struct ArrangementResult {
     pub removed: Vec<String>,
 }
 
-fn is_root_container(store: &dyn RepositoryStore, container_id: &str) -> bool {
+pub(crate) fn is_root_container(store: &dyn RepositoryStore, container_id: &str) -> bool {
     store
         .load_manifest()
         .ok()
@@ -1185,7 +1185,8 @@ pub struct ContainerCopyResult {
 /// (arrangement copied verbatim, `childContainerIds` shared by reference). The one exception
 /// is the anchor (title) record: it is forked through the fork core and the new container's
 /// anchor entry / `anchorInstanceId` / `identityInstanceId` (if it named the anchor) point at
-/// the fork, so no two containers share an anchor. No member record is duplicated.
+/// the fork, so no two containers share an anchor. No member record is duplicated. An
+/// `identityInstanceId` naming a record other than the anchor stays shared (v1).
 pub fn copy_container(
     store: &dyn RepositoryStore,
     source_id: &str,
@@ -1206,10 +1207,14 @@ pub fn copy_container(
     copy.created_at = Some(now.clone());
     copy.updated_at = Some(now);
     // Fail early on an existing id, before forking anything.
-    if load_container_with_embed_fallback(store, &copy.container_id).is_ok() {
-        return Err(RepositoryError::ContainerAlreadyExists {
-            container_id: copy.container_id,
-        });
+    match load_container_with_embed_fallback(store, &copy.container_id) {
+        Ok(_) => {
+            return Err(RepositoryError::ContainerAlreadyExists {
+                container_id: copy.container_id,
+            })
+        }
+        Err(RepositoryError::ContainerNotFound { .. }) => {}
+        Err(e) => return Err(e),
     }
     let (forks, relations) = match source.anchor_instance_id.clone() {
         Some(anchor) => crate::fork_service::fork_records(store, &[anchor])?,

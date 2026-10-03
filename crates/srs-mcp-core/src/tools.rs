@@ -228,7 +228,7 @@ pub const DESC_RECORD_FORK: &str =
 children (its outline subtree in `containerId`) into new records linked `derived-from` the \
 originals, swapped into THAT container only, in place (same order and depth). Every other \
 container keeps the originals. Same type and field values; the forks are attributed to the \
-session actor. The container's anchor/identity entries cannot be forked. Returns \
+session actor; only fieldValues carry over (not tags/meta). The container's anchor/identity entries cannot be forked. Returns \
 `{containerId, forks: [{originalId, forkId}], relations}`.";
 
 // Protocol run execution tool descriptions (#977 — follow-up to #955)

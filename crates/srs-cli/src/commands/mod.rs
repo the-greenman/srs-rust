@@ -1331,13 +1331,12 @@ pub enum RecordCommand {
         #[arg(long)]
         id: String,
     },
-    /// Fork a record and its nested children into ONE container (derived-from the originals)
+    /// Fork a record and its nested children into ONE container (derived-from the originals).
+    /// The global `--container <ID>` is REQUIRED: the forks are swapped into that container
+    /// only; every other container keeps the originals.
     Fork {
         /// Record instance ID at the root of the arrangement subtree to fork
         id: String,
-        /// The container the forks are swapped into (all other containers keep the originals)
-        #[arg(long)]
-        container: String,
     },
     /// Query allowed lifecycle transitions for a record (ext:lifecycle)
     AllowedTransitions {

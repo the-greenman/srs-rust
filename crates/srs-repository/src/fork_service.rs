@@ -83,12 +83,20 @@ pub fn fork_records(
 
 /// Fork the arrangement subtree rooted at `root_instance_id` of `container_id` and swap the
 /// forks into THAT container only, in place (same order and depth). Other containers keep
-/// the originals. The anchor/identity entries cannot be forked this way.
+/// the originals. The anchor/identity entries cannot be forked this way, and the repository
+/// root container is refused. v1: a forked entry that anchors a child container leaves that
+/// container pointing at the original. Forking only READS the originals (it creates new records),
+/// so the session write guard checks the target container alone.
 pub fn fork_subtree(
     store: &dyn RepositoryStore,
     container_id: &str,
     root_instance_id: &str,
 ) -> Result<ForkResult, RepositoryError> {
+    if container_service::is_root_container(store, container_id) {
+        return Err(RepositoryError::ContainerIsRepositoryRoot {
+            container_id: container_id.to_string(),
+        });
+    }
     let container = container_service::get_container(store, container_id)?;
     let entries = container.member_instance_ids.clone().unwrap_or_default();
     let idx = entries
