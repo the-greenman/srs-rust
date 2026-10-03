@@ -4,7 +4,7 @@
 
 ## Summary
 
-The essay editor needs many-document operations without duplicating content. (1) **Container copy** creates a new container that *shares* the original's member records, with the arrangement (ordered depth outline) copied: zero records created. (2) **Record fork** ("make local copy") clones one arrangement subtree of ONE container: for the chosen entry and its descendants it creates new records (same type, same field values, fresh ids, session-actor `createdBy`), asserts `derived-from` (fork -> original) and swaps the forks into that one container in place; every other container keeps the originals. Both are single services in `srs-repository` with thin CLI / MCP / WASM adapters (ADR-001/010/011/013/037, capability-layering). Fork composes the existing `create_record_successor` (it already creates a same-type record plus a relation to the predecessor with any installed relation type) and a new in-place entry swap in `container_service`; no second clone mechanism.
+The essay editor needs many-document operations without duplicating content. (1) **Container copy** creates a new container that *shares* the original's member records, with the arrangement (ordered depth outline) copied: no member record is duplicated (only the anchor/title record is forked). (2) **Record fork** ("make local copy") clones one arrangement subtree of ONE container: for the chosen entry and its descendants it creates new records (same type, same field values, fresh ids, session-actor `createdBy`), asserts `derived-from` (fork -> original) and swaps the forks into that one container in place; every other container keeps the originals. Both are single services in `srs-repository` with thin CLI / MCP / WASM adapters (ADR-001/010/011/013/037, capability-layering). Fork composes the existing `create_record_successor` (it already creates a same-type record plus a relation to the predecessor with any installed relation type) and a new in-place entry swap in `container_service`; no second clone mechanism.
 
 ## Spec gate (Stage 1.5)
 
@@ -33,7 +33,7 @@ See [agents.md](agents.md). No new role needed (all crates covered).
 | ADR-011 | New payload structs + golden schemas for the two CLI commands | accepted |
 | ADR-013 / ADR-015 | WASM binding is a thin adapter over the same service | accepted |
 | ADR-037 | MCP tools are an adapter surface over services (`srs-mcp-core`) | accepted |
-| ADR-024 | Multi-write services are best-effort rollback; fork wraps writes in `begin_batch`/`commit_batch` like `delete_container`, and rolls back created forks on failure | accepted |
+| ADR-024 | Multi-write services are best-effort rollback; fork/copy delete already-created forks explicitly on failure (no store supports batch rollback) | accepted |
 | ADR-042 | Logical-id instance persistence: forks are new ids; no path-keyed assumptions | accepted |
 | ADR-045 | Membership removal is a repair op: fork swaps entries in place, never remove+add | accepted |
 | ADR-048 | Spec-first / layer / one-way / parity / decision-mode rules | accepted |
@@ -69,7 +69,7 @@ No change to `srs/docs/schema/2.0/`. No mirror work.
 
 - `container_service::copy_container(store, source_id, ContainerCopyInput { title?, container_id? }) -> Container`: load source, new id (`new_instance_id()` unless given; existing id refused per #1167 via `create_container`), clone fields, `memberInstanceIds` cloned verbatim, `childContainerIds` cloned (shared), then `create_container`. Refuses the repository root container (`is_root_container`, same stance as #742). Creates exactly one record (the forked anchor, via `fork_service::fork_records`) and one `derived-from` relation; no member record is duplicated. If the source has no anchor it creates none.
 - `container_service::replace_members(store, container_id, &[(old, new)])`: rewrite `instanceId` in place, keep order and depth, refuse an old id that is not a member or is the anchor/identity pointer (`require_not_pointer`), validate via the existing arrangement validation, one `save`.
-- `fork_service::fork_records(store, ids) -> Vec<ForkPair>` (THE one fork core: for each id, `create_record_successor` with `derived-from`, in order, rolling back all created forks on failure) and `fork_service::fork_subtree(store, container_id, root_instance_id) -> ForkResult`, which calls it: take the entry's run from the container arrangement (`arrangement` module: entry plus following entries of greater depth); for each: `record_store::create_record_successor(store, original, { relation_type: "derived-from", field_values: original.field_values.clone(), lifecycle_state: None, type_version: None, extra: {} })` (reuses actor stamping, relation validation and rollback); then `replace_members`; `copy_container` calls the same `fork_records` for the anchor; batch-wrapped; on failure delete forks created so far (ADR-024). Forks are Tier 2 records only; a Note (Tier 0) in the run is refused with a clear error in v1.
+- `fork_service::fork_records(store, ids) -> Vec<ForkPair>` (THE one fork core: for each id, `create_record_successor` with `derived-from`, in order, rolling back all created forks on failure) and `fork_service::fork_subtree(store, container_id, root_instance_id) -> ForkResult`, which calls it: take the entry's run from the container arrangement (`arrangement` module: entry plus following entries of greater depth); for each: `record_store::create_record_successor(store, original, { relation_type: "derived-from", field_values: original.field_values.clone(), lifecycle_state: None, type_version: None, extra: {} })` (reuses actor stamping, relation validation and rollback); then `replace_members`; `copy_container` calls the same `fork_records` for the anchor; NOT batch-atomic (no shipped store supports batch rollback): the whole run is pre-validated (pointers, root, notes) before any write, and on failure every fork created so far (and its relation, via delete_record cascade) is deleted explicitly, ADR-024 best-effort. Forks are Tier 2 records only; a Note (Tier 0) in the run is refused with a clear error in v1.
 - Adapters: CLI commands; MCP tools `container_copy`, `record_fork` in `srs-mcp-core/src/tools.rs`; WASM methods in `srs-bindings/src/lib.rs`. All hand the request through `actor_service::reject_supplied_created_by` first.
 - Session write guard (`srs-mcp-core/src/guard.rs`): `record_fork` is checked as a write to the target container (rejected if `container_id` guarded) and `container_copy` is allowed on a guarded source (it only reads it) but rejected if the requested new id is guarded. Fork never modifies a guarded record (it creates new ones), consistent with "adding a guarded record to an unguarded container is allowed".
 - Docs: add both commands to `srs/srs-usage.md` via a tracking issue (spec repo, not edited from here).
@@ -93,10 +93,12 @@ No change to `srs/docs/schema/2.0/`. No mirror work.
 
 #### Tasks
 
-- [ ] `copy_container` + `ContainerCopyInput` (serde `deny_unknown_fields`, `mcp-schema` derive like `ContainerCreateInput`) in `crates/srs-repository/src/container_service.rs`
+- [x] `copy_container` + `ContainerCopyInput` (serde `deny_unknown_fields`, `mcp-schema` derive like `ContainerCreateInput`) in `crates/srs-repository/src/container_service.rs`
 - [ ] `replace_members` in the same file (in place, depth-preserving, pointer guard)
 - [ ] `crates/srs-repository/src/fork_service.rs` with `fork_subtree`, `ForkResult { container_id, forks: Vec<ForkPair>, relations }`; export in `lib.rs`
-- [ ] Batch + best-effort rollback per ADR-024
+- [ ] Explicit best-effort rollback per ADR-024 (fork: failure on Nth record and failure in replace_members; copy: failure in create_container)
+- [ ] copy_container rewrites anchor entry, anchorInstanceId, identityInstanceId (only if it named the anchor; otherwise identity stays a shared record) in the in-memory Container before create_container (replace_members refuses pointers by design)
+- [ ] Test fixture `copy-fork` built in test helpers (anchored document container with nested outline, 2nd container sharing a member)
 
 #### Acceptance Criteria
 
@@ -136,9 +138,9 @@ Mark checkboxes, commit `feat(repository): container copy + record fork services
 #### Tasks
 
 - [ ] CLI: `ContainerCommand::Copy`, `RecordCommand::Fork`; handlers delegate only; payload structs; `generate-schemas`
-- [ ] MCP: `container_copy`, `record_fork` tool constants, input structs (schemars), dispatch in `srs-mcp-core`; guard rule in `guard.rs`; update `tests/surface.rs` expected tool list
+- [ ] MCP: `container_copy`, `record_fork` tool constants, input structs (schemars), dispatch in `srs-mcp-core`; guard rule in `crates/srs-mcp-core/src/guard.rs` (`TOOL_RECORD_FORK` joins the container-extraction match; `TOOL_CONTAINER_COPY` beside container_create) with tests: fork in guarded container rejected, unguarded allowed, copy of guarded source allowed, copy to guarded id rejected; drift-guard shadow-input entries in tools.rs; update `tests/surface.rs` expected tool list
 - [ ] WASM: `copy_container`, `fork_record` in `srs-bindings`, epoch advance like `create_container`
-- [ ] Parity test: one fixture, same request through service / CLI / MCP / WASM yields identical container and fork pairs (id-normalised)
+- [ ] Parity test (compares container outline shape, fork count, derived-from edge targets, with new ids normalised to their originals): one fixture, same request through service / CLI / MCP / WASM yields identical container and fork pairs (id-normalised)
 - [ ] Guard test: guarded container rejects `record_fork`; unguarded passes
 
 #### Acceptance Criteria
