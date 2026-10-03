@@ -48,6 +48,50 @@ struct MigrationDefinition {
     description: &'static str,
     status_fn: fn(&dyn RepositoryStore) -> Result<MigrationStatus, RepositoryError>,
     apply_fn: fn(&dyn RepositoryStore) -> Result<serde_json::Value, RepositoryError>,
+    /// The data-model revision step this entry implements, with its Package Bundle form
+    /// (RFC-003 [C6]); `None` for structural (not revision-keyed) entries. No default: a
+    /// new revision entry must state its bundle form, so the next bump cannot register
+    /// without deciding how a reader brings an older `.srspkg` across it (ADR-032
+    /// amendment, srs-rust#1212). Describes the step only; never run by
+    /// `list_migrations`/`apply_migration`.
+    revision_step: Option<RevisionStep>,
+}
+
+/// One data-model revision step (`from` -> `to = from + 1`) and its bundle form.
+#[allow(dead_code)] // Phase 1 of srs-rust#1212: the .srspkg reader consumes it in Phase 4.
+pub(crate) struct RevisionStep {
+    pub from: u64,
+    pub to: u64,
+    pub bundle: BundleForm,
+}
+
+/// How a `.srspkg` reader carries a bundle across one revision step (RFC-003 [C6]).
+#[allow(dead_code)] // Phase 1 of srs-rust#1212: the .srspkg reader consumes it in Phase 4.
+pub(crate) enum BundleForm {
+    /// The spec names no bundle-form transformer for this step: a reader refuses a
+    /// bundle that would have to cross it (RFC-003 [C6]).
+    Unspecified,
+    /// The step changes no shape a Package Bundle carries: set the stamp to `to` ([C6]).
+    Restamp,
+    /// Rewrite the bundle; returns non-fatal notes. `Err` = transformer refusal.
+    Transform(fn(&mut serde_json::Value) -> Result<Vec<String>, RepositoryError>),
+}
+
+/// RFC-043's bundle-form transformer (7 -> 8), as a [`BundleForm::Transform`].
+fn rfc043_bundle_form(v: &mut serde_json::Value) -> Result<Vec<String>, RepositoryError> {
+    crate::rfc043_container_entries_migration_service::migrate_package_bundle_value(v)
+        .map(|r| r.diagnostics)
+}
+
+/// The registry entry whose revision step starts at `from` (its id + step).
+#[allow(dead_code)] // Phase 1 of srs-rust#1212: the .srspkg reader consumes it in Phase 4.
+pub(crate) fn revision_step_from(from: u64) -> Option<(&'static str, &'static RevisionStep)> {
+    MIGRATIONS.iter().find_map(|m| {
+        m.revision_step
+            .as_ref()
+            .filter(|s| s.from == from)
+            .map(|s| (m.id, s))
+    })
 }
 
 static MIGRATIONS: &[MigrationDefinition] = &[
@@ -82,6 +126,7 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        the same repository is not (honest partial failure over silent data \
                        loss) — reads and writes raw JSON directly rather than through \
                        `store.catalog()`, which this exact defect makes unusable.",
+        revision_step: None,
         status_fn: |store| {
             if crate::graduated_at_migration_service::migration_needed(store) {
                 Ok(MigrationStatus::Needed)
@@ -122,6 +167,7 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        revision), so this migration stamps nothing. Reads and writes the raw \
                        file tree directly rather than through `store.catalog()`, which an \
                        unmigrated sidecar makes unusable.",
+        revision_step: None,
         status_fn: |store| {
             if crate::revisions_sidecar_cleanup_service::migration_needed(store) {
                 Ok(MigrationStatus::Needed)
@@ -147,6 +193,11 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        decomposed `fieldType`, and stamps `dataModelRevision: 1` on the \
                        manifest. This is RFC-033's migration #1 (revision 0 → 1). \
                        Idempotent — safe to run multiple times.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::FIELD_TYPE_REVISION - 1,
+            to: crate::field_type_migration_service::FIELD_TYPE_REVISION,
+            bundle: BundleForm::Unspecified,
+        }),
         status_fn: |store| {
             if crate::field_type_migration_service::migration_needed(store)? {
                 Ok(MigrationStatus::Needed)
@@ -178,6 +229,11 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        never something a repo-local migration or `repo create` \
                        writes — the manifest is the single source of generational \
                        truth on that path.",
+        revision_step: Some(RevisionStep {
+            from: crate::rfc039_carrier_migration_service::CARRIER_REVISION - 1,
+            to: crate::rfc039_carrier_migration_service::CARRIER_REVISION,
+            bundle: BundleForm::Unspecified,
+        }),
         status_fn: |store| {
             if crate::rfc039_carrier_migration_service::migration_needed(store)? {
                 Ok(MigrationStatus::Needed)
@@ -204,6 +260,11 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        loads already carries none of them — there is no content left to \
                        rewrite, only the generation number to record. Requires the \
                        RFC-039 carrier migration (#2) first.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::METAMODEL_V1_1_0_REVISION - 1,
+            to: crate::field_type_migration_service::METAMODEL_V1_1_0_REVISION,
+            bundle: BundleForm::Unspecified,
+        }),
         status_fn: |store| {
             if crate::field_type_migration_service::metamodel_v1_1_0_migration_needed(store)? {
                 Ok(MigrationStatus::Needed)
@@ -234,6 +295,11 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        one `repo validate` uses — to still be able to see and name leftover \
                        Tier-1 content on a repository that now fails the checked seam. \
                        Requires the metamodel-v1-1-0 migration (#3) first.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::TIER1_REMOVAL_REVISION - 1,
+            to: crate::field_type_migration_service::TIER1_REMOVAL_REVISION,
+            bundle: BundleForm::Unspecified,
+        }),
         status_fn: |store| {
             if crate::field_type_migration_service::tier1_removal_migration_needed(store)? {
                 Ok(MigrationStatus::Needed)
@@ -262,6 +328,11 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        applying this migration re-persists every owned definition so the \
                        rename lands on disk. A definition already keyed meta reproduces byte \
                        for byte. Requires the tier1-removal migration (#4) first.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::SUBSTRATE_META_REVISION - 1,
+            to: crate::field_type_migration_service::SUBSTRATE_META_REVISION,
+            bundle: BundleForm::Unspecified,
+        }),
         status_fn: |store| {
             if crate::field_type_migration_service::substrate_properties_to_meta_migration_needed(
                 store,
@@ -300,6 +371,11 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        loading through a tolerant path — this migration reads and writes the raw \
                        file tree directly, the sole sanctioned reader of the old shapes. Requires \
                        the substrate-properties-to-meta migration (#5) first.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::COMPOSITION_CUTOVER_REVISION - 1,
+            to: crate::field_type_migration_service::COMPOSITION_CUTOVER_REVISION,
+            bundle: BundleForm::Unspecified,
+        }),
         status_fn: |store| {
             if crate::field_type_migration_service::composition_cutover_migration_needed(store)? {
                 Ok(MigrationStatus::Needed)
@@ -331,6 +407,11 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        path — this migration reads and writes the raw file tree directly, the \
                        sole sanctioned reader of the old shapes. Requires the composition-cutover \
                        migration (#6) first.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::DISCOVERY_QUERY_CUTOVER_REVISION - 1,
+            to: crate::field_type_migration_service::DISCOVERY_QUERY_CUTOVER_REVISION,
+            bundle: BundleForm::Unspecified,
+        }),
         status_fn: |store| {
             if crate::field_type_migration_service::discovery_query_cutover_migration_needed(
                 store,
@@ -372,6 +453,11 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        (`migration-memberorder-conflict`); every memberOrder id dropped because \
                        it is not a member is reported (`migration-memberorder-dropped`). \
                        Requires revision 7 (discovery-query-cutover) first.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::RFC043_CONTAINER_ENTRIES_REVISION - 1,
+            to: crate::field_type_migration_service::RFC043_CONTAINER_ENTRIES_REVISION,
+            bundle: BundleForm::Transform(rfc043_bundle_form),
+        }),
         status_fn: |store| {
             if crate::field_type_migration_service::rfc043_container_entries_migration_needed(
                 store,
@@ -401,6 +487,11 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        A corpus at revision 9 may contain `createdBy`; a session with an \
                        actor refuses to create in a corpus below revision 9 ([R11]). \
                        Requires the rfc043-container-entries migration (#8) first.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::RFC046_ACTOR_PROVENANCE_REVISION - 1,
+            to: crate::field_type_migration_service::RFC046_ACTOR_PROVENANCE_REVISION,
+            bundle: BundleForm::Restamp,
+        }),
         status_fn: |store| {
             if crate::field_type_migration_service::rfc046_actor_provenance_migration_needed(
                 store,
@@ -426,6 +517,7 @@ static MIGRATIONS: &[MigrationDefinition] = &[
         description: "Converts a Tier-0 note identity (or a container with no identity \
                        pointer) to a typed com.semanticops.core/purpose Tier-2 Record \
                        and repoints manifest.container.identityInstanceId. Satisfies RFC-018.",
+        revision_step: None,
         status_fn: |store| {
             use crate::migrate_identity_service::IdentityMigrationStatus;
             match crate::migrate_identity_service::migration_status(store)? {
@@ -446,6 +538,7 @@ static MIGRATIONS: &[MigrationDefinition] = &[
         title: "Normalise instance file paths",
         description: "Renames instance files to the canonical slug-id8 convention \
                        (e.g. title-a1b2c3d4.json). Idempotent — safe to run multiple times.",
+        revision_step: None,
         status_fn: |store| {
             let needed = crate::repository_portability::check_path_upgrade_needed(store)?;
             if needed {
@@ -492,6 +585,7 @@ static MIGRATIONS: &[MigrationDefinition] = &[
         // silent, permanent misreport of repository state to every consumer
         // of `repo migrations` (dashboards, scripts, `srs-mcp`), which is what
         // an unconditional `NotApplicable` here would have been.
+        revision_step: None,
         status_fn: |store| {
             if !store.is_file_tree_store() {
                 return Ok(MigrationStatus::NotApplicable);
@@ -958,6 +1052,38 @@ mod tests {
             .find(|m| m.id == "graduated-at-cleanup")
             .unwrap();
         assert_eq!(graduated_at_cleanup.status, MigrationStatus::Needed);
+    }
+
+    #[test]
+    fn revision_steps_form_a_contiguous_chain_to_current() {
+        use crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION;
+        let steps: Vec<&RevisionStep> = MIGRATIONS
+            .iter()
+            .filter_map(|m| m.revision_step.as_ref())
+            .collect();
+        assert_eq!(steps.len() as u64, CURRENT_DATA_MODEL_REVISION);
+        for from in 0..CURRENT_DATA_MODEL_REVISION {
+            let n = steps.iter().filter(|s| s.from == from).count();
+            assert_eq!(n, 1, "exactly one step must start at {from}");
+            let (_, s) = revision_step_from(from).unwrap();
+            assert_eq!(s.to, from + 1);
+        }
+        assert!(revision_step_from(CURRENT_DATA_MODEL_REVISION).is_none());
+    }
+
+    #[test]
+    fn bundle_forms_are_the_ones_rfc003_c6_specifies() {
+        for from in 0..7 {
+            let (_, s) = revision_step_from(from).unwrap();
+            assert!(matches!(s.bundle, BundleForm::Unspecified), "{from}");
+        }
+        let (id, s) = revision_step_from(7).unwrap();
+        assert_eq!(id, "rfc043-container-entries");
+        assert!(matches!(s.bundle, BundleForm::Transform(_)));
+        let (id, s) = revision_step_from(8).unwrap();
+        assert_eq!(id, "rfc046-actor-provenance");
+        assert!(matches!(s.bundle, BundleForm::Restamp));
+        assert_eq!(revision_step_from(0).unwrap().0, "field-type");
     }
 
     #[test]

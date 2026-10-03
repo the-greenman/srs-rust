@@ -290,15 +290,15 @@ kebab, unlike `kind_label`'s `relationType`); one match, private.
 
 #### Tasks
 
-- [ ] Add `RevisionStep`, `BundleForm`, `revision_step` field and `revision_step_from` (signatures above) to `migration_registry_service.rs`.
-- [ ] Set `revision_step` on `field-type` (0-1), `rfc039-carrier` (1-2), `metamodel-v1-1-0` (2-3), `tier1-removal` (3-4), `substrate-properties-to-meta` (4-5), `composition-cutover` (5-6), `discovery-query-cutover` (6-7) with `BundleForm::Unspecified`; `rfc043-container-entries` (7-8) with `Transform(|v| migrate_package_bundle_value(v).map(|r| r.diagnostics))`; `rfc046-actor-provenance` (8-9) with `Restamp`. Use the existing `*_REVISION` constants (`FIELD_TYPE_REVISION`, `CARRIER_REVISION`, `METAMODEL_V1_1_0_REVISION`, ..., `RFC046_ACTOR_PROVENANCE_REVISION`), `to - 1` for `from`. `None` on `graduated-at-cleanup`, `revisions-sidecar-cleanup`, `migrate-identity`, `repo-upgrade`, `rfc038-storage`.
-- [ ] Doc comment on `BundleForm::Unspecified` citing RFC-003 [C6]; doc comment on the field: a new revision entry must state its bundle form (the reason the field has no default).
+- [x] Add `RevisionStep`, `BundleForm`, `revision_step` field and `revision_step_from` (signatures above) to `migration_registry_service.rs`.
+- [x] Set `revision_step` on `field-type` (0-1), `rfc039-carrier` (1-2), `metamodel-v1-1-0` (2-3), `tier1-removal` (3-4), `substrate-properties-to-meta` (4-5), `composition-cutover` (5-6), `discovery-query-cutover` (6-7) with `BundleForm::Unspecified`; `rfc043-container-entries` (7-8) with `Transform(|v| migrate_package_bundle_value(v).map(|r| r.diagnostics))`; `rfc046-actor-provenance` (8-9) with `Restamp`. Use the existing `*_REVISION` constants (`FIELD_TYPE_REVISION`, `CARRIER_REVISION`, `METAMODEL_V1_1_0_REVISION`, ..., `RFC046_ACTOR_PROVENANCE_REVISION`), `to - 1` for `from`. `None` on `graduated-at-cleanup`, `revisions-sidecar-cleanup`, `migrate-identity`, `repo-upgrade`, `rfc038-storage`.
+- [x] Doc comment on `BundleForm::Unspecified` citing RFC-003 [C6]; doc comment on the field: a new revision entry must state its bundle form (the reason the field has no default).
 
 #### Acceptance Criteria
 
-- [ ] Every data-model revision from 0 to the current one is reachable by exactly one registered step, so a caller can walk any stamp forward without gaps.
-- [ ] A reader consulting the registry finds a bundle form only for the 7-to-8 and 8-to-9 steps; every earlier step reports none.
-- [ ] Listing and applying migrations behaves exactly as before.
+- [x] Every data-model revision from 0 to the current one is reachable by exactly one registered step, so a caller can walk any stamp forward without gaps.
+- [x] A reader consulting the registry finds a bundle form only for the 7-to-8 and 8-to-9 steps; every earlier step reports none.
+- [x] Listing and applying migrations behaves exactly as before.
 
 #### Testing
 
