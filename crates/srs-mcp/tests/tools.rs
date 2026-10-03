@@ -7,7 +7,7 @@ use rmcp::ServiceExt;
 use srs_core::types::container::Container;
 use srs_mcp::SrsMcpServer;
 use srs_repository::container_service;
-use srs_repository::discovery_service::{self, DiscoveryQuery};
+use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage};
 use srs_repository::package_service::{
     create_field_normalized, create_relation_type_normalized, create_type_normalized,
 };
@@ -486,6 +486,7 @@ async fn tool_note_create_and_find_roundtrip() {
             content_match: Some("quarterly budget".into()),
             ..Default::default()
         },
+        FindPage::default(),
     )
     .unwrap();
     assert_eq!(structured, &serde_json::to_value(&direct).unwrap());

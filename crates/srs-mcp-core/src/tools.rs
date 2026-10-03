@@ -22,7 +22,7 @@ use srs_core::types::note::{Note, NoteSection};
 use srs_core::types::record::{FieldMeta, FieldValues};
 use srs_core::types::relation::Relation;
 use srs_repository::container_service::{self, ContainerCreateInput};
-use srs_repository::discovery_service::{self, DiscoveryQuery};
+use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage};
 use srs_repository::package_dependency_service::{
     self, AddPackageDependencyInput, RemovePackageDependencyInput,
 };
@@ -291,6 +291,10 @@ pub struct FindToolInput {
     pub tier: Option<u8>,
     /// Content substring match (the CLI's --text flag).
     pub content_match: Option<String>,
+    /// Maximum hits to return (default 25); `total` still counts every match.
+    pub limit: Option<usize>,
+    /// Number of hits to skip (default 0), after the deterministic sort.
+    pub offset: Option<usize>,
 }
 
 impl From<FindToolInput> for DiscoveryQuery {
@@ -1113,7 +1117,11 @@ pub fn call_tool(
         }
         TOOL_FIND => {
             let input: FindToolInput = parse_args(arguments)?;
-            match discovery_service::find(store, input.into()) {
+            let page = FindPage {
+                limit: input.limit.unwrap_or(FindPage::DEFAULT_LIMIT),
+                offset: input.offset.unwrap_or(0),
+            };
+            match discovery_service::find(store, input.into(), page) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
@@ -1426,6 +1434,8 @@ mod tests {
             exclude_lifecycle_states: vec!["superseded".into()],
             tier: Some(2),
             content_match: Some("text".into()),
+            limit: None,
+            offset: None,
         };
         let q: DiscoveryQuery = find.into();
         assert_eq!(q.type_id.as_deref(), Some("tid"));

@@ -11,7 +11,7 @@ use srs_repository::blueprint_service;
 use srs_repository::container_service::{self, ContainerListFilter};
 use srs_repository::container_view_service::{self, ResolveContainerViewInput};
 use srs_repository::context_query_service::{self, FieldContextQuery, RecordContextQuery};
-use srs_repository::discovery_service::{self, DiscoveryQuery};
+use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage};
 use srs_repository::doctor_service::{self, DoctorInput};
 use srs_repository::governance_scaffold_service::{self, CreateGovernanceRepositoryInput};
 use srs_repository::manifest_service;
@@ -343,11 +343,22 @@ impl SrsRepository {
     /// Run a discovery query against the repository.
     /// `query_json` is a JSON object matching `DiscoveryQuery` (camelCase fields;
     /// all optional — omit or pass `"{}"` for "return all").
+    /// `limit` (default 25) and `offset` (default 0) page the hits after the
+    /// deterministic sort; `total` is the full match count.
     /// Returns a `DiscoveryResult` as a JS value.
-    pub fn find(&self, query_json: &str) -> Result<JsValue, JsValue> {
+    pub fn find(
+        &self,
+        query_json: &str,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> Result<JsValue, JsValue> {
         let query: DiscoveryQuery =
             serde_json::from_str(query_json).map_err(|e| js_err(format!("invalid query: {e}")))?;
-        let result = discovery_service::find(&self.store, query).map_err(js_err)?;
+        let page = FindPage {
+            limit: limit.unwrap_or(FindPage::DEFAULT_LIMIT),
+            offset: offset.unwrap_or(0),
+        };
+        let result = discovery_service::find(&self.store, query, page).map_err(js_err)?;
         to_js(&result)
     }
 
