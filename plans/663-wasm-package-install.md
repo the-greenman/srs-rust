@@ -224,8 +224,9 @@ InvalidPackageBundle { code: &'static str, message: String },
 ```
 
 Codes (exhaustive): `bundle-not-json`, `bundle-readme-unsupported`, `bundle-revision-too-new`,
-`bundle-schema-invalid`, `bundle-definition-invalid`, `bundle-published-at-invalid`.
-RFC-043 transformer refusals propagate unchanged (`InvalidSnapshotData`, code in message).
+`bundle-schema-invalid`, `bundle-definition-invalid`, `bundle-published-at-invalid`, plus
+(Stage 7) `bundle-migration-refused` (RFC-043 transformer refusal, inner code in the message) and
+`bundle-boundary-unreadable` (export target index cannot be loaded).
 Unknown selector on export: existing `PackageNotFound { selector }`.
 
 Visibility-only changes (no behaviour change): `srsj::canonicalize` -> `pub(crate)`;
@@ -610,6 +611,8 @@ Already tracked, no new issue: MCP tool (srs-rust#1153), readme in `.srspkg` (sr
 - Phase 3: `crates/srs-cli/Cargo.toml` gains `sha2` and `hex` as dev-dependencies (both are workspace deps already in the lockfile) so the CLI test can recompute the file hash. A `package_install` golden contract test was also added, because `package-install.json` changes and had no contract test before.
 - Phase 4: `tree_session_install_then_validate_has_zero_errors` uses the srs-repository `install-package` fixture as its source (installed into a blank tree session, exported, then installed into a second blank tree session), not the gallery. The gallery fixture itself fails validation: it has three V8 errors (types `decision`/`article`/`role` carry `lifecycleRef` `3c504040-...`, which resolves nowhere) and no root container. A faithful bundle carries those errors along. The two `write_epoch` tests still use the gallery. Binding thinness was audited: each method is deserialize -> one service call -> `to_js`. `list_package_imports_json` already documents `conflictState` "clean" | "local-ahead" (PD7), so it is unchanged.
 - Stage 6: `bash scripts/check-schema-sync.sh` exits 1. All three divergences are in the **srs-vscode** sibling mirror (`package-bundle.json`, `package-manifest.json`, `srsj-envelope.json`), measured against the sibling `../srs` worktree. This repo's mirror (`crates/srs-schema/schemas/2.0/`) is byte-identical to a fresh clone of `srs` `origin/master` (5ed71a9) for every spec schema, so nothing here needs a sync. srs-vscode is out of scope: never touch sibling repos.
+- Stage 7 #1: `definition_rel_path` now also serves `create_blueprint`, `create_protocol`, `create_theme`, `create_view` and `create_composition`. Their private `slugify` copies were identical, so the filenames are byte-identical and those copies are deleted. `lifecycle_service` and `vocabulary_service` are **not** converged, because their slug maps every non-alphanumeric character to `-` (`a_b` -> `a-b`), which differs from the shared scheme. The helper's doc comment now says so. `repository_portability` keeps its own slug too (an empty slug falls back to `item`, and its id prefix is fallible).
+- Stage 7 #2/#4: two new codes, `bundle-boundary-unreadable` (export target index cannot be loaded) and `bundle-migration-refused` (RFC-043 transformer refusal, inner code kept in the message). The latter replaces the Phase 1 rule "transformer refusals propagate unchanged". ADR-050 and the `error.rs` doc comment list them.
 
 ## Coordination Rules
 
@@ -663,4 +666,12 @@ Plan review:
 
 ### Declined review findings
 
-None declined.
+Stage 3: none declined.
+
+Stage 7 (architecture code review):
+
+| # | Sev | Disposition |
+|---|---|---|
+| 5 | nit | Deferred: moving `attachment_service::sha256_hex` to a util module is a pure relocation with no behaviour change; leave it for a later util consolidation. |
+| 6 | nit | Accepted as is by the reviewer: `cmd_package_install` at 21 lines is one mapping plus one service call per arm. |
+| 7 | nit | Optional and not done: a key-diff parity test between `InstallPackageResult` (WASM) and `PackageInstallPayload` (CLI). |

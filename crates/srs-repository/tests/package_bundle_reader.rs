@@ -223,6 +223,7 @@ fn read_bundle_member_order_conflict_refuses() {
         err.to_string().contains("migration-memberorder-conflict"),
         "{err}"
     );
+    assert_eq!(code_of(err).0, "bundle-migration-refused");
     assert_eq!(store.list_package_boundaries().unwrap().len(), before);
 }
 

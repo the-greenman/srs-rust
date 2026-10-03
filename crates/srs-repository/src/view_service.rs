@@ -124,12 +124,6 @@ pub struct DeleteCompositionResult {
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
-fn slugify(name: &str) -> String {
-    name.to_lowercase()
-        .replace(|c: char| !c.is_alphanumeric() && c != '-' && c != ' ', "")
-        .replace(' ', "-")
-}
-
 /// Locate the package-relative path (e.g. `"views/foo-abcd1234.json"`) for a View by ID.
 /// Uses `resolve_definition_owner` to find the boundary, then scans the `package.json` views
 /// array and checks each file's `id` field.
@@ -493,8 +487,8 @@ pub fn create_view(
         source: e,
     })?;
     store.ensure_views_dir(&format!("{boundary_path}/views"))?;
-    let id_prefix = &view.id[..view.id.len().min(8)];
-    let rel_filename = format!("views/{}-{}.json", slugify(&view.name), id_prefix);
+    let rel_filename =
+        crate::package_service::definition_rel_path(DefinitionKind::View, &view.name, &view.id);
     let full_path = format!("{boundary_path}/{rel_filename}");
     store.save_view(&full_path, &view)?;
     store.add_definition_to_boundary(&selector, DefinitionKind::View, &rel_filename)?;
@@ -617,11 +611,10 @@ pub fn create_composition(
         source: e,
     })?;
     store.ensure_compositions_dir(&format!("{boundary_path}/compositions"))?;
-    let id_prefix = &composition.id[..composition.id.len().min(8)];
-    let rel_filename = format!(
-        "compositions/{}-{}.json",
-        slugify(&composition.name),
-        id_prefix
+    let rel_filename = crate::package_service::definition_rel_path(
+        DefinitionKind::Composition,
+        &composition.name,
+        &composition.id,
     );
     let full_path = format!("{boundary_path}/{rel_filename}");
     store.save_composition(&full_path, &composition)?;

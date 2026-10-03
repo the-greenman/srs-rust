@@ -108,12 +108,6 @@ pub struct FindProtocolByTargetTypeResult {
 // Private helpers
 // ---------------------------------------------------------------------------
 
-fn slugify(name: &str) -> String {
-    name.to_lowercase()
-        .replace(|c: char| !c.is_alphanumeric() && c != '-' && c != ' ', "")
-        .replace(' ', "-")
-}
-
 /// Parse and structurally validate a protocol definition JSON into a typed [`Protocol`].
 fn protocol_from_value(value: &serde_json::Value) -> Result<Protocol, RepositoryError> {
     crate::input_normalization::from_value_with_path(value.clone(), "Protocol")
@@ -337,11 +331,10 @@ pub fn create_protocol(
     check_protocol(&protocol)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");
-    let id_prefix = &protocol.id[..protocol.id.len().min(8)];
-    let rel_filename = format!(
-        "{PROTOCOLS_DIR}/{}-{}.json",
-        slugify(&protocol.name),
-        id_prefix
+    let rel_filename = crate::package_service::definition_rel_path(
+        DefinitionKind::Protocol,
+        &protocol.name,
+        &protocol.id,
     );
     let full_path = format!("{boundary_path}/{rel_filename}");
 

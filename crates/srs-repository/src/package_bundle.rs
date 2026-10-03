@@ -80,7 +80,8 @@ pub fn read_package_bundle(bytes: &[u8]) -> Result<ReadPackageBundle, Repository
         ));
     }
     let notes =
-        crate::rfc043_container_entries_migration_service::migrate_package_bundle_value(&mut v)?
+        crate::rfc043_container_entries_migration_service::migrate_package_bundle_value(&mut v)
+            .map_err(|e| refuse("bundle-migration-refused", e.to_string()))?
             .diagnostics;
     SchemaRegistry::global()
         .validate_by_id(PACKAGE_BUNDLE_SCHEMA_ID, &v)
@@ -232,6 +233,18 @@ pub fn export_package_bundle(
         .find(|b| b.selector == input.selector)
         .ok_or_else(|| RepositoryError::PackageNotFound {
             selector: input.selector.clone(),
+        })?;
+
+    // The target's index must load: `load_boundary_definitions` treats a missing
+    // index as "contributes nothing", which here would be a silently empty bundle.
+    let prefix = target.selector.as_deref().unwrap_or("package");
+    store
+        .load_instance_json(&format!("{prefix}/package.json"))
+        .map_err(|e| {
+            refuse(
+                "bundle-boundary-unreadable",
+                format!("package boundary '{prefix}': {prefix}/package.json cannot be loaded: {e}"),
+            )
         })?;
 
     // Every other boundary's definitions, by id (first boundary wins).
@@ -609,6 +622,66 @@ mod tests {
         assert_eq!(e.summary.inlined, vec![fid.to_string()]);
         assert_eq!(e.summary.definition_count, 2);
         assert_eq!(parsed(&e)["fields"][0]["id"], fid);
+    }
+
+    /// Two non-target boundaries define the same id: the first listed (primary) wins.
+    #[test]
+    fn export_closure_first_boundary_wins_on_duplicate_id() {
+        let (_t, store) = fresh();
+        let fid = "f1e1d000-0000-4000-8000-0000000000dd";
+        let mut primary = field(fid, "dup");
+        primary["description"] = json!("from primary");
+        put(&store, None, DefinitionKind::Field, primary);
+        sub_package(&store, "packages/b", "5e000000-0000-4000-8000-000000000006");
+        let mut other = field(fid, "dup");
+        other["description"] = json!("from b");
+        put(&store, Some("packages/b"), DefinitionKind::Field, other);
+        sub_package(&store, "packages/t", "5e000000-0000-4000-8000-000000000007");
+        put(
+            &store,
+            Some("packages/t"),
+            DefinitionKind::Type,
+            ty("7e000000-0000-4000-8000-000000000003", fid),
+        );
+        let b = parsed(&export(&store, Some("packages/t")));
+        assert_eq!(b["fields"].as_array().unwrap().len(), 1);
+        assert_eq!(b["fields"][0]["description"], "from primary");
+    }
+
+    /// A boundary the store lists but whose package.json cannot be loaded is refused,
+    /// never exported as an empty bundle. (FileStore never lists such a boundary, so
+    /// this drives MemoryStore, whose boundary map and file map are separate.)
+    #[test]
+    fn export_refuses_unreadable_target_index() {
+        let store = crate::store::memory::MemoryStore::default();
+        create_package(
+            &store,
+            CreatePackageInput {
+                id: "5e000000-0000-4000-8000-000000000008".to_string(),
+                namespace: "com.test.export".to_string(),
+                name: "x".to_string(),
+                version: "0.1.0".to_string(),
+                boundary_path: Some("packages/x".to_string()),
+            },
+        )
+        .unwrap();
+        store
+            .delete_instance_file("packages/x/package.json")
+            .unwrap();
+        assert!(store
+            .load_package_boundary(&Some("packages/x".to_string()))
+            .is_ok());
+        let err = export_package_bundle(
+            &store,
+            ExportPackageInput {
+                selector: Some("packages/x".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+        let (c, msg) = code(err);
+        assert_eq!(c, "bundle-boundary-unreadable");
+        assert!(msg.contains("packages/x/package.json"), "{msg}");
     }
 
     #[test]

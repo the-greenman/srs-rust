@@ -474,8 +474,9 @@ pub enum RepositoryError {
 
     /// A `.srspkg` Package Bundle was refused (ADR-050). `code` is one of
     /// `bundle-not-json`, `bundle-readme-unsupported`, `bundle-revision-too-new`,
-    /// `bundle-schema-invalid`, `bundle-definition-invalid`,
-    /// `bundle-published-at-invalid`; coded like `ActorProvenance` so clients
+    /// `bundle-migration-refused`, `bundle-schema-invalid`, `bundle-definition-invalid`
+    /// (reader); `bundle-published-at-invalid`, `bundle-boundary-unreadable`,
+    /// `bundle-schema-invalid` (writer); coded like `ActorProvenance` so clients
     /// can branch on the reason.
     #[error("{code}: {message}")]
     InvalidPackageBundle { code: &'static str, message: String },

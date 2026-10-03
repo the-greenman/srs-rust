@@ -46,7 +46,12 @@ honest refusal over silent coercion (RFC-038 [R21], ADR-044).
    (ADR-004) -> validate every definition with the loader's own strictness. There is **no numeric
    revision floor**: the floor is the content shape, and a failure on a bundle older than current
    names its revision and says to re-export it. Refusals are `InvalidPackageBundle { code,
-   message }`, coded like `ActorProvenance` so clients can branch on the reason.
+   message }`, coded like `ActorProvenance` so clients can branch on the reason. Codes:
+   reader `bundle-not-json`, `bundle-readme-unsupported`, `bundle-revision-too-new`,
+   `bundle-migration-refused` (an RFC-043 transformer refusal, inner code kept in the message),
+   `bundle-schema-invalid`, `bundle-definition-invalid`; writer `bundle-published-at-invalid`,
+   `bundle-boundary-unreadable` (the target boundary's `package.json` cannot be loaded, so the
+   writer never emits a silently empty bundle), `bundle-schema-invalid`.
 3. **Writer determinism** ([C5]): definitions sorted by `id` within each kind array, optional kind
    arrays omitted when empty, every object key sorted by the `.srsj` writer's canonicalize step
    (ADR-043, reused, not copied), pretty-printed with a trailing newline. Definitions are carried
@@ -89,7 +94,7 @@ in a non-reference string (no such field exists today; a `ponytail:` comment nam
 typed walker). Core-package references rely on ADR-025 rather than `dependencyRefs` (deviation
 above). A bundle with a `readme` is refused until #1164. `collect_existing` now refuses a boundary
 whose index lists an unloadable file instead of skipping it (such a repository already fails
-`load_package()`).
+`load_package()`), so one corrupt boundary now blocks every install into that repository.
 
 **Neutral:** `migrate_package_bundle_value` no longer lowers a stamp above 8. Install upgrade
 semantics (boundary version, import-summary merge) are unchanged and stay with srs-rust#1152.
