@@ -1790,6 +1790,106 @@ pub struct PackageInstallPayload {
     pub conflicts: Vec<PackageInstallConflictEntry>,
     /// Per-kind breakdown for kinds present in the source package.
     pub kinds: Vec<PackageInstallKindEntry>,
+    /// Non-fatal `.srspkg` pre-load transformer notes (RFC-043
+    /// `migration-memberorder-dropped`, ...); always empty for a directory install.
+    pub notes: Vec<String>,
+}
+
+impl From<srs_repository::package_install_service::InstallPackageResult> for PackageInstallPayload {
+    fn from(r: srs_repository::package_install_service::InstallPackageResult) -> Self {
+        Self {
+            boundary_path: r.boundary_path,
+            package_id: r.package_id,
+            namespace: r.namespace,
+            name: r.name,
+            version: r.version,
+            installed_at: r.installed_at,
+            installed: r.installed,
+            skipped_identical: r.skipped_identical,
+            conflicts: r
+                .conflicts
+                .into_iter()
+                .map(|c| PackageInstallConflictEntry {
+                    kind: c.kind,
+                    key: c.key,
+                    source_id: c.source_id,
+                    existing_id: c.existing_id,
+                })
+                .collect(),
+            kinds: r
+                .kinds
+                .into_iter()
+                .map(|k| PackageInstallKindEntry {
+                    kind: k.kind,
+                    installed: k.installed,
+                    skipped_identical: k.skipped_identical,
+                    conflicts: k.conflicts,
+                })
+                .collect(),
+            notes: r.notes,
+        }
+    }
+}
+
+/// `srs package export` (ADR-050): the written `.srspkg` and its summary.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageExportPayload {
+    /// Path the `.srspkg` was written to.
+    pub output_path: String,
+    pub package_id: String,
+    pub package_namespace: String,
+    pub package_name: String,
+    pub package_version: String,
+    /// The `dataModelRevision` stamped into the bundle.
+    pub data_model_revision: u64,
+    /// The bundle's `publishedAt`; part of the bytes, so a reproducible sha256
+    /// needs a fixed `--published-at`.
+    pub published_at: String,
+    /// `sha256:<64 lowercase hex>` of the written file's bytes.
+    pub sha256: String,
+    pub byte_length: usize,
+    pub definition_count: usize,
+    /// Definition ids inlined from other boundaries by the closure (sorted).
+    pub inlined: Vec<String>,
+    /// Per-kind counts, install order, non-empty kinds only.
+    pub kinds: Vec<PackageExportKindEntry>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageExportKindEntry {
+    pub kind: String,
+    pub count: usize,
+}
+
+impl PackageExportPayload {
+    pub fn new(
+        output_path: String,
+        s: srs_repository::package_bundle::PackageExportSummary,
+    ) -> Self {
+        Self {
+            output_path,
+            package_id: s.package_id,
+            package_namespace: s.package_namespace,
+            package_name: s.package_name,
+            package_version: s.package_version,
+            data_model_revision: s.data_model_revision,
+            published_at: s.published_at,
+            sha256: s.sha256,
+            byte_length: s.byte_length,
+            definition_count: s.definition_count,
+            inlined: s.inlined,
+            kinds: s
+                .kinds
+                .into_iter()
+                .map(|k| PackageExportKindEntry {
+                    kind: k.kind,
+                    count: k.count,
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

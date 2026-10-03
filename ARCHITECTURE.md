@@ -71,6 +71,7 @@ This file is written for humans and AI agents that need to understand the repo q
 - A package is a logical definition boundary, not a filesystem directory shape.
 - Services address packages through package IDs/namespaces, not filesystem paths.
 - Raw `package.json` paths and package file index arrays are FileStore implementation details; they must not leak into service API signatures.
+- A package boundary travels as a `.srspkg` Package Bundle (ADR-050): `srs package export` / WASM `export_package_bundle` write it, `srs package install --bundle` / WASM `install_package_bundle` read it, through one store-free reader and the same install core as a directory install.
 - `load_package()` returns the merged effective view across all declared package boundaries. Services that need the merged view call this.
 - `create_package` registers a new package boundary in the manifest and creates the package skeleton. It must not accept a filesystem path as its primary identifier.
 - Package create/update/delete operations must be callable through `&dyn RepositoryStore` without `std::fs`.

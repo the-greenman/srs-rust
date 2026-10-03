@@ -543,7 +543,7 @@ pub fn create_field_in_package(
     store.load_package_boundary(&selector)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");
-    let rel_filename = format!("fields/{}-{}.json", slugify(&field.name), &field.id[..8]);
+    let rel_filename = definition_rel_path(DefinitionKind::Field, &field.name, &field.id);
     let full_path = format!("{boundary_path}/{rel_filename}");
 
     store.ensure_fields_dir(&format!("{boundary_path}/fields"))?;
@@ -626,6 +626,29 @@ pub(crate) fn find_field_path(
     Ok(None)
 }
 
+/// The shared filename scheme for a definition inside a package boundary (ADR-050):
+/// `{dir}/{slugify(slug_source)}-{id[..min(8)]}.json`, `dir` per kind. Used by the
+/// field/type/relation-type/view/composition/theme/blueprint/protocol creators and the
+/// `.srspkg` reader. Not (yet) by `lifecycle_service`/`vocabulary_service`, whose slug maps
+/// every non-alphanumeric character to `-` (e.g. `a_b` -> `a-b`, here `a_b`); converging
+/// them would rename files those creators write today (srs-rust#1209).
+pub(crate) fn definition_rel_path(kind: DefinitionKind, slug_source: &str, id: &str) -> String {
+    let dir = match kind {
+        DefinitionKind::Field => "fields",
+        DefinitionKind::Type => "types",
+        DefinitionKind::View => "views",
+        DefinitionKind::Composition => "compositions",
+        DefinitionKind::RelationType => "relation-types",
+        DefinitionKind::Blueprint => "blueprints",
+        DefinitionKind::Protocol => "protocols",
+        DefinitionKind::Vocabulary => "vocabularies",
+        DefinitionKind::Lifecycle => "lifecycles",
+        DefinitionKind::Theme => "themes",
+    };
+    let id8 = id.get(..8).unwrap_or(id);
+    format!("{dir}/{}-{id8}.json", slugify(slug_source))
+}
+
 /// Convert a name to a filesystem-friendly slug
 fn slugify(name: &str) -> String {
     name.to_lowercase()
@@ -693,11 +716,8 @@ pub fn create_type_in_package(
         record_type.id = new_instance_id();
     }
     let boundary_path = selector.as_deref().unwrap_or("package");
-    let rel_filename = format!(
-        "types/{}-{}.json",
-        slugify(&record_type.name),
-        &record_type.id[..8]
-    );
+    let rel_filename =
+        definition_rel_path(DefinitionKind::Type, &record_type.name, &record_type.id);
     let full_path = format!("{boundary_path}/{rel_filename}");
 
     let raw = serde_json::to_value(&record_type).map_err(|e| RepositoryError::Serialize {
@@ -843,9 +863,7 @@ pub fn create_relation_type(
     }
 
     let boundary_path = selector.as_deref().unwrap_or("package");
-    let slug = slugify(&def.key);
-    let id_prefix = &def.id[..8.min(def.id.len())];
-    let rel_filename = format!("relation-types/{slug}-{id_prefix}.json");
+    let rel_filename = definition_rel_path(DefinitionKind::RelationType, &def.key, &def.id);
     let full_path = format!("{boundary_path}/{rel_filename}");
 
     store.ensure_relation_types_dir(&format!("{boundary_path}/relation-types"))?;

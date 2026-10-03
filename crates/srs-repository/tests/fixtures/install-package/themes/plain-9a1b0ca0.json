@@ -1,0 +1,12 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/theme.json",
+  "createdAt": "2026-01-01T00:00:00Z",
+  "description": "Plain markdown theme for install fixture renders.",
+  "id": "9a1b0ca0-000a-4aaa-8bbb-00000000a001",
+  "name": "plain",
+  "namespace": "com.example.install",
+  "targets": [
+    "markdown"
+  ],
+  "version": 1
+}

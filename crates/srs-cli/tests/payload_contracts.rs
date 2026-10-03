@@ -551,6 +551,16 @@ fn package_dependencies() {
 }
 
 #[test]
+fn package_install() {
+    check::<PackageInstallPayload>("package-install");
+}
+
+#[test]
+fn package_export() {
+    check::<PackageExportPayload>("package-export");
+}
+
+#[test]
 fn package_refs() {
     check::<PackageRefPayload>("package-refs");
 }

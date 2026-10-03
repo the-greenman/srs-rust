@@ -46,11 +46,13 @@ use srs_core::extensions::import_tracking::{
 
 use crate::error::RepositoryError;
 use crate::package_service::{create_package, CreatePackageInput};
-use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
+use crate::package_types::{
+    validate_package_selector, DefinitionKind, PackageBoundary, PackageSelector,
+};
 use crate::store::{definition_kind_key, RepositoryStore};
 
 /// Definition kinds handled by install, in install order (dependencies first).
-const INSTALL_ORDER: [DefinitionKind; 10] = [
+pub(crate) const INSTALL_ORDER: [DefinitionKind; 10] = [
     DefinitionKind::Field,
     DefinitionKind::Type,
     DefinitionKind::RelationType,
@@ -64,7 +66,7 @@ const INSTALL_ORDER: [DefinitionKind; 10] = [
 ];
 
 /// Human-readable singular label for a definition kind (used in reports).
-fn kind_label(kind: DefinitionKind) -> &'static str {
+pub(crate) fn kind_label(kind: DefinitionKind) -> &'static str {
     match kind {
         DefinitionKind::Field => "field",
         DefinitionKind::Type => "type",
@@ -209,7 +211,7 @@ fn validate_source_rel_path(rel_path: &str) -> Result<(), RepositoryError> {
 }
 
 /// Validate a source definition with the same strictness `load_package()` applies.
-fn validate_source_definition(
+pub(crate) fn validate_source_definition(
     kind: DefinitionKind,
     path: &Path,
     value: &serde_json::Value,
@@ -417,7 +419,7 @@ fn definition_namespace(_kind: DefinitionKind, value: &serde_json::Value) -> Opt
 }
 
 /// Extract the logical name from a definition JSON.
-fn definition_name(kind: DefinitionKind, value: &serde_json::Value) -> Option<String> {
+pub(crate) fn definition_name(kind: DefinitionKind, value: &serde_json::Value) -> Option<String> {
     match kind {
         DefinitionKind::RelationType => value["key"].as_str().map(str::to_string),
         _ => value["name"].as_str().map(str::to_string),
@@ -473,27 +475,51 @@ fn collect_existing(store: &dyn RepositoryStore) -> Result<ExistingIndex, Reposi
     }
 
     for boundary in store.list_package_boundaries()? {
-        let prefix = boundary.selector.as_deref().unwrap_or("package");
-        let Ok(pkg_json) = store.load_instance_json(&format!("{prefix}/package.json")) else {
-            continue;
-        };
-        for kind in INSTALL_ORDER {
-            let Some(entries) = pkg_json[definition_kind_key(kind)].as_array() else {
-                continue;
-            };
-            for entry in entries {
-                let Some(rel) = entry.as_str() else { continue };
-                let Ok(value) = store.load_instance_json(&format!("{prefix}/{rel}")) else {
-                    continue;
-                };
-                if let Some(id) = definition_id(kind, &value) {
-                    idx.insert(kind, id, definition_key(kind, &value));
-                }
+        for def in load_boundary_definitions(store, &boundary)? {
+            if let Some(id) = definition_id(def.kind, &def.value) {
+                idx.insert(def.kind, id, definition_key(def.kind, &def.value));
             }
         }
     }
 
     Ok(idx)
+}
+
+/// The ONE reader of a boundary's definitions (ADR-042 shim migration point,
+/// srs-rust#726), used by `collect_existing` and `.srspkg` export.
+/// `{prefix}/package.json` not found -> `Ok(vec![])` (a boundary without an
+/// index contributes nothing); a listed definition file that fails to load ->
+/// `Err` naming the path (ADR-039 rule). `rel_path` is the index entry.
+pub(crate) fn load_boundary_definitions(
+    store: &dyn RepositoryStore,
+    boundary: &PackageBoundary,
+) -> Result<Vec<PackageSourceDefinition>, RepositoryError> {
+    let prefix = boundary.selector.as_deref().unwrap_or("package");
+    let Ok(pkg_json) = store.load_instance_json(&format!("{prefix}/package.json")) else {
+        return Ok(vec![]);
+    };
+    let mut out = Vec::new();
+    for kind in INSTALL_ORDER {
+        let Some(entries) = pkg_json[definition_kind_key(kind)].as_array() else {
+            continue;
+        };
+        for rel in entries.iter().filter_map(|e| e.as_str()) {
+            let path = format!("{prefix}/{rel}");
+            let value = store.load_instance_json(&path).map_err(|e| {
+                RepositoryError::InvalidRepositoryInitialization {
+                    message: format!(
+                        "package boundary '{prefix}' lists {path}, which cannot be loaded: {e}"
+                    ),
+                }
+            })?;
+            out.push(PackageSourceDefinition {
+                kind,
+                rel_path: rel.to_string(),
+                value,
+            });
+        }
+    }
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------
@@ -517,7 +543,9 @@ pub struct InstallPackageInput {
 }
 
 /// Options for [`install_package_bundle`] (the source-agnostic install core).
-#[derive(Debug, Clone, Default)]
+/// Deserializable: it is the WASM `install_package_bundle` `options_json` contract.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct InstallBundleOptions {
     /// See [`InstallPackageInput::boundary_path`].
     pub boundary_path: Option<String>,
@@ -572,6 +600,10 @@ pub struct InstallPackageResult {
     pub conflicts: Vec<InstallConflictDetail>,
     /// Per-kind breakdown, in install order, for kinds present in the source.
     pub kinds: Vec<InstallKindCount>,
+    /// Non-fatal notes from the `.srspkg` pre-load transformer (RFC-043
+    /// `migration-memberorder-dropped`, ...). Always empty for a directory install.
+    #[serde(default)]
+    pub notes: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -889,7 +921,22 @@ pub fn install_package_bundle(
         skipped_identical: skipped_total,
         conflicts,
         kinds,
+        notes: vec![],
     })
+}
+
+/// Install a `.srspkg` Package Bundle from its bytes (ADR-050): the one reader
+/// ([`crate::package_bundle::read_package_bundle`]) then the one install core.
+/// Store-agnostic, so the CLI (disk) and WASM (tree session) share it.
+pub fn install_package_bundle_bytes(
+    store: &dyn RepositoryStore,
+    bytes: &[u8],
+    options: InstallBundleOptions,
+) -> Result<InstallPackageResult, RepositoryError> {
+    let read = crate::package_bundle::read_package_bundle(bytes)?;
+    let mut result = install_package_bundle(store, &read.bundle, options)?;
+    result.notes = read.notes;
+    Ok(result)
 }
 
 #[cfg(test)]

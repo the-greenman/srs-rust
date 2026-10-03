@@ -826,8 +826,9 @@ pub fn migrate_package_bundle_value(bundle: &mut Value) -> Result<Rfc043Result, 
             retire_member_order(comp, &at, &mut result)?;
         }
     }
+    // Raise a lower stamp to 8; never lower a newer one (a revision-9 bundle stays 9).
     if let Some(o) = bundle.as_object_mut() {
-        if o.contains_key(key) {
+        if o.contains_key(key) && result.from_revision < RFC043_REVISION {
             o.insert(key.to_string(), json!(RFC043_REVISION));
             result.packages_stamped = 1;
         }
@@ -1088,6 +1089,14 @@ mod tests {
         assert!(o.get("memberOrder").is_none());
         assert_eq!(o["source"], "arranged");
         assert_eq!(bundle["dataModelRevision"], 8);
+    }
+
+    #[test]
+    fn migrate_package_bundle_value_never_lowers_a_newer_stamp() {
+        let mut bundle = json!({"dataModelRevision": 9, "fields": []});
+        let r = migrate_package_bundle_value(&mut bundle).unwrap();
+        assert_eq!(bundle["dataModelRevision"], 9);
+        assert_eq!(r.packages_stamped, 0);
     }
 
     /// srs-rust#1155: a bundle mixing section kinds migrates to Compositions the engine accepts.

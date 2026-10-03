@@ -1,23 +1,27 @@
 use crate::commands::{with_store, CliContext, PackageCommand, PackageDependencyCommand};
 use crate::output;
 use crate::payload::{
-    PackageCreatePayload, PackageDependenciesPayload, PackageImportPayload, PackageImportsPayload,
-    PackageInstallConflictEntry, PackageInstallKindEntry, PackageInstallPayload, PackageListEntry,
-    PackageListPayload, PackageRefEntry, PackageRefPayload, PackageUpdatePayload,
+    PackageCreatePayload, PackageDependenciesPayload, PackageExportPayload, PackageImportPayload,
+    PackageImportsPayload, PackageInstallPayload, PackageListEntry, PackageListPayload,
+    PackageRefEntry, PackageRefPayload, PackageUpdatePayload,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use srs_core::extensions::import_tracking::ImportMode;
 use srs_repository::manifest_service::{add_package_ref, remove_package_ref};
+use srs_repository::package_bundle::{export_package_bundle, ExportPackageInput};
 use srs_repository::package_dependency_service::{
     add_package_dependency, check_bundle, list_package_dependencies, remove_package_dependency,
     AddPackageDependencyInput, BundleRequirements, RemovePackageDependencyInput,
 };
-use srs_repository::package_install_service::{install_package, InstallPackageInput};
+use srs_repository::package_install_service::{
+    install_package, install_package_bundle_bytes, InstallBundleOptions, InstallPackageInput,
+};
 use srs_repository::package_service::{
     create_package, import_package_local, list_package_imports, list_packages,
     update_package_metadata, CreatePackageInput, ImportPackageLocalInput, ListPackageImportsFilter,
     UpdatePackageMetadataInput,
 };
+use std::path::{Path, PathBuf};
 
 pub fn dispatch(ctx: CliContext, cmd: PackageCommand) -> Result<String> {
     match cmd {
@@ -32,9 +36,16 @@ pub fn dispatch(ctx: CliContext, cmd: PackageCommand) -> Result<String> {
         PackageCommand::Import { path, mode } => cmd_package_import(ctx, path, mode),
         PackageCommand::Install {
             source_dir,
+            bundle,
             boundary,
             strict,
-        } => cmd_package_install(ctx, source_dir, boundary, strict),
+        } => cmd_package_install(ctx, source_dir, bundle, boundary, strict),
+        PackageCommand::Export {
+            selector,
+            output,
+            published_at,
+            publisher,
+        } => cmd_package_export(ctx, selector, output, published_at, publisher),
         PackageCommand::Update {
             selector,
             namespace,
@@ -117,51 +128,62 @@ fn cmd_package_import(ctx: CliContext, path: String, mode: String) -> Result<Str
     )
 }
 
+fn cmd_package_export(
+    ctx: CliContext,
+    selector: Option<String>,
+    out_path: PathBuf,
+    published_at: Option<String>,
+    publisher: Option<String>,
+) -> Result<String> {
+    let input = ExportPackageInput {
+        selector,
+        published_at,
+        publisher,
+    };
+    let export = with_store(&ctx, |s| Ok(export_package_bundle(s, input.clone())?))?;
+    std::fs::write(&out_path, &export.text)
+        .map_err(|e| anyhow::anyhow!("cannot write {}: {e}", out_path.display()))?;
+    let path = out_path.to_string_lossy().into_owned();
+    output::serialize(
+        "package export",
+        PackageExportPayload::new(path, export.summary),
+    )
+}
+
 fn cmd_package_install(
     ctx: CliContext,
-    source_dir: String,
-    boundary: Option<String>,
+    source_dir: Option<String>,
+    bundle: Option<PathBuf>,
+    boundary_path: Option<String>,
     strict: bool,
 ) -> Result<String> {
-    let input = InstallPackageInput {
-        source_dir,
-        boundary_path: boundary,
-        strict,
+    let result = match bundle {
+        Some(path) => {
+            let bytes = read_bundle_file(&path)?;
+            let opts = InstallBundleOptions {
+                boundary_path,
+                strict,
+            };
+            with_store(&ctx, |s| {
+                Ok(install_package_bundle_bytes(s, &bytes, opts.clone())?)
+            })?
+        }
+        None => {
+            let source_dir = source_dir.context("give <source_dir> or --bundle")?; // clap enforces
+            let input = InstallPackageInput {
+                source_dir,
+                boundary_path,
+                strict,
+            };
+            with_store(&ctx, |s| Ok(install_package(s, input.clone())?))?
+        }
     };
-    let result = with_store(&ctx, |store| Ok(install_package(store, input.clone())?))?;
-    output::serialize(
-        "package install",
-        PackageInstallPayload {
-            boundary_path: result.boundary_path,
-            package_id: result.package_id,
-            namespace: result.namespace,
-            name: result.name,
-            version: result.version,
-            installed_at: result.installed_at,
-            installed: result.installed,
-            skipped_identical: result.skipped_identical,
-            conflicts: result
-                .conflicts
-                .into_iter()
-                .map(|c| PackageInstallConflictEntry {
-                    kind: c.kind,
-                    key: c.key,
-                    source_id: c.source_id,
-                    existing_id: c.existing_id,
-                })
-                .collect(),
-            kinds: result
-                .kinds
-                .into_iter()
-                .map(|k| PackageInstallKindEntry {
-                    kind: k.kind,
-                    installed: k.installed,
-                    skipped_identical: k.skipped_identical,
-                    conflicts: k.conflicts,
-                })
-                .collect(),
-        },
-    )
+    output::serialize("package install", PackageInstallPayload::from(result))
+}
+
+/// File I/O only: read the .srspkg bytes (no parsing, no logic).
+fn read_bundle_file(path: &Path) -> Result<Vec<u8>> {
+    std::fs::read(path).map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))
 }
 
 fn cmd_package_update(

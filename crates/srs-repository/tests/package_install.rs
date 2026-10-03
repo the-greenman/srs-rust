@@ -82,8 +82,8 @@ fn assert_zero_errors(store: &dyn RepositoryStore) {
     );
 }
 
-/// The fixture ships 9 definitions across 8 kinds.
-const FIXTURE_DEFINITION_COUNT: usize = 9;
+/// The fixture ships 11 definitions across all 10 kinds.
+const FIXTURE_DEFINITION_COUNT: usize = 11;
 
 // ── (a) install into an empty repo ──────────────────────────────────────────
 
@@ -102,7 +102,7 @@ fn install_into_empty_repo_installs_everything() {
     assert_eq!(result.skipped_identical, 0);
     assert!(result.conflicts.is_empty());
 
-    // Per-kind breakdown covers all 8 kinds shipped by the fixture.
+    // Per-kind breakdown covers all 10 kinds shipped by the fixture.
     let kinds: Vec<(&str, usize)> = result
         .kinds
         .iter()
@@ -115,8 +115,10 @@ fn install_into_empty_repo_installs_everything() {
             ("type", 1),
             ("relationType", 1),
             ("lifecycle", 1),
+            ("vocabulary", 1),
             ("view", 1),
             ("composition", 1),
+            ("theme", 1),
             ("blueprint", 1),
             ("protocol", 1),
         ]
@@ -518,4 +520,26 @@ fn file_store_list_package_imports_detects_local_ahead_after_edit() {
         .find(|f| f.name == "body")
         .expect("body field in summary");
     assert_eq!(body.conflict_state, Some(ConflictState::Clean));
+}
+
+/// ADR-050: `collect_existing` reads boundaries through the one
+/// `load_boundary_definitions` loader, so a boundary whose index lists a file
+/// that cannot be loaded now fails install (it used to be skipped per file;
+/// such a repository already fails `load_package()`).
+#[test]
+fn install_refuses_when_a_boundary_lists_a_missing_definition_file() {
+    let (_temp, store) = fresh_file_repo();
+    store
+        .add_definition_to_boundary(
+            &None,
+            srs_repository::package_types::DefinitionKind::Field,
+            "fields/ghost-00000000.json",
+        )
+        .unwrap();
+    let err = install_package(&store, install_input()).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("package/fields/ghost-00000000.json"),
+        "{err}"
+    );
 }

@@ -212,7 +212,7 @@ fn text_to_value(text: &str, structural: bool) -> serde_json::Value {
 /// Recursively sort object keys for deterministic `.srsj` output (ADR-043),
 /// leaving `fieldValues`/`fieldMeta` subtrees in stored order — their key
 /// order is data ([R18]). `in_carrier` marks descent below such a key.
-fn canonicalize(value: serde_json::Value, in_carrier: bool) -> serde_json::Value {
+pub(crate) fn canonicalize(value: serde_json::Value, in_carrier: bool) -> serde_json::Value {
     match value {
         serde_json::Value::Object(map) => {
             if in_carrier {
