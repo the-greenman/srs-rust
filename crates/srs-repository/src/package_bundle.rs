@@ -51,10 +51,41 @@ fn revision_hint(rev: u64) -> String {
     }
 }
 
+/// Bring a bundle stamped `rev` forward to the current revision, one registry
+/// step at a time (RFC-003 [C6]): `Restamp` steps set the stamp, `Transform`
+/// steps rewrite the bundle; the stamp is written after every step. A step
+/// with no bundle form refuses with `bundle-migration-step-missing`.
+fn bring_forward(v: &mut Value, rev: u64) -> Result<Vec<String>, RepositoryError> {
+    let mut notes = Vec::new();
+    for r in rev..CURRENT_DATA_MODEL_REVISION {
+        let step = revision_step_from(r);
+        let Some((_, step)) = step.filter(|(_, s)| !matches!(s.bundle, BundleForm::Unspecified))
+        else {
+            let id = step.map_or("unregistered", |(id, _)| id);
+            return Err(refuse(
+                "bundle-migration-step-missing",
+                format!(
+                    "bundle declares dataModelRevision {rev} (absent = 0); data-model step \
+                     {r} -> {} ({id}) has no bundle-form transformer; this srs reads bundles \
+                     from revision {}; re-export it with a current srs",
+                    r + 1,
+                    reader_floor()
+                ),
+            ));
+        };
+        if let BundleForm::Transform(f) = step.bundle {
+            notes.extend(f(v).map_err(|e| refuse("bundle-migration-refused", e.to_string()))?);
+        }
+        v[DATA_MODEL_REVISION_KEY] = Value::from(step.to);
+    }
+    Ok(notes)
+}
+
 /// Read a `.srspkg` from its bytes: parse, refuse a `readme` (srs-rust#1164),
-/// refuse a newer revision, run the RFC-043 pre-load transformer (always;
-/// idempotent), validate against `package-bundle.json`, then validate every
-/// definition with the loader's own strictness.
+/// refuse a newer revision, bring an older one forward through the registry's
+/// bundle forms or refuse naming the missing step ([C6], [`bring_forward`]),
+/// validate against `package-bundle.json`, then validate every definition with
+/// the loader's own strictness.
 pub fn read_package_bundle(bytes: &[u8]) -> Result<ReadPackageBundle, RepositoryError> {
     let mut v: Value = serde_json::from_slice(bytes)
         .map_err(|e| refuse("bundle-not-json", format!("not a JSON document: {e}")))?;
@@ -84,10 +115,7 @@ pub fn read_package_bundle(bytes: &[u8]) -> Result<ReadPackageBundle, Repository
             ),
         ));
     }
-    let notes =
-        crate::rfc043_container_entries_migration_service::migrate_package_bundle_value(&mut v)
-            .map_err(|e| refuse("bundle-migration-refused", e.to_string()))?
-            .diagnostics;
+    let notes = bring_forward(&mut v, rev)?;
     SchemaRegistry::global()
         .validate_by_id(PACKAGE_BUNDLE_SCHEMA_ID, &v)
         .map_err(|e| {
@@ -1616,7 +1644,31 @@ mod tests {
             "{:?}",
             e.summary.notes
         );
-        // Phase 4 (reader [C6] chain) adds: read_package_bundle refuses it.
+        let (code, _) = code(read_package_bundle(e.text.as_bytes()).unwrap_err());
+        assert_eq!(code, "bundle-migration-step-missing");
+    }
+
+    #[test]
+    fn read_bundle_restamp_writes_each_step_target() {
+        // One step at a time: 7 -> 8 is the RFC-043 transform, 8 -> 9 the re-stamp.
+        let mut v = json!({"dataModelRevision": 7, "compositions": []});
+        assert!(bring_forward(&mut v, 7).unwrap().is_empty());
+        assert_eq!(v["dataModelRevision"], CURRENT_DATA_MODEL_REVISION);
+        let mut v = json!({"dataModelRevision": 8});
+        bring_forward(&mut v, 8).unwrap();
+        assert_eq!(v["dataModelRevision"], 9);
+        // A refused step leaves the stamp at the last step reached.
+        let mut v = json!({"dataModelRevision": 6});
+        assert!(bring_forward(&mut v, 6).is_err());
+        assert_eq!(v["dataModelRevision"], 6);
+        // Stamp after the transform step alone is its target (8), not current.
+        let mut v = json!({"dataModelRevision": 7});
+        let (_, step) = revision_step_from(7).unwrap();
+        let BundleForm::Transform(f) = step.bundle else {
+            panic!("7 -> 8 is a transform")
+        };
+        f(&mut v).unwrap();
+        assert_eq!(v["dataModelRevision"], 8);
     }
 
     #[test]

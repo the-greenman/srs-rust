@@ -413,14 +413,14 @@ Verification Agent runs after this phase. Tick boxes, commit.
 
 #### Tasks
 
-- [ ] In `read_package_bundle`, replace the unconditional `migrate_package_bundle_value` call with `bring_forward(&mut v, rev)`: for `r` in `rev..CURRENT_DATA_MODEL_REVISION`, `revision_step_from(r)`; `None` or `Unspecified` → `bundle-migration-step-missing` ("bundle declares dataModelRevision {rev} (absent = 0); data-model step {r} -> {r+1} ({migration id}) has no bundle-form transformer; this srs reads bundles from revision {floor}; re-export it with a current srs", `floor` derived by walking down from current while steps have a form); `Restamp` → write `dataModelRevision = to`; `Transform(f)` → `f(&mut v)` collecting notes, `Err` → `bundle-migration-refused` (inner code kept), then write `dataModelRevision = to`. The stamp is written after **every** step, so the bundle always says which revision it has reached. Order: parse → readme refusal → too-new refusal → chain → schema → definitions (unchanged otherwise).
-- [ ] Update `ReadPackageBundle`/function docs and the `install_package_bundle_bytes` doc.
-- [ ] Leave `migrate_package_bundle_value` and its tests unchanged (still the 7-8 transformer; its stamp write is harmless under the chain).
+- [x] In `read_package_bundle`, replace the unconditional `migrate_package_bundle_value` call with `bring_forward(&mut v, rev)`: for `r` in `rev..CURRENT_DATA_MODEL_REVISION`, `revision_step_from(r)`; `None` or `Unspecified` → `bundle-migration-step-missing` ("bundle declares dataModelRevision {rev} (absent = 0); data-model step {r} -> {r+1} ({migration id}) has no bundle-form transformer; this srs reads bundles from revision {floor}; re-export it with a current srs", `floor` derived by walking down from current while steps have a form); `Restamp` → write `dataModelRevision = to`; `Transform(f)` → `f(&mut v)` collecting notes, `Err` → `bundle-migration-refused` (inner code kept), then write `dataModelRevision = to`. The stamp is written after **every** step, so the bundle always says which revision it has reached. Order: parse → readme refusal → too-new refusal → chain → schema → definitions (unchanged otherwise).
+- [x] Update `ReadPackageBundle`/function docs and the `install_package_bundle_bytes` doc.
+- [x] Leave `migrate_package_bundle_value` and its tests unchanged (still the 7-8 transformer; its stamp write is harmless under the chain).
 
 #### Acceptance Criteria
 
-- [ ] Stamped 9 → read as is; 8 → re-stamped; 7 → transformer then re-stamp; below 7 or absent → refused naming the first missing step; above 9 → refused (unchanged).
-- [ ] A refusal installs nothing (boundary count unchanged).
+- [x] Stamped 9 → read as is; 8 → re-stamped; 7 → transformer then re-stamp; below 7 or absent → refused naming the first missing step; above 9 → refused (unchanged).
+- [x] A refusal installs nothing (boundary count unchanged).
 
 #### Testing
 
@@ -591,3 +591,5 @@ None declined. Arch #6's stronger option (refusing the export) is deferred to th
 - **`FollowedReference.version` is `Option<u64>`**, not `Option<u32>`: definition versions are read with `as_u64` and the effective index is keyed by `u64`; a `u32` would only add casts.
 - **Temporary `#[allow(dead_code)]`** on `RevisionStep`/`BundleForm` between Phases 1 and 4 (and on `reference_sites` between Phases 2 and 3), so each milestone commit passes `clippy -D warnings`; removed when the consumer landed.
 
+- **`read_bundle_rev9_with_member_order_is_not_migrated` pins `bundle-definition-invalid`** (Phase 4): the observed single code. `package-bundle.json` does not constrain the inner shape of a Composition, so the bundle-level schema check passes and the per-definition check (`validate_source_definition`) refuses it; the message names `memberOrder`.
+- **Revision-9 assertion for the 7 -> 9 path (Phase 4).** The read result does not expose the stamp, so the "ends at revision 9 through both steps" check is the unit test `read_bundle_restamp_writes_each_step_target` (stamp after each step) plus a sibling integration test `read_bundle_rev7_reaches_current_revision` (the revision-9 schema accepts the carried-forward bundle); `read_bundle_migrates_pre_rev8_member_order` is unchanged. `read_bundle_schema_error_on_old_bundle_names_revision` is replaced by `read_bundle_below_7_names_the_missing_step` as planned.

@@ -927,7 +927,9 @@ pub fn install_package_bundle(
 
 /// Install a `.srspkg` Package Bundle from its bytes (ADR-050): the one reader
 /// ([`crate::package_bundle::read_package_bundle`]) then the one install core.
-/// Store-agnostic, so the CLI (disk) and WASM (tree session) share it.
+/// Store-agnostic, so the CLI (disk) and WASM (tree session) share it. A bundle
+/// below the reader floor (RFC-003 [C6]: a step with no bundle form) is refused
+/// before anything is written; the install does not check `dependencyRefs`.
 pub fn install_package_bundle_bytes(
     store: &dyn RepositoryStore,
     bytes: &[u8],
