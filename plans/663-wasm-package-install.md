@@ -462,15 +462,15 @@ Update this file, commit (`feat(package): deterministic .srspkg export + ten-kin
 
 #### Tasks
 
-- [ ] `PackageCommand::Export { .. }` and the `Install` changes (flags above); dispatch arms.
-- [ ] `PackageExportPayload`, `PackageExportKindEntry`, `PackageExportPayload::new`, `notes` on `PackageInstallPayload`, `impl From<InstallPackageResult> for PackageInstallPayload`.
-- [ ] `cmd_package_export`, `read_bundle_file`, and `cmd_package_install` in the form above (it is ~45 lines today because of inline payload mapping; the `From` impl removes that).
-- [ ] `write_schema!("package-export", PackageExportPayload)`; `#[test] fn package_export()` in `payload_contracts.rs`; `cargo run --bin generate-schemas`.
+- [x] `PackageCommand::Export { .. }` and the `Install` changes (flags above); dispatch arms.
+- [x] `PackageExportPayload`, `PackageExportKindEntry`, `PackageExportPayload::new`, `notes` on `PackageInstallPayload`, `impl From<InstallPackageResult> for PackageInstallPayload`.
+- [x] `cmd_package_export`, `read_bundle_file`, and `cmd_package_install` in the form above (it is ~45 lines today because of inline payload mapping; the `From` impl removes that).
+- [x] `write_schema!("package-export", PackageExportPayload)`; `#[test] fn package_export()` in `payload_contracts.rs`; `cargo run --bin generate-schemas`.
 
 #### Acceptance Criteria
 
-- [ ] Both handlers <= 15 lines (rustfmt'd), one service call per branch, no `json!`; `read_bundle_file` does file I/O only.
-- [ ] `srs package install <dir>` output unchanged except `notes: []`.
+- [x] Both handlers <= 15 lines (rustfmt'd), one service call per branch, no `json!`; `read_bundle_file` does file I/O only.
+- [x] `srs package install <dir>` output unchanged except `notes: []`.
 
 #### Testing
 
@@ -606,6 +606,8 @@ Already tracked, no new issue: MCP tool (srs-rust#1153), readme in `.srspkg` (sr
 - Phase 2: `schemaVersion` comes from `manifest.extra["srsVersion"]` (the `Manifest` struct has no typed `srs_version`; fallback `"2.0"`).
 - Phase 2: `export_omits_core_package_definitions` references the core field from a **view** (`fieldViews`), not a type. The RFC-038 [R13] catalog resolves a Type's `FieldAssignment.fieldId` only against the repository's own definition files, never the embedded core, so any type referencing a core field fails `validate_repository` with `SRS038-R13-DANGLING-REFERENCE` regardless of bundles (pre-existing; candidate follow-up issue). Also pre-existing: `validate_source_definition` (install's loader-strictness check) accepts a view without `$schema`, which the catalog then rejects with `SRS038-R8-SHAPE-NO-MATCH`; the test view carries `$schema`.
 - Phase 2: `load_boundary_definitions` reports an unloadable listed file as `InvalidRepositoryInitialization` naming the boundary and path (the existing generic install error variant).
+- Phase 3: rustfmt expands the struct literals, so after formatting the handler bodies are 14 lines (`cmd_package_export`) and 21 lines (`cmd_package_install`), not <= 15. Each branch is still one flag-to-struct mapping plus one service call, with no logic and no `json!`. The `(None, None)` arm is replaced by `source_dir.context(..)?` (clap already enforces it), which makes the handler shorter.
+- Phase 3: `crates/srs-cli/Cargo.toml` gains `sha2` and `hex` as dev-dependencies (both are workspace deps already in the lockfile) so the CLI test can recompute the file hash. A `package_install` golden contract test was also added, because `package-install.json` changes and had no contract test before.
 
 ## Coordination Rules
 

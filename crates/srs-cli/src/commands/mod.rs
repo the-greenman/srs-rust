@@ -1664,10 +1664,15 @@ pub enum PackageCommand {
         #[arg(long, default_value = "upstream-tracked")]
         mode: String,
     },
-    /// Install an external package directory into this repository (one-shot copy)
+    /// Install an external package directory, or a `.srspkg` Package Bundle
+    /// (`--bundle`), into this repository (one-shot copy)
     Install {
         /// Filesystem path of the source package directory (contains package.json)
-        source_dir: String,
+        #[arg(required_unless_present = "bundle", conflicts_with = "bundle")]
+        source_dir: Option<String>,
+        /// Install from a `.srspkg` Package Bundle file instead of a directory
+        #[arg(long)]
+        bundle: Option<PathBuf>,
         /// Target boundary path relative to repo root (default: packages/<package-name>)
         #[arg(long)]
         boundary: Option<String>,
@@ -1675,6 +1680,23 @@ pub enum PackageCommand {
         /// instead of skipping the conflicting definitions
         #[arg(long)]
         strict: bool,
+    },
+    /// Export a package boundary as a deterministic `.srspkg` Package Bundle
+    /// (ADR-050). The reported sha256 is `sha256:<64 lowercase hex>` of the file;
+    /// pass a fixed `--published-at` for a reproducible hash.
+    Export {
+        /// Boundary path (omit for primary package)
+        #[arg(long)]
+        selector: Option<String>,
+        /// Output file path for the `.srspkg`
+        #[arg(long)]
+        output: PathBuf,
+        /// RFC 3339 `publishedAt` (default: now); part of the bytes
+        #[arg(long)]
+        published_at: Option<String>,
+        /// Optional `publisher` text
+        #[arg(long)]
+        publisher: Option<String>,
     },
     /// Update package boundary metadata (namespace, name, or version)
     Update {
