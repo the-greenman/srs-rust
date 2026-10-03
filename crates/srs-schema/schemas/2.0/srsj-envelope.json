@@ -23,9 +23,23 @@
       "type": "object",
       "additionalProperties": true,
       "description": "Flat map keyed by each file's relative path within the repository tree (e.g. 'records/tier-2/decision-9054911c.json') to that file's parsed JSON content."
+    },
+    "readme": {
+      "$ref": "#/$defs/BundledReadme",
+      "description": "RFC-045. Optional: the repository's readme, its path relative to the repository root (the directory holding manifest.json) and its text. Beside data, not inside it: data holds parsed JSON only. Absence is never an error or a warning. If present, unpack writes it at path ([R6]) and any rewrite of the envelope, or conversion to a .srs, keeps it unchanged ([R5])."
     }
   },
   "$defs": {
+    "BundledReadme": {
+      "type": "object",
+      "required": ["path", "content"],
+      "additionalProperties": false,
+      "description": "RFC-045. A readme carried by a travelling form: the file's actual path within the artifact and its text. Optional, never required; opaque, so no implementation derives any model fact from it ([R1]). The path rules ([R4]) and the content rule ([R2]) are checked by implementations, not by this schema, so a schema-valid readme can still be invalid (diagnostic readme-invalid).",
+      "properties": {
+        "path": { "type": "string", "description": "The readme's actual path, relative to the root of the artifact this form carries, with '/' separators. Restored at this path on unpack, never over an existing file ([R6]); carried unchanged on every rewrite of the same artifact ([R5])." },
+        "content": { "type": "string", "description": "The file's bytes decoded as UTF-8 with no other change: line endings and any byte-order mark are carried as characters. Unicode scalar values only (no unpaired surrogates, [R2])." }
+      }
+    },
     "ContainerEntry": {
       "type": "object",
       "required": ["instanceId"],
