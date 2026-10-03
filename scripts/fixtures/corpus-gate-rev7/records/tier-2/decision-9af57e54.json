@@ -1,0 +1,20 @@
+{
+  "createdAt": "2026-05-31T14:55:35.213599116+00:00",
+  "fieldValues": {
+    "title": "Artist liability",
+    "context": "The back stairwell cannot be locked — it is also a fire escape route. There is no practical mechanism to insure or protect work against theft or accidental damage in an open-access space.",
+    "decision_statement": "Artists retain ownership of and responsibility for their own work. The project does not insure exhibited work. Artists are informed of this before agreeing to show.",
+    "rationale": "Artists must make their own insurance decisions. The project is not in a position to take on liability for others' work and is not a commercial operation. Informing artists upfront keeps the arrangement honest."
+  },
+  "instanceId": "9af57e54-03fb-4625-9a4c-8d2a254ff2b7",
+  "lifecycleState": "ratified",
+  "tags": [
+    "artists",
+    "finance"
+  ],
+  "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+  "typeName": "decision",
+  "typeNamespace": "governance",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T09:51:59.448271107+00:00"
+}

@@ -1,0 +1,19 @@
+{
+  "container": {
+    "containerId": "4e4c9501-2709-4220-bb47-486f6f78a937",
+    "title": "Limoma",
+    "identityInstanceId": "ad159754-2edd-4bf8-a70f-a29a617e5809",
+    "memberInstanceIds": [
+      "ad159754-2edd-4bf8-a70f-a29a617e5809",
+      "5bbf9209-1dc9-44b2-b0a3-f2192db5a879",
+      "bf64442b-1e2b-4597-95e7-a665439c7f6f"
+    ]
+  },
+  "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+  "createdAt": "2026-05-25T00:00:00Z",
+  "dataModelRevision": 7,
+  "namespace": "com.limoma",
+  "repositoryId": "8ae058dc-b52d-4e52-8e7e-969018532a04",
+  "srsVersion": "2.0-draft",
+  "title": "Limoma"
+}

@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-06-28T21:50:00.555546787+00:00",
+  "fieldValues": {
+    "title": "Trial async standups",
+    "decision_statement": "Adopt async written standups for one month, then review."
+  },
+  "instanceId": "2fba1783-f3f2-42a6-8d67-d39601e27241",
+  "lifecycleState": "draft",
+  "tags": [
+    "governance"
+  ],
+  "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+  "typeName": "decision",
+  "typeNamespace": "governance",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T09:51:59.498940634+00:00"
+}

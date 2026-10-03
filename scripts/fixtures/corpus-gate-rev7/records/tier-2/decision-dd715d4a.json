@@ -1,0 +1,21 @@
+{
+  "createdAt": "2026-05-31T14:55:35.219217083+00:00",
+  "fieldValues": {
+    "title": "Curatorial lead for Phase 1",
+    "decision_question": "Who will take the curatorial lead role for Phase 1, selecting and placing the work?",
+    "context": "The group agreed that a single named person should lead curatorial decisions during Phase 1 to avoid decisions-by-committee on what is shown. The role was discussed as a practical necessity to get the first show up.",
+    "decision_statement": "Immo Klink is the curatorial lead for Phase 1. Immo has authority to select which works are shown and to decide their placement in the space, subject to Building Authority approval of any installation method.",
+    "rationale": "Immo is the most experienced exhibitor in the group and is providing the first show's work. Having a single decision-maker for curation avoids gridlock and makes the show happen.",
+    "revisit_when": "December 2026 pilot review. The role may be rotated, shared, or redefined for Phase 2."
+  },
+  "instanceId": "dd715d4a-8640-4641-b79d-e44f728c547b",
+  "lifecycleState": "ratified",
+  "tags": [
+    "governance"
+  ],
+  "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+  "typeName": "decision",
+  "typeNamespace": "governance",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T09:51:59.481163458+00:00"
+}

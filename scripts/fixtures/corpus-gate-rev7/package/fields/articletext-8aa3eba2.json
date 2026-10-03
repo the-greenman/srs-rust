@@ -1,0 +1,15 @@
+{
+  "aiGuidance": {
+    "purpose": ""
+  },
+  "createdAt": "2026-05-26T00:00:00Z",
+  "description": "The operative text of the article.",
+  "id": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6",
+  "name": "article_text",
+  "namespace": "governance",
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
+  "version": 1
+}

@@ -1,0 +1,23 @@
+{
+  "aiGuidance": {
+    "examples": [
+      {
+        "description": "Meeting-frequency decision",
+        "output": "Monthly (predictable, low commitment); Fortnightly (more regular touchpoints); Quarterly (minimal disruption to schedules); No fixed schedule (continue ad hoc coordination)."
+      }
+    ],
+    "extraction": "Look for options mentioned, proposals floated, or alternatives explicitly compared. Include any option that received real consideration, even if dismissed quickly. Include doing nothing or no change if the group acknowledged it.",
+    "negativeGuidance": "Do not write none unless truly no alternatives were discussed — that is almost never accurate. Do not merge distinct alternatives into a single blended option.",
+    "purpose": "Records the genuine options the group weighed before settling on a direction — including doing nothing. Alternatives show the decision was a real choice, not a foregone conclusion."
+  },
+  "createdAt": "2026-05-25T00:00:00Z",
+  "description": "Genuine options the group considered, including doing nothing.",
+  "id": "636ce948-2110-57b4-a3ed-04354ec17843",
+  "name": "alternatives_considered",
+  "namespace": "governance",
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
+  "version": 1
+}

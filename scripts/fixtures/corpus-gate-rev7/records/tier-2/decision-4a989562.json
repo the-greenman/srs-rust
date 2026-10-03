@@ -1,0 +1,23 @@
+{
+  "createdAt": "2026-05-31T14:55:35.216705494+00:00",
+  "fieldValues": {
+    "title": "Phase 1 scope",
+    "decision_question": "Should Phase 1 cover the full stairwell including the main hallway, or just the back stairs and landings?",
+    "context": "The back stairs have a large amount of wall space across multiple landings. The main hallway was also discussed as a potential exhibition space, but adding it in Phase 1 would significantly increase the scope of the first experiment.",
+    "friction": "Taking on too much in Phase 1 risks overextending the group's capacity before the mounting system and workflow have been tested.",
+    "alternatives_considered": "Including the main hallway in Phase 1. Deferred to Phase 2.",
+    "decision_statement": "Phase 1 covers the back stairs and landings only. The main hallway is explicitly deferred to Phase 2, contingent on Phase 1 working well.",
+    "rationale": "Starting smaller allows the group to test the mounting system, workflow, and artist relations before expanding. The main hallway is more visible and involves more parties.",
+    "revisit_when": "December 2026 pilot review — if Phase 1 is working, bring main hallway into scope for Phase 2."
+  },
+  "instanceId": "4a989562-4a9d-4c86-a365-91bf14d55f06",
+  "lifecycleState": "ratified",
+  "tags": [
+    "governance"
+  ],
+  "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+  "typeName": "decision",
+  "typeNamespace": "governance",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T09:51:59.467829364+00:00"
+}

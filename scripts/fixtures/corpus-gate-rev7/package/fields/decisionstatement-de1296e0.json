@@ -1,0 +1,22 @@
+{
+  "aiGuidance": {
+    "examples": [
+      {
+        "description": "Meeting-frequency decision",
+        "output": "We will meet fortnightly, on Tuesdays at 18:00 UTC, starting from the first Tuesday in July."
+      }
+    ],
+    "extraction": "Look for the moment agreement is reached — signalled by so we are agreed, let us go with, or a direct statement of resolution. Extract the commitment itself, not the discussion around it. One sentence.",
+    "purpose": "States the settled commitment in one concise, active-voice sentence. This is the record of what was decided, not why."
+  },
+  "createdAt": "2026-05-25T00:00:00Z",
+  "description": "The settled commitment in one active-voice sentence.",
+  "id": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
+  "name": "decision_statement",
+  "namespace": "governance",
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
+  "version": 1
+}

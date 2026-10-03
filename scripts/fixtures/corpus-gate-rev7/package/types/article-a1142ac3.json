@@ -1,0 +1,54 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "createdAt": "2026-05-26T00:00:00Z",
+  "description": "A durable governance rule, boundary, constitutional clause, or standing commitment.",
+  "fields": [
+    {
+      "displayLabel": "Article Number",
+      "fieldId": "60be1468-01bc-5d12-9eea-628f02801893",
+      "order": 0,
+      "required": false
+    },
+    {
+      "displayLabel": "Title",
+      "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+      "order": 1,
+      "required": true
+    },
+    {
+      "displayLabel": "Article Text",
+      "fieldId": "8aa3eba2-204b-5ebd-ba7a-be0f066027d6",
+      "order": 2,
+      "required": true
+    },
+    {
+      "displayLabel": "Rationale",
+      "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+      "order": 3,
+      "required": false
+    },
+    {
+      "displayLabel": "Amendment Rule",
+      "fieldId": "1f01bc6b-39c8-58d7-b1a3-79142623fece",
+      "order": 4,
+      "required": false
+    },
+    {
+      "displayLabel": "Protected Status",
+      "fieldId": "0df40543-f72a-5471-a7f1-c85c1f1f93e4",
+      "order": 5,
+      "required": false
+    },
+    {
+      "displayLabel": "Revisit When",
+      "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+      "order": 7,
+      "required": false
+    }
+  ],
+  "id": "a1142ac3-5385-5c0e-8630-1dd3432cdf7f",
+  "lifecycleRef": "3c504040-7920-43aa-8fbd-eda21dc7c07b",
+  "name": "article",
+  "namespace": "governance",
+  "version": 1
+}

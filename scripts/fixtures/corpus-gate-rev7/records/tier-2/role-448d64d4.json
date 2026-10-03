@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-05-31T14:55:35.200802911+00:00",
+  "fieldValues": {
+    "title": "R-003 Clerk",
+    "role_holder": "Peter Brownell",
+    "authority": "May write up and maintain the decision log, Articles, and role records. May flag when a proposed action appears inconsistent with a recorded decision or article. Responsible for ensuring that Article A-006 (On ending) obligations are discharged when the time comes.",
+    "boundary": "Cannot decide what is shown or how it is installed. The Clerk's role is to maintain the record faithfully — not to determine its content. Cannot amend a decision unilaterally; can only record what the group has agreed.",
+    "source_of_authority": "Established by Article A-004 (How we make decisions)."
+  },
+  "instanceId": "448d64d4-ae82-4971-b027-3b78b9c7a90a",
+  "typeId": "e53dce11-6b83-5714-a8fe-f730edb500fa",
+  "typeName": "role",
+  "typeNamespace": "governance",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-08T21:05:18.539183633+00:00",
+  "lifecycleState": "ratified"
+}

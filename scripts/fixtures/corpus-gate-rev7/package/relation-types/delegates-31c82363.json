@@ -1,0 +1,11 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+  "id": "31c82363-2d6b-4ddd-9aa9-fb9ec7722e63",
+  "version": 1,
+  "key": "delegates",
+  "namespace": "governance",
+  "label": "Delegates",
+  "description": "Source delegates responsibility or authority to target.",
+  "category": "governance",
+  "createdAt": "2026-05-31T00:00:00Z"
+}

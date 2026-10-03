@@ -1,0 +1,28 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+  "createdAt": "2026-07-14T00:00:00Z",
+  "instanceId": "e8e5ea7e-de96-4e94-b8d5-800df14b0b9e",
+  "sections": [
+    {
+      "content": "Decision records in this package use their `tags` field as topic labels for browsing decisions by topic (user story S3: browse by date and topic).\n\nEach tag is a short noun phrase identifying the topic area of the decision (e.g. `finance`, `space`, `governance`, `artists`, `branding`). Tags are free-form strings; no closed vocabulary is enforced in this package version. Future packages may install a Vocabulary (RFC-006) to curate the tag set.\n\nMulti-topic decisions may carry multiple tags. When filtering by topic in a UI or via CLI, match on `tags` containing the chosen topic key (`srs find --tag <topic>`).",
+      "label": "Convention",
+      "name": "convention"
+    },
+    {
+      "content": "A decision about exhibition insurance -> tags: [\"artists\", \"finance\"]\nA decision about wall mounting standards -> tags: [\"space\", \"installation\"]\nA governance decision about meeting quorum -> tags: [\"governance\"]",
+      "label": "Examples",
+      "name": "examples"
+    },
+    {
+      "content": "The decision-log DocumentView hides retired decisions by default: its section source sets `excludeLifecycleStates: [\"superseded\", \"closed\", \"abandoned\"]`. A default render therefore shows only live (draft/proposed/ratified) decisions; a show-all client drops the exclusion (see `container resolve-view`, which returns `excludeLifecycleStates` and per-member `isVisibleByDefault`).",
+      "label": "Lifecycle visibility",
+      "name": "lifecycle-visibility"
+    }
+  ],
+  "tags": [
+    "convention",
+    "topic",
+    "browsing"
+  ],
+  "title": "tags-as-topic convention"
+}

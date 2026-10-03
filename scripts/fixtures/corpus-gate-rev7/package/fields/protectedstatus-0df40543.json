@@ -1,0 +1,14 @@
+{
+  "aiGuidance": {
+    "purpose": ""
+  },
+  "createdAt": "2026-05-26T00:00:00Z",
+  "description": "Whether this article is protected from ordinary amendment by the group.",
+  "id": "0df40543-f72a-5471-a7f1-c85c1f1f93e4",
+  "name": "protected_status",
+  "namespace": "governance",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

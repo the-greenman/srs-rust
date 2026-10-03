@@ -1,0 +1,13 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+  "id": "6e86ebd3-0f46-4d13-93e8-ecb195f4ecd4",
+  "version": 1,
+  "key": "supersedes",
+  "namespace": "governance",
+  "label": "Supersedes",
+  "description": "Source record replaces or invalidates target record. Source is newer; target is the older record being superseded.",
+  "category": "governance",
+  "createdAt": "2026-05-31T00:00:00Z",
+  "canonicalDirection": "source is the newer record; target is the older record being superseded",
+  "irreflexive": true
+}
