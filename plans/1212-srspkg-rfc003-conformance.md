@@ -324,15 +324,15 @@ Tick boxes, commit.
 
 #### Tasks
 
-- [ ] Create `reference_sites.rs` with `Strength`, `ReferenceSite`, `REFERENCE_SITES` (rows above), `FollowedReference`, `followed_references`; register `mod reference_sites;` in `lib.rs`.
-- [ ] Path matcher: split pattern on `/`; a literal segment indexes an object key; `*` iterates array items; `{*}` iterates object values; collect `(concrete_path, &Value)` leaves. Non-string or empty-string leaves are skipped.
-- [ ] PINNED: read the sibling `version_key` in the leaf's parent object as `u32`; absent → `version: None` (PD4, LINEAGE fallback). LINEAGE: `version: None`. Locator / NotReference rows never produce output.
-- [ ] Module doc: the table is RFC-003 Change C's reference-site table (`mechanism-64469ada`), derivation rule quoted, F1 noted, srs#873 named as the spec-side guard.
+- [x] Create `reference_sites.rs` with `Strength`, `ReferenceSite`, `REFERENCE_SITES` (rows above), `FollowedReference`, `followed_references`; register `mod reference_sites;` in `lib.rs`.
+- [x] Path matcher: split pattern on `/`; a literal segment indexes an object key; `*` iterates array items; `{*}` iterates object values; collect `(concrete_path, &Value)` leaves. Non-string or empty-string leaves are skipped.
+- [x] PINNED: read the sibling `version_key` in the leaf's parent object as `u32`; absent → `version: None` (PD4, LINEAGE fallback). LINEAGE: `version: None`. Locator / NotReference rows never produce output.
+- [x] Module doc: the table is RFC-003 Change C's reference-site table (`mechanism-64469ada`), derivation rule quoted, F1 noted, srs#873 named as the spec-side guard.
 
 #### Acceptance Criteria
 
-- [ ] Guard passes against the embedded schemas; removing any row or adding a bogus row fails it.
-- [ ] KEYED strings (relation-type keys, `typeDispatch` keys) are never returned.
+- [x] Guard passes against the embedded schemas; removing any row or adding a bogus row fails it.
+- [x] KEYED strings (relation-type keys, `typeDispatch` keys) are never returned.
 
 #### Testing
 
