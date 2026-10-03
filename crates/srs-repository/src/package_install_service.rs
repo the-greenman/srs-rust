@@ -46,7 +46,9 @@ use srs_core::extensions::import_tracking::{
 
 use crate::error::RepositoryError;
 use crate::package_service::{create_package, CreatePackageInput};
-use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
+use crate::package_types::{
+    validate_package_selector, DefinitionKind, PackageBoundary, PackageSelector,
+};
 use crate::store::{definition_kind_key, RepositoryStore};
 
 /// Definition kinds handled by install, in install order (dependencies first).
@@ -473,27 +475,51 @@ fn collect_existing(store: &dyn RepositoryStore) -> Result<ExistingIndex, Reposi
     }
 
     for boundary in store.list_package_boundaries()? {
-        let prefix = boundary.selector.as_deref().unwrap_or("package");
-        let Ok(pkg_json) = store.load_instance_json(&format!("{prefix}/package.json")) else {
-            continue;
-        };
-        for kind in INSTALL_ORDER {
-            let Some(entries) = pkg_json[definition_kind_key(kind)].as_array() else {
-                continue;
-            };
-            for entry in entries {
-                let Some(rel) = entry.as_str() else { continue };
-                let Ok(value) = store.load_instance_json(&format!("{prefix}/{rel}")) else {
-                    continue;
-                };
-                if let Some(id) = definition_id(kind, &value) {
-                    idx.insert(kind, id, definition_key(kind, &value));
-                }
+        for def in load_boundary_definitions(store, &boundary)? {
+            if let Some(id) = definition_id(def.kind, &def.value) {
+                idx.insert(def.kind, id, definition_key(def.kind, &def.value));
             }
         }
     }
 
     Ok(idx)
+}
+
+/// The ONE reader of a boundary's definitions (ADR-042 shim migration point,
+/// srs-rust#726), used by `collect_existing` and `.srspkg` export.
+/// `{prefix}/package.json` not found -> `Ok(vec![])` (a boundary without an
+/// index contributes nothing); a listed definition file that fails to load ->
+/// `Err` naming the path (ADR-039 rule). `rel_path` is the index entry.
+pub(crate) fn load_boundary_definitions(
+    store: &dyn RepositoryStore,
+    boundary: &PackageBoundary,
+) -> Result<Vec<PackageSourceDefinition>, RepositoryError> {
+    let prefix = boundary.selector.as_deref().unwrap_or("package");
+    let Ok(pkg_json) = store.load_instance_json(&format!("{prefix}/package.json")) else {
+        return Ok(vec![]);
+    };
+    let mut out = Vec::new();
+    for kind in INSTALL_ORDER {
+        let Some(entries) = pkg_json[definition_kind_key(kind)].as_array() else {
+            continue;
+        };
+        for rel in entries.iter().filter_map(|e| e.as_str()) {
+            let path = format!("{prefix}/{rel}");
+            let value = store.load_instance_json(&path).map_err(|e| {
+                RepositoryError::InvalidRepositoryInitialization {
+                    message: format!(
+                        "package boundary '{prefix}' lists {path}, which cannot be loaded: {e}"
+                    ),
+                }
+            })?;
+            out.push(PackageSourceDefinition {
+                kind,
+                rel_path: rel.to_string(),
+                value,
+            });
+        }
+    }
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------

@@ -393,9 +393,9 @@ Check every box above, update this file, commit (`feat(package): .srspkg reader 
 
 #### Tasks
 
-- [ ] Implement `load_boundary_definitions` and switch `collect_existing` to it (per boundary: `load_boundary_definitions(store, &boundary)?`, then index ids/keys as today). Behaviour change, deliberate: a boundary whose `package.json` lists a file that cannot be loaded now fails install instead of being skipped per file; such a repository already fails `load_package()`.
-- [ ] Fixture: add `themes/plain-9a1b0ca0.json` (id `9a1b0ca0-000a-4aaa-8bbb-00000000a001`) and `vocabularies/moods-9a1b0cb0.json` (id `9a1b0cb0-000b-4aaa-8bbb-00000000b001`), minimal and valid against `theme.json`/`vocabulary.json` and the srs-core `Theme`/`Vocabulary` structs; list them under `themes`/`vocabularies` in `tests/fixtures/install-package/package.json`. In `crates/srs-repository/tests/package_install.rs` change `FIXTURE_DEFINITION_COUNT` from 8 to 10 and update any per-kind and `skippedDefinitions` assertions (themes and vocabularies have no `DefinitionType`, so they are added to `skippedDefinitions`).
-- [ ] Implement `export_package_bundle`:
+- [x] Implement `load_boundary_definitions` and switch `collect_existing` to it (per boundary: `load_boundary_definitions(store, &boundary)?`, then index ids/keys as today). Behaviour change, deliberate: a boundary whose `package.json` lists a file that cannot be loaded now fails install instead of being skipped per file; such a repository already fails `load_package()`.
+- [x] Fixture: add `themes/plain-9a1b0ca0.json` (id `9a1b0ca0-000a-4aaa-8bbb-00000000a001`) and `vocabularies/moods-9a1b0cb0.json` (id `9a1b0cb0-000b-4aaa-8bbb-00000000b001`), minimal and valid against `theme.json`/`vocabulary.json` and the srs-core `Theme`/`Vocabulary` structs; list them under `themes`/`vocabularies` in `tests/fixtures/install-package/package.json`. In `crates/srs-repository/tests/package_install.rs` change `FIXTURE_DEFINITION_COUNT` from 8 to 10 and update any per-kind and `skippedDefinitions` assertions (themes and vocabularies have no `DefinitionType`, so they are added to `skippedDefinitions`).
+- [x] Implement `export_package_bundle`:
   1. Validate `published_at` (chrono RFC 3339) else `bundle-published-at-invalid`; default `Utc::now().to_rfc3339()`.
   2. `store.list_package_boundaries()`; target = selector match else `PackageNotFound`.
   3. For every boundary, `load_boundary_definitions`; index `id -> (kind, value)`, first boundary wins.
@@ -406,9 +406,9 @@ Check every box above, update this file, commit (`feat(package): .srspkg reader 
 
 #### Acceptance Criteria
 
-- [ ] [C1] closure (minus core, OD5), [C3] identity, [C4] verbatim definitions, [C5] determinism each proven by a named test below.
-- [ ] The round trip covers all ten definition kinds (the schema carries themes/blueprints/protocols since RFC-044 [R6]; srs#390's claim is stale).
-- [ ] No change to `install_package` (directory) behaviour beyond the deliberate `collect_existing` refusal above.
+- [x] [C1] closure (minus core, OD5), [C3] identity, [C4] verbatim definitions, [C5] determinism each proven by a named test below.
+- [x] The round trip covers all ten definition kinds (the schema carries themes/blueprints/protocols since RFC-044 [R6]; srs#390's claim is stale).
+- [x] No change to `install_package` (directory) behaviour beyond the deliberate `collect_existing` refusal above.
 
 #### Testing
 
@@ -602,6 +602,10 @@ Already tracked, no new issue: MCP tool (srs-rust#1153), readme in `.srspkg` (sr
 ## Deviations during implementation
 
 - Phase 1: `InvalidPackageBundle` needed no new match arm (no exhaustive `match` on `RepositoryError` in srs-cli, srs-mcp, srs-mcp-core).
+- Phase 2: `FIXTURE_DEFINITION_COUNT` was 9 (two fields), not 8; it is now 11 (all ten kinds). No `skippedDefinitions` assertion existed to update.
+- Phase 2: `schemaVersion` comes from `manifest.extra["srsVersion"]` (the `Manifest` struct has no typed `srs_version`; fallback `"2.0"`).
+- Phase 2: `export_omits_core_package_definitions` references the core field from a **view** (`fieldViews`), not a type. The RFC-038 [R13] catalog resolves a Type's `FieldAssignment.fieldId` only against the repository's own definition files, never the embedded core, so any type referencing a core field fails `validate_repository` with `SRS038-R13-DANGLING-REFERENCE` regardless of bundles (pre-existing; candidate follow-up issue). Also pre-existing: `validate_source_definition` (install's loader-strictness check) accepts a view without `$schema`, which the catalog then rejects with `SRS038-R8-SHAPE-NO-MATCH`; the test view carries `$schema`.
+- Phase 2: `load_boundary_definitions` reports an unloadable listed file as `InvalidRepositoryInitialization` naming the boundary and path (the existing generic install error variant).
 
 ## Coordination Rules
 

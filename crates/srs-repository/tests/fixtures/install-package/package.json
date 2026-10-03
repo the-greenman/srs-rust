@@ -33,5 +33,11 @@
   "protocols": [
     "protocols/entry-9a1b0c90.json"
   ],
+  "vocabularies": [
+    "vocabularies/moods-9a1b0cb0.json"
+  ],
+  "themes": [
+    "themes/plain-9a1b0ca0.json"
+  ],
   "dataModelRevision": 2
 }
