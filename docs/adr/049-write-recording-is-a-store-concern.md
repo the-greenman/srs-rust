@@ -1,6 +1,6 @@
 # ADR-049: Write recording is a store concern
 
-- **Status:** proposed (accepted on ship of #1202)
+- **Status:** accepted
 - **Date:** 2026-10-03
 - **Supersedes:** —
 - **Superseded by:** —
