@@ -447,6 +447,8 @@ pub struct SrsMcpApplication<S> {
     repository_id: String,
     write_guard: Option<guard::WriteGuard>,
     last_summary: Option<WriteSummary>,
+    /// The client handle this application last stamped (so a repeat `initialize` can replace it).
+    applied_handle: Option<String>,
 }
 
 impl<S: srs_repository::store::RepositoryStore> SrsMcpApplication<S> {
@@ -457,6 +459,7 @@ impl<S: srs_repository::store::RepositoryStore> SrsMcpApplication<S> {
             repository_id: repository_id.into(),
             write_guard: None,
             last_summary: None,
+            applied_handle: None,
         }
     }
 
@@ -481,8 +484,8 @@ impl<S: srs_repository::store::RepositoryStore> SrsMcpApplication<S> {
     /// `params.clientInfo.name` (control characters stripped, trimmed, capped at [`CLIENT_HANDLE_MAX_CHARS`]; empty or
     /// missing leaves `name` absent). Display-only (RFC-046 `Actor.name` is a hint). The
     /// host owns `kind`/`id` and any `name` it set (a non-empty string `name` wins; null or "" does not count as fixed); the client
-    /// can never change them. Runs once per session: a second `initialize` is refused.
-    fn apply_client_handle(&self, params: &Value) {
+    /// can never change them. A repeat `initialize` refreshes a handle this method set; a host-fixed `name` is never replaced.
+    fn apply_client_handle(&mut self, params: &Value) {
         let Some(Value::Object(mut actor)) = self.store.session_actor() else {
             return;
         };
@@ -490,7 +493,7 @@ impl<S: srs_repository::store::RepositoryStore> SrsMcpApplication<S> {
         if actor
             .get("name")
             .and_then(Value::as_str)
-            .is_some_and(|n| !n.is_empty())
+            .is_some_and(|n| !n.is_empty() && Some(n) != self.applied_handle.as_deref())
         {
             return;
         }
@@ -506,8 +509,13 @@ impl<S: srs_repository::store::RepositoryStore> SrsMcpApplication<S> {
             .collect();
         let handle = handle.trim_end();
         if handle.is_empty() {
+            if self.applied_handle.take().is_some() {
+                actor.remove("name");
+                self.store.set_session_actor(Some(Value::Object(actor)));
+            }
             return;
         }
+        self.applied_handle = Some(handle.to_string());
         actor.insert("name".into(), json!(handle));
         self.store.set_session_actor(Some(Value::Object(actor)));
     }
@@ -764,25 +772,13 @@ impl<A: McpApplication> McpDispatcher<A> {
         let params = object.get("params");
 
         let result = if method == "initialize" {
-            if self.initialized {
-                Err(McpApplicationError::invalid_params(
-                    "MCP session is already initialized",
-                ))
-            } else if params
-                .and_then(|value| value.get("protocolVersion"))
-                .and_then(Value::as_str)
-                != Some(MCP_PROTOCOL_VERSION)
-            {
-                Err(McpApplicationError::invalid_params(format!(
-                    "unsupported MCP protocol version; expected {MCP_PROTOCOL_VERSION}"
-                )))
-            } else {
-                let result = self.application.initialize(params.unwrap_or(&Value::Null));
-                if result.is_ok() {
-                    self.initialized = true;
-                }
-                result
+            // A repeat initialize re-runs initialization (the relay shares one session across
+            // clients); an unsupported requested version is answered with ours (MCP lifecycle).
+            let result = self.application.initialize(params.unwrap_or(&Value::Null));
+            if result.is_ok() {
+                self.initialized = true;
             }
+            result
         } else if method == "notifications/initialized" {
             if self.initialized {
                 Ok(Value::Null)
@@ -918,19 +914,19 @@ mod tests {
     }
 
     #[test]
-    fn invalid_initialize_version_does_not_open_session() {
+    fn unsupported_version_gets_ours_and_repeat_initialize_succeeds() {
         let mut dispatcher = McpDispatcher::new(EchoApplication);
-        assert_eq!(
-            dispatcher
-                .dispatch(request(
-                    json!(1),
-                    "initialize",
-                    json!({ "protocolVersion": "2024-11-05" })
-                ))
-                .unwrap()["error"]["code"],
-            -32602
-        );
-        assert!(!dispatcher.is_initialized());
+        for params in [
+            json!({ "protocolVersion": "2024-11-05" }),
+            json!({}),
+            json!({ "protocolVersion": MCP_PROTOCOL_VERSION }),
+        ] {
+            let r = dispatcher
+                .dispatch(request(json!(1), "initialize", params))
+                .unwrap();
+            assert_eq!(r["result"]["protocolVersion"], MCP_PROTOCOL_VERSION);
+            assert!(dispatcher.is_initialized());
+        }
     }
 
     #[test]

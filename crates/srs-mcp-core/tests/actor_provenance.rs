@@ -192,15 +192,29 @@ fn host_fixed_name_wins_and_client_cannot_touch_id() {
 }
 
 #[test]
-fn reinitialize_is_refused_and_leaves_the_handle() {
+fn reinitialize_refreshes_the_handle() {
     let (_t, mut d) = handle_session(json!({"kind":"ai","id":"a"}), json!({"name":"first"}));
     let r = init(
         &mut d,
-        json!({"protocolVersion": MCP_PROTOCOL_VERSION, "clientInfo":{"name":"second"}}),
+        json!({"protocolVersion": "1999-01-01", "clientInfo":{"name":"second"}}),
     )
     .unwrap();
-    assert!(r.get("error").is_some(), "{r}");
-    assert_eq!(stamped(&mut d)["name"], "first");
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(r["result"]["protocolVersion"], MCP_PROTOCOL_VERSION);
+    assert_eq!(stamped(&mut d)["name"], "second");
+}
+
+#[test]
+fn reinitialize_keeps_a_host_fixed_name() {
+    let (_t, mut d) = handle_session(
+        json!({"kind":"human","id":"u","name":"Host"}),
+        json!({"name":"first"}),
+    );
+    init(
+        &mut d,
+        json!({"protocolVersion": MCP_PROTOCOL_VERSION, "clientInfo":{"name":"second"}}),
+    );
+    assert_eq!(stamped(&mut d)["name"], "Host");
 }
 
 #[test]
