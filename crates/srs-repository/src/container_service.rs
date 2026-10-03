@@ -210,6 +210,19 @@ pub fn create_container(
         container.container_id = new_instance_id();
     }
 
+    // srs-rust#1167: create is a create, not an upsert — an id that already resolves
+    // (file-backed, or the manifest's embedded root with no file yet) is refused.
+    // Callers that mean "replace" go through `update_container`.
+    match load_container_with_embed_fallback(store, &container.container_id) {
+        Ok(_) => {
+            return Err(RepositoryError::ContainerAlreadyExists {
+                container_id: container.container_id.clone(),
+            })
+        }
+        Err(RepositoryError::ContainerNotFound { .. }) => {}
+        Err(e) => return Err(e),
+    }
+
     // Schema validation at service boundary
     let raw = serde_json::to_value(&container).map_err(|e| RepositoryError::Serialize {
         path: std::path::PathBuf::from("<stdin>"),
@@ -1413,6 +1426,59 @@ mod tests {
         assert_eq!(out.title, "Sprint 1");
         let listed = list_containers(&store, &ContainerListFilter::default()).unwrap();
         assert_eq!(listed.len(), 1);
+    }
+
+    /// srs-rust#1167: create is a create, not an upsert — a second `create_container`
+    /// call against an id that already resolves must refuse rather than silently
+    /// replacing the existing container (including its membership).
+    #[test]
+    fn create_container_refuses_existing_id() {
+        let store = make_store();
+        let c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
+        create_container(&store, c.clone()).unwrap();
+
+        let mut replacement =
+            minimal_container("550e8400-e29b-41d4-a716-446655440000", "Overwritten title");
+        replacement.member_instance_ids = Some(srs_core::types::container::entries([
+            "11111111-1111-4111-8111-111111111111",
+        ]));
+        let err = create_container(&store, replacement).unwrap_err();
+        assert!(
+            matches!(
+                &err,
+                RepositoryError::ContainerAlreadyExists { container_id }
+                    if container_id == "550e8400-e29b-41d4-a716-446655440000"
+            ),
+            "expected ContainerAlreadyExists, got {err:?}"
+        );
+
+        // The original container survives untouched.
+        let loaded = get_container(&store, "550e8400-e29b-41d4-a716-446655440000").unwrap();
+        assert_eq!(loaded.title, "Sprint 1");
+        assert_eq!(loaded.member_instance_ids, None);
+    }
+
+    /// srs-rust#1167: the same refusal applies to the manifest's embedded root
+    /// container even before any `containers/*.json` file for it exists — the id
+    /// is already claimed, so `create` must still refuse it. `update_container` is
+    /// the path for materialising the root's full definition.
+    #[test]
+    fn create_container_refuses_manifest_root_id_with_no_file() {
+        let root_id = "650e8400-e29b-41d4-a716-446655440000";
+        let store = make_store();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.container = Some(minimal_container(root_id, ""));
+        write_manifest(&store, &manifest).unwrap();
+
+        let err = create_container(&store, minimal_container(root_id, "Root")).unwrap_err();
+        assert!(
+            matches!(
+                &err,
+                RepositoryError::ContainerAlreadyExists { container_id }
+                    if container_id == root_id
+            ),
+            "expected ContainerAlreadyExists, got {err:?}"
+        );
     }
 
     #[test]
