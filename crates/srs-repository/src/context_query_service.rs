@@ -7,6 +7,7 @@ use crate::{
 };
 use relation_service::ListRelationsFilter;
 use srs_core::arrangement::OutlineEntry;
+use srs_core::types::relation_type_definition::RelationTypeCategory;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -23,6 +24,11 @@ pub struct RecordContextQuery {
     /// arrangement `entry` and `subtree` (#1134).
     #[serde(default)]
     pub container_id: Option<String>,
+    /// Drop edges whose relation type's `RelationTypeDefinition.category` is listed (#1188),
+    /// e.g. `composition` + `sequence` removes contains/precedes without naming them. Empty =
+    /// no filtering (default). Edges whose type has no installed definition are kept.
+    #[serde(default)]
+    pub exclude_relation_categories: Vec<RelationTypeCategory>,
 }
 
 /// Which end of the edge the context record sits on.
@@ -160,6 +166,7 @@ pub fn get_record_context(
             }
         })?;
 
+    let package = store.load_package()?;
     // ponytail: two full relation scans and a neighbour load per edge; add a per-id cache /
     // single pass if hub records measure slow. A self-relation appears once as out, once as in.
     let mut relations = Vec::new();
@@ -180,6 +187,11 @@ pub fn get_record_context(
         ),
     ] {
         for relation in relation_service::list_relations(store, filter)? {
+            if let Some(def) = package.resolve_relation_type(&relation.relation_type) {
+                if query.exclude_relation_categories.contains(&def.category) {
+                    continue;
+                }
+            }
             let other = match direction {
                 EdgeDirection::Out => &relation.target_id,
                 EdgeDirection::In => &relation.source_id,
@@ -267,6 +279,14 @@ mod tests {
     use std::path::PathBuf;
 
     fn make_store() -> MemoryStore {
+        make_store_with(vec![])
+    }
+
+    fn make_store_with(
+        relation_type_definitions: Vec<
+            srs_core::types::relation_type_definition::RelationTypeDefinition,
+        >,
+    ) -> MemoryStore {
         let name_field = Field {
             schema: None,
             id: "field-name-001".to_string(),
@@ -329,7 +349,7 @@ mod tests {
             version: "1.0.0".to_string(),
             fields: vec![name_field],
             record_types: vec![test_type],
-            relation_type_definitions: vec![],
+            relation_type_definitions,
             views: vec![],
             compositions: vec![],
             themes: vec![],
@@ -514,6 +534,7 @@ mod tests {
             RecordContextQuery {
                 record_id: rec.instance_id.clone(),
                 container_id: None,
+                exclude_relation_categories: vec![],
             },
         )
         .unwrap();
@@ -608,6 +629,7 @@ mod tests {
             RecordContextQuery {
                 record_id: src.instance_id.clone(),
                 container_id: None,
+                exclude_relation_categories: vec![],
             },
         )
         .unwrap();
@@ -634,6 +656,85 @@ mod tests {
             matches!(&inn.neighbour, Some(ContextInstance::Record(r)) if r.instance_id == unrelated.instance_id)
         );
         assert!(result.entry.is_none() && result.subtree.is_none());
+    }
+
+    #[test]
+    fn record_context_excludes_relation_categories() {
+        use crate::relation_service::create_relation;
+        use srs_core::types::relation::Relation;
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+        let def = |key: &str, category| RelationTypeDefinition {
+            schema: None,
+            id: format!("rtd-{key}"),
+            version: 1,
+            key: key.to_string(),
+            namespace: "com.test".to_string(),
+            label: key.to_string(),
+            description: key.to_string(),
+            category,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: None,
+            require_same_type: None,
+            status: None,
+            updated_at: None,
+            meta: None,
+        };
+        let defs = vec![
+            def("a-seq", RelationTypeCategory::Sequence),
+            def("b-assoc", RelationTypeCategory::Association),
+        ];
+        let store = make_store_with(defs.clone());
+        let mk = |n: &str| {
+            record_store::create_record(
+                &store,
+                "type-test-001",
+                1,
+                make_field_values("test-name", json!(n)),
+                None,
+                None,
+            )
+            .unwrap()
+            .instance_id
+        };
+        let (a, b, c) = (mk("A"), mk("B"), mk("C"));
+        for (ty, tgt) in [("a-seq", &b), ("b-assoc", &c)] {
+            create_relation(
+                &store,
+                Relation {
+                    created_by: None,
+                    relation_id: String::new(),
+                    relation_type: ty.to_string(),
+                    source_instance_id: a.clone(),
+                    target_instance_id: tgt.clone(),
+                    created_at: None,
+                    notes: None,
+                    source_refs: None,
+                    meta: None,
+                },
+                &defs,
+            )
+            .unwrap();
+        }
+        let ctx = |ex: Vec<RelationTypeCategory>| {
+            get_record_context(
+                &store,
+                RecordContextQuery {
+                    record_id: a.clone(),
+                    container_id: None,
+                    exclude_relation_categories: ex,
+                },
+            )
+            .unwrap()
+            .relations
+        };
+        assert_eq!(ctx(vec![]).len(), 2);
+        let kept = ctx(vec![RelationTypeCategory::Sequence]);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].relation.relation_type, "b-assoc");
     }
 
     #[test]
@@ -697,6 +798,7 @@ mod tests {
             RecordContextQuery {
                 record_id: para.instance_id.clone(),
                 container_id: None,
+                exclude_relation_categories: vec![],
             },
         )
         .unwrap();
@@ -772,6 +874,7 @@ mod tests {
                 RecordContextQuery {
                     record_id: id.clone(),
                     container_id: Some(cid.clone()),
+                    exclude_relation_categories: vec![],
                 },
             )
             .unwrap()
@@ -797,6 +900,7 @@ mod tests {
             RecordContextQuery {
                 record_id: outsider,
                 container_id: Some(cid.clone()),
+                exclude_relation_categories: vec![],
             },
         )
         .unwrap_err();
@@ -823,6 +927,7 @@ mod tests {
             RecordContextQuery {
                 record_id: rec.instance_id,
                 container_id: Some("no-such-container".into()),
+                exclude_relation_categories: vec![],
             },
         );
         assert!(err.is_err());
@@ -854,6 +959,7 @@ mod tests {
             RecordContextQuery {
                 record_id: rec.instance_id.clone(),
                 container_id: None,
+                exclude_relation_categories: vec![],
             },
         )
         .unwrap();

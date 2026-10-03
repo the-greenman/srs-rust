@@ -19,6 +19,10 @@ pub enum ContextCommand {
     Record {
         /// Record instance ID
         record_id: String,
+        /// Omit edges whose relation type has this category (repeatable), e.g.
+        /// `--exclude-category composition --exclude-category sequence` drops structural edges
+        #[arg(long = "exclude-category", value_name = "CATEGORY")]
+        exclude_category: Vec<String>,
     },
 }
 
@@ -28,7 +32,10 @@ pub fn dispatch(ctx: CliContext, cmd: ContextCommand) -> Result<String> {
             record_id,
             field_id,
         } => cmd_context_field(ctx, record_id, field_id),
-        ContextCommand::Record { record_id } => cmd_context_record(ctx, record_id),
+        ContextCommand::Record {
+            record_id,
+            exclude_category,
+        } => cmd_context_record(ctx, record_id, exclude_category),
     }
 }
 
@@ -59,7 +66,19 @@ fn cmd_context_field(ctx: CliContext, record_id: String, field_id: String) -> Re
     )
 }
 
-fn cmd_context_record(ctx: CliContext, record_id: String) -> Result<String> {
+fn cmd_context_record(
+    ctx: CliContext,
+    record_id: String,
+    exclude_category: Vec<String>,
+) -> Result<String> {
+    let exclude_relation_categories = match exclude_category
+        .iter()
+        .map(|c| c.parse())
+        .collect::<Result<Vec<_>, String>>()
+    {
+        Ok(v) => v,
+        Err(e) => return Ok(output::err("context record", vec![e])),
+    };
     with_store(
         &ctx,
         |store| match context_query_service::get_record_context(
@@ -67,6 +86,7 @@ fn cmd_context_record(ctx: CliContext, record_id: String) -> Result<String> {
             RecordContextQuery {
                 record_id: record_id.clone(),
                 container_id: ctx.container_id.clone(),
+                exclude_relation_categories,
             },
         ) {
             Ok(result) => output::serialize(

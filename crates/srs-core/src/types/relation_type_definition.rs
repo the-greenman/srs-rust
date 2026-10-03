@@ -88,6 +88,15 @@ pub enum RelationTypeCategory {
     Other,
 }
 
+impl std::str::FromStr for RelationTypeCategory {
+    type Err = String;
+    /// Parses the wire spelling (`"composition"`, `"sequence"`, ...).
+    fn from_str(s: &str) -> Result<Self, String> {
+        serde_json::from_value(serde_json::Value::String(s.to_string()))
+            .map_err(|_| format!("unknown relation category '{s}'"))
+    }
+}
+
 /// Lifecycle status of a relation type definition.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

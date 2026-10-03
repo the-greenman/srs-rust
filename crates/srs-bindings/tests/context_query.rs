@@ -163,6 +163,7 @@ fn context_record_returns_type_and_fields() {
         RecordContextQuery {
             record_id: RECORD_ID.to_string(),
             container_id: None,
+            exclude_relation_categories: vec![],
         },
     )
     .expect("get_record_context must succeed");
