@@ -62,6 +62,8 @@ pub const TOOL_CONTAINER_MEMBER_MOVE: &str = "container_member_move";
 pub const TOOL_CONTAINER_MEMBER_REPAIR: &str = "container_member_repair";
 // Issue #1156: the structured outline read
 pub const TOOL_CONTAINER_OUTLINE: &str = "container_outline";
+pub const TOOL_CONTAINER_COPY: &str = "container_copy";
+pub const TOOL_RECORD_FORK: &str = "record_fork";
 // Protocol run execution tools (#977 — follow-up to #955)
 pub const TOOL_PROTOCOL_RUN_CREATE: &str = "protocol_run_create";
 pub const TOOL_PROTOCOL_RUN_ADVANCE: &str = "protocol_run_advance";
@@ -212,6 +214,22 @@ of deriving parents or run ends from the flat entries.";
 pub const DESC_CONTAINER_MEMBER_REPAIR: &str = "Remove every outline entry whose instanceId no \
 longer resolves to an instance, promoting descendants, and report each in `removed`. Idempotent. \
 Never changes identityInstanceId or anchorInstanceId (a dangling pointer stays a validation error).";
+
+pub const DESC_CONTAINER_COPY: &str =
+    "Copy a container (a document): the new container SHARES the \
+source's member records (outline copied verbatim, childContainerIds shared), so no member record \
+is duplicated. Only the anchor (title) record is forked - a new record linked `derived-from` the \
+original - and the copy's anchor/identity/outline entry point at the fork. `title` defaults to \
+\"<title> (copy)\"; `containerId` is minted when omitted (an existing id is refused). The \
+repository root container cannot be copied. Returns `{container, forks, relations}`.";
+
+pub const DESC_RECORD_FORK: &str =
+    "Make a local copy: fork the record `instanceId` and its nested \
+children (its outline subtree in `containerId`) into new records linked `derived-from` the \
+originals, swapped into THAT container only, in place (same order and depth). Every other \
+container keeps the originals. Same type and field values; the forks are attributed to the \
+session actor. The container's anchor/identity entries cannot be forked. Returns \
+`{containerId, forks: [{originalId, forkId}], relations}`.";
 
 // Protocol run execution tool descriptions (#977 — follow-up to #955)
 
@@ -748,6 +766,23 @@ pub struct ContainerIdToolInput {
     pub container_id: String,
 }
 
+/// `container_copy`: the source container plus the optional `ContainerCopyInput` keys.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ContainerCopyToolInput {
+    pub source_container_id: String,
+    pub title: Option<String>,
+    pub container_id: Option<String>,
+}
+
+/// `record_fork`: fork `instance_id` (and its nested children) inside `container_id`.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordForkToolInput {
+    pub container_id: String,
+    pub instance_id: String,
+}
+
 // ── Protocol run shadow input structs (#977) ──────────────────────────────────
 
 /// Mirrors `protocol_run_service::CreateRunInput` field-for-field.
@@ -928,6 +963,16 @@ pub fn list_tools() -> Value {
             TOOL_CONTAINER_OUTLINE,
             DESC_CONTAINER_OUTLINE,
             input_schema::<ContainerIdToolInput>(),
+        ),
+        tool(
+            TOOL_CONTAINER_COPY,
+            DESC_CONTAINER_COPY,
+            input_schema::<ContainerCopyToolInput>(),
+        ),
+        tool(
+            TOOL_RECORD_FORK,
+            DESC_RECORD_FORK,
+            input_schema::<RecordForkToolInput>(),
         ),
         // Protocol run execution tools (#977)
         tool(
@@ -1264,6 +1309,28 @@ pub fn call_tool(
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
+        TOOL_CONTAINER_COPY => {
+            let input: ContainerCopyToolInput = parse_args(arguments)?;
+            let copy = container_service::ContainerCopyInput {
+                title: input.title,
+                container_id: input.container_id,
+            };
+            match container_service::copy_container(store, &input.source_container_id, copy) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_RECORD_FORK => {
+            let input: RecordForkToolInput = parse_args(arguments)?;
+            match srs_repository::fork_service::fork_subtree(
+                store,
+                &input.container_id,
+                &input.instance_id,
+            ) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
         // Protocol run execution tools (#977)
         TOOL_PROTOCOL_RUN_CREATE => {
             let input: ProtocolRunCreateToolInput = parse_args(arguments)?;
@@ -1507,6 +1574,8 @@ mod tests {
                 TOOL_CONTAINER_MEMBER_MOVE,
                 TOOL_CONTAINER_MEMBER_REPAIR,
                 TOOL_CONTAINER_OUTLINE,
+                TOOL_CONTAINER_COPY,
+                TOOL_RECORD_FORK,
                 TOOL_PROTOCOL_RUN_CREATE,
                 TOOL_PROTOCOL_RUN_ADVANCE,
                 TOOL_PROTOCOL_RUN_GET,

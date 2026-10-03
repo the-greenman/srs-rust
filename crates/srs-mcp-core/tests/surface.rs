@@ -63,11 +63,11 @@ fn application_reads_repository_id_from_manifest() {
 }
 
 #[test]
-fn tool_catalogue_has_all_twenty_six_tools_and_core_owns_the_schemas() {
+fn tool_catalogue_has_all_twenty_eight_tools_and_core_owns_the_schemas() {
     let (_dir, mut d) = setup();
     let listed = rpc(&mut d, "tools/list", json!({}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 26);
+    assert_eq!(tools.len(), 28);
     assert!(tools
         .iter()
         .all(|t| t["description"].is_string() && t["inputSchema"]["type"] == "object"));
@@ -621,6 +621,64 @@ mod write_guard {
             &mut d,
             "record_update",
             json!({ "instanceId": a, "fieldValues": { "body": "x" } }),
+        );
+    }
+
+    #[test]
+    fn fork_and_copy_respect_the_guard() {
+        let (_dir, mut d) = guarded();
+        let ty = "com.example.surface/para2";
+        let c = tool(&mut d, "container_create", json!({ "title": "Essay" }));
+        let cid = c["result"]["structuredContent"]["containerId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let p = create(&mut d, ty, json!({ "body": "a" }), Some(&cid));
+        // A second, unguarded container shares the paragraph.
+        let c2 = tool(&mut d, "container_create", json!({ "title": "Other" }));
+        let cid2 = c2["result"]["structuredContent"]["containerId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        srs_repository::container_service::add_member(
+            d.application().store(),
+            &cid2,
+            &p,
+            None,
+            None,
+        )
+        .unwrap();
+        guard(&mut d, json!({ "containerIds": [cid] }));
+        // Fork inside the guarded container: rejected. Inside the unguarded one: allowed.
+        assert_rejected(
+            &mut d,
+            "record_fork",
+            json!({ "containerId": cid, "instanceId": p }),
+        );
+        // (p is a member of the guarded container, so even the unguarded container's fork
+        // creates only a NEW record; the original is untouched.)
+        assert_ok(
+            &mut d,
+            "record_fork",
+            json!({ "containerId": cid2, "instanceId": p }),
+        );
+        let m2 = srs_repository::container_service::list_members(d.application().store(), &cid2)
+            .unwrap();
+        assert_ne!(m2, vec![p.clone()]);
+        let m1 =
+            srs_repository::container_service::list_members(d.application().store(), &cid).unwrap();
+        assert_eq!(m1, vec![p.clone()]);
+        // Copy of a guarded source is allowed; copy onto a guarded id is rejected.
+        let r = tool(
+            &mut d,
+            "container_copy",
+            json!({ "sourceContainerId": cid }),
+        );
+        assert_eq!(r["result"]["isError"], false, "{r}");
+        assert_rejected(
+            &mut d,
+            "container_copy",
+            json!({ "sourceContainerId": cid, "containerId": cid }),
         );
     }
 

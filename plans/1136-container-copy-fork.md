@@ -94,19 +94,19 @@ No change to `srs/docs/schema/2.0/`. No mirror work.
 #### Tasks
 
 - [x] `copy_container` + `ContainerCopyInput` (serde `deny_unknown_fields`, `mcp-schema` derive like `ContainerCreateInput`) in `crates/srs-repository/src/container_service.rs`
-- [ ] `replace_members` in the same file (in place, depth-preserving, pointer guard)
-- [ ] `crates/srs-repository/src/fork_service.rs` with `fork_subtree`, `ForkResult { container_id, forks: Vec<ForkPair>, relations }`; export in `lib.rs`
-- [ ] Explicit best-effort rollback per ADR-024 (fork: failure on Nth record and failure in replace_members; copy: failure in create_container)
-- [ ] copy_container rewrites anchor entry, anchorInstanceId, identityInstanceId (only if it named the anchor; otherwise identity stays a shared record) in the in-memory Container before create_container (replace_members refuses pointers by design)
-- [ ] Test fixture `copy-fork` built in test helpers (anchored document container with nested outline, 2nd container sharing a member)
+- [x] `replace_members` in the same file (in place, depth-preserving, pointer guard)
+- [x] `crates/srs-repository/src/fork_service.rs` with `fork_subtree`, `ForkResult { container_id, forks: Vec<ForkPair>, relations }`; export in `lib.rs`
+- [x] Explicit best-effort rollback per ADR-024 (fork: failure on Nth record and failure in replace_members; copy: failure in create_container)
+- [x] copy_container rewrites anchor entry, anchorInstanceId, identityInstanceId (only if it named the anchor; otherwise identity stays a shared record) in the in-memory Container before create_container (replace_members refuses pointers by design)
+- [x] Test fixture `copy-fork` built in test helpers (anchored document container with nested outline, 2nd container sharing a member)
 
 #### Acceptance Criteria
 
-- [ ] Copy: record count grows by exactly 1 (the anchor fork); both containers list the same non-anchor ids in the same order and depths; new container's anchor/outline entry is the fork; both containers list the same ids in the same order and depths; `containers_for_instance(member)` returns both
-- [ ] Copy of the root container refused; copy to an existing id refused
-- [ ] Fork: entry plus descendants replaced in place in the one container; other containers still hold originals; each fork has exactly one outgoing `derived-from` to its original and same `typeId@typeVersion` and `fieldValues`; lifecycle state is the type's initial state, not the original's
-- [ ] Fork stamps `createdBy` from the session actor; original's `createdBy` is not copied; a request carrying `createdBy` is `actor-supplied`
-- [ ] Forking the anchor/identity entry is refused; failure mid-run leaves no new records or relations
+- [x] Copy: record count grows by exactly 1 (the anchor fork); both containers list the same non-anchor ids in the same order and depths; new container's anchor/outline entry is the fork; both containers list the same ids in the same order and depths; `containers_for_instance(member)` returns both
+- [x] Copy of the root container refused; copy to an existing id refused
+- [x] Fork: entry plus descendants replaced in place in the one container; other containers still hold originals; each fork has exactly one outgoing `derived-from` to its original and same `typeId@typeVersion` and `fieldValues`; lifecycle state is the type's initial state, not the original's
+- [x] Fork stamps `createdBy` from the session actor; original's `createdBy` is not copied; a request carrying `createdBy` is `actor-supplied`
+- [x] Forking the anchor/identity entry is refused; failure mid-run leaves no new records or relations
 
 #### Testing
 
@@ -137,17 +137,17 @@ Mark checkboxes, commit `feat(repository): container copy + record fork services
 
 #### Tasks
 
-- [ ] CLI: `ContainerCommand::Copy`, `RecordCommand::Fork`; handlers delegate only; payload structs; `generate-schemas`
-- [ ] MCP: `container_copy`, `record_fork` tool constants, input structs (schemars), dispatch in `srs-mcp-core`; guard rule in `crates/srs-mcp-core/src/guard.rs` (`TOOL_RECORD_FORK` joins the container-extraction match; `TOOL_CONTAINER_COPY` beside container_create) with tests: fork in guarded container rejected, unguarded allowed, copy of guarded source allowed, copy to guarded id rejected; drift-guard shadow-input entries in tools.rs; update `tests/surface.rs` expected tool list
-- [ ] WASM: `copy_container`, `fork_record` in `srs-bindings`, epoch advance like `create_container`
-- [ ] Parity test (compares container outline shape, fork count, derived-from edge targets, with new ids normalised to their originals): one fixture, same request through service / CLI / MCP / WASM yields identical container and fork pairs (id-normalised)
-- [ ] Guard test: guarded container rejects `record_fork`; unguarded passes
+- [x] CLI: `ContainerCommand::Copy`, `RecordCommand::Fork`; handlers delegate only; payload structs; `generate-schemas`
+- [x] MCP: `container_copy`, `record_fork` tool constants, input structs (schemars), dispatch in `srs-mcp-core`; guard rule in `crates/srs-mcp-core/src/guard.rs` (`TOOL_RECORD_FORK` joins the container-extraction match; `TOOL_CONTAINER_COPY` beside container_create) with tests: fork in guarded container rejected, unguarded allowed, copy of guarded source allowed, copy to guarded id rejected; drift-guard shadow-input entries in tools.rs; update `tests/surface.rs` expected tool list
+- [x] WASM: `copy_container`, `fork_record` in `srs-bindings`, epoch advance like `create_container`
+- [x] Parity test (compares container outline shape, fork count, derived-from edge targets, with new ids normalised to their originals): one fixture, same request through service / CLI / MCP / WASM yields identical container and fork pairs (id-normalised)
+- [x] Guard test: guarded container rejects `record_fork`; unguarded passes
 
 #### Acceptance Criteria
 
-- [ ] `cargo test --test payload_contracts` passes with the two new schemas
-- [ ] MCP surface test lists the new tools; `srs mcp serve` and `open_mcp_session` both expose them
-- [ ] Parity test passes
+- [x] `cargo test --test payload_contracts` passes with the two new schemas
+- [x] MCP surface test lists the new tools; `srs mcp serve` and `open_mcp_session` both expose them
+- [x] Parity test passes
 
 #### Testing
 
@@ -169,14 +169,14 @@ Commit `feat(cli,mcp,wasm): container copy and record fork adapters (#1136)`. Fi
 
 ## Final Acceptance
 
-- [ ] `cargo test` passes with no failures
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] CLI output format of existing commands unchanged
-- [ ] `cargo test --test payload_contracts` passes
-- [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed)
-- [ ] Copy duplicates no member record (test-proven); fork swaps into exactly one container
-- [ ] Same semantics via CLI, MCP and WASM (parity test)
-- [ ] `repo validate` on the fixture after copy and after fork: 0 errors
+- [x] `cargo test` passes with no failures
+- [x] `cargo clippy -- -D warnings` passes
+- [x] CLI output format of existing commands unchanged
+- [x] `cargo test --test payload_contracts` passes
+- [x] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed)
+- [x] Copy duplicates no member record (test-proven); fork swaps into exactly one container
+- [x] Same semantics via CLI, MCP and WASM (parity test)
+- [x] `repo validate` on the fixture after copy and after fork: 0 errors
 
 ## Coordination Rules
 

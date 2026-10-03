@@ -1,9 +1,10 @@
 use crate::commands::{parse_type_filter, with_store, CliContext, RecordCommand, RecordTagCommand};
 use crate::output;
 use crate::payload::{
-    RecordAllowedTransitionsPayload, RecordDeletePayload, RecordGetAttachmentsPayload,
-    RecordGetPayload, RecordListPayload, RecordPayload, RecordSuccessorPayload,
-    RecordTagAddPayload, RecordTagListPayload, RecordTransitionPayload, RecordValidatePayload,
+    RecordAllowedTransitionsPayload, RecordDeletePayload, RecordForkPayload,
+    RecordGetAttachmentsPayload, RecordGetPayload, RecordListPayload, RecordPayload,
+    RecordSuccessorPayload, RecordTagAddPayload, RecordTagListPayload, RecordTransitionPayload,
+    RecordValidatePayload,
 };
 use anyhow::Result;
 use srs_repository::attachment_service::{get_record_attachments, GetRecordAttachmentsInput};
@@ -39,6 +40,7 @@ pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
         } => cmd_record_delete(ctx, id, cascade),
         RecordCommand::Transition { id } => cmd_record_transition(ctx, id),
         RecordCommand::Successor { id } => cmd_record_successor(ctx, id),
+        RecordCommand::Fork { id, container } => cmd_record_fork(ctx, id, container),
         RecordCommand::AllowedTransitions { id } => cmd_record_allowed_transitions(ctx, id),
         RecordCommand::Attachments { id } => cmd_record_attachments(ctx, id),
         RecordCommand::Tag(tag_cmd) => dispatch_tag(ctx, tag_cmd),
@@ -248,6 +250,24 @@ fn cmd_record_successor(ctx: CliContext, id: String) -> Result<String> {
             },
         ),
         Err(e) => Ok(output::err("record successor", vec![e.to_string()])),
+    }
+}
+
+fn cmd_record_fork(ctx: CliContext, id: String, container: String) -> Result<String> {
+    match with_store(&ctx, |store| {
+        Ok(srs_repository::fork_service::fork_subtree(
+            store, &container, &id,
+        )?)
+    }) {
+        Ok(r) => output::serialize(
+            "record fork",
+            RecordForkPayload {
+                container_id: r.container_id,
+                forks: r.forks,
+                relations: r.relations,
+            },
+        ),
+        Err(e) => Ok(output::err("record fork", vec![e.to_string()])),
     }
 }
 

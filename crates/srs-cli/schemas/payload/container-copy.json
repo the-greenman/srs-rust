@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ContainerCopyPayload",
+  "description": "Payload for `container copy` (srs-rust#1136): the new container plus the anchor fork.",
+  "type": "object",
+  "required": [
+    "container",
+    "forks",
+    "relations"
+  ],
+  "properties": {
+    "container": true,
+    "forks": {
+      "description": "`[{ originalId, forkId }]` — the anchor fork (empty when the source had no anchor)."
+    },
+    "relations": true
+  }
+}

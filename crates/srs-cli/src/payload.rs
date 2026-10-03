@@ -567,6 +567,30 @@ pub struct ContainerListPayload {
     pub containers: Vec<ContainerSummary>,
 }
 
+/// Payload for `container copy` (srs-rust#1136): the new container plus the anchor fork.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerCopyPayload {
+    #[schemars(with = "serde_json::Value")]
+    pub container: Container,
+    /// `[{ originalId, forkId }]` — the anchor fork (empty when the source had no anchor).
+    #[schemars(with = "serde_json::Value")]
+    pub forks: Vec<srs_repository::fork_service::ForkPair>,
+    #[schemars(with = "serde_json::Value")]
+    pub relations: Vec<Relation>,
+}
+
+/// Payload for `record fork` (srs-rust#1136).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordForkPayload {
+    pub container_id: String,
+    #[schemars(with = "serde_json::Value")]
+    pub forks: Vec<srs_repository::fork_service::ForkPair>,
+    #[schemars(with = "serde_json::Value")]
+    pub relations: Vec<Relation>,
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerPayload {

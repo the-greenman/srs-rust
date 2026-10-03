@@ -484,6 +484,16 @@ pub enum ContainerCommand {
     Get { container_id: String },
     /// Update a container (reads partial JSON patch from stdin)
     Update { container_id: String },
+    /// Copy a container: shares the member records, forks only the anchor (derived-from)
+    Copy {
+        container_id: String,
+        /// Title of the copy (default: "<title> (copy)")
+        #[arg(long)]
+        title: Option<String>,
+        /// Id of the copy (default: minted; an existing id is refused)
+        #[arg(long = "new-id")]
+        new_container_id: Option<String>,
+    },
     /// Delete a container by ID
     Delete { container_id: String },
     /// Member instance management
@@ -1320,6 +1330,14 @@ pub enum RecordCommand {
         /// Record instance ID of the predecessor
         #[arg(long)]
         id: String,
+    },
+    /// Fork a record and its nested children into ONE container (derived-from the originals)
+    Fork {
+        /// Record instance ID at the root of the arrangement subtree to fork
+        id: String,
+        /// The container the forks are swapped into (all other containers keep the originals)
+        #[arg(long)]
+        container: String,
     },
     /// Query allowed lifecycle transitions for a record (ext:lifecycle)
     AllowedTransitions {
