@@ -26,7 +26,8 @@ srs://<repositoryId>/tree is the recursive contains-tree from every root, and \
 srs://<repositoryId>/tree/{instanceId} the subtree under one instance — descend from a \
 navigation section or container member by its instanceId; container members also carry \
 sectionContainerId when they root a sub-container. Read individual records via the \
-srs://<repositoryId>/record/{instanceId} resource template, containers via \
+srs://<repositoryId>/record/{instanceId} resource template (or everything about one record, relations and \
+arrangement subtree included, via srs://<repositoryId>/context/{containerId}/{instanceId}), containers via \
 srs://<repositoryId>/container/<containerId>, and rendered document views via \
 srs://<repositoryId>/view/<compositionId>. Type schemas live at \
 srs://<repositoryId>/type/{typeId} (also via the type_schema tool): read one before \
@@ -98,6 +99,7 @@ pub mod srs_resources {
     use srs_repository::container_view_service::{
         resolve_container_view, ResolveContainerViewInput,
     };
+    use srs_repository::context_query_service::{get_record_context, RecordContextQuery};
     use srs_repository::error::RepositoryError;
     use srs_repository::package_service::{list_types_filtered, TypeListFilter};
     use srs_repository::protocol_service::{
@@ -244,6 +246,21 @@ pub mod srs_resources {
             uri::SrsUri::AgentIndex => {
                 json_contents(&build_agent_index(store).map_err(service_err)?, raw_uri)
             }
+            // `srs context record` (+ global `--container`) as one read (#1134).
+            uri::SrsUri::Context {
+                container_id,
+                instance_id,
+            } => json_contents(
+                &get_record_context(
+                    store,
+                    RecordContextQuery {
+                        record_id: instance_id,
+                        container_id,
+                    },
+                )
+                .map_err(service_err)?,
+                raw_uri,
+            ),
             // `Ok(None)` is not a service error, so the not-found text is adapter-authored.
             uri::SrsUri::Record(id) => match get_record_by_id(store, &id).map_err(service_err)? {
                 None => Err(not_found()),
@@ -321,6 +338,13 @@ pub mod srs_resources {
                 "name": "protocol",
                 "title": "Protocol definition by protocol id",
                 "description": "A Protocol definition (same shape as `srs protocol get`) plus its stages sorted by order — the dependsOn walk an agent follows.",
+                "mimeType": MIME_JSON
+            },
+            {
+                "uriTemplate": uri::context_template(repository_id),
+                "name": "context",
+                "title": "Record context in a container",
+                "description": "Everything about one record in one read: field values, every relation in both directions with the other endpoint inline (comments, notes, sources), and its arrangement subtree in the container. Drop the containerId segment (srs://<repositoryId>/context/{instanceId}) for the record and its relations only.",
                 "mimeType": MIME_JSON
             },
             {

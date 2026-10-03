@@ -3041,6 +3041,23 @@ $SRS_BIN repo validate --repo "$SCRATCH" --pretty
 
 ---
 
+### S48 — An agent reads everything about one paragraph in one call (`srs context record --container`, #1134)
+
+**Intention.** Before enriching a paragraph, an agent needs the paragraph, its comments and attached notes, and the paragraphs nested under it, without stitching several reads together.
+
+**CLI surface.** `srs context record <id>` (both-direction relations, neighbour inline) and `srs context record <id> --container <cid>` (adds `entry` and `subtree`); MCP resource `srs://<repoId>/context/<cid>/<id>`.
+
+**Steps.** Create a type with one string field, three records nested in a container (depth 0/1/2), a comment record and a note each related to the first with `derived-from`, plus one outbound `depends-on`. Then:
+
+```bash
+srs --repo $REPO context record $P                    # relations: out depends-on, in derived-from (record), in derived-from (note)
+srs --repo $REPO context record $P --container $CID   # entry depth 0, subtree = the two nested records
+srs --repo $REPO context record $COMMENT --container $CID   # error: not a member of container
+srs --repo $REPO repo validate                        # 0 errors
+```
+
+**Done when.** The three edges carry `direction` and a `neighbour` of kind `record`/`note`, `subtree` lists only descendants in outline order, and the non-member case is an error envelope.
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -3103,7 +3120,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
 | `registry` (ext:registry — `registry list`, `registry get`) | S25; WASM free functions (`parse_registry`, `list_registry_entries`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#244) |
 | `federation` (ext:federation) | _removed — srs decision 4f1e12e5 + owner disposition srs-rust#878 (2026-09-01); return is committed, see the spec roadmap's federation entry; S26 retired with it_ |
-| `context` (ext:addressability — `context field`, `context record`) | S27 (historical — `context revision`/revision-tracing removed srs-rust#917); WASM bindings (`context_field`, `context_record` on `SrsRepository`) verified via native integration tests in `crates/srs-bindings/tests/context_query.rs` (#251) |
+| `context` (ext:addressability — `context field`, `context record`) | S48 (`context record` both-direction relations + `--container` subtree, #1134); S27 (historical — `context revision`/revision-tracing removed srs-rust#917); WASM bindings (`context_field`, `context_record` on `SrsRepository`) verified via native integration tests in `crates/srs-bindings/tests/context_query.rs` (#251) |
 | `package` | CLI: covered implicitly by field/type creation in S2; **`srs package install`/`srs package import`/`srs package imports`** end-to-end in S29 (#246); WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
 | `attachment list` | S31 |
 | `attachment add` | S32 |

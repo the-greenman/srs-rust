@@ -7,7 +7,7 @@
       "title": "Empty Governance Document"
     },
     "createdAt": "2026-01-01T00:00:00Z",
-    "dataModelRevision": 8,
+    "dataModelRevision": 9,
     "description": "An empty governance document: the canonical MuDemocracy governance package installed with zero records, ready for a clerk to capture their first decision.",
     "meta": {},
     "namespace": "com.mudemocracy.governance",
