@@ -65,9 +65,10 @@ fn bring_forward(v: &mut Value, rev: u64) -> Result<Vec<String>, RepositoryError
             return Err(refuse(
                 "bundle-migration-step-missing",
                 format!(
-                    "bundle declares dataModelRevision {rev} (absent = 0); data-model step \
+                    "bundle declares dataModelRevision {rev}{}; data-model step \
                      {r} -> {} ({id}) has no bundle-form transformer; this srs reads bundles \
                      from revision {}; re-export it with a current srs",
+                    if rev == 0 { " (absent = 0)" } else { "" },
                     r + 1,
                     reader_floor()
                 ),

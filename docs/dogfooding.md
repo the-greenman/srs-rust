@@ -3058,13 +3058,13 @@ srs --repo $REPO repo validate                        # 0 errors
 
 **Done when.** The three edges carry `direction` and a `neighbour` of kind `record`/`note`, `subtree` lists only descendants in outline order, and the non-member case is an error envelope.
 
-### S49 — Publish a package as a `.srspkg` and install it into a fresh repository (`srs package export` / `srs package install --bundle`, #632/#690/#663)
+### S49 — Publish a package as a `.srspkg` and install it into a fresh repository (`srs package export` / `srs package install --bundle`, #632/#690/#663, RFC-003 Rev 10 #1212)
 
-**Intention.** *"I author the essay workflow's package. I want to publish it as one pinned, verifiable file so that a writer's brand-new repository (or srs-web, in the browser) can install exactly what I shipped. A rebuild of the same package must hash the same, so the pin stays valid."*
+**Intention.** *"I author the essay workflow's package. I want to publish it as one pinned, verifiable file so that a writer's brand-new repository (or srs-web, in the browser) can install exactly what I shipped. A rebuild of the same package must hash the same, so the pin stays valid. And a package that builds on mine must say what it depends on, so whoever installs it can tell what else they need."*
 
-**Capabilities exercised.** RFC-003 Change C Package Bundle (`.srspkg`, ADR-050): whole-boundary export with closure over other boundaries (core omitted), byte-deterministic writer (sorted keys and ids, fixed `publishedAt`), `sha256:<hex>` checksum over the file bytes; one store-free reader feeding the same install core as a directory install (skip identical UUIDs, import records); RFC-043 pre-load transformer; coded refusals (`InvalidPackageBundle`).
+**Capabilities exercised.** RFC-003 Revision 10 Package Bundle (`.srspkg`, ADR-050 and its #1212 amendment): whole-boundary export whose closure follows the typed reference-site table (PINNED and LINEAGE references only; KEYED, LOCATOR and provenance never); `dependencyRefs` listing every reached definition (own, inlined and core; core listed, never carried); `mode: "bundled"` (carries the closure) and `mode: "standalone"` (carries only the package's own definitions); `dataModelRevision` = the repository's own stamp; byte-deterministic writer (sorted keys, definitions by id then version, fixed `publishedAt`), `sha256:<hex>` over the file bytes; one store-free reader that brings an older bundle forward step by step through the migration registry's bundle forms or refuses naming the missing step ([C6]), feeding the same install core as a directory install; coded refusals (`InvalidPackageBundle`).
 
-**CLI surface.** `package export --selector --output --published-at --publisher`, `package install --bundle`, `package imports`, `package list`, `type list`, `repo validate`. WASM: `export_package_bundle` / `install_package_bundle` on `SrsRepository` call the same services (native coverage in `crates/srs-bindings/tests/package_bundle.rs`).
+**CLI surface.** `package export --selector --output --published-at --publisher --mode --homepage`, `package install --bundle`, `package create`, `type create --package`, `field list`, `package imports`, `package list`, `type list`, `repo validate`. WASM: `export_package_bundle` (input JSON `mode`) / `install_package_bundle` on `SrsRepository` call the same services (native coverage in `crates/srs-bindings/tests/package_bundle.rs`).
 
 **Steps.** The source is the real muDemocracy essay package (read-only), installed into an author's repository so it has a boundary to export.
 
@@ -3076,7 +3076,7 @@ WRITER=/tmp/dogfood-s49-writer
 rm -rf /tmp/dogfood-s49-*
 
 # Author: install the essay package, then publish it twice with a fixed publishedAt.
-$SRS repo create --repo $AUTHOR --namespace com.example.author
+$SRS repo create --repo $AUTHOR --namespace com.example.author > /dev/null
 $SRS package install "$ESSAY" --repo $AUTHOR | jq -c '.payload | {boundaryPath, installed}'
                                                   # {"boundaryPath":"packages/essay","installed":17}
 for f in essay essay-again; do
@@ -3084,13 +3084,18 @@ for f in essay essay-again; do
     --published-at 2026-10-03T00:00:00Z --publisher "muDemocracy workflow authors" \
     --repo $AUTHOR > /tmp/dogfood-s49-$f.json
 done
-jq -c '.payload | {sha256, byteLength, definitionCount, inlined, dataModelRevision}' /tmp/dogfood-s49-essay.json
-                                                  # definitionCount 17, inlined [], dataModelRevision 9
+jq -c '.payload | {sha256, byteLength, definitionCount, dependencyRefCount, inlined, mode, dataModelRevision, notes}' \
+  /tmp/dogfood-s49-essay.json
+            # definitionCount 17, dependencyRefCount 10, inlined [], mode "bundled", dataModelRevision 9 (the
+            # author repository's own stamp), notes []
+jq -c '[.dependencyRefs[].definitionType] | group_by(.) | map({(.[0]): length}) | add' /tmp/dogfood-s49-essay.srspkg
+            # every Field, Type and View the essay's definitions reference, listed (RFC-003 [C1])
 cmp /tmp/dogfood-s49-essay.srspkg /tmp/dogfood-s49-essay-again.srspkg && echo IDENTICAL
 echo "sha256:$(sha256sum /tmp/dogfood-s49-essay.srspkg | cut -d' ' -f1)"   # equals payload.sha256
+jq -r .payload.sha256 /tmp/dogfood-s49-essay.json
 
 # Writer: a fresh repository installs the pinned bundle.
-$SRS repo create --repo $WRITER --namespace com.example.writer
+$SRS repo create --repo $WRITER --namespace com.example.writer > /dev/null
 $SRS package install --bundle /tmp/dogfood-s49-essay.srspkg --repo $WRITER \
   | jq -c '.payload | {boundaryPath, installed, skippedIdentical, conflicts, notes}'
                                                   # installed 17, skippedIdentical 0, notes []
@@ -3110,24 +3115,88 @@ $SRS package export --selector packages/essay --output /tmp/dogfood-s49-reexport
 cmp /tmp/dogfood-s49-essay.srspkg /tmp/dogfood-s49-reexport.srspkg && echo REEXPORT_IDENTICAL
 ```
 
-**Negative case.** Each is an `ok: false` error envelope with a coded diagnostic, and nothing is written:
+**Standalone and dependencies.** The essay package references nothing outside itself, so its standalone export carries the same definitions. A second package that builds on it shows the difference:
 
 ```bash
-$SRS repo create --repo /tmp/dogfood-s49-neg --namespace com.example.neg
-jq '.dataModelRevision = 10' /tmp/dogfood-s49-essay.srspkg > /tmp/dogfood-s49-rev10.srspkg
-$SRS package install --bundle /tmp/dogfood-s49-rev10.srspkg --repo /tmp/dogfood-s49-neg
-          # "bundle-revision-too-new: bundle declares dataModelRevision 10; this srs supports up to 9; upgrade srs"
-jq '.readme = {"path": "README.md", "content": "# Essay\n"}' /tmp/dogfood-s49-essay.srspkg > /tmp/dogfood-s49-readme.srspkg
-$SRS package install --bundle /tmp/dogfood-s49-readme.srspkg --repo /tmp/dogfood-s49-neg
-          # "bundle-readme-unsupported: ... (RFC-045, srs-rust#1164) ..."
-$SRS package export --selector packages/essay --output /tmp/dogfood-s49-bad.srspkg \
-  --published-at yesterday --repo $AUTHOR      # "bundle-published-at-invalid: ..."
-$SRS package list --repo /tmp/dogfood-s49-neg | jq -c '[.payload.packages[].boundaryPath]'   # [null]: nothing installed
+# A reviews package that builds on the essay: its Type uses the essay's `title` Field.
+TITLE=$($SRS field list --repo $AUTHOR \
+  | jq -r '.payload.fields[] | select(.namespace=="com.mudemocracy.essay" and .name=="title") | .id')
+$SRS package create --id 5e5e0000-0000-4000-8000-00000000a001 --namespace com.example.reviews \
+  --name reviews --path packages/reviews --repo $AUTHOR | jq -c '{ok}'
+jq -n --arg f "$TITLE" '{namespace: "com.example.reviews", name: "review", version: 1,
+    description: "A review of an essay.", fields: [{fieldId: $f, order: 0, required: true}]}' \
+  | $SRS type create --package packages/reviews --repo $AUTHOR | jq -c '{ok}'
+for m in bundled standalone; do
+  $SRS package export --selector packages/reviews --mode $m --output /tmp/dogfood-s49-reviews-$m.srspkg \
+    --published-at 2026-10-03T00:00:00Z --repo $AUTHOR \
+    | jq -c '.payload | {mode, definitionCount, dependencyRefCount, inlined}'
+done
+  # bundled:    definitionCount 2, dependencyRefCount 1, inlined [<title id>]  (the essay Field is carried)
+  # standalone: definitionCount 1, dependencyRefCount 1, inlined []            (listed, not carried)
+jq -c '[.dependencyRefs[] | {name, definitionType}], [(.fields // [])[].name]' /tmp/dogfood-s49-reviews-standalone.srspkg
+  # [{"name":"title","definitionType":"field"}] and []
+
+# Standalone into a repository that already has its dependency (the writer has the essay): clean.
+$SRS package install --bundle /tmp/dogfood-s49-reviews-standalone.srspkg --repo $WRITER \
+  | jq -c '.payload | {boundaryPath, installed, notes}'      # packages/reviews, installed 1, notes []
+$SRS repo validate --repo $WRITER | jq -c '.payload.summary' # errors 0
+
+# Standalone into an empty repository: install does not check dependencyRefs (RFC-003 adds no
+# reader rule; spec question D4), so it installs, and the dangling Type fieldId is [R13]-fatal.
+$SRS repo create --repo /tmp/dogfood-s49-empty --namespace com.example.empty > /dev/null
+$SRS package install --bundle /tmp/dogfood-s49-reviews-standalone.srspkg --repo /tmp/dogfood-s49-empty \
+  | jq -c '{ok, installed: .payload.installed}'              # {"ok":true,"installed":1}
+$SRS repo validate --repo /tmp/dogfood-s49-empty | jq -c '{ok, diagnostics: [.diagnostics[] | .[0:110]]}'
+  # ok false; "...SRS038-R13-DANGLING-REFERENCE: FieldAssignment.fieldId '<title id>' resolves to nothing..."
 ```
 
-**Done when.** Both exports are byte-identical and `payload.sha256` equals `sha256:` + `sha256sum` of the file; the fresh repository installs all 17 definitions, a reinstall skips all 17 as identical, every tracked import is `clean`, the essay types are listed, `repo validate` reports 0 errors, and the writer's re-export is byte-identical to the author's file; each negative case is a coded error envelope and leaves the target untouched.
+**Negative case.** Each refusal is an `ok: false` error envelope with a coded diagnostic, and nothing is written. The block also pins the positive [C6] edge (revision 8 is re-stamped) and the below-floor export note:
+
+```bash
+$SRS repo create --repo /tmp/dogfood-s49-neg --namespace com.example.neg > /dev/null
+neg() { $SRS package install --bundle "$1" --repo /tmp/dogfood-s49-neg | jq -c '{ok, d: .diagnostics}'; }
+jq '.dataModelRevision = 10' /tmp/dogfood-s49-essay.srspkg > /tmp/dogfood-s49-rev10.srspkg
+neg /tmp/dogfood-s49-rev10.srspkg
+          # "bundle-revision-too-new: bundle declares dataModelRevision 10; this srs supports up to 9; upgrade srs"
+jq '.dataModelRevision = 6' /tmp/dogfood-s49-essay.srspkg > /tmp/dogfood-s49-rev6.srspkg
+neg /tmp/dogfood-s49-rev6.srspkg
+          # "bundle-migration-step-missing: bundle declares dataModelRevision 6; data-model step 6 -> 7 (discovery-query-cutover) has no bundle-form
+          #  transformer; this srs reads bundles from revision 7; re-export it with a current srs"   (RFC-003 [C6])
+jq 'del(.dataModelRevision)' /tmp/dogfood-s49-essay.srspkg > /tmp/dogfood-s49-unstamped.srspkg
+neg /tmp/dogfood-s49-unstamped.srspkg
+          # "bundle-migration-step-missing: bundle declares dataModelRevision 0 (absent = 0); ... step 0 -> 1 (field-type) ..."
+jq '.readme = {"path": "README.md", "content": "# Essay\n"}' /tmp/dogfood-s49-essay.srspkg > /tmp/dogfood-s49-readme.srspkg
+neg /tmp/dogfood-s49-readme.srspkg
+          # "bundle-readme-unsupported: ... (RFC-045, srs-rust#1164) ..."
+$SRS package export --selector packages/essay --output /tmp/dogfood-s49-bad.srspkg \
+  --published-at yesterday --repo $AUTHOR | jq -c '{ok, d: .diagnostics}'   # "bundle-published-at-invalid: ..."
+$SRS package export --selector packages/essay --mode bogus --output /tmp/dogfood-s49-bad.srspkg \
+  --repo $AUTHOR 2>&1 | head -1                                             # clap: invalid value 'bogus' for '--mode <MODE>'
+$SRS package list --repo /tmp/dogfood-s49-neg | jq -c '[.payload.packages[].boundaryPath]'   # [null]: nothing installed
+
+# Positive [C6] edge: a revision-8 bundle is re-stamped on read and installs.
+jq '.dataModelRevision = 8' /tmp/dogfood-s49-essay.srspkg > /tmp/dogfood-s49-rev8.srspkg
+$SRS repo create --repo /tmp/dogfood-s49-rev8repo --namespace com.example.rev8 > /dev/null
+$SRS package install --bundle /tmp/dogfood-s49-rev8.srspkg --repo /tmp/dogfood-s49-rev8repo \
+  | jq -c '{ok, installed: .payload.installed, notes: .payload.notes}'      # ok, installed 17, notes []
+$SRS repo validate --repo /tmp/dogfood-s49-rev8repo | jq -c '.payload.summary'   # errors 0
+
+# Export from a repository below the reader floor: allowed, with a note (PD11). No CLI writes an
+# older stamp, so a copy of the author repository is stamped 6 to stand in for an unmigrated one.
+cp -r $AUTHOR /tmp/dogfood-s49-old
+jq '.dataModelRevision = 6' /tmp/dogfood-s49-old/manifest.json > /tmp/dogfood-s49-m.json \
+  && mv /tmp/dogfood-s49-m.json /tmp/dogfood-s49-old/manifest.json
+$SRS package export --selector packages/essay --output /tmp/dogfood-s49-old.srspkg \
+  --repo /tmp/dogfood-s49-old | jq -c '.payload | {dataModelRevision, notes}'
+          # dataModelRevision 6, notes ["bundle-below-reader-floor: repository dataModelRevision 6; readers at
+          #  revision 9 refuse bundles below 7; migrate the repository first (srs repo apply-migration)"]
+```
+
+**Done when.** Both exports are byte-identical and `payload.sha256` equals `sha256:` + `sha256sum` of the file; `dependencyRefCount` is non-zero and `dataModelRevision` is the author repository's stamp; the fresh repository installs all 17 definitions, a reinstall skips all 17 as identical, every tracked import is `clean`, the essay types are listed, `repo validate` reports 0 errors, and the writer's re-export is byte-identical to the author's file; the dependent package's bundled export carries the essay Field and its standalone export only lists it; the standalone bundle validates clean in a repository that has the essay and leaves an [R13] dangling reference in one that does not; each negative case is a coded error envelope and leaves the target untouched; a revision-8 bundle installs; a below-floor export carries the `bundle-below-reader-floor` note.
 
 **Verified 2026-10-03 (#663, branch binary).** All steps confirmed against the muDemocracy essay package (8 fields, 4 types, 3 relation types, 1 view, 1 composition): sha256 `sha256:822ae895...83764` (15080 bytes) for both exports, reinstall `skippedIdentical: 17`, 16 import records `clean` (compositions have no import-record list), writer `repo validate` 0 errors, writer re-export byte-identical. Negative cases: `bundle-revision-too-new`, `bundle-readme-unsupported`, `bundle-published-at-invalid`, and clap's refusal of `<source_dir>` together with `--bundle` (exit 2).
+
+**Verified 2026-10-03 (#1212, RFC-003 Rev 10, branch binary).** Every block above run as written in one shell, in order (`ESSAY` set to the absolute essay path): sha256 `sha256:ce1640fb...08420f20` (16989 bytes) for both exports, `dependencyRefCount` 10 (8 field, 1 type, 1 view), `mode` `bundled`, `dataModelRevision` 9, `notes` `[]`; reinstall `skippedIdentical: 17`; imports `["clean"]`; writer `repo validate` 0 errors; re-export identical. Reviews package: bundled 2 definitions, 1 dependencyRef, the essay `title` Field inlined; standalone 1 definition, 1 dependencyRef, nothing inlined; standalone into the writer: installed 1, 0 errors; into an empty repository: installed 1, then `repo validate` `ok: false` naming `SRS038-R13-DANGLING-REFERENCE` for the `title` Field id (spec question D4). Negatives: `bundle-revision-too-new` (10); `bundle-migration-step-missing` naming `6 -> 7 (discovery-query-cutover)` and, unstamped, `0 -> 1 (field-type)`; `bundle-readme-unsupported`; `bundle-published-at-invalid`; clap `invalid value 'bogus' for '--mode <MODE>'`; nothing installed. Revision-8 bundle: installed 17, 0 errors. Below-floor export: `dataModelRevision` 6 with the `bundle-below-reader-floor` note.
 
 ## Coverage matrix
 
@@ -3192,7 +3261,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `registry` (ext:registry — `registry list`, `registry get`) | S25; WASM free functions (`parse_registry`, `list_registry_entries`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#244) |
 | `federation` (ext:federation) | _removed — srs decision 4f1e12e5 + owner disposition srs-rust#878 (2026-09-01); return is committed, see the spec roadmap's federation entry; S26 retired with it_ |
 | `context` (ext:addressability — `context field`, `context record`) | S48 (`context record` both-direction relations + `--container` subtree, #1134); S27 (historical — `context revision`/revision-tracing removed srs-rust#917); WASM bindings (`context_field`, `context_record` on `SrsRepository`) verified via native integration tests in `crates/srs-bindings/tests/context_query.rs` (#251) |
-| `package` | CLI: covered implicitly by field/type creation in S2; **`srs package install`/`srs package import`/`srs package imports`** end-to-end in S29 (#246); WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330); **`srs package export` / `srs package install --bundle`** (`.srspkg`, ADR-050) in S49 (#632/#690); WASM `export_package_bundle` / `install_package_bundle` via `crates/srs-bindings/tests/package_bundle.rs` (#663) |
+| `package` | CLI: covered implicitly by field/type creation in S2; **`srs package install`/`srs package import`/`srs package imports`** end-to-end in S29 (#246); WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330); **`srs package export` / `srs package install --bundle`** (`.srspkg`, ADR-050) in S49 (#632/#690); RFC-003 Rev 10 (#1212): `--mode bundled|standalone`, `--homepage`, `dependencyRefs`/`dependencyRefCount`, repository-stamped `dataModelRevision`, the [C6] reader step chain (`bundle-migration-step-missing`), the below-floor export note and the standalone-without-dependencies [R13] consequence, all in S49; WASM `export_package_bundle` / `install_package_bundle` via `crates/srs-bindings/tests/package_bundle.rs` (#663) |
 | `attachment list` | S31 |
 | `attachment add` | S32 |
 | `attachment link` | S34 (#283); service-layer tests in `attachment_service.rs` (MemoryStore + FileStore). WASM binding is a follow-up. |
