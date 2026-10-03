@@ -224,7 +224,7 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub pretty: bool,
 
-    /// Container scope: constrains list/create/delete to this container's membership
+    /// Container scope: constrains list/create/delete to this container's membership; on `context record` it adds the record's arrangement subtree in this container
     #[arg(long = "container", global = true)]
     pub container_id: Option<String>,
 

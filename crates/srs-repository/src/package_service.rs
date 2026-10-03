@@ -972,6 +972,14 @@ pub fn delete_relation_type(
 }
 
 /// Find the repo-root-relative path and owner for a relation type definition by its ID.
+///
+/// `PackageBoundary` only carries `field_paths`/`type_paths`/`blueprint_paths`/
+/// `protocol_paths` — RelationType (like View, Composition, Lifecycle,
+/// Vocabulary) is resolved by scanning the owner's `package.json`
+/// `relationTypes` array directly (mirrors
+/// `lifecycle_service::find_lifecycle_path`/`view_service::find_view_path`),
+/// not `PackageBoundary.relation_type_paths`, which `MemoryStore` never
+/// populates.
 pub(crate) fn find_relation_type_path(
     store: &dyn RepositoryStore,
     id: &str,
@@ -981,11 +989,12 @@ pub(crate) fn find_relation_type_path(
         Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
         Err(e) => return Err(e),
     };
-    let pkg_json = store.load_package_json()?;
+    let prefix = owner.as_deref().unwrap_or("package");
+    let pkg_json = store.load_instance_json(&format!("{prefix}/package.json"))?;
     if let Some(paths) = pkg_json.get("relationTypes").and_then(|v| v.as_array()) {
         for entry in paths {
             if let Some(rel) = entry.as_str() {
-                let full = format!("package/{rel}");
+                let full = format!("{prefix}/{rel}");
                 if let Ok(val) = store.load_instance_json(&full) {
                     if val["id"].as_str() == Some(id) {
                         return Ok(Some((full, owner)));
@@ -2700,6 +2709,52 @@ mod tests {
         assert!(
             listed.iter().any(|rt| rt.id == "rt-sub-002"),
             "sub-package relation type should appear in relation-type list"
+        );
+    }
+
+    #[test]
+    fn update_relation_type_resolves_sub_package_boundary() {
+        // Regression for srs-rust#1178: `relation-type update` returned
+        // DefinitionNotFound for a RelationTypeDefinition created in a
+        // declared sub-package, even though create/list/validate all resolve
+        // it there. update_type/update_field already use the owner boundary
+        // returned by resolve_definition_owner (via find_type_path/
+        // find_field_path); find_relation_type_path did not.
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+
+        let store = MemoryStore::default();
+        let selector = Some("packages/essay".to_string());
+        store.register_package_boundary(&selector).unwrap();
+
+        let def = RelationTypeDefinition {
+            schema: Some(RELATION_TYPE_SCHEMA_ID.to_string()),
+            id: "rt-sub-003".to_string(),
+            version: 1,
+            key: "comments-on".to_string(),
+            namespace: "com.mudemocracy.essay".to_string(),
+            label: "Comments On".to_string(),
+            description: "A sub-package relation type".to_string(),
+            category: RelationTypeCategory::Dependency,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            status: None,
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: None,
+            require_same_type: None,
+            updated_at: None,
+            meta: None,
+        };
+        create_relation_type(&store, def.clone(), selector).unwrap();
+
+        let mut updated = def;
+        updated.description = "updated description".to_string();
+
+        let result = update_relation_type(&store, updated).unwrap();
+        assert_eq!(
+            result.relation_type_definition.description,
+            "updated description"
         );
     }
 
