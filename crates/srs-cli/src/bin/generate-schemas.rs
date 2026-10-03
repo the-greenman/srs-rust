@@ -75,6 +75,8 @@ fn main() {
     // Container payloads
     write_schema!("container-list", ContainerListPayload);
     write_schema!("container-get", ContainerPayload);
+    write_schema!("container-copy", ContainerCopyPayload);
+    write_schema!("record-fork", RecordForkPayload);
     write_schema!("container-create", ContainerPayload);
     write_schema!("container-update", ContainerPayload);
     write_schema!("container-delete", ContainerDeletePayload);

@@ -941,7 +941,7 @@ pub fn get_record_summary_by_id(
 /// `cascade_inbound: true` — this is best-effort cleanup of a record this same
 /// operation just wrote; the srs-rust#1025 refusal gate exists for a caller's
 /// intentional delete, not for rolling back our own half-finished write.
-fn attempt_rollback_delete(store: &dyn RepositoryStore, instance_id: &str) {
+pub(crate) fn attempt_rollback_delete(store: &dyn RepositoryStore, instance_id: &str) {
     let _ = delete_record(store, instance_id, true);
 }
 
@@ -2108,7 +2108,7 @@ pub(crate) fn append_source_ref(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::manifest::Manifest;
     use crate::store::memory::MemoryStore;
@@ -3170,7 +3170,7 @@ mod tests {
         assert!(file_store.find_instance(&original_id).unwrap().is_none());
     }
 
-    fn make_store_with_lifecycle() -> MemoryStore {
+    pub(crate) fn make_store_with_lifecycle() -> MemoryStore {
         use crate::package::Package;
         use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::record_type::{
@@ -3360,7 +3360,7 @@ mod tests {
         MemoryStore::new(manifest, package)
     }
 
-    fn create_lc_record(store: &MemoryStore) -> Record {
+    pub(crate) fn create_lc_record(store: &MemoryStore) -> Record {
         create_record(
             store,
             "type-lc-001",

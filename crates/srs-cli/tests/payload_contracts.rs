@@ -186,6 +186,16 @@ fn container_get() {
 }
 
 #[test]
+fn container_copy() {
+    check::<ContainerCopyPayload>("container-copy");
+}
+
+#[test]
+fn record_fork() {
+    check::<RecordForkPayload>("record-fork");
+}
+
+#[test]
 fn container_delete() {
     check::<ContainerDeletePayload>("container-delete");
 }

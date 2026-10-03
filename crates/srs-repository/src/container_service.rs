@@ -925,7 +925,7 @@ pub struct ArrangementResult {
     pub removed: Vec<String>,
 }
 
-fn is_root_container(store: &dyn RepositoryStore, container_id: &str) -> bool {
+pub(crate) fn is_root_container(store: &dyn RepositoryStore, container_id: &str) -> bool {
     store
         .load_manifest()
         .ok()
@@ -1124,6 +1124,127 @@ pub fn add_member_relative(
             .and_then(|e| arrangement::place(&e, instance_id, target, placement, identity))
             .map_err(arrangement_error)
     })
+}
+
+/// **replace** (srs-rust#1136): swap member ids in place, keeping each entry's position and
+/// depth, in ONE write. Each `old` must be a member and not the identity/anchor pointer; each
+/// `new` must not already be a member. The fork service's swap.
+pub fn replace_members(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    swaps: &[(String, String)],
+) -> Result<ArrangementResult, RepositoryError> {
+    let new_ids: Vec<&str> = swaps.iter().map(|(_, n)| n.as_str()).collect();
+    require_resolvable_instances(store, new_ids.iter().copied())?;
+    let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
+    let mut entries = container.member_instance_ids.clone().unwrap_or_default();
+    for (old, new) in swaps {
+        require_not_pointer(&container, old)?;
+        if entries.iter().any(|e| e.instance_id == *new) {
+            return Err(RepositoryError::InvalidInput {
+                message: format!("{new} is already a member of {container_id}"),
+            });
+        }
+        let e = entries
+            .iter_mut()
+            .find(|e| e.instance_id == *old)
+            .ok_or_else(|| RepositoryError::InvalidInput {
+                message: format!("{old} is not a member of {container_id}"),
+            })?;
+        e.instance_id = new.clone();
+    }
+    store_entries(&mut container, entries.clone());
+    save_container_syncing_embed(store, &container, is_embed_only, false)?;
+    Ok(ArrangementResult {
+        members: entries,
+        ..Default::default()
+    })
+}
+
+/// Input of [`copy_container`]. Both keys optional.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[cfg_attr(feature = "mcp-schema", derive(schemars::JsonSchema))]
+pub struct ContainerCopyInput {
+    /// Default: `"<source title> (copy)"`.
+    pub title: Option<String>,
+    /// Default: minted. An existing id is refused.
+    pub container_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerCopyResult {
+    pub container: Container,
+    /// The anchor fork (`derived-from` its original) when the source had an anchor.
+    pub forks: Vec<crate::fork_service::ForkPair>,
+    pub relations: Vec<srs_core::types::relation::Relation>,
+}
+
+/// **copy** (srs-rust#1136): a new container that SHARES the source's member records
+/// (arrangement copied verbatim, `childContainerIds` shared by reference). The one exception
+/// is the anchor (title) record: it is forked through the fork core and the new container's
+/// anchor entry / `anchorInstanceId` / `identityInstanceId` (if it named the anchor) point at
+/// the fork, so no two containers share an anchor. No member record is duplicated. An
+/// `identityInstanceId` naming a record other than the anchor stays shared (v1).
+pub fn copy_container(
+    store: &dyn RepositoryStore,
+    source_id: &str,
+    input: ContainerCopyInput,
+) -> Result<ContainerCopyResult, RepositoryError> {
+    if is_root_container(store, source_id) {
+        return Err(RepositoryError::ContainerIsRepositoryRoot {
+            container_id: source_id.to_string(),
+        });
+    }
+    let source = get_container(store, source_id)?;
+    let mut copy = source.clone();
+    copy.container_id = input.container_id.unwrap_or_else(new_instance_id);
+    copy.title = input
+        .title
+        .unwrap_or_else(|| format!("{} (copy)", source.title));
+    let now = chrono::Utc::now().to_rfc3339();
+    copy.created_at = Some(now.clone());
+    copy.updated_at = Some(now);
+    // Fail early on an existing id, before forking anything.
+    match load_container_with_embed_fallback(store, &copy.container_id) {
+        Ok(_) => {
+            return Err(RepositoryError::ContainerAlreadyExists {
+                container_id: copy.container_id,
+            })
+        }
+        Err(RepositoryError::ContainerNotFound { .. }) => {}
+        Err(e) => return Err(e),
+    }
+    let (forks, relations) = match source.anchor_instance_id.clone() {
+        Some(anchor) => crate::fork_service::fork_records(store, &[anchor])?,
+        None => (vec![], vec![]),
+    };
+    if let Some(pair) = forks.first() {
+        let swap = |id: &mut String| {
+            if *id == pair.original_id {
+                *id = pair.fork_id.clone();
+            }
+        };
+        copy.anchor_instance_id.as_mut().map(swap);
+        copy.identity_instance_id.as_mut().map(swap);
+        for e in copy.member_instance_ids.iter_mut().flatten() {
+            swap(&mut e.instance_id);
+        }
+    }
+    match create_container(store, copy) {
+        Ok(container) => Ok(ContainerCopyResult {
+            container,
+            forks,
+            relations,
+        }),
+        Err(e) => {
+            for p in &forks {
+                crate::record_store::attempt_rollback_delete(store, &p.fork_id);
+            }
+            Err(e)
+        }
+    }
 }
 
 /// The structured outline read ([R15], issue #1156): the whole arrangement with derived

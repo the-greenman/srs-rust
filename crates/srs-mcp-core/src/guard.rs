@@ -93,6 +93,9 @@ impl WriteGuard {
             tools::TOOL_CONTAINER_MEMBER_MOVE => {
                 parse::<ContainerMemberMoveToolInput>(args).map(|i| i.container_id)
             }
+            tools::TOOL_RECORD_FORK => {
+                parse::<tools::RecordForkToolInput>(args).map(|i| i.container_id)
+            }
             tools::TOOL_CONTAINER_MEMBER_REPAIR => {
                 parse::<ContainerIdToolInput>(args).map(|i| i.container_id)
             }
@@ -119,6 +122,19 @@ impl WriteGuard {
         // callers rely on create-as-upsert), so a guarded id is rejected here.
         if name == tools::TOOL_CONTAINER_CREATE {
             if let Some(c) = parse::<ContainerCreateInput>(args).and_then(|i| i.container_id) {
+                if self.container_guarded(store, &c)? {
+                    return Err(self.deny(&format!(
+                        "container '{c}' is protected; {name} would overwrite it"
+                    )));
+                }
+            }
+            return Ok(());
+        }
+        // `container_copy` only reads its source; it is rejected only when the NEW id is guarded.
+        if name == tools::TOOL_CONTAINER_COPY {
+            if let Some(c) =
+                parse::<tools::ContainerCopyToolInput>(args).and_then(|i| i.container_id)
+            {
                 if self.container_guarded(store, &c)? {
                     return Err(self.deny(&format!(
                         "container '{c}' is protected; {name} would overwrite it"

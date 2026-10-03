@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RecordForkPayload",
+  "description": "Payload for `record fork` (srs-rust#1136).",
+  "type": "object",
+  "required": [
+    "containerId",
+    "forks",
+    "relations"
+  ],
+  "properties": {
+    "containerId": {
+      "type": "string"
+    },
+    "forks": true,
+    "relations": true
+  }
+}

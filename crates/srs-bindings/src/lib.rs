@@ -880,6 +880,26 @@ impl SrsRepository {
         to_js(&container)
     }
 
+    /// Copy a container (srs-rust#1136; same service as `srs container copy` and the MCP
+    /// `container_copy` tool): shares the member records, forks only the anchor.
+    /// `input_json` is `{ "title"?: string, "containerId"?: uuid }` (may be empty/`{}`).
+    /// Returns `{ container, forks: [{originalId, forkId}], relations }`.
+    pub fn copy_container(&self, source_id: &str, input_json: &str) -> Result<JsValue, JsValue> {
+        let result =
+            copy_container_from_json(&self.store, source_id, input_json).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Fork `instance_id` and its nested children inside `container_id` (srs-rust#1136; same
+    /// service as `srs record fork` and the MCP `record_fork` tool). Returns
+    /// `{ containerId, forks: [{originalId, forkId}], relations }`.
+    pub fn fork_record(&self, container_id: &str, instance_id: &str) -> Result<JsValue, JsValue> {
+        let result =
+            srs_repository::fork_service::fork_subtree(&self.store, container_id, instance_id)
+                .map_err(js_err)?;
+        to_js(&result)
+    }
+
     /// Add an instance to a container's ordered `memberInstanceIds` outline (RFC-043).
     /// `position` (0-based; omit to append) and `depth` (omit for 0). Idempotent when neither is
     /// given. Returns `{ members: [{instanceId, depth?}], promoted, removed }`.
@@ -1658,6 +1678,20 @@ fn create_container_from_json(
     container_service::create_container(store, input.into()).map_err(|e| e.to_string())
 }
 
+/// `copy_container` core: parse the optional input and call the one core service.
+fn copy_container_from_json(
+    store: &srs_repository::FileStore,
+    source_id: &str,
+    input_json: &str,
+) -> Result<container_service::ContainerCopyResult, String> {
+    let input: container_service::ContainerCopyInput = if input_json.trim().is_empty() {
+        Default::default()
+    } else {
+        serde_json::from_str(input_json).map_err(|e| format!("invalid input: {e}"))?
+    };
+    container_service::copy_container(store, source_id, input).map_err(|e| e.to_string())
+}
+
 /// Input shape for `list_containers` — parsed from caller-supplied JSON.
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1842,6 +1876,16 @@ mod tests {
         srs_repository::container_service::list_containers(&repo.store, &Default::default())
             .unwrap();
         assert_eq!(repo.write_epoch(), e1, "reads must not advance it");
+
+        let copy = super::copy_container_from_json(&repo.store, &c.container_id, "").unwrap();
+        assert_eq!(copy.container.title, "C (copy)");
+        assert!(
+            repo.write_epoch() > e1,
+            "container copy must advance the epoch"
+        );
+        assert!(
+            super::copy_container_from_json(&repo.store, &c.container_id, r#"{"x":1}"#).is_err()
+        );
 
         srs_repository::container_service::add_member(
             &repo.store,
