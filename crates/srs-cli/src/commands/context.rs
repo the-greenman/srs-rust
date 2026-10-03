@@ -14,7 +14,8 @@ pub enum ContextCommand {
         /// Field ID
         field_id: String,
     },
-    /// Assemble context for a record: all field values and relations
+    /// Assemble context for a record: field values, inbound and outbound relations with
+    /// neighbours inline; with the global --container <ID>, also its arrangement subtree there
     Record {
         /// Record instance ID
         record_id: String,
@@ -65,6 +66,7 @@ fn cmd_context_record(ctx: CliContext, record_id: String) -> Result<String> {
             store,
             RecordContextQuery {
                 record_id: record_id.clone(),
+                container_id: ctx.container_id.clone(),
             },
         ) {
             Ok(result) => output::serialize(
@@ -77,6 +79,9 @@ fn cmd_context_record(ctx: CliContext, record_id: String) -> Result<String> {
                     display_label: result.display_label,
                     field_values: result.field_values,
                     relations: result.relations,
+                    container_id: result.container_id,
+                    entry: result.entry,
+                    subtree: result.subtree,
                     tagged_chunks: result.tagged_chunks,
                     protocol_run_history: result.protocol_run_history,
                 },

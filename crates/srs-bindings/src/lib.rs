@@ -1427,12 +1427,14 @@ impl SrsRepository {
         to_js(&result)
     }
 
-    /// Assemble context for a record: all field values and relations.
+    /// Assemble context for a record: field values and every relation touching it (both
+    /// directions, neighbour inline).
     ///
-    /// `input_json` is `{"recordId": "<id>"}`.
+    /// `input_json` is `{"recordId": "<id>", "containerId"?: "<id>"}`; with `containerId` the
+    /// result also carries `entry` and `subtree` (the record's arrangement there).
     /// Returns a `RecordContextResult` with `recordId`, `typeId`, `typeName`,
-    /// `typeNamespace`, `displayLabel`, `fieldValues`, `relations`, `taggedChunks`,
-    /// and `protocolRunHistory`.
+    /// `typeNamespace`, `displayLabel`, `fieldValues`, `relations`, optional
+    /// `containerId`/`entry`/`subtree`, `taggedChunks`, and `protocolRunHistory`.
     pub fn context_record(&self, input_json: &str) -> Result<JsValue, JsValue> {
         let input: RecordContextQuery =
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;

@@ -34,7 +34,7 @@ every phase.
 ## MCP Adapter Worker
 
 - **Owns:** The MCP server adapter in `srs-mcp` — protocol wiring, resource/tool handlers, URI scheme.
-- **Write scope:** `crates/srs-mcp/**`
+- **Write scope:** `crates/srs-mcp/**`, `crates/srs-mcp-core/**`
 - **Constraints:**
   - Every resource/tool handler is a thin wrapper: parse typed input → exactly one `srs-repository` service call → serialize the service's typed result. No business logic, no validation beyond input deserialization (ADR-010, ADR-037).
   - `srs-mcp` is the sole crate depending on `rmcp`/`tokio`; the async runtime never leaks into library-crate signatures.
