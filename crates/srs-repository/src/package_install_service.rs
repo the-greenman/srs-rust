@@ -811,10 +811,26 @@ pub fn install_package_bundle(
     // `.srs-import/import-records.json` timestamp instead of inventing a
     // second channel (Phase 5 only rewrites it when something new installed).
     let import_summary_path = format!("{boundary_path}/.srs-import/import-records.json");
-    let installed_at = store
-        .load_instance_json(&import_summary_path)
-        .ok()
-        .and_then(|v| v["generatedAt"].as_str().map(str::to_string))
+    // Absent → start fresh; unreadable or unparseable → fail rather than
+    // silently replace the earlier installs' records (srs-rust#1206).
+    let existing_summary: Option<ImportSummary> =
+        match store.load_instance_json(&import_summary_path) {
+            Ok(v) => Some(
+                serde_json::from_value(v).map_err(|e| RepositoryError::Serialize {
+                    path: PathBuf::from(&import_summary_path),
+                    source: e,
+                })?,
+            ),
+            Err(RepositoryError::Io { source, .. })
+                if source.kind() == std::io::ErrorKind::NotFound =>
+            {
+                None
+            }
+            Err(e) => return Err(e),
+        };
+    let installed_at = existing_summary
+        .as_ref()
+        .map(|s| s.generated_at.clone())
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
 
     // ── Phase 5: import records + reference copies ───────────────────────────
@@ -831,20 +847,17 @@ pub fn install_package_bundle(
             // Start from whatever is already on disk — a second install into this
             // boundary (e.g. an upgraded bundle adding new definitions) must keep the
             // records from earlier installs, not discard them (srs-rust#1206).
-            let mut summary = store
-                .load_instance_json(&import_summary_path)
-                .ok()
-                .and_then(|v| serde_json::from_value::<ImportSummary>(v).ok())
-                .unwrap_or_else(|| ImportSummary {
-                    generated_at: installed_at.clone(),
-                    fields: Vec::new(),
-                    types: Vec::new(),
-                    views: Vec::new(),
-                    blueprints: Vec::new(),
-                    protocols: Vec::new(),
-                    relation_types: Vec::new(),
-                    skipped_definitions: Vec::new(),
-                });
+            let mut summary = existing_summary.unwrap_or_else(|| ImportSummary {
+                generated_at: installed_at.clone(),
+                fields: Vec::new(),
+                types: Vec::new(),
+                views: Vec::new(),
+                blueprints: Vec::new(),
+                protocols: Vec::new(),
+                relation_types: Vec::new(),
+                skipped_definitions: Vec::new(),
+            });
+            summary.generated_at = installed_at.clone();
 
             for (def, decision) in bundle.definitions.iter().zip(&decisions) {
                 if !matches!(decision, Decision::Install) {
@@ -1196,6 +1209,28 @@ mod tests {
             "packages/ext/.srs-import/refs/fields/alpha.json",
         )
         .expect("reference copy for alpha must survive the second install");
+    }
+
+    #[test]
+    fn memory_corrupt_import_summary_fails_install_and_is_untouched() {
+        let store = MemoryStore::default();
+        install_package_bundle(&store, &bundle(), InstallBundleOptions::default()).unwrap();
+        let path = "packages/ext/.srs-import/import-records.json";
+        let corrupt = serde_json::json!({ "fields": "not-an-array" });
+        crate::store::RepositoryStore::save_instance_json(&store, path, &corrupt).unwrap();
+
+        let mut second_bundle = bundle();
+        second_bundle.definitions.push(PackageSourceDefinition {
+            kind: DefinitionKind::Field,
+            rel_path: "fields/gamma.json".to_string(),
+            value: field_json("00000000-0000-4000-8000-0000000000c2", "gamma"),
+        });
+        assert!(
+            install_package_bundle(&store, &second_bundle, InstallBundleOptions::default())
+                .is_err()
+        );
+        let after = crate::store::RepositoryStore::load_instance_json(&store, path).unwrap();
+        assert_eq!(after, corrupt);
     }
 
     #[test]
