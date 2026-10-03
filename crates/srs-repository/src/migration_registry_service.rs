@@ -58,7 +58,7 @@ struct MigrationDefinition {
 }
 
 /// One data-model revision step (`from` -> `to = from + 1`) and its bundle form.
-#[allow(dead_code)] // Phase 1 of srs-rust#1212: the .srspkg reader consumes it in Phase 4.
+#[allow(dead_code)] // srs-rust#1212: the .srspkg reader reads `to` and `Transform` in Phase 4.
 pub(crate) struct RevisionStep {
     pub from: u64,
     pub to: u64,
@@ -66,7 +66,7 @@ pub(crate) struct RevisionStep {
 }
 
 /// How a `.srspkg` reader carries a bundle across one revision step (RFC-003 [C6]).
-#[allow(dead_code)] // Phase 1 of srs-rust#1212: the .srspkg reader consumes it in Phase 4.
+#[allow(dead_code)] // srs-rust#1212: the .srspkg reader reads `to` and `Transform` in Phase 4.
 pub(crate) enum BundleForm {
     /// The spec names no bundle-form transformer for this step: a reader refuses a
     /// bundle that would have to cross it (RFC-003 [C6]).
@@ -84,7 +84,6 @@ fn rfc043_bundle_form(v: &mut serde_json::Value) -> Result<Vec<String>, Reposito
 }
 
 /// The registry entry whose revision step starts at `from` (its id + step).
-#[allow(dead_code)] // Phase 1 of srs-rust#1212: the .srspkg reader consumes it in Phase 4.
 pub(crate) fn revision_step_from(from: u64) -> Option<(&'static str, &'static RevisionStep)> {
     MIGRATIONS.iter().find_map(|m| {
         m.revision_step

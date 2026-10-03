@@ -363,21 +363,21 @@ Tick boxes, commit.
 
 #### Tasks
 
-- [ ] Replace `string_leaves` and the id-scan loop. Build the effective index `BTreeMap<id, BTreeMap<version, Holding>>` from every boundary's `load_boundary_definitions` (target included) plus `core_package()`'s typed fields and record types (core RelationTypes excluded: no reference site targets a RelationType, PD6); `Holding { kind, namespace, name, value: Option<Value> /* None for core */, is_core, conflicting: bool }`. On a duplicate `(id, version)`: boundary vs boundary compares `srsj::canonicalize(..)`; core vs boundary compares `namespace`+`name` (ADR-025 rule); different → `conflicting = true` (PD3). `is_core` = the id is a core id. A core `Reference` takes `namespace`/`name`/`version` from the typed core struct.
-- [ ] Closure: carried = target's own definitions (all, [C1]); worklist over carried definitions; for each `followed_references` result resolve in the index with matching `target` kind: PINNED with version → that version; LINEAGE (or PD4) → every version held. Nothing found → `bundle-reference-unresolved` (message: referring definition id, kind, concrete path, target kind, target id and version). Each reached `(id, version)`: if `conflicting` → `bundle-identity-conflict` (message names id, version and both locations); insert a `Reference {id, namespace, name, version, definitionType}` into a `BTreeSet` keyed `(id, version, definitionType)`; if not core and not yet carried → carry and enqueue. The target's own carried definitions are also checked for `conflicting` (PD3).
-- [ ] Mode (PD5): `input.mode`; in `standalone` a reached non-own definition is listed and never carried or enqueued; write `"mode"` from the input.
-- [ ] Validate each carried definition with `validate_source_definition` → `bundle-definition-invalid` naming kind and id (PD8).
-- [ ] Properties: `schemaVersion` = `"2.0"` constant; `dataModelRevision` = `field_type_migration_service::data_model_revision(store)?`; `description` from the raw target `package.json` (PD7; keep the value the existing unreadable-index check loads); arrays sorted by `(id, version)` numerically; `dependencyRefs` from the BTreeSet (already in `(id, version, definitionType)` order).
-- [ ] Summary: `data_model_revision` = repository stamp; `dependency_ref_count`; `mode`; `inlined` = ids carried from boundaries other than the target; `notes` (PD11).
-- [ ] `homepage` written when given (PD12).
-- [ ] Update the module and function doc comments (drop "core omitted, OD5", "id-scan", the `ponytail:` comment).
-- [ ] Adapt the existing unit tests in `package_bundle.rs` exactly as the Testing section of this phase says.
+- [x] Replace `string_leaves` and the id-scan loop. Build the effective index `BTreeMap<id, BTreeMap<version, Holding>>` from every boundary's `load_boundary_definitions` (target included) plus `core_package()`'s typed fields and record types (core RelationTypes excluded: no reference site targets a RelationType, PD6); `Holding { kind, namespace, name, value: Option<Value> /* None for core */, is_core, conflicting: bool }`. On a duplicate `(id, version)`: boundary vs boundary compares `srsj::canonicalize(..)`; core vs boundary compares `namespace`+`name` (ADR-025 rule); different → `conflicting = true` (PD3). `is_core` = the id is a core id. A core `Reference` takes `namespace`/`name`/`version` from the typed core struct.
+- [x] Closure: carried = target's own definitions (all, [C1]); worklist over carried definitions; for each `followed_references` result resolve in the index with matching `target` kind: PINNED with version → that version; LINEAGE (or PD4) → every version held. Nothing found → `bundle-reference-unresolved` (message: referring definition id, kind, concrete path, target kind, target id and version). Each reached `(id, version)`: if `conflicting` → `bundle-identity-conflict` (message names id, version and both locations); insert a `Reference {id, namespace, name, version, definitionType}` into a `BTreeSet` keyed `(id, version, definitionType)`; if not core and not yet carried → carry and enqueue. The target's own carried definitions are also checked for `conflicting` (PD3).
+- [x] Mode (PD5): `input.mode`; in `standalone` a reached non-own definition is listed and never carried or enqueued; write `"mode"` from the input.
+- [x] Validate each carried definition with `validate_source_definition` → `bundle-definition-invalid` naming kind and id (PD8).
+- [x] Properties: `schemaVersion` = `"2.0"` constant; `dataModelRevision` = `field_type_migration_service::data_model_revision(store)?`; `description` from the raw target `package.json` (PD7; keep the value the existing unreadable-index check loads); arrays sorted by `(id, version)` numerically; `dependencyRefs` from the BTreeSet (already in `(id, version, definitionType)` order).
+- [x] Summary: `data_model_revision` = repository stamp; `dependency_ref_count`; `mode`; `inlined` = ids carried from boundaries other than the target; `notes` (PD11).
+- [x] `homepage` written when given (PD12).
+- [x] Update the module and function doc comments (drop "core omitted, OD5", "id-scan", the `ponytail:` comment).
+- [x] Adapt the existing unit tests in `package_bundle.rs` exactly as the Testing section of this phase says.
 
 #### Acceptance Criteria
 
-- [ ] Every failure in Change C's *When export fails* returns `InvalidPackageBundle` (or the existing `PackageNotFound`/load error) and no text.
-- [ ] Two exports of the same input are byte-identical; keys sorted at every depth.
-- [ ] Core definitions reached appear in `dependencyRefs` and in no definition array.
+- [x] Every failure in Change C's *When export fails* returns `InvalidPackageBundle` (or the existing `PackageNotFound`/load error) and no text.
+- [x] Two exports of the same input are byte-identical; keys sorted at every depth.
+- [x] Core definitions reached appear in `dependencyRefs` and in no definition array.
 
 #### Testing
 
@@ -584,4 +584,10 @@ None declined. Arch #6's stronger option (refusing the export) is deferred to th
 - **O5 — OPEN (from arch review #6).** Export from a repository stamped below the reader floor: today note-only (PD11). Refusing would be a new rule. Recommendation: keep note-only; a repository that old cannot load through ordinary commands in most corpora anyway.
 
 ## Deviations during implementation
+
+- **Fixture fix (Phase 3).** `crates/srs-repository/tests/fixtures/install-package/protocols/entry-9a1b0c90.json` carried `targetType: "com.example.install/entry"` (a display key at a LINEAGE UUID site, which the schema text forbids; the validator does not assert `format: uuid`). The typed closure reports it as `bundle-reference-unresolved`, so the fixture now holds the entry Type's UUID `9a1b0c30-0003-4aaa-8bbb-000000004001`. No other test read that value. PD10's premise ("the clean `install-package` fixture") now holds.
+- **Test repositories are created at the current revision (Phase 3).** The unit-test `fresh()` helper used `store.initialize_repository`, which stamps revision 2; the export now writes the repository's own stamp, so a revision-2 bundle would be below the reader floor. `fresh()` now calls `repository_lifecycle::create_repository` (stamps current), the same path `srs repo create` takes.
+- **`export_follows_references_transitively` (Phase 3)** uses Type -> base Type (`extendsTypeId`) -> Field, both in `packages/b`, instead of View -> Type -> Field: a View holds no Type site (F2), so the planned chain cannot exist.
+- **`FollowedReference.version` is `Option<u64>`**, not `Option<u32>`: definition versions are read with `as_u64` and the effective index is keyed by `u64`; a `u32` would only add casts.
+- **Temporary `#[allow(dead_code)]`** on `RevisionStep`/`BundleForm` between Phases 1 and 4 (and on `reference_sites` between Phases 2 and 3), so each milestone commit passes `clippy -D warnings`; removed when the consumer landed.
 

@@ -79,6 +79,7 @@ fn export(store: &FileStore) -> srs_repository::package_bundle::PackageBundleExp
             selector: Some(FIXTURE.to_string()),
             published_at: Some(AT.to_string()),
             publisher: None,
+            ..Default::default()
         },
     )
     .unwrap()

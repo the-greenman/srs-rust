@@ -139,6 +139,7 @@ fn cmd_package_export(
         selector,
         published_at,
         publisher,
+        ..Default::default()
     };
     let export = with_store(&ctx, |s| Ok(export_package_bundle(s, input.clone())?))?;
     std::fs::write(&out_path, &export.text)

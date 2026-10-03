@@ -15,8 +15,6 @@
 //! the in-repo twin of the spec-side guard srs#873, which also carries the
 //! proposal to derive this table from schema annotations instead (O2).
 
-#![allow(dead_code)] // srs-rust#1212 Phase 2: the exporter consumes the table in Phase 3.
-
 use serde_json::Value;
 
 use crate::package_types::DefinitionKind::{self, *};
