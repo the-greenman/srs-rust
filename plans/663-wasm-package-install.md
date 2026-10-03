@@ -586,13 +586,13 @@ Already tracked, no new issue: MCP tool (srs-rust#1153), readme in `.srspkg` (sr
 
 ## Final Acceptance
 
-- [ ] `cargo build --workspace` exits 0
-- [ ] `cargo test --workspace` exits 0 (zero failures; `SRS_SPEC_DIR` points at a fresh clone of `srs` `origin/master`)
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` exits 0
-- [ ] `cargo test -p srs-cli --test payload_contracts` exits 0; `schemas/payload/package-export.json` new, `package-install.json` gains `notes`
-- [ ] `cargo build --target wasm32-unknown-unknown -p srs-bindings` exits 0
+- [x] `cargo build --workspace` exits 0
+- [x] `cargo test --workspace` exits 0 (zero failures; `SRS_SPEC_DIR` points at a fresh clone of `srs` `origin/master`)
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` exits 0
+- [x] `cargo test -p srs-cli --test payload_contracts` exits 0; `schemas/payload/package-export.json` new, `package-install.json` gains `notes`
+- [x] `cargo build --target wasm32-unknown-unknown -p srs-bindings` exits 0
 - [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schema change)
-- [ ] `bundle_roundtrip_all_ten_kinds_definitions_identical` and `bundle_roundtrip_reexport_is_byte_identical` pass
+- [x] `bundle_roundtrip_all_ten_kinds_definitions_identical` and `bundle_roundtrip_reexport_is_byte_identical` pass
 - [ ] Both CLI handlers <= 15 lines; WASM methods audited as deserialize -> one call -> serialize
 - [ ] S49 dogfooded on the branch binary, outcome in the PR body
 - [ ] D1-D7 filed or posted and linked
@@ -609,6 +609,7 @@ Already tracked, no new issue: MCP tool (srs-rust#1153), readme in `.srspkg` (sr
 - Phase 3: rustfmt expands the struct literals, so after formatting the handler bodies are 14 lines (`cmd_package_export`) and 21 lines (`cmd_package_install`), not <= 15. Each branch is still one flag-to-struct mapping plus one service call, with no logic and no `json!`. The `(None, None)` arm is replaced by `source_dir.context(..)?` (clap already enforces it), which makes the handler shorter.
 - Phase 3: `crates/srs-cli/Cargo.toml` gains `sha2` and `hex` as dev-dependencies (both are workspace deps already in the lockfile) so the CLI test can recompute the file hash. A `package_install` golden contract test was also added, because `package-install.json` changes and had no contract test before.
 - Phase 4: `tree_session_install_then_validate_has_zero_errors` uses the srs-repository `install-package` fixture as its source (installed into a blank tree session, exported, then installed into a second blank tree session), not the gallery. The gallery fixture itself fails validation: it has three V8 errors (types `decision`/`article`/`role` carry `lifecycleRef` `3c504040-...`, which resolves nowhere) and no root container. A faithful bundle carries those errors along. The two `write_epoch` tests still use the gallery. Binding thinness was audited: each method is deserialize -> one service call -> `to_js`. `list_package_imports_json` already documents `conflictState` "clean" | "local-ahead" (PD7), so it is unchanged.
+- Stage 6: `bash scripts/check-schema-sync.sh` exits 1. All three divergences are in the **srs-vscode** sibling mirror (`package-bundle.json`, `package-manifest.json`, `srsj-envelope.json`), measured against the sibling `../srs` worktree. This repo's mirror (`crates/srs-schema/schemas/2.0/`) is byte-identical to a fresh clone of `srs` `origin/master` (5ed71a9) for every spec schema, so nothing here needs a sync. srs-vscode is out of scope: never touch sibling repos.
 
 ## Coordination Rules
 
