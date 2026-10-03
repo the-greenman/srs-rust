@@ -208,6 +208,19 @@ pub fn create_container(
 ) -> Result<Container, RepositoryError> {
     if container.container_id.is_empty() {
         container.container_id = new_instance_id();
+    } else {
+        // srs-rust#1167: `create` is a create verb, not an upsert. A caller-supplied id
+        // that already resolves (file-backed, or the `manifest.container` embed) is
+        // refused — `update_container` is the explicit replace path.
+        match load_container_with_embed_fallback(store, &container.container_id) {
+            Ok(_) => {
+                return Err(RepositoryError::ContainerAlreadyExists {
+                    container_id: container.container_id.clone(),
+                });
+            }
+            Err(RepositoryError::ContainerNotFound { .. }) => {}
+            Err(e) => return Err(e),
+        }
     }
 
     // Schema validation at service boundary
@@ -1430,6 +1443,52 @@ mod tests {
         let store = make_store();
         let out = create_container(&store, minimal_container("", "Sprint 1")).unwrap();
         assert!(uuid::Uuid::parse_str(&out.container_id).is_ok());
+    }
+
+    /// srs-rust#1167: `create` is a create verb, not an upsert. A second `create_container`
+    /// with the same, already-materialised `containerId` must be refused — not silently
+    /// replace the container's membership (previously: `store.save_container` with no
+    /// existence check at all).
+    #[test]
+    fn create_container_rejects_existing_container_id() {
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        let mut original = minimal_container(id, "Original");
+        original.member_instance_ids = Some(srs_core::types::container::entries(vec![
+            "11111111-1111-4111-8111-111111111111".to_string(),
+        ]));
+        seed_instance(&store, "11111111-1111-4111-8111-111111111111");
+        create_container(&store, original).unwrap();
+
+        let err = create_container(&store, minimal_container(id, "Replacement")).unwrap_err();
+        assert!(matches!(
+            err,
+            RepositoryError::ContainerAlreadyExists { container_id } if container_id == id
+        ));
+
+        // The original container, membership included, must be untouched.
+        let still_there = get_container(&store, id).unwrap();
+        assert_eq!(still_there.title, "Original");
+        assert_eq!(
+            still_there.member_ids(),
+            vec!["11111111-1111-4111-8111-111111111111".to_string()]
+        );
+    }
+
+    /// srs-rust#1167: the same refusal applies to the `manifest.container` embed id — an
+    /// unguarded "create" over the repository's root container must not resolve as a
+    /// replace. `update_container` is the explicit path (see `repository_navigation_service`'s
+    /// `nav_store_with_identity` fixture for the converted caller).
+    #[test]
+    fn create_container_rejects_manifest_root_container_id() {
+        let embed_id = "aaa00000-0000-4000-8000-000000000001";
+        let store = embed_only_store(embed_id, "Root");
+        let err = create_container(&store, minimal_container(embed_id, "Replacement"))
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            RepositoryError::ContainerAlreadyExists { container_id } if container_id == embed_id
+        ));
     }
 
     #[test]

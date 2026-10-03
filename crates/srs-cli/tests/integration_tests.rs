@@ -4317,6 +4317,39 @@ fn container_create_returns_container() {
     );
 }
 
+/// srs-rust#1167: `container create` is a create verb, not an upsert — a second
+/// `create` on the same `containerId` must be refused, not silently replace the
+/// container's membership.
+#[test]
+fn container_create_rejects_existing_container_id() {
+    let temp = make_container_test_repo();
+    let first = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000001",
+        "title":"Original"
+    })
+    .to_string();
+    let result = run_srs_stdin_in_dir(temp.path(), &["container", "create"], &first);
+    assert_eq!(result["ok"], true);
+
+    let second = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000001",
+        "title":"Replacement"
+    })
+    .to_string();
+    let result = run_srs_stdin_in_dir(temp.path(), &["container", "create"], &second);
+    assert_eq!(result["ok"], false, "{result}");
+
+    let got = run_srs_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "get",
+            "00000000-0000-4000-8000-000000000001",
+        ],
+    );
+    assert_eq!(got["payload"]["container"]["title"], "Original");
+}
+
 #[test]
 fn container_create_accepts_child_containers_and_meta_and_rejects_unknown_keys() {
     let temp = make_container_test_repo();

@@ -469,7 +469,7 @@ mod tests {
     /// Passing `None` builds the RFC-029-valid identity-less shape (srs-rust#838).
     ///
     /// The identity must be set on **both** the manifest embed and the materialised root
-    /// container: `create_container` syncs a file-backed root back into `manifest.container`
+    /// container: `update_container` syncs a file-backed root back into `manifest.container`
     /// (`save_container_syncing_embed`), so an embed-only value is overwritten by the
     /// container write below. Before srs-rust#838 this fixture set it on the embed alone —
     /// the container write nulled it, and the happy-path assertions passed only because the
@@ -527,15 +527,13 @@ mod tests {
             "records/decision-log-root.json",
         );
 
-        container_service::create_container(
+        // srs-rust#1167: `create` refuses an id that already resolves — "a000" is the
+        // manifest's embedded root container id, so materialising it is an update.
+        container_service::update_container(
             &store,
-            Container {
-                container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
-                title: "Example Governance".to_string(),
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
+            "00000000-0000-4000-8000-00000000a000",
+            container_service::ContainerPatch {
+                title: Some("Example Governance".to_string()),
                 identity_instance_id: identity,
                 member_instance_ids: Some(srs_core::types::container::entries(vec![
                     "00000000-0000-4000-8000-00000000a100".to_string(),
@@ -543,12 +541,7 @@ mod tests {
                     "00000000-0000-4000-8000-00000000a200".to_string(),
                 ])),
                 anchor_instance_id: Some("00000000-0000-4000-8000-00000000a100".to_string()),
-                child_container_ids: None,
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -941,51 +934,30 @@ mod tests {
 
         // Replace sub-containers b000 and c000 with variants where each root record
         // is also listed as a member of its own container (the "root is also a member" shape).
-        // create_container overwrites an existing container when the container_id matches.
-        container_service::create_container(
+        // srs-rust#1167: `create` refuses an id that already resolves — b000/c000 already
+        // exist from `nav_store()`, so replacing them is an update.
+        container_service::update_container(
             &store,
-            Container {
-                container_id: "00000000-0000-4000-8000-00000000b000".to_string(),
-                title: "Articles".to_string(),
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
-                identity_instance_id: None,
+            "00000000-0000-4000-8000-00000000b000",
+            container_service::ContainerPatch {
                 member_instance_ids: Some(srs_core::types::container::entries(vec![
                     "00000000-0000-4000-8000-00000000a200".to_string(),
                 ])),
                 anchor_instance_id: Some("00000000-0000-4000-8000-00000000a200".to_string()),
-                child_container_ids: None,
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             },
         )
         .unwrap();
 
-        container_service::create_container(
+        container_service::update_container(
             &store,
-            Container {
-                container_id: "00000000-0000-4000-8000-00000000c000".to_string(),
-                title: "Decision Log".to_string(),
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
-                identity_instance_id: None,
+            "00000000-0000-4000-8000-00000000c000",
+            container_service::ContainerPatch {
                 member_instance_ids: Some(srs_core::types::container::entries(vec![
                     "00000000-0000-4000-8000-00000000a300".to_string(),
                 ])),
                 anchor_instance_id: Some("00000000-0000-4000-8000-00000000a300".to_string()),
-                child_container_ids: None,
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1336,24 +1308,15 @@ mod tests {
     fn navigation_children_carry_the_section_container_hook() {
         let store = nav_store_with_part_of_tree();
         // b000 roots a200, which is now a child-bearing section; scope a220 too.
-        container_service::create_container(
+        // srs-rust#1167: `create` refuses an id that already resolves — c000 already
+        // exists from `nav_store()`, so re-scoping it is an update.
+        container_service::update_container(
             &store,
-            srs_core::types::container::Container {
-                container_id: "00000000-0000-4000-8000-00000000c000".to_string(),
-                title: "Article Two".to_string(),
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
-                identity_instance_id: None,
-                member_instance_ids: None,
-                child_container_ids: None,
+            "00000000-0000-4000-8000-00000000c000",
+            container_service::ContainerPatch {
+                title: Some("Article Two".to_string()),
                 anchor_instance_id: Some("00000000-0000-4000-8000-00000000a220".to_string()),
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
+                ..Default::default()
             },
         )
         .unwrap();
