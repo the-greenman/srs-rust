@@ -472,6 +472,14 @@ pub enum RepositoryError {
     #[error("{code}: {message}")]
     ActorProvenance { code: &'static str, message: String },
 
+    /// A `.srspkg` Package Bundle was refused (ADR-050). `code` is one of
+    /// `bundle-not-json`, `bundle-readme-unsupported`, `bundle-revision-too-new`,
+    /// `bundle-schema-invalid`, `bundle-definition-invalid`,
+    /// `bundle-published-at-invalid`; coded like `ActorProvenance` so clients
+    /// can branch on the reason.
+    #[error("{code}: {message}")]
+    InvalidPackageBundle { code: &'static str, message: String },
+
     /// RFC-038 [R21]: a repository below storage generation 2 is not
     /// supported. Feature-inactive until the Phase-6 flip; fired only under
     /// the crate-internal test activation until then.

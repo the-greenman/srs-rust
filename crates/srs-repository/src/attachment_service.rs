@@ -228,7 +228,7 @@ fn infer_content_type(file_name: &str) -> &'static str {
     }
 }
 
-fn sha256_hex(data: &[u8]) -> String {
+pub(crate) fn sha256_hex(data: &[u8]) -> String {
     let hash = Sha256::digest(data);
     format!("sha256:{}", hex::encode(hash))
 }

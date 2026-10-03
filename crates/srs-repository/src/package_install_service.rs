@@ -50,7 +50,7 @@ use crate::package_types::{validate_package_selector, DefinitionKind, PackageSel
 use crate::store::{definition_kind_key, RepositoryStore};
 
 /// Definition kinds handled by install, in install order (dependencies first).
-const INSTALL_ORDER: [DefinitionKind; 10] = [
+pub(crate) const INSTALL_ORDER: [DefinitionKind; 10] = [
     DefinitionKind::Field,
     DefinitionKind::Type,
     DefinitionKind::RelationType,
@@ -64,7 +64,7 @@ const INSTALL_ORDER: [DefinitionKind; 10] = [
 ];
 
 /// Human-readable singular label for a definition kind (used in reports).
-fn kind_label(kind: DefinitionKind) -> &'static str {
+pub(crate) fn kind_label(kind: DefinitionKind) -> &'static str {
     match kind {
         DefinitionKind::Field => "field",
         DefinitionKind::Type => "type",
@@ -209,7 +209,7 @@ fn validate_source_rel_path(rel_path: &str) -> Result<(), RepositoryError> {
 }
 
 /// Validate a source definition with the same strictness `load_package()` applies.
-fn validate_source_definition(
+pub(crate) fn validate_source_definition(
     kind: DefinitionKind,
     path: &Path,
     value: &serde_json::Value,
@@ -417,7 +417,7 @@ fn definition_namespace(_kind: DefinitionKind, value: &serde_json::Value) -> Opt
 }
 
 /// Extract the logical name from a definition JSON.
-fn definition_name(kind: DefinitionKind, value: &serde_json::Value) -> Option<String> {
+pub(crate) fn definition_name(kind: DefinitionKind, value: &serde_json::Value) -> Option<String> {
     match kind {
         DefinitionKind::RelationType => value["key"].as_str().map(str::to_string),
         _ => value["name"].as_str().map(str::to_string),
@@ -517,7 +517,9 @@ pub struct InstallPackageInput {
 }
 
 /// Options for [`install_package_bundle`] (the source-agnostic install core).
-#[derive(Debug, Clone, Default)]
+/// Deserializable: it is the WASM `install_package_bundle` `options_json` contract.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct InstallBundleOptions {
     /// See [`InstallPackageInput::boundary_path`].
     pub boundary_path: Option<String>,
@@ -572,6 +574,10 @@ pub struct InstallPackageResult {
     pub conflicts: Vec<InstallConflictDetail>,
     /// Per-kind breakdown, in install order, for kinds present in the source.
     pub kinds: Vec<InstallKindCount>,
+    /// Non-fatal notes from the `.srspkg` pre-load transformer (RFC-043
+    /// `migration-memberorder-dropped`, ...). Always empty for a directory install.
+    #[serde(default)]
+    pub notes: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -889,7 +895,22 @@ pub fn install_package_bundle(
         skipped_identical: skipped_total,
         conflicts,
         kinds,
+        notes: vec![],
     })
+}
+
+/// Install a `.srspkg` Package Bundle from its bytes (ADR-050): the one reader
+/// ([`crate::package_bundle::read_package_bundle`]) then the one install core.
+/// Store-agnostic, so the CLI (disk) and WASM (tree session) share it.
+pub fn install_package_bundle_bytes(
+    store: &dyn RepositoryStore,
+    bytes: &[u8],
+    options: InstallBundleOptions,
+) -> Result<InstallPackageResult, RepositoryError> {
+    let read = crate::package_bundle::read_package_bundle(bytes)?;
+    let mut result = install_package_bundle(store, &read.bundle, options)?;
+    result.notes = read.notes;
+    Ok(result)
 }
 
 #[cfg(test)]
