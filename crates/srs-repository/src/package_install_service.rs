@@ -796,16 +796,23 @@ pub fn install_package_bundle(
             store.ensure_instance_dir(&import_prefix)?;
             store.ensure_instance_dir(&format!("{import_prefix}/refs"))?;
 
-            let mut summary = ImportSummary {
-                generated_at: installed_at.clone(),
-                fields: Vec::new(),
-                types: Vec::new(),
-                views: Vec::new(),
-                blueprints: Vec::new(),
-                protocols: Vec::new(),
-                relation_types: Vec::new(),
-                skipped_definitions: Vec::new(),
-            };
+            // Start from whatever is already on disk — a second install into this
+            // boundary (e.g. an upgraded bundle adding new definitions) must keep the
+            // records from earlier installs, not discard them (srs-rust#1206).
+            let mut summary = store
+                .load_instance_json(&import_summary_path)
+                .ok()
+                .and_then(|v| serde_json::from_value::<ImportSummary>(v).ok())
+                .unwrap_or_else(|| ImportSummary {
+                    generated_at: installed_at.clone(),
+                    fields: Vec::new(),
+                    types: Vec::new(),
+                    views: Vec::new(),
+                    blueprints: Vec::new(),
+                    protocols: Vec::new(),
+                    relation_types: Vec::new(),
+                    skipped_definitions: Vec::new(),
+                });
 
             for (def, decision) in bundle.definitions.iter().zip(&decisions) {
                 if !matches!(decision, Decision::Install) {
@@ -1090,6 +1097,56 @@ mod tests {
             Some(first.installed_at.as_str())
         );
         assert_eq!(summary_json["fields"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn memory_second_install_with_new_definitions_preserves_earlier_import_records() {
+        // srs-rust#1206: a second install into the same boundary that adds a
+        // genuinely new definition must not overwrite import-records.json with
+        // only this run's records — the earlier installs' records must survive.
+        let store = MemoryStore::default();
+        let first =
+            install_package_bundle(&store, &bundle(), InstallBundleOptions::default()).unwrap();
+        assert_eq!(first.installed, 3);
+
+        let mut second_bundle = bundle();
+        second_bundle.definitions.push(PackageSourceDefinition {
+            kind: DefinitionKind::Field,
+            rel_path: "fields/gamma.json".to_string(),
+            value: field_json("00000000-0000-4000-8000-0000000000c2", "gamma"),
+        });
+        let second =
+            install_package_bundle(&store, &second_bundle, InstallBundleOptions::default())
+                .unwrap();
+        assert_eq!(second.installed, 1);
+        assert_eq!(second.skipped_identical, 3);
+
+        let summary_json = crate::store::RepositoryStore::load_instance_json(
+            &store,
+            "packages/ext/.srs-import/import-records.json",
+        )
+        .expect("import-records.json must exist after second install");
+
+        // All 3 fields (2 original + 1 new) must be present, not just the new one.
+        assert_eq!(summary_json["fields"].as_array().unwrap().len(), 3);
+        assert_eq!(summary_json["relationTypes"].as_array().unwrap().len(), 1);
+
+        let ids: Vec<&str> = summary_json["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["definitionId"].as_str().unwrap())
+            .collect();
+        assert!(ids.contains(&"00000000-0000-4000-8000-0000000000a1"));
+        assert!(ids.contains(&"00000000-0000-4000-8000-0000000000b1"));
+        assert!(ids.contains(&"00000000-0000-4000-8000-0000000000c2"));
+
+        // Reference copies for the original definitions must still be there too.
+        crate::store::RepositoryStore::load_instance_json(
+            &store,
+            "packages/ext/.srs-import/refs/fields/alpha.json",
+        )
+        .expect("reference copy for alpha must survive the second install");
     }
 
     #[test]
