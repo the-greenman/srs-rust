@@ -229,3 +229,156 @@ fn mcp_container_create_then_add_members() {
     );
     assert_eq!(bad["result"]["isError"], true, "{bad}");
 }
+
+/// srs-rust#1202 / ADR-049: dogfood sequence for `take_write_summary`.
+#[test]
+fn write_summary_reports_each_request_once() {
+    let repo = open_repo();
+    let mut session = repo.open_mcp_session().ok().unwrap();
+    send(
+        &mut session,
+        1,
+        "initialize",
+        json!({ "protocolVersion": "2025-06-18" }),
+    );
+    let mut n = 1;
+    let mut call = |session: &mut srs_bindings::McpSession, name: &str, args: Value| -> Value {
+        n += 1;
+        send(
+            session,
+            n,
+            "tools/call",
+            json!({ "name": name, "arguments": args }),
+        )
+    };
+    let summary = |s: &mut srs_bindings::McpSession| -> Option<Value> {
+        s.take_write_summary()
+            .map(|j| serde_json::from_str(&j).unwrap())
+    };
+    let id = |r: &Value, k: &str| {
+        r["result"]["structuredContent"][k]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let kinds = |s: &Value| -> Vec<(String, String, String)> {
+        let mut v: Vec<_> = s["changed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| {
+                (
+                    c["target"].as_str().unwrap().into(),
+                    c["id"].as_str().unwrap().into(),
+                    c["kind"].as_str().unwrap().into(),
+                )
+            })
+            .collect();
+        v.sort();
+        v
+    };
+
+    // reads write nothing
+    call(&mut session, "repo_validate", json!({}));
+    assert_eq!(summary(&mut session), None);
+
+    // create
+    let a = call(
+        &mut session,
+        "note_create",
+        json!({ "title": "A", "sections": [] }),
+    );
+    let (a_id, b) = (
+        id(&a, "instanceId"),
+        call(
+            &mut session,
+            "note_create",
+            json!({ "title": "B", "sections": [] }),
+        ),
+    );
+    let s = summary(&mut session).unwrap();
+    assert_eq!(s["tool"], "note_create");
+    assert_eq!(
+        kinds(&s),
+        vec![("instance".into(), id(&b, "instanceId"), "created".into())]
+    );
+    assert_eq!(
+        summary(&mut session),
+        None,
+        "drained: a second take is empty"
+    );
+    let b_id = id(&b, "instanceId");
+
+    // relation
+    let rel = call(
+        &mut session,
+        "relation_create",
+        json!({
+        "relationType": "depends-on", "sourceInstanceId": a_id, "targetInstanceId": b_id }),
+    );
+    assert_eq!(rel["result"]["isError"], false, "{rel}");
+    let s = summary(&mut session).unwrap();
+    assert_eq!(s["tool"], "relation_create");
+    assert_eq!(
+        kinds(&s),
+        vec![("relation".into(), id(&rel, "relationId"), "created".into())]
+    );
+
+    // container create + member add + member move: containers are `updated`/`created`
+    let c = call(
+        &mut session,
+        "container_create",
+        json!({
+        "title": "Essay", "containerType": "essay", "anchorInstanceId": a_id,
+        "identityInstanceId": a_id, "memberInstanceIds": [{ "instanceId": a_id }] }),
+    );
+    assert_eq!(c["result"]["isError"], false, "{c}");
+    let c_id = id(&c, "containerId");
+    let s = summary(&mut session).unwrap();
+    assert!(
+        kinds(&s).contains(&("container".into(), c_id.clone(), "created".into())),
+        "{s}"
+    );
+    call(
+        &mut session,
+        "container_member_add",
+        json!({ "containerId": c_id, "instanceId": b_id, "depth": 0 }),
+    );
+    let s = summary(&mut session).unwrap();
+    assert!(
+        kinds(&s).contains(&("container".into(), c_id.clone(), "updated".into())),
+        "{s}"
+    );
+    let mv = call(
+        &mut session,
+        "container_member_move",
+        json!({ "containerId": c_id, "instanceId": b_id, "position": 0 }),
+    );
+    assert_eq!(mv["result"]["isError"], false, "{mv}");
+    let s = summary(&mut session).unwrap();
+    assert_eq!(s["tool"], "container_member_move");
+    assert_eq!(
+        kinds(&s),
+        vec![("container".into(), c_id.clone(), "updated".into())]
+    );
+
+    // a UI write between requests is not attributed to the next agent request
+    repo.delete_relation(&id(&rel, "relationId")).unwrap();
+    call(&mut session, "repo_validate", json!({}));
+    assert_eq!(summary(&mut session), None);
+
+    // guard rejection: no summary, no epoch move
+    session
+        .set_write_guard(&json!({ "containerIds": [c_id] }).to_string())
+        .ok()
+        .unwrap();
+    let e0 = session.write_epoch();
+    let rej = call(
+        &mut session,
+        "container_member_remove",
+        json!({ "containerId": c_id, "instanceId": b_id }),
+    );
+    assert_eq!(rej["result"]["isError"], true, "{rej}");
+    assert_eq!(session.write_epoch(), e0);
+    assert_eq!(summary(&mut session), None);
+}

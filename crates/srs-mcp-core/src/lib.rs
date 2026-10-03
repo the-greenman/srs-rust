@@ -430,6 +430,15 @@ pub mod srs_prompts {
 /// Length cap (chars) on the client-supplied handle used as `Actor.name`.
 pub const CLIENT_HANDLE_MAX_CHARS: usize = 120;
 
+/// What one `tools/call` changed (ADR-049): the tool and the entities it wrote,
+/// as recorded by the store. Session telemetry for the host; never part of the
+/// MCP response and never persisted.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct WriteSummary {
+    pub tool: String,
+    pub changed: Vec<srs_repository::ChangeEntry>,
+}
+
 /// The complete SRS MCP application over one repository store: resources,
 /// prompts and tools, as JSON-native MCP results. Owns no transport, runtime or
 /// filesystem; the caller decides the store's lifetime and persistence.
@@ -437,15 +446,24 @@ pub struct SrsMcpApplication<S> {
     store: S,
     repository_id: String,
     write_guard: Option<guard::WriteGuard>,
+    last_summary: Option<WriteSummary>,
 }
 
 impl<S: srs_repository::store::RepositoryStore> SrsMcpApplication<S> {
     pub fn new(store: S, repository_id: impl Into<String>) -> Self {
+        store.set_change_recording(true);
         Self {
             store,
             repository_id: repository_id.into(),
             write_guard: None,
+            last_summary: None,
         }
+    }
+
+    /// The last request's write summary, once (ADR-049): `None` if it wrote
+    /// nothing (reads, guard rejections, failures before any write).
+    pub fn take_write_summary(&mut self) -> Option<WriteSummary> {
+        self.last_summary.take()
     }
 
     /// Replace the session's write guard (srs-rust#1165); `None` clears it.
@@ -545,6 +563,7 @@ impl<S: srs_repository::store::RepositoryStore> McpApplication for SrsMcpApplica
                 ))
             }
         };
+        self.last_summary = None;
         let store: &dyn srs_repository::store::RepositoryStore = &self.store;
         match method {
             "resources/list" => srs_resources::list_resources(store, &self.repository_id)
@@ -571,7 +590,18 @@ impl<S: srs_repository::store::RepositoryStore> McpApplication for SrsMcpApplica
                         return Ok(tools::tool_err(message));
                     }
                 }
-                tools::call_tool(store, &name, arguments)
+                // Writes made through other handles since the last call (the UI)
+                // are not this request's; assumes synchronous dispatch (ADR-049).
+                store.drain_changes();
+                let result = tools::call_tool(store, &name, arguments);
+                let changed = store.drain_changes();
+                if !changed.is_empty() {
+                    self.last_summary = Some(WriteSummary {
+                        tool: name,
+                        changed,
+                    });
+                }
+                result
             }
             "prompts/list" => srs_prompts::list_prompts(store),
             "prompts/get" => {

@@ -113,6 +113,16 @@ impl McpSession {
         self.store.write_epoch() as f64
     }
 
+    /// What the last `handle` wrote, once (srs-rust#1202, ADR-049), as JSON:
+    /// `{"tool":"record_update","changed":[{"target":"instance|relation|container","id":"..","kind":"created|updated|deleted"}]}`.
+    /// `undefined` when the request wrote nothing (reads, guard rejections). Recorded by
+    /// the store at its write seam; the MCP response is unchanged. A container member
+    /// change is `updated`; the manifest's root container is not reported.
+    pub fn take_write_summary(&mut self) -> Option<String> {
+        let summary = self.dispatcher.application_mut().take_write_summary()?;
+        serde_json::to_string(&summary).ok()
+    }
+
     /// Install a write guard for this session, replacing any previous one
     /// (srs-rust#1165): `{"containerIds":[..],"instanceIds":[..],"fillOnlyFields":[..]}`,
     /// every key optional. Guarded records are read-only to MCP writes except

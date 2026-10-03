@@ -682,6 +682,103 @@ mod write_guard {
         );
     }
 
+    /// ADR-049: the summary lists every entity record_create / record_fork /
+    /// container_copy wrote, and matches write_epoch movement.
+    #[test]
+    fn write_summary_covers_create_fork_and_copy() {
+        let (_dir, mut d) = guarded();
+        let ty = "com.example.surface/para2";
+        let c = tool(&mut d, "container_create", json!({ "title": "Essay" }));
+        let cid = c["result"]["structuredContent"]["containerId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        d.application_mut().take_write_summary();
+        let p = create(&mut d, ty, json!({ "body": "a" }), Some(&cid));
+        let s = d.application_mut().take_write_summary().unwrap();
+        assert_eq!(s.tool, "record_create");
+        let has = |s: &srs_mcp_core::WriteSummary, t: &str, id: &str, k: &str| {
+            let v = serde_json::to_value(&s.changed).unwrap();
+            v.as_array()
+                .unwrap()
+                .iter()
+                .any(|c| c["target"] == t && c["kind"] == k && (id.is_empty() || c["id"] == id))
+        };
+        assert!(has(&s, "instance", &p, "created"), "{s:?}");
+        assert!(has(&s, "container", &cid, "updated"), "{s:?}");
+
+        let before = epoch(&d);
+        assert_ok(
+            &mut d,
+            "record_fork",
+            json!({ "containerId": cid, "instanceId": p }),
+        );
+        assert!(epoch(&d) > before);
+        let s = d.application_mut().take_write_summary().unwrap();
+        assert_eq!(s.tool, "record_fork");
+        assert!(has(&s, "instance", "", "created"), "{s:?}");
+
+        assert_ok(
+            &mut d,
+            "container_copy",
+            json!({ "sourceContainerId": cid }),
+        );
+        let s = d.application_mut().take_write_summary().unwrap();
+        assert_eq!(s.tool, "container_copy");
+        // an anchor-less copy creates the container only (members are shared); see write_summary_covers_anchored_container_copy
+        assert!(has(&s, "container", "", "created"), "{s:?}");
+        assert!(!has(&s, "instance", "", "created"), "{s:?}");
+
+        // a rejected write leaves no summary
+        guard(&mut d, json!({ "containerIds": [cid] }));
+        assert_rejected(
+            &mut d,
+            "record_fork",
+            json!({ "containerId": cid, "instanceId": p }),
+        );
+        assert!(d.application_mut().take_write_summary().is_none());
+    }
+
+    /// ADR-049 / #1136: copying a container WITH an anchor forks the anchor
+    /// (new record + derived-from relation); the summary must report both.
+    #[test]
+    fn write_summary_covers_anchored_container_copy() {
+        let (_dir, mut d) = guarded();
+        let ty = "com.example.surface/para2";
+        let anchor = create(&mut d, ty, json!({ "body": "a" }), None);
+        let c = tool(
+            &mut d,
+            "container_create",
+            json!({ "title": "Essay", "anchorInstanceId": anchor,
+                    "memberInstanceIds": [{ "instanceId": anchor }] }),
+        );
+        assert_eq!(c["result"]["isError"], false, "{c}");
+        let cid = c["result"]["structuredContent"]["containerId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        d.application_mut().take_write_summary();
+        let r = tool(
+            &mut d,
+            "container_copy",
+            json!({ "sourceContainerId": cid }),
+        );
+        assert_eq!(r["result"]["isError"], false, "{r}");
+        let s = d.application_mut().take_write_summary().unwrap();
+        let v = serde_json::to_value(&s.changed).unwrap();
+        let created = |t: &str| {
+            v.as_array()
+                .unwrap()
+                .iter()
+                .filter(|c| c["target"] == t && c["kind"] == "created")
+                .count()
+        };
+        assert_eq!(created("container"), 1, "{s:?}");
+        assert_eq!(created("instance"), 1, "forked anchor: {s:?}");
+        assert_eq!(created("relation"), 1, "derived-from: {s:?}");
+        assert_eq!(s.changed.len(), 3, "{s:?}");
+    }
+
     #[test]
     fn container_create_cannot_overwrite_a_guarded_container() {
         let (_dir, mut d) = guarded();

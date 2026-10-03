@@ -172,6 +172,55 @@ pub(crate) fn relation_object_from_value(
 // RepositoryStore trait
 // ---------------------------------------------------------------------------
 
+/// What kind of stored entity a [`ChangeEntry`] concerns (ADR-049).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ChangeTarget {
+    Instance,
+    Relation,
+    Container,
+}
+
+impl ChangeTarget {
+    /// Classify a repo-relative path; package, manifest and source-document paths are not recorded.
+    fn from_path(rel: &str) -> Option<Self> {
+        if rel.starts_with("records/") {
+            Some(Self::Instance)
+        } else if rel.starts_with("relations/") {
+            Some(Self::Relation)
+        } else if rel.starts_with("containers/") {
+            Some(Self::Container)
+        } else {
+            None
+        }
+    }
+
+    fn id_key(self) -> &'static str {
+        match self {
+            Self::Instance => "instanceId",
+            Self::Relation => "relationId",
+            Self::Container => "containerId",
+        }
+    }
+}
+
+/// How a [`ChangeEntry`]'s entity changed (ADR-049). A container member move is `Updated`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ChangeKind {
+    Created,
+    Updated,
+    Deleted,
+}
+
+/// One entity written since the last [`RepositoryStore::drain_changes`] (ADR-049).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ChangeEntry {
+    pub target: ChangeTarget,
+    pub id: String,
+    pub kind: ChangeKind,
+}
+
 /// Abstracts all I/O operations performed by service functions.
 ///
 /// Service functions accept `&dyn RepositoryStore` so the storage backend
@@ -205,6 +254,17 @@ pub trait RepositoryStore {
     /// Host-only setter for [`RepositoryStore::session_actor`] (adapters call this;
     /// requests never do). A no-op for stores that cannot carry a session actor.
     fn set_session_actor(&self, _actor: Option<serde_json::Value>) {}
+
+    /// Take the record/relation/container changes written since the last drain
+    /// (ADR-049). Session telemetry, never persisted. Stores that do not record
+    /// return none.
+    fn drain_changes(&self) -> Vec<ChangeEntry> {
+        Vec::new()
+    }
+
+    /// Opt in to (or out of) change recording (ADR-049). Off by default so paths
+    /// that never drain (CLI, bulk import) pay nothing. A no-op for stores that do not record.
+    fn set_change_recording(&self, _on: bool) {}
 
     // --- Batch write mode (ADR-021) ---
     //
@@ -899,6 +959,12 @@ pub struct FileStore {
     /// RFC-046 session actor (raw, unvalidated JSON) — see
     /// [`RepositoryStore::session_actor`].
     session_actor: RefCell<Option<serde_json::Value>>,
+    /// Write recorder (ADR-049): shared by every clone like `epoch`; drained by
+    /// [`RepositoryStore::drain_changes`]. Coalesced per `(target, id)`, so it is
+    /// bounded by the number of distinct entities written.
+    changes: Rc<RefCell<Vec<(String, ChangeEntry)>>>,
+    /// Opt-in (shared by clones): CLI and bulk paths never drain, so they never record.
+    recording: Rc<Cell<bool>>,
 }
 
 // Manual Clone: `#[derive(Clone)]` would carry the cached `Rc<RepositoryCatalog>`
@@ -918,6 +984,8 @@ impl Clone for FileStore {
             epoch: self.epoch.clone(),
             cache_epoch: Cell::new(self.epoch.get()),
             session_actor: RefCell::new(self.session_actor.borrow().clone()),
+            changes: self.changes.clone(),
+            recording: self.recording.clone(),
         }
     }
 }
@@ -935,6 +1003,8 @@ impl FileStore {
             epoch: Rc::new(Cell::new(0)),
             cache_epoch: Cell::new(0),
             session_actor: RefCell::new(None),
+            changes: Rc::default(),
+            recording: Rc::default(),
         }
     }
 
@@ -950,6 +1020,8 @@ impl FileStore {
             epoch: Rc::new(Cell::new(0)),
             cache_epoch: Cell::new(0),
             session_actor: RefCell::new(None),
+            changes: Rc::default(),
+            recording: Rc::default(),
         }
     }
 
@@ -1054,15 +1126,84 @@ impl FileStore {
     }
 
     fn vfs_write(&self, rel: &str, content: &[u8]) -> Result<(), RepositoryError> {
+        let target = ChangeTarget::from_path(rel).filter(|_| self.recording.get());
+        let existed = target.is_some() && self.vfs.exists(rel);
         self.vfs.write(rel, content)?;
         self.invalidate_catalog_cache();
+        if let Some(target) = target {
+            let id = serde_json::from_slice::<serde_json::Value>(content)
+                .ok()
+                .and_then(|v| v.get(target.id_key())?.as_str().map(str::to_string));
+            if let Some(id) = id {
+                self.record_change(rel, target, id, false, existed);
+            }
+        }
         Ok(())
     }
 
     fn vfs_remove(&self, rel: &str) -> Result<(), RepositoryError> {
+        // Read the id first: after removal only the path is left.
+        let found = ChangeTarget::from_path(rel)
+            .filter(|_| self.recording.get())
+            .and_then(|t| {
+                let v: serde_json::Value =
+                    serde_json::from_slice(&self.vfs.read_bytes(rel).ok()?).ok()?;
+                Some((t, v.get(t.id_key())?.as_str()?.to_string()))
+            });
         self.vfs.remove(rel)?;
         self.invalidate_catalog_cache();
+        if let Some((target, id)) = found {
+            self.record_change(rel, target, id, true, true);
+        }
         Ok(())
+    }
+
+    /// Record one write/removal, coalescing per `(target, id)` and tracking the
+    /// entity's current path (ADR-049). A path move writes one path and removes
+    /// another in either order: a removal at a path other than the entity's
+    /// current one is the old copy going away, not a deletion; created then
+    /// removed at the same path never existed for the client and is dropped.
+    // ponytail: linear scan of the log; it is bounded by distinct ids written between
+    // drains (UI bulk imports in a long session are the ceiling). Key by (target,id) if measured slow.
+    fn record_change(
+        &self,
+        path: &str,
+        target: ChangeTarget,
+        id: String,
+        removal: bool,
+        existed: bool,
+    ) {
+        let mut log = self.changes.borrow_mut();
+        let pos = log
+            .iter()
+            .position(|(_, c)| c.target == target && c.id == id);
+        let Some(i) = pos else {
+            let kind = match (removal, existed) {
+                (true, _) => ChangeKind::Deleted,
+                (false, true) => ChangeKind::Updated,
+                (false, false) => ChangeKind::Created,
+            };
+            log.push((path.into(), ChangeEntry { target, id, kind }));
+            return;
+        };
+        let (cur_path, entry) = &mut log[i];
+        if removal {
+            if cur_path != path {
+                // The old copy going away proves the id existed before: a move.
+                if entry.kind == ChangeKind::Created {
+                    entry.kind = ChangeKind::Updated;
+                }
+            } else if entry.kind == ChangeKind::Created {
+                log.remove(i);
+            } else {
+                entry.kind = ChangeKind::Deleted;
+            }
+        } else {
+            *cur_path = path.into();
+            if entry.kind == ChangeKind::Deleted {
+                entry.kind = ChangeKind::Updated;
+            }
+        }
     }
 
     fn vfs_create_dir_all(&self, rel: &str) -> Result<(), RepositoryError> {
@@ -1316,6 +1457,20 @@ fn load_package_from_dir(
 }
 
 impl RepositoryStore for FileStore {
+    fn set_change_recording(&self, on: bool) {
+        self.recording.set(on);
+        if !on {
+            self.changes.borrow_mut().clear();
+        }
+    }
+
+    fn drain_changes(&self) -> Vec<ChangeEntry> {
+        std::mem::take(&mut *self.changes.borrow_mut())
+            .into_iter()
+            .map(|(_, c)| c)
+            .collect()
+    }
+
     fn session_actor(&self) -> Option<serde_json::Value> {
         self.session_actor.borrow().clone()
     }
@@ -4346,6 +4501,175 @@ mod tests {
             .unwrap();
         let loaded = store.load_instance_json("notes/test-note.json").unwrap();
         assert_eq!(loaded["instanceId"], "abc-123");
+    }
+
+    // --- ADR-049 write recorder ---
+
+    fn mem_file_store() -> FileStore {
+        FileStore::from_vfs(Rc::new(MemVfs::new()))
+    }
+
+    fn entry(target: ChangeTarget, id: &str, kind: ChangeKind) -> ChangeEntry {
+        ChangeEntry {
+            target,
+            id: id.into(),
+            kind,
+        }
+    }
+
+    #[test]
+    fn recorder_reports_create_update_delete_and_coalesces() {
+        let store = mem_file_store();
+        store.set_change_recording(true);
+        let clone = store.clone();
+        let rec = serde_json::json!({ "instanceId": "r1" });
+        store
+            .save_instance_json("records/tier-2/r1.json", &rec)
+            .unwrap();
+        // created then updated stays created (clones share the buffer)
+        clone
+            .save_instance_json("records/tier-2/r1.json", &rec)
+            .unwrap();
+        store
+            .save_instance_json(
+                "relations/x.json",
+                &serde_json::json!({ "relationId": "x" }),
+            )
+            .unwrap();
+        store
+            .save_instance_json(
+                "containers/c.json",
+                &serde_json::json!({ "containerId": "c" }),
+            )
+            .unwrap();
+        // not an instance/relation/container path, and no id: unrecorded
+        store
+            .save_instance_json("package/p.json", &serde_json::json!({ "id": "p" }))
+            .unwrap();
+        store
+            .save_instance_json("records/tier-2/noid.json", &serde_json::json!({}))
+            .unwrap();
+        assert_eq!(
+            store.drain_changes(),
+            vec![
+                entry(ChangeTarget::Instance, "r1", ChangeKind::Created),
+                entry(ChangeTarget::Relation, "x", ChangeKind::Created),
+                entry(ChangeTarget::Container, "c", ChangeKind::Created),
+            ]
+        );
+        assert!(store.drain_changes().is_empty(), "drain empties the buffer");
+
+        store
+            .save_instance_json("records/tier-2/r1.json", &rec)
+            .unwrap();
+        store.delete_instance_file("relations/x.json").unwrap();
+        assert_eq!(
+            store.drain_changes(),
+            vec![
+                entry(ChangeTarget::Instance, "r1", ChangeKind::Updated),
+                entry(ChangeTarget::Relation, "x", ChangeKind::Deleted),
+            ]
+        );
+
+        // created then deleted at the same path in one window never existed: dropped
+        store
+            .save_instance_json(
+                "records/tier-2/t.json",
+                &serde_json::json!({ "instanceId": "t" }),
+            )
+            .unwrap();
+        store.delete_instance_file("records/tier-2/t.json").unwrap();
+        assert_eq!(store.drain_changes(), vec![]);
+        // path move, new path written first then old removed: the id survives
+        store
+            .save_instance_json(
+                "records/tier-2/n1.json",
+                &serde_json::json!({ "instanceId": "n" }),
+            )
+            .unwrap();
+        store.drain_changes();
+        store
+            .save_instance_json(
+                "records/tier-2/n2.json",
+                &serde_json::json!({ "instanceId": "n" }),
+            )
+            .unwrap();
+        store
+            .delete_instance_file("records/tier-2/n1.json")
+            .unwrap();
+        assert_eq!(
+            store.drain_changes(),
+            vec![entry(ChangeTarget::Instance, "n", ChangeKind::Updated)]
+        );
+        store
+            .save_instance_json(
+                "records/tier-2/m1.json",
+                &serde_json::json!({ "instanceId": "m" }),
+            )
+            .unwrap();
+        store.drain_changes();
+        store
+            .delete_instance_file("records/tier-2/m1.json")
+            .unwrap();
+        store
+            .save_instance_json(
+                "records/tier-2/m2.json",
+                &serde_json::json!({ "instanceId": "m" }),
+            )
+            .unwrap();
+        assert_eq!(
+            store.drain_changes(),
+            vec![entry(ChangeTarget::Instance, "m", ChangeKind::Updated)]
+        );
+        // removing an absent / id-less file records nothing
+        let _ = store.delete_instance_file("records/tier-2/absent.json");
+        assert!(store.drain_changes().is_empty());
+        store.set_change_recording(false);
+        store
+            .save_instance_json(
+                "records/tier-2/q.json",
+                &serde_json::json!({ "instanceId": "q" }),
+            )
+            .unwrap();
+        assert!(
+            store.drain_changes().is_empty(),
+            "off by default / when disabled"
+        );
+    }
+
+    #[test]
+    fn recorder_is_empty_when_epoch_unmoved() {
+        let store = mem_file_store();
+        store
+            .save_instance_json(
+                "records/tier-2/a.json",
+                &serde_json::json!({ "instanceId": "a" }),
+            )
+            .unwrap();
+        store.drain_changes();
+        let e = store.write_epoch();
+        let _ = store.load_instance_json("records/tier-2/a.json").unwrap();
+        assert_eq!(store.write_epoch(), e);
+        assert!(store.drain_changes().is_empty());
+    }
+
+    /// Guard (ADR-049): every Vfs mutation must pass through the three recording
+    /// wrappers, or the recorder (and the epoch) would miss it.
+    #[test]
+    fn no_vfs_mutation_bypasses_the_wrappers() {
+        let src = include_str!("store.rs");
+        let prod = &src[..src.find("#[cfg(test)]\nmod tests").expect("tests module")];
+        for needle in [
+            "self.vfs.write(",
+            "self.vfs.remove(",
+            "self.vfs.create_dir_all(",
+        ] {
+            assert_eq!(
+                prod.matches(needle).count(),
+                1,
+                "{needle} must appear only in its wrapper"
+            );
+        }
     }
 
     #[test]
