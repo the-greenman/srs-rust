@@ -343,7 +343,7 @@ impl SrsRepository {
     /// Run a discovery query against the repository.
     /// `query_json` is a JSON object matching `DiscoveryQuery` (camelCase fields;
     /// all optional — omit or pass `"{}"` for "return all").
-    /// `limit` (default 25) and `offset` (default 0) page the hits after the
+    /// `limit` (default: all matches) and `offset` (default 0) page the hits after the
     /// deterministic sort; `total` is the full match count.
     /// Returns a `DiscoveryResult` as a JS value.
     pub fn find(
@@ -355,7 +355,7 @@ impl SrsRepository {
         let query: DiscoveryQuery =
             serde_json::from_str(query_json).map_err(|e| js_err(format!("invalid query: {e}")))?;
         let page = FindPage {
-            limit: limit.unwrap_or(FindPage::DEFAULT_LIMIT),
+            limit,
             offset: offset.unwrap_or(0),
         };
         let result = discovery_service::find(&self.store, query, page).map_err(js_err)?;

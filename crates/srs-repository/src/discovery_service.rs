@@ -72,23 +72,11 @@ pub struct DiscoveryHit {
 /// Result shaping for [`find`] (srs-rust#1217). Deliberately not part of
 /// [`DiscoveryQuery`], which mirrors the spec schema: paging selects which of the
 /// matches are returned, never which instances match.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// `limit: None` means every match; any default cap is the adapter's choice.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FindPage {
-    pub limit: usize,
+    pub limit: Option<usize>,
     pub offset: usize,
-}
-
-impl FindPage {
-    pub const DEFAULT_LIMIT: usize = 25;
-}
-
-impl Default for FindPage {
-    fn default() -> Self {
-        Self {
-            limit: Self::DEFAULT_LIMIT,
-            offset: 0,
-        }
-    }
 }
 
 /// Characters of text around the first match kept in a hit snippet.
@@ -172,7 +160,7 @@ pub fn find(
     let hits = hits
         .into_iter()
         .skip(page.offset)
-        .take(page.limit)
+        .take(page.limit.unwrap_or(usize::MAX))
         .collect();
     Ok(DiscoveryResult {
         hits,
@@ -824,12 +812,15 @@ mod tests {
             find(
                 &store,
                 DiscoveryQuery::default(),
-                FindPage { limit, offset },
+                FindPage {
+                    limit: Some(limit),
+                    offset,
+                },
             )
             .unwrap()
         };
-        let all = page(usize::MAX, 0);
-        assert_eq!(all.total, 3);
+        let all = find(&store, DiscoveryQuery::default(), FindPage::default()).unwrap();
+        assert_eq!((all.total, all.hits.len()), (3, 3), "default is unbounded");
         let first = page(2, 0);
         let second = page(2, 2);
         assert_eq!((first.total, second.total), (3, 3));

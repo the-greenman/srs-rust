@@ -527,6 +527,46 @@ async fn tool_note_create_and_find_roundtrip() {
 }
 
 #[tokio::test]
+async fn tool_find_defaults_to_25_hits_with_full_total() {
+    let fx = make_fixture();
+    let client = connect(&fx).await;
+    for i in 0..27 {
+        let created = call(
+            &client,
+            "note_create",
+            serde_json::json!({
+                "title": format!("Note {i}"),
+                "sections": [{ "name": "body", "content": "paging needle", "label": "Body" }]
+            }),
+        )
+        .await;
+        assert_eq!(created.is_error, Some(false), "{created:?}");
+    }
+    let count = |args: serde_json::Value| {
+        let client = &client;
+        async move {
+            let r = call(client, "find", args).await;
+            let s = r.structured_content.unwrap();
+            (
+                s["hits"].as_array().unwrap().len(),
+                s["total"].as_u64().unwrap(),
+            )
+        }
+    };
+    let q = |extra: serde_json::Value| {
+        let mut v = serde_json::json!({ "contentMatch": "paging needle" });
+        v.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        v
+    };
+    assert_eq!(count(q(serde_json::json!({}))).await, (25, 27));
+    assert_eq!(count(q(serde_json::json!({ "offset": 25 }))).await, (2, 27));
+    assert_eq!(count(q(serde_json::json!({ "limit": 0 }))).await, (0, 27));
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn tool_call_malformed_args_invalid_params() {
     let fx = make_fixture();
     let client = connect(&fx).await;

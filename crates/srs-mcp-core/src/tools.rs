@@ -43,6 +43,8 @@ use srs_repository::validation::validate_repository;
 
 pub const TOOL_REPO_VALIDATE: &str = "repo_validate";
 pub const TOOL_FIND: &str = "find";
+/// Agent-facing replies are size-capped; omitted `limit` on the MCP `find` tool.
+const FIND_DEFAULT_LIMIT: usize = 25;
 pub const TOOL_RECORD_CREATE: &str = "record_create";
 pub const TOOL_RELATION_CREATE: &str = "relation_create";
 pub const TOOL_NOTE_CREATE: &str = "note_create";
@@ -291,7 +293,8 @@ pub struct FindToolInput {
     pub tier: Option<u8>,
     /// Content substring match (the CLI's --text flag).
     pub content_match: Option<String>,
-    /// Maximum hits to return (default 25); `total` still counts every match.
+    /// Maximum hits to return. Defaults to 25 when omitted; `total` in the
+    /// result always gives the full match count, so page with `offset`.
     pub limit: Option<usize>,
     /// Number of hits to skip (default 0), after the deterministic sort.
     pub offset: Option<usize>,
@@ -1118,7 +1121,7 @@ pub fn call_tool(
         TOOL_FIND => {
             let input: FindToolInput = parse_args(arguments)?;
             let page = FindPage {
-                limit: input.limit.unwrap_or(FindPage::DEFAULT_LIMIT),
+                limit: Some(input.limit.unwrap_or(FIND_DEFAULT_LIMIT)),
                 offset: input.offset.unwrap_or(0),
             };
             match discovery_service::find(store, input.into(), page) {
