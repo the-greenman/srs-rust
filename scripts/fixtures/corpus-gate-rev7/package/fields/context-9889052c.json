@@ -1,0 +1,23 @@
+{
+  "aiGuidance": {
+    "examples": [
+      {
+        "description": "Meeting-frequency decision — LiMoMa founding session",
+        "output": "The group formed in March 2026 and agreed to trial a flat structure for six months. That trial period ends in December, and the group now needs to decide how to structure ongoing work."
+      }
+    ],
+    "extraction": "Look for background information stated before the decision point: prior agreements, historical context, changes in circumstances, or what happened to prompt this discussion. Extract the scene, not the problem.",
+    "negativeGuidance": "Do not include the friction or problem itself — that belongs in the Friction field. Context sets the stage; it does not name the pain.",
+    "purpose": "Captures the history, constraints, and trigger event that make this decision matter — the scene-setting before the problem itself is named."
+  },
+  "createdAt": "2026-05-25T00:00:00Z",
+  "description": "Background that makes the matter meaningful.",
+  "id": "9889052c-9313-5e2f-a2ac-15baa3c6983e",
+  "name": "context",
+  "namespace": "governance",
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
+  "version": 1
+}

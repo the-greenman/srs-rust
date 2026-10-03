@@ -1,0 +1,26 @@
+{
+  "createdAt": "2026-05-31T14:55:35.208193625+00:00",
+  "fieldValues": {
+    "title": "Mounting system",
+    "decision_question": "Should we install permanent fixings in the stairwell walls, or use a removable or flexible mounting approach for each show?",
+    "context": "The stairwell is an old building with plaster walls. The group had already been hanging art informally using various ad-hoc methods. A six-month pilot gallery experiment was being planned, requiring a repeatable and durable solution. The building is a shared cooperative space, so any approach must protect the walls and be acceptable to the wider building.",
+    "friction": "The walls crumble when repeatedly drilled — every new hole degrades the plaster further. There is currently no consistent hanging system, so each person uses whatever is to hand (blue tack, tape, random screws), which looks poor and provides no standard for the pilot gallery. Something needs to be installed once and reused across shows.",
+    "alternatives_considered": "Hanging rails — inflexible, institutional-looking, poor fit for the angles in this stairwell. Command strips — fail on these walls, require grease-free surface, come off after about a week. Bolt systems — overkill for the weights involved. Sacrificial backing boards — interesting but adds complexity; may revisit for Phase 2. Central suspension from ceiling/beam — technically interesting but complex to engineer safely.",
+    "key_requirements": "Must not continuously damage old plaster walls (non-negotiable). Must accommodate different artwork sizes, weights, and formats across multiple shows. Must look intentional — not like a DIY bodge — when fixings are not in use. Must be simple enough to install correctly the first time. Should protect the building, which is a shared cooperative space. Aesthetics vs practicality was the main tension discussed: the group accepted a slightly visible fixing system in exchange for durability and flexibility.",
+    "decision_statement": "Permanent 6mm wall plugs (brown equivalent) with screws, drilled once and left in place. Typically two screws per position. Caps or covers fabricated for unused fixings between shows.",
+    "rationale": "Repeated drilling degrades these walls faster than permanent fixings. Once drilled correctly, the plug can be reused indefinitely. Keeping a cap on unused fixings means the system looks intentional between shows rather than abandoned.",
+    "revisit_when": "Wall condition deteriorates significantly, or Phase 2 requires a different approach for the main hallway.",
+    "next_steps": "Brian to sketch mounting ideas and share with the group. Trial 6mm plugs in back stairwell as Phase 1 experiment. Fabricate decorative caps for unused fixings between shows. Phase 2 approach for main hallway to be decided separately."
+  },
+  "instanceId": "eb4024a0-486f-4d64-a4e4-5d80297129d2",
+  "lifecycleState": "ratified",
+  "tags": [
+    "space",
+    "installation"
+  ],
+  "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+  "typeName": "decision",
+  "typeNamespace": "governance",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T09:51:59.421995905+00:00"
+}

@@ -35,6 +35,11 @@ jobs:
         working-directory: srs-rust
         run: cargo test --all
 
+      # The release corpus gate's migration path (srs-rust#1145), against the binary just built.
+      - name: Corpus gate self-check
+        working-directory: srs-rust
+        run: bash scripts/check-corpus-conformance.test.sh
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

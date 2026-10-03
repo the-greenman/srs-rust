@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-05-31T14:55:35.192383646+00:00",
+  "fieldValues": {
+    "article_number": "A-006",
+    "title": "On ending",
+    "article_text": "When LiMoMa closes — whether at the end of the pilot, by group decision, or by necessity — the group will: (1) return all artworks to their makers within a reasonable period; (2) remove or make good all fixings and mounts; (3) leave no unresolved commitments to artists, the building, or third parties; (4) transfer any remaining shared funds to the Party Utility for building improvement. The Clerk is responsible for ensuring these obligations are discharged and recorded.",
+    "rationale": "Ending cleanly is a commitment we make to artists before they show with us, not something we work out at the end. This article makes that commitment concrete.",
+    "amendment_rule": "Unanimous agreement of all current members."
+  },
+  "instanceId": "cc58c0dd-8e3a-4dc5-9b58-f3273911a9a9",
+  "typeId": "a1142ac3-5385-5c0e-8630-1dd3432cdf7f",
+  "typeName": "article",
+  "typeNamespace": "governance",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-08T21:05:17.669351506+00:00",
+  "lifecycleState": "ratified"
+}

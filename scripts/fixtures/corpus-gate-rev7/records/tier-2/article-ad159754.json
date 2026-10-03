@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-05-31T14:55:35.167441369+00:00",
+  "fieldValues": {
+    "article_number": "A-001",
+    "title": "What this is",
+    "article_text": "LiMoMa — the Limehouse Museum of Maybe Art — is a community gallery initiative that uses the back stairs and landings of Limehouse Town Hall as a space for exhibiting artwork. It exists as a voluntary association of members with no formal legal status. The pilot runs for six months from June 2026.",
+    "rationale": "The name and definition set the frame for all subsequent decisions. 'Maybe Art' signals that the space is exploratory — not a conventional gallery with commercial or institutional expectations.",
+    "amendment_rule": "Unanimous agreement of all current members."
+  },
+  "instanceId": "ad159754-2edd-4bf8-a70f-a29a617e5809",
+  "typeId": "a1142ac3-5385-5c0e-8630-1dd3432cdf7f",
+  "typeName": "article",
+  "typeNamespace": "governance",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-08T21:05:17.461645865+00:00",
+  "lifecycleState": "ratified"
+}

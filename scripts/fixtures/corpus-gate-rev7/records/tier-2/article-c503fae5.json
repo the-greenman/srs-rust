@@ -1,0 +1,18 @@
+{
+  "createdAt": "2026-05-31T14:55:35.188976549+00:00",
+  "fieldValues": {
+    "article_number": "A-005",
+    "title": "Care of the building",
+    "article_text": "We will leave the building in no worse condition than we found it. Installation work must be carried out carefully: minimum drilled holes, no continuous re-drilling into the same plaster, and all fixings made good when removed. The member with Building Authority (R-001) has final say on what is and is not acceptable. This article cannot be weakened or removed without the explicit agreement of the Party Utility.",
+    "rationale": "Our right to use this space depends on the trust of the Party Utility and the building community. Demonstrating care of the building is not optional — it is the basis on which the experiment is allowed to continue.",
+    "amendment_rule": "Unanimous agreement of all current members AND agreement of the Party Utility.",
+    "protected_status": "Protected — requires Party Utility agreement to amend"
+  },
+  "instanceId": "c503fae5-c3ab-452e-a0b4-5682ca204288",
+  "typeId": "a1142ac3-5385-5c0e-8630-1dd3432cdf7f",
+  "typeName": "article",
+  "typeNamespace": "governance",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-08T21:05:17.566879595+00:00",
+  "lifecycleState": "ratified"
+}

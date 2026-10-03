@@ -1,0 +1,44 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
+  "createdAt": "2026-05-31T00:00:00Z",
+  "description": "Decision log view — compact summary showing only decision statement, alternatives considered, rationale, and revisit trigger.",
+  "id": "b5c8d124-2084-4a6b-a231-425e800e1e55",
+  "name": "decision-log",
+  "namespace": "governance",
+  "rootTypeRefs": [
+    {
+      "typeId": "5a061505-dd0e-4c8d-9e20-fa28a3c42b68",
+      "typeVersion": 1
+    }
+  ],
+  "sections": [
+    {
+      "emptyBehavior": "hide",
+      "order": 0,
+      "renderViewId": "faebd240-83c4-4bc8-a383-8335f841a234",
+      "sectionId": "decisions",
+      "source": {
+        "type": "discovery-query",
+        "query": {
+          "typeNamespace": "governance",
+          "typeName": "decision",
+          "excludeLifecycleStates": [
+            "superseded",
+            "closed",
+            "abandoned"
+          ]
+        },
+        "containerIds": [
+          "138e2fac-6a8a-4a06-9511-5aefd99ceae9"
+        ],
+        "containerScope": "explicit"
+      },
+      "title": "Decision Log",
+      "titleFieldId": "d7e82557-9045-5e92-a494-d99112bbec4a"
+    }
+  ],
+  "version": 1,
+  "exportConfig": {
+    "format": "markdown"
+  }
+}

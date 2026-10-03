@@ -1,0 +1,15 @@
+{
+  "aiGuidance": {
+    "purpose": ""
+  },
+  "createdAt": "2026-05-26T00:00:00Z",
+  "description": "What this role may decide or act on without requiring group agreement.",
+  "id": "d25da548-79d6-555b-8878-f40b685b3955",
+  "name": "authority",
+  "namespace": "governance",
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
+  "version": 1
+}

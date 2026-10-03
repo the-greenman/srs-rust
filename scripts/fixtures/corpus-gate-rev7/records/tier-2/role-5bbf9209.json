@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-05-31T14:55:35.195104906+00:00",
+  "fieldValues": {
+    "title": "R-001 Building Authority",
+    "role_holder": "Sam Hayder",
+    "authority": "May decide what fixings and mounting methods are acceptable for the physical fabric of the building. May halt or reverse installation work that risks damage to walls, plaster, or structural elements. Has final say on whether a proposed intervention is safe and appropriate.",
+    "boundary": "Cannot decide what artwork is shown or how it is curated — that is the Curatorial Lead's authority. Cannot commit the group to structural changes without Party Utility agreement. Cannot override A-005 (Care of the building).",
+    "source_of_authority": "Inherited from the Party Utility, who granted access to the back stairs and entrusted Sam with responsibility for the physical space."
+  },
+  "instanceId": "5bbf9209-1dc9-44b2-b0a3-f2192db5a879",
+  "typeId": "e53dce11-6b83-5714-a8fe-f730edb500fa",
+  "typeName": "role",
+  "typeNamespace": "governance",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-08T21:05:18.642631786+00:00",
+  "lifecycleState": "ratified"
+}

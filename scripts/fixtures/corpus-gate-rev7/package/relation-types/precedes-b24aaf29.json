@@ -1,0 +1,12 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/relation-type.json",
+  "id": "b24aaf29-73b2-4ac2-8dfb-3c848ccbd9ed",
+  "version": 1,
+  "key": "precedes",
+  "namespace": "governance",
+  "label": "Precedes",
+  "description": "Source comes before target in a sequence.",
+  "category": "sequence",
+  "createdAt": "2026-05-31T00:00:00Z",
+  "irreflexive": true
+}

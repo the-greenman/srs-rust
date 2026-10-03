@@ -227,6 +227,14 @@ jobs:
   # branch has no CI of its own, so this gate would be the first thing to notice a break there
   # rather than the second. Land row 1 first, or accept that ordering.
   #
+  # REVISION BUMPS (srs-rust#1145): a corpus the new binary refuses is not failed outright. The
+  # script copies it to a temp dir, applies the registry migrations the binary offers (the same
+  # `srs repo apply-migration` a user runs), and validates the result — a pass reported as
+  # "migration pending: <ids>" in the job summary. Without that, a dataModelRevision bump
+  # deadlocks: build.417 (RFC-043, rev 8) stayed a draft because the corpora could not migrate
+  # until it was published, and had to be published by hand. A corpus that neither loads nor
+  # migrates still fails. All of this lives in the script; this job only calls it.
+  #
   # So a corpus repo mid-migration reddens srs-rust, and withholds promotion, only for as long as
   # its own default branch is non-conformant. It cannot redden srs-rust permanently, and the gate
   # is deliberately not made non-blocking: a gate that cannot fail is the thing this replaces.

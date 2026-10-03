@@ -1,0 +1,114 @@
+{
+  "id": "3c504040-7920-43aa-8fbd-eda21dc7c07b",
+  "version": 1,
+  "namespace": "governance",
+  "name": "governance_lifecycle",
+  "states": [
+    {
+      "id": "f439ed11-6ad7-466a-9544-c6f68946e7d1",
+      "key": "draft",
+      "label": "Draft",
+      "description": "Being written; not yet put to the group.",
+      "isInitial": true
+    },
+    {
+      "id": "5c995a40-247d-4438-8799-768caefed24f",
+      "key": "proposed",
+      "label": "Proposed",
+      "description": "Put to the group for agreement."
+    },
+    {
+      "id": "cbb5354a-e9ea-419a-9496-c741c80ebdcb",
+      "key": "ratified",
+      "label": "Ratified",
+      "description": "Agreed by the group and in force."
+    },
+    {
+      "id": "30e0cae8-e363-4084-b244-d261e0fe4661",
+      "key": "closed",
+      "label": "Closed",
+      "description": "Obligation discharged or matter concluded; no successor.",
+      "isFinal": true
+    },
+    {
+      "id": "ec97cea2-9d19-4940-b101-75282f37fa50",
+      "key": "superseded",
+      "label": "Superseded",
+      "description": "Replaced by a successor record.",
+      "isFinal": true,
+      "requiresRelation": {
+        "relationType": [
+          "supersedes"
+        ]
+      }
+    },
+    {
+      "id": "f21e3ef6-1ce2-4064-b4aa-e03840fe5fb8",
+      "key": "abandoned",
+      "label": "Abandoned",
+      "description": "Proposed or ratified record withdrawn without a successor.",
+      "isFinal": true
+    }
+  ],
+  "transitions": [
+    {
+      "id": "66910ac8-a34d-4178-9c87-e78a0d853726",
+      "name": "propose",
+      "from": "draft",
+      "to": "proposed",
+      "description": "Put a draft to the group."
+    },
+    {
+      "id": "3795dc5e-9b84-4c54-9760-2a059338c80f",
+      "name": "revise",
+      "from": "proposed",
+      "to": "draft",
+      "description": "Withdraw a proposal for further drafting."
+    },
+    {
+      "id": "2a2898fb-a29d-4112-9408-b7b1af60e9e7",
+      "name": "ratify",
+      "from": "proposed",
+      "to": "ratified",
+      "description": "Group agrees; the record comes into force."
+    },
+    {
+      "id": "349b93bb-c5b2-4888-a3e4-772deaf554ff",
+      "name": "supersede",
+      "from": "ratified",
+      "to": "superseded",
+      "description": "Replace with a successor record."
+    },
+    {
+      "id": "14ff9216-e7ae-4b3c-88a7-db44534b46ae",
+      "name": "close",
+      "from": "ratified",
+      "to": "closed",
+      "description": "Conclude the matter with no successor."
+    },
+    {
+      "id": "e86df9c3-8feb-45ac-8366-4337df280fcb",
+      "name": "abandon",
+      "from": "draft",
+      "to": "abandoned",
+      "description": "Withdraw a draft without putting it to the group."
+    },
+    {
+      "id": "bc9db928-7ec0-41aa-8492-c51f406773cc",
+      "name": "abandon",
+      "from": "proposed",
+      "to": "abandoned",
+      "description": "Withdraw a proposal without ratifying it."
+    },
+    {
+      "id": "849318f7-c9e6-4ef5-86a6-b0d15ed55dfc",
+      "name": "abandon",
+      "from": "ratified",
+      "to": "abandoned",
+      "description": "Withdraw a ratified record without a successor."
+    }
+  ],
+  "initialState": "draft",
+  "description": "Shared governance lifecycle for Articles, Roles, and Decisions. A record is drafted, proposed to the group, and ratified once agreed. Ratified records either close (obligation discharged), are superseded by a successor, or are abandoned (withdrawn without a successor). closed, superseded, and abandoned are final.",
+  "createdAt": "2026-06-08T00:00:00Z"
+}

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+  "blueprints": [
+    "blueprints/decision-log-e2e09a77.json"
+  ],
+  "createdAt": "2026-01-01T00:00:00Z",
+  "description": "",
+  "dataModelRevision": 2,
+  "fields": [
+    "fields/title-d7e82557.json",
+    "fields/decisionstatement-de1296e0.json",
+    "fields/context-9889052c.json",
+    "fields/rationale-3340532b.json",
+    "fields/alternativesconsidered-636ce948.json",
+    "fields/revisitwhen-c04b7f84.json",
+    "fields/owner-4b34847c.json",
+    "fields/friction-1a1c0a5d.json",
+    "fields/decisionquestion-73cd845a.json",
+    "fields/keyrequirements-a952604c.json",
+    "fields/nextsteps-4181f210.json",
+    "fields/articletext-8aa3eba2.json",
+    "fields/articlenumber-60be1468.json",
+    "fields/amendmentrule-1f01bc6b.json",
+    "fields/protectedstatus-0df40543.json",
+    "fields/roleholder-a6c19b95.json",
+    "fields/authority-d25da548.json",
+    "fields/boundary-3c39ee1f.json",
+    "fields/sourceofauthority-9a32dc01.json",
+    "fields/externallinks-fc434475.json"
+  ],
+  "id": "90677fae-16a7-49ec-8aee-1872cbf8e381",
+  "lifecycles": [
+    "lifecycles/governance-lifecycle-3c504040.json"
+  ],
+  "name": "governance-core",
+  "namespace": "com.limoma",
+  "protocols": [
+    "protocols/decision-7a088176.json"
+  ],
+  "relationTypes": [
+    "relation-types/precedes-b24aaf29.json",
+    "relation-types/derived-from-36b78f14.json",
+    "relation-types/evidences-35c7aba2.json",
+    "relation-types/delegates-31c82363.json",
+    "relation-types/supersedes-6e86ebd3.json"
+  ],
+  "status": "active",
+  "title": "governance-core",
+  "types": [
+    "types/decision-1fcad6a2.json",
+    "types/article-a1142ac3.json",
+    "types/role-e53dce11.json",
+    "types/decisionlog-5a061505.json"
+  ],
+  "version": "1.0.0",
+  "views": [
+    "views/decision-log-faebd240.json"
+  ],
+  "compositions": [
+    "compositions/articles-and-roles-78b11038.json",
+    "compositions/decision-deliberation-5a3ce87e.json",
+    "compositions/decision-log-b5c8d124.json"
+  ]
+}

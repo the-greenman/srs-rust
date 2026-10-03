@@ -1,0 +1,23 @@
+{
+  "aiGuidance": {
+    "examples": [
+      {
+        "description": "Link to meeting minutes containing the original discussion",
+        "output": "https://example.org/minutes/2026-05-14"
+      }
+    ],
+    "extraction": "Extract any URLs mentioned in the source material that the author intends to link to this decision. Include only explicit URLs, not paraphrased references.",
+    "purpose": "One or more URLs to external materials (meeting minutes, reference documents, prior art) that support or contextualise this decision."
+  },
+  "createdAt": "2026-06-26T00:00:00Z",
+  "description": "External reference URLs attached to this decision — documents, minutes, or other materials that provide rationale or context.",
+  "id": "fc434475-b25e-46d5-8536-c2cc2e4e5f98",
+  "name": "external_links",
+  "namespace": "governance",
+  "fieldType": {
+    "datatype": "string",
+    "format": "uri",
+    "cardinality": "list"
+  },
+  "version": 1
+}

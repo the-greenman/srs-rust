@@ -1,0 +1,22 @@
+{
+  "aiGuidance": {
+    "examples": [
+      {
+        "description": "Meeting-frequency decision",
+        "output": "Yuki to send calendar invites for the fortnightly Tuesday slot by end of the week."
+      }
+    ],
+    "extraction": "Look for action assignments after the decision point: X will do Y by Z, the first step is..., or concrete commitments. Extract owner and timing if named.",
+    "purpose": "Lists concrete follow-up actions that emerge from the decision, with named owners and timing where stated. May be empty if no follow-up actions were recorded."
+  },
+  "createdAt": "2026-05-26T00:00:00Z",
+  "description": "Actions or tasks that emerge from the decision.",
+  "id": "4181f210-f4be-5587-950e-890eda2a5590",
+  "name": "next_steps",
+  "namespace": "governance",
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
+  "version": 1
+}
