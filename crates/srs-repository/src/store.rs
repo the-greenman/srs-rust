@@ -962,7 +962,7 @@ pub struct FileStore {
     /// Write recorder (ADR-049): shared by every clone like `epoch`; drained by
     /// [`RepositoryStore::drain_changes`]. Coalesced per `(target, id)`, so it is
     /// bounded by the number of distinct entities written.
-    changes: Rc<RefCell<Vec<ChangeEntry>>>,
+    changes: Rc<RefCell<Vec<(String, ChangeEntry)>>>,
     /// Opt-in (shared by clones): CLI and bulk paths never drain, so they never record.
     recording: Rc<Cell<bool>>,
 }
@@ -1126,20 +1126,16 @@ impl FileStore {
     }
 
     fn vfs_write(&self, rel: &str, content: &[u8]) -> Result<(), RepositoryError> {
-        let existed = self.vfs.exists(rel);
+        let target = ChangeTarget::from_path(rel).filter(|_| self.recording.get());
+        let existed = target.is_some() && self.vfs.exists(rel);
         self.vfs.write(rel, content)?;
         self.invalidate_catalog_cache();
-        if let Some(target) = ChangeTarget::from_path(rel).filter(|_| self.recording.get()) {
+        if let Some(target) = target {
             let id = serde_json::from_slice::<serde_json::Value>(content)
                 .ok()
                 .and_then(|v| v.get(target.id_key())?.as_str().map(str::to_string));
             if let Some(id) = id {
-                let kind = if existed {
-                    ChangeKind::Updated
-                } else {
-                    ChangeKind::Created
-                };
-                self.record_change(target, id, kind);
+                self.record_change(rel, target, id, false, existed);
             }
         }
         Ok(())
@@ -1147,7 +1143,7 @@ impl FileStore {
 
     fn vfs_remove(&self, rel: &str) -> Result<(), RepositoryError> {
         // Read the id first: after removal only the path is left.
-        let id = ChangeTarget::from_path(rel)
+        let found = ChangeTarget::from_path(rel)
             .filter(|_| self.recording.get())
             .and_then(|t| {
                 let v: serde_json::Value =
@@ -1156,24 +1152,55 @@ impl FileStore {
             });
         self.vfs.remove(rel)?;
         self.invalidate_catalog_cache();
-        if let Some((target, id)) = id {
-            self.record_change(target, id, ChangeKind::Deleted);
+        if let Some((target, id)) = found {
+            self.record_change(rel, target, id, true, true);
         }
         Ok(())
     }
 
-    /// Append one change, coalescing per `(target, id)` (ADR-049): created+updated
-    /// stays created, created+deleted is deleted and deleted+created is updated (a path
-    /// move rewrites the same id under a new path); otherwise the latest kind wins.
-    fn record_change(&self, target: ChangeTarget, id: String, kind: ChangeKind) {
+    /// Record one write/removal, coalescing per `(target, id)` and tracking the
+    /// entity's current path (ADR-049). A path move writes one path and removes
+    /// another in either order: a removal at a path other than the entity's
+    /// current one is the old copy going away, not a deletion; created then
+    /// removed at the same path never existed for the client and is dropped.
+    fn record_change(
+        &self,
+        path: &str,
+        target: ChangeTarget,
+        id: String,
+        removal: bool,
+        existed: bool,
+    ) {
         let mut log = self.changes.borrow_mut();
-        match log.iter().position(|c| c.target == target && c.id == id) {
-            None => log.push(ChangeEntry { target, id, kind }),
-            Some(i) => match (log[i].kind, kind) {
-                (ChangeKind::Created, ChangeKind::Updated) => {}
-                (ChangeKind::Deleted, ChangeKind::Created) => log[i].kind = ChangeKind::Updated,
-                (_, k) => log[i].kind = k,
-            },
+        let pos = log
+            .iter()
+            .position(|(_, c)| c.target == target && c.id == id);
+        let Some(i) = pos else {
+            let kind = match (removal, existed) {
+                (true, _) => ChangeKind::Deleted,
+                (false, true) => ChangeKind::Updated,
+                (false, false) => ChangeKind::Created,
+            };
+            log.push((path.into(), ChangeEntry { target, id, kind }));
+            return;
+        };
+        let (cur_path, entry) = &mut log[i];
+        if removal {
+            if cur_path != path {
+                // The old copy going away proves the id existed before: a move.
+                if entry.kind == ChangeKind::Created {
+                    entry.kind = ChangeKind::Updated;
+                }
+            } else if entry.kind == ChangeKind::Created {
+                log.remove(i);
+            } else {
+                entry.kind = ChangeKind::Deleted;
+            }
+        } else {
+            *cur_path = path.into();
+            if entry.kind == ChangeKind::Deleted {
+                entry.kind = ChangeKind::Updated;
+            }
         }
     }
 
@@ -1437,6 +1464,9 @@ impl RepositoryStore for FileStore {
 
     fn drain_changes(&self) -> Vec<ChangeEntry> {
         std::mem::take(&mut *self.changes.borrow_mut())
+            .into_iter()
+            .map(|(_, c)| c)
+            .collect()
     }
 
     fn session_actor(&self) -> Option<serde_json::Value> {
@@ -4539,8 +4569,7 @@ mod tests {
             ]
         );
 
-        // created then deleted in one window is reported deleted; a path move
-        // (new path written, old removed, or the reverse) never loses the id
+        // created then deleted at the same path in one window never existed: dropped
         store
             .save_instance_json(
                 "records/tier-2/t.json",
@@ -4548,9 +4577,27 @@ mod tests {
             )
             .unwrap();
         store.delete_instance_file("records/tier-2/t.json").unwrap();
+        assert_eq!(store.drain_changes(), vec![]);
+        // path move, new path written first then old removed: the id survives
+        store
+            .save_instance_json(
+                "records/tier-2/n1.json",
+                &serde_json::json!({ "instanceId": "n" }),
+            )
+            .unwrap();
+        store.drain_changes();
+        store
+            .save_instance_json(
+                "records/tier-2/n2.json",
+                &serde_json::json!({ "instanceId": "n" }),
+            )
+            .unwrap();
+        store
+            .delete_instance_file("records/tier-2/n1.json")
+            .unwrap();
         assert_eq!(
             store.drain_changes(),
-            vec![entry(ChangeTarget::Instance, "t", ChangeKind::Deleted)]
+            vec![entry(ChangeTarget::Instance, "n", ChangeKind::Updated)]
         );
         store
             .save_instance_json(
