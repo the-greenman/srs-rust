@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RenderMarkdownPayload",
+  "type": "object",
+  "required": [
+    "html"
+  ],
+  "properties": {
+    "html": {
+      "description": "Safe HTML (raw HTML escaped, link/image URLs restricted); injectable with innerHTML.",
+      "type": "string"
+    }
+  }
+}

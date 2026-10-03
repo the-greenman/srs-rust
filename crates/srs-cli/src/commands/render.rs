@@ -4,6 +4,7 @@ use crate::payload::{
     CompositionProjection, ExportBundlePayload, OkfBundlePayload, ProjectedPropertyRow,
     ProjectedPropertyValue, ProjectedRecord, ProjectedRecordProperty, ProjectedRelationDirection,
     ProjectedRelationRow, ProjectedRelationTarget, ProjectedSection, RenderCompositionPayload,
+    RenderMarkdownPayload,
 };
 use anyhow::Result;
 use srs_core::types::view::RecordProperty as SvcRecordProperty;
@@ -38,6 +39,16 @@ pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String> {
             container_id,
             output,
         } => cmd_render_okf_bundle(ctx, container_id, output),
+        RenderCommand::Markdown => {
+            let mut md = String::new();
+            std::io::Read::read_to_string(&mut std::io::stdin(), &mut md)?;
+            output::serialize(
+                "render markdown",
+                RenderMarkdownPayload {
+                    html: srs_core::markdown::render_markdown(&md),
+                },
+            )
+        }
     }
 }
 

@@ -412,6 +412,11 @@ fn composition_delete() {
 // ── Render ────────────────────────────────────────────────────────────────────
 
 #[test]
+fn render_markdown() {
+    check::<RenderMarkdownPayload>("render-markdown");
+}
+
+#[test]
 fn render_composition() {
     check::<RenderCompositionPayload>("render-composition");
 }

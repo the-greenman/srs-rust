@@ -174,6 +174,7 @@ fn main() {
     write_schema!("render-composition", RenderCompositionPayload);
     write_schema!("render-export-bundle", ExportBundlePayload);
     write_schema!("render-okf-bundle", OkfBundlePayload);
+    write_schema!("render-markdown", RenderMarkdownPayload);
 
     // Repo payloads
     write_schema!("repo-create", RepoCreatePayload);

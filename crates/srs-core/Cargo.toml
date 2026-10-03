@@ -12,6 +12,7 @@ serde_json = { workspace = true }
 indexmap = { workspace = true }
 uuid = { workspace = true }
 thiserror = { workspace = true }
+pulldown-cmark = { workspace = true }
 
 [dev-dependencies]
 srs-schema = { workspace = true }
