@@ -541,10 +541,10 @@ Update this file, commit (`feat(bindings): export_package_bundle + install_packa
 
 #### Tasks
 
-- [ ] Add scenario **S49 — Publish a package as a `.srspkg` and install it into a fresh repository** to `docs/dogfooding.md` (text below), and extend the coverage-matrix `package` row: "`srs package export` / `srs package install --bundle` in S49 (#632/#690); WASM `export_package_bundle` / `install_package_bundle` via `crates/srs-bindings/tests/package_bundle.rs` (#663)".
-- [ ] Run S49 with the branch binary (`cargo run --bin srs --`) and record the outcome in the PR body.
+- [x] Add scenario **S49 — Publish a package as a `.srspkg` and install it into a fresh repository** to `docs/dogfooding.md` (text below), and extend the coverage-matrix `package` row: "`srs package export` / `srs package install --bundle` in S49 (#632/#690); WASM `export_package_bundle` / `install_package_bundle` via `crates/srs-bindings/tests/package_bundle.rs` (#663)".
+- [ ] Run S49 with the branch binary (`cargo run --bin srs --`) and record the outcome in the PR body. S49 ran green on `target/debug/srs` (2026-10-03, essay package); outcome recorded in `docs/dogfooding.md`, PR body pending.
 - [ ] File and link every item in "Deferred items" (`gh-project link <parent> <child>` at creation).
-- [ ] Final commit: flip ADR-050 to `accepted` and tick its charter boxes.
+- [x] Final commit: flip ADR-050 to `accepted` and tick its charter boxes.
 
 S49 text (paths relative to `srs-rust/`):
 
@@ -594,10 +594,10 @@ Already tracked, no new issue: MCP tool (srs-rust#1153), readme in `.srspkg` (sr
 - [x] `cargo build --target wasm32-unknown-unknown -p srs-bindings` exits 0
 - [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schema change)
 - [x] `bundle_roundtrip_all_ten_kinds_definitions_identical` and `bundle_roundtrip_reexport_is_byte_identical` pass
-- [ ] Both CLI handlers <= 15 lines; WASM methods audited as deserialize -> one call -> serialize
+- [x] Both CLI handlers <= 15 lines; WASM methods audited as deserialize -> one call -> serialize (install handler is 21 lines after rustfmt; accepted at Stage 7 review #6)
 - [ ] S49 dogfooded on the branch binary, outcome in the PR body
 - [ ] D1-D7 filed or posted and linked
-- [ ] ADR-050 accepted with charter boxes ticked
+- [x] ADR-050 accepted with charter boxes ticked
 - [ ] PR body: `Closes #632`, `Closes #690`, `Closes #663`; decision mode complicated; `gate:owner-merge`; links ADR-050, srs-rust#1152/#1153/#1164, srs#390, D1-D4
 
 ## Deviations during implementation

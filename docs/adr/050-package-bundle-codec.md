@@ -1,6 +1,6 @@
 # ADR-050: The `.srspkg` Package Bundle is a boundary codec with one reader and one writer
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-10-03
 - **Supersedes:** —
 - **Superseded by:** —
@@ -101,15 +101,14 @@ semantics (boundary version, import-summary merge) are unchanged and stay with s
 
 ## Implementation charter (ADR-048)
 
-Ticked in the final commit of the implementing PR.
-
-- [ ] **Spec-first** — `package-bundle.json` (normative schema), RFC-003 Rev 5 Change C [C1]-[C5]
+- [x] **Spec-first** — `package-bundle.json` (normative schema), RFC-003 Rev 5 Change C [C1]-[C5]
       (RFC still Draft; shipped under `gate:owner-merge` by owner ruling), RFC-043 [R17], RFC-044
       [R5]/[R8], RFC-045 (deferred, refused). Deviation from [C1] recorded above, amendment filed.
-- [ ] **Layer test** — core (`srs-repository::package_bundle`); CLI and WASM expose only.
-- [ ] **One way per goal** — one reader, one writer, one install core, one boundary loader, one
-      filename helper, one canonicalize, one checksum format.
-- [ ] **Parity and mirror obligations** — CLI payloads `package-export` (new) and
+- [x] **Layer test** — core (`srs-repository::package_bundle`); CLI and WASM expose only.
+- [x] **One way per goal** — one reader, one writer, one install core, one boundary loader, one
+      filename helper (lifecycle/vocabulary creators still diverge: srs-rust#1209), one
+      canonicalize, one checksum format.
+- [x] **Parity and mirror obligations** — CLI payloads `package-export` (new) and
       `package-install` (`notes` added) regenerated; WASM returns the same service structs; no
       entity schema change; srs-web pin bump after release (srs-web#339/#340).
-- [ ] **Decision mode** — complicated.
+- [x] **Decision mode** — complicated.
