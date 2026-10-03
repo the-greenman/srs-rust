@@ -73,7 +73,7 @@ No.
 
 #### Acceptance Criteria
 - [x] Inbound and outbound both present with correct `direction`; unrelated absent.
-- [x] Record and Note neighbours both serialize; dangling -> null neighbour.
+- [x] Record and Note neighbours both serialize (Note + record covered by dogfood and parity test); dangling -> null neighbour (by construction).
 - [x] Subtree equals outline slice for nested fixture; non-member container errors; no container -> `entry`/`subtree` absent.
 - [x] Ordering is chronological within a relationType.
 

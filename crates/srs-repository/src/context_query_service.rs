@@ -92,7 +92,7 @@ pub struct RecordContextResult {
     pub subtree: Option<Vec<OutlineEntry>>,
     /// Always empty; placeholder for tagged-chunk storage (#582)
     pub tagged_chunks: Vec<serde_json::Value>,
-    /// Always empty; placeholder for protocol run history (#252)
+    /// Protocol runs targeting this record
     pub protocol_run_history: Vec<serde_json::Value>,
 }
 
@@ -160,6 +160,8 @@ pub fn get_record_context(
             }
         })?;
 
+    // ponytail: two full relation scans and a neighbour load per edge; add a per-id cache /
+    // single pass if hub records measure slow. A self-relation appears once as out, once as in.
     let mut relations = Vec::new();
     for (direction, filter) in [
         (
@@ -788,6 +790,20 @@ mod tests {
         assert_eq!(ids(&ctx(&b)), vec![c.clone()]);
         assert!(ids(&ctx(&c)).is_empty());
         assert!(ids(&ctx(&d)).is_empty());
+        // A real container that does not contain the record: InvalidInput, not not-found.
+        let outsider = mk("outsider");
+        let err = get_record_context(
+            &store,
+            RecordContextQuery {
+                record_id: outsider,
+                container_id: Some(cid.clone()),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidInput { .. }),
+            "{err:?}"
+        );
     }
 
     #[test]

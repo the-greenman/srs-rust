@@ -38,7 +38,7 @@
       "type": "string"
     },
     "relations": {
-      "description": "Both directions; each entry is a RelationSummary plus `direction` (out|in) and the other endpoint inline as `neighbour`.",
+      "description": "BEHAVIOUR CHANGE (#1134): formerly outbound only. Consumers that assumed `sourceId == recordId` must check `direction`. Both directions; each entry is a RelationSummary plus `direction` (out|in) and the other endpoint inline as `neighbour`.",
       "type": "array",
       "items": true
     },

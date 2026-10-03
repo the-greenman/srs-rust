@@ -2219,7 +2219,8 @@ pub struct ContextRecordPayload {
     /// RFC-039 carrier: object keyed by Field.name ([R2b]).
     #[schemars(with = "serde_json::Value")]
     pub field_values: srs_core::types::record::FieldValues,
-    /// Both directions; each entry is a RelationSummary plus `direction` (out|in) and the
+    /// BEHAVIOUR CHANGE (#1134): formerly outbound only. Consumers that assumed
+    /// `sourceId == recordId` must check `direction`. Both directions; each entry is a RelationSummary plus `direction` (out|in) and the
     /// other endpoint inline as `neighbour`.
     #[schemars(with = "Vec<serde_json::Value>")]
     pub relations: Vec<srs_repository::context_query_service::ContextRelation>,
