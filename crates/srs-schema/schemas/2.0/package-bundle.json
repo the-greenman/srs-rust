@@ -318,7 +318,9 @@
       "properties": {
         "fieldId": {
           "type": "string",
-          "format": "uuid"
+          "format": "uuid",
+          "x-srs-range-type": "com.semanticops.srs/field@1",
+          "title": "Field"
         },
         "order": {
           "type": "integer",
@@ -328,9 +330,12 @@
           "type": "boolean"
         },
         "displayLabel": {
-          "type": "string"
+          "type": "string",
+          "title": "Display Label"
         },
-        "defaultValue": {}
+        "description": {
+          "type": "string"
+        }
       }
     },
     "Reference": {
