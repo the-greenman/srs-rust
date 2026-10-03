@@ -1163,6 +1163,8 @@ impl FileStore {
     /// another in either order: a removal at a path other than the entity's
     /// current one is the old copy going away, not a deletion; created then
     /// removed at the same path never existed for the client and is dropped.
+    // ponytail: linear scan of the log; it is bounded by distinct ids written between
+    // drains (UI bulk imports in a long session are the ceiling). Key by (target,id) if measured slow.
     fn record_change(
         &self,
         path: &str,

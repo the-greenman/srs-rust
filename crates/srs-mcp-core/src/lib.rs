@@ -430,9 +430,6 @@ pub mod srs_prompts {
 /// Length cap (chars) on the client-supplied handle used as `Actor.name`.
 pub const CLIENT_HANDLE_MAX_CHARS: usize = 120;
 
-/// The complete SRS MCP application over one repository store: resources,
-/// prompts and tools, as JSON-native MCP results. Owns no transport, runtime or
-/// filesystem; the caller decides the store's lifetime and persistence.
 /// What one `tools/call` changed (ADR-049): the tool and the entities it wrote,
 /// as recorded by the store. Session telemetry for the host; never part of the
 /// MCP response and never persisted.
@@ -442,6 +439,9 @@ pub struct WriteSummary {
     pub changed: Vec<srs_repository::ChangeEntry>,
 }
 
+/// The complete SRS MCP application over one repository store: resources,
+/// prompts and tools, as JSON-native MCP results. Owns no transport, runtime or
+/// filesystem; the caller decides the store's lifetime and persistence.
 pub struct SrsMcpApplication<S> {
     store: S,
     repository_id: String,
