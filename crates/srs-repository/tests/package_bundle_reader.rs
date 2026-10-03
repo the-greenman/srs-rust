@@ -135,15 +135,54 @@ fn read_bundle_rejects_schema_invalid() {
 }
 
 #[test]
-fn read_bundle_schema_error_on_old_bundle_names_revision() {
-    let mut b = bundle(5);
-    b["documentViews"] = json!([]);
+fn read_bundle_absent_stamp_is_revision_0_and_refused() {
+    let mut b = bundle(9);
+    b.as_object_mut().unwrap().remove("dataModelRevision");
     let (code, msg) = refused(&b);
-    assert_eq!(code, "bundle-schema-invalid");
+    assert_eq!(code, "bundle-migration-step-missing");
     assert!(
-        msg.contains("re-export") && msg.contains("dataModelRevision 5"),
+        msg.contains("0 -> 1") && msg.contains("field-type"),
         "{msg}"
     );
+}
+
+#[test]
+fn read_bundle_below_7_names_the_missing_step() {
+    let (code, msg) = refused(&bundle(6));
+    assert_eq!(code, "bundle-migration-step-missing");
+    assert!(
+        msg.contains("6 -> 7")
+            && msg.contains("discovery-query-cutover")
+            && msg.contains("from revision 7"),
+        "{msg}"
+    );
+}
+
+#[test]
+fn read_bundle_rev8_is_restamped_without_changing_definitions() {
+    let read = read_package_bundle(&bytes(&bundle(8))).unwrap();
+    assert!(read.notes.is_empty());
+    let values: Vec<&Value> = read.bundle.definitions.iter().map(|d| &d.value).collect();
+    assert_eq!(values, vec![&field(), &ty(), &relation_type(), &view()]);
+}
+
+#[test]
+fn read_bundle_rev9_with_member_order_is_not_migrated() {
+    let mut b = bundle(9);
+    b["compositions"] = json!([composition_with_member_order(None)]);
+    let (code, msg) = refused(&b);
+    assert_eq!(code, "bundle-definition-invalid");
+    assert!(msg.contains("memberOrder"), "{msg}");
+}
+
+#[test]
+fn read_bundle_refusal_below_floor_installs_nothing() {
+    let (_t, store) = file_repo();
+    let before = store.list_package_boundaries().unwrap().len();
+    let err =
+        install_package_bundle_bytes(&store, &bytes(&bundle(6)), Default::default()).unwrap_err();
+    assert_eq!(code_of(err).0, "bundle-migration-step-missing");
+    assert_eq!(store.list_package_boundaries().unwrap().len(), before);
 }
 
 #[test]
@@ -198,6 +237,15 @@ fn read_bundle_migrates_pre_rev8_member_order() {
         .iter()
         .any(|n| n.starts_with("migration-memberorder-dropped")));
     assert_eq!(result.installed, 5);
+}
+
+/// Through both steps (7 -> 8 transform, 8 -> 9 re-stamp), the read bundle is
+/// current: the schema check runs on the revision-9 shape.
+#[test]
+fn read_bundle_rev7_reaches_current_revision() {
+    let mut b = bundle(7);
+    b["compositions"] = json!([composition_with_member_order(None)]);
+    assert!(read_package_bundle(&bytes(&b)).is_ok());
 }
 
 #[test]

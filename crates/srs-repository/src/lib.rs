@@ -47,6 +47,7 @@ pub mod protocol_run_service;
 pub mod protocol_service;
 pub mod record_label;
 pub mod record_store;
+mod reference_sites;
 pub mod registry_service;
 pub mod relation_graph;
 pub mod relation_service;

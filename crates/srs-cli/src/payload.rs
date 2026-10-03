@@ -1841,7 +1841,7 @@ pub struct PackageExportPayload {
     pub package_namespace: String,
     pub package_name: String,
     pub package_version: String,
-    /// The `dataModelRevision` stamped into the bundle.
+    /// The `dataModelRevision` stamped into the bundle: the repository's own stamp.
     pub data_model_revision: u64,
     /// The bundle's `publishedAt`; part of the bytes, so a reproducible sha256
     /// needs a fixed `--published-at`.
@@ -1850,10 +1850,17 @@ pub struct PackageExportPayload {
     pub sha256: String,
     pub byte_length: usize,
     pub definition_count: usize,
-    /// Definition ids inlined from other boundaries by the closure (sorted).
+    /// Ids carried from other package boundaries by the closure (sorted); core
+    /// definitions are listed, never carried.
     pub inlined: Vec<String>,
     /// Per-kind counts, install order, non-empty kinds only.
     pub kinds: Vec<PackageExportKindEntry>,
+    /// Entries in the bundle's `dependencyRefs` (every reached definition).
+    pub dependency_ref_count: usize,
+    /// The bundle's `mode`: `bundled` or `standalone`.
+    pub mode: String,
+    /// Non-fatal export notes (e.g. `bundle-below-reader-floor`).
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -1888,6 +1895,9 @@ impl PackageExportPayload {
                     count: k.count,
                 })
                 .collect(),
+            dependency_ref_count: s.dependency_ref_count,
+            mode: s.mode.as_str().to_string(),
+            notes: s.notes,
         }
     }
 }

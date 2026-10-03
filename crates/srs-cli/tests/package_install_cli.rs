@@ -281,6 +281,12 @@ fn package_export_cli_writes_srspkg_and_reports_sha256() {
     assert_eq!(p["byteLength"], bytes.len());
     assert_eq!(p["definitionCount"], 3);
     assert_eq!(p["publishedAt"], AT);
+    // The item Type references both of its own Fields.
+    assert_eq!(p["dependencyRefCount"], 2);
+    assert_eq!(p["mode"], "bundled");
+    assert_eq!(p["notes"], serde_json::json!([]));
+    let bundle: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(bundle["dependencyRefs"].as_array().unwrap().len(), 2);
 }
 
 #[test]
@@ -370,4 +376,104 @@ fn package_install_cli_bundle_newer_revision_is_error_envelope() {
     let env = env.expect("an error envelope on stdout");
     assert_eq!(env["ok"], false, "{env}");
     assert!(env.to_string().contains("bundle-revision-too-new"), "{env}");
+}
+
+/// `srs package export` with extra flags, against repo `repo`.
+fn export_with(dir: &Path, repo: &str, out: &str, extra: &[&str]) -> (bool, Option<Value>) {
+    let mut args = vec![
+        "--repo",
+        repo,
+        "package",
+        "export",
+        "--selector",
+        SELECTOR,
+        "--output",
+        out,
+        "--published-at",
+        AT,
+    ];
+    args.extend_from_slice(extra);
+    run_raw(dir, &args)
+}
+
+#[test]
+fn package_export_cli_mode_standalone() {
+    let (ws, a, _b) = two_repos();
+    let out = ws.path().join("s.srspkg").to_string_lossy().into_owned();
+    let (ok, env) = export_with(ws.path(), &a, &out, &["--mode", "standalone"]);
+    let env = env.unwrap();
+    assert!(ok, "{env}");
+    assert_eq!(env["payload"]["mode"], "standalone");
+    let bundle: Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
+    assert_eq!(bundle["mode"], "standalone");
+    let (ok, _) = export_with(ws.path(), &a, &out, &["--mode", "bogus"]);
+    assert!(!ok, "clap must refuse an unknown --mode");
+}
+
+#[test]
+fn package_export_cli_writes_homepage() {
+    let (ws, a, _b) = two_repos();
+    let out = ws.path().join("h.srspkg").to_string_lossy().into_owned();
+    let (ok, env) = export_with(
+        ws.path(),
+        &a,
+        &out,
+        &["--homepage", "https://example.org/pkg"],
+    );
+    assert!(ok, "{env:?}");
+    let bundle: Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
+    assert_eq!(bundle["homepage"], "https://example.org/pkg");
+    export(ws.path(), &a, &out);
+    let bundle: Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
+    assert!(bundle.get("homepage").is_none());
+}
+
+#[test]
+fn package_export_cli_reports_below_floor_notes() {
+    let (ws, a, _b) = two_repos();
+    let out = ws.path().join("n.srspkg").to_string_lossy().into_owned();
+    srs_repository::field_type_migration_service::stamp_data_model_revision(
+        &srs_repository::store::FileStore::new(Path::new(&a)),
+        6,
+    )
+    .unwrap();
+    let env = export(ws.path(), &a, &out);
+    let notes = env["payload"]["notes"].as_array().unwrap();
+    assert_eq!(notes.len(), 1, "{env}");
+    assert!(
+        notes[0]
+            .as_str()
+            .unwrap()
+            .contains("bundle-below-reader-floor"),
+        "{env}"
+    );
+    assert_eq!(env["payload"]["dataModelRevision"], 6);
+}
+
+#[test]
+fn package_install_cli_bundle_below_floor_is_error_envelope() {
+    let (ws, a, b) = two_repos();
+    let out = ws.path().join("p.srspkg");
+    export(ws.path(), &a, &out.to_string_lossy());
+    let mut v: Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
+    v["dataModelRevision"] = serde_json::json!(6);
+    let old = ws.path().join("old.srspkg");
+    std::fs::write(&old, serde_json::to_vec(&v).unwrap()).unwrap();
+    let (_, env) = run_raw(
+        ws.path(),
+        &[
+            "--repo",
+            &b,
+            "package",
+            "install",
+            "--bundle",
+            &old.to_string_lossy(),
+        ],
+    );
+    let env = env.expect("an error envelope on stdout");
+    assert_eq!(env["ok"], false, "{env}");
+    assert!(
+        env.to_string().contains("bundle-migration-step-missing"),
+        "{env}"
+    );
 }
