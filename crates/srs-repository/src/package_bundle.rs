@@ -297,6 +297,9 @@ struct Holding {
     from: String,
     /// `Some(other location)` when two holders differ (PD3).
     conflict: Option<String>,
+    /// The embedded core holds this exact `(id, version)`: listed, never carried
+    /// unless the source package lists it (`rfc-decision-a8dcbfe5`).
+    core: bool,
 }
 
 type EffectiveIndex = BTreeMap<String, BTreeMap<u64, Holding>>;
@@ -327,6 +330,7 @@ fn effective_index(
                         value: Some(d.value),
                         from: from.clone(),
                         conflict: None,
+                        core: false,
                     });
                 }
                 Entry::Occupied(mut e) => {
@@ -377,12 +381,14 @@ fn effective_index(
                     value: None,
                     from: "core".to_string(),
                     conflict: None,
+                    core: true,
                 });
             }
             // ADR-025: same id and version with the same namespace and name is the
             // same core definition; anything else is an identity conflict.
             Entry::Occupied(mut e) => {
                 let h = e.get_mut();
+                h.core = true;
                 if (h.kind != kind || &h.namespace != namespace || &h.name != name)
                     && h.conflict.is_none()
                 {
@@ -452,14 +458,6 @@ pub fn export_package_bundle(
         })?;
 
     let index = effective_index(store, &boundaries)?;
-    let core_ids: BTreeSet<&str> = {
-        let core = crate::core_package::core_package();
-        core.fields
-            .iter()
-            .map(|f| f.id.as_str())
-            .chain(core.record_types.iter().map(|t| t.id.as_str()))
-            .collect()
-    };
     let conflict = |id: &str, version: u64, h: &Holding| match &h.conflict {
         Some(at) => Err(refuse(
             "bundle-identity-conflict",
@@ -530,10 +528,7 @@ pub fn export_package_bundle(
                     (h.namespace.clone(), h.name.clone()),
                 );
                 let key = (r.id.clone(), version);
-                if input.mode == BundleMode::Standalone
-                    || core_ids.contains(r.id.as_str())
-                    || carried.contains_key(&key)
-                {
+                if input.mode == BundleMode::Standalone || h.core || carried.contains_key(&key) {
                     continue;
                 }
                 let Some(v) = h.value.clone() else { continue };
@@ -1418,6 +1413,31 @@ mod tests {
             dep_refs(&b),
             vec![(c.id.clone(), u64::from(c.version), "field".to_string())]
         );
+    }
+
+    /// The core exception is per `(id, version)`: a boundary's other version of a
+    /// core id is an ordinary definition and is carried in bundled mode.
+    #[test]
+    fn export_carries_a_non_core_version_of_a_core_id() {
+        let (_t, store) = two_boundaries();
+        let c = core_field();
+        let other = u64::from(c.version) + 1;
+        let mut f = core_copy(&c.name);
+        f["version"] = json!(other);
+        put(&store, Some(B), DefinitionKind::Field, f);
+        put(
+            &store,
+            Some(T),
+            DefinitionKind::View,
+            view("7e000000-0000-4000-8000-0000000000e7", &[&c.id]),
+        );
+        let e = try_export(&store, T, BundleMode::Bundled).unwrap();
+        let b = parsed(&e);
+        assert_eq!(ids_of(&b, "fields"), vec![(c.id.clone(), other)]);
+        assert_eq!(e.summary.inlined, vec![c.id.clone()]);
+        let refs = dep_refs(&b);
+        assert!(refs.contains(&(c.id.clone(), other, "field".to_string())));
+        assert!(refs.contains(&(c.id.clone(), u64::from(c.version), "field".to_string())));
     }
 
     #[test]

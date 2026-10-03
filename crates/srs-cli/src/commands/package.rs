@@ -55,7 +55,7 @@ pub fn dispatch(ctx: CliContext, cmd: PackageCommand) -> Result<String> {
                 published_at,
                 publisher,
                 homepage,
-                mode: mode.parse().map_err(|e: String| anyhow::anyhow!(e))?,
+                mode,
             },
         ),
         PackageCommand::Update {

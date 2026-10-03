@@ -43,12 +43,15 @@ honest refusal over silent coercion (RFC-038 [R21], ADR-044).
 
    **Reader pipeline, in this order:** parse JSON -> refuse a `readme` (RFC-045 support is
    srs-rust#1164; carrying it silently would drop it) -> refuse a `dataModelRevision` greater than
-   `CURRENT_DATA_MODEL_REVISION` (never silently downgrade) -> always run
+   `CURRENT_DATA_MODEL_REVISION` (never silently downgrade) -> ~~always run
    `migrate_package_bundle_value` (idempotent, never lowers a stamp above 8; its diagnostics
-   become the install result's `notes`) -> validate against the embedded `package-bundle.json`
-   (ADR-004) -> validate every definition with the loader's own strictness. There is **no numeric
+   become the install result's `notes`)~~ *(superseded: the [C6] step chain; a revision-9 bundle
+   runs no transformer)* -> validate against the embedded `package-bundle.json`
+   (ADR-004) -> validate every definition with the loader's own strictness. ~~There is **no numeric
    revision floor**: the floor is the content shape, and a failure on a bundle older than current
-   names its revision and says to re-export it. Refusals are `InvalidPackageBundle { code,
+   names its revision and says to re-export it.~~ *(superseded: the reader floor is the lowest
+   revision every later step has a bundle form for, 7 today; below it the reader refuses with
+   `bundle-migration-step-missing`)* Refusals are `InvalidPackageBundle { code,
    message }`, coded like `ActorProvenance` so clients can branch on the reason. Codes:
    reader `bundle-not-json`, `bundle-readme-unsupported`, `bundle-revision-too-new`,
    `bundle-migration-refused` (an RFC-043 transformer refusal, inner code kept in the message),
@@ -66,9 +69,10 @@ honest refusal over silent coercion (RFC-038 [R21], ADR-044).
    format `attachment_service::sha256_hex` already produces. One format, not a second bare-hex one.
 5. > Amended by srs-rust#1212: the id scan is replaced by the typed reference-site table (see the Amendment).
 
-   **Closure** ([C1], `mode: "bundled"`): starting from the boundary's definitions, any string
+   ~~**Closure** ([C1], `mode: "bundled"`): starting from the boundary's definitions, any string
    value equal to the `id` of a definition in another package boundary of the same repository is
-   inlined, to a fixpoint. `dependencyRefs` is `[]`.
+   inlined, to a fixpoint. `dependencyRefs` is `[]`.~~ *(superseded: PINNED and LINEAGE sites
+   only, `dependencyRefs` lists every reached definition; see the Amendment)*
 6. **Identity** ([C3]/[C4]): whole-boundary export only; `packageId`/`packageVersion` are the
    boundary's `id`/`version`.
 

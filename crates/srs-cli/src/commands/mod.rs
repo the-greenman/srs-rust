@@ -1700,10 +1700,10 @@ pub enum PackageCommand {
         /// Optional `homepage` URL
         #[arg(long)]
         homepage: Option<String>,
-        /// `bundled` carries the reference closure; `standalone` only the package's
-        /// own definitions (both list every reached definition in `dependencyRefs`)
-        #[arg(long, default_value = "bundled", value_parser = ["bundled", "standalone"])]
-        mode: String,
+        /// `bundled` (default) carries the reference closure; `standalone` only the
+        /// package's own definitions (both list every reached definition in `dependencyRefs`)
+        #[arg(long, default_value = "bundled", value_parser = |s: &str| s.parse::<srs_repository::package_bundle::BundleMode>())]
+        mode: srs_repository::package_bundle::BundleMode,
     },
     /// Update package boundary metadata (namespace, name, or version)
     Update {

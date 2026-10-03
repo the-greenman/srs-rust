@@ -349,6 +349,9 @@ mod tests {
     }
 
     /// Collect the pointer pattern of every `format: "uuid"` leaf of a schema.
+    ///
+    /// The guard keys on `format: "uuid"`: a UUID site whose schema omits the format
+    /// annotation is invisible to it. A scan at srs-rust#1212 found no such site.
     fn uuid_sites(
         root: &Value,
         node: &Value,
