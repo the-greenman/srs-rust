@@ -53,3 +53,5 @@ crossterm = "0.28"
 # by ADR-043 (MCP JSON-RPC output is key-order-insensitive by protocol; snapshot tests verify).
 rmcp = { version = "2", features = ["server", "transport-io"] }
 tokio = { version = "1", features = ["rt", "macros", "io-std", "time"] }
+# Markdown → HTML (srs-rust#1191). default-features = false drops the CLI binary deps (getopts); wasm32-safe, pure Rust.
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }

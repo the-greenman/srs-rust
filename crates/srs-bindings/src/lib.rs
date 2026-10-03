@@ -1580,6 +1580,14 @@ impl SrsRepository {
 
 // ── Repo-independent free functions (ADR-013 addendum) ───────────────────────
 
+/// Render markdown to safe HTML (srs-rust#1191): raw HTML is escaped and link/image
+/// URLs are limited to http, https, mailto and relative, so the result is safe to
+/// inject with `innerHTML`. Repo-independent free function; JS name `renderMarkdown`.
+#[wasm_bindgen(js_name = renderMarkdown)]
+pub fn render_markdown(md: &str) -> String {
+    srs_core::markdown::render_markdown(md)
+}
+
 /// Parse a registry catalog JSON string into a `Registry` object.
 ///
 /// `catalog_json` is the raw text of a `.json` registry catalog file
