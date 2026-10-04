@@ -64,13 +64,6 @@ pub fn dispatch(ctx: CliContext, cmd: PackageCommand) -> Result<String> {
             name,
             version,
         } => cmd_package_update(ctx, selector, namespace, name, version),
-        PackageCommand::SliceCreate {
-            id,
-            namespace,
-            name,
-            version,
-            boundary_path,
-        } => cmd_package_create(ctx, id, namespace, name, version, boundary_path),
         PackageCommand::Imports => cmd_package_imports(ctx),
         PackageCommand::Dependency(sub) => cmd_package_dependency(ctx, sub),
         PackageCommand::Enable { path } => cmd_package_enable(ctx, path),

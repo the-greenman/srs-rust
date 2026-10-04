@@ -2921,6 +2921,24 @@ pub struct ArchivePackPayload {
     pub file_size_bytes: u64,
 }
 
+/// Payload for `srs slice export` (RFC-026 container slice, ADR-051).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SliceExportPayload {
+    pub output_path: String,
+    pub file_size_bytes: u64,
+    pub container_id: String,
+    pub slice_repository_id: String,
+    pub origin_repository_id: String,
+    pub exported_at: String,
+    pub instance_count: usize,
+    pub relation_count: usize,
+    pub container_count: usize,
+    pub source_document_count: usize,
+    pub package_count: usize,
+    pub external_relation_ref_count: usize,
+}
+
 /// Payload for `srs archive unpack`.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]

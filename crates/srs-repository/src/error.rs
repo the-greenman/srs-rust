@@ -487,6 +487,13 @@ pub enum RepositoryError {
     #[error("{code}: {message}")]
     InvalidPackageBundle { code: &'static str, message: String },
 
+    /// An RFC-026 container slice export was refused (ADR-051). `code` is one of
+    /// `slice-root-identity-invalid` (the boundary's identity entry is not a
+    /// depth-0 entry without descendants), `slice-exported-at-invalid`,
+    /// `slice-repository-id-reused`.
+    #[error("{code}: {message}")]
+    SliceRefused { code: &'static str, message: String },
+
     /// RFC-038 [R21]: a repository below storage generation 2 is not
     /// supported. Feature-inactive until the Phase-6 flip; fired only under
     /// the crate-internal test activation until then.

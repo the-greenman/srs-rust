@@ -20,6 +20,7 @@ pub mod relation_type;
 pub mod render;
 pub mod repo;
 pub mod schema;
+pub mod slice;
 pub mod tag;
 pub mod term;
 pub mod theme;
@@ -409,6 +410,21 @@ pub enum Commands {
     /// Archive pack/unpack commands (.srs SRSzip format, ADR-036)
     #[command(subcommand)]
     Archive(ArchiveCommand),
+    /// RFC-026 container slices: one container as a standalone .srs (ADR-051)
+    #[command(subcommand)]
+    Slice(SliceCommand),
+}
+
+#[derive(Subcommand)]
+pub enum SliceCommand {
+    /// Export the container named by the global `--container` as a standalone
+    /// `.srs` slice archive (RFC-026): its records, the relations among them,
+    /// its sub-containers, their source documents and every package they use;
+    /// cut relations are recorded in the manifest's `slice.externalRelationRefs`.
+    Export {
+        /// Output file path for the .srs slice archive
+        output: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1743,24 +1759,6 @@ pub enum PackageCommand {
         #[arg(long)]
         version: Option<String>,
     },
-    /// Create a new package slice (alias for create; permanent alias, not intended to diverge)
-    SliceCreate {
-        /// Package UUID
-        #[arg(long = "id")]
-        id: String,
-        /// Package namespace (e.g. com.example)
-        #[arg(long)]
-        namespace: String,
-        /// Package name (kebab-case)
-        #[arg(long)]
-        name: String,
-        /// Package version (semver, e.g. 1.0.0)
-        #[arg(long, default_value = "1.0.0")]
-        version: String,
-        /// Boundary path relative to repo root (e.g. package/my-ext)
-        #[arg(long = "path")]
-        boundary_path: String,
-    },
     /// List all imported definitions with live divergence state
     Imports,
     /// Package requirements (`packageDependencies`, RFC-044), keyed by packageId
@@ -1999,6 +1997,7 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Context(ctx_cmd) => context::dispatch(ctx, ctx_cmd),
         Commands::Attachment(cmd) => attachment::dispatch(ctx, cmd),
         Commands::Archive(archive_cmd) => archive::dispatch(ctx, archive_cmd),
+        Commands::Slice(cmd) => slice::dispatch(ctx, cmd),
         Commands::Mcp(mcp_cmd) => mcp::dispatch(ctx, mcp_cmd),
     }
 }

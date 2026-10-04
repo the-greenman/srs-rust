@@ -254,7 +254,10 @@ pub(crate) fn tree_entries(
 /// a transitional collection. But `#` is also a legal filename character, so
 /// the fragment is stripped only when the locator does not name a file itself:
 /// `notes/issue#42.json` is a path, not a path plus a fragment.
-fn carrying_file(source: &dyn RepositoryStore, locator: &str) -> Result<String, RepositoryError> {
+pub(crate) fn carrying_file(
+    source: &dyn RepositoryStore,
+    locator: &str,
+) -> Result<String, RepositoryError> {
     if !locator.contains('#') || read_entry(source, locator)?.is_some() {
         return Ok(locator.to_string());
     }
@@ -300,8 +303,15 @@ pub fn archive_pack(
     source: &dyn RepositoryStore,
     writer: impl Write + Seek,
 ) -> Result<(), RepositoryError> {
-    let entries = tree_entries(source)?;
+    pack_tree(&tree_entries(source)?, writer)
+}
 
+/// The one deterministic `.srs` ZIP writer (ADR-033/ADR-039), shared by
+/// `archive_pack` and the RFC-026 slice export (ADR-051).
+pub(crate) fn pack_tree(
+    entries: &BTreeMap<String, Vec<u8>>,
+    writer: impl Write + Seek,
+) -> Result<(), RepositoryError> {
     // Never *produce* an archive that names a path outside the tree it
     // describes, whatever the in-memory session holds. Checked before the
     // writer opens, so a rejection cannot leave a truncated file behind.
@@ -312,7 +322,7 @@ pub fn archive_pack(
     // BTreeMap iteration is already lexicographic — the ADR-033 entry-order
     // and determinism guarantees hold by construction.
     let mut zip = zip::ZipWriter::new(writer);
-    for (path, bytes) in &entries {
+    for (path, bytes) in entries {
         let options = SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated)
             .last_modified_time(zip::DateTime::default());
