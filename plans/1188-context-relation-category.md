@@ -1,6 +1,6 @@
 # Plan: Relation-category filter on the record context read (#1188)
 
-> Base: origin/master. DRAFT: the public API shape below awaits owner decision (Stage 2.4). Deferred from #1134 ("category filtering of structural edges; filter later if noisy").
+> Base: origin/master. Owner decisions 2026-10-04 recorded in Architecture Decisions. Deferred from #1134 ("category filtering of structural edges; filter later if noisy").
 
 ## Summary
 
@@ -29,7 +29,14 @@
 | ADR-037 (+ #949 amendment) | Context URI arm stays a thin pass-through; query string parsed in `uri.rs` and handed to the service | governs; addendum sentence |
 | ADR-048 / capability-layering | Spec-first: no spec change. Layer test: service once. One way per goal: extends the existing read, no twin. Structural-not-nominal: category from the installed definition, relation name never branched on. Decision mode: complicated | governs |
 | Interop register (`srs/docs/research/alignment-opportunities.md`) | Item 1 (MCP surface) already adopted/shipped; it has no entry on context shaping or filtering, so nothing contradicted | cited |
-| Other ADRs (002-009, 012, 014-036, 038-047, 049-050) | Read by title/relevance only; none governs a read-side filter on an existing service. A full read of all 51 was not done and a reviewer should confirm | noted |
+| Owner D1 | Exclude list `excludeRelationCategories`; empty = unchanged | ruled |
+| Owner D2 | Raw `RelationTypeCategory` wire values, no `structural` preset (core: contains=composition, precedes=sequence, verified) | ruled |
+| Owner D3 | Edges whose type has no installed definition are KEPT | ruled |
+| Owner D4 | Silent drop: no payload / golden-schema change, no omitted count | ruled |
+| Owner D5 | CLI repeatable `--exclude-category`; MCP formal RFC 6570 template `srs://<repo>/context/...{?excludeRelationCategories}` so it shows in the template list | ruled |
+| Owner D6 | Shared `FromStr for RelationTypeCategory` in srs-core | ruled |
+| ADR-025 | Relation types resolve via `Package::resolve_relation_type` over `load_package()` (implicit core merge), same `key` match as validation. A namespaced custom type whose definition key differs is unclassified and KEPT (D3) | governs |
+| All other ADRs | Architecture Reviewer read all 51: none else governs a read-side filter | reviewed |
 
 No new ADR: implements ADR-010/037 patterns.
 
@@ -54,15 +61,24 @@ No.
 
 ## Phases
 
-### Phase 1: service + adapters
+### Phase 1: service + adapters (WIP commit 90f2e95a done; remainder below)
 
-**Agent:** Repository / CLI / MCP workers
+**Agent:** Repository, CLI, MCP workers (same session, sequential)
 
-- [x] srs-core `FromStr` for `RelationTypeCategory` (WIP commit 90f2e95a)
-- [x] service field + filter + test `record_context_excludes_relation_categories` (WIP)
-- [x] CLI flag, WASM doc, MCP URI query + template description (WIP)
-- [ ] URI parse/roundtrip test for the query form; MCP and CLI tests (invalid category, filter applied)
-- [ ] ADR-037 one-line addendum; `docs/dogfooding.md` line
+- [x] `crates/srs-core/src/types/relation_type_definition.rs`: `FromStr for RelationTypeCategory` + every-variant round-trip test
+- [x] `crates/srs-repository/src/context_query_service.rs`: `RecordContextQuery.exclude_relation_categories`, filter before neighbour load, package loaded only when filtering
+- [x] `crates/srs-cli/src/commands/context.rs`: repeatable `--exclude-category` via clap `value_parser!`
+- [x] `crates/srs-bindings/src/lib.rs` doc on `context_record`
+- [x] `crates/srs-mcp-core/src/uri.rs` (`?excludeRelationCategories`, `&` split, `{?excludeRelationCategories}` template, round-trip) and `lib.rs` (parse to categories -> `invalid_params`; instructions sentence)
+- [x] Docs: ADR-037 amendment, `docs/dogfooding.md` S48; srs-usage.md on a separate `srs` branch
+
+#### Testing
+- `record_context_excludes_relation_categories` (service): sequence edge dropped, association kept, empty list keeps both
+- `from_str_round_trips_every_variant` (srs-core)
+- `context_uri_query_parses_and_rejects_unknown_keys`, `uri_roundtrip_all_kinds` (uri.rs)
+- `read_context_exclude_categories_matches_service_and_rejects_unknown` (srs-mcp resources)
+- `context_record_query_accepts_exclude_relation_categories_key` (bindings: pins the WASM camelCase key)
+- `unknown_category_is_rejected_known_is_parsed` (CLI)
 
 #### Acceptance Criteria
 - [ ] No filter: output identical to master
@@ -76,7 +92,7 @@ No.
 - [ ] `cargo build --workspace`, `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings` exit 0
 - [ ] `cargo test --test payload_contracts` exit 0, no schema diff
 - [ ] `bash scripts/check-schema-sync.sh` exit 0 (no entity schema change)
-- [ ] `rg 'precedes|contains' crates/srs-repository/src/context_query_service.rs` shows no relation-name branching
+- [ ] No relation-name branching in non-test code of `context_query_service.rs` (`rg -n '"precedes"|"contains"'` on it returns 0 matches)
 
 ## Coordination Rules
 Per TEMPLATE; worktree off fresh origin/master (srs-rust#874). Agents push branches only; owner opens the PR after review.

@@ -146,6 +146,32 @@ impl RelationTypeDefinition {
 }
 
 #[cfg(test)]
+mod category_from_str_tests {
+    use super::RelationTypeCategory::*;
+
+    #[test]
+    fn from_str_round_trips_every_variant() {
+        for c in [
+            Composition,
+            Refinement,
+            Dependency,
+            Sequence,
+            Derivation,
+            Evidence,
+            Governance,
+            Association,
+            Lifecycle,
+            Provenance,
+            Other,
+        ] {
+            let wire = serde_json::to_value(&c).unwrap();
+            assert_eq!(wire.as_str().unwrap().parse(), Ok(c));
+        }
+        assert!("nope".parse::<super::RelationTypeCategory>().is_err());
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     fn canonical_precedes() -> RelationTypeDefinition {

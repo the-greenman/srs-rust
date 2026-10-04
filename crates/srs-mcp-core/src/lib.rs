@@ -27,7 +27,7 @@ srs://<repositoryId>/tree/{instanceId} the subtree under one instance — descen
 navigation section or container member by its instanceId; container members also carry \
 sectionContainerId when they root a sub-container. Read individual records via the \
 srs://<repositoryId>/record/{instanceId} resource template (or everything about one record, relations and \
-arrangement subtree included, via srs://<repositoryId>/context/{containerId}/{instanceId}), containers via \
+arrangement subtree included, via srs://<repositoryId>/context/{containerId}/{instanceId}, optionally with ?excludeRelationCategories=composition,sequence to drop structural edges), containers via \
 srs://<repositoryId>/container/<containerId>, and rendered document views via \
 srs://<repositoryId>/view/<compositionId>. Type schemas live at \
 srs://<repositoryId>/type/{typeId} (also via the type_schema tool): read one before \

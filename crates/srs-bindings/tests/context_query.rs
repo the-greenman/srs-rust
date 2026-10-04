@@ -190,3 +190,19 @@ fn context_field_not_found_errors() {
     );
     assert!(err.is_err(), "missing record must return an error");
 }
+
+#[test]
+fn context_record_query_accepts_exclude_relation_categories_key() {
+    // The WASM `context_record` input is this struct deserialized from JSON: pin the key.
+    let q: RecordContextQuery = serde_json::from_str(
+        r#"{"recordId":"r","excludeRelationCategories":["composition","sequence"]}"#,
+    )
+    .unwrap();
+    assert_eq!(q.exclude_relation_categories.len(), 2);
+    let d: RecordContextQuery = serde_json::from_str(r#"{"recordId":"r"}"#).unwrap();
+    assert!(d.exclude_relation_categories.is_empty());
+    assert!(serde_json::from_str::<RecordContextQuery>(
+        r#"{"recordId":"r","excludeRelationCategories":["nope"]}"#
+    )
+    .is_err());
+}

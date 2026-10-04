@@ -3,6 +3,7 @@ use crate::output;
 use crate::payload::{ContextFieldPayload, ContextRecordPayload};
 use anyhow::Result;
 use clap::Subcommand;
+use srs_core::types::relation_type_definition::RelationTypeCategory;
 use srs_repository::context_query_service::{self, FieldContextQuery, RecordContextQuery};
 
 #[derive(Subcommand)]
@@ -21,8 +22,8 @@ pub enum ContextCommand {
         record_id: String,
         /// Omit edges whose relation type has this category (repeatable), e.g.
         /// `--exclude-category composition --exclude-category sequence` drops structural edges
-        #[arg(long = "exclude-category", value_name = "CATEGORY")]
-        exclude_category: Vec<String>,
+        #[arg(long = "exclude-category", value_name = "CATEGORY", value_parser = clap::value_parser!(RelationTypeCategory))]
+        exclude_category: Vec<RelationTypeCategory>,
     },
 }
 
@@ -69,16 +70,8 @@ fn cmd_context_field(ctx: CliContext, record_id: String, field_id: String) -> Re
 fn cmd_context_record(
     ctx: CliContext,
     record_id: String,
-    exclude_category: Vec<String>,
+    exclude_relation_categories: Vec<RelationTypeCategory>,
 ) -> Result<String> {
-    let exclude_relation_categories = match exclude_category
-        .iter()
-        .map(|c| c.parse())
-        .collect::<Result<Vec<_>, String>>()
-    {
-        Ok(v) => v,
-        Err(e) => return Ok(output::err("context record", vec![e])),
-    };
     with_store(
         &ctx,
         |store| match context_query_service::get_record_context(

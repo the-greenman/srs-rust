@@ -166,7 +166,12 @@ pub fn get_record_context(
             }
         })?;
 
-    let package = store.load_package()?;
+    // Only load the package when filtering: the default path stays as it was.
+    let package = if query.exclude_relation_categories.is_empty() {
+        None
+    } else {
+        Some(store.load_package()?)
+    };
     // ponytail: two full relation scans and a neighbour load per edge; add a per-id cache /
     // single pass if hub records measure slow. A self-relation appears once as out, once as in.
     let mut relations = Vec::new();
@@ -187,7 +192,10 @@ pub fn get_record_context(
         ),
     ] {
         for relation in relation_service::list_relations(store, filter)? {
-            if let Some(def) = package.resolve_relation_type(&relation.relation_type) {
+            if let Some(def) = package
+                .as_ref()
+                .and_then(|p| p.resolve_relation_type(&relation.relation_type))
+            {
                 if query.exclude_relation_categories.contains(&def.category) {
                     continue;
                 }
