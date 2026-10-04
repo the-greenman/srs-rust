@@ -3277,6 +3277,75 @@ fn relation_list_returns_relations() {
 }
 
 #[test]
+fn relation_neighbours_pages_with_total_and_filters() {
+    let temp = create_temp_repo();
+    let note = |title: &str| {
+        run_srs_stdin_in_dir(
+            temp.path(),
+            &["note", "create"],
+            &format!(r#"{{"title":"{title}","sections":[{{"name":"intro","content":"t"}}]}}"#),
+        )["payload"]["note"]["instanceId"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let (n1, n2, n3) = (note("one"), note("two"), note("three"));
+    std::fs::create_dir_all(temp.path().join("relations")).unwrap();
+    for (i, (rtype, s, t)) in [("contains", &n1, &n2), ("depends-on", &n2, &n3)]
+        .into_iter()
+        .enumerate()
+    {
+        let rid = format!("eeeeeeee-0000-4000-8000-0000000000f{i}");
+        std::fs::write(
+            temp.path().join(format!("relations/{rid}.json")),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+                "relationId": rid,
+                "relationType": rtype,
+                "sourceInstanceId": s,
+                "targetInstanceId": t,
+                "createdAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+    let (note2, note3) = (n2.as_str(), n3.as_str());
+    let all = run_srs_in_dir(temp.path(), &["relation", "neighbours", note2]);
+    assert_eq!(all["ok"], true, "{:?}", all["diagnostics"]);
+    assert_eq!(all["payload"]["result"]["total"], 2, "{all}");
+    let page = run_srs_in_dir(
+        temp.path(),
+        &[
+            "relation",
+            "neighbours",
+            note2,
+            "--limit",
+            "1",
+            "--offset",
+            "1",
+        ],
+    );
+    assert_eq!(page["payload"]["result"]["total"], 2);
+    assert_eq!(
+        page["payload"]["result"]["neighbours"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let out = run_srs_in_dir(
+        temp.path(),
+        &["relation", "neighbours", note2, "--direction", "out"],
+    );
+    let edges = out["payload"]["result"]["neighbours"].as_array().unwrap();
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0]["neighbour"]["instanceId"], note3);
+    let missing = run_srs_in_dir(temp.path(), &["relation", "neighbours", "nope"]);
+    assert_eq!(missing["ok"], false);
+}
+
+#[test]
 fn relation_list_filters_by_source_target_and_type() {
     let temp = create_temp_repo();
 

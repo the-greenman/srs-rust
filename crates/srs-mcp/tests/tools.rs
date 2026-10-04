@@ -1474,3 +1474,107 @@ async fn tool_protocol_run_list_filters_by_status_and_protocol() {
 
     client.cancel().await.unwrap();
 }
+
+#[tokio::test]
+async fn tool_neighbours_pages_filters_and_matches_service() {
+    let fx = make_fixture();
+    let client = connect(&fx).await;
+    let mut ids = vec![];
+    for i in 0..4 {
+        let created = call(
+            &client,
+            "note_create",
+            serde_json::json!({
+                "title": format!("Note {i}"),
+                "sections": [{ "name": "body", "content": "x", "label": "Body" }]
+            }),
+        )
+        .await;
+        ids.push(
+            created.structured_content.unwrap()["instanceId"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        );
+    }
+    // ids[0] is the hub: one outbound edge, two inbound.
+    for (s, t) in [(0, 1), (2, 0), (3, 0)] {
+        let r = call(
+            &client,
+            "relation_create",
+            serde_json::json!({
+                "relationType": "depends-on",
+                "sourceInstanceId": ids[s],
+                "targetInstanceId": ids[t]
+            }),
+        )
+        .await;
+        assert_eq!(r.is_error, Some(false), "{r:?}");
+    }
+    let n = |extra: serde_json::Value| {
+        let client = &client;
+        let mut v = serde_json::json!({ "instanceId": ids[0] });
+        v.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        async move { call(client, "neighbours", v).await }
+    };
+
+    let all = n(serde_json::json!({})).await;
+    let s = all.structured_content.as_ref().unwrap();
+    assert_eq!(s["total"], 3);
+    assert_eq!(s["neighbours"].as_array().unwrap().len(), 3);
+    // The tool is the core service, serialised.
+    let store = FileStore::new(fx.dir.path());
+    let direct = srs_repository::context_query_service::list_neighbours(
+        &store,
+        srs_repository::context_query_service::NeighboursQuery {
+            instance_id: ids[0].clone(),
+            relation_type: None,
+            direction: None,
+        },
+        srs_repository::context_query_service::NeighboursPage {
+            limit: Some(25),
+            offset: 0,
+        },
+    )
+    .unwrap();
+    assert_eq!(s, &serde_json::to_value(&direct).unwrap());
+    // Neighbours carry id/label, never the record.
+    assert!(s["neighbours"][0]["neighbour"]["label"].is_string());
+    assert!(s["neighbours"][0]["neighbour"].get("sections").is_none());
+
+    let page = n(serde_json::json!({ "limit": 1, "offset": 2 })).await;
+    let p = page.structured_content.unwrap();
+    assert_eq!(
+        (
+            p["total"].as_u64(),
+            p["neighbours"].as_array().unwrap().len()
+        ),
+        (Some(3), 1)
+    );
+    let beyond = n(serde_json::json!({ "offset": 99 })).await;
+    assert_eq!(
+        beyond.structured_content.unwrap()["neighbours"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+
+    let out = n(serde_json::json!({ "direction": "out" })).await;
+    let o = out.structured_content.unwrap();
+    assert_eq!(o["total"], 1);
+    assert_eq!(o["neighbours"][0]["neighbour"]["instanceId"], ids[1]);
+    let none = n(serde_json::json!({ "relationType": "refines" })).await;
+    assert_eq!(none.structured_content.unwrap()["total"], 0);
+
+    let missing = call(
+        &client,
+        "neighbours",
+        serde_json::json!({ "instanceId": "nope" }),
+    )
+    .await;
+    assert_eq!(missing.is_error, Some(true));
+    client.cancel().await.unwrap();
+}

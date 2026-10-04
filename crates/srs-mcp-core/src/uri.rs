@@ -14,8 +14,9 @@ pub enum SrsUri {
     Type(String),
     ProtocolList,
     Protocol(String),
-    Tree,
-    TreeFrom(String),
+    /// `tree[?maxDepth=&relationType=&typeFilter=]` (#1229).
+    Tree(TreeQuery),
+    TreeFrom(String, TreeQuery),
     AgentIndex,
     /// `context/{instanceId}` or `context/{containerId}/{instanceId}` (#1134).
     Context {
@@ -24,6 +25,64 @@ pub enum SrsUri {
         /// `?excludeRelationCategories=composition,sequence` (#1188); wire spellings, parsed by the adapter.
         exclude_relation_categories: Vec<String>,
     },
+}
+
+/// The `build_tree` controls a tree URI may carry (#1229); `None` = the service default.
+/// Values are taken verbatim (no percent-decoding): a `namespace/name` type filter and a
+/// relation key contain no reserved characters. `relationType` is not checked against the
+/// installed relation types, matching `build_tree`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TreeQuery {
+    pub max_depth: Option<u32>,
+    pub relation_type: Option<String>,
+    pub type_filter: Option<String>,
+}
+
+fn parse_tree_query(query: &str, uri: &str) -> Result<TreeQuery, UriError> {
+    let mut q = TreeQuery::default();
+    let dup = |key: &str| UriError(format!("duplicate query key '{key}' in '{uri}'"));
+    for pair in query.split('&').filter(|p| !p.is_empty()) {
+        match pair.split_once('=') {
+            Some(("maxDepth", v)) => {
+                let depth = v.parse().map_err(|_| {
+                    UriError(format!(
+                        "maxDepth must be a non-negative integer in '{uri}'"
+                    ))
+                })?;
+                q.max_depth
+                    .replace(depth)
+                    .map_or(Ok(()), |_| Err(dup("maxDepth")))?;
+            }
+            Some(("relationType", v)) if !v.is_empty() => q
+                .relation_type
+                .replace(v.to_string())
+                .map_or(Ok(()), |_| Err(dup("relationType")))?,
+            Some(("typeFilter", v)) if !v.is_empty() => q
+                .type_filter
+                .replace(v.to_string())
+                .map_or(Ok(()), |_| Err(dup("typeFilter")))?,
+            _ => return Err(UriError(format!("unsupported query in '{uri}'"))),
+        }
+    }
+    Ok(q)
+}
+
+fn tree_query_string(q: &TreeQuery) -> String {
+    let mut parts = vec![];
+    if let Some(d) = q.max_depth {
+        parts.push(format!("maxDepth={d}"));
+    }
+    if let Some(r) = &q.relation_type {
+        parts.push(format!("relationType={r}"));
+    }
+    if let Some(t) = &q.type_filter {
+        parts.push(format!("typeFilter={t}"));
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", parts.join("&"))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,12 +132,17 @@ pub fn parse(uri: &str, repository_id: &str) -> Result<SrsUri, UriError> {
             _ => Err(UriError(format!("malformed resource path in '{uri}'"))),
         };
     }
+    let (path, query) = path.split_once('?').unwrap_or((path, ""));
+    let is_tree = path == "tree" || path.starts_with("tree/");
+    if !query.is_empty() && !is_tree {
+        return Err(UriError(format!("unsupported query in '{uri}'")));
+    }
     match path.split_once('/') {
         None => match path {
             "map" => Ok(SrsUri::Map),
             "navigation" => Ok(SrsUri::Navigation),
             "protocol" => Ok(SrsUri::ProtocolList),
-            "tree" => Ok(SrsUri::Tree),
+            "tree" => Ok(SrsUri::Tree(parse_tree_query(query, uri)?)),
             "agent-index" => Ok(SrsUri::AgentIndex),
             other => Err(UriError(format!("unknown resource kind '{other}'"))),
         },
@@ -88,7 +152,10 @@ pub fn parse(uri: &str, repository_id: &str) -> Result<SrsUri, UriError> {
             "composition" => Ok(SrsUri::Composition(id.to_string())),
             "type" => Ok(SrsUri::Type(id.to_string())),
             "protocol" => Ok(SrsUri::Protocol(id.to_string())),
-            "tree" => Ok(SrsUri::TreeFrom(id.to_string())),
+            "tree" => Ok(SrsUri::TreeFrom(
+                id.to_string(),
+                parse_tree_query(query, uri)?,
+            )),
             other => Err(UriError(format!("unknown resource kind '{other}'"))),
         },
         Some(_) => Err(UriError(format!("malformed resource path in '{uri}'"))),
@@ -105,8 +172,10 @@ pub fn format(kind: &SrsUri, repository_id: &str) -> String {
         SrsUri::Type(id) => format!("{SCHEME}{repository_id}/type/{id}"),
         SrsUri::ProtocolList => format!("{SCHEME}{repository_id}/protocol"),
         SrsUri::Protocol(id) => format!("{SCHEME}{repository_id}/protocol/{id}"),
-        SrsUri::Tree => format!("{SCHEME}{repository_id}/tree"),
-        SrsUri::TreeFrom(id) => format!("{SCHEME}{repository_id}/tree/{id}"),
+        SrsUri::Tree(q) => format!("{SCHEME}{repository_id}/tree{}", tree_query_string(q)),
+        SrsUri::TreeFrom(id, q) => {
+            format!("{SCHEME}{repository_id}/tree/{id}{}", tree_query_string(q))
+        }
         SrsUri::AgentIndex => format!("{SCHEME}{repository_id}/agent-index"),
         SrsUri::Context {
             container_id,
@@ -135,7 +204,7 @@ pub fn record_template(repository_id: &str) -> String {
 }
 
 pub fn tree_template(repository_id: &str) -> String {
-    format!("{SCHEME}{repository_id}/tree/{{instanceId}}")
+    format!("{SCHEME}{repository_id}/tree/{{instanceId}}{{?maxDepth,relationType,typeFilter}}")
 }
 
 pub fn context_template(repository_id: &str) -> String {
@@ -186,6 +255,39 @@ mod tests {
     }
 
     #[test]
+    fn tree_uri_query_rejects_bad_depth_duplicates_unknown_keys_and_other_kinds() {
+        for bad in [
+            "tree?maxDepth=x",
+            "tree?maxDepth=-1",
+            "tree?maxDepth=1&maxDepth=2",
+            "tree/abc?relationType=a&relationType=b",
+            "tree?bogus=1",
+            "tree?relationType=",
+            "record/abc?maxDepth=1",
+            "map?maxDepth=1",
+        ] {
+            assert!(
+                parse(&format!("srs://{REPO}/{bad}"), REPO).is_err(),
+                "{bad}"
+            );
+        }
+        assert_eq!(
+            parse(
+                &format!("srs://{REPO}/tree/abc?typeFilter=ns/name&maxDepth=0"),
+                REPO
+            ),
+            Ok(SrsUri::TreeFrom(
+                "abc".into(),
+                TreeQuery {
+                    max_depth: Some(0),
+                    relation_type: None,
+                    type_filter: Some("ns/name".into()),
+                }
+            ))
+        );
+    }
+
+    #[test]
     fn uri_roundtrip_all_kinds() {
         let kinds = [
             SrsUri::Map,
@@ -196,8 +298,20 @@ mod tests {
             SrsUri::Type("jkl".into()),
             SrsUri::ProtocolList,
             SrsUri::Protocol("mno".into()),
-            SrsUri::Tree,
-            SrsUri::TreeFrom("mno".into()),
+            SrsUri::Tree(TreeQuery::default()),
+            SrsUri::TreeFrom("mno".into(), TreeQuery::default()),
+            SrsUri::Tree(TreeQuery {
+                max_depth: Some(0),
+                relation_type: Some("depends-on".into()),
+                type_filter: Some("com.x/section".into()),
+            }),
+            SrsUri::TreeFrom(
+                "mno".into(),
+                TreeQuery {
+                    max_depth: Some(2),
+                    ..TreeQuery::default()
+                },
+            ),
             SrsUri::AgentIndex,
             SrsUri::Context {
                 container_id: None,

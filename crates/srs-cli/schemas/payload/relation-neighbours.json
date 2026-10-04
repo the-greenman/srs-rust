@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NeighboursPayload",
+  "description": "Payload for `relation neighbours` — a bounded page of an instance's edges, `total` before paging.",
+  "type": "object",
+  "required": [
+    "result"
+  ],
+  "properties": {
+    "result": true
+  }
+}

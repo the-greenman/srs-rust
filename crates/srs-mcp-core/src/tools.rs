@@ -22,6 +22,9 @@ use srs_core::types::note::{Note, NoteSection};
 use srs_core::types::record::{FieldMeta, FieldValues};
 use srs_core::types::relation::Relation;
 use srs_repository::container_service::{self, ContainerCreateInput};
+use srs_repository::context_query_service::{
+    list_neighbours, EdgeDirection, NeighboursPage, NeighboursQuery,
+};
 use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage};
 use srs_repository::package_dependency_service::{
     self, AddPackageDependencyInput, RemovePackageDependencyInput,
@@ -78,6 +81,10 @@ pub const TOOL_PROTOCOL_RUN_ABANDON: &str = "protocol_run_abandon";
 pub const TOOL_PACKAGE_DEPENDENCY_LIST: &str = "package_dependency_list";
 pub const TOOL_PACKAGE_DEPENDENCY_SET: &str = "package_dependency_set";
 pub const TOOL_PACKAGE_DEPENDENCY_REMOVE: &str = "package_dependency_remove";
+pub const TOOL_NEIGHBOURS: &str = "neighbours";
+/// Agent-facing replies are size-capped: omitted `limit` on `neighbours`, and its ceiling.
+const NEIGHBOURS_DEFAULT_LIMIT: usize = 25;
+const NEIGHBOURS_MAX_LIMIT: usize = 100;
 
 // ── Tool descriptions — single source (srs-usage.md MCP section mirrors these) ─
 
@@ -105,6 +112,13 @@ other entries are kept verbatim. selector is the requiring package boundary path
 pub const DESC_PACKAGE_DEPENDENCY_REMOVE: &str = "Remove a package's requirement on a packageId \
 (every packageDependencies entry with that id). Refused when there is none. selector is the \
 requiring package boundary path (omit for the primary package).";
+
+pub const DESC_NEIGHBOURS: &str = "Bounded read of one instance's relation neighbours (Record or \
+Note). Returns total (every matching edge, before paging) and a page of edges, each with direction \
+(out = the instance is the source, in = it is the target), relationId, relationType and the \
+neighbour's instanceId, label and type; never the neighbour record (read srs://<repositoryId>/record/{id} \
+for that). Optional relationType and direction (out|in; default both) filter; limit (default 25, max \
+100) and offset page. Prefer this over the context resource for hub records with many edges.";
 
 pub const DESC_FIND: &str = "Deterministic discovery query (ext:discovery). All axes are \
 optional and AND-combined: typeId, typeNamespace, typeName, containerId, tag (repeatable; \
@@ -769,6 +783,43 @@ impl From<PackageDependencyRemoveToolInput> for RemovePackageDependencyInput {
     }
 }
 
+/// `neighbours`: `NeighboursQuery` plus the `NeighboursPage` paging (srs-rust#1229).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NeighboursToolInput {
+    /// The Record or Note whose edges to list.
+    pub instance_id: String,
+    /// Only edges of this relation type (e.g. `contains`).
+    pub relation_type: Option<String>,
+    /// `out` (instance is the source) or `in` (instance is the target); omit for both.
+    #[schemars(with = "Option<String>")]
+    pub direction: Option<EdgeDirection>,
+    /// Maximum edges to return. Defaults to 25, capped at 100; `total` always counts every match.
+    pub limit: Option<usize>,
+    /// Edges to skip (default 0), after the deterministic sort.
+    pub offset: Option<usize>,
+}
+
+impl NeighboursToolInput {
+    fn into_parts(self) -> (NeighboursQuery, NeighboursPage) {
+        (
+            NeighboursQuery {
+                instance_id: self.instance_id,
+                relation_type: self.relation_type,
+                direction: self.direction,
+            },
+            NeighboursPage {
+                limit: Some(
+                    self.limit
+                        .unwrap_or(NEIGHBOURS_DEFAULT_LIMIT)
+                        .min(NEIGHBOURS_MAX_LIMIT),
+                ),
+                offset: self.offset.unwrap_or(0),
+            },
+        )
+    }
+}
+
 /// `container_member_repair` / `container_outline`: the container alone.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -1031,6 +1082,11 @@ pub fn list_tools() -> Value {
             DESC_PACKAGE_DEPENDENCY_REMOVE,
             input_schema::<PackageDependencyRemoveToolInput>(),
         ),
+        tool(
+            TOOL_NEIGHBOURS,
+            DESC_NEIGHBOURS,
+            input_schema::<NeighboursToolInput>(),
+        ),
     ] })
 }
 
@@ -1274,6 +1330,13 @@ pub fn call_tool(
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
+        TOOL_NEIGHBOURS => {
+            let (query, page) = parse_args::<NeighboursToolInput>(arguments)?.into_parts();
+            match list_neighbours(store, query, page) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
         TOOL_CONTAINER_MEMBER_REMOVE => {
             let input: ContainerMemberToolInput = parse_args(arguments)?;
             match container_service::remove_member(store, &input.container_id, &input.instance_id) {
@@ -1427,6 +1490,30 @@ mod tests {
     }
 
     #[test]
+    fn neighbours_input_conversion_exercises_every_field_and_bounds_limit() {
+        let input = |limit| NeighboursToolInput {
+            instance_id: "iid".into(),
+            relation_type: Some("contains".into()),
+            direction: Some(EdgeDirection::In),
+            limit,
+            offset: Some(7),
+        };
+        let (q, p) = input(Some(10)).into_parts();
+        assert_eq!(q.instance_id, "iid");
+        assert_eq!(q.relation_type.as_deref(), Some("contains"));
+        assert_eq!(q.direction, Some(EdgeDirection::In));
+        assert_eq!((p.limit, p.offset), (Some(10), 7));
+        assert_eq!(
+            input(None).into_parts().1.limit,
+            Some(NEIGHBOURS_DEFAULT_LIMIT)
+        );
+        assert_eq!(
+            input(Some(100_000)).into_parts().1.limit,
+            Some(NEIGHBOURS_MAX_LIMIT)
+        );
+    }
+
+    #[test]
     fn tool_input_conversion_exercises_every_field() {
         // Find → DiscoveryQuery
         let find = FindToolInput {
@@ -1567,7 +1654,7 @@ mod tests {
     }
 
     #[test]
-    fn list_tools_advertises_all_twenty_six_with_schemas() {
+    fn list_tools_advertises_every_tool_with_schemas() {
         let tools = list_tools()["tools"].as_array().unwrap().clone();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(
@@ -1601,6 +1688,7 @@ mod tests {
                 TOOL_PACKAGE_DEPENDENCY_LIST,
                 TOOL_PACKAGE_DEPENDENCY_SET,
                 TOOL_PACKAGE_DEPENDENCY_REMOVE,
+                TOOL_NEIGHBOURS,
             ]
         );
         for tool in &tools {
