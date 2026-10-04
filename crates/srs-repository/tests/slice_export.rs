@@ -147,6 +147,9 @@ fn rich() -> Tree {
                "contentType": "text/markdown", "createdAt": "2026-01-01T00:00:00Z"}),
     );
     t.insert("source-documents/other.md".into(), b"# other".to_vec());
+    edit(&mut t, "containers/decisions-55555555.json", |c| {
+        c["$schema"] = json!("https://srs.semanticops.com/schema/2.0/container.json");
+    });
     edit(&mut t, "records/tier-2/decision-0ce8cbdd.json", |r| {
         r["sourceRefs"] = json!([{"sourceType": "repository-document", "sourceId": DOC}]);
     });

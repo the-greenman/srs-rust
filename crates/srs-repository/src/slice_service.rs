@@ -325,6 +325,11 @@ pub fn export_container_slice(
 
     // --- Manifest (Change A/B, C step 1). ---------------------------------
     manifest["repositoryId"] = json!(slice_repository_id);
+    // The manifest embed is a bare Container (no `$schema`, which a container
+    // file may carry).
+    if let Some(o) = boundary.as_object_mut() {
+        o.remove("$schema");
+    }
     manifest["container"] = boundary;
     let exts = manifest
         .as_object_mut()

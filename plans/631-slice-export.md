@@ -6,7 +6,9 @@
 > essay snapshot bundle (the-greenman/muDemocracy.org#276). Background only: the July plan on
 > `feat/631-container-slice-export` (pre-RFC-038/043, 534 commits stale).
 >
-> **STATUS: DRAFT, parked at the Stage 2 design pause.** Decisions D1-D3 below need an owner ruling before Phase 1.
+> **STATUS: IMPLEMENTED (2026-10-04).** Owner rulings on #631: D1 = P3 (every package the slice uses, carried
+> whole, closed at package granularity; RFC-026 Rev 9 drafted in parallel), D2 = refuse, D3 = non-empty only;
+> defaults accepted; ADR-051 accepted. Phases 1-4 done.
 
 ## Summary
 
@@ -126,7 +128,7 @@ inside. File the vacuous-truth reading as a spec finding on RFC-026.
 | ADR-038 / ADR-039 | Slice assembled as a path-to-bytes tree from `tree_entries`, zipped by the shared deterministic writer | accepted |
 | ADR-045 | Ordinary operation: uses the checked `store.catalog()`, never the unchecked seam | accepted |
 | ADR-048 | Spec-first (D1 deviation needs Rev 9), layer test (core service, thin adapters), one way per goal (one closure, one zip writer) | accepted |
-| **ADR-051** (new, next free number; 043 is taken) | A container slice is a dedicated filtered tree, not a mode of `archive_pack`; records D1-D3 rulings | proposed |
+| **ADR-051** | A container slice is a dedicated filtered tree, not a mode of `archive_pack`; records D1-D3 rulings | accepted |
 
 ## Contracts
 
@@ -135,17 +137,18 @@ inside. File the vacuous-truth reading as a spec finding on RFC-026.
 `srs slice export --container <id> <output.srs>` (global `--container` flag, already defined) →
 `SliceExportPayload { output_path, file_size_bytes, container_id, slice_repository_id, origin_repository_id,
 exported_at, instance_count, relation_count, container_count, source_document_count,
-external_relation_ref_count }`. Regenerate `crates/srs-cli/schemas/payload/` with `cargo run --bin generate-schemas`.
+package_count, external_relation_ref_count }`. Regenerate `crates/srs-cli/schemas/payload/` with `cargo run --bin generate-schemas`.
 Removed: `srs package slice-create` and its golden/test (breaking, sanctioned by #656).
 
 ### Service
 
 ```rust
-pub struct ExportSliceInput { pub container_id: String, pub exported_at: Option<String> }
+pub struct ExportSliceInput { pub container_id: String, pub exported_at: Option<String>, pub repository_id: Option<String> }
 pub struct SliceExport { pub bytes: Vec<u8>, pub summary: SliceExportSummary }
 pub fn export_container_slice(store: &dyn RepositoryStore, input: ExportSliceInput) -> Result<SliceExport, RepositoryError>;
 ```
-Errors: unknown container (`ContainerNotFound`), D2 refusal. `archive_pack` keeps its signature; its ZIP loop
+Errors: unknown container (`ContainerNotFound`), a checked-catalog refusal (ADR-045), `SliceRefused { code }`
+(`slice-root-identity-invalid`, `slice-exported-at-invalid`, `slice-repository-id-reused`). `archive_pack` keeps its signature; its ZIP loop
 moves to a shared `pack_tree(entries, writer)`.
 
 ### Entity schema sync
