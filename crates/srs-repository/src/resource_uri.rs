@@ -1,5 +1,6 @@
 //! The one builder for `srs://<repositoryId>/…` resource URIs of instances, types and
 //! containers. `srs-mcp-core::uri` (parse + every other kind) delegates here, so a hit,
+//! Scope: the instance-addressed kinds hits and neighbours need; the singleton kinds (map, tree, ...) stay in `srs-mcp-core::uri`.
 //! a neighbour and an MCP resource all spell the same URI (srs-rust#1227).
 
 use crate::manifest::Manifest;

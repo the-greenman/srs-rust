@@ -54,15 +54,15 @@ pub struct DiscoveryHit {
     /// `srs://<repo>/record/<id>`: readable as-is by the MCP `read` tool / resource.
     pub uri: String,
     pub label: String,
-    /// The bound Type's id (path to `type/{typeId}`); `None` for Tier 0 notes.
+    /// The bound Type's id (readable at `srs://<repo>/type/{typeId}`); `None` for Tier 0 notes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub type_id: Option<String>,
     /// Ids of the containers that declare this instance as a member.
     pub container_ids: Vec<String>,
-    /// `None` for Tier 0/1 instances, which carry no type binding.
+    /// `None` for Tier 0 instances, which carry no type binding.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub type_namespace: Option<String>,
-    /// `None` for Tier 0/1 instances, which carry no type binding.
+    /// `None` for Tier 0 instances, which carry no type binding.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub type_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -184,7 +184,11 @@ pub fn find(
     // Navigation fields, filled for the returned page only.
     let manifest = store.load_manifest()?;
     let repo_id = resource_uri::repository_id(&manifest).unwrap_or_default();
-    let memberships = container_service::membership_index(store)?;
+    let memberships = if hits.is_empty() {
+        Default::default()
+    } else {
+        container_service::membership_index(store)?
+    };
     for hit in &mut hits {
         hit.uri = resource_uri::record_uri(repo_id, &hit.instance_id);
         hit.container_ids = memberships

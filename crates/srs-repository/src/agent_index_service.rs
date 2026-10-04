@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentTypeEntry {
-    /// Path to `srs://<repo>/type/{typeId}`.
+    /// Readable at `srs://<repo>/type/{typeId}`.
     pub type_id: String,
     pub namespace: String,
     pub name: String,
