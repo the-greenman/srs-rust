@@ -92,6 +92,32 @@ pub(crate) mod rfc038 {
     }
 }
 
+/// RFC-044 Change D item 1: `packageRefs` (when present) wins over the
+/// singular `packageRef` entirely — it is not merged with it, so a manifest
+/// carrying both (`repo()` in `package_dependency_check.rs`) resolves the
+/// plural list only. A manifest carrying only the singular form (schema-valid
+/// for single-package repositories) resolves to that one ref, same as a
+/// one-element `packageRefs` list. The one resolver every `packageRefs`
+/// reader must call (srs-rust#1225): before this helper existed,
+/// `FileStore::list_package_boundaries` and `FileStore::load_package` read
+/// `packageRefs` directly and silently ignored a singular-only `packageRef`,
+/// while `package_dependency_service::installed_set` already applied this
+/// fallback — so a package declared only via singular `packageRef` counted as
+/// "installed" for dependency checks but was never actually loaded into the
+/// catalog.
+pub(crate) fn resolve_package_refs(manifest: &Manifest) -> Vec<serde_json::Value> {
+    match manifest.extra.get("packageRefs") {
+        Some(v) if !v.is_null() => v.as_array().cloned().unwrap_or_default(),
+        _ => manifest
+            .extra
+            .get("packageRef")
+            .filter(|v| v.is_object())
+            .cloned()
+            .into_iter()
+            .collect(),
+    }
+}
+
 /// Normalize upstreamPackage across legacy formats so the typed field deserialises cleanly.
 ///
 /// Two legacy formats exist:
