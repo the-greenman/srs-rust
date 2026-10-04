@@ -415,6 +415,7 @@ async fn read_view_renders_markdown() {
         theme_variant: None,
         container_id: None,
         instance_id_filter: None,
+        exclude_instance_ids: &[],
     })
     .unwrap();
     assert_eq!(text, expected.rendered);
@@ -721,5 +722,201 @@ async fn read_relation_types_lists_installed_unused_and_core_types() {
     let idx: serde_json::Value = serde_json::from_str(&idx_text).unwrap();
     assert_eq!(idx["relationTypesUri"], uri);
 
+    client.cancel().await.unwrap();
+}
+
+/// srs-rust#1255: `composition/{id}?containerId=&excludeInstanceId=` is a pass-through to
+/// `render_composition`. Essay shape: container-subset, arranged, no literal containerId,
+/// a paragraph view, an anchor record whose type has an identity field.
+#[tokio::test]
+async fn read_composition_renders_for_container_and_exclude() {
+    use srs_repository::container_service::create_container;
+    use srs_repository::record_store::create_record;
+    use srs_repository::view_service::create_view_normalized;
+
+    let fx = make_fixture();
+    let store = store_for(&fx);
+    let new_id = || uuid::Uuid::new_v4().to_string();
+    let ns = "com.example.mcptest";
+    let (f_etitle, f_ptitle, f_body) = (new_id(), new_id(), new_id());
+    for (id, name) in [
+        (&f_etitle, "etitle"),
+        (&f_ptitle, "ptitle"),
+        (&f_body, "pbody"),
+    ] {
+        create_field_normalized(
+            &store,
+            serde_json::json!({"id": id, "namespace": ns, "name": name, "version": 1, "valueType": "string",
+                "aiGuidance": {"purpose": "Fixture text."}}),
+            None,
+        )
+        .unwrap();
+    }
+    let (t_essay, t_para) = (new_id(), new_id());
+    create_type_normalized(
+        &store,
+        serde_json::json!({"id": t_essay, "namespace": ns, "name": "essay", "version": 1,
+            "identityFieldId": f_etitle,
+            "fields": [{"fieldId": f_etitle, "order": 1, "required": true}]}),
+        None,
+    )
+    .unwrap();
+    create_type_normalized(
+        &store,
+        serde_json::json!({"id": t_para, "namespace": ns, "name": "paragraph", "version": 1,
+            "fields": [{"fieldId": f_ptitle, "order": 1, "required": false},
+                       {"fieldId": f_body, "order": 2, "required": true}]}),
+        None,
+    )
+    .unwrap();
+    let para_view = new_id();
+    create_view_normalized(
+        &store,
+        serde_json::json!({"$schema": "https://srs.semanticops.com/schema/2.0/view.json", "id": para_view, "namespace": ns, "name": "paragraph-view", "version": 1,
+            "compatibleTypes": [format!("{ns}/paragraph")],
+            "fieldViews": [
+                {"fieldId": f_ptitle, "order": 0, "required": false, "visible": true,
+                 "displayHint": "de-emphasised", "labelMode": "none"},
+                {"fieldId": f_body, "order": 1, "required": true, "visible": true, "labelMode": "none"}]}),
+        None,
+    )
+    .unwrap();
+    let comp_id = new_id();
+    create_composition_normalized(
+        &store,
+        serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
+            "id": comp_id, "namespace": ns, "name": "essay-like", "version": 1,
+            "sections": [{"sectionId": "essay", "order": 0,
+                "source": {"type": "container-subset"},
+                "renderViewId": para_view,
+                "ordering": {"source": "arranged"}}]}),
+        None,
+    )
+    .unwrap();
+
+    let fv = |v: serde_json::Value| serde_json::from_value(v).unwrap();
+    let anchor = create_record(
+        &store,
+        &t_essay,
+        1,
+        fv(serde_json::json!({"etitle": "Anchor Title"})),
+        None,
+        None,
+    )
+    .unwrap();
+    let p1 = create_record(
+        &store,
+        &t_para,
+        1,
+        fv(serde_json::json!({"ptitle": "LeadOne", "pbody": "Body one."})),
+        None,
+        None,
+    )
+    .unwrap();
+    let p2 = create_record(
+        &store,
+        &t_para,
+        1,
+        fv(serde_json::json!({"pbody": "Body two."})),
+        None,
+        None,
+    )
+    .unwrap();
+    let container_id = new_id();
+    create_container(
+        &store,
+        srs_core::types::container::Container {
+            container_id: container_id.clone(),
+            title: "Essay Container".into(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: None,
+            anchor_instance_id: Some(anchor.instance_id.clone()),
+            member_instance_ids: Some(srs_core::types::container::entries([
+                anchor.instance_id.clone(),
+                p1.instance_id.clone(),
+                p2.instance_id.clone(),
+            ])),
+            child_container_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: Default::default(),
+        },
+    )
+    .unwrap();
+
+    let client = connect(&fx).await;
+    let base = format!("srs://{}/composition/{}", fx.repo_id, comp_id);
+    let expected = |container: Option<&str>, exclude: &[String]| {
+        render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: &comp_id,
+            format: Some("markdown"),
+            theme_variant: None,
+            container_id: container,
+            instance_id_filter: None,
+            exclude_instance_ids: exclude,
+        })
+        .unwrap()
+        .rendered
+    };
+
+    // No container: heading plus the [R9] diagnostic only, no members.
+    let (_, bare) = read_text(&client, base.clone()).await;
+    assert_eq!(bare, expected(None, &[]));
+    assert!(!bare.contains("Body one."), "{bare}");
+
+    // Container: every member renders, and it is exactly the service's output.
+    let (mime, full) = read_text(&client, format!("{base}?containerId={container_id}")).await;
+    assert_eq!(mime.as_deref(), Some("text/markdown"));
+    assert_eq!(full, expected(Some(&container_id), &[]));
+    assert!(full.contains("Essay Container"), "{full}");
+    assert!(
+        full.contains("Body one.") && full.contains("Body two."),
+        "{full}"
+    );
+
+    // Repeatable exclude: drops those members only.
+    let (_, one) = read_text(
+        &client,
+        format!(
+            "{base}?containerId={container_id}&excludeInstanceId={}&excludeInstanceId={}",
+            p1.instance_id, anchor.instance_id
+        ),
+    )
+    .await;
+    assert_eq!(
+        one,
+        expected(
+            Some(&container_id),
+            &[p1.instance_id.clone(), anchor.instance_id.clone()]
+        )
+    );
+    assert!(
+        one.contains("Body two.") && !one.contains("Body one."),
+        "{one}"
+    );
+    assert!(!one.contains("Anchor Title"), "{one}");
+
+    // containerId at most once; unknown keys (including the retired instanceId) refused.
+    for bad in [
+        format!("?containerId={container_id}&containerId={container_id}"),
+        "?bogus=1".to_string(),
+        "?instanceId=a".to_string(),
+    ] {
+        let err = client
+            .read_resource(ReadResourceRequestParams::new(format!("{base}{bad}")))
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("invalid srs:// uri"),
+            "{bad}: {err}"
+        );
+    }
     client.cancel().await.unwrap();
 }

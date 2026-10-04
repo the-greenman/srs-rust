@@ -5413,6 +5413,7 @@ mod tests {
                 theme_variant: None,
                 container_id: None,
                 instance_id_filter: None,
+                exclude_instance_ids: &[],
             },
         )
         .expect("render should succeed");
@@ -5581,6 +5582,7 @@ mod tests {
                 theme_variant: None,
                 container_id: None,
                 instance_id_filter: None,
+                exclude_instance_ids: &[],
             },
         )
         .expect("render should succeed");
