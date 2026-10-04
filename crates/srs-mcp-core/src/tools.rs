@@ -52,6 +52,8 @@ pub const TOOL_RECORD_CREATE: &str = "record_create";
 pub const TOOL_RELATION_CREATE: &str = "relation_create";
 pub const TOOL_NOTE_CREATE: &str = "note_create";
 pub const TOOL_TYPE_SCHEMA: &str = "type_schema";
+// Issue #1220: resources for clients that only call tools (claude.ai relay)
+pub const TOOL_READ: &str = "read";
 // Second-wave write tools (#680)
 pub const TOOL_RECORD_UPDATE: &str = "record_update";
 pub const TOOL_RECORD_TRANSITION: &str = "record_transition";
@@ -119,6 +121,13 @@ Note). Returns total (every matching edge, before paging) and a page of edges, e
 neighbour's instanceId, label and type; never the neighbour record (read srs://<repositoryId>/record/{id} \
 for that). Optional relationType and direction (out|in; default both) filter; limit (default 25, max \
 100) and offset page. Prefer this over the context resource for hub records with many edges.";
+
+pub const DESC_READ: &str = "Read any srs:// resource and return exactly what resources/read \
+returns for it (map, navigation, agent-index, tree, tree/{instanceId}, record/{instanceId}, \
+context/{containerId}/{instanceId}, container/{id}, view/{compositionId}, type/{typeId}, protocol, \
+protocol/{id}). For clients that cannot read resources. Output text is capped at 96000 bytes (before the notice); a longer \
+resource is cut with a trailing notice and structuredContent.truncated = true — then use find \
+{limit}, tree/{instanceId}, container_outline or record/{id} for a bounded read.";
 
 pub const DESC_FIND: &str = "Deterministic discovery query (ext:discovery). All axes are \
 optional and AND-combined: typeId, typeNamespace, typeName, containerId, tag (repeatable; \
@@ -502,6 +511,14 @@ impl From<NoteCreateToolInput> for CreateNoteInput {
             container_id: input.container_id,
         }
     }
+}
+
+/// The whole input of `read`: an `srs://<repositoryId>/…` resource address.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReadToolInput {
+    /// The resource address, e.g. `srs://<repositoryId>/map`.
+    pub uri: String,
 }
 
 /// Mirrors `type_schema_service::TypeSchemaInput` field-for-field.
@@ -969,6 +986,7 @@ pub fn list_tools() -> Value {
             DESC_TYPE_SCHEMA,
             input_schema::<TypeSchemaToolInput>(),
         ),
+        tool(TOOL_READ, DESC_READ, input_schema::<ReadToolInput>()),
         // Second-wave write tools (#680)
         tool(
             TOOL_RECORD_UPDATE,
@@ -1135,6 +1153,68 @@ pub(crate) fn tool_err(message: String) -> Value {
     json!({ "content": [{ "type": "text", "text": message }], "isError": true })
 }
 
+/// `read` result cap: under the ~128 KB browser-relay limit, with headroom for JSON framing.
+pub const MAX_READ_BYTES: usize = 96_000;
+
+/// Largest char boundary of `s` at or below `max`.
+fn utf8_floor(s: &str, max: usize) -> usize {
+    let mut cut = max.min(s.len());
+    while !s.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    cut
+}
+
+/// `read {uri}` (#1220): the `resources/read` dispatch verbatim (one path, errors as there),
+/// returned as a tool result and capped at [`MAX_READ_BYTES`] (policy, not protocol). Needs the
+/// repository id, so `SrsMcpApplication` routes it here instead of through [`call_tool`]; it
+/// is read-only and deliberately bypasses the write guard and change drain (ADR-049).
+/// `structuredContent` is metadata only (the payload is the text, not doubled). A truncated
+/// JSON text is no longer valid JSON: `structuredContent.truncated` is the contract.
+pub fn read_tool(
+    store: &dyn RepositoryStore,
+    repository_id: &str,
+    arguments: Option<Map<String, Value>>,
+) -> Result<Value, McpApplicationError> {
+    read_tool_capped(store, repository_id, arguments, MAX_READ_BYTES)
+}
+
+/// [`read_tool`] with an explicit cap (so tests need not build a 96 KB resource).
+pub fn read_tool_capped(
+    store: &dyn RepositoryStore,
+    repository_id: &str,
+    arguments: Option<Map<String, Value>>,
+    max_bytes: usize,
+) -> Result<Value, McpApplicationError> {
+    let input: ReadToolInput = parse_args(arguments)?;
+    let result = crate::srs_resources::read_resource(store, repository_id, &input.uri)?;
+    let part = &result["contents"][0];
+    let mut text = part["text"].as_str().unwrap_or_default().to_string();
+    let total = text.len();
+    let truncated = total > max_bytes;
+    let mut shown = total;
+    if truncated {
+        let cut = utf8_floor(&text, max_bytes);
+        text.truncate(cut);
+        shown = cut;
+        text.push_str(&format!(
+            "\n\n[truncated: showing {cut} of {total} bytes. Read a bounded part instead: find with limit/offset, \
+srs://{repository_id}/tree/{{instanceId}}, container_outline, or srs://{repository_id}/record/{{instanceId}}.]"
+        ));
+    }
+    Ok(json!({
+        "content": [{ "type": "text", "text": text }],
+        "structuredContent": {
+            "uri": input.uri,
+            "mimeType": part["mimeType"],
+            "truncated": truncated,
+            "totalBytes": total,
+            "shownBytes": shown,
+        },
+        "isError": false
+    }))
+}
+
 /// The `tools/call` result. Validated service rejections are tool results with
 /// `isError: true`; only malformed calls are protocol (`McpApplicationError`) errors.
 pub fn call_tool(
@@ -1219,6 +1299,7 @@ pub fn call_tool(
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
+        // `read` is routed by `SrsMcpApplication` (it needs the repository id): see `read_tool`.
         TOOL_TYPE_SCHEMA => {
             let input: TypeSchemaToolInput = parse_args(arguments)?;
             match type_schema_service::type_schema(store, input.into()) {
@@ -1654,6 +1735,14 @@ mod tests {
     }
 
     #[test]
+    fn utf8_floor_never_splits_a_char() {
+        let s = "aé€😀"; // 1 + 2 + 3 + 4 bytes
+        let cuts: Vec<usize> = (0..=s.len()).map(|n| utf8_floor(s, n)).collect();
+        assert_eq!(cuts, vec![0, 1, 1, 3, 3, 3, 6, 6, 6, 6, 10]);
+        assert_eq!(utf8_floor(s, 99), 10);
+    }
+
+    #[test]
     fn list_tools_advertises_every_tool_with_schemas() {
         let tools = list_tools()["tools"].as_array().unwrap().clone();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
@@ -1666,6 +1755,7 @@ mod tests {
                 TOOL_RELATION_CREATE,
                 TOOL_NOTE_CREATE,
                 TOOL_TYPE_SCHEMA,
+                TOOL_READ,
                 TOOL_RECORD_UPDATE,
                 TOOL_RECORD_TRANSITION,
                 TOOL_RECORD_ALLOWED_TRANSITIONS,

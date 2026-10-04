@@ -63,11 +63,11 @@ fn application_reads_repository_id_from_manifest() {
 }
 
 #[test]
-fn tool_catalogue_has_all_twenty_nine_tools_and_core_owns_the_schemas() {
+fn tool_catalogue_has_all_thirty_tools_and_core_owns_the_schemas() {
     let (_dir, mut d) = setup();
     let listed = rpc(&mut d, "tools/list", json!({}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 29);
+    assert_eq!(tools.len(), 30);
     assert!(tools
         .iter()
         .all(|t| t["description"].is_string() && t["inputSchema"]["type"] == "object"));
@@ -889,5 +889,72 @@ mod write_guard {
             "record_successor",
             json!({ "predecessorId": id, "relationType": "supersedes", "fieldValues": { "body": "n" } }),
         );
+    }
+}
+
+mod read_tool {
+    use super::*;
+
+    fn uri(path: &str) -> String {
+        format!("srs://{REPO_ID}/{path}")
+    }
+
+    #[test]
+    fn read_equals_resources_read_and_errors_as_there() {
+        let (_dir, mut d) = setup();
+        for path in ["map", "navigation", "agent-index", "tree", "protocol"] {
+            let direct = rpc(&mut d, "resources/read", json!({ "uri": uri(path) }));
+            let via = tool(&mut d, "read", json!({ "uri": uri(path) }));
+            assert_eq!(
+                via["result"]["content"][0]["text"], direct["result"]["contents"][0]["text"],
+                "{path}"
+            );
+            assert_eq!(via["result"]["structuredContent"]["truncated"], false);
+            assert_eq!(
+                via["result"]["structuredContent"]["mimeType"],
+                direct["result"]["contents"][0]["mimeType"]
+            );
+        }
+        let missing = uri("record/00000000-0000-4000-8000-000000000000");
+        let direct = rpc(&mut d, "resources/read", json!({ "uri": missing }));
+        let via = tool(&mut d, "read", json!({ "uri": missing }));
+        assert_eq!(via["error"], direct["error"]);
+        let wrong = tool(&mut d, "read", json!({ "uri": "srs://other/map" }));
+        assert_eq!(wrong["error"]["code"], -32602);
+    }
+
+    #[test]
+    fn read_is_not_blocked_by_the_write_guard() {
+        let (_dir, mut d) = setup();
+        d.application_mut()
+            .set_write_guard(Some(srs_mcp_core::guard::WriteGuard {
+                container_ids: vec!["x".into()],
+                ..Default::default()
+            }));
+        let via = tool(&mut d, "read", json!({ "uri": uri("map") }));
+        assert_eq!(via["result"]["isError"], false, "{via}");
+    }
+
+    #[test]
+    fn oversize_is_cut_on_a_char_boundary_with_a_notice() {
+        let (_dir, d) = setup();
+        let args = json!({ "uri": uri("map") });
+        let args = args.as_object().cloned();
+        // 1 lands inside a multi-byte char only if the map has one; any cap must stay valid UTF-8.
+        for cap in [1usize, 7, 100] {
+            let via = srs_mcp_core::tools::read_tool_capped(
+                d.application().store(),
+                REPO_ID,
+                args.clone(),
+                cap,
+            )
+            .unwrap();
+            let sc = &via["structuredContent"];
+            assert_eq!(sc["truncated"], true);
+            assert!(sc["totalBytes"].as_u64().unwrap() > cap as u64);
+            assert!(sc["shownBytes"].as_u64().unwrap() <= cap as u64);
+            let text = via["content"][0]["text"].as_str().unwrap();
+            assert!(text.contains("[truncated: showing"));
+        }
     }
 }
