@@ -2362,8 +2362,8 @@ pub struct ContextRecordPayload {
     #[schemars(with = "serde_json::Value")]
     pub field_values: srs_core::types::record::FieldValues,
     /// BEHAVIOUR CHANGE (#1134): formerly outbound only. Consumers that assumed
-    /// `sourceId == recordId` must check `direction`. Both directions; each entry is a RelationSummary plus `direction` (out|in) and the
-    /// other endpoint inline as `neighbour`.
+    /// `sourceId == recordId` must check `direction`. Both directions; each entry is a RelationSummary plus `direction` (out|in), the
+    /// other endpoint inline as `neighbour`, and the relation's own optional `createdAt` / `createdBy` (#1246).
     #[schemars(with = "Vec<serde_json::Value>")]
     pub relations: Vec<srs_repository::context_query_service::ContextRelation>,
     /// Present with the global `--container`: the container the arrangement was read from.
