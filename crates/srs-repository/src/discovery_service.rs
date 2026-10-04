@@ -30,7 +30,7 @@ use crate::store::RepositoryStore;
 use crate::text_projection::{self, FieldTextIndex, TextSegment};
 use serde::{Deserialize, Serialize};
 use srs_core::types::record::Record;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::rc::Rc;
 
 /// The canonical query shape now lives in `srs-core` (`srs_core::types::discovery`)
@@ -46,7 +46,136 @@ pub use srs_core::types::discovery::DiscoveryQuery;
 pub struct DiscoveryResult {
     pub hits: Vec<DiscoveryHit>,
     pub total: usize,
+    /// Counts over the whole match set, before paging (same rule as `total`).
+    pub facets: DiscoveryFacets,
     pub diagnostics: Vec<String>,
+}
+
+/// Values kept per facet; the rest are summed into `other`.
+const FACET_TOP_N: usize = 20;
+/// Closed-field facets kept; the rest are dropped. Both caps keep a reply well under
+/// the ~128 KB browser-relay limit however large the repository.
+const FACET_MAX_FIELDS: usize = 25;
+
+/// The derived repository map (srs-rust#1219): what the match set holds, so an agent can
+/// narrow a query without guessing. `find {limit: 0}` with no filters is the whole
+/// repository; with a type filter it is that type's keyword map. Every count is
+/// one per instance per value.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveryFacets {
+    /// `namespace/name` of the bound Type, for Tier 2 records.
+    #[serde(default, skip_serializing_if = "FacetCounts::is_empty")]
+    pub by_type: FacetCounts,
+    /// Tier 0 notes in the match set (they carry no type).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub notes: usize,
+    #[serde(default, skip_serializing_if = "FacetCounts::is_empty")]
+    pub tags: FacetCounts,
+    /// One entry per closed string field (the successor of select/multiselect, RFC-032
+    /// R3) that matched records carry, keyed by `Field.name`: the key records store
+    /// values under (RFC-039), so two fields sharing a name share a facet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<FieldFacet>,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
+}
+
+/// Value counts, most frequent first (ties by value), at most [`FACET_TOP_N`] entries.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FacetCounts {
+    pub values: Vec<FacetCount>,
+    /// Occurrences under the values left out of `values`.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub other: usize,
+}
+
+impl FacetCounts {
+    fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
+    fn from_map(map: BTreeMap<String, usize>) -> Self {
+        let mut values: Vec<FacetCount> = map
+            .into_iter()
+            .map(|(value, count)| FacetCount { value, count })
+            .collect();
+        // Stable sort over BTreeMap order: count descending, then value ascending.
+        values.sort_by_key(|a| std::cmp::Reverse(a.count));
+        let other = values.split_off(values.len().min(FACET_TOP_N));
+        Self {
+            values,
+            other: other.iter().map(|c| c.count).sum(),
+        }
+    }
+
+    fn total(&self) -> usize {
+        self.values.iter().map(|c| c.count).sum::<usize>() + self.other
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FacetCount {
+    pub value: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldFacet {
+    pub field: String,
+    #[serde(flatten)]
+    pub counts: FacetCounts,
+}
+
+/// A hit plus the material the facets count, so the match set is walked once.
+struct Candidate {
+    hit: DiscoveryHit,
+    tags: Vec<String>,
+    /// `(Field.name, value)` for each closed string field value the record carries.
+    selects: Vec<(String, String)>,
+}
+
+fn build_facets(candidates: &[Candidate]) -> DiscoveryFacets {
+    let mut by_type: BTreeMap<String, usize> = BTreeMap::new();
+    let mut tags: BTreeMap<String, usize> = BTreeMap::new();
+    let mut fields: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
+    let mut notes = 0;
+    for c in candidates {
+        match (&c.hit.type_namespace, &c.hit.type_name) {
+            (Some(ns), Some(name)) => *by_type.entry(format!("{ns}/{name}")).or_default() += 1,
+            _ => notes += 1,
+        }
+        for t in c.tags.iter().collect::<HashSet<_>>() {
+            *tags.entry(t.clone()).or_default() += 1;
+        }
+        for (field, value) in &c.selects {
+            *fields
+                .entry(field.clone())
+                .or_default()
+                .entry(value.clone())
+                .or_default() += 1;
+        }
+    }
+    let mut fields: Vec<FieldFacet> = fields
+        .into_iter()
+        .map(|(field, m)| FieldFacet {
+            field,
+            counts: FacetCounts::from_map(m),
+        })
+        .collect();
+    fields.sort_by_key(|f| std::cmp::Reverse(f.counts.total()));
+    fields.truncate(FACET_MAX_FIELDS);
+    DiscoveryFacets {
+        by_type: FacetCounts::from_map(by_type),
+        notes,
+        tags: FacetCounts::from_map(tags),
+        fields,
+    }
 }
 
 /// A single matched instance.
@@ -138,6 +267,7 @@ pub fn find(
         return Ok(DiscoveryResult {
             hits: Vec::new(),
             total: 0,
+            facets: DiscoveryFacets::default(),
             diagnostics,
         });
     }
@@ -160,10 +290,10 @@ pub fn find(
         .unwrap_or_default();
     let needle = (!words.is_empty()).then_some(words.as_slice());
 
-    let mut hits = Vec::new();
+    let mut candidates = Vec::new();
 
     if query.tier.is_none() || query.tier == Some(2) {
-        hits.extend(find_tier2(store, &query, &field_text_index, needle)?);
+        candidates.extend(find_tier2(store, &query, &field_text_index, needle)?);
     }
 
     // Tier 0 carries no typeId/typeNamespace/typeName/lifecycleState — a query
@@ -175,16 +305,19 @@ pub fn find(
         || !query.lifecycle_states.is_empty();
 
     if !tier2_only_predicate && (query.tier.is_none() || query.tier == Some(0)) {
-        hits.extend(find_tier0(store, &query, needle)?);
+        candidates.extend(find_tier0(store, &query, needle)?);
     }
 
     // Deterministic order independent of index/store iteration order.
-    hits.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
+    candidates.sort_by(|a, b| a.hit.instance_id.cmp(&b.hit.instance_id));
+
+    let total = candidates.len();
+    // Facets count the Layer-1 match set: independent of ranking and paging.
+    let facets = build_facets(&candidates);
+    let mut hits: Vec<DiscoveryHit> = candidates.into_iter().map(|c| c.hit).collect();
     if page.rank && !words.is_empty() {
         rank_hits(store, &field_text_index, &words, &mut hits)?;
     }
-
-    let total = hits.len();
     let mut hits: Vec<DiscoveryHit> = hits
         .into_iter()
         .skip(page.offset)
@@ -209,6 +342,7 @@ pub fn find(
     Ok(DiscoveryResult {
         hits,
         total,
+        facets,
         diagnostics,
     })
 }
@@ -415,7 +549,7 @@ fn find_tier2(
     query: &DiscoveryQuery,
     field_text_index: &FieldTextIndex,
     needle: Option<&[String]>,
-) -> Result<Vec<DiscoveryHit>, RepositoryError> {
+) -> Result<Vec<Candidate>, RepositoryError> {
     // Push type ns/name, container, and the first tag into the store query; the
     // remaining predicates are applied in-service below.
     let records = record_store::list_records_filtered(
@@ -445,7 +579,21 @@ fn find_tier2(
             continue;
         }
 
-        hits.push(DiscoveryHit {
+        let mut selects = Vec::new();
+        for (name, value) in record.field_values.iter() {
+            if !field_text_index.is_closed_name(name) {
+                continue;
+            }
+            let values: Vec<&str> = match value {
+                serde_json::Value::String(s) => vec![s.as_str()],
+                serde_json::Value::Array(a) => a.iter().filter_map(|v| v.as_str()).collect(),
+                _ => Vec::new(),
+            };
+            for v in values.into_iter().collect::<HashSet<_>>() {
+                selects.push((name.clone(), v.to_string()));
+            }
+        }
+        let hit = DiscoveryHit {
             instance_id: record.instance_id.clone(),
             uri: String::new(),
             type_id: Some(record.type_id.clone()),
@@ -461,6 +609,11 @@ fn find_tier2(
             score: None,
             snippet,
             matched_fields,
+        };
+        hits.push(Candidate {
+            hit,
+            tags: record.tags.clone().unwrap_or_default(),
+            selects,
         });
     }
 
@@ -473,7 +626,7 @@ fn find_tier0(
     store: &dyn RepositoryStore,
     query: &DiscoveryQuery,
     needle: Option<&[String]>,
-) -> Result<Vec<DiscoveryHit>, RepositoryError> {
+) -> Result<Vec<Candidate>, RepositoryError> {
     let members = member_set(store, &query.container_id)?;
     let cat = store.catalog()?;
 
@@ -504,7 +657,7 @@ fn find_tier0(
             continue;
         }
 
-        hits.push(DiscoveryHit {
+        let hit = DiscoveryHit {
             label: note
                 .title
                 .clone()
@@ -519,6 +672,11 @@ fn find_tier0(
             score: None,
             snippet,
             matched_fields,
+        };
+        hits.push(Candidate {
+            hit,
+            tags: entry_ref.tags,
+            selects: Vec::new(),
         });
     }
 
@@ -533,6 +691,7 @@ mod tests {
     use crate::store::memory::MemoryStore;
     use crate::store::RepositoryStore;
     use srs_core::types::field::{AiGuidance, Field, FieldType};
+    use srs_core::types::field_type::{Cardinality, Datatype, ValueDomain};
     use srs_core::types::note::{Note, NoteSection};
     use srs_core::types::record::FieldValues;
     use std::path::PathBuf;
@@ -569,6 +728,60 @@ mod tests {
         }
     }
 
+    fn closed_field(id: &str, name: &str, list: bool) -> Field {
+        let mut f = field(id, name);
+        f.field_type = FieldType {
+            value_domain: Some(ValueDomain::Closed),
+            allowed_values: Some(vec!["a".into(), "b".into(), "x".into(), "y".into()]),
+            cardinality: list.then_some(Cardinality::List),
+            ..FieldType::new(Datatype::String)
+        };
+        f
+    }
+
+    /// `record` plus closed-field values: `kind` (string) and `areas` (list).
+    fn with_values(mut r: Record, values: &[(&str, serde_json::Value)]) -> Record {
+        for (k, v) in values {
+            r.field_values.insert(*k, v.clone());
+        }
+        r
+    }
+
+    fn facet_values(c: &FacetCounts) -> Vec<(&str, usize)> {
+        c.values
+            .iter()
+            .map(|v| (v.value.as_str(), v.count))
+            .collect()
+    }
+
+    fn faceted_store() -> MemoryStore {
+        let mut recs = fixtures();
+        recs[0] = with_values(
+            recs[0].clone(),
+            &[
+                ("kind", "a".into()),
+                ("areas", serde_json::json!(["x", "y", "x"])),
+            ],
+        );
+        recs[1] = with_values(
+            recs[1].clone(),
+            &[
+                ("kind", "b".into()),
+                ("areas", serde_json::json!([])),
+                ("mixed", "free".into()),
+            ],
+        );
+        // non-string values are skipped, not counted.
+        recs[2] = with_values(
+            recs[2].clone(),
+            &[
+                ("kind", serde_json::json!(5)),
+                ("areas", serde_json::json!([1, "x"])),
+            ],
+        );
+        store_with(recs)
+    }
+
     fn package() -> Package {
         Package {
             id: "pkg-discovery".to_string(),
@@ -578,6 +791,11 @@ mod tests {
             fields: vec![
                 field(TITLE, "title"),
                 field(STATEMENT, "decision_statement"),
+                closed_field("00000000-0000-4000-8000-00000000f003", "kind", false),
+                closed_field("00000000-0000-4000-8000-00000000f004", "areas", true),
+                // Same name closed and open: never a facet.
+                closed_field("00000000-0000-4000-8000-00000000f005", "mixed", false),
+                field("00000000-0000-4000-8000-00000000f006", "mixed"),
             ],
             record_types: vec![],
             relation_type_definitions: vec![],
@@ -720,6 +938,75 @@ mod tests {
 
     fn ids(result: &DiscoveryResult) -> Vec<&str> {
         result.hits.iter().map(|h| h.instance_id.as_str()).collect()
+    }
+
+    #[test]
+    fn facets_count_the_whole_match_set_independent_of_paging() {
+        let store = faceted_store();
+        let full = find(&store, DiscoveryQuery::default(), FindPage::default()).unwrap();
+        let map = find(
+            &store,
+            DiscoveryQuery::default(),
+            FindPage {
+                limit: Some(0),
+                offset: 5,
+            },
+        )
+        .unwrap();
+        assert!(map.hits.is_empty());
+        assert_eq!(map.total, 3);
+        assert_eq!(
+            serde_json::to_value(&map.facets).unwrap(),
+            serde_json::to_value(&full.facets).unwrap()
+        );
+        let f = &full.facets;
+        assert_eq!(facet_values(&f.by_type), vec![("governance/decision", 3)]);
+        assert_eq!(f.notes, 0);
+        // policy on ID1+ID2, then ops, finance by value order.
+        assert_eq!(
+            facet_values(&f.tags),
+            vec![("policy", 2), ("finance", 1), ("ops", 1)]
+        );
+        // `mixed` is closed in one field and open in another: not a facet.
+        let names: Vec<&str> = f.fields.iter().map(|x| x.field.as_str()).collect();
+        assert_eq!(names, vec!["areas", "kind"]);
+        let areas = &f.fields[0].counts;
+        // x counted once per instance despite the duplicate; the number is skipped.
+        assert_eq!(facet_values(areas), vec![("x", 2), ("y", 1)]);
+        assert_eq!(facet_values(&f.fields[1].counts), vec![("a", 1), ("b", 1)]);
+    }
+
+    #[test]
+    fn facets_follow_the_filters_and_count_notes() {
+        let store = store_with_note();
+        let all = find(&store, DiscoveryQuery::default(), FindPage::default()).unwrap();
+        assert_eq!(all.facets.notes, 1);
+        assert_eq!(facet_values(&all.facets.tags)[0], ("policy", 3));
+        let typed = find(
+            &store,
+            DiscoveryQuery {
+                type_name: Some("decision".to_string()),
+                ..Default::default()
+            },
+            FindPage::default(),
+        )
+        .unwrap();
+        assert_eq!(typed.facets.notes, 0);
+        assert_eq!(facet_values(&typed.facets.tags)[0], ("policy", 2));
+        let json = serde_json::to_value(&typed.facets).unwrap();
+        assert!(json.get("notes").is_none() && json.get("fields").is_none());
+    }
+
+    #[test]
+    fn facet_values_are_bounded_with_an_other_count() {
+        let map: BTreeMap<String, usize> = (0..FACET_TOP_N + 5)
+            .map(|i| (format!("v{i:02}"), if i == 24 { 9 } else { 1 }))
+            .collect();
+        let c = FacetCounts::from_map(map);
+        assert_eq!(c.values.len(), FACET_TOP_N);
+        assert_eq!(c.values[0].value, "v24");
+        assert_eq!(c.other, 5);
+        assert_eq!(c.total(), FACET_TOP_N + 5 + 8);
     }
 
     #[test]

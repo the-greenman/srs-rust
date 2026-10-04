@@ -11,6 +11,7 @@ use crate::error::RepositoryError;
 use crate::record_label;
 use crate::store::RepositoryStore;
 use serde::{Deserialize, Serialize};
+use srs_core::types::field_type::Datatype;
 use srs_core::types::note::Note;
 use srs_core::types::record::Record;
 use std::collections::{HashMap, HashSet};
@@ -53,9 +54,17 @@ pub struct FieldTextIndex {
     /// RFC-020 — `(type_id, type_version) → identityFieldId`, the other map
     /// [`record_label::record_display_label`] expects.
     identity_field_ids: HashMap<(String, u32), String>,
+    /// `Field.name`s of closed string fields (RFC-032 R3, the successor of
+    /// select/multiselect): the fields whose values `find` facets count.
+    closed_names: HashSet<String>,
 }
 
 impl FieldTextIndex {
+    /// Whether `name` is a closed string field (a facet candidate).
+    pub(crate) fn is_closed_name(&self, name: &str) -> bool {
+        self.closed_names.contains(name)
+    }
+
     /// Borrow the prebuilt `field_id → field_name` map (no per-call allocation).
     pub(crate) fn names(&self) -> &HashMap<String, String> {
         &self.names
@@ -85,7 +94,14 @@ pub fn build_field_text_index(
     let mut names = HashMap::new();
     let mut searchable_names = HashSet::new();
     let mut ids_by_name = HashMap::new();
+    let mut closed_names = HashSet::new();
+    let mut open_names = HashSet::new();
     for f in &package.fields {
+        if f.field_type.datatype == Datatype::String && f.field_type.is_closed() {
+            closed_names.insert(f.name.clone());
+        } else {
+            open_names.insert(f.name.clone());
+        }
         // I-120 / RFC-012 `[R8]`: `datatype == string` **and** an allow-listed
         // `format`. Not datatype alone — RFC-032 Revision 7 excludes the
         // string-datatyped `uuid` and `email` formats, so a field can be
@@ -100,12 +116,15 @@ pub fn build_field_text_index(
         names.insert(f.id.clone(), f.name.clone());
         ids_by_name.insert(f.name.clone(), f.id.clone());
     }
+    // Records key values by name, so a name is a facet only if no field of that name is open.
+    closed_names.retain(|n| !open_names.contains(n));
     let identity_field_ids = record_label::identity_field_index_from_package(&package);
     Ok(FieldTextIndex {
         names,
         searchable_names,
         ids_by_name,
         identity_field_ids,
+        closed_names,
     })
 }
 
@@ -277,6 +296,7 @@ mod tests {
                 .map(|f| (f.name.clone(), f.id.clone()))
                 .collect(),
             identity_field_ids: HashMap::new(),
+            closed_names: HashSet::new(),
         }
     }
 

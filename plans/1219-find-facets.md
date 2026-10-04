@@ -31,12 +31,15 @@ Charter check (ADR-048): rule 1 spec-first: RFC-012 defines the query and the re
 | D4 Shape: ordered lists, bounded | `FacetCounts {values:[{value,count}], other}`; values sorted count desc then value asc (deterministic); top `FACET_TOP_N = 20`; `other` = occurrences in omitted values (omitted when 0). Fields: at most `FACET_MAX_FIELDS = 25`, ranked by total occurrences then name | decided |
 | D5 Notes | Tier 0 notes have no type: counted in `facets.notes`, not under a sentinel type key. They still contribute tags | decided |
 | D6 Counting unit | One count per instance per value (a record's duplicate tags count once); a multiselect value counts once per instance | decided |
-| D7 No new ADR | An additive result field implementing ADR-019; amending ADR-019 is enough | decided |
+| D7 No new ADR | An additive result field implementing ADR-019; amend ADR-019 (result shape, stale pagination line) and ADR-037 (MCP `find` reply carries facets; `limit: 0` is the map call) | decided |
+| D8 Closed means closed everywhere | A name is a facet only if every package field of that name is a closed string (review finding: a same-named open field would inject unbounded values) | decided |
+| D9 Reply cost | Facets ride every `find` reply, so the default-limit MCP call is measured in S52 as well as `limit: 0`. Adapter-side omission rejected: adapter policy that changes semantics | decided |
+| D10 Relation to other maps | `repo map` (unfiltered package/instance counts) and `agent-index` (orientation: types, entry points) remain; `find` facets are the filterable value-level map and do not duplicate their fields. S52 checks `facets.byType` totals agree with `repo map` instance counts. A Layer-2 index (#1239) must leave facets unchanged: they are counted over the Layer-1 match set | decided |
 
 ## Contracts
 
 ### CLI output contract (ADR-011)
-`FindPayload { result: DiscoveryResult }` gains `result.facets`. Run `cargo run --bin generate-schemas`; commit any schema diff. `cargo test --test payload_contracts` must pass.
+`FindPayload { result: DiscoveryResult }` gains `result.facets`. `DiscoveryResult` is embedded as an opaque value in the golden schema (ADR-037 #1227 amendment), so the facets shape is pinned by the service unit tests plus the MCP and bindings tests, not by `payload_contracts`. Still run `cargo run --bin generate-schemas` and `cargo test --test payload_contracts`; expect no schema diff.
 
 ### Entity schema sync
 No schema under `srs/docs/schema/2.0/` changes.
@@ -60,14 +63,14 @@ No schema under `srs/docs/schema/2.0/` changes.
 **Agent:** Repository Worker
 
 #### Tasks
-- [x] `text_projection.rs`: add `closed_names: HashSet<String>` to `FieldTextIndex` (built in `build_field_text_index` from `f.field_type.datatype == String && is_closed()`), accessor `is_closed_name`.
-- [x] `discovery_service.rs`: types above; `Candidate { hit, tags, selects }` internal; `find_tier2`/`find_tier0` return candidates; `build_facets(&[Candidate]) -> DiscoveryFacets`; `DiscoveryResult.facets`; early-return branch uses `Default`.
-- [x] Unit tests (MemoryStore): counts independent of limit/offset; `limit:0` yields facets and no hits; tag counted once per instance; multiselect counts each value; notes counted in `notes`; top-N truncation with `other`; content/type filters narrow facets.
+- [ ] `text_projection.rs`: add `closed_names: HashSet<String>` to `FieldTextIndex` (built in `build_field_text_index` from `f.field_type.datatype == String && is_closed()`), accessor `is_closed_name`.
+- [ ] `discovery_service.rs`: types above; `Candidate { hit, tags, selects }` internal; `find_tier2`/`find_tier0` return candidates; `build_facets(&[Candidate]) -> DiscoveryFacets`; `DiscoveryResult.facets`; the early-return branch (unknown container filter, nothing can match) returns `DiscoveryFacets::default()`.
+- [ ] Unit tests (MemoryStore; `facets_count_the_whole_match_set_independent_of_paging`, `facets_follow_the_filters_and_count_notes`, `facet_values_are_bounded_with_an_other_count`): counts independent of limit/offset; same name closed and open is not a facet; non-string and empty-array values skipped; `limit:0` yields facets and no hits; tag counted once per instance; multiselect counts each value; notes counted in `notes`; top-N truncation with `other`; content/type filters narrow facets.
 
 #### Acceptance Criteria
-- [x] `facets` counts equal those of an unpaged query
-- [x] Output bounded: more than N values yields N plus `other`
-- [x] No extra store scans (package loaded once, membership index unchanged)
+- [ ] `facets` counts equal those of an unpaged query
+- [ ] Output bounded: more than N values yields N plus `other`
+- [ ] No extra store scans (package loaded once, membership index unchanged)
 
 #### Testing
 ```bash
@@ -83,10 +86,10 @@ cargo test -p srs-repository discovery
 **Agent:** CLI Worker / MCP Adapter Worker
 
 #### Tasks
-- [ ] `cargo run --bin generate-schemas`, commit schema diff
-- [ ] `DESC_FIND` + MCP test asserting `structuredContent.facets` with `limit: 0`
-- [ ] bindings test in `crates/srs-bindings/tests/find.rs`
-- [ ] ADR-019 amendment; dogfood S52 + coverage matrix; comment on srs#881
+- [ ] `cargo run --bin generate-schemas` (expect no diff); `cargo test --test payload_contracts`
+- [ ] `DESC_FIND` (`crates/srs-mcp-core/src/tools.rs`) mentions facets and `limit: 0`; test in `crates/srs-mcp/tests/tools.rs` asserting `structuredContent.facets` with `limit: 0` returns no hits
+- [ ] bindings test in `crates/srs-bindings/tests/find.rs` asserting camelCase keys `facets`, `byType`, `fields`; no binding code change
+- [ ] amend `docs/adr/019-discovery-service.md` and `docs/adr/037-mcp-adapter-surface.md`; add S52 and a coverage matrix row in `docs/dogfooding.md`; comment on the-greenman/srs#881; file srs-vscode payload-mirror tracking issue linked under the same epic (srs-web#306)
 
 #### Acceptance Criteria
 - [ ] `srs find --limit 0` on a repo prints facets, no hits
@@ -103,7 +106,7 @@ cargo test -p srs-repository discovery
 
 ## Coordination Rules
 
-- Workers keep to write scopes. PR #1239 (BM25, `FindPage.rank`, `DiscoveryIndex`) edits `find`; rebase over it if it lands first.
+- Workers keep to write scopes. PR #1239 (BM25, `FindPage.rank`, `DiscoveryIndex`) edits `find`; PR #1239 is open (BEHIND) at planning time; rebase over it if it lands first. `facets.notes` is 0 under any Tier-2-only predicate, since those exclude notes.
 
 ## Assumptions
 
