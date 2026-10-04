@@ -269,6 +269,10 @@ pub fn create_relation(
     if relation.relation_id.trim().is_empty() {
         relation.relation_id = new_instance_id();
     }
+    // #1246: stamp when absent (caller value wins, #511 convention).
+    relation
+        .created_at
+        .get_or_insert_with(|| chrono::Utc::now().to_rfc3339());
     let (known_instance_ids, instance_type_ids) = load_validation_data(store)?;
     let ctx = RelationValidationContext {
         definitions,

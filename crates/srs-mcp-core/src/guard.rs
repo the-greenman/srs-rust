@@ -118,6 +118,13 @@ impl WriteGuard {
             }
             return Ok(());
         }
+        // A guarded session retracts only its own relations (#1246): no policy field.
+        if name == tools::TOOL_RELATION_DELETE {
+            if let Some(i) = parse::<tools::RelationDeleteToolInput>(args) {
+                return self.check_relation_delete(store, &i.relation_id);
+            }
+            return Ok(());
+        }
         // `container_create` over an existing id replaces that container (core
         // callers rely on create-as-upsert), so a guarded id is rejected here.
         if name == tools::TOOL_CONTAINER_CREATE {
@@ -167,6 +174,28 @@ impl WriteGuard {
         Err(self.deny(&format!(
             "record '{id}' is protected; {name} is not allowed on it"
         )))
+    }
+
+    /// Allowed only when the relation's `createdBy.id` is the session actor's id.
+    /// A missing relation is left to the service to report; a missing actor or
+    /// `createdBy` fails closed.
+    fn check_relation_delete(
+        &self,
+        store: &dyn RepositoryStore,
+        relation_id: &str,
+    ) -> Result<(), String> {
+        let Ok(relation) = store.load_relation(relation_id) else {
+            return Ok(());
+        };
+        let actor = store.session_actor();
+        let me = actor.as_ref().and_then(|a| a["id"].as_str());
+        match (relation.created_by.as_ref(), me) {
+            (Some(by), Some(me)) if by.id == me => Ok(()),
+            _ => Err(self.deny(&format!(
+                "relation '{relation_id}' was not created by this session; \
+                 relation_delete is limited to your own relations"
+            ))),
+        }
     }
 
     /// `record_update` replaces the whole `fieldValues` and `fieldMeta`, so

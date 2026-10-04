@@ -50,6 +50,7 @@ pub const TOOL_FIND: &str = "find";
 const FIND_DEFAULT_LIMIT: usize = 25;
 pub const TOOL_RECORD_CREATE: &str = "record_create";
 pub const TOOL_RELATION_CREATE: &str = "relation_create";
+pub const TOOL_RELATION_DELETE: &str = "relation_delete";
 pub const TOOL_NOTE_CREATE: &str = "note_create";
 pub const TOOL_TYPE_SCHEMA: &str = "type_schema";
 // Issue #1220: resources for clients that only call tools (claude.ai relay)
@@ -167,6 +168,11 @@ newer→older, contains = whole→part, depends-on = dependent→needed, precede
 The relationType must resolve to an installed RelationTypeDefinition — an unknown type is a \
 validation error, not a soft convention. Relations are semantic claims: neither endpoint's \
 lifecycle state changes. relationId is assigned when omitted.";
+
+pub const DESC_RELATION_DELETE: &str = "Delete a relation by relationId (the same service as \
+`srs relation delete`). Only the edge is removed; neither endpoint is touched. In a guarded \
+agent session you may delete only relations you created (createdBy equals your session actor); \
+any other relation is refused. The context read shows each relation's createdAt and createdBy.";
 
 pub const DESC_NOTE_CREATE: &str = "Create a Tier-0 Note (free-text sections, no type \
 binding). Each section has a name, content, and optional label. Optional containerId adds the \
@@ -503,6 +509,12 @@ pub struct RelationCreateToolInput {
     pub created_at: Option<String>,
     pub notes: Option<String>,
     pub meta: Option<Value>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RelationDeleteToolInput {
+    pub relation_id: String,
 }
 
 impl From<RelationCreateToolInput> for Relation {
@@ -1043,6 +1055,11 @@ pub fn list_tools() -> Value {
             input_schema::<RelationCreateToolInput>(),
         ),
         tool(
+            TOOL_RELATION_DELETE,
+            DESC_RELATION_DELETE,
+            input_schema::<RelationDeleteToolInput>(),
+        ),
+        tool(
             TOOL_NOTE_CREATE,
             DESC_NOTE_CREATE,
             input_schema::<NoteCreateToolInput>(),
@@ -1364,6 +1381,13 @@ pub fn call_tool(
             let input: RelationCreateToolInput = parse_args(arguments)?;
             match relation_service::create_relation_auto(store, input.into()) {
                 Ok(result) => tool_ok(&result.relation),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_RELATION_DELETE => {
+            let input: RelationDeleteToolInput = parse_args(arguments)?;
+            match relation_service::delete_relation(store, &input.relation_id) {
+                Ok(r) => tool_ok(&json!({ "relationId": r.relation_id, "path": r.path })),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
@@ -1829,6 +1853,7 @@ mod tests {
                 TOOL_FIND,
                 TOOL_RECORD_CREATE,
                 TOOL_RELATION_CREATE,
+                TOOL_RELATION_DELETE,
                 TOOL_NOTE_CREATE,
                 TOOL_TYPE_SCHEMA,
                 TOOL_READ,

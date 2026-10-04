@@ -78,6 +78,12 @@ pub struct ContextRelation {
     #[serde(flatten)]
     pub relation: crate::relation_service::RelationSummary,
     pub neighbour: Option<ContextInstance>,
+    /// The relation's own provenance (#1246): when it was asserted and by whom, so an
+    /// agent can find the attachments it made. Absent on legacy/unstamped relations.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub created_by: Option<srs_core::types::actor::Actor>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -233,10 +239,13 @@ pub fn get_record_context(
                 record_store::LoadedInstance::Record(r) => ContextInstance::Record(r),
                 record_store::LoadedInstance::Note(n) => ContextInstance::Note(n),
             });
+            let own = store.load_relation(&relation.relation_id).ok();
             relations.push((
                 created,
                 ContextRelation {
                     direction,
+                    created_at: own.as_ref().and_then(|r| r.created_at.clone()),
+                    created_by: own.and_then(|r| r.created_by),
                     relation,
                     neighbour,
                 },

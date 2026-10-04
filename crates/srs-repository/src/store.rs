@@ -219,6 +219,18 @@ pub struct ChangeEntry {
     pub target: ChangeTarget,
     pub id: String,
     pub kind: ChangeKind,
+    /// Relation entries only: the edge's endpoints (srs-rust#1205), so a client can
+    /// find the instances a changed relation touches without a read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_instance_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_instance_id: Option<String>,
+}
+
+/// Relation endpoints read from a stored relation object's JSON.
+fn relation_ends(v: &serde_json::Value) -> Option<(String, String)> {
+    let get = |k: &str| v.get(k)?.as_str().map(str::to_string);
+    Some((get("sourceInstanceId")?, get("targetInstanceId")?))
 }
 
 /// Abstracts all I/O operations performed by service functions.
@@ -1147,11 +1159,16 @@ impl FileStore {
         self.vfs.write(rel, content)?;
         self.invalidate_catalog_cache();
         if let Some(target) = target {
-            let id = serde_json::from_slice::<serde_json::Value>(content)
-                .ok()
+            let json = serde_json::from_slice::<serde_json::Value>(content).ok();
+            let id = json
+                .as_ref()
                 .and_then(|v| v.get(target.id_key())?.as_str().map(str::to_string));
             if let Some(id) = id {
-                self.record_change(rel, target, id, false, existed);
+                let ends = json
+                    .as_ref()
+                    .filter(|_| target == ChangeTarget::Relation)
+                    .and_then(relation_ends);
+                self.record_change(rel, target, id, false, existed, ends);
             }
         }
         Ok(())
@@ -1164,12 +1181,15 @@ impl FileStore {
             .and_then(|t| {
                 let v: serde_json::Value =
                     serde_json::from_slice(&self.vfs.read_bytes(rel).ok()?).ok()?;
-                Some((t, v.get(t.id_key())?.as_str()?.to_string()))
+                let ends = (t == ChangeTarget::Relation)
+                    .then_some(&v)
+                    .and_then(relation_ends);
+                Some((t, v.get(t.id_key())?.as_str()?.to_string(), ends))
             });
         self.vfs.remove(rel)?;
         self.invalidate_catalog_cache();
-        if let Some((target, id)) = found {
-            self.record_change(rel, target, id, true, true);
+        if let Some((target, id, ends)) = found {
+            self.record_change(rel, target, id, true, true, ends);
         }
         Ok(())
     }
@@ -1188,7 +1208,9 @@ impl FileStore {
         id: String,
         removal: bool,
         existed: bool,
+        ends: Option<(String, String)>,
     ) {
+        let (source_instance_id, target_instance_id) = ends.unzip();
         let mut log = self.changes.borrow_mut();
         let pos = log
             .iter()
@@ -1199,10 +1221,23 @@ impl FileStore {
                 (false, true) => ChangeKind::Updated,
                 (false, false) => ChangeKind::Created,
             };
-            log.push((path.into(), ChangeEntry { target, id, kind }));
+            log.push((
+                path.into(),
+                ChangeEntry {
+                    target,
+                    id,
+                    kind,
+                    source_instance_id,
+                    target_instance_id,
+                },
+            ));
             return;
         };
         let (cur_path, entry) = &mut log[i];
+        if source_instance_id.is_some() {
+            entry.source_instance_id = source_instance_id;
+            entry.target_instance_id = target_instance_id;
+        }
         if removal {
             if cur_path != path {
                 // The old copy going away proves the id existed before: a move.
@@ -4535,6 +4570,8 @@ mod tests {
             target,
             id: id.into(),
             kind,
+            source_instance_id: None,
+            target_instance_id: None,
         }
     }
 

@@ -63,11 +63,11 @@ fn application_reads_repository_id_from_manifest() {
 }
 
 #[test]
-fn tool_catalogue_has_all_thirty_one_tools_and_core_owns_the_schemas() {
+fn tool_catalogue_has_all_thirty_two_tools_and_core_owns_the_schemas() {
     let (_dir, mut d) = setup();
     let listed = rpc(&mut d, "tools/list", json!({}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 31);
+    assert_eq!(tools.len(), 32);
     assert!(tools
         .iter()
         .all(|t| t["description"].is_string() && t["inputSchema"]["type"] == "object"));
@@ -680,6 +680,94 @@ mod write_guard {
             "container_copy",
             json!({ "sourceContainerId": cid, "containerId": cid }),
         );
+    }
+
+    /// #1246: a guarded session retracts only relations it created; unguarded is unrestricted.
+    #[test]
+    fn relation_delete_is_own_only_when_guarded() {
+        let (_dir, mut d) = guarded();
+        let ty = "com.example.surface/para2";
+        let a = create(&mut d, ty, json!({ "body": "a" }), None);
+        let b = create(&mut d, ty, json!({ "body": "b" }), None);
+        let rel = |d: &mut D| -> String {
+            let r = tool(
+                d,
+                "relation_create",
+                json!({ "relationType": "refines", "sourceInstanceId": a, "targetInstanceId": b, "createdAt": "2026-10-04T00:00:00Z" }),
+            );
+            assert_eq!(r["result"]["isError"], false, "{r}");
+            r["result"]["structuredContent"]["relationId"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        let actor = |d: &D, id: &str| {
+            d.application()
+                .set_session_actor(Some(json!({ "kind": "ai", "id": id })))
+        };
+        let bare = rel(&mut d); // no session actor: no createdBy
+                                // createdAt is stamped when the caller omits it (#1246).
+        let r = tool(
+            &mut d,
+            "relation_create",
+            json!({ "relationType": "refines", "sourceInstanceId": b, "targetInstanceId": a }),
+        );
+        assert!(
+            r["result"]["structuredContent"]["createdAt"].is_string(),
+            "{r}"
+        );
+        let stamped = r["result"]["structuredContent"]["relationId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        actor(&d, "agent-1");
+        let mine = rel(&mut d);
+        actor(&d, "agent-2");
+        let theirs = rel(&mut d);
+        actor(&d, "agent-1");
+        guard(&mut d, json!({ "instanceIds": [a] }));
+
+        // The context read carries provenance.
+        let ctx = srs_repository::context_query_service::get_record_context(
+            d.application().store(),
+            srs_repository::context_query_service::RecordContextQuery {
+                record_id: a.clone(),
+                container_id: None,
+                exclude_relation_categories: vec![],
+            },
+        )
+        .unwrap();
+        let by = |id: &str| {
+            let r = ctx
+                .relations
+                .iter()
+                .find(|r| r.relation.relation_id == id)
+                .unwrap();
+            (
+                r.created_at.is_some(),
+                r.created_by.as_ref().map(|c| c.id.clone()),
+            )
+        };
+        assert_eq!(by(&mine), (true, Some("agent-1".into())));
+        assert_eq!(by(&theirs).1, Some("agent-2".into()));
+        assert_eq!(by(&bare).1, None);
+        assert!(by(&stamped).0);
+
+        assert_rejected(&mut d, "relation_delete", json!({ "relationId": theirs }));
+        assert_rejected(&mut d, "relation_delete", json!({ "relationId": bare }));
+        d.application_mut().take_write_summary();
+        assert_ok(&mut d, "relation_delete", json!({ "relationId": mine }));
+        let s = d.application_mut().take_write_summary().unwrap();
+        assert_eq!(s.tool, "relation_delete");
+        let e = &s.changed[0];
+        assert_eq!(e.id, mine);
+        assert_eq!(e.kind, srs_repository::ChangeKind::Deleted);
+        assert_eq!(e.source_instance_id.as_deref(), Some(a.as_str()));
+        assert_eq!(e.target_instance_id.as_deref(), Some(b.as_str()));
+
+        d.application_mut().set_write_guard(None);
+        assert_ok(&mut d, "relation_delete", json!({ "relationId": theirs }));
+        assert_ok(&mut d, "relation_delete", json!({ "relationId": bare }));
     }
 
     /// ADR-049: the summary lists every entity record_create / record_fork /
