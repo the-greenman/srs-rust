@@ -1006,6 +1006,10 @@ mod read_tool {
             );
             assert_eq!(via["result"]["structuredContent"]["truncated"], false);
             assert_eq!(
+                via["result"]["structuredContent"]["text"],
+                via["result"]["content"][0]["text"]
+            );
+            assert_eq!(
                 via["result"]["structuredContent"]["mimeType"],
                 direct["result"]["contents"][0]["mimeType"]
             );
@@ -1050,6 +1054,7 @@ mod read_tool {
             assert!(sc["shownBytes"].as_u64().unwrap() <= cap as u64);
             let text = via["content"][0]["text"].as_str().unwrap();
             assert!(text.contains("[truncated: showing"));
+            assert_eq!(sc["text"], via["content"][0]["text"]);
         }
     }
 }
