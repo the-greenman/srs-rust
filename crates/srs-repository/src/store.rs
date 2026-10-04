@@ -1695,9 +1695,12 @@ impl RepositoryStore for FileStore {
             mut vocabularies,
         ) = load_package_from_dir(self.vfs(), "package", &self.repo_root, &mut rt_by_type)?;
 
-        // Merge sub-packages from manifest packageRefs
+        // Merge sub-packages from manifest packageRefs (packageRefs wins over
+        // the singular packageRef entirely — srs-rust#1225, see
+        // `manifest::resolve_package_refs`).
         let manifest = self.load_manifest()?;
-        if let Some(pkg_refs) = manifest.extra.get("packageRefs").and_then(|v| v.as_array()) {
+        let pkg_refs = crate::manifest::resolve_package_refs(&manifest);
+        if !pkg_refs.is_empty() {
             let mut field_sources: HashMap<String, PathBuf> = HashMap::new();
             let mut type_sources: HashMap<(String, u32), PathBuf> = HashMap::new();
             let mut view_sources: HashMap<String, PathBuf> = HashMap::new();
@@ -1741,10 +1744,20 @@ impl RepositoryStore for FileStore {
                     None => continue,
                 };
                 let sub_dir = self.repo_root.join(rel_path);
-                if !self.vfs.is_file(&vfs_join(rel_path, "package.json")) {
+                let sub_pkg_json_rel = vfs_join(rel_path, "package.json");
+                if !self.vfs.is_file(&sub_pkg_json_rel) {
                     return Err(RepositoryError::PackageRefMissing {
                         path: rel_path.to_string(),
                     });
+                }
+                // Deduped by resolved package id, matching `installed_set`: a
+                // ref that resolves back to the primary (e.g. `{mode: local,
+                // path: "package"}`) does not get merged twice (srs-rust#1225).
+                if let Ok(sub_pkg_json) = self.read_json(&sub_pkg_json_rel) {
+                    if sub_pkg_json.get("id").and_then(|v| v.as_str()) == Some(metadata.id.as_str())
+                    {
+                        continue;
+                    }
                 }
                 let (
                     sub_fields,
@@ -2349,23 +2362,29 @@ impl RepositoryStore for FileStore {
 
         // Primary package
         let primary_json = self.read_json("package/package.json")?;
-        result.push(PackageBoundary::from_pkg_json(&primary_json, None));
+        let primary = PackageBoundary::from_pkg_json(&primary_json, None);
+        let primary_id = primary.id.clone();
+        result.push(primary);
 
-        // Sub-packages from manifest packageRefs
+        // Sub-packages from manifest packageRefs (packageRefs wins over the
+        // singular packageRef entirely; a singular-only manifest resolves to
+        // that one ref — srs-rust#1225, see `manifest::resolve_package_refs`).
+        // Deduped by resolved package id, matching `installed_set`: a ref
+        // that resolves back to the primary (e.g. `{mode: local, path:
+        // "package"}`) does not count twice.
         let manifest = self.load_manifest()?;
-        if let Some(refs) = manifest.extra.get("packageRefs").and_then(|v| v.as_array()) {
-            for pkg_ref in refs {
-                if pkg_ref.get("mode").and_then(|m| m.as_str()) != Some("local") {
-                    continue;
-                }
-                if let Some(path) = pkg_ref.get("path").and_then(|p| p.as_str()) {
-                    let pkg_json_rel = vfs_join(path, "package.json");
-                    if let Ok(pkg_json) = self.read_json(&pkg_json_rel) {
-                        result.push(PackageBoundary::from_pkg_json(
-                            &pkg_json,
-                            Some(path.to_string()),
-                        ));
+        for pkg_ref in crate::manifest::resolve_package_refs(&manifest) {
+            if pkg_ref.get("mode").and_then(|m| m.as_str()) != Some("local") {
+                continue;
+            }
+            if let Some(path) = pkg_ref.get("path").and_then(|p| p.as_str()) {
+                let pkg_json_rel = vfs_join(path, "package.json");
+                if let Ok(pkg_json) = self.read_json(&pkg_json_rel) {
+                    let boundary = PackageBoundary::from_pkg_json(&pkg_json, Some(path.to_string()));
+                    if boundary.id == primary_id {
+                        continue;
                     }
+                    result.push(boundary);
                 }
             }
         }
