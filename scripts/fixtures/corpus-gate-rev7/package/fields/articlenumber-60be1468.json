@@ -1,0 +1,14 @@
+{
+  "aiGuidance": {
+    "purpose": ""
+  },
+  "createdAt": "2026-05-26T00:00:00Z",
+  "description": "Stable local reference identifier for the article, e.g. A-001.",
+  "id": "60be1468-01bc-5d12-9eea-628f02801893",
+  "name": "article_number",
+  "namespace": "governance",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

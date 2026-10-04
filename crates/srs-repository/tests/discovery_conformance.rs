@@ -25,7 +25,7 @@
 //! carries zero Tier-1 scenarios/content as of that retirement.)
 
 use serde::Deserialize;
-use srs_repository::discovery_service::{find, DiscoveryQuery};
+use srs_repository::discovery_service::{find, DiscoveryQuery, FindPage};
 use srs_repository::store::{FileStore, RepositoryStore};
 use srs_repository::text_projection::{project_note_text, project_text};
 use std::collections::BTreeSet;
@@ -183,10 +183,12 @@ fn ext_discovery_fixture_scenarios() {
         .get("dataModelRevision")
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
-    if fixture_revision < 2 {
+    // RFC-043: this build reads dataModelRevision 8 (container entries). The `srs` corpus is
+    // migrated, and its fixture updated, by the phase-2 corpus-migration PR (srs#852).
+    if fixture_revision < 8 {
         println!(
             "Skipping: srs/conformance/discovery fixture-repo is at dataModelRevision \
-             {fixture_revision} (< 2) — pre-cutover spec repo, awaiting the srs #242 migration"
+             {fixture_revision} (< 8) — awaiting the srs corpus migration (RFC-043, srs#852)"
         );
         return;
     }
@@ -214,8 +216,15 @@ fn ext_discovery_fixture_scenarios() {
     for scenario in &file.scenarios {
         let query = scenario.query.clone();
 
-        let result = find(&store, query)
+        let result = find(&store, query, FindPage::default())
             .unwrap_or_else(|e| panic!("scenario '{}': find() failed: {e}", scenario.name));
+
+        // Conformance stays on Layer 1: unranked, so no hit carries a score (srs-rust#1228).
+        assert!(
+            result.hits.iter().all(|h| h.score.is_none()),
+            "scenario '{}': conformance must not rank",
+            scenario.name
+        );
 
         let actual: BTreeSet<String> = result.hits.iter().map(|h| h.instance_id.clone()).collect();
         let expected: BTreeSet<String> = scenario.expected_instance_ids.iter().cloned().collect();

@@ -1,0 +1,17 @@
+{
+  "createdAt": "2026-05-31T14:55:35.173940496+00:00",
+  "fieldValues": {
+    "article_number": "A-002",
+    "title": "What we are here to do",
+    "article_text": "LiMoMa exists to curate, install, and maintain a rotating display of artwork in the back stairwell and landings of the building. We select work, agree on placement, and manage the practical business of mounting and demounting. We are not a commercial gallery: we do not sell work on behalf of artists, take commission, or enter into financial relationships with artists in exchange for showing their work.",
+    "rationale": "Stating what we are not — a commercial gallery — is as important as stating what we are. This protects artists who exhibit with us and is honest about our amateur, community basis.",
+    "amendment_rule": "Unanimous agreement of all current members."
+  },
+  "instanceId": "31291422-cd8b-4840-b884-d55023d938cb",
+  "typeId": "a1142ac3-5385-5c0e-8630-1dd3432cdf7f",
+  "typeName": "article",
+  "typeNamespace": "governance",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-08T21:05:17.266092197+00:00",
+  "lifecycleState": "ratified"
+}

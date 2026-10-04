@@ -1,3 +1,4 @@
+pub mod actor_service;
 pub mod agent_index_service;
 pub mod analysis;
 pub mod archive;
@@ -15,6 +16,7 @@ pub(crate) mod core_package;
 pub(crate) mod core_purpose;
 pub mod detect;
 pub mod diff;
+pub mod discovery_index;
 pub mod discovery_query_cutover_migration_service;
 pub mod discovery_service;
 pub mod doctor_service;
@@ -24,6 +26,7 @@ pub(crate) mod field_json;
 #[cfg(test)]
 mod field_json_parity_tests;
 pub mod field_type_migration_service;
+pub mod fork_service;
 pub mod governance_scaffold_service;
 pub mod graduated_at_migration_service;
 pub mod index;
@@ -36,6 +39,8 @@ pub mod migrate_identity_service;
 pub mod migration_registry_service;
 pub mod okf_export_service;
 pub mod package;
+pub mod package_bundle;
+pub mod package_dependency_service;
 pub mod package_install_service;
 pub mod package_service;
 pub mod package_types;
@@ -43,6 +48,7 @@ pub mod protocol_run_service;
 pub mod protocol_service;
 pub mod record_label;
 pub mod record_store;
+mod reference_sites;
 pub mod registry_service;
 pub mod relation_graph;
 pub mod relation_service;
@@ -51,12 +57,15 @@ pub mod repository_lifecycle;
 pub mod repository_navigation_service;
 pub mod repository_portability;
 pub mod resolver;
+pub mod resource_uri;
 pub mod revisions_sidecar_cleanup_service;
 pub mod rfc038_storage_migration_service;
 pub mod rfc039_carrier_migration_service;
+pub mod rfc043_container_entries_migration_service;
 #[cfg(test)]
 mod selector_parity_tests;
 pub mod services;
+pub mod slice_service;
 pub mod source_document_service;
 pub mod srsj;
 pub mod srsj_migration_service;
@@ -85,5 +94,5 @@ pub use package_types::{
 pub use repository_portability::{
     upgrade_repository_paths, InstancePathRename, UpgradeRepositoryPathsResult,
 };
-pub use store::{FileStore, RepositoryStore};
+pub use store::{ChangeEntry, ChangeKind, ChangeTarget, FileStore, RepositoryStore};
 pub use tree_session::{export_tree, materialize_tree, new_tree_session, open_tree};

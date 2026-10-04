@@ -65,7 +65,6 @@ pub(crate) fn default_repository_container(container_id: &str, title: &str) -> C
         container_type: None,
         identity_instance_id: None,
         anchor_instance_id: None,
-        root_instance_ids: None,
         member_instance_ids: None,
         child_container_ids: None,
         tags: None,
@@ -120,16 +119,18 @@ fn scaffold_purpose_record(
     container_title: &str,
     record_title: Option<&str>,
     description: Option<&str>,
+    created_by: Option<srs_core::types::actor::Actor>,
 ) -> Result<String, RepositoryError> {
     let instance_id = new_instance_id();
     let now = Utc::now().to_rfc3339();
-    let record = core_purpose::build_purpose_record(
+    let mut record = core_purpose::build_purpose_record(
         &instance_id,
         description.unwrap_or(""),
         record_title,
         &now,
     );
 
+    record.created_by = created_by;
     write_new_record(store, &record, store.record_tier_dir(RecordTier::Tier2))?;
 
     // Membership comes from the tree ([R1]); only `manifest.container` is a
@@ -145,7 +146,6 @@ fn scaffold_purpose_record(
         container_type: None,
         identity_instance_id: None,
         anchor_instance_id: None,
-        root_instance_ids: None,
         member_instance_ids: None,
         child_container_ids: None,
         tags: None,
@@ -158,7 +158,9 @@ fn scaffold_purpose_record(
     container
         .member_instance_ids
         .get_or_insert_with(Vec::new)
-        .push(instance_id.clone());
+        .push(srs_core::types::container::ContainerEntry::new(
+            instance_id.clone(),
+        ));
 
     store.save_manifest(&manifest)?;
     let container = manifest
@@ -184,6 +186,17 @@ pub fn create_repository_with_intent(
     store: &dyn RepositoryStore,
     input: &InitializeRepositoryInput,
 ) -> Result<CreateRepositoryResult, RepositoryError> {
+    // The root container takes the repository id as its containerId, which
+    // must be a UUID — refuse up front rather than write an unloadable repo.
+    if uuid::Uuid::parse_str(input.repository.repository_id.trim()).is_err() {
+        return Err(RepositoryError::InvalidRepositoryInitialization {
+            message: "repository.repository_id must be a UUID".to_string(),
+        });
+    }
+    // RFC-046 [R3]/[R12]: the scaffolded purpose record is a creation — stamp it, and refuse an
+    // invalid session actor before anything is written. No revision check: the corpus is
+    // born at the current revision.
+    let created_by = crate::actor_service::validated_session_actor(store)?;
     let mut result = create_repository(store, input)?;
 
     // Effective title matches the normalization applied in create_repository.
@@ -198,10 +211,67 @@ pub fn create_repository_with_intent(
         effective_title,
         input.repository.title.as_deref(),
         input.repository.description.as_deref(),
+        created_by,
     )?;
     result.identity_instance_id = Some(identity_instance_id);
 
     Ok(result)
+}
+
+/// The one `repo create` request every adapter (CLI, WASM) sends: only
+/// `namespace` is required; every other knob is defaulted here, once —
+/// fresh UUIDs for the repository and primary package, srs `2.0-draft`,
+/// package `primary` 1.0.0 in the repository namespace, title = namespace.
+/// `description` becomes the purpose (identity) record's description.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateBlankRepositoryInput {
+    pub namespace: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub repository_id: Option<String>,
+    pub srs_version: Option<String>,
+    pub package_id: Option<String>,
+    pub package_name: Option<String>,
+    pub package_version: Option<String>,
+    pub package_namespace: Option<String>,
+}
+
+const DEFAULT_SRS_VERSION: &str = "2.0-draft";
+const DEFAULT_PACKAGE_NAME: &str = "primary";
+const DEFAULT_PACKAGE_VERSION: &str = "1.0.0";
+
+/// `create_repository_with_intent` with the defaults filled in. Works on any
+/// store, incl. a tree session.
+pub fn create_blank_repository(
+    store: &dyn RepositoryStore,
+    input: CreateBlankRepositoryInput,
+) -> Result<CreateRepositoryResult, RepositoryError> {
+    let mint = || uuid::Uuid::new_v4().to_string();
+    create_repository_with_intent(
+        store,
+        &InitializeRepositoryInput {
+            repository: RepositoryMetadata {
+                repository_id: input.repository_id.unwrap_or_else(mint),
+                namespace: input.namespace.clone(),
+                srs_version: input
+                    .srs_version
+                    .unwrap_or_else(|| DEFAULT_SRS_VERSION.to_string()),
+                title: input.title,
+                description: input.description,
+            },
+            primary_package: PrimaryPackageMetadata {
+                id: input.package_id.unwrap_or_else(mint),
+                namespace: input.package_namespace.unwrap_or(input.namespace),
+                name: input
+                    .package_name
+                    .unwrap_or_else(|| DEFAULT_PACKAGE_NAME.to_string()),
+                version: input
+                    .package_version
+                    .unwrap_or_else(|| DEFAULT_PACKAGE_VERSION.to_string()),
+            },
+        },
+    )
 }
 
 pub fn get_repository_status(
@@ -324,6 +394,11 @@ fn validate_initialize_input(input: &InitializeRepositoryInput) -> Result<(), Re
             input.primary_package.version.trim(),
         ),
     ];
+    if matches!(&input.repository.title, Some(t) if t.trim().is_empty()) {
+        return Err(RepositoryError::InvalidRepositoryInitialization {
+            message: "repository.title must not be empty when given".to_string(),
+        });
+    }
     for (field, value) in checks {
         if value.is_empty() {
             return Err(RepositoryError::InvalidRepositoryInitialization {
@@ -346,7 +421,7 @@ mod tests {
     fn input() -> InitializeRepositoryInput {
         InitializeRepositoryInput {
             repository: RepositoryMetadata {
-                repository_id: "repo-1".to_string(),
+                repository_id: "c0000001-0000-4000-8000-000000000001".to_string(),
                 namespace: "com.semanticops.test".to_string(),
                 srs_version: "2.0-draft".to_string(),
                 title: None,
@@ -369,6 +444,50 @@ mod tests {
 
         let package = store.load_package().unwrap();
         assert_eq!(package.id, "pkg-1");
+    }
+
+    #[test]
+    fn create_blank_repository_owns_the_defaults() {
+        let store = MemoryStore::uninitialized();
+        let result = create_blank_repository(
+            &store,
+            CreateBlankRepositoryInput {
+                namespace: "com.t.blank".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(uuid::Uuid::parse_str(&result.repository_id).is_ok());
+        assert!(uuid::Uuid::parse_str(&result.package_id).is_ok());
+        let package = store.load_package().unwrap();
+        assert_eq!(
+            (package.name.as_str(), package.version.as_str()),
+            ("primary", "1.0.0")
+        );
+        assert_eq!(package.namespace, "com.t.blank");
+        let m = store.load_manifest().unwrap();
+        assert_eq!(m.extra["srsVersion"], "2.0-draft");
+        assert_eq!(m.extra["title"], "com.t.blank");
+        assert_eq!(m.extra["dataModelRevision"], 9);
+        let c = m.container.unwrap();
+        assert_eq!(c.identity_instance_id, result.identity_instance_id);
+        assert!(
+            c.anchor_instance_id.is_none(),
+            "blank repo has no typed anchor"
+        );
+
+        let blank_title = CreateBlankRepositoryInput {
+            namespace: "com.t.x".into(),
+            title: Some("  ".into()),
+            ..Default::default()
+        };
+        assert!(create_blank_repository(&MemoryStore::uninitialized(), blank_title).is_err());
+        let bad_id = CreateBlankRepositoryInput {
+            namespace: "com.t.x".into(),
+            repository_id: Some("not-a-uuid".into()),
+            ..Default::default()
+        };
+        assert!(create_blank_repository(&MemoryStore::uninitialized(), bad_id).is_err());
     }
 
     #[test]
@@ -819,7 +938,7 @@ mod tests {
             .and_then(|c| c.member_instance_ids.as_ref())
             .expect("member_instance_ids must be set");
         assert!(
-            members.contains(&id),
+            members.iter().any(|e| e.instance_id == id),
             "purpose record must be in member_instance_ids"
         );
     }

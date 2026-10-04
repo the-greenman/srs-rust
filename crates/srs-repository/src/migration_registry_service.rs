@@ -48,6 +48,47 @@ struct MigrationDefinition {
     description: &'static str,
     status_fn: fn(&dyn RepositoryStore) -> Result<MigrationStatus, RepositoryError>,
     apply_fn: fn(&dyn RepositoryStore) -> Result<serde_json::Value, RepositoryError>,
+    /// The data-model revision step this entry implements, with its Package Bundle form
+    /// (RFC-003 [C6]); `None` for structural (not revision-keyed) entries. No default: a
+    /// new revision entry must state its bundle form, so the next bump cannot register
+    /// without deciding how a reader brings an older `.srspkg` across it (ADR-032
+    /// amendment, srs-rust#1212). Describes the step only; never run by
+    /// `list_migrations`/`apply_migration`.
+    revision_step: Option<RevisionStep>,
+}
+
+/// One data-model revision step (`from` -> `to = from + 1`) and its bundle form.
+pub(crate) struct RevisionStep {
+    pub from: u64,
+    pub to: u64,
+    pub bundle: BundleForm,
+}
+
+/// How a `.srspkg` reader carries a bundle across one revision step (RFC-003 [C6]).
+pub(crate) enum BundleForm {
+    /// The spec names no bundle-form transformer for this step: a reader refuses a
+    /// bundle that would have to cross it (RFC-003 [C6]).
+    Unspecified,
+    /// The step changes no shape a Package Bundle carries: set the stamp to `to` ([C6]).
+    Restamp,
+    /// Rewrite the bundle; returns non-fatal notes. `Err` = transformer refusal.
+    Transform(fn(&mut serde_json::Value) -> Result<Vec<String>, RepositoryError>),
+}
+
+/// RFC-043's bundle-form transformer (7 -> 8), as a [`BundleForm::Transform`].
+fn rfc043_bundle_form(v: &mut serde_json::Value) -> Result<Vec<String>, RepositoryError> {
+    crate::rfc043_container_entries_migration_service::migrate_package_bundle_value(v)
+        .map(|r| r.diagnostics)
+}
+
+/// The registry entry whose revision step starts at `from` (its id + step).
+pub(crate) fn revision_step_from(from: u64) -> Option<(&'static str, &'static RevisionStep)> {
+    MIGRATIONS.iter().find_map(|m| {
+        m.revision_step
+            .as_ref()
+            .filter(|s| s.from == from)
+            .map(|s| (m.id, s))
+    })
 }
 
 static MIGRATIONS: &[MigrationDefinition] = &[
@@ -82,6 +123,7 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        the same repository is not (honest partial failure over silent data \
                        loss) — reads and writes raw JSON directly rather than through \
                        `store.catalog()`, which this exact defect makes unusable.",
+        revision_step: None,
         status_fn: |store| {
             if crate::graduated_at_migration_service::migration_needed(store) {
                 Ok(MigrationStatus::Needed)
@@ -122,6 +164,7 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        revision), so this migration stamps nothing. Reads and writes the raw \
                        file tree directly rather than through `store.catalog()`, which an \
                        unmigrated sidecar makes unusable.",
+        revision_step: None,
         status_fn: |store| {
             if crate::revisions_sidecar_cleanup_service::migration_needed(store) {
                 Ok(MigrationStatus::Needed)
@@ -147,6 +190,11 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        decomposed `fieldType`, and stamps `dataModelRevision: 1` on the \
                        manifest. This is RFC-033's migration #1 (revision 0 → 1). \
                        Idempotent — safe to run multiple times.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::FIELD_TYPE_REVISION - 1,
+            to: crate::field_type_migration_service::FIELD_TYPE_REVISION,
+            bundle: BundleForm::Unspecified,
+        }),
         status_fn: |store| {
             if crate::field_type_migration_service::migration_needed(store)? {
                 Ok(MigrationStatus::Needed)
@@ -178,6 +226,11 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        never something a repo-local migration or `repo create` \
                        writes — the manifest is the single source of generational \
                        truth on that path.",
+        revision_step: Some(RevisionStep {
+            from: crate::rfc039_carrier_migration_service::CARRIER_REVISION - 1,
+            to: crate::rfc039_carrier_migration_service::CARRIER_REVISION,
+            bundle: BundleForm::Unspecified,
+        }),
         status_fn: |store| {
             if crate::rfc039_carrier_migration_service::migration_needed(store)? {
                 Ok(MigrationStatus::Needed)
@@ -204,6 +257,11 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        loads already carries none of them — there is no content left to \
                        rewrite, only the generation number to record. Requires the \
                        RFC-039 carrier migration (#2) first.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::METAMODEL_V1_1_0_REVISION - 1,
+            to: crate::field_type_migration_service::METAMODEL_V1_1_0_REVISION,
+            bundle: BundleForm::Unspecified,
+        }),
         status_fn: |store| {
             if crate::field_type_migration_service::metamodel_v1_1_0_migration_needed(store)? {
                 Ok(MigrationStatus::Needed)
@@ -234,6 +292,11 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        one `repo validate` uses — to still be able to see and name leftover \
                        Tier-1 content on a repository that now fails the checked seam. \
                        Requires the metamodel-v1-1-0 migration (#3) first.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::TIER1_REMOVAL_REVISION - 1,
+            to: crate::field_type_migration_service::TIER1_REMOVAL_REVISION,
+            bundle: BundleForm::Unspecified,
+        }),
         status_fn: |store| {
             if crate::field_type_migration_service::tier1_removal_migration_needed(store)? {
                 Ok(MigrationStatus::Needed)
@@ -262,6 +325,11 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        applying this migration re-persists every owned definition so the \
                        rename lands on disk. A definition already keyed meta reproduces byte \
                        for byte. Requires the tier1-removal migration (#4) first.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::SUBSTRATE_META_REVISION - 1,
+            to: crate::field_type_migration_service::SUBSTRATE_META_REVISION,
+            bundle: BundleForm::Unspecified,
+        }),
         status_fn: |store| {
             if crate::field_type_migration_service::substrate_properties_to_meta_migration_needed(
                 store,
@@ -300,6 +368,11 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        loading through a tolerant path — this migration reads and writes the raw \
                        file tree directly, the sole sanctioned reader of the old shapes. Requires \
                        the substrate-properties-to-meta migration (#5) first.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::COMPOSITION_CUTOVER_REVISION - 1,
+            to: crate::field_type_migration_service::COMPOSITION_CUTOVER_REVISION,
+            bundle: BundleForm::Unspecified,
+        }),
         status_fn: |store| {
             if crate::field_type_migration_service::composition_cutover_migration_needed(store)? {
                 Ok(MigrationStatus::Needed)
@@ -331,6 +404,11 @@ static MIGRATIONS: &[MigrationDefinition] = &[
                        path — this migration reads and writes the raw file tree directly, the \
                        sole sanctioned reader of the old shapes. Requires the composition-cutover \
                        migration (#6) first.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::DISCOVERY_QUERY_CUTOVER_REVISION - 1,
+            to: crate::field_type_migration_service::DISCOVERY_QUERY_CUTOVER_REVISION,
+            bundle: BundleForm::Unspecified,
+        }),
         status_fn: |store| {
             if crate::field_type_migration_service::discovery_query_cutover_migration_needed(
                 store,
@@ -349,12 +427,94 @@ static MIGRATIONS: &[MigrationDefinition] = &[
             })
         },
     },
+    // Ordered after `discovery-query-cutover` (it requires revision 7 first) and raw-tree: an
+    // unmigrated manifest or container fails the revision-8 schemas on load (RFC-043 [R16]/[R17]).
+    MigrationDefinition {
+        id: "rfc043-container-entries",
+        title: "Adopt RFC-043 ordered container entries and Composition ordering sources",
+        description: "Rewrites every Container's memberInstanceIds (and the root container's) \
+                       as ordered `{instanceId, depth?}` entries at depth 0, in the order in \
+                       effect today (ids a Composition section's memberOrder names, then Rule \
+                       [N+12]; the root container keeps its identity first and today's \
+                       navigation order), folds rootInstanceIds[0] into anchorInstanceId where \
+                       absent and removes rootInstanceIds, retires every Composition section's \
+                       ordering.memberOrder (a container-subset section becomes \
+                       ordering.source: \"arranged\"), and stamps dataModelRevision: 8. This is \
+                       data-model migration #8 (revision 7 -> 8), per srs-rust#1141 (RFC-043, \
+                       srs#849). Reads and writes the raw file tree — the sole sanctioned reader \
+                       of the revision-7 container and Composition shapes (retired under \
+                       srs-rust#1138). All-or-nothing: every refusal (a container named by two \
+                       sections with different memberOrder lists, a memberOrder disagreeing with \
+                       the root navigation order, memberOrder with containerScope subtree, a \
+                       gate difference) is decided before the first write \
+                       (`migration-memberorder-conflict`); every memberOrder id dropped because \
+                       it is not a member is reported (`migration-memberorder-dropped`). \
+                       Requires revision 7 (discovery-query-cutover) first.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::RFC043_CONTAINER_ENTRIES_REVISION - 1,
+            to: crate::field_type_migration_service::RFC043_CONTAINER_ENTRIES_REVISION,
+            bundle: BundleForm::Transform(rfc043_bundle_form),
+        }),
+        status_fn: |store| {
+            if crate::field_type_migration_service::rfc043_container_entries_migration_needed(
+                store,
+            )? {
+                Ok(MigrationStatus::Needed)
+            } else {
+                Ok(MigrationStatus::AlreadyApplied)
+            }
+        },
+        apply_fn: |store| {
+            let result =
+                crate::rfc043_container_entries_migration_service::migrate_rfc043_container_entries(store)?;
+            serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!(
+                    "failed to serialize rfc043-container-entries migration result: {e}"
+                ),
+            })
+        },
+    },
+    MigrationDefinition {
+        id: "rfc046-actor-provenance",
+        title: "Adopt RFC-046 actor provenance (createdBy)",
+        description: "Stamps dataModelRevision: 9. This is data-model migration #9 \
+                       (revision 8 -> 9), per srs-rust#1171 (RFC-046, srs#850). A pure \
+                       re-stamp: no existing instance carries `createdBy`, so no instance \
+                       data changes and every existing instance is preserved exactly ([R6]). \
+                       A corpus at revision 9 may contain `createdBy`; a session with an \
+                       actor refuses to create in a corpus below revision 9 ([R11]). \
+                       Requires the rfc043-container-entries migration (#8) first.",
+        revision_step: Some(RevisionStep {
+            from: crate::field_type_migration_service::RFC046_ACTOR_PROVENANCE_REVISION - 1,
+            to: crate::field_type_migration_service::RFC046_ACTOR_PROVENANCE_REVISION,
+            bundle: BundleForm::Restamp,
+        }),
+        status_fn: |store| {
+            if crate::field_type_migration_service::rfc046_actor_provenance_migration_needed(
+                store,
+            )? {
+                Ok(MigrationStatus::Needed)
+            } else {
+                Ok(MigrationStatus::AlreadyApplied)
+            }
+        },
+        apply_fn: |store| {
+            let result =
+                crate::field_type_migration_service::migrate_rfc046_actor_provenance(store)?;
+            serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!(
+                    "failed to serialize rfc046-actor-provenance migration result: {e}"
+                ),
+            })
+        },
+    },
     MigrationDefinition {
         id: "migrate-identity",
         title: "Graduate identity to purpose record",
         description: "Converts a Tier-0 note identity (or a container with no identity \
                        pointer) to a typed com.semanticops.core/purpose Tier-2 Record \
                        and repoints manifest.container.identityInstanceId. Satisfies RFC-018.",
+        revision_step: None,
         status_fn: |store| {
             use crate::migrate_identity_service::IdentityMigrationStatus;
             match crate::migrate_identity_service::migration_status(store)? {
@@ -375,6 +535,7 @@ static MIGRATIONS: &[MigrationDefinition] = &[
         title: "Normalise instance file paths",
         description: "Renames instance files to the canonical slug-id8 convention \
                        (e.g. title-a1b2c3d4.json). Idempotent — safe to run multiple times.",
+        revision_step: None,
         status_fn: |store| {
             let needed = crate::repository_portability::check_path_upgrade_needed(store)?;
             if needed {
@@ -421,6 +582,7 @@ static MIGRATIONS: &[MigrationDefinition] = &[
         // silent, permanent misreport of repository state to every consumer
         // of `repo migrations` (dashboards, scripts, `srs-mcp`), which is what
         // an unconditional `NotApplicable` here would have been.
+        revision_step: None,
         status_fn: |store| {
             if !store.is_file_tree_store() {
                 return Ok(MigrationStatus::NotApplicable);
@@ -478,6 +640,12 @@ pub fn list_migrations(
                 // missing manifest, real I/O failure, ...) still propagates
                 // unchanged.
                 Err(RepositoryError::CatalogLoad { .. }) => MigrationStatus::Needed,
+                // A revision-7 root container does not parse as a typed Manifest (RFC-043
+                // [R16]); the typed-manifest probes cannot run, so report the conservative
+                // `Needed` rather than failing the listing that tells the user what to do.
+                Err(
+                    RepositoryError::ManifestParse { .. } | RepositoryError::Rfc043MigrationNeeded,
+                ) => MigrationStatus::Needed,
                 Err(e) => return Err(e),
             };
             Ok(MigrationSummary {
@@ -532,7 +700,6 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -552,6 +719,7 @@ mod tests {
         let container_id = "550e8400-e29b-41d4-a716-446655440000";
 
         let note = Note {
+            created_by: None,
             instance_id: note_id.to_string(),
             title: note_title.map(|t| t.to_string()),
             sections,
@@ -604,7 +772,7 @@ mod tests {
     fn list_migrations_returns_every_entry_for_store_with_no_identity_note() {
         let store = make_store_with_container_no_identity();
         let migrations = list_migrations(&store).unwrap();
-        assert_eq!(migrations.len(), 12);
+        assert_eq!(migrations.len(), 14);
         assert_eq!(migrations[0].id, "graduated-at-cleanup");
         assert_eq!(migrations[1].id, "revisions-sidecar-cleanup");
         assert_eq!(migrations[2].id, "field-type");
@@ -614,9 +782,11 @@ mod tests {
         assert_eq!(migrations[6].id, "substrate-properties-to-meta");
         assert_eq!(migrations[7].id, "composition-cutover");
         assert_eq!(migrations[8].id, "discovery-query-cutover");
-        assert_eq!(migrations[9].id, "migrate-identity");
-        assert_eq!(migrations[10].id, "repo-upgrade");
-        assert_eq!(migrations[11].id, "rfc038-storage");
+        assert_eq!(migrations[9].id, "rfc043-container-entries");
+        assert_eq!(migrations[10].id, "rfc046-actor-provenance");
+        assert_eq!(migrations[11].id, "migrate-identity");
+        assert_eq!(migrations[12].id, "repo-upgrade");
+        assert_eq!(migrations[13].id, "rfc038-storage");
         // No legacy graduatedAt Notes → AlreadyApplied
         assert_eq!(migrations[0].status, MigrationStatus::AlreadyApplied);
         // No .revisions.json sidecars → AlreadyApplied
@@ -635,12 +805,16 @@ mod tests {
         assert_eq!(migrations[7].status, MigrationStatus::Needed);
         // Revision < 7 → discovery-query-cutover Needed
         assert_eq!(migrations[8].status, MigrationStatus::Needed);
-        // Container exists but identity_instance_id is None → migrate-identity Needed
+        // Revision < 8 → rfc043-container-entries Needed
         assert_eq!(migrations[9].status, MigrationStatus::Needed);
+        // Revision < 9 → rfc046-actor-provenance Needed
+        assert_eq!(migrations[10].status, MigrationStatus::Needed);
+        // Container exists but identity_instance_id is None → migrate-identity Needed
+        assert_eq!(migrations[11].status, MigrationStatus::Needed);
         // Zero instances → all paths canonical → AlreadyApplied
-        assert_eq!(migrations[10].status, MigrationStatus::AlreadyApplied);
+        assert_eq!(migrations[12].status, MigrationStatus::AlreadyApplied);
         // MemoryStore is not a file tree — there is no storage layout to place.
-        assert_eq!(migrations[11].status, MigrationStatus::NotApplicable);
+        assert_eq!(migrations[13].status, MigrationStatus::NotApplicable);
     }
 
     fn indexed_srsj_store() -> crate::store::FileStore {
@@ -788,7 +962,7 @@ mod tests {
         let store = MemoryStore::uninitialized();
         let input = InitializeRepositoryInput {
             repository: RepositoryMetadata {
-                repository_id: "repo-1".to_string(),
+                repository_id: "c0000001-0000-4000-8000-000000000001".to_string(),
                 namespace: "com.semanticops.test".to_string(),
                 srs_version: "2.0-draft".to_string(),
                 title: Some("My Repo".to_string()),
@@ -848,6 +1022,7 @@ mod tests {
         // otherwise poison `store.catalog()` for the whole repository,
         // including `migrate-identity`'s status probe.
         let legacy_note = Note {
+            created_by: None,
             instance_id: "22222222-2222-4222-8222-222222222225".to_string(),
             title: Some("Legacy graduated note".to_string()),
             sections: one_section("hello"),
@@ -877,6 +1052,38 @@ mod tests {
     }
 
     #[test]
+    fn revision_steps_form_a_contiguous_chain_to_current() {
+        use crate::field_type_migration_service::CURRENT_DATA_MODEL_REVISION;
+        let steps: Vec<&RevisionStep> = MIGRATIONS
+            .iter()
+            .filter_map(|m| m.revision_step.as_ref())
+            .collect();
+        assert_eq!(steps.len() as u64, CURRENT_DATA_MODEL_REVISION);
+        for from in 0..CURRENT_DATA_MODEL_REVISION {
+            let n = steps.iter().filter(|s| s.from == from).count();
+            assert_eq!(n, 1, "exactly one step must start at {from}");
+            let (_, s) = revision_step_from(from).unwrap();
+            assert_eq!(s.to, from + 1);
+        }
+        assert!(revision_step_from(CURRENT_DATA_MODEL_REVISION).is_none());
+    }
+
+    #[test]
+    fn bundle_forms_are_the_ones_rfc003_c6_specifies() {
+        for from in 0..7 {
+            let (_, s) = revision_step_from(from).unwrap();
+            assert!(matches!(s.bundle, BundleForm::Unspecified), "{from}");
+        }
+        let (id, s) = revision_step_from(7).unwrap();
+        assert_eq!(id, "rfc043-container-entries");
+        assert!(matches!(s.bundle, BundleForm::Transform(_)));
+        let (id, s) = revision_step_from(8).unwrap();
+        assert_eq!(id, "rfc046-actor-provenance");
+        assert!(matches!(s.bundle, BundleForm::Restamp));
+        assert_eq!(revision_step_from(0).unwrap().0, "field-type");
+    }
+
+    #[test]
     fn apply_migration_unknown_id_returns_error() {
         let (store, _) = make_store_with_identity(
             "11111111-1111-4111-8111-111111111112",
@@ -899,6 +1106,7 @@ mod tests {
 
         let instance_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
         let note = Note {
+            created_by: None,
             instance_id: instance_id.to_string(),
             title: Some("My Note".to_string()),
             sections: one_section("content"),

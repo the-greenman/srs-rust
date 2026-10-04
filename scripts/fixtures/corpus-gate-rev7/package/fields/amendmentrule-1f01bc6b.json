@@ -1,0 +1,15 @@
+{
+  "aiGuidance": {
+    "purpose": ""
+  },
+  "createdAt": "2026-05-26T00:00:00Z",
+  "description": "The process or conditions under which this article may be amended or repealed.",
+  "id": "1f01bc6b-39c8-58d7-b1a3-79142623fece",
+  "name": "amendment_rule",
+  "namespace": "governance",
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
+  "version": 1
+}

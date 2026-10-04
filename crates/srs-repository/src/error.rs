@@ -183,6 +183,11 @@ pub enum RepositoryError {
     #[error("container not found: {container_id}")]
     ContainerNotFound { container_id: String },
 
+    /// srs-rust#1167: `container create` is a create, not an upsert. A caller that means
+    /// "replace" must go through `container_service::update_container` instead.
+    #[error("container '{container_id}' already exists; use `container update` to replace it")]
+    ContainerAlreadyExists { container_id: String },
+
     /// Owner ruling srs-rust#742 (2026-09-08): identity is a very explicit modification.
     /// `container delete` must refuse the repository's root container (the RFC-013
     /// `manifest.container` embed) rather than making the repository rootless as a side
@@ -372,6 +377,12 @@ pub enum RepositoryError {
         direction: String,
     },
 
+    #[error(
+        "SUCCESSOR_RELATION_TYPE_UNDETERMINED: {}",
+        successor_undetermined_detail(candidates)
+    )]
+    SuccessorRelationTypeUndetermined { candidates: Vec<String> },
+
     #[error("LIFECYCLE_FULFILLMENT_NOT_APPLICABLE: target state '{state}' declares no requiresRelation — fulfillment must be omitted")]
     LifecycleFulfillmentNotApplicable { state: String },
 
@@ -455,6 +466,33 @@ pub enum RepositoryError {
     /// fired only under the crate-internal test activation until then.
     #[error("manifest.json declares retired property '{property}' — removed by RFC-038 [R2]; run the rfc038-storage migration")]
     RetiredManifestProperty { property: String },
+
+    /// RFC-043 [R16]: a revision-8 binary does not interpret revision-7 container shapes
+    /// (`rootInstanceIds`, string `memberInstanceIds`); it names the registry migration instead.
+    #[error("manifest.json carries a dataModelRevision 7 container shape (rootInstanceIds or bare-id memberInstanceIds); this build reads dataModelRevision 8 (RFC-043 [R16]) — run `srs repo apply-migration --id rfc043-container-entries`")]
+    Rfc043MigrationNeeded,
+
+    /// RFC-046 actor-provenance refusal. `code` is one of `actor-invalid`,
+    /// `actor-supplied`, `actor-changed`, `revision-too-old` ([R4]/[R5]/[R11]-[R13]);
+    /// nothing was written.
+    #[error("{code}: {message}")]
+    ActorProvenance { code: &'static str, message: String },
+
+    /// A `.srspkg` Package Bundle was refused (ADR-050). `code` is one of
+    /// `bundle-not-json`, `bundle-readme-unsupported`, `bundle-revision-too-new`,
+    /// `bundle-migration-refused`, `bundle-schema-invalid`, `bundle-definition-invalid`
+    /// (reader); `bundle-published-at-invalid`, `bundle-boundary-unreadable`,
+    /// `bundle-schema-invalid` (writer); coded like `ActorProvenance` so clients
+    /// can branch on the reason.
+    #[error("{code}: {message}")]
+    InvalidPackageBundle { code: &'static str, message: String },
+
+    /// An RFC-026 container slice export was refused (ADR-051). `code` is one of
+    /// `slice-root-identity-invalid` (the boundary's identity entry is not a
+    /// depth-0 entry without descendants), `slice-exported-at-invalid`,
+    /// `slice-repository-id-reused`.
+    #[error("{code}: {message}")]
+    SliceRefused { code: &'static str, message: String },
 
     /// RFC-038 [R21]: a repository below storage generation 2 is not
     /// supported. Feature-inactive until the Phase-6 flip; fired only under
@@ -638,6 +676,10 @@ impl PartialEq for RepositoryError {
             (
                 RepositoryError::ContainerIsRepositoryRoot { container_id: a },
                 RepositoryError::ContainerIsRepositoryRoot { container_id: b },
+            ) => a == b,
+            (
+                RepositoryError::ContainerAlreadyExists { container_id: a },
+                RepositoryError::ContainerAlreadyExists { container_id: b },
             ) => a == b,
             (
                 RepositoryError::ContainerValidation { source: sa },
@@ -872,6 +914,10 @@ impl PartialEq for RepositoryError {
                 },
             ) => sa == sb && ra == rb && da == db,
             (
+                RepositoryError::SuccessorRelationTypeUndetermined { candidates: a },
+                RepositoryError::SuccessorRelationTypeUndetermined { candidates: b },
+            ) => a == b,
+            (
                 RepositoryError::LifecycleFulfillmentNotApplicable { state: a },
                 RepositoryError::LifecycleFulfillmentNotApplicable { state: b },
             ) => a == b,
@@ -974,5 +1020,14 @@ impl RepositoryError {
         matches!(self, RepositoryError::NotFound { .. })
             || matches!(self, RepositoryError::Io { source, .. }
                 if source.kind() == std::io::ErrorKind::NotFound)
+    }
+}
+
+/// Message tail for `SuccessorRelationTypeUndetermined` (srs-rust#1238).
+fn successor_undetermined_detail(candidates: &[String]) -> String {
+    if candidates.is_empty() {
+        "the predecessor's lifecycle declares no hard incoming requiresRelation; pass relationType explicitly".to_string()
+    } else {
+        format!("the predecessor's lifecycle declares several candidate relation types {candidates:?}; pass relationType explicitly")
     }
 }

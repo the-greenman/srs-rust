@@ -31,6 +31,11 @@ pub struct RenderCompositionOptions<'a> {
     /// producing a per-record export document. Takes precedence over any instance-level
     /// selection already in the view definition.
     pub instance_id_filter: Option<&'a str>,
+    /// Instance ids dropped from `container-subset` sections. In an arranged section each is
+    /// removed from the outline by the RFC-043 promoting removal (its descendants move up one
+    /// level; order and the other depths are unchanged). Ignored by `containerScope: "subtree"`.
+    /// Unlike `instance_id_filter` (single-record export) this is a plain exclude set.
+    pub exclude_instance_ids: &'a [String],
 }
 
 impl<'a> RenderCompositionOptions<'a> {
@@ -42,6 +47,7 @@ impl<'a> RenderCompositionOptions<'a> {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         }
     }
 }
@@ -141,6 +147,10 @@ pub struct ProjectedRecord {
     /// that field's doc for the unstructured-mode contract.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<ProjectedRecord>,
+    /// RFC-043 [R11]: the effective arrangement depth, present when above 0 (arranged
+    /// sections only), so a consumer can rebuild the outline from the flat list.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub depth: Option<u32>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -214,11 +224,35 @@ struct RenderContext<'a> {
 // records render where — the drift shape RFC-042 Rev 5 exists to close, one
 // layer over (see the RFC's Change J note on the JSON projection).
 
+/// RFC-043 Change C: position of each of the arranged container's entries (id -> index in the
+/// container's own entry order, unfiltered). Orders the `contains` children of a section entry
+/// the way the frozen `memberOrder` did (srs-rust#1130): listed entries by entry order, the rest
+/// by Rule [N+12].
+type ArrangedRank = std::collections::HashMap<String, usize>;
+
+/// Whether (and how) a record's immediate `contains` children take the enclosing section's
+/// ordering. `On(None)` is the ordinary `fieldId` / [N+12] ladder; `On(Some(rank))` is an
+/// arranged section.
+#[derive(Clone, Copy)]
+enum ChildOrdering<'a> {
+    Off,
+    On(Option<&'a ArrangedRank>),
+}
+
+fn section_is_arranged(section: &DocumentSection) -> bool {
+    section
+        .ordering
+        .as_ref()
+        .is_some_and(|o| o.source == Some(srs_core::types::view::OrderingSource::Arranged))
+}
+
 /// One entry in a `container-subset` section's [R20]-ordered rendering
 /// sequence: either a plain direct member (record or Tier-0 note), or a
 /// nested section descending into a declared child container ([R21]).
 enum SectionEntry {
     Plain(LoadedInstance),
+    /// RFC-043: a member of an arranged section at its effective depth.
+    Arranged(LoadedInstance, u32),
     Nested(NestedSectionPlan),
 }
 
@@ -313,6 +347,7 @@ pub fn render_composition(
             &relations,
             opts.container_id,
             opts.instance_id_filter,
+            opts.exclude_instance_ids,
             &mut diagnostics,
         )?;
         return Ok(RenderResult {
@@ -351,6 +386,7 @@ pub fn render_composition(
             &relations,
             opts.container_id,
             opts.instance_id_filter,
+            opts.exclude_instance_ids,
             &mut diagnostics,
         )?);
     }
@@ -406,15 +442,23 @@ fn project_composition_json(
     relations: &[Relation],
     cli_container_id: Option<&str>,
     instance_id_filter: Option<&str>,
+    exclude: &[String],
     diagnostics: &mut Vec<String>,
 ) -> Result<CompositionProjection, RepositoryError> {
-    let container_id = resolve_container_id_from_sections(&dv.sections);
+    // RFC-043: an arranged section may omit `containerId`; the container being rendered
+    // (the supplied one) is then the document's container.
+    let container_id = resolve_container_id_from_sections(&dv.sections)
+        .or_else(|| cli_container_id.map(str::to_string));
     if container_id.is_none() {
         let subset_ids: Vec<String> = dv
             .sections
             .iter()
             .filter_map(|s| {
-                if let SectionSource::ContainerSubset { container_id, .. } = &s.source {
+                if let SectionSource::ContainerSubset {
+                    container_id: Some(container_id),
+                    ..
+                } = &s.source
+                {
                     Some(container_id.clone())
                 } else {
                     None
@@ -447,6 +491,7 @@ fn project_composition_json(
             relations,
             cli_container_id,
             instance_id_filter,
+            exclude,
             diagnostics,
         )?;
         projected_sections.push(projected);
@@ -466,11 +511,30 @@ fn project_composition_json(
 fn resolve_container_id_from_sections(sections: &[DocumentSection]) -> Option<String> {
     sections.iter().find_map(|s| {
         if let SectionSource::ContainerSubset { container_id, .. } = &s.source {
-            Some(container_id.clone())
+            container_id.clone()
         } else {
             None
         }
     })
+}
+
+/// RFC-043 Change B: the container a `container-subset` section renders. The supplied
+/// container (CLI `--container`, WASM and MCP equivalents) overrides a literal, as it always
+/// has (one Composition renders any container by switching at render time); a section with
+/// neither renders nothing and carries an error diagnostic.
+fn section_container_id<'a>(
+    literal: Option<&'a str>,
+    cli_container_id: Option<&'a str>,
+    section_id: &str,
+    diagnostics: &mut Vec<String>,
+) -> Option<&'a str> {
+    let resolved = cli_container_id.or(literal);
+    if resolved.is_none() {
+        diagnostics.push(format!(
+            "[section:{section_id}] error: an arranged container-subset section without containerId needs a supplied container (RFC-043 [R9]); rendering nothing"
+        ));
+    }
+    resolved
 }
 
 fn substitute_vars_json_blanked(
@@ -496,6 +560,7 @@ fn substitute_vars_json_blanked(
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn project_section_json(
     store: &dyn RepositoryStore,
     package: &Package,
@@ -503,19 +568,28 @@ fn project_section_json(
     relations: &[Relation],
     cli_container_id: Option<&str>,
     instance_id_filter: Option<&str>,
+    exclude: &[String],
     diagnostics: &mut Vec<String>,
 ) -> Result<ProjectedSection, RepositoryError> {
-    let entries = resolve_section_entries(
+    let (entries, rank) = resolve_section_entries(
         store,
         package,
         section,
         relations,
         cli_container_id,
         instance_id_filter,
+        exclude,
         diagnostics,
     )?;
-    let (records, sections) =
-        project_entries_json(store, package, section, &entries, relations, diagnostics)?;
+    let (records, sections) = project_entries_json(
+        store,
+        package,
+        section,
+        &entries,
+        rank.as_ref(),
+        relations,
+        diagnostics,
+    )?;
 
     Ok(ProjectedSection {
         section_id: section.section_id.clone(),
@@ -538,6 +612,7 @@ fn project_entries_json(
     package: &Package,
     section: &DocumentSection,
     entries: &[SectionEntry],
+    rank: Option<&ArrangedRank>,
     relations: &[Relation],
     diagnostics: &mut Vec<String>,
 ) -> Result<(Vec<ProjectedRecord>, Vec<ProjectedSection>), RepositoryError> {
@@ -552,8 +627,29 @@ fn project_entries_json(
                     section,
                     record,
                     relations,
+                    ChildOrdering::On(rank),
                     diagnostics,
                 )?);
+            }
+            SectionEntry::Arranged(LoadedInstance::Record(record), depth) => {
+                let mut projected = project_record_json(
+                    store,
+                    package,
+                    section,
+                    record,
+                    relations,
+                    ChildOrdering::On(rank),
+                    diagnostics,
+                )?;
+                // [R11]: the effective depth rides on ProjectedRecord when above 0.
+                projected.depth = (*depth > 0).then_some(*depth);
+                records.push(projected);
+            }
+            SectionEntry::Arranged(LoadedInstance::Note(note), _) => {
+                diagnostics.push(format!(
+                    "[section:{}] tier-0 note {} is not representable in the JSON projection; skipped",
+                    section.section_id, note.instance_id
+                ));
             }
             SectionEntry::Plain(LoadedInstance::Note(note)) => {
                 // The composition JSON output schema models typed records only;
@@ -606,6 +702,7 @@ fn project_nested_section_json(
                     section,
                     record,
                     relations,
+                    ChildOrdering::On(None),
                     diagnostics,
                 )?);
             }
@@ -623,6 +720,7 @@ fn project_nested_section_json(
         package,
         section,
         &nested.entries,
+        None,
         relations,
         diagnostics,
     )?;
@@ -643,6 +741,7 @@ fn project_record_json(
     section: &DocumentSection,
     record: &Record,
     relations: &[Relation],
+    apply_ordering_to_children: ChildOrdering<'_>,
     diagnostics: &mut Vec<String>,
 ) -> Result<ProjectedRecord, RepositoryError> {
     let rt = package
@@ -813,8 +912,15 @@ fn project_record_json(
         .collect();
     let properties = (!property_rows.is_empty()).then_some(property_rows);
 
-    let children =
-        project_contains_children_json(store, package, section, record, relations, diagnostics)?;
+    let children = project_contains_children_json(
+        store,
+        package,
+        section,
+        record,
+        relations,
+        apply_ordering_to_children,
+        diagnostics,
+    )?;
 
     Ok(ProjectedRecord {
         instance_id: record.instance_id.clone(),
@@ -829,6 +935,7 @@ fn project_record_json(
         relations: projected_relations,
         properties,
         children,
+        depth: None,
     })
 }
 
@@ -849,17 +956,44 @@ fn project_contains_children_json(
     section: &DocumentSection,
     record: &Record,
     relations: &[Relation],
+    apply_ordering_to_children: ChildOrdering<'_>,
     diagnostics: &mut Vec<String>,
 ) -> Result<Vec<ProjectedRecord>, RepositoryError> {
     if section.title_field_id.is_none() {
         return Ok(Vec::new());
     }
-    let children = relation_graph::children_by_relation_type(
+    let mut children = relation_graph::children_by_relation_type(
         &record.instance_id,
         "contains",
         relations,
         store,
     )?;
+    // srs-rust#1130: see the matching comment in `render_record_at_level` —
+    // the same single-anchor-container gap applies to the JSON projection's
+    // parallel recursion, and the same one-level-only scoping.
+    if let ChildOrdering::On(rank) = apply_ordering_to_children {
+        children = match (section_is_arranged(section), rank) {
+            (true, Some(rank)) => relation_graph::apply_arranged_children_order(
+                children,
+                rank,
+                matches!(
+                    section.ordering.as_ref().and_then(|o| o.direction.as_ref()),
+                    Some(srs_core::types::view::SortDirection::Desc)
+                ),
+                relations,
+            ),
+            _ => relation_graph::apply_section_ordering(
+                children,
+                section.ordering.as_ref(),
+                None,
+                false,
+                package,
+                relations,
+                &section.section_id,
+                diagnostics,
+            ),
+        };
+    }
     let mut projected = Vec::with_capacity(children.len());
     for child in &children {
         match child {
@@ -870,6 +1004,7 @@ fn project_contains_children_json(
                     section,
                     child_record,
                     relations,
+                    ChildOrdering::Off,
                     diagnostics,
                 )?);
             }
@@ -1794,6 +1929,7 @@ fn resolve_effective_view_id<'a>(
     section.render_view_id.as_deref()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_section(
     store: &dyn RepositoryStore,
     ctx: &RenderContext<'_>,
@@ -1801,15 +1937,17 @@ fn render_section(
     relations: &[Relation],
     cli_container_id: Option<&str>,
     instance_id_filter: Option<&str>,
+    exclude: &[String],
     diagnostics: &mut Vec<String>,
 ) -> Result<String, RepositoryError> {
-    let entries = resolve_section_entries(
+    let (entries, rank) = resolve_section_entries(
         store,
         ctx.package,
         section,
         relations,
         cli_container_id,
         instance_id_filter,
+        exclude,
         diagnostics,
     )?;
 
@@ -1839,6 +1977,7 @@ fn render_section(
         ctx,
         section,
         &entries,
+        rank.as_ref(),
         relations,
         record_heading_level,
         diagnostics,
@@ -2078,7 +2217,14 @@ fn resolve_section_instances(
         } => {
             // CLI --container overrides the view-declared container_id, allowing one
             // ContainerSubset composition to render any guide by switching at render time.
-            let effective_id = cli_container_id.unwrap_or(container_id.as_str());
+            let Some(effective_id) = section_container_id(
+                container_id.as_deref(),
+                cli_container_id,
+                &section.section_id,
+                diagnostics,
+            ) else {
+                return Ok(Vec::new());
+            };
             // RFC-042 Revision 5 [R20]: a container-subset section renders
             // direct(C), not effective(C) — [`list_direct_members_degraded`],
             // not `list_members_degraded`. This arm is reached only from the
@@ -2140,7 +2286,7 @@ fn filter_contains_roots(members: &[String], relations: &[Relation]) -> Vec<Stri
 
 /// [R20]: this container's direct members (`direct(C)`), with the same-set
 /// `contains`-overlap dedup ([`filter_contains_roots`]) already applied, in
-/// final [R20] order (`ordering.memberOrder`, else `ordering.fieldId`, else
+/// final [R20] order (`ordering.fieldId`, else
 /// the [N+12] fallback — [`relation_graph::apply_section_ordering`]).
 /// Shared by the top-level `container-subset` resolution and, recursively via
 /// [`build_container_subset_entries`], by every nested child container's own
@@ -2160,11 +2306,12 @@ fn ordered_direct_members(
     let members = list_direct_members_degraded(store, container_id, section_id, diagnostics)?;
     let roots = filter_contains_roots(&members, relations);
     let mut records = Vec::new();
-    for id in roots {
-        if let Some(instance) = get_instance_by_id(store, &id)? {
+    for id in &roots {
+        if let Some(instance) = get_instance_by_id(store, id)? {
             records.push(instance);
         }
     }
+
     Ok(relation_graph::apply_section_ordering(
         records,
         ordering,
@@ -2174,6 +2321,78 @@ fn ordered_direct_members(
         relations,
         section_id,
         diagnostics,
+    ))
+}
+
+/// RFC-043 Change C: the entries of an arranged section, in container order with effective
+/// depths. Steps in order: take the entries; drop entries that are `contains`-descendants of
+/// another entry (they render inside their ancestor's own content, srs#682/#1130) and
+/// entries excluded by `typeFilter` or unresolvable, each by the promoting removal ([R7]), so
+/// effective depth is the depth after all removals; reverse every sibling list for `desc`.
+#[allow(clippy::too_many_arguments)]
+fn arranged_direct_members(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    section_id: &str,
+    ordering: Option<&srs_core::types::view::SectionOrdering>,
+    type_filter: Option<&[String]>,
+    exclude: &[String],
+    package: &Package,
+    relations: &[Relation],
+    diagnostics: &mut Vec<String>,
+) -> Result<(Vec<SectionEntry>, Option<ArrangedRank>), RepositoryError> {
+    let container = match get_container(store, container_id) {
+        Ok(c) => c,
+        Err(RepositoryError::ContainerNotFound { container_id }) => {
+            diagnostics.push(format!(
+                "[section:{section_id}] container not found: {container_id}; rendering section as empty"
+            ));
+            return Ok((Vec::new(), None));
+        }
+        Err(e) => return Err(e),
+    };
+    let entries = container.member_instance_ids.clone().unwrap_or_default();
+    let rank: ArrangedRank = entries
+        .iter()
+        .enumerate()
+        .map(|(i, e)| (e.instance_id.clone(), i))
+        .collect();
+    let ids: Vec<String> = entries.iter().map(|e| e.instance_id.clone()).collect();
+    let roots: HashSet<String> = filter_contains_roots(&ids, relations).into_iter().collect();
+    let mut loaded: std::collections::HashMap<String, LoadedInstance> =
+        std::collections::HashMap::new();
+    for id in &ids {
+        if roots.contains(id) {
+            if let Some(instance) = get_instance_by_id(store, id)? {
+                loaded.insert(id.clone(), instance);
+            }
+        }
+    }
+    let (kept, _, _) = srs_core::arrangement::retain_promoting(&entries, |id| {
+        !exclude.iter().any(|x| x == id)
+            && loaded.get(id).is_some_and(|inst| match type_filter {
+                Some(f) => relation_graph::passes_type_filter(inst, f, package),
+                None => true,
+            })
+    });
+    let kept = if matches!(
+        ordering.and_then(|o| o.direction.as_ref()),
+        Some(srs_core::types::view::SortDirection::Desc)
+    ) {
+        srs_core::arrangement::reverse_siblings(&kept)
+    } else {
+        kept
+    };
+    Ok((
+        kept.into_iter()
+            .filter_map(|e| {
+                let depth = e.depth();
+                loaded
+                    .remove(&e.instance_id)
+                    .map(|inst| SectionEntry::Arranged(inst, depth))
+            })
+            .collect(),
+        Some(rank),
     ))
 }
 
@@ -2193,8 +2412,9 @@ fn resolve_section_entries(
     relations: &[Relation],
     cli_container_id: Option<&str>,
     instance_id_filter: Option<&str>,
+    exclude: &[String],
     diagnostics: &mut Vec<String>,
-) -> Result<Vec<SectionEntry>, RepositoryError> {
+) -> Result<(Vec<SectionEntry>, Option<ArrangedRank>), RepositoryError> {
     if let SectionSource::ContainerSubset {
         container_id,
         container_scope,
@@ -2203,22 +2423,52 @@ fn resolve_section_entries(
     } = &section.source
     {
         if instance_id_filter.is_none() {
-            let effective_id = cli_container_id.unwrap_or(container_id.as_str());
+            let Some(effective_id) = section_container_id(
+                container_id.as_deref(),
+                cli_container_id,
+                &section.section_id,
+                diagnostics,
+            ) else {
+                return Ok((Vec::new(), None));
+            };
             let scope = container_scope.clone().unwrap_or(ContainerScope::Explicit);
             let type_filter_slice = type_filter.as_deref().filter(|f| !f.is_empty());
 
             if matches!(scope, ContainerScope::Subtree) {
                 let mut visited = HashSet::new();
-                return build_container_subset_entries(
+                return Ok((
+                    build_container_subset_entries(
+                        store,
+                        effective_id,
+                        section.ordering.as_ref(),
+                        type_filter_slice,
+                        package,
+                        relations,
+                        &section.section_id,
+                        0,
+                        &mut visited,
+                        diagnostics,
+                    )?,
+                    None,
+                ));
+            }
+
+            // RFC-043 [R9]: an arranged section renders the container's entries in their own
+            // order, each at its effective depth (Change C).
+            if section
+                .ordering
+                .as_ref()
+                .is_some_and(|o| o.source == Some(srs_core::types::view::OrderingSource::Arranged))
+            {
+                return arranged_direct_members(
                     store,
                     effective_id,
+                    &section.section_id,
                     section.ordering.as_ref(),
                     type_filter_slice,
+                    exclude,
                     package,
                     relations,
-                    &section.section_id,
-                    0,
-                    &mut visited,
                     diagnostics,
                 );
             }
@@ -2235,7 +2485,14 @@ fn resolve_section_entries(
                 relations,
                 diagnostics,
             )?;
-            return Ok(records.into_iter().map(SectionEntry::Plain).collect());
+            return Ok((
+                records
+                    .into_iter()
+                    .filter(|r| !exclude.iter().any(|x| x == r.instance_id()))
+                    .map(SectionEntry::Plain)
+                    .collect(),
+                None,
+            ));
         }
     }
 
@@ -2259,7 +2516,7 @@ fn resolve_section_entries(
         &section.section_id,
         diagnostics,
     );
-    Ok(records.into_iter().map(SectionEntry::Plain).collect())
+    Ok((records.into_iter().map(SectionEntry::Plain).collect(), None))
 }
 
 /// [R21]/[R22]: build one container's [R20]-ordered plain members, with each
@@ -2368,15 +2625,11 @@ fn build_container_subset_entries(
         }
     }
 
-    // [R22]: nested body ordering reuses the same resolution ladder, but a
-    // parent-scoped `memberOrder` names the PARENT's own instance ids — none
-    // of them are members of a child container, so passing it down verbatim
-    // would make every listed id look "departed" (`apply_member_order`'s
-    // diagnostic). There is no per-child `memberOrder` (RFC-042 explicitly:
-    // `childContainerIds` carries no ordering key), so a nested body's own
-    // order ladder starts at `ordering.fieldId`, falling to [N+12].
+    // [R22]: nested body ordering reuses the same resolution ladder; `arranged` is invalid
+    // with `subtree` (RFC-043 [R10]), so a nested body's order ladder starts at
+    // `ordering.fieldId`, falling to [N+12].
     let child_ordering = ordering.map(|o| srs_core::types::view::SectionOrdering {
-        member_order: None,
+        source: None,
         field_id: o.field_id.clone(),
         direction: o.direction.clone(),
     });
@@ -2511,11 +2764,13 @@ fn render_note_at_level(
 /// computed once outside the loop rather than reclamped per entry), a
 /// `SectionEntry::Nested` via [`render_nested_section`], which computes and
 /// clamps its own title/record levels from its stored `depth`.
+#[allow(clippy::too_many_arguments)]
 fn render_section_entries(
     store: &dyn RepositoryStore,
     ctx: &RenderContext<'_>,
     section: &DocumentSection,
     entries: &[SectionEntry],
+    rank: Option<&ArrangedRank>,
     relations: &[Relation],
     record_level: u32,
     diagnostics: &mut Vec<String>,
@@ -2531,6 +2786,7 @@ fn render_section_entries(
                     record,
                     record_level,
                     relations,
+                    ChildOrdering::On(rank),
                     diagnostics,
                 )?);
             }
@@ -2538,6 +2794,25 @@ fn render_section_entries(
                 // Tier-0 note members render through their note shape: title as the
                 // heading, free-text section content as body text (#510).
                 out.push_str(&render_note_at_level(ctx, note, record_level, diagnostics));
+            }
+            // RFC-043 [R9]: level = 3 + depthOffset + effective depth, clamped at 6
+            // (`record_level` already carries `3 + depthOffset`).
+            SectionEntry::Arranged(LoadedInstance::Record(record), depth) => {
+                let level = clamp_heading_level(record_level + depth, ctx.format, diagnostics);
+                out.push_str(&render_record_at_level(
+                    store,
+                    ctx,
+                    section,
+                    record,
+                    level,
+                    relations,
+                    ChildOrdering::On(rank),
+                    diagnostics,
+                )?);
+            }
+            SectionEntry::Arranged(LoadedInstance::Note(note), depth) => {
+                let level = clamp_heading_level(record_level + depth, ctx.format, diagnostics);
+                out.push_str(&render_note_at_level(ctx, note, level, diagnostics));
             }
             SectionEntry::Nested(nested) => {
                 out.push_str(&render_nested_section(
@@ -2592,6 +2867,7 @@ fn render_nested_section(
                     record,
                     record_level,
                     relations,
+                    ChildOrdering::On(None),
                     diagnostics,
                 )?);
             }
@@ -2606,6 +2882,7 @@ fn render_nested_section(
         ctx,
         section,
         &nested.entries,
+        None,
         relations,
         record_level,
         diagnostics,
@@ -2614,6 +2891,7 @@ fn render_nested_section(
     Ok(out)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_record_at_level(
     store: &dyn RepositoryStore,
     ctx: &RenderContext<'_>,
@@ -2621,6 +2899,7 @@ fn render_record_at_level(
     record: &Record,
     heading_level: u32,
     relations: &[Relation],
+    apply_ordering_to_children: ChildOrdering<'_>,
     diagnostics: &mut Vec<String>,
 ) -> Result<String, RepositoryError> {
     let rt = ctx
@@ -2934,12 +3213,45 @@ fn render_record_at_level(
         // H6 clamp binds it uniformly — "closes a gap that predates nested
         // sections rather than one this revision creates."
         let child_level = clamp_heading_level(heading_level + 1, ctx.format, diagnostics);
-        let subsections = relation_graph::children_by_relation_type(
+        let mut subsections = relation_graph::children_by_relation_type(
             &record.instance_id,
             "contains",
             relations,
             store,
         )?;
+        // srs-rust#1130: for a single-anchor container (e.g. a Part), `direct(C)`
+        // collapses to just the anchor (`filter_contains_roots`), so the anchor's
+        // own `contains` children — the concepts a Part's arrangement
+        // (RFC-043; formerly `ordering.memberOrder`) is meant to reorder —
+        // never reach the arranged ordering via the ordinary direct-members path.
+        // Applying the enclosing section's ordering here, to the *immediate*
+        // children of the record that is itself a section entry (never to a
+        // deeper recursion — `apply_ordering_to_children` is false below), puts
+        // the arrangement in charge of exactly that one level without re-diagnosing
+        // ids that legitimately live deeper in the tree.
+        if let ChildOrdering::On(rank) = apply_ordering_to_children {
+            subsections = match (section_is_arranged(section), rank) {
+                (true, Some(rank)) => relation_graph::apply_arranged_children_order(
+                    subsections,
+                    rank,
+                    matches!(
+                        section.ordering.as_ref().and_then(|o| o.direction.as_ref()),
+                        Some(srs_core::types::view::SortDirection::Desc)
+                    ),
+                    relations,
+                ),
+                _ => relation_graph::apply_section_ordering(
+                    subsections,
+                    section.ordering.as_ref(),
+                    None,
+                    false,
+                    ctx.package,
+                    relations,
+                    &section.section_id,
+                    diagnostics,
+                ),
+            };
+        }
         for subsection in &subsections {
             match subsection {
                 LoadedInstance::Record(sub_record) => {
@@ -2950,6 +3262,7 @@ fn render_record_at_level(
                         sub_record,
                         child_level,
                         relations,
+                        ChildOrdering::Off,
                         diagnostics,
                     )?);
                 }
@@ -4260,6 +4573,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should work");
 
@@ -4285,6 +4599,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         });
         assert!(matches!(
             result,
@@ -4316,6 +4631,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         // The valid record has entries ["first", "second"]; both must appear in output
@@ -4351,6 +4667,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -4387,6 +4704,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -4424,6 +4742,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         // Section title "Items" produces an H2; no H3 should appear between it and field rows
@@ -4445,6 +4764,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -4466,6 +4786,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -4497,6 +4818,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -4547,6 +4869,7 @@ mod tests {
             theme_variant: Some("print"),
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -4573,6 +4896,7 @@ mod tests {
             theme_variant: Some("missing"),
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -4602,6 +4926,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -4628,6 +4953,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -4662,6 +4988,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -4685,6 +5012,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -4707,6 +5035,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -4728,6 +5057,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -4757,6 +5087,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -4778,6 +5109,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -4804,6 +5136,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -4836,6 +5169,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -4859,6 +5193,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -5236,7 +5571,7 @@ mod tests {
                 description: None,
                 order: 0,
                 source: SectionSource::ContainerSubset {
-                    container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+                    container_id: Some("00000000-0000-4000-8000-000000000c01".to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,
@@ -5321,7 +5656,6 @@ mod tests {
                 container_type: Some("guide".to_string()),
                 identity_instance_id: None,
                 anchor_instance_id: None,
-                root_instance_ids: None,
                 member_instance_ids: None,
                 child_container_ids: None,
                 tags: None,
@@ -5348,15 +5682,28 @@ mod tests {
         let table_id = table_record.instance_id.clone();
 
         // Add both to container
-        container_service::add_member(&store, "00000000-0000-4000-8000-000000000c01", &text_id)
-            .unwrap();
-        container_service::add_member(&store, "00000000-0000-4000-8000-000000000c01", &table_id)
-            .unwrap();
+        container_service::add_member(
+            &store,
+            "00000000-0000-4000-8000-000000000c01",
+            &text_id,
+            None,
+            None,
+        )
+        .unwrap();
+        container_service::add_member(
+            &store,
+            "00000000-0000-4000-8000-000000000c01",
+            &table_id,
+            None,
+            None,
+        )
+        .unwrap();
 
         // Establish precedes: text → table
         relation_service::create_relation_auto(
             &store,
             Relation {
+                created_by: None,
                 relation_id: String::new(),
                 relation_type: "precedes".to_string(),
                 source_instance_id: text_id.clone(),
@@ -5382,6 +5729,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -5411,6 +5759,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: Some(&text_id),
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -5511,7 +5860,7 @@ mod tests {
                 description: None,
                 order: 0,
                 source: SectionSource::ContainerSubset {
-                    container_id: "00000000-0000-4000-8000-00000000cc01".to_string(),
+                    container_id: Some("00000000-0000-4000-8000-00000000cc01".to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,
@@ -5595,7 +5944,6 @@ mod tests {
                 container_type: Some("part".to_string()),
                 identity_instance_id: None,
                 anchor_instance_id: None,
-                root_instance_ids: None,
                 member_instance_ids: None,
                 child_container_ids: None,
                 tags: None,
@@ -5629,13 +5977,20 @@ mod tests {
         // grandchild) — exactly how RFC-042's Part containers are populated
         // (scripts/part-container-membership.mjs in the srs spec repo).
         for id in [&root_id, &child_id, &grandchild_id] {
-            container_service::add_member(&store, "00000000-0000-4000-8000-00000000cc01", id)
-                .unwrap();
+            container_service::add_member(
+                &store,
+                "00000000-0000-4000-8000-00000000cc01",
+                id,
+                None,
+                None,
+            )
+            .unwrap();
         }
 
         relation_service::create_relation_auto(
             &store,
             Relation {
+                created_by: None,
                 relation_id: String::new(),
                 relation_type: "contains".to_string(),
                 source_instance_id: root_id.clone(),
@@ -5650,6 +6005,7 @@ mod tests {
         relation_service::create_relation_auto(
             &store,
             Relation {
+                created_by: None,
                 relation_id: String::new(),
                 relation_type: "contains".to_string(),
                 source_instance_id: child_id.clone(),
@@ -5675,6 +6031,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -5755,7 +6112,7 @@ mod tests {
                 description: None,
                 order: 0,
                 source: SectionSource::ContainerSubset {
-                    container_id: CONTAINER_ID.to_string(),
+                    container_id: Some(CONTAINER_ID.to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,
@@ -5841,7 +6198,6 @@ mod tests {
                 container_type: Some("part".to_string()),
                 identity_instance_id: None,
                 anchor_instance_id: None,
-                root_instance_ids: None,
                 member_instance_ids: None,
                 child_container_ids: None,
                 tags: None,
@@ -5862,6 +6218,7 @@ mod tests {
         crate::services::create_note(
             &store,
             Note {
+                created_by: None,
                 instance_id: NOTE_ID.to_string(),
                 title: Some("Narrative Note Title".to_string()),
                 tags: None,
@@ -5883,11 +6240,12 @@ mod tests {
 
         // Only the typed root is declared container membership; the note is
         // reached purely through the `contains` descent under test.
-        container_service::add_member(&store, CONTAINER_ID, &root_id).unwrap();
+        container_service::add_member(&store, CONTAINER_ID, &root_id, None, None).unwrap();
 
         relation_service::create_relation_auto(
             &store,
             Relation {
+                created_by: None,
                 relation_id: String::new(),
                 relation_type: "contains".to_string(),
                 source_instance_id: root_id.clone(),
@@ -5907,6 +6265,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect(
             "render must not hard-error descending a `contains` edge into a \
@@ -6163,6 +6522,7 @@ mod tests {
         // rfc/rfc-decision record carries after `create_record` auto-assigns
         // the bound Lifecycle's `initial_state` (also "accepted" here).
         let record = srs_core::types::record::Record {
+            created_by: None,
             instance_id: record_id.clone(),
             type_id: "t-rfc".to_string(),
             type_version: 1,
@@ -6211,6 +6571,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -6255,6 +6616,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -6310,6 +6672,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -6372,6 +6735,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -6428,6 +6792,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -6491,6 +6856,7 @@ mod tests {
         fv.insert("title", serde_json::json!("Target"));
         store
             .save_record(&srs_core::types::record::Record {
+                created_by: None,
                 instance_id: target_id.clone(),
                 type_id: "t-rfc".to_string(),
                 type_version: 1,
@@ -6523,6 +6889,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -6557,6 +6924,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: Some(&text_id),
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -6583,6 +6951,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -6622,6 +6991,7 @@ mod tests {
 
         // Create two records with different created_at — "later" has more recent timestamp.
         let make_record = |id: &str, created: &str| Record {
+            created_by: None,
             field_meta: None,
             instance_id: id.to_string(),
             type_id: "t1".to_string(),
@@ -7072,6 +7442,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let out = &result.rendered;
@@ -7113,6 +7484,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render");
         let out = &result.rendered;
@@ -7141,6 +7513,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should not hard-error on unknown renderer");
         assert!(
@@ -7210,6 +7583,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let out = &result.rendered;
@@ -7240,6 +7614,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should not hard-error");
         assert!(
@@ -7341,7 +7716,7 @@ mod tests {
                 description: None,
                 order: 0,
                 source: SectionSource::ContainerSubset {
-                    container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+                    container_id: Some("00000000-0000-4000-8000-000000000c01".to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,
@@ -7350,7 +7725,7 @@ mod tests {
                 type_dispatch: None,
                 title_field_id: Some("f-heading".to_string()),
                 ordering: Some(SectionOrdering {
-                    member_order: None,
+                    source: None,
                     field_id: Some("f-heading".to_string()),
                     direction: Some(direction),
                 }),
@@ -7409,7 +7784,6 @@ mod tests {
                 container_type: None,
                 identity_instance_id: None,
                 anchor_instance_id: None,
-                root_instance_ids: None,
                 member_instance_ids: None,
                 child_container_ids: None,
                 tags: None,
@@ -7431,6 +7805,7 @@ mod tests {
 
         for (id, title) in &records_data {
             let record = Record {
+                created_by: None,
                 field_meta: None,
                 instance_id: id.to_string(),
                 type_id: "t-record".to_string(),
@@ -7456,8 +7831,14 @@ mod tests {
             let manifest = store.load_manifest().unwrap();
             store.save_manifest(&manifest).unwrap();
 
-            container_service::add_member(&store, "00000000-0000-4000-8000-000000000c01", id)
-                .unwrap();
+            container_service::add_member(
+                &store,
+                "00000000-0000-4000-8000-000000000c01",
+                id,
+                None,
+                None,
+            )
+            .unwrap();
         }
 
         store
@@ -7473,6 +7854,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -7503,6 +7885,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -7523,10 +7906,11 @@ mod tests {
         );
     }
 
-    // ── RFC-015 [N+29]/[N+30]: memberOrder in the render path ──────────────────
+    // ── RFC-043: arranged sections in the render path ──────────────────────────
 
-    /// Same fixture shape as `make_field_sort_store`, but with
-    /// `ordering.memberOrder` instead of `fieldId`+`direction`.
+    /// Same fixture shape as `make_field_sort_store`, but with an `arranged` section whose
+    /// container entries are `member_order` first, then the remaining members by id (what the
+    /// migration freezes a revision-7 `memberOrder` into).
     fn make_member_order_store(
         member_order: Vec<String>,
         direction: Option<SortDirection>,
@@ -7610,7 +7994,7 @@ mod tests {
                 description: None,
                 order: 0,
                 source: SectionSource::ContainerSubset {
-                    container_id: "00000000-0000-4000-8000-000000000c02".to_string(),
+                    container_id: Some("00000000-0000-4000-8000-000000000c02".to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,
@@ -7619,7 +8003,7 @@ mod tests {
                 type_dispatch: None,
                 title_field_id: Some("f-heading".to_string()),
                 ordering: Some(SectionOrdering {
-                    member_order: Some(member_order),
+                    source: Some(srs_core::types::view::OrderingSource::Arranged),
                     field_id: None,
                     direction,
                 }),
@@ -7678,7 +8062,6 @@ mod tests {
                 container_type: None,
                 identity_instance_id: None,
                 anchor_instance_id: None,
-                root_instance_ids: None,
                 member_instance_ids: None,
                 child_container_ids: None,
                 tags: None,
@@ -7699,6 +8082,7 @@ mod tests {
 
         for (id, title) in &records_data {
             let record = Record {
+                created_by: None,
                 field_meta: None,
                 instance_id: id.to_string(),
                 type_id: "t-record".to_string(),
@@ -7723,9 +8107,33 @@ mod tests {
 
             let manifest = store.load_manifest().unwrap();
             store.save_manifest(&manifest).unwrap();
+        }
 
-            container_service::add_member(&store, "00000000-0000-4000-8000-000000000c02", id)
-                .unwrap();
+        let mut arrangement: Vec<String> = member_order
+            .iter()
+            .filter(|id| records_data.iter().any(|(r, _)| r == id))
+            .cloned()
+            .collect();
+        for (id, _) in &records_data {
+            if !arrangement.iter().any(|a| a == id) {
+                arrangement.push(id.to_string());
+            }
+        }
+        arrangement.sort_by_key(|id| {
+            member_order
+                .iter()
+                .position(|m| m == id)
+                .unwrap_or(usize::MAX)
+        });
+        for id in &arrangement {
+            container_service::add_member(
+                &store,
+                "00000000-0000-4000-8000-000000000c02",
+                id,
+                None,
+                None,
+            )
+            .unwrap();
         }
 
         store
@@ -7748,6 +8156,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -7760,6 +8169,129 @@ mod tests {
             "memberOrder: expected B→C→A, got:\n{}",
             rendered
         );
+    }
+
+    const ARR_B: &str = "00000000-0000-4000-8000-000000000003"; // B-middle
+    const ARR_C: &str = "00000000-0000-4000-8000-000000000001"; // C-last
+    const ARR_A: &str = "00000000-0000-4000-8000-000000000002"; // A-first
+    const ARR_CONTAINER: &str = "00000000-0000-4000-8000-000000000c02";
+
+    fn render_arranged(store: &crate::store::memory::MemoryStore, format: &str) -> RenderResult {
+        render_composition(RenderCompositionOptions {
+            store,
+            view_id: "dv-member-order",
+            format: Some(format),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+            exclude_instance_ids: &[],
+        })
+        .expect("render should succeed")
+    }
+
+    /// RFC-043 [R9] worked example shape: heading level = 3 + depthOffset + effective depth, and
+    /// the container's own order and nesting drive the sequence.
+    #[test]
+    fn arranged_section_renders_entries_at_their_depth() {
+        let store = make_member_order_store(vec![ARR_B.into(), ARR_C.into(), ARR_A.into()], None);
+        crate::container_service::move_member(&store, ARR_CONTAINER, ARR_C, None, Some(1)).unwrap();
+        crate::container_service::move_member(&store, ARR_CONTAINER, ARR_A, None, Some(2)).unwrap();
+        let rendered = render_arranged(&store, "markdown").rendered;
+        let heading = |text: &str| -> String {
+            rendered
+                .lines()
+                .find(|l| l.starts_with('#') && l.contains(text))
+                .unwrap_or_else(|| panic!("no heading for {text}:\n{rendered}"))
+                .split(' ')
+                .next()
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(heading("B-middle"), "###");
+        assert_eq!(heading("C-last"), "####");
+        assert_eq!(heading("A-first"), "#####");
+        let pos = |t: &str| rendered.find(t).unwrap();
+        assert!(pos("B-middle") < pos("C-last") && pos("C-last") < pos("A-first"));
+    }
+
+    /// [R9]: `desc` reverses every sibling list with children staying under their parent;
+    /// [R11]: JSON carries the effective depth (when above 0) in sequence.
+    #[test]
+    fn arranged_desc_reverses_siblings_and_json_carries_depth() {
+        // B (0), C (1), A (0)  ->  desc: A (0), B (0), C (1)
+        let store = make_member_order_store(
+            vec![ARR_B.into(), ARR_C.into(), ARR_A.into()],
+            Some(SortDirection::Desc),
+        );
+        crate::container_service::move_member(&store, ARR_CONTAINER, ARR_C, None, Some(1)).unwrap();
+        let projection = render_arranged(&store, "json")
+            .projection
+            .expect("json format carries a projection");
+        let v = serde_json::to_value(&projection).unwrap();
+        let recs = v["sections"][0]["records"].as_array().unwrap();
+        let seq: Vec<(&str, u64)> = recs
+            .iter()
+            .map(|r| {
+                (
+                    r["instanceId"].as_str().unwrap(),
+                    r.get("depth").and_then(|d| d.as_u64()).unwrap_or(0),
+                )
+            })
+            .collect();
+        assert_eq!(seq, vec![(ARR_A, 0), (ARR_B, 0), (ARR_C, 1)]);
+    }
+
+    /// srs-rust#1255: `exclude_instance_ids` drops entries from an arranged outline by the
+    /// promoting removal: an excluded parent's descendants move up one level, an excluded leaf
+    /// just disappears, and order is otherwise unchanged.
+    #[test]
+    fn arranged_exclude_promotes_children_and_drops_leaves() {
+        // B (0), C (1), A (2)
+        let store = make_member_order_store(vec![ARR_B.into(), ARR_C.into(), ARR_A.into()], None);
+        crate::container_service::move_member(&store, ARR_CONTAINER, ARR_C, None, Some(1)).unwrap();
+        crate::container_service::move_member(&store, ARR_CONTAINER, ARR_A, None, Some(2)).unwrap();
+        let seq = |exclude: &[String]| -> Vec<(String, u64)> {
+            let projection = render_composition(RenderCompositionOptions {
+                store: &store,
+                view_id: "dv-member-order",
+                format: Some("json"),
+                theme_variant: None,
+                container_id: None,
+                instance_id_filter: None,
+                exclude_instance_ids: exclude,
+            })
+            .unwrap()
+            .projection
+            .unwrap();
+            let v = serde_json::to_value(&projection).unwrap();
+            v["sections"][0]["records"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| {
+                    (
+                        r["instanceId"].as_str().unwrap().to_string(),
+                        r.get("depth").and_then(|d| d.as_u64()).unwrap_or(0),
+                    )
+                })
+                .collect()
+        };
+        let own = |id: &str, d| (id.to_string(), d);
+        assert_eq!(seq(&[]), vec![own(ARR_B, 0), own(ARR_C, 1), own(ARR_A, 2)]);
+        // Parent excluded: C and A each move up one level.
+        assert_eq!(seq(&[ARR_B.into()]), vec![own(ARR_C, 0), own(ARR_A, 1)]);
+        // Middle excluded: its child moves up under B.
+        assert_eq!(seq(&[ARR_C.into()]), vec![own(ARR_B, 0), own(ARR_A, 1)]);
+        // Leaf excluded: nothing else changes.
+        assert_eq!(seq(&[ARR_A.into()]), vec![own(ARR_B, 0), own(ARR_C, 1)]);
+        // Markdown agrees.
+        let md = render_composition(RenderCompositionOptions {
+            exclude_instance_ids: &[ARR_B.to_string()],
+            ..RenderCompositionOptions::new(&store, "dv-member-order")
+        })
+        .unwrap()
+        .rendered;
+        assert!(!md.contains("B-middle") && md.contains("C-last") && md.contains("A-first"));
     }
 
     /// [N+29] step (4): `direction: desc` reverses the whole combined
@@ -7780,6 +8312,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -7791,34 +8324,6 @@ mod tests {
             b_pos < a_pos && a_pos < c_pos,
             "desc reverses [C, A, B] to [B, A, C], got:\n{}",
             rendered
-        );
-    }
-
-    /// [N+29] step (2): a `memberOrder` entry for an id that never joined the
-    /// container is diagnosed, not a render failure.
-    #[test]
-    fn container_subset_member_order_departed_entry_emits_diagnostic() {
-        let store = make_member_order_store(
-            vec!["00000000-0000-4000-8000-000000000999".to_string()],
-            None,
-        );
-        let result = render_composition(RenderCompositionOptions {
-            store: &store,
-            view_id: "dv-member-order",
-            format: None,
-            theme_variant: None,
-            container_id: None,
-            instance_id_filter: None,
-        })
-        .expect("render should succeed");
-
-        assert!(
-            result
-                .diagnostics
-                .iter()
-                .any(|d| d.contains("000000000999") && d.contains("memberOrder")),
-            "{:?}",
-            result.diagnostics
         );
     }
 
@@ -7942,7 +8447,7 @@ mod tests {
                 description: None,
                 order: 0,
                 source: srs_core::types::view::SectionSource::ContainerSubset {
-                    container_id: container_id.to_string(),
+                    container_id: Some(container_id.to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope,
@@ -7957,15 +8462,9 @@ mod tests {
             }
         }
 
-        let part_ordering = Some(SectionOrdering {
-            member_order: Some(vec![
-                RFC042_R_FIRST.to_string(),
-                RFC042_R_ANCHOR.to_string(),
-                RFC042_R_LAST.to_string(),
-            ]),
-            field_id: None,
-            direction: None,
-        });
+        // RFC-043 [R10]: `arranged` cannot combine with `subtree`; the Part's members
+        // (First, Anchor, Last) already sort that way under Rule [N+12], so no ordering key.
+        let part_ordering: Option<SectionOrdering> = None;
 
         let dv_subtree = Composition {
             schema: None,
@@ -8081,6 +8580,7 @@ mod tests {
 
         fn save_item(store: &crate::store::memory::MemoryStore, id: &str, heading: &str) {
             let record = Record {
+                created_by: None,
                 field_meta: None,
                 instance_id: id.to_string(),
                 type_id: RFC042_ITEM_TYPE_ID.to_string(),
@@ -8129,7 +8629,6 @@ mod tests {
                 container_type: None,
                 identity_instance_id: None,
                 anchor_instance_id: None,
-                root_instance_ids: None,
                 member_instance_ids: None,
                 child_container_ids: None,
                 tags: None,
@@ -8151,6 +8650,8 @@ mod tests {
             &store,
             RFC042_CC1A_CONTAINER_ID,
             RFC042_R_CC1A_NESTED_MEMBER,
+            None,
+            None,
         )
         .unwrap();
 
@@ -8159,17 +8660,22 @@ mod tests {
             minimal_container(RFC042_CC2_CONTAINER_ID, "Alpha Child Section"),
         )
         .unwrap();
-        container_service::add_member(&store, RFC042_CC2_CONTAINER_ID, RFC042_R_CC2_MEMBER)
-            .unwrap();
+        container_service::add_member(
+            &store,
+            RFC042_CC2_CONTAINER_ID,
+            RFC042_R_CC2_MEMBER,
+            None,
+            None,
+        )
+        .unwrap();
 
         {
             let mut cc3 = minimal_container(RFC042_CC3_CONTAINER_ID, "Beta Child Section");
-            // Two rootInstanceIds, no anchorInstanceId — the [R22] nuance:
-            // NOT "first root", genuinely no anchor.
-            cc3.root_instance_ids = Some(vec![
-                RFC042_R_CC3_ROOT1.to_string(),
-                RFC042_R_CC3_ROOT2.to_string(),
-            ]);
+            // No anchorInstanceId — the [R22] rootless case. Two plain members.
+            cc3.member_instance_ids = Some(srs_core::types::container::entries([
+                RFC042_R_CC3_ROOT1,
+                RFC042_R_CC3_ROOT2,
+            ]));
             container_service::create_container(&store, cc3).unwrap();
         }
 
@@ -8182,10 +8688,22 @@ mod tests {
             cc1.child_container_ids = Some(vec![RFC042_CC1A_CONTAINER_ID.to_string()]);
             container_service::create_container(&store, cc1).unwrap();
         }
-        container_service::add_member(&store, RFC042_CC1_CONTAINER_ID, RFC042_R_CC1A_MEMBER)
-            .unwrap();
-        container_service::add_member(&store, RFC042_CC1_CONTAINER_ID, RFC042_R_CC1B_MEMBER)
-            .unwrap();
+        container_service::add_member(
+            &store,
+            RFC042_CC1_CONTAINER_ID,
+            RFC042_R_CC1A_MEMBER,
+            None,
+            None,
+        )
+        .unwrap();
+        container_service::add_member(
+            &store,
+            RFC042_CC1_CONTAINER_ID,
+            RFC042_R_CC1B_MEMBER,
+            None,
+            None,
+        )
+        .unwrap();
 
         {
             let mut p = minimal_container(RFC042_P_CONTAINER_ID, "Part");
@@ -8196,9 +8714,12 @@ mod tests {
             ]);
             container_service::create_container(&store, p).unwrap();
         }
-        container_service::add_member(&store, RFC042_P_CONTAINER_ID, RFC042_R_FIRST).unwrap();
-        container_service::add_member(&store, RFC042_P_CONTAINER_ID, RFC042_R_ANCHOR).unwrap();
-        container_service::add_member(&store, RFC042_P_CONTAINER_ID, RFC042_R_LAST).unwrap();
+        container_service::add_member(&store, RFC042_P_CONTAINER_ID, RFC042_R_FIRST, None, None)
+            .unwrap();
+        container_service::add_member(&store, RFC042_P_CONTAINER_ID, RFC042_R_ANCHOR, None, None)
+            .unwrap();
+        container_service::add_member(&store, RFC042_P_CONTAINER_ID, RFC042_R_LAST, None, None)
+            .unwrap();
 
         container_service::create_container(
             &store,
@@ -8206,8 +8727,16 @@ mod tests {
         )
         .unwrap();
         // [R24]: "CC1 Member A" is a direct member of BOTH CC1 and Q.
-        container_service::add_member(&store, RFC042_Q_CONTAINER_ID, RFC042_R_CC1A_MEMBER).unwrap();
-        container_service::add_member(&store, RFC042_Q_CONTAINER_ID, RFC042_R_Q_ONLY).unwrap();
+        container_service::add_member(
+            &store,
+            RFC042_Q_CONTAINER_ID,
+            RFC042_R_CC1A_MEMBER,
+            None,
+            None,
+        )
+        .unwrap();
+        container_service::add_member(&store, RFC042_Q_CONTAINER_ID, RFC042_R_Q_ONLY, None, None)
+            .unwrap();
 
         (store, "dv-rfc042-subtree", "dv-rfc042-explicit")
     }
@@ -8222,6 +8751,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let rendered = &result.rendered;
@@ -8364,6 +8894,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let rendered = &result.rendered;
@@ -8415,6 +8946,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -8626,7 +9158,7 @@ mod tests {
                 description: None,
                 order: 0,
                 source: SectionSource::ContainerSubset {
-                    container_id: container_ids[0].clone(),
+                    container_id: Some(container_ids[0].clone()),
                     container_type: None,
                     type_filter: None,
                     container_scope: Some(ContainerScope::Subtree),
@@ -8673,6 +9205,7 @@ mod tests {
 
         for (i, id) in record_ids.iter().enumerate() {
             let record = Record {
+                created_by: None,
                 field_meta: None,
                 instance_id: id.clone(),
                 type_id: "00000000-0000-4000-c000-000000000002".to_string(),
@@ -8706,9 +9239,14 @@ mod tests {
         // ITS anchor/lead content once `container[i-1]` positions it — it is
         // never also a member of `container[i]` itself.
         for i in (0..6).rev() {
-            let own_members: Option<Vec<String>> = match i {
-                0 => Some(vec![record_ids[0].clone(), record_ids[1].clone()]),
-                i if i + 1 < 6 => Some(vec![record_ids[i + 1].clone()]),
+            let own_members: Option<Vec<srs_core::types::container::ContainerEntry>> = match i {
+                0 => Some(srs_core::types::container::entries([
+                    record_ids[0].clone(),
+                    record_ids[1].clone(),
+                ])),
+                i if i + 1 < 6 => Some(srs_core::types::container::entries([
+                    record_ids[i + 1].clone()
+                ])),
                 _ => None, // deepest container: no further descent, no own body.
             };
             let c = Container {
@@ -8725,7 +9263,6 @@ mod tests {
                 // is named directly by the section and never itself
                 // positioned by an ancestor.
                 anchor_instance_id: Some(record_ids[i].clone()),
-                root_instance_ids: None,
                 member_instance_ids: own_members,
                 child_container_ids: if i + 1 < 6 {
                     Some(vec![container_ids[i + 1].clone()])
@@ -8748,6 +9285,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render MUST NOT fail on heading overflow (RFC-042 [R23])");
 
@@ -8801,6 +9339,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -8836,6 +9375,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -9110,6 +9650,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -9173,6 +9714,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -9225,6 +9767,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -9259,6 +9802,7 @@ mod tests {
             theme_variant: Some("print"),
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -9516,7 +10060,6 @@ mod tests {
                 container_type: None,
                 identity_instance_id: None,
                 anchor_instance_id: None,
-                root_instance_ids: None,
                 member_instance_ids: None,
                 child_container_ids: None,
                 tags: None,
@@ -9560,12 +10103,13 @@ mod tests {
         .unwrap();
         let table_id = table_record.instance_id.clone();
 
-        container_service::add_member(&store, RFC008_CONTAINER_ID, &text_id).unwrap();
-        container_service::add_member(&store, RFC008_CONTAINER_ID, &table_id).unwrap();
+        container_service::add_member(&store, RFC008_CONTAINER_ID, &text_id, None, None).unwrap();
+        container_service::add_member(&store, RFC008_CONTAINER_ID, &table_id, None, None).unwrap();
 
         relation_service::create_relation_auto(
             &store,
             Relation {
+                created_by: None,
                 relation_id: String::new(),
                 relation_type: "precedes".to_string(),
                 source_instance_id: text_id.clone(),
@@ -9609,7 +10153,7 @@ mod tests {
                 description: None,
                 order: 0,
                 source: SectionSource::ContainerSubset {
-                    container_id: RFC008_CONTAINER_ID.to_string(),
+                    container_id: Some(RFC008_CONTAINER_ID.to_string()),
                     container_type: None,
                     type_filter,
                     container_scope: None,
@@ -9647,6 +10191,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -9673,6 +10218,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -9699,6 +10245,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -9732,6 +10279,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -9765,6 +10313,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -9796,6 +10345,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -9850,12 +10400,13 @@ mod tests {
         .unwrap();
         let text2_id = text2_record.instance_id.clone();
 
-        container_service::add_member(&store, RFC008_CONTAINER_ID, &text2_id).unwrap();
+        container_service::add_member(&store, RFC008_CONTAINER_ID, &text2_id, None, None).unwrap();
 
         // table → text2 completes the chain: text1 → table → text2
         relation_service::create_relation_auto(
             &store,
             Relation {
+                created_by: None,
                 relation_id: String::new(),
                 relation_type: "precedes".to_string(),
                 source_instance_id: table_id,
@@ -9875,6 +10426,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -9911,6 +10463,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -9930,6 +10483,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -9980,6 +10534,7 @@ mod tests {
 
         for (id, state) in records {
             let record = srs_core::types::record::Record {
+                created_by: None,
                 field_meta: None,
                 instance_id: id.to_string(),
                 type_id: "t-decision".to_string(),
@@ -10103,6 +10658,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -10142,6 +10698,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -10180,6 +10737,7 @@ mod tests {
                 theme_variant: None,
                 container_id: None,
                 instance_id_filter: None,
+                exclude_instance_ids: &[],
             })
             .expect("render should succeed")
         };
@@ -10229,6 +10787,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -10261,6 +10820,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -10307,7 +10867,6 @@ mod tests {
                 container_type: None,
                 identity_instance_id: None,
                 anchor_instance_id: None,
-                root_instance_ids: None,
                 member_instance_ids: None,
                 child_container_ids: None,
                 tags: None,
@@ -10318,7 +10877,7 @@ mod tests {
             },
         )
         .unwrap();
-        container_service::add_member(&store, C1_ID, R_IN_C1).unwrap();
+        container_service::add_member(&store, C1_ID, R_IN_C1, None, None).unwrap();
 
         container_service::create_container(
             &store,
@@ -10331,7 +10890,6 @@ mod tests {
                 container_type: None,
                 identity_instance_id: None,
                 anchor_instance_id: None,
-                root_instance_ids: None,
                 member_instance_ids: None,
                 child_container_ids: None,
                 tags: None,
@@ -10342,7 +10900,7 @@ mod tests {
             },
         )
         .unwrap();
-        container_service::add_member(&store, C2_ID, R_IN_C2).unwrap();
+        container_service::add_member(&store, C2_ID, R_IN_C2, None, None).unwrap();
 
         let result = render_composition(RenderCompositionOptions {
             store: &store,
@@ -10351,6 +10909,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -10426,6 +10985,7 @@ mod tests {
         };
         let store = crate::store::memory::MemoryStore::new(manifest, package);
         let record = srs_core::types::record::Record {
+            created_by: None,
             field_meta: None,
             instance_id: DECISION_ID.to_string(),
             type_id: "t-decision".to_string(),
@@ -10457,8 +11017,9 @@ mod tests {
                 container_type: None,
                 identity_instance_id: None,
                 anchor_instance_id: None,
-                root_instance_ids: None,
-                member_instance_ids: Some(vec![DECISION_ID.to_string()]),
+                member_instance_ids: Some(srs_core::types::container::entries(vec![
+                    DECISION_ID.to_string()
+                ])),
                 child_container_ids: None,
                 tags: None,
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
@@ -10479,7 +11040,6 @@ mod tests {
                 container_type: None,
                 identity_instance_id: None,
                 anchor_instance_id: None,
-                root_instance_ids: None,
                 member_instance_ids: None,
                 child_container_ids: Some(vec![ARCHITECTURE_ID.to_string()]),
                 tags: None,
@@ -10498,6 +11058,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let subtree_ids = rfc011_instance_ids_in_result(&subtree_result);
@@ -10513,6 +11074,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let explicit_ids = rfc011_instance_ids_in_result(&explicit_result);
@@ -10544,6 +11106,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -10585,6 +11148,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let mut mem_ids = rfc011_instance_ids_in_result(&mem_result);
@@ -10598,6 +11162,7 @@ mod tests {
         std::fs::create_dir_all(repo_root.join("records")).unwrap();
         for (id, state) in records {
             let record = srs_core::types::record::Record {
+                created_by: None,
                 field_meta: None,
                 instance_id: id.to_string(),
                 type_id: "t-decision".to_string(),
@@ -10657,6 +11222,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let mut file_ids = rfc011_instance_ids_in_result(&file_result);
@@ -10703,6 +11269,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -10745,7 +11312,6 @@ mod tests {
                 container_type: None,
                 identity_instance_id: None,
                 anchor_instance_id: None,
-                root_instance_ids: None,
                 member_instance_ids: None,
                 child_container_ids: None,
                 tags: None,
@@ -10756,7 +11322,7 @@ mod tests {
             },
         )
         .unwrap();
-        container_service::add_member(&store, C1_ID, R_IN_C1).unwrap();
+        container_service::add_member(&store, C1_ID, R_IN_C1, None, None).unwrap();
 
         container_service::create_container(
             &store,
@@ -10769,7 +11335,6 @@ mod tests {
                 container_type: None,
                 identity_instance_id: None,
                 anchor_instance_id: None,
-                root_instance_ids: None,
                 member_instance_ids: None,
                 child_container_ids: None,
                 tags: None,
@@ -10780,7 +11345,7 @@ mod tests {
             },
         )
         .unwrap();
-        container_service::add_member(&store, C2_ID, R_IN_C2).unwrap();
+        container_service::add_member(&store, C2_ID, R_IN_C2, None, None).unwrap();
 
         // Pass C1_ID as cli container_id — in repository scope, this must be ignored.
         let result = render_composition(RenderCompositionOptions {
@@ -10790,6 +11355,7 @@ mod tests {
             theme_variant: None,
             container_id: Some(C1_ID),
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -10823,6 +11389,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         assert!(
@@ -10853,6 +11420,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         assert!(
@@ -10935,6 +11503,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         assert!(
@@ -10966,6 +11535,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         assert!(
@@ -11289,6 +11859,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -11321,6 +11892,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         // titleFieldId=f-other → "Other Title"; identityFieldId (f-head) → "My Identity Heading"
@@ -11346,6 +11918,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -11369,6 +11942,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -11388,6 +11962,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let projection = result
@@ -11584,6 +12159,7 @@ mod tests {
             let mut fv = srs_core::types::record::FieldValues::new();
             fv.insert("heading", serde_json::json!(heading));
             let record = srs_core::types::record::Record {
+                created_by: None,
                 instance_id: instance_id.to_string(),
                 type_id: type_id.to_string(),
                 type_version: 1,
@@ -11634,6 +12210,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed")
         .rendered
@@ -11786,6 +12363,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -12121,6 +12699,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -12146,6 +12725,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -12176,6 +12756,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -12210,6 +12791,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let projection = result
@@ -12279,7 +12861,6 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -12329,7 +12910,6 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -12392,7 +12972,6 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -12511,7 +13090,7 @@ mod tests {
             description: None,
             order,
             source: SectionSource::ContainerSubset {
-                container_id: container_id.to_string(),
+                container_id: Some(container_id.to_string()),
                 container_type: None,
                 type_filter: None,
                 container_scope: None,
@@ -12610,7 +13189,6 @@ mod tests {
                 container_type: None,
                 identity_instance_id: None,
                 anchor_instance_id: None,
-                root_instance_ids: None,
                 member_instance_ids: None,
                 child_container_ids: None,
                 tags: None,
@@ -12628,7 +13206,8 @@ mod tests {
             fv
         };
         let record = create_record(&store, "t-item", 1, fv, None, None).unwrap();
-        container_service::add_member(&store, GOOD_CONTAINER_ID, &record.instance_id).unwrap();
+        container_service::add_member(&store, GOOD_CONTAINER_ID, &record.instance_id, None, None)
+            .unwrap();
 
         store
     }
@@ -12708,6 +13287,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("json projection must not fail on a dangling section containerId");
 
@@ -12810,7 +13390,6 @@ mod tests {
                 container_type: Some("guide".to_string()),
                 identity_instance_id: None,
                 anchor_instance_id: None,
-                root_instance_ids: None,
                 member_instance_ids: None,
                 child_container_ids: None,
                 tags: None,
@@ -12826,6 +13405,7 @@ mod tests {
         let note = crate::services::create_note(
             &store,
             Note {
+                created_by: None,
                 instance_id: String::new(),
                 title: Some("Guides".to_string()),
                 tags: None,
@@ -12845,7 +13425,8 @@ mod tests {
         )
         .unwrap()
         .note;
-        container_service::add_root(&store, GOOD_CONTAINER_ID, &note.instance_id).unwrap();
+        container_service::add_member(&store, GOOD_CONTAINER_ID, &note.instance_id, None, None)
+            .unwrap();
 
         let fv = {
             let mut fv = srs_core::types::record::FieldValues::new();
@@ -12853,7 +13434,8 @@ mod tests {
             fv
         };
         let record = create_record(&store, "t-item", 1, fv, None, None).unwrap();
-        container_service::add_member(&store, GOOD_CONTAINER_ID, &record.instance_id).unwrap();
+        container_service::add_member(&store, GOOD_CONTAINER_ID, &record.instance_id, None, None)
+            .unwrap();
 
         (store, note.instance_id.clone(), record.instance_id.clone())
     }
@@ -12895,6 +13477,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("json projection must not fail on a tier-0 note container member");
 
@@ -13034,6 +13617,7 @@ mod tests {
         crate::services::create_note(
             &store,
             Note {
+                created_by: None,
                 instance_id: NOTE_ID.to_string(),
                 title: Some("Skipped Note Title".to_string()),
                 tags: None,
@@ -13195,6 +13779,7 @@ mod tests {
         let store = crate::store::memory::MemoryStore::new(manifest, package);
 
         let make_note = |id: &str, title: &str| Note {
+            created_by: None,
             instance_id: id.to_string(),
             title: Some(title.to_string()),
             tags: None,
@@ -13218,6 +13803,7 @@ mod tests {
         relation_service::create_relation_auto(
             &store,
             Relation {
+                created_by: None,
                 relation_id: String::new(),
                 relation_type: "refers-to".to_string(),
                 source_instance_id: SOURCE_ID.to_string(),
@@ -13291,6 +13877,7 @@ mod tests {
 
     fn test_rel(id: &str, rtype: &str, src: &str, tgt: &str) -> Relation {
         Relation {
+            created_by: None,
             relation_id: id.to_string(),
             relation_type: rtype.to_string(),
             source_instance_id: src.to_string(),
@@ -13360,6 +13947,7 @@ mod tests {
         }
 
         let record = Record {
+            created_by: None,
             field_meta: None,
             instance_id: id.to_string(),
             type_id: "t-test".to_string(),
@@ -13409,6 +13997,7 @@ mod tests {
 
     fn src_rec(id: &str) -> srs_core::types::record::Record {
         srs_core::types::record::Record {
+            created_by: None,
             field_meta: None,
             instance_id: id.to_string(),
             type_id: "t-test".to_string(),
@@ -13907,6 +14496,7 @@ mod tests {
         crate::store::write_relations_standalone_for_test(&store, &relations_coll);
 
         let target = Record {
+            created_by: None,
             field_meta: None,
             instance_id: "rec-named".to_string(),
             type_id: "t-named".to_string(),
@@ -13976,6 +14566,7 @@ mod tests {
         add_rp_record(&store, "rec-src", None);
 
         let target = Record {
+            created_by: None,
             field_meta: None,
             instance_id: "rec-titled".to_string(),
             type_id: "t-test".to_string(),
@@ -14240,6 +14831,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let proj = result.projection.unwrap();
@@ -14293,6 +14885,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let proj = result.projection.unwrap();
@@ -14347,6 +14940,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let proj = result.projection.unwrap();
@@ -14410,6 +15004,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let proj = result.projection.unwrap();
@@ -14453,6 +15048,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let proj = result.projection.unwrap();
@@ -14485,6 +15081,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let proj = result.projection.unwrap();
@@ -14608,6 +15205,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let mem_proj = mem_result.projection.unwrap();
@@ -14624,6 +15222,7 @@ mod tests {
         std::fs::create_dir_all(repo_root.join("records")).unwrap();
         for id in &[src_id, tgt_id] {
             let record = srs_core::types::record::Record {
+                created_by: None,
                 field_meta: None,
                 instance_id: id.to_string(),
                 type_id: "t-test".to_string(),
@@ -14697,6 +15296,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let file_proj = file_result.projection.unwrap();
@@ -15710,6 +16310,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed")
         .rendered
@@ -15979,6 +16580,256 @@ mod tests {
         store
     }
 
+    /// srs-rust#1130 fixture: a single-anchor container —
+    /// `rootInstanceIds: [rec-root]`, `memberInstanceIds` the full
+    /// `contains`-descendant closure `[rec-root, rec-child-a, rec-child-b]` —
+    /// matches every Part container in `srs/srs` (`manifest.container`
+    /// anchored on the Part's own concept, everything else reached only via
+    /// that concept's own `contains` edges), with a `container-subset`
+    /// section declaring `ordering.memberOrder: [rec-child-b, rec-child-a]`
+    /// over the anchor's own children. `format` picks the `Composition`'s
+    /// `exportConfig.format` (`"json"` or `"markdown"`) so both rendering
+    /// engines can be exercised against the identical fixture.
+    fn make_single_anchor_member_order_store(format: &str) -> crate::store::memory::MemoryStore {
+        use crate::container_service;
+        use srs_core::types::container::Container;
+        use srs_core::types::view::{
+            Composition, ContainerScope, DocumentSection, SectionOrdering, SectionSource,
+        };
+
+        let rtds = vec![
+            test_rtd("contains", "Contains", None, false),
+            test_rtd("precedes", "Precedes", None, false),
+        ];
+        let dv = Composition {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
+            composite_renderers: None,
+            id: "dv-part-anchor-test".to_string(),
+            namespace: "com.test".to_string(),
+            name: "part-anchor-test".to_string(),
+            version: 1,
+            description: "single-anchor container memberOrder test".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![DocumentSection {
+                composite_renderers: None,
+                section_id: "s-part".to_string(),
+                title: None,
+                description: None,
+                order: 0,
+                source: SectionSource::ContainerSubset {
+                    container_id: Some("00000000-0000-4000-8000-0000000000c9".to_string()),
+                    container_type: None,
+                    type_filter: None,
+                    container_scope: Some(ContainerScope::Explicit),
+                },
+                render_view_id: None,
+                type_dispatch: None,
+                title_field_id: Some("f-title".to_string()),
+                ordering: Some(SectionOrdering {
+                    field_id: None,
+                    direction: None,
+                    source: Some(srs_core::types::view::OrderingSource::Arranged),
+                }),
+                required: None,
+                empty_behavior: None,
+                relations_presentation: None,
+            }],
+            navigation_links: None,
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some(format.to_string()),
+                omit_empty_fields: None,
+            }),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            container: None,
+            upstream_package: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = crate::package::Package {
+            id: "test-part-anchor-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![srs_core::types::field::Field::new(
+                "f-title",
+                "com.test",
+                "title",
+                srs_core::types::field::FieldType::string(),
+            )],
+            record_types: vec![],
+            relation_type_definitions: rtds,
+            views: vec![],
+            compositions: vec![dv],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            package_dependencies: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        add_rp_record(&store, "rec-root", Some(("title", "Root")));
+        add_rp_record(&store, "rec-child-a", Some(("title", "Child A")));
+        add_rp_record(&store, "rec-child-b", Some(("title", "Child B")));
+
+        let relations = [
+            test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000d1",
+                "contains",
+                "rec-root",
+                "rec-child-b",
+            ),
+            test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000d2",
+                "contains",
+                "rec-root",
+                "rec-child-a",
+            ),
+            test_rel(
+                "eeeeeeee-0000-4000-8000-0000000000d3",
+                "precedes",
+                "rec-child-a",
+                "rec-child-b",
+            ),
+        ];
+        let coll = serde_json::json!({
+            "relations": relations.iter().map(|r| serde_json::to_value(r).unwrap()).collect::<Vec<_>>()
+        });
+        crate::store::write_relations_standalone_for_test(&store, &coll);
+
+        container_service::create_container(
+            &store,
+            Container {
+                container_id: "00000000-0000-4000-8000-0000000000c9".to_string(),
+                title: "Test Part".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: Some("part".to_string()),
+                identity_instance_id: None,
+                anchor_instance_id: Some("rec-root".to_string()),
+                // What the RFC-043 migration freezes `memberOrder: [b, a]` into: listed
+                // entries first, then the rest.
+                member_instance_ids: Some(srs_core::types::container::entries(vec![
+                    "rec-child-b".to_string(),
+                    "rec-child-a".to_string(),
+                    "rec-root".to_string(),
+                ])),
+                child_container_ids: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .unwrap();
+
+        store
+    }
+
+    /// srs-rust#1130: see [`make_single_anchor_member_order_store`] — the JSON
+    /// projection engine (`project_record_json`/`project_contains_children_json`)
+    /// must reorder the anchor's own `contains` children per `memberOrder`,
+    /// with no "not a current container member" diagnostic for an id that
+    /// legitimately renders one level down via the structured recursion.
+    #[test]
+    fn container_subset_applies_member_order_to_single_anchor_contains_children_json() {
+        let store = make_single_anchor_member_order_store("json");
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: "dv-part-anchor-test",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+            exclude_instance_ids: &[],
+        })
+        .unwrap();
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .all(|d| !d.contains("is not a current container member")),
+            "memberOrder entries that render one level down via the anchor's own \
+             contains children must not be diagnosed as departed members, got: {:?}",
+            result.diagnostics
+        );
+        let root = &result.projection.unwrap().sections[0].records[0];
+        assert_eq!(root.instance_id, "rec-root");
+        assert_eq!(
+            root.children.len(),
+            2,
+            "root must still carry both contains children, got: {:?}",
+            root.children
+        );
+        assert_eq!(
+            root.children[0].instance_id, "rec-child-b",
+            "memberOrder ([b, a]) must reorder the anchor's own contains \
+             children, overriding the precedes-chain fallback (a precedes b); \
+             got: {:?}",
+            root.children
+        );
+        assert_eq!(root.children[1].instance_id, "rec-child-a");
+    }
+
+    /// srs-rust#1130: markdown-engine counterpart of the JSON test above —
+    /// `render_record_at_level`'s own structured `contains` recursion must
+    /// apply the same `memberOrder`, so "Child B" renders before "Child A" in
+    /// the markdown output, with the same clean diagnostics.
+    #[test]
+    fn container_subset_applies_member_order_to_single_anchor_contains_children_markdown() {
+        let store = make_single_anchor_member_order_store("markdown");
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: "dv-part-anchor-test",
+            format: Some("markdown"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+            exclude_instance_ids: &[],
+        })
+        .unwrap();
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .all(|d| !d.contains("is not a current container member")),
+            "memberOrder entries that render one level down via the anchor's own \
+             contains children must not be diagnosed as departed members, got: {:?}",
+            result.diagnostics
+        );
+        let markdown = result.rendered;
+        let pos_b = markdown
+            .find("Child B")
+            .expect("Child B must appear in the rendered markdown");
+        let pos_a = markdown
+            .find("Child A")
+            .expect("Child A must appear in the rendered markdown");
+        assert!(
+            pos_b < pos_a,
+            "memberOrder ([b, a]) must reorder the anchor's own contains \
+             children in the markdown render, overriding the precedes-chain \
+             fallback (a precedes b); got: {markdown}"
+        );
+    }
+
     /// srs-rust#1127: a section with `titleFieldId` set arms
     /// `render_record_at_level`'s structured `contains` descent — the JSON
     /// projection must nest the same children, in the same precedes-chain
@@ -15993,6 +16844,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let proj = result.projection.unwrap();
@@ -16043,6 +16895,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let proj = result.projection.unwrap();
@@ -16070,6 +16923,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: Some("rec-root"),
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let proj = result.projection.unwrap();

@@ -31,6 +31,14 @@ const FOUNDATIONS_PART_CONTAINER_ID: &str = "752dad23-8a6d-44e5-98c9-f081d2cc634
 const SPEC_HEADING_FIELD_ID: &str = "1a000001-0000-4000-a000-000000000001";
 const TEST_COMPOSITION_ID: &str = "3a000099-0000-4000-a000-000000000099";
 
+/// RFC-043: this build reads dataModelRevision 8; the `srs` corpus is migrated by the phase-2
+/// corpus-migration PR (srs#852). Until then a spec checkout is skipped, not failed.
+fn spec_is_revision_8(spec: PathBuf) -> Option<PathBuf> {
+    let raw = std::fs::read_to_string(spec.join("srs/manifest.json")).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    (v.get("dataModelRevision").and_then(|r| r.as_u64()) >= Some(8)).then_some(spec)
+}
+
 /// The spec repo checkout, or `None` when it is not available. Mirrors
 /// `rfc_035_parity.rs`'s `spec_repo()` / `core_bundle_drift.rs`'s inline
 /// equivalent: `SRS_SPEC_DIR` first (CI, and any local run), a sibling
@@ -39,7 +47,7 @@ fn spec_repo() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("SRS_SPEC_DIR") {
         let p = PathBuf::from(dir);
         if p.join("srs/manifest.json").is_file() {
-            return Some(p);
+            return spec_is_revision_8(p);
         }
         return None; // an explicit but unusable SRS_SPEC_DIR: skip, don't silently fall through
     }
@@ -69,7 +77,7 @@ fn spec_repo() -> Option<PathBuf> {
             }
         }
     }
-    Some(sibling)
+    spec_is_revision_8(sibling)
 }
 
 /// Copy the spec repo's `srs/` SRS repository into a scratch temp dir, then
@@ -150,10 +158,11 @@ fn container_subset_renders_real_part_container_members_exactly_once() {
     let container =
         srs_repository::container_service::get_container(&store, FOUNDATIONS_PART_CONTAINER_ID)
             .expect("Part: Foundations container must load");
-    let member_ids = container
-        .member_instance_ids
-        .clone()
-        .expect("Part: Foundations must declare memberInstanceIds");
+    let member_ids = container.member_ids();
+    assert!(
+        !member_ids.is_empty(),
+        "Part: Foundations must declare memberInstanceIds"
+    );
     assert!(
         member_ids.len() > 1,
         "fixture assumption: the real Foundations Part container must have more than one \
@@ -167,6 +176,7 @@ fn container_subset_renders_real_part_container_members_exactly_once() {
         theme_variant: None,
         container_id: None,
         instance_id_filter: None,
+        exclude_instance_ids: &[],
     })
     .expect("test composition must render");
 

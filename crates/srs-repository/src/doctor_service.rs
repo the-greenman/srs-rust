@@ -779,16 +779,7 @@ fn instance_id_referenced(store: &dyn RepositoryStore, cat: &RepositoryCatalog, 
         else {
             continue;
         };
-        if container
-            .member_instance_ids
-            .as_ref()
-            .is_some_and(|v| v.iter().any(|m| m == id))
-            || container
-                .root_instance_ids
-                .as_ref()
-                .is_some_and(|v| v.iter().any(|m| m == id))
-            || container.identity_instance_id.as_deref() == Some(id)
-        {
+        if container.has_member(id) || container.identity_instance_id.as_deref() == Some(id) {
             return true;
         }
     }
@@ -796,7 +787,7 @@ fn instance_id_referenced(store: &dyn RepositoryStore, cat: &RepositoryCatalog, 
 }
 
 /// Dangling container membership: removal via the existing ADR-045 repair
-/// seam (`container_service::remove_member`/`remove_root`) — never a
+/// seam (`container_service::remove_member`) — never a
 /// parallel implementation.
 fn repair_dangling_container(
     store: &dyn RepositoryStore,
@@ -825,17 +816,13 @@ fn repair_dangling_container(
         );
     }
 
-    let result = if prop == "rootInstanceIds" {
-        container_service::remove_root(store, &container_id, dangling_id)
-    } else {
-        container_service::remove_member(store, &container_id, dangling_id)
-    };
+    let result = container_service::repair_members(store, &container_id);
     match result {
         Ok(remaining) => (
             DoctorOutcome::Repaired,
             format!(
                 "removed '{dangling_id}' from {container_id}'s {prop} ({} entries remain)",
-                remaining.len()
+                remaining.members.len()
             ),
         ),
         Err(e) => (

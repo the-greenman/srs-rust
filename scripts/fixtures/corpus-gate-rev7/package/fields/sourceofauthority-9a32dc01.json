@@ -1,0 +1,14 @@
+{
+  "aiGuidance": {
+    "purpose": ""
+  },
+  "createdAt": "2026-05-26T00:00:00Z",
+  "description": "How this authority was conferred: inherited, delegated, elected, appointed, constitutional, etc.",
+  "id": "9a32dc01-f348-5e05-9f54-bb6d21239f04",
+  "name": "source_of_authority",
+  "namespace": "governance",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

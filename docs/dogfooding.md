@@ -154,7 +154,10 @@ This is the governance-profile workflow (`governance-profile.md` §6.3–6.4, §
 4. Link the Decision to the Exercise with `derived-from`.
 5. Move the Decision through lifecycle: `record transition` `draft → proposed → ratified`, recording `ratification_note`.
 6. Add the durable records to the Container's membership; confirm the (session-scoped) exercise is *not* owned by the meeting.
-7. When the decision later changes, `record successor` it (`supersedes`) — do not edit the ratified record.
+7. When the decision later changes, `record successor` it; do not edit the ratified record.
+   - Omit `relationType`. A `closed` decision has no outgoing transitions, so the core derives `supersedes` from the lifecycle's hard `requiresRelation` on `superseded` (RFC-022 R6/I-99, #1238). An explicit `"relationType": "refines"` still wins.
+   - Against a Type whose lifecycle declares no relational state (e.g. the seed's `purpose`) the same call fails with `SUCCESSOR_RELATION_TYPE_UNDETERMINED` and writes nothing.
+   - To try it: `srs-gov repo-create --output gov.srsj`, then `srs --repo gov.srsj ...` works on the `.srsj` directly.
 8. Render the decision log: `srs render document-view --view <decision-log-view>`.
 
 **Negative case.** Attempt a lifecycle transition that the lifecycle definition does not allow (e.g. `draft → ratified` skipping `proposed`, if disallowed), or attempt to edit a `closed`/ratified record's semantic fields — confirm the operation is rejected or flagged.
@@ -2525,7 +2528,7 @@ Then in an MCP session: `prompts/list` → returns one entry; `name` is the blue
 
 **Negative case.** `type_schema` with an unknown typeId → `isError: true` carrying the service's `TypeNotFound` message. `record_create` with the required `title` field omitted → `isError: true`, text carries the service diagnostic (`missing required field: <fieldId>`), and **nothing is written** (instance count unchanged, `repo_validate` still clean). Also: `relation_create` with an uninstalled `relationType` ("amends") → `isError: true` with the RFC-005 E1 resolution error.
 
-**Done when.** The supersession chain exists (v2 —supersedes→ v1) and was authored entirely over MCP; both negative cases were rejected as *tool-level* errors the agent can read (not protocol errors, not partial writes); `repo_validate` reports zero diagnostics; `find` returns the successor; the server exits cleanly on stdin close with protocol-clean stdout. **Prompts (#682):** `prompts/list` returns one prompt per blueprint; description is `"{ns}/{name} v{version}: {description}"`; `prompts/get` returns rendered markdown including type field table; unknown UUID returns `invalid_params`.
+**Done when.** The supersession chain exists (v2 —supersedes→ v1) and was authored entirely over MCP; both negative cases were rejected as *tool-level* errors the agent can read (not protocol errors, not partial writes); `repo_validate` reports zero diagnostics; `find` returns the successor; the server exits cleanly on stdin close with protocol-clean stdout. **Prompts (#682):** `prompts/list` returns one prompt per blueprint; description is `"{ns}/{name} v{version}: {description}"`; `prompts/get` returns rendered markdown including type field table; unknown UUID returns `invalid_params`. **`read` tool (#1220):** for a resource-blind client, `tools/call read {"uri":"srs://<repoId>/map"}` returns the same text as `resources/read`; an unknown `record/{id}` returns the same `-32002` error; a resource over 96000 bytes is cut with a `[truncated: showing …]` notice and `structuredContent.truncated: true`.
 
 **Verified 2026-07-24 (#682).** Prompts surface against the branch binary: `prompts/list` returned one prompt with name = blueprint UUID and description = `"com.example.dogfood/decision-record v1: A decision authoring guide"` ✓; `prompts/get` returned `Role::User` message with rendered markdown containing blueprint name and aiGuidance ✓; unknown UUID returned `invalid_params` (-32602) ✓.
 
@@ -3041,6 +3044,272 @@ $SRS_BIN repo validate --repo "$SCRATCH" --pretty
 
 ---
 
+### S48 — An agent reads everything about one paragraph in one call (`srs context record --container`, #1134)
+
+**Intention.** Before enriching a paragraph, an agent needs the paragraph, its comments and attached notes, and the paragraphs nested under it, without stitching several reads together.
+
+**CLI surface.** `srs context record <id>` (both-direction relations, neighbour inline) and `srs context record <id> --container <cid>` (adds `entry` and `subtree`); MCP resource `srs://<repoId>/context/<cid>/<id>`.
+
+**Steps.** Create a type with one string field, three records nested in a container (depth 0/1/2), a comment record and a note each related to the first with `derived-from`, plus one outbound `depends-on`. Then:
+
+```bash
+srs --repo $REPO context record $P                    # relations: out depends-on, in derived-from (record), in derived-from (note)
+srs --repo $REPO context record $P --container $CID   # entry depth 0, subtree = the two nested records
+srs --repo $REPO context record $COMMENT --container $CID   # error: not a member of container
+srs --repo $REPO context record $P --exclude-category composition --exclude-category sequence   # #1188: contains/precedes edges gone, others kept
+srs --repo $REPO context record $P --exclude-category nope   # error: unknown relation category
+srs --repo $REPO repo validate                        # 0 errors
+```
+
+**Done when.** The three edges carry `direction` and a `neighbour` of kind `record`/`note`, `subtree` lists only descendants in outline order, and the non-member case is an error envelope. With `--exclude-category composition --exclude-category sequence` (MCP: `?excludeRelationCategories=composition,sequence`; WASM: `excludeRelationCategories`) edges of those categories (core `contains`, `precedes`) disappear and the rest are unchanged; no flag leaves the output as before.
+
+**Verified 2026-10-04 (#1188):** scratch repo, identity record with `precedes` and `depends-on` edges: no flag returns both; `--exclude-category composition --exclude-category sequence` returns only `depends-on`; `--exclude-category dependency` returns only `precedes`; `--exclude-category nope` is refused; `repo validate` 0 errors.
+
+### S49 — Publish a package as a `.srspkg` and install it into a fresh repository (`srs package export` / `srs package install --bundle`, #632/#690/#663, RFC-003 Rev 10 #1212)
+
+**Intention.** *"I author the essay workflow's package. I want to publish it as one pinned, verifiable file so that a writer's brand-new repository (or srs-web, in the browser) can install exactly what I shipped. A rebuild of the same package must hash the same, so the pin stays valid. And a package that builds on mine must say what it depends on, so whoever installs it can tell what else they need."*
+
+**Capabilities exercised.** RFC-003 Revision 10 Package Bundle (`.srspkg`, ADR-050 and its #1212 amendment): whole-boundary export whose closure follows the typed reference-site table (PINNED and LINEAGE references only; KEYED, LOCATOR and provenance never); `dependencyRefs` listing every reached definition (own, inlined and core; core listed, never carried); `mode: "bundled"` (carries the closure) and `mode: "standalone"` (carries only the package's own definitions); `dataModelRevision` = the repository's own stamp; byte-deterministic writer (sorted keys, definitions by id then version, fixed `publishedAt`), `sha256:<hex>` over the file bytes; one store-free reader that brings an older bundle forward step by step through the migration registry's bundle forms or refuses naming the missing step ([C6]), feeding the same install core as a directory install; coded refusals (`InvalidPackageBundle`).
+
+**CLI surface.** `package export --selector --output --published-at --publisher --mode --homepage`, `package install --bundle`, `package create`, `type create --package`, `field list`, `package imports`, `package list`, `type list`, `repo validate`. WASM: `export_package_bundle` (input JSON `mode`) / `install_package_bundle` on `SrsRepository` call the same services (native coverage in `crates/srs-bindings/tests/package_bundle.rs`).
+
+**Steps.** The source is the real muDemocracy essay package (read-only), installed into an author's repository so it has a boundary to export.
+
+```bash
+SRS=$PWD/target/debug/srs          # the branch binary (cargo build --bin srs), never ~/.cargo/bin/srs
+ESSAY=${ESSAY:-../../muDemocracy.org/muSrs/packages/essay}   # relative to srs-rust/; set ESSAY when running from a worktree
+AUTHOR=/tmp/dogfood-s49-author
+WRITER=/tmp/dogfood-s49-writer
+rm -rf /tmp/dogfood-s49-*
+
+# Author: install the essay package, then publish it twice with a fixed publishedAt.
+$SRS repo create --repo $AUTHOR --namespace com.example.author > /dev/null
+$SRS package install "$ESSAY" --repo $AUTHOR | jq -c '.payload | {boundaryPath, installed}'
+                                                  # {"boundaryPath":"packages/essay","installed":17}
+for f in essay essay-again; do
+  $SRS package export --selector packages/essay --output /tmp/dogfood-s49-$f.srspkg \
+    --published-at 2026-10-03T00:00:00Z --publisher "muDemocracy workflow authors" \
+    --repo $AUTHOR > /tmp/dogfood-s49-$f.json
+done
+jq -c '.payload | {sha256, byteLength, definitionCount, dependencyRefCount, inlined, mode, dataModelRevision, notes}' \
+  /tmp/dogfood-s49-essay.json
+            # definitionCount 17, dependencyRefCount 10, inlined [], mode "bundled", dataModelRevision 9 (the
+            # author repository's own stamp), notes []
+jq -c '[.dependencyRefs[].definitionType] | group_by(.) | map({(.[0]): length}) | add' /tmp/dogfood-s49-essay.srspkg
+            # every Field, Type and View the essay's definitions reference, listed (RFC-003 [C1])
+cmp /tmp/dogfood-s49-essay.srspkg /tmp/dogfood-s49-essay-again.srspkg && echo IDENTICAL
+echo "sha256:$(sha256sum /tmp/dogfood-s49-essay.srspkg | cut -d' ' -f1)"   # equals payload.sha256
+jq -r .payload.sha256 /tmp/dogfood-s49-essay.json
+
+# Writer: a fresh repository installs the pinned bundle.
+$SRS repo create --repo $WRITER --namespace com.example.writer > /dev/null
+$SRS package install --bundle /tmp/dogfood-s49-essay.srspkg --repo $WRITER \
+  | jq -c '.payload | {boundaryPath, installed, skippedIdentical, conflicts, notes}'
+                                                  # installed 17, skippedIdentical 0, notes []
+$SRS package install --bundle /tmp/dogfood-s49-essay.srspkg --repo $WRITER \
+  | jq -c '.payload | {installed, skippedIdentical}'           # {"installed":0,"skippedIdentical":17}
+$SRS package imports --repo $WRITER \
+  | jq -c '[.payload | (.fields,.types,.views,.blueprints,.protocols,.relationTypes)[] | .conflictState] | unique'
+                                                  # ["clean"]
+$SRS type list --repo $WRITER \
+  | jq -c '[.payload.types[] | select(.namespace=="com.mudemocracy.essay") | .name]'
+                                                  # ["essay","comment","document-state","paragraph"]
+$SRS repo validate --repo $WRITER | jq -c '.payload.summary'   # errors 0
+
+# The writer's copy re-exports to the very same bytes.
+$SRS package export --selector packages/essay --output /tmp/dogfood-s49-reexport.srspkg \
+  --published-at 2026-10-03T00:00:00Z --publisher "muDemocracy workflow authors" --repo $WRITER > /dev/null
+cmp /tmp/dogfood-s49-essay.srspkg /tmp/dogfood-s49-reexport.srspkg && echo REEXPORT_IDENTICAL
+```
+
+**Standalone and dependencies.** The essay package references nothing outside itself, so its standalone export carries the same definitions. A second package that builds on it shows the difference:
+
+```bash
+# A reviews package that builds on the essay: its Type uses the essay's `title` Field.
+TITLE=$($SRS field list --repo $AUTHOR \
+  | jq -r '.payload.fields[] | select(.namespace=="com.mudemocracy.essay" and .name=="title") | .id')
+$SRS package create --id 5e5e0000-0000-4000-8000-00000000a001 --namespace com.example.reviews \
+  --name reviews --path packages/reviews --repo $AUTHOR | jq -c '{ok}'
+jq -n --arg f "$TITLE" '{namespace: "com.example.reviews", name: "review", version: 1,
+    description: "A review of an essay.", fields: [{fieldId: $f, order: 0, required: true}]}' \
+  | $SRS type create --package packages/reviews --repo $AUTHOR | jq -c '{ok}'
+for m in bundled standalone; do
+  $SRS package export --selector packages/reviews --mode $m --output /tmp/dogfood-s49-reviews-$m.srspkg \
+    --published-at 2026-10-03T00:00:00Z --repo $AUTHOR \
+    | jq -c '.payload | {mode, definitionCount, dependencyRefCount, inlined}'
+done
+  # bundled:    definitionCount 2, dependencyRefCount 1, inlined [<title id>]  (the essay Field is carried)
+  # standalone: definitionCount 1, dependencyRefCount 1, inlined []            (listed, not carried)
+jq -c '[.dependencyRefs[] | {name, definitionType}], [(.fields // [])[].name]' /tmp/dogfood-s49-reviews-standalone.srspkg
+  # [{"name":"title","definitionType":"field"}] and []
+
+# Standalone into a repository that already has its dependency (the writer has the essay): clean.
+$SRS package install --bundle /tmp/dogfood-s49-reviews-standalone.srspkg --repo $WRITER \
+  | jq -c '.payload | {boundaryPath, installed, notes}'      # packages/reviews, installed 1, notes []
+$SRS repo validate --repo $WRITER | jq -c '.payload.summary' # errors 0
+
+# Standalone into an empty repository: install does not check dependencyRefs (RFC-003 adds no
+# reader rule; spec question D4), so it installs, and the dangling Type fieldId is [R13]-fatal.
+$SRS repo create --repo /tmp/dogfood-s49-empty --namespace com.example.empty > /dev/null
+$SRS package install --bundle /tmp/dogfood-s49-reviews-standalone.srspkg --repo /tmp/dogfood-s49-empty \
+  | jq -c '{ok, installed: .payload.installed}'              # {"ok":true,"installed":1}
+$SRS repo validate --repo /tmp/dogfood-s49-empty | jq -c '{ok, diagnostics: [.diagnostics[] | .[0:110]]}'
+  # ok false; "...SRS038-R13-DANGLING-REFERENCE: FieldAssignment.fieldId '<title id>' resolves to nothing..."
+```
+
+**Negative case.** Each refusal is an `ok: false` error envelope with a coded diagnostic, and nothing is written. The block also pins the positive [C6] edge (revision 8 is re-stamped) and the below-floor export note:
+
+```bash
+$SRS repo create --repo /tmp/dogfood-s49-neg --namespace com.example.neg > /dev/null
+neg() { $SRS package install --bundle "$1" --repo /tmp/dogfood-s49-neg | jq -c '{ok, d: .diagnostics}'; }
+jq '.dataModelRevision = 10' /tmp/dogfood-s49-essay.srspkg > /tmp/dogfood-s49-rev10.srspkg
+neg /tmp/dogfood-s49-rev10.srspkg
+          # "bundle-revision-too-new: bundle declares dataModelRevision 10; this srs supports up to 9; upgrade srs"
+jq '.dataModelRevision = 6' /tmp/dogfood-s49-essay.srspkg > /tmp/dogfood-s49-rev6.srspkg
+neg /tmp/dogfood-s49-rev6.srspkg
+          # "bundle-migration-step-missing: bundle declares dataModelRevision 6; data-model step 6 -> 7 (discovery-query-cutover) has no bundle-form
+          #  transformer; this srs reads bundles from revision 7; re-export it with a current srs"   (RFC-003 [C6])
+jq 'del(.dataModelRevision)' /tmp/dogfood-s49-essay.srspkg > /tmp/dogfood-s49-unstamped.srspkg
+neg /tmp/dogfood-s49-unstamped.srspkg
+          # "bundle-migration-step-missing: bundle declares dataModelRevision 0 (absent = 0); ... step 0 -> 1 (field-type) ..."
+jq '.readme = {"path": "README.md", "content": "# Essay\n"}' /tmp/dogfood-s49-essay.srspkg > /tmp/dogfood-s49-readme.srspkg
+neg /tmp/dogfood-s49-readme.srspkg
+          # "bundle-readme-unsupported: ... (RFC-045, srs-rust#1164) ..."
+$SRS package export --selector packages/essay --output /tmp/dogfood-s49-bad.srspkg \
+  --published-at yesterday --repo $AUTHOR | jq -c '{ok, d: .diagnostics}'   # "bundle-published-at-invalid: ..."
+$SRS package export --selector packages/essay --mode bogus --output /tmp/dogfood-s49-bad.srspkg \
+  --repo $AUTHOR 2>&1 | head -1                                             # clap: invalid value 'bogus' for '--mode <MODE>'
+$SRS package list --repo /tmp/dogfood-s49-neg | jq -c '[.payload.packages[].boundaryPath]'   # [null]: nothing installed
+
+# Positive [C6] edge: a revision-8 bundle is re-stamped on read and installs.
+jq '.dataModelRevision = 8' /tmp/dogfood-s49-essay.srspkg > /tmp/dogfood-s49-rev8.srspkg
+$SRS repo create --repo /tmp/dogfood-s49-rev8repo --namespace com.example.rev8 > /dev/null
+$SRS package install --bundle /tmp/dogfood-s49-rev8.srspkg --repo /tmp/dogfood-s49-rev8repo \
+  | jq -c '{ok, installed: .payload.installed, notes: .payload.notes}'      # ok, installed 17, notes []
+$SRS repo validate --repo /tmp/dogfood-s49-rev8repo | jq -c '.payload.summary'   # errors 0
+
+# Export from a repository below the reader floor: allowed, with a note (PD11). No CLI writes an
+# older stamp, so a copy of the author repository is stamped 6 to stand in for an unmigrated one.
+cp -r $AUTHOR /tmp/dogfood-s49-old
+jq '.dataModelRevision = 6' /tmp/dogfood-s49-old/manifest.json > /tmp/dogfood-s49-m.json \
+  && mv /tmp/dogfood-s49-m.json /tmp/dogfood-s49-old/manifest.json
+$SRS package export --selector packages/essay --output /tmp/dogfood-s49-old.srspkg \
+  --repo /tmp/dogfood-s49-old | jq -c '.payload | {dataModelRevision, notes}'
+          # dataModelRevision 6, notes ["bundle-below-reader-floor: repository dataModelRevision 6; readers at
+          #  revision 9 refuse bundles below 7; migrate the repository first (srs repo apply-migration)"]
+```
+
+**Done when.** Both exports are byte-identical and `payload.sha256` equals `sha256:` + `sha256sum` of the file; `dependencyRefCount` is non-zero and `dataModelRevision` is the author repository's stamp; the fresh repository installs all 17 definitions, a reinstall skips all 17 as identical, every tracked import is `clean`, the essay types are listed, `repo validate` reports 0 errors, and the writer's re-export is byte-identical to the author's file; the dependent package's bundled export carries the essay Field and its standalone export only lists it; the standalone bundle validates clean in a repository that has the essay and leaves an [R13] dangling reference in one that does not; each negative case is a coded error envelope and leaves the target untouched; a revision-8 bundle installs; a below-floor export carries the `bundle-below-reader-floor` note.
+
+**Verified 2026-10-03 (#663, branch binary).** All steps confirmed against the muDemocracy essay package (8 fields, 4 types, 3 relation types, 1 view, 1 composition): sha256 `sha256:822ae895...83764` (15080 bytes) for both exports, reinstall `skippedIdentical: 17`, 16 import records `clean` (compositions have no import-record list), writer `repo validate` 0 errors, writer re-export byte-identical. Negative cases: `bundle-revision-too-new`, `bundle-readme-unsupported`, `bundle-published-at-invalid`, and clap's refusal of `<source_dir>` together with `--bundle` (exit 2).
+
+**Verified 2026-10-03 (#1212, RFC-003 Rev 10, branch binary).** Every block above run as written in one shell, in order (`ESSAY` set to the absolute essay path): sha256 `sha256:ce1640fb...08420f20` (16989 bytes) for both exports, `dependencyRefCount` 10 (8 field, 1 type, 1 view), `mode` `bundled`, `dataModelRevision` 9, `notes` `[]`; reinstall `skippedIdentical: 17`; imports `["clean"]`; writer `repo validate` 0 errors; re-export identical. Reviews package: bundled 2 definitions, 1 dependencyRef, the essay `title` Field inlined; standalone 1 definition, 1 dependencyRef, nothing inlined; standalone into the writer: installed 1, 0 errors; into an empty repository: installed 1, then `repo validate` `ok: false` naming `SRS038-R13-DANGLING-REFERENCE` for the `title` Field id (spec question D4). Negatives: `bundle-revision-too-new` (10); `bundle-migration-step-missing` naming `6 -> 7 (discovery-query-cutover)` and, unstamped, `0 -> 1 (field-type)`; `bundle-readme-unsupported`; `bundle-published-at-invalid`; clap `invalid value 'bogus' for '--mode <MODE>'`; nothing installed. Revision-8 bundle: installed 17, 0 errors. Below-floor export: `dataModelRevision` 6 with the `bundle-below-reader-floor` note.
+
+### S50 — An agent pages a hub record's neighbours without loading them all (`srs relation neighbours`, #1229)
+
+**Intention.** An agent orienting on a hub record (hundreds of inbound edges) needs the edge count and a bounded page of who is connected, not every neighbour inlined as `context record` does.
+
+**CLI surface.** `srs relation neighbours <id> [--type T] [--direction out|in] [--limit N] [--offset N]`; MCP tool `neighbours` (default `limit` 25, max 100); WASM `SrsRepository::neighbours`. MCP tree bounds: `srs://<repoId>/tree?maxDepth=0&relationType=<key>&typeFilter=<ns/name>` (CLI equivalent: `srs tree --depth/--relation-type/--type`).
+
+**Steps.** In a fresh repo create a hub note and three notes, three `depends-on` edges into the hub and one `refines` edge out. Then:
+
+```bash
+srs --repo $REPO relation neighbours $HUB --limit 2 --offset 1   # total 4, 2 edges
+srs --repo $REPO relation neighbours $HUB --direction out --type refines   # total 1, direction out
+srs --repo $REPO relation neighbours $HUB --direction sideways   # error: expected out|in
+srs --repo $REPO relation neighbours nope                        # error envelope: not found
+srs --repo $REPO repo validate                                   # 0 errors
+```
+
+**Done when.** `total` counts every matching edge regardless of `--limit`; each edge carries `direction`, `relationType` and a `neighbour` of `instanceId` and `label` only (never the record); unknown ids and bad directions are errors.
+
+**Verified 2026-10-04 (#1229):** scratch repo per the steps: `--limit 2 --offset 1` returned total 4 with 2 edges; `--direction out --type refines` returned total 1; `repo validate` 0 errors. MCP tool and tree query parameters verified by `crates/srs-mcp/tests/{tools,resources}.rs`.
+
+**Verified 2026-10-04 (#1258):** the `find` (plain, `--text rain --rank`, no-match) and `relation neighbours` envelopes from a scratch repo validate against the now-real goldens `schemas/payload/find.json` and `relation-neighbours.json` (AJV, `strict:false`); a hit with `uri` set to a number fails validation, so the contract bites on real output.
+
+**Verified 2026-10-04 (#1261):** real `render okf-bundle` (scratch repo), `render export-bundle` and `render composition --view-format json` (spec repo) output, with `diagnostics`/`children`/`sections` absent, validates against `render-okf-bundle.json`, `render-export-bundle.json` and `render-composition.json` (AJV, `strict:false`). The `render composition` projection mirror also gained the `depth` key the CLI had been dropping.
+
+### S51 — An agent follows a `find` hit without assembling URIs (`find` / `read` over `srs mcp serve`, #1227)
+
+**Intention.** An agent in claude.ai (tools only, no resources) finds a record, then reads it, reads a Tier-0 note, and walks its neighbours using only the URIs the server handed back.
+
+**CLI surface.** `srs find` and the MCP `find` tool: each hit carries `uri`, `typeId`, `containerIds` (declared membership only); `relation neighbours` / MCP `neighbours`: each neighbour carries `uri`; `repo agent-index`: `types[].typeId`, `entryPoints[] = {path, instanceId?, uri?}`; `srs://<repo>/record/{id}` resolves a Tier-0 note.
+
+**Steps.** Drive `srs mcp serve --repo ../../muDemocracy.org/muSrs` over stdio (newline-delimited JSON-RPC): `find {contentMatch:"democracy", limit:3}`; `read {uri: <hit.uri>}`; `find {tier:0, limit:1}` then `read {uri: <note uri>}`; `neighbours {instanceId:<hit>, limit:2}`. Negative: `read` of a `record/` URI naming a missing id returns the not-found MCP error.
+
+**Done when.** Every `read` succeeds with the record or note JSON (the note previously failed with "missing field typeId"); the hit shows non-empty `containerIds`; neighbours carry `uri`.
+
+**Verified 2026-10-04 (#1227):** against muSrs: hit `CP-MECH-01` returned `uri`, `typeId` and 3 `containerIds`; `read` on its uri and on a note's `record/{id}` both returned JSON; `neighbours` total 17 with `uri` on each neighbour.
+
+### S52 — An agent learns what a repository holds before searching it (`find` facets, `limit: 0`, #1219)
+
+**Intention.** A remote agent that has never seen a repository asks one cheap question, "what is in here?", and uses the answer to write a precise query instead of guessing keywords.
+
+**CLI surface.** `srs find --limit 0` (and the MCP `find {limit: 0}` / bindings `find`): `payload.result.facets` = `byType`, `notes`, `tags`, `fields[]` (closed string fields keyed by `Field.name`), each `{values:[{value,count}], other?}`, counted over the whole match set before paging.
+
+**Steps.** `srs find --repo ../../muDemocracy.org/muSrs --limit 0 --pretty`; then `--type com.mudemocracy.argument/problem --limit 0`; then `--text democracy --limit 3` and compare `total` with the sum of `facets.byType`. Negative: `--container <unknown uuid> --limit 0` returns `facets: {}` with the containerId warning.
+
+**Done when.** `hits` is empty and `total` is 886; `byType` totals 861 plus `notes` 25 equal `srs repo map`'s 886; the problem-type call lists `kind` (condition 55, consequence 33, shift 24, ...), `persona` and `scale`; open string fields never appear; the reply is under 128 KB.
+
+**Verified 2026-10-04 (#1219):** unfiltered `--limit 0` on muSrs: 14,316 bytes, 22 field facets, `byType` top = source 177, claim 177, problem 138; `tags.other` 853 (long tail bounded to 20 values); `--limit 25` reply 15,258 bytes; the problem type call gave 138 problems with `kind`, `persona`, `scale`.
+### S53 — An agent asks what else in the repository is about a record (`find --similar` / MCP `similar`, #1230)
+
+**Intention.** I found one record in muSrs and want its near-neighbours, including content that uses different wording from any query I would have guessed.
+
+**CLI surface.** `srs find --similar <instanceId>` (structured filters narrow the candidates; `--limit`, `--tier`, `--tag` and `--container` compose); MCP `similar {instanceId, limit?, ...filters}`, limit default 25; WASM `findSimilar`.
+
+**Steps.** `srs --repo ../muDemocracy.org/muSrs find --text burnout --rank --limit 1` (an archetype); `srs --repo ../muDemocracy.org/muSrs find --similar <that id> --limit 6`. Then `--tier 0`. Negative: `find --similar <id> --text x` and `find --similar nope`.
+
+**Done when.** Hits are ranked (`score` > 0), never include the source, use the normal hit shape (`uri`, `typeId`, `containerIds`); the filters narrow; `--text` is refused (`similar takes no contentMatch`) and an unknown id returns `instance not found`; `repo validate` unchanged.
+
+**Verified 2026-10-04 (#1230):** against muSrs (886 instances): the archetype `Initiator` returned 17 neighbours (archetypes Steward and Analyst, a question, claim C-13, a persona) in 0.7 s; `--tier 0` returned 6 notes; both negative cases refused as above.
+
+## S46 — Hand off one container as a standalone slice (`srs slice export`, RFC-026, #631)
+
+**Intention:** I want to give someone one part of a repository, such as an essay, a guide or a tension set, as a `.srs` that opens and validates on its own. The slice should carry the packages it needs unchanged and say exactly which relations were cut.
+
+**CLI surface.** `srs slice export --container <id> <out.srs>` (the global `--container` flag), WASM `export_slice(containerId)`. A slice opens like any `.srs` (`archive unpack`, `loadArchive`).
+
+**Steps.** Work on a temp **copy** of muSrs, never the original. In the copy, nest two entries of one container (`container members move <c> <id> --depth 1`, then `--depth 2`). In a container with an identity record, give the identity entry a descendant (`members move <c> <child> --position <after identity> --depth 1`). Then, for every container and the root: `srs slice export --repo <copy> --container <id> out/<id>.srs`, `srs archive unpack out/<id>.srs --target out/<id>`, `srs repo validate --repo out/<id>`.
+
+**Done when.**
+- Every slice validates with 0 errors.
+- The nested outline survives as-is in the slice's `manifest.container`.
+- The container whose identity entry has a descendant is refused with `slice-root-identity-invalid`, and no file is written.
+- `slice.externalRelationRefs` counts match the payload.
+- The info diagnostic reports the cut count.
+- A container with declared `childContainerIds` carries exactly those descendants and their entries (RFC-034 [R9], I-151); a container with none carries no sub-container, even one whose entries all fall inside the slice.
+
+**Verified 2026-10-04 (#631)** against a copy of muSrs (886 instances, 7 package boundaries, 57 containers including the root):
+- Every one of the 56 exportable slices validated with **0 errors**. Examples:
+  - Tensions: 16 instances, 15 relations, 48 cut, 4 packages.
+  - Guides (`childContainerIds`): 6, 8, 22.
+  - Decision Log (no identity): 15, 1, 48.
+  - Evidence: 178 instances, 14 source documents.
+  - Stewardship: 95 instances, 6 packages.
+  - The empty Problem grid: 0 instances.
+  - The root: 10 section roots, 412 cut.
+- The nested Spine 2 slice kept depths 1 and 2.
+- The Ladder (identity with a descendant) was refused.
+- The remaining warnings are root rules applied to a content container ([R12], left for RFC-026 Rev 9):
+  - I-81: the identity record is not a `purpose`.
+  - I-82: in slices with sub-containers, root members anchor no container.
+- Composition sections naming containers outside the slice are reported as info.
+
+**Re-verified 2026-10-04 (#631, PR #1259 amended to RFC-034 [R9] / I-151)** on a fresh copy of muSrs (886 instances; the copy unmodified, so no refusal case): all 57 containers including the root exported and validated with **0 errors**. Old (subset rule) / new (I-151), only the five containers that changed; the other 52 are identical:
+
+| Container | Declared children | Instances | Relations | Cut | Containers | Warnings |
+|---|---|---|---|---|---|---|
+| The case | 0 | 154 / 154 | 358 / 358 | 710 / 710 | 7 / 1 | 155 / 2 |
+| The core case | 0 | 160 / 160 | 253 / 253 | 902 / 902 | 8 / 1 | 161 / 1 |
+| Arguments under test | 0 | 74 / 74 | 171 / 171 | 230 / 230 | 6 / 1 | 70 / 2 |
+| Guides | 5 | 6 / 28 | 8 / 26 | 22 / 43 | 1 / 6 | 1 / 1 |
+| Problem grid (0 own entries) | 12 | 0 / 139 | 0 / 138 | 0 / 539 | 1 / 13 | 1 / 1 |
+
+- Undeclared sub-containers are no longer carried, which removes the I-82 warnings above (153 in The case: root members that anchor no carried container).
+- Declared children are now carried with their entries; the subset rule had dropped them (Guides, Problem grid).
+- Every remaining warning is the corpus-level revision-8 notice (also on the source) or I-81 (identity record not a `purpose`).
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -3103,8 +3372,9 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
 | `registry` (ext:registry — `registry list`, `registry get`) | S25; WASM free functions (`parse_registry`, `list_registry_entries`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#244) |
 | `federation` (ext:federation) | _removed — srs decision 4f1e12e5 + owner disposition srs-rust#878 (2026-09-01); return is committed, see the spec roadmap's federation entry; S26 retired with it_ |
-| `context` (ext:addressability — `context field`, `context record`) | S27 (historical — `context revision`/revision-tracing removed srs-rust#917); WASM bindings (`context_field`, `context_record` on `SrsRepository`) verified via native integration tests in `crates/srs-bindings/tests/context_query.rs` (#251) |
-| `package` | CLI: covered implicitly by field/type creation in S2; **`srs package install`/`srs package import`/`srs package imports`** end-to-end in S29 (#246); WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330) |
+| `relation neighbours` (bounded neighbour page, #1229) | S50 |
+| `context` (ext:addressability — `context field`, `context record`) | S48 (`context record` both-direction relations + `--container` subtree, #1134); S27 (historical — `context revision`/revision-tracing removed srs-rust#917); WASM bindings (`context_field`, `context_record` on `SrsRepository`) verified via native integration tests in `crates/srs-bindings/tests/context_query.rs` (#251) |
+| `package` | CLI: covered implicitly by field/type creation in S2; **`srs package install`/`srs package import`/`srs package imports`** end-to-end in S29 (#246); WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330); **`srs package export` / `srs package install --bundle`** (`.srspkg`, ADR-050) in S49 (#632/#690); RFC-003 Rev 10 (#1212): `--mode bundled|standalone`, `--homepage`, `dependencyRefs`/`dependencyRefCount`, repository-stamped `dataModelRevision`, the [C6] reader step chain (`bundle-migration-step-missing`), the below-floor export note and the standalone-without-dependencies [R13] consequence, all in S49; WASM `export_package_bundle` / `install_package_bundle` via `crates/srs-bindings/tests/package_bundle.rs` (#663) |
 | `attachment list` | S31 |
 | `attachment add` | S32 |
 | `attachment link` | S34 (#283); service-layer tests in `attachment_service.rs` (MemoryStore + FileStore). WASM binding is a follow-up. |
@@ -3114,9 +3384,13 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `srs-gov attachment add` / `srs-gov attachment list` | S33 |
 | `repo validate` — RFC-017 I-107 attachment_policy size/MIME diagnostics (#284) | S37 (**partial gap** — full end-to-end blocked pending srs#193 `com.semanticops.base` package); regression verified 2026-07-18: 0 policy diagnostics on spec repo and fresh repos; 12 unit tests in `validation.rs` cover maxPerFileBytes, maxDocBytes, maxTotalBytes, allowedMimeTypes (array + bare-string), tombstone skip (ADR-031), multiple-records Change B error, and both per-file limits firing independently |
 | `archive pack` / `archive unpack` (#630) + WASM `loadArchive` / `exportArchive` (#290) + WASM `getAttachmentBytes` (#291) + JsonStore/MemoryStore manifest key-order determinism (#654) | S41 (#630, #684, #654); CLI handlers `srs archive pack` / `srs archive unpack` added in `crates/srs-cli/src/commands/archive.rs`; container roundtrip bug fixed (containerIndex files now packed and unpacked). Library functions `archive_pack` / `archive_unpack` / `archive_to_vec` / `JsonStore::from_archive` implemented in `srs-repository` (ADR-033) and verified via 15 unit/integration tests: 8 original unit tests (roundtrip, determinism, entry order, timestamps, error paths, FileStore roundtrip, cross-store roundtrip) + `test_archive_no_extra_fields_and_deflated` + `test_archive_golden_fixture` + `test_archive_golden_roundtrip` (#277) + `test_load_from_archive_roundtrip` + `test_load_from_archive_rejects_invalid_bytes` (#290) + `test_archive_determinism_from_jsonstore` + `test_archive_manifest_bytes_identical_filestore_vs_jsonstore` (#654). WASM bindings `SrsRepository::load_archive(bytes)` and `SrsRepository::export_archive()` verified via `archive_service_roundtrip_smoke` in `crates/srs-bindings/src/lib.rs` and `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#290). `JsonStore::save_binary_file`/`load_binary_file` now store bytes in memory (ADR-031 amendment, #291) enabling `SrsRepository::get_attachment_bytes(documentId)` → `Uint8Array` (RFC-017 Gate D); verified via 3 integration tests in `crates/srs-bindings/tests/attachment_bytes.rs` (archive roundtrip, unknown documentId, srsj tombstone) and 5 unit tests in `json_store.rs` (#291). |
+| `slice export` (#631, RFC-026, ADR-051) + WASM `export_slice` | S46; `crates/srs-repository/tests/slice_export.rs` (closure, cut edges, both-outside omitted, RFC-034 [R9] declared descendants carried and undeclared never, missing child / cycle refused, D2 refusal, packages carried/dropped, determinism, validator slice checks) and `slice_export_writes_a_valid_slice_archive` in `crates/srs-cli/tests/integration_tests.rs` |
 | `render export-bundle` (flat ZIP export: rendered doc + attachments, ADR-035, #289) | S38 (#289); service-layer tests in `export_service.rs` (3 tests: no-attachment, with-attachment, cross-store roundtrip via `tempfile::NamedTempFile`). |
 | `render okf-bundle` (OKF markdown folder export — index.md + per-instance files with YAML frontmatter, descending the full `contains` tree from each direct member, #677/srs-rust#1104) | S45 (#677, re-verified srs-rust#1104); 13 unit tests in `okf_export_service.rs` (empty container, note-only, record-only, mixed, field-value pairs, ordering, display-label multiline strip, slug-collision-safe path via id8, empty-slug fallback, record with field values → field_pairs, two-level `contains` descent, multi-parent dedup, id8-collision fallback to full instance id); WASM binding deferred to #758. |
 | `srs-gov export-decision` (governance operator exports shareable bundle, #289) | S38 (#289); exercises record lookup → view discovery → `render export-bundle` chain; `--explain` pre-stages all 3 underlying srs calls; default output filename (`<id8>.zip`). |
+| `find` facets over the match set, `limit: 0` repository map (#1219) | S52 |
+| `find` hit `uri`/`typeId`/`containerIds`, neighbour `uri`, agent-index `entryPoints` (#1227) | S51 |
+| `find --similar` / MCP `similar` / WASM `findSimilar` (more-like-this over the BM25 index, #1230) | S53 |
 | `mcp serve` (MCP stdio server: resources map/navigation/record/container/view/**type** + all 13 tools: `repo_validate`/`find`/`type_schema`/`record_create`/`relation_create`/`note_create`/`record_update`/`record_transition`/`record_allowed_transitions`/`record_successor`/`note_graduate`/`container_member_add`/`container_member_remove` + **prompts** `prompts/list`/`prompts/get`, ADR-037 + #692 amendment + #682 prompts + **#680 second-wave write tools**) | S42 (incl. the #692 discover-then-author step, #682 prompts step 10b, and #680 second-wave step 10c); 32 crate tests in `crates/srs-mcp/` (13 unit + 13 duplex-transport integration + 6 second-wave integration) + 2 binary-level handshake tests in `crates/srs-cli/tests/mcp_serve.rs` + 4 unit tests in `crates/srs-mcp/src/prompts.rs` |
 
 | RFC-039 revision-2 carrier (`record create`/`update` object `fieldValues` + `fieldMeta`, [R9] rejection, composite values, `type schema` range expansion, `repo apply-migration --id rfc039-carrier`) | S46 (#806); migration service unit tests in `rfc039_carrier_migration_service.rs`; carrier round-trip + order tests in `srs-core` `record.rs`; value-grammar tests in `srs-core` `validation/value_shape.rs` |

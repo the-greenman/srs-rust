@@ -3,6 +3,7 @@ use crate::output;
 use crate::payload::{ContextFieldPayload, ContextRecordPayload};
 use anyhow::Result;
 use clap::Subcommand;
+use srs_core::types::relation_type_definition::RelationTypeCategory;
 use srs_repository::context_query_service::{self, FieldContextQuery, RecordContextQuery};
 
 #[derive(Subcommand)]
@@ -14,10 +15,15 @@ pub enum ContextCommand {
         /// Field ID
         field_id: String,
     },
-    /// Assemble context for a record: all field values and relations
+    /// Assemble context for a record: field values, inbound and outbound relations with
+    /// neighbours inline; with the global --container <ID>, also its arrangement subtree there
     Record {
         /// Record instance ID
         record_id: String,
+        /// Omit edges whose relation type has this category (repeatable), e.g.
+        /// `--exclude-category composition --exclude-category sequence` drops structural edges
+        #[arg(long = "exclude-category", value_name = "CATEGORY", value_parser = clap::value_parser!(RelationTypeCategory))]
+        exclude_category: Vec<RelationTypeCategory>,
     },
 }
 
@@ -27,7 +33,10 @@ pub fn dispatch(ctx: CliContext, cmd: ContextCommand) -> Result<String> {
             record_id,
             field_id,
         } => cmd_context_field(ctx, record_id, field_id),
-        ContextCommand::Record { record_id } => cmd_context_record(ctx, record_id),
+        ContextCommand::Record {
+            record_id,
+            exclude_category,
+        } => cmd_context_record(ctx, record_id, exclude_category),
     }
 }
 
@@ -58,13 +67,19 @@ fn cmd_context_field(ctx: CliContext, record_id: String, field_id: String) -> Re
     )
 }
 
-fn cmd_context_record(ctx: CliContext, record_id: String) -> Result<String> {
+fn cmd_context_record(
+    ctx: CliContext,
+    record_id: String,
+    exclude_relation_categories: Vec<RelationTypeCategory>,
+) -> Result<String> {
     with_store(
         &ctx,
         |store| match context_query_service::get_record_context(
             store,
             RecordContextQuery {
                 record_id: record_id.clone(),
+                container_id: ctx.container_id.clone(),
+                exclude_relation_categories,
             },
         ) {
             Ok(result) => output::serialize(
@@ -77,6 +92,9 @@ fn cmd_context_record(ctx: CliContext, record_id: String) -> Result<String> {
                     display_label: result.display_label,
                     field_values: result.field_values,
                     relations: result.relations,
+                    container_id: result.container_id,
+                    entry: result.entry,
+                    subtree: result.subtree,
                     tagged_chunks: result.tagged_chunks,
                     protocol_run_history: result.protocol_run_history,
                 },

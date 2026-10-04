@@ -58,7 +58,7 @@ pub fn export_okf_bundle(
     input: OkfExportInput,
 ) -> Result<OkfBundle, RepositoryError> {
     let container = container_service::get_container(store, &input.container_id)?;
-    let member_ids = container_service::list_container_members(store, &input.container_id)?;
+    let member_ids = container_service::list_members(store, &input.container_id)?;
 
     let package = store.load_package()?;
     let (fni, ifi) = record_label::build_label_indexes_from_package(&package);
@@ -437,7 +437,6 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -450,6 +449,7 @@ mod tests {
 
     fn minimal_record(id: &str, created_at: Option<&str>) -> Record {
         Record {
+            created_by: None,
             field_meta: None,
             instance_id: id.to_string(),
             type_id: "t-test-0001".to_string(),
@@ -467,6 +467,7 @@ mod tests {
 
     fn minimal_note(id: &str, title: Option<&str>, sections: Vec<NoteSection>) -> Note {
         Note {
+            created_by: None,
             instance_id: id.to_string(),
             title: title.map(|s| s.to_string()),
             tags: None,
@@ -495,6 +496,7 @@ mod tests {
 
     fn make_relation(id: &str, relation_type: &str, src: &str, tgt: &str) -> Relation {
         Relation {
+            created_by: None,
             relation_id: id.to_string(),
             relation_type: relation_type.to_string(),
             source_instance_id: src.to_string(),
@@ -546,7 +548,7 @@ mod tests {
         );
         store.save_record(&r).unwrap();
         let c = create_container(&store, minimal_container("", "Sprint")).unwrap();
-        add_member(&store, &c.container_id, &r.instance_id).unwrap();
+        add_member(&store, &c.container_id, &r.instance_id, None, None).unwrap();
 
         let bundle = export_okf_bundle(
             &store,
@@ -578,7 +580,7 @@ mod tests {
         );
         store.save_note(&n).unwrap();
         let c = create_container(&store, minimal_container("", "Docs")).unwrap();
-        add_member(&store, &c.container_id, &n.instance_id).unwrap();
+        add_member(&store, &c.container_id, &n.instance_id, None, None).unwrap();
 
         let bundle = export_okf_bundle(
             &store,
@@ -613,7 +615,9 @@ mod tests {
         // the dangling state this test is about is planted through the ADR-045
         // repair seam, the one surface that can still express it.
         let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440099", "Partial");
-        c.member_instance_ids = Some(vec!["does-not-exist".to_string()]);
+        c.member_instance_ids = Some(srs_core::types::container::entries(vec![
+            "does-not-exist".to_string()
+        ]));
         store.save_container_unchecked(&c).unwrap();
 
         let err = export_okf_bundle(
@@ -653,7 +657,7 @@ mod tests {
         let n = minimal_note(note_id, None, vec![make_section("main", "Some text")]);
         store.save_note(&n).unwrap();
         let c = create_container(&store, minimal_container("", "Fallback")).unwrap();
-        add_member(&store, &c.container_id, note_id).unwrap();
+        add_member(&store, &c.container_id, note_id, None, None).unwrap();
 
         let bundle = export_okf_bundle(
             &store,
@@ -691,9 +695,9 @@ mod tests {
 
         let c = create_container(&store, minimal_container("", "Ordered")).unwrap();
         // Add in reverse order to verify sort overrides insertion order
-        add_member(&store, &c.container_id, &r3.instance_id).unwrap();
-        add_member(&store, &c.container_id, &r1.instance_id).unwrap();
-        add_member(&store, &c.container_id, &r2.instance_id).unwrap();
+        add_member(&store, &c.container_id, &r3.instance_id, None, None).unwrap();
+        add_member(&store, &c.container_id, &r1.instance_id, None, None).unwrap();
+        add_member(&store, &c.container_id, &r2.instance_id, None, None).unwrap();
 
         let relations = [
             make_precedes_relation(
@@ -799,7 +803,7 @@ mod tests {
         };
         store.save_record(&r).unwrap();
         let c = create_container(&store, minimal_container("", "Fields")).unwrap();
-        add_member(&store, &c.container_id, &r.instance_id).unwrap();
+        add_member(&store, &c.container_id, &r.instance_id, None, None).unwrap();
 
         let bundle = export_okf_bundle(
             &store,
@@ -949,7 +953,7 @@ mod tests {
         };
         store.save_record(&r).unwrap();
         let c = create_container(&store, minimal_container("", "TextFields")).unwrap();
-        add_member(&store, &c.container_id, &r.instance_id).unwrap();
+        add_member(&store, &c.container_id, &r.instance_id, None, None).unwrap();
 
         let bundle = export_okf_bundle(
             &store,
@@ -985,7 +989,7 @@ mod tests {
         );
         store.save_record(&r).unwrap();
         let c = create_container(&store, minimal_container("", "NoText")).unwrap();
-        add_member(&store, &c.container_id, &r.instance_id).unwrap();
+        add_member(&store, &c.container_id, &r.instance_id, None, None).unwrap();
 
         let bundle = export_okf_bundle(
             &store,
@@ -1011,8 +1015,8 @@ mod tests {
 
         let c = create_container(&store, minimal_container("", "Mixed")).unwrap();
         // Add record first, note second — precedes should reverse the order
-        add_member(&store, &c.container_id, &r.instance_id).unwrap();
-        add_member(&store, &c.container_id, &n.instance_id).unwrap();
+        add_member(&store, &c.container_id, &r.instance_id, None, None).unwrap();
+        add_member(&store, &c.container_id, &n.instance_id, None, None).unwrap();
 
         let rel_json = serde_json::json!({
             "relations": [{
@@ -1047,7 +1051,7 @@ mod tests {
         let n = minimal_note(note_id, Some("!!!"), vec![]);
         store.save_note(&n).unwrap();
         let c = create_container(&store, minimal_container("", "Symbols")).unwrap();
-        add_member(&store, &c.container_id, note_id).unwrap();
+        add_member(&store, &c.container_id, note_id, None, None).unwrap();
 
         let bundle = export_okf_bundle(
             &store,
@@ -1089,7 +1093,7 @@ mod tests {
         // Only the top-level root is a direct container member — child and
         // grandchild hang off it purely via `contains` relations, exactly
         // like the spec repo's section -> concept -> ... structure.
-        add_member(&store, &c.container_id, root_id).unwrap();
+        add_member(&store, &c.container_id, root_id, None, None).unwrap();
 
         let rel_json = serde_json::json!({
             "relations": [
@@ -1185,8 +1189,8 @@ mod tests {
             .unwrap();
 
         let c = create_container(&store, minimal_container("", "Diamond")).unwrap();
-        add_member(&store, &c.container_id, member_a).unwrap();
-        add_member(&store, &c.container_id, member_b).unwrap();
+        add_member(&store, &c.container_id, member_a, None, None).unwrap();
+        add_member(&store, &c.container_id, member_b, None, None).unwrap();
 
         let rel_json = serde_json::json!({
             "relations": [
@@ -1258,8 +1262,8 @@ mod tests {
             .unwrap();
 
         let c = create_container(&store, minimal_container("", "Collide")).unwrap();
-        add_member(&store, &c.container_id, first).unwrap();
-        add_member(&store, &c.container_id, second).unwrap();
+        add_member(&store, &c.container_id, first, None, None).unwrap();
+        add_member(&store, &c.container_id, second, None, None).unwrap();
 
         let bundle = export_okf_bundle(
             &store,
@@ -1293,8 +1297,8 @@ mod tests {
         store.save_record(&b).unwrap();
 
         let c = create_container(&store, minimal_container("", "Refines")).unwrap();
-        add_member(&store, &c.container_id, a_id).unwrap();
-        add_member(&store, &c.container_id, b_id).unwrap();
+        add_member(&store, &c.container_id, a_id, None, None).unwrap();
+        add_member(&store, &c.container_id, b_id, None, None).unwrap();
 
         write_relations(
             &store,
@@ -1346,7 +1350,7 @@ mod tests {
 
         // Only `a` is a member of the bundle's container — `outside` is not.
         let c = create_container(&store, minimal_container("", "Dangling")).unwrap();
-        add_member(&store, &c.container_id, a_id).unwrap();
+        add_member(&store, &c.container_id, a_id, None, None).unwrap();
 
         write_relations(
             &store,
@@ -1388,8 +1392,8 @@ mod tests {
         store.save_record(&b).unwrap();
 
         let c = create_container(&store, minimal_container("", "Precedes")).unwrap();
-        add_member(&store, &c.container_id, a_id).unwrap();
-        add_member(&store, &c.container_id, b_id).unwrap();
+        add_member(&store, &c.container_id, a_id, None, None).unwrap();
+        add_member(&store, &c.container_id, b_id, None, None).unwrap();
 
         write_relations(
             &store,
@@ -1431,9 +1435,9 @@ mod tests {
         store.save_record(&c_rec).unwrap();
 
         let container = create_container(&store, minimal_container("", "Grouped")).unwrap();
-        add_member(&store, &container.container_id, a_id).unwrap();
-        add_member(&store, &container.container_id, b_id).unwrap();
-        add_member(&store, &container.container_id, c_id).unwrap();
+        add_member(&store, &container.container_id, a_id, None, None).unwrap();
+        add_member(&store, &container.container_id, b_id, None, None).unwrap();
+        add_member(&store, &container.container_id, c_id, None, None).unwrap();
 
         write_relations(
             &store,

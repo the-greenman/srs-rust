@@ -1,0 +1,21 @@
+{
+  "aiGuidance": {
+    "examples": [
+      {
+        "description": "Role-based ownership",
+        "output": "Coordination lead"
+      }
+    ],
+    "extraction": "Look for explicit ownership statements: X owns this, this sits with the coordination lead, or an implicit assignment when a role is described as responsible. May be a person name or a role title.",
+    "purpose": "Identifies the person or role who holds accountability for this decision — who can revisit it, who is responsible for its implementation."
+  },
+  "createdAt": "2026-05-25T00:00:00Z",
+  "description": "Person, role, group, or function responsible for stewardship of this record.",
+  "id": "4b34847c-26d1-56be-bc10-844aeb704df7",
+  "name": "owner",
+  "namespace": "governance",
+  "fieldType": {
+    "datatype": "string"
+  },
+  "version": 1
+}

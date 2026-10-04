@@ -373,7 +373,11 @@ fn repo_create_produces_valid_srsj() {
     );
     let member_ids: Vec<&str> = container_embed["memberInstanceIds"]
         .as_array()
-        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v["instanceId"].as_str())
+                .collect()
+        })
         .unwrap_or_default();
     assert!(
         member_ids.contains(&identity),
@@ -1135,7 +1139,9 @@ fn create_decision_writes_record() {
         .as_array()
         .expect("memberInstanceIds");
     assert!(
-        members.iter().any(|m| m.as_str() == Some(&instance_id)),
+        members
+            .iter()
+            .any(|m| m["instanceId"].as_str() == Some(&instance_id)),
         "new record {instance_id} not found in decision_log container members"
     );
 

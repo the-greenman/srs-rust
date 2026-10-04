@@ -12,6 +12,8 @@
 //!   - `f7562aa3…` root `ad159754…`, 6 members
 //!   - `ece00010…` root `ee000001…`, 2 members (Exercises)
 
+use srs_core::arrangement::RelativeMove;
+use srs_repository::container_service;
 use srs_repository::container_service::{
     add_member, containers_for_instance, get_container, list_containers, remove_member,
     ContainerListFilter,
@@ -40,7 +42,7 @@ fn list_containers_filters_by_root() {
     let summaries = list_containers(
         &store,
         &ContainerListFilter {
-            root_instance_id: Some("5bbf9209-1dc9-44b2-b0a3-f2192db5a879".to_string()),
+            anchor_instance_id: Some("5bbf9209-1dc9-44b2-b0a3-f2192db5a879".to_string()),
             ..Default::default()
         },
     )
@@ -106,21 +108,63 @@ fn add_then_remove_member_round_trips() {
         .unwrap_or_default()
         .len();
 
-    let after_add = add_member(&store, container_id, new_id).expect("add must succeed");
+    let after_add = add_member(&store, container_id, new_id, None, None).expect("add must succeed");
     assert!(
-        after_add.iter().any(|id| id == new_id),
+        after_add.members.iter().any(|e| e.instance_id == new_id),
         "new member present"
     );
-    assert_eq!(after_add.len(), before + 1);
+    assert_eq!(after_add.members.len(), before + 1);
 
     // Idempotent: adding again does not duplicate.
-    let again = add_member(&store, container_id, new_id).expect("idempotent add");
-    assert_eq!(again.len(), before + 1, "add is idempotent");
+    let again = add_member(&store, container_id, new_id, None, None).expect("idempotent add");
+    assert_eq!(again.members.len(), before + 1, "add is idempotent");
 
     let after_remove = remove_member(&store, container_id, new_id).expect("remove must succeed");
     assert!(
-        !after_remove.iter().any(|id| id == new_id),
+        !after_remove.members.iter().any(|e| e.instance_id == new_id),
         "member removed"
     );
-    assert_eq!(after_remove.len(), before);
+    assert_eq!(after_remove.members.len(), before);
+}
+
+/// Parity (issue #1156): the WASM `move_container_member_relative` / `get_container_outline`
+/// bindings are `RelativeMove::parse` + the same container_service calls the CLI and MCP make.
+#[test]
+fn relative_move_and_outline_match_the_service() {
+    let store = gallery_store();
+    let id =
+        srs_repository::container_service::list_containers(&store, &ContainerListFilter::default())
+            .unwrap()
+            .into_iter()
+            .find(|c| c.container_id.starts_with("b30db206"))
+            .expect("gallery container")
+            .container_id;
+    let members = get_container(&store, &id)
+        .unwrap()
+        .member_instance_ids
+        .unwrap();
+    let (a, b) = (
+        members[0].instance_id.clone(),
+        members[1].instance_id.clone(),
+    );
+    // exactly what the binding does with its string arguments
+    let mv = RelativeMove::parse(Some(&b), Some("into"), None)
+        .unwrap()
+        .unwrap();
+    let r = container_service::move_member_relative(&store, &id, &a, &mv).unwrap();
+    let outline = container_service::get_outline(&store, &id).unwrap();
+    assert_eq!(outline.entries.len(), r.members.len());
+    let moved = outline.entries.iter().find(|e| e.instance_id == a).unwrap();
+    assert_eq!(moved.parent_instance_id.as_deref(), Some(b.as_str()));
+    // rejection (into itself) reaches the caller, nothing written
+    let into_self = RelativeMove::parse(Some(&b), Some("into"), None)
+        .unwrap()
+        .unwrap();
+    assert!(container_service::move_member_relative(&store, &id, &b, &into_self).is_err());
+    assert_eq!(
+        container_service::get_outline(&store, &id).unwrap().entries,
+        outline.entries
+    );
+    // the binding's "neither given" case is parse's Ok(None)
+    assert_eq!(RelativeMove::parse(None, None, None), Ok(None));
 }

@@ -102,6 +102,7 @@ mod tests {
 
     fn make_record_with_field(name: &str, value: &str) -> Record {
         Record {
+            created_by: None,
             field_meta: None,
             instance_id: "r1".to_string(),
             type_id: "t1".to_string(),
@@ -123,6 +124,7 @@ mod tests {
 
     fn make_two_field_record(name1: &str, val1: &str, name2: &str, val2: &str) -> Record {
         Record {
+            created_by: None,
             field_meta: None,
             instance_id: "r1".to_string(),
             type_id: "t1".to_string(),

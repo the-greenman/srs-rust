@@ -1,0 +1,16 @@
+{
+  "createdAt": "2026-05-31T14:55:35.178917705+00:00",
+  "fieldValues": {
+    "article_number": "A-003",
+    "title": "Who we are",
+    "article_text": "The founding members of LiMoMa are Sam Hayder, Immo Klink, Peter Brownell, and Brian. New members may be admitted by agreement of all current members. Membership carries no financial obligation. Any member may resign at any time without formality. The group has no quorum rules during the pilot phase: decisions require that all members have had a reasonable opportunity to be heard.",
+    "amendment_rule": "Unanimous agreement of all current members. Admission of a new member requires unanimous agreement."
+  },
+  "instanceId": "7560efe9-27e3-4186-8b9d-6ab48283f1df",
+  "typeId": "a1142ac3-5385-5c0e-8630-1dd3432cdf7f",
+  "typeName": "article",
+  "typeNamespace": "governance",
+  "typeVersion": 1,
+  "updatedAt": "2026-06-08T21:05:17.363275919+00:00",
+  "lifecycleState": "ratified"
+}

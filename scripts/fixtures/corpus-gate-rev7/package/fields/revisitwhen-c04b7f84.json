@@ -1,0 +1,23 @@
+{
+  "aiGuidance": {
+    "examples": [
+      {
+        "description": "Meeting-frequency decision",
+        "output": "If attendance drops below three members for two consecutive sessions, or at the end of the pilot period in December 2026."
+      }
+    ],
+    "extraction": "Look for statements about when to revisit, what would change the decision, or what review conditions were set. Prefer condition-based triggers, which may reference a date as an anchor.",
+    "negativeGuidance": "Avoid bare dates without a condition — revisit in December is weaker than revisit if attendance consistently drops or at the end of the pilot period. Dates can anchor a condition but should not replace one.",
+    "purpose": "Names the condition or event that should trigger a review of this decision — tied to the underlying reasoning so the review moment is meaningful."
+  },
+  "createdAt": "2026-05-25T00:00:00Z",
+  "description": "The condition or event that would prompt a review of this decision.",
+  "id": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+  "name": "revisit_when",
+  "namespace": "governance",
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
+  "version": 1
+}

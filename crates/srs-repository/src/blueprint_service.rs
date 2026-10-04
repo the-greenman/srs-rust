@@ -80,12 +80,6 @@ pub struct ValidateBlueprintResult {
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
-fn slugify(name: &str) -> String {
-    name.to_lowercase()
-        .replace(|c: char| !c.is_alphanumeric() && c != '-' && c != ' ', "")
-        .replace(' ', "-")
-}
-
 /// Locate the full repo-root-relative path for a blueprint by ID.
 fn find_blueprint_path(
     store: &dyn RepositoryStore,
@@ -328,8 +322,11 @@ pub fn create_blueprint(
     let boundary_path = selector.as_deref().unwrap_or("package");
     store.ensure_blueprints_dir(&format!("{boundary_path}/blueprints"))?;
 
-    let id_prefix = &blueprint.id[..blueprint.id.len().min(8)];
-    let rel_filename = format!("blueprints/{}-{}.json", slugify(&blueprint.name), id_prefix);
+    let rel_filename = crate::package_service::definition_rel_path(
+        DefinitionKind::Blueprint,
+        &blueprint.name,
+        &blueprint.id,
+    );
     let full_path = format!("{boundary_path}/{rel_filename}");
 
     // Write file first (atomicity: file before index).

@@ -5,6 +5,7 @@
 //! `validate_repository`, produces a valid bundle.
 
 use srs_repository::{
+    field_type_migration_service::CURRENT_DATA_MODEL_REVISION,
     governance_scaffold_service::{create_governance_repository, CreateGovernanceRepositoryInput},
     srsj::open_srsj,
     srsj_migration_service, validation,
@@ -96,5 +97,34 @@ fn fixture_seed_is_byte_identical_to_the_shipped_asset() {
          fixture {} bytes, asset {} bytes",
         fixture.len(),
         asset.len()
+    );
+}
+
+/// srs-rust#1180: the bundled seed must carry the binary's current data-model
+/// revision at all times. A lagging seed is what made srs-bindings-web ship a
+/// revision-8 seed after the revision-9 (RFC-046) bump landed — a document
+/// created from it then prompted for a migration in srs-web immediately on
+/// re-import (the-greenman/srs-web#360). When `CURRENT_DATA_MODEL_REVISION`
+/// moves, this test goes red until the seed is re-stamped with
+/// `srs repo apply-migration --id <new-migration-id> --repo
+/// crates/srs-gov/assets/governance-seed.srsj` (and the fixture copy).
+#[test]
+fn seed_is_stamped_at_the_current_data_model_revision() {
+    let raw = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/governance-seed.srsj"
+    ))
+    .expect("governance-seed.srsj fixture must exist");
+    let seed: serde_json::Value = serde_json::from_str(&raw).expect("seed must parse as JSON");
+
+    let revision = seed["manifest"]["dataModelRevision"]
+        .as_u64()
+        .expect("manifest.dataModelRevision must be a stamped integer");
+
+    assert_eq!(
+        revision, CURRENT_DATA_MODEL_REVISION,
+        "governance-seed.srsj is stamped at dataModelRevision {revision}, but the binary's \
+         current revision is {CURRENT_DATA_MODEL_REVISION} — re-stamp the seed (both the \
+         srs-gov asset and this fixture copy) via `srs repo apply-migration`"
     );
 }

@@ -22,7 +22,7 @@ use srs_core::validation::relation_type_definition::validate_relation_type_defin
 use srs_core::validation::theme::validate_theme;
 use srs_core::validation::view::{validate_composition, validate_view};
 use srs_schema::{NOTE_SCHEMA_ID, RECORD_SCHEMA_ID};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -172,6 +172,67 @@ pub(crate) fn relation_object_from_value(
 // RepositoryStore trait
 // ---------------------------------------------------------------------------
 
+/// What kind of stored entity a [`ChangeEntry`] concerns (ADR-049).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ChangeTarget {
+    Instance,
+    Relation,
+    Container,
+}
+
+impl ChangeTarget {
+    /// Classify a repo-relative path; package, manifest and source-document paths are not recorded.
+    fn from_path(rel: &str) -> Option<Self> {
+        if rel.starts_with("records/") {
+            Some(Self::Instance)
+        } else if rel.starts_with("relations/") {
+            Some(Self::Relation)
+        } else if rel.starts_with("containers/") {
+            Some(Self::Container)
+        } else {
+            None
+        }
+    }
+
+    fn id_key(self) -> &'static str {
+        match self {
+            Self::Instance => "instanceId",
+            Self::Relation => "relationId",
+            Self::Container => "containerId",
+        }
+    }
+}
+
+/// How a [`ChangeEntry`]'s entity changed (ADR-049). A container member move is `Updated`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ChangeKind {
+    Created,
+    Updated,
+    Deleted,
+}
+
+/// One entity written since the last [`RepositoryStore::drain_changes`] (ADR-049).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ChangeEntry {
+    pub target: ChangeTarget,
+    pub id: String,
+    pub kind: ChangeKind,
+    /// Relation entries only: the edge's endpoints (srs-rust#1205), so a client can
+    /// find the instances a changed relation touches without a read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_instance_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_instance_id: Option<String>,
+}
+
+/// Relation endpoints read from a stored relation object's JSON.
+fn relation_ends(v: &serde_json::Value) -> Option<(String, String)> {
+    let get = |k: &str| v.get(k)?.as_str().map(str::to_string);
+    Some((get("sourceInstanceId")?, get("targetInstanceId")?))
+}
+
 /// Abstracts all I/O operations performed by service functions.
 ///
 /// Service functions accept `&dyn RepositoryStore` so the storage backend
@@ -192,6 +253,30 @@ pub trait RepositoryStore {
 
     fn load_manifest(&self) -> Result<Manifest, RepositoryError>;
     fn save_manifest(&self, manifest: &Manifest) -> Result<(), RepositoryError>;
+
+    /// RFC-046 session actor: host-supplied raw JSON (CLI env, MCP/WASM host
+    /// setter), `None` for an unattributed session. Never read from a request.
+    /// Validated only when a creating operation needs it
+    /// ([`crate::actor_service::creation_actor`]) so an invalid one yields
+    /// `actor-invalid` rather than silently meaning "no actor" ([R12]).
+    fn session_actor(&self) -> Option<serde_json::Value> {
+        None
+    }
+
+    /// Host-only setter for [`RepositoryStore::session_actor`] (adapters call this;
+    /// requests never do). A no-op for stores that cannot carry a session actor.
+    fn set_session_actor(&self, _actor: Option<serde_json::Value>) {}
+
+    /// Take the record/relation/container changes written since the last drain
+    /// (ADR-049). Session telemetry, never persisted. Stores that do not record
+    /// return none.
+    fn drain_changes(&self) -> Vec<ChangeEntry> {
+        Vec::new()
+    }
+
+    /// Opt in to (or out of) change recording (ADR-049). Off by default so paths
+    /// that never drain (CLI, bulk import) pay nothing. A no-op for stores that do not record.
+    fn set_change_recording(&self, _on: bool) {}
 
     // --- Batch write mode (ADR-021) ---
     //
@@ -817,7 +902,10 @@ pub trait RepositoryStore {
     // and MemoryStore override with the one shared walker in `crate::catalog`.
 
     /// Enumerate the repository into a [`crate::catalog::RepositoryCatalog`].
-    fn catalog(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+    ///
+    /// Returned as the store's shared snapshot (`Rc`): stores that memoize hand out the
+    /// memo itself, so a per-id lookup never deep-copies the whole repository.
+    fn catalog(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
         Err(RepositoryError::CatalogUnsupported)
     }
 
@@ -825,7 +913,7 @@ pub trait RepositoryStore {
     /// the repair seam (ADR-045). Every diagnostic travels in the result instead
     /// of failing the call, so an operation that can only *reduce* incoherence
     /// still works on a repository no ordinary command can load.
-    fn catalog_unchecked(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+    fn catalog_unchecked(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
         Err(RepositoryError::CatalogUnsupported)
     }
 
@@ -835,7 +923,17 @@ pub trait RepositoryStore {
     fn catalog_validity_token(&self) -> Result<String, RepositoryError> {
         Err(RepositoryError::CatalogUnsupported)
     }
+
+    /// Store-scoped memo slot for the discovery index (srs-rust#1228), emptied
+    /// whenever the store's write epoch moves, like the catalog memo. `None` (the
+    /// default) means the store cannot memoize and the index is rebuilt per query.
+    fn discovery_index_cache(&self) -> Option<&DiscoveryIndexCache> {
+        None
+    }
 }
+
+/// See [`RepositoryStore::discovery_index_cache`].
+pub type DiscoveryIndexCache = RefCell<Option<Rc<dyn crate::discovery_index::DiscoveryIndex>>>;
 
 // ---------------------------------------------------------------------------
 // FileStore — file-backed implementation
@@ -866,15 +964,31 @@ pub struct FileStore {
     /// requests. `RefCell` (not `Mutex`) because `FileStore` already holds an
     /// `Rc<dyn Vfs>` and is single-threaded by construction.
     ///
-    /// ponytail: two live `FileStore` instances over the same directory do
-    /// not see each other's writes (each has its own cache, and neither
-    /// invalidates the other's). Out of scope: store lifetime is one
-    /// command/request, never shared across concurrent writers.
+    /// Clones of one store share a write epoch (see `epoch`), so they do see
+    /// each other's writes. ponytail: two independently constructed
+    /// `FileStore`s over the same directory still do not; out of scope.
     catalog_cache: RefCell<Option<Rc<crate::catalog::RepositoryCatalog>>>,
     /// Separate memo for `catalog_unchecked()` (build) — it returns a
     /// different (unchecked) snapshot than `catalog()` (build_checked) and
     /// must never serve the other's cached value.
     catalog_unchecked_cache: RefCell<Option<Rc<crate::catalog::RepositoryCatalog>>>,
+    /// Discovery index memo (srs-rust#1228); dropped with the catalogs on a write.
+    discovery_index_cache: DiscoveryIndexCache,
+    /// Write generation shared by every clone of this store (they share one
+    /// `Rc<dyn Vfs>`): a write through any clone bumps it, and each handle drops
+    /// its memoized catalogs when its own `cache_epoch` is behind (srs-rust#1057:
+    /// a browser MCP session and the UI repository handle share one VFS).
+    epoch: Rc<Cell<u64>>,
+    cache_epoch: Cell<u64>,
+    /// RFC-046 session actor (raw, unvalidated JSON) — see
+    /// [`RepositoryStore::session_actor`].
+    session_actor: RefCell<Option<serde_json::Value>>,
+    /// Write recorder (ADR-049): shared by every clone like `epoch`; drained by
+    /// [`RepositoryStore::drain_changes`]. Coalesced per `(target, id)`, so it is
+    /// bounded by the number of distinct entities written.
+    changes: Rc<RefCell<Vec<(String, ChangeEntry)>>>,
+    /// Opt-in (shared by clones): CLI and bulk paths never drain, so they never record.
+    recording: Rc<Cell<bool>>,
 }
 
 // Manual Clone: `#[derive(Clone)]` would carry the cached `Rc<RepositoryCatalog>`
@@ -891,6 +1005,12 @@ impl Clone for FileStore {
             rfc038_exempt: self.rfc038_exempt,
             catalog_cache: RefCell::new(None),
             catalog_unchecked_cache: RefCell::new(None),
+            discovery_index_cache: RefCell::new(None),
+            epoch: self.epoch.clone(),
+            cache_epoch: Cell::new(self.epoch.get()),
+            session_actor: RefCell::new(self.session_actor.borrow().clone()),
+            changes: self.changes.clone(),
+            recording: self.recording.clone(),
         }
     }
 }
@@ -905,6 +1025,12 @@ impl FileStore {
             rfc038_exempt: false,
             catalog_cache: RefCell::new(None),
             catalog_unchecked_cache: RefCell::new(None),
+            discovery_index_cache: RefCell::new(None),
+            epoch: Rc::new(Cell::new(0)),
+            cache_epoch: Cell::new(0),
+            session_actor: RefCell::new(None),
+            changes: Rc::default(),
+            recording: Rc::default(),
         }
     }
 
@@ -917,6 +1043,12 @@ impl FileStore {
             rfc038_exempt: false,
             catalog_cache: RefCell::new(None),
             catalog_unchecked_cache: RefCell::new(None),
+            discovery_index_cache: RefCell::new(None),
+            epoch: Rc::new(Cell::new(0)),
+            cache_epoch: Cell::new(0),
+            session_actor: RefCell::new(None),
+            changes: Rc::default(),
+            recording: Rc::default(),
         }
     }
 
@@ -999,44 +1131,130 @@ impl FileStore {
     // `delete_file` above or these wrappers, so the cache can never see a
     // write it didn't invalidate for.
 
-    fn invalidate_catalog_cache(&self) {
-        self.catalog_cache.borrow_mut().take();
-        self.catalog_unchecked_cache.borrow_mut().take();
+    /// Monotonic write generation shared by every clone of this store: it
+    /// advances iff a mutation reached the underlying VFS (srs-rust#1139).
+    pub fn write_epoch(&self) -> u64 {
+        self.epoch.get()
     }
 
-    /// Rc-returning core of `catalog()`: populate-or-hit the memo without the
-    /// callers of the public-by-value `catalog()` cloning the whole
-    /// `RepositoryCatalog` on every access.
-    ///
-    /// `catalog()` still returns an owned value (trait contract, many call
-    /// sites), so it clones once here. But `find_instance` — the specific
-    /// per-node hot path srs-rust#1108 names (`build_node`/`child_ids` call
-    /// it once per tree node) — reads this Rc directly and clones nothing
-    /// but the single matched entry, which is what turns the fix from "same
-    /// O(nodes x corpus) with a cheaper constant" into an actual O(nodes)
-    /// win: on a corpus with heavy structural revisits (a DAG walked without
-    /// a global visited-node memo — muSrs `repo navigation` calls `find_instance`
-    /// 150k+ times over a ~800-instance corpus by tree depth 3 alone) a full
-    /// per-call catalog clone is itself expensive enough to erase the gain.
-    fn cached_catalog(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
-        if let Some(cached) = self.catalog_cache.borrow().as_ref() {
-            return Ok(cached.clone());
+    fn invalidate_catalog_cache(&self) {
+        self.epoch.set(self.epoch.get() + 1);
+        self.sync_cache_epoch();
+    }
+
+    /// Drop memoized catalogs if any clone of this store has written since
+    /// they were built.
+    fn sync_cache_epoch(&self) {
+        if self.cache_epoch.get() != self.epoch.get() {
+            self.cache_epoch.set(self.epoch.get());
+            self.catalog_cache.borrow_mut().take();
+            self.catalog_unchecked_cache.borrow_mut().take();
+            self.discovery_index_cache.borrow_mut().take();
         }
-        let built = Rc::new(crate::catalog::build_checked(self)?);
-        *self.catalog_cache.borrow_mut() = Some(built.clone());
-        Ok(built)
     }
 
     fn vfs_write(&self, rel: &str, content: &[u8]) -> Result<(), RepositoryError> {
+        let target = ChangeTarget::from_path(rel).filter(|_| self.recording.get());
+        let existed = target.is_some() && self.vfs.exists(rel);
         self.vfs.write(rel, content)?;
         self.invalidate_catalog_cache();
+        if let Some(target) = target {
+            let json = serde_json::from_slice::<serde_json::Value>(content).ok();
+            let id = json
+                .as_ref()
+                .and_then(|v| v.get(target.id_key())?.as_str().map(str::to_string));
+            if let Some(id) = id {
+                let ends = json
+                    .as_ref()
+                    .filter(|_| target == ChangeTarget::Relation)
+                    .and_then(relation_ends);
+                self.record_change(rel, target, id, false, existed, ends);
+            }
+        }
         Ok(())
     }
 
     fn vfs_remove(&self, rel: &str) -> Result<(), RepositoryError> {
+        // Read the id first: after removal only the path is left.
+        let found = ChangeTarget::from_path(rel)
+            .filter(|_| self.recording.get())
+            .and_then(|t| {
+                let v: serde_json::Value =
+                    serde_json::from_slice(&self.vfs.read_bytes(rel).ok()?).ok()?;
+                let ends = (t == ChangeTarget::Relation)
+                    .then_some(&v)
+                    .and_then(relation_ends);
+                Some((t, v.get(t.id_key())?.as_str()?.to_string(), ends))
+            });
         self.vfs.remove(rel)?;
         self.invalidate_catalog_cache();
+        if let Some((target, id, ends)) = found {
+            self.record_change(rel, target, id, true, true, ends);
+        }
         Ok(())
+    }
+
+    /// Record one write/removal, coalescing per `(target, id)` and tracking the
+    /// entity's current path (ADR-049). A path move writes one path and removes
+    /// another in either order: a removal at a path other than the entity's
+    /// current one is the old copy going away, not a deletion; created then
+    /// removed at the same path never existed for the client and is dropped.
+    // ponytail: linear scan of the log; it is bounded by distinct ids written between
+    // drains (UI bulk imports in a long session are the ceiling). Key by (target,id) if measured slow.
+    fn record_change(
+        &self,
+        path: &str,
+        target: ChangeTarget,
+        id: String,
+        removal: bool,
+        existed: bool,
+        ends: Option<(String, String)>,
+    ) {
+        let (source_instance_id, target_instance_id) = ends.unzip();
+        let mut log = self.changes.borrow_mut();
+        let pos = log
+            .iter()
+            .position(|(_, c)| c.target == target && c.id == id);
+        let Some(i) = pos else {
+            let kind = match (removal, existed) {
+                (true, _) => ChangeKind::Deleted,
+                (false, true) => ChangeKind::Updated,
+                (false, false) => ChangeKind::Created,
+            };
+            log.push((
+                path.into(),
+                ChangeEntry {
+                    target,
+                    id,
+                    kind,
+                    source_instance_id,
+                    target_instance_id,
+                },
+            ));
+            return;
+        };
+        let (cur_path, entry) = &mut log[i];
+        if source_instance_id.is_some() {
+            entry.source_instance_id = source_instance_id;
+            entry.target_instance_id = target_instance_id;
+        }
+        if removal {
+            if cur_path != path {
+                // The old copy going away proves the id existed before: a move.
+                if entry.kind == ChangeKind::Created {
+                    entry.kind = ChangeKind::Updated;
+                }
+            } else if entry.kind == ChangeKind::Created {
+                log.remove(i);
+            } else {
+                entry.kind = ChangeKind::Deleted;
+            }
+        } else {
+            *cur_path = path.into();
+            if entry.kind == ChangeKind::Deleted {
+                entry.kind = ChangeKind::Updated;
+            }
+        }
     }
 
     fn vfs_create_dir_all(&self, rel: &str) -> Result<(), RepositoryError> {
@@ -1071,7 +1289,7 @@ struct PackageMetadata {
     blueprints: Vec<String>,
     #[serde(default)]
     protocols: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::package::lenient_dependency_refs")]
     package_dependencies: Vec<crate::package::DependencyRef>,
     #[serde(default)]
     vocabularies: Vec<String>,
@@ -1290,6 +1508,28 @@ fn load_package_from_dir(
 }
 
 impl RepositoryStore for FileStore {
+    fn set_change_recording(&self, on: bool) {
+        self.recording.set(on);
+        if !on {
+            self.changes.borrow_mut().clear();
+        }
+    }
+
+    fn drain_changes(&self) -> Vec<ChangeEntry> {
+        std::mem::take(&mut *self.changes.borrow_mut())
+            .into_iter()
+            .map(|(_, c)| c)
+            .collect()
+    }
+
+    fn session_actor(&self) -> Option<serde_json::Value> {
+        self.session_actor.borrow().clone()
+    }
+
+    fn set_session_actor(&self, actor: Option<serde_json::Value>) {
+        *self.session_actor.borrow_mut() = actor;
+    }
+
     fn rfc038_exempt(&self) -> bool {
         self.rfc038_exempt
     }
@@ -1455,9 +1695,12 @@ impl RepositoryStore for FileStore {
             mut vocabularies,
         ) = load_package_from_dir(self.vfs(), "package", &self.repo_root, &mut rt_by_type)?;
 
-        // Merge sub-packages from manifest packageRefs
+        // Merge sub-packages from manifest packageRefs (packageRefs wins over
+        // the singular packageRef entirely — srs-rust#1225, see
+        // `manifest::resolve_package_refs`).
         let manifest = self.load_manifest()?;
-        if let Some(pkg_refs) = manifest.extra.get("packageRefs").and_then(|v| v.as_array()) {
+        let pkg_refs = crate::manifest::resolve_package_refs(&manifest);
+        if !pkg_refs.is_empty() {
             let mut field_sources: HashMap<String, PathBuf> = HashMap::new();
             let mut type_sources: HashMap<(String, u32), PathBuf> = HashMap::new();
             let mut view_sources: HashMap<String, PathBuf> = HashMap::new();
@@ -1501,10 +1744,20 @@ impl RepositoryStore for FileStore {
                     None => continue,
                 };
                 let sub_dir = self.repo_root.join(rel_path);
-                if !self.vfs.is_file(&vfs_join(rel_path, "package.json")) {
+                let sub_pkg_json_rel = vfs_join(rel_path, "package.json");
+                if !self.vfs.is_file(&sub_pkg_json_rel) {
                     return Err(RepositoryError::PackageRefMissing {
                         path: rel_path.to_string(),
                     });
+                }
+                // Deduped by resolved package id, matching `installed_set`: a
+                // ref that resolves back to the primary (e.g. `{mode: local,
+                // path: "package"}`) does not get merged twice (srs-rust#1225).
+                if let Ok(sub_pkg_json) = self.read_json(&sub_pkg_json_rel) {
+                    if sub_pkg_json.get("id").and_then(|v| v.as_str()) == Some(metadata.id.as_str())
+                    {
+                        continue;
+                    }
                 }
                 let (
                     sub_fields,
@@ -2004,39 +2257,36 @@ impl RepositoryStore for FileStore {
 
     // --- Catalog (RFC-038; one walker over the Vfs seam: DiskVfs and MemVfs) ---
 
-    fn catalog(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+    fn catalog(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
         // srs-rust#1108: memoized per FileStore instance. Every mutation path
         // (vfs_write/vfs_remove/vfs_create_dir_all above) clears this before
-        // the next read, so a hit here is always current for this store's
-        // lifetime (one CLI command / one srs-mcp request). See
-        // `cached_catalog` for why the hottest reader (`find_instance`,
-        // overridden below) bypasses this by-value clone.
-        Ok((*self.cached_catalog()?).clone())
+        // the next read, so a hit here is always current. The memo is handed
+        // out as the shared Rc: a per-id lookup (`load_record_by_id` per
+        // listed record) cloning the whole catalog made listings O(n^2).
+        self.sync_cache_epoch();
+        if let Some(cached) = self.catalog_cache.borrow().as_ref() {
+            return Ok(cached.clone());
+        }
+        let built = Rc::new(crate::catalog::build_checked(self)?);
+        *self.catalog_cache.borrow_mut() = Some(built.clone());
+        Ok(built)
     }
 
-    /// Override the trait default: read the memoized catalog through the Rc
-    /// (`cached_catalog`) instead of `catalog()`'s owned clone. `find_instance`
-    /// is the per-tree-node hot path srs-rust#1108 names, and the default's
-    /// `let cat = self.catalog()?` clones every entry in the whole repository
-    /// just to search it once and discard it.
-    fn find_instance(&self, instance_id: &str) -> Result<Option<InstanceRef>, RepositoryError> {
-        let cat = self.cached_catalog()?;
-        let Some(entry) = cat.instances.iter().find(|e| e.id == instance_id) else {
-            return Ok(None);
-        };
-        Ok(Some(catalog_instance_ref(self, entry)?))
+    fn discovery_index_cache(&self) -> Option<&DiscoveryIndexCache> {
+        self.sync_cache_epoch();
+        Some(&self.discovery_index_cache)
     }
 
-    fn catalog_unchecked(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+    fn catalog_unchecked(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
         // Separate memo from `catalog()` — build() and build_checked() return
         // different snapshots; never let one serve the other's cache.
+        self.sync_cache_epoch();
         if let Some(cached) = self.catalog_unchecked_cache.borrow().as_ref() {
-            return Ok((**cached).clone());
+            return Ok(cached.clone());
         }
-        let built = crate::catalog::build(self)?;
-        let built = Rc::new(built);
+        let built = Rc::new(crate::catalog::build(self)?);
         *self.catalog_unchecked_cache.borrow_mut() = Some(built.clone());
-        Ok((*built).clone())
+        Ok(built)
     }
 
     fn catalog_validity_token(&self) -> Result<String, RepositoryError> {
@@ -2112,23 +2362,30 @@ impl RepositoryStore for FileStore {
 
         // Primary package
         let primary_json = self.read_json("package/package.json")?;
-        result.push(PackageBoundary::from_pkg_json(&primary_json, None));
+        let primary = PackageBoundary::from_pkg_json(&primary_json, None);
+        let primary_id = primary.id.clone();
+        result.push(primary);
 
-        // Sub-packages from manifest packageRefs
+        // Sub-packages from manifest packageRefs (packageRefs wins over the
+        // singular packageRef entirely; a singular-only manifest resolves to
+        // that one ref — srs-rust#1225, see `manifest::resolve_package_refs`).
+        // Deduped by resolved package id, matching `installed_set`: a ref
+        // that resolves back to the primary (e.g. `{mode: local, path:
+        // "package"}`) does not count twice.
         let manifest = self.load_manifest()?;
-        if let Some(refs) = manifest.extra.get("packageRefs").and_then(|v| v.as_array()) {
-            for pkg_ref in refs {
-                if pkg_ref.get("mode").and_then(|m| m.as_str()) != Some("local") {
-                    continue;
-                }
-                if let Some(path) = pkg_ref.get("path").and_then(|p| p.as_str()) {
-                    let pkg_json_rel = vfs_join(path, "package.json");
-                    if let Ok(pkg_json) = self.read_json(&pkg_json_rel) {
-                        result.push(PackageBoundary::from_pkg_json(
-                            &pkg_json,
-                            Some(path.to_string()),
-                        ));
+        for pkg_ref in crate::manifest::resolve_package_refs(&manifest) {
+            if pkg_ref.get("mode").and_then(|m| m.as_str()) != Some("local") {
+                continue;
+            }
+            if let Some(path) = pkg_ref.get("path").and_then(|p| p.as_str()) {
+                let pkg_json_rel = vfs_join(path, "package.json");
+                if let Ok(pkg_json) = self.read_json(&pkg_json_rel) {
+                    let boundary =
+                        PackageBoundary::from_pkg_json(&pkg_json, Some(path.to_string()));
+                    if boundary.id == primary_id {
+                        continue;
                     }
+                    result.push(boundary);
                 }
             }
         }
@@ -2191,6 +2448,9 @@ impl RepositoryStore for FileStore {
             );
             obj.insert("name".to_string(), serde_json::json!(boundary.name));
             obj.insert("version".to_string(), serde_json::json!(boundary.version));
+            if let Some(deps) = &boundary.package_dependencies {
+                obj.insert("packageDependencies".to_string(), serde_json::json!(deps));
+            }
         }
         self.write_json(&pkg_json_rel, &pkg_json)
     }
@@ -2393,9 +2653,9 @@ fn catalog_require_instance_locator<S: RepositoryStore + ?Sized>(
 ) -> Result<String, RepositoryError> {
     let cat = store.catalog()?;
     cat.instances
-        .into_iter()
+        .iter()
         .find(|e| e.id == instance_id)
-        .and_then(|e| e.locator)
+        .and_then(|e| e.locator.clone())
         .ok_or_else(|| RepositoryError::InstanceNotFound {
             id: instance_id.to_string(),
         })
@@ -2456,9 +2716,9 @@ fn catalog_save_instance<S: RepositoryStore + ?Sized>(
     let cat = store.catalog()?;
     let existing = cat
         .instances
-        .into_iter()
+        .iter()
         .find(|e| e.id == instance_id)
-        .and_then(|e| e.locator);
+        .and_then(|e| e.locator.clone());
     let path = match existing {
         Some(p) => p,
         None => {
@@ -2482,7 +2742,7 @@ fn catalog_file_container_locator<S: RepositoryStore + ?Sized>(
     store: &S,
     container_id: &str,
 ) -> Result<Option<String>, RepositoryError> {
-    Ok(file_container_locator_in(store.catalog()?, container_id))
+    Ok(file_container_locator_in(&*store.catalog()?, container_id))
 }
 
 /// [`catalog_file_container_locator`] over the **unchecked** builder: a fatal
@@ -2493,20 +2753,20 @@ fn unchecked_file_container_locator<S: RepositoryStore + ?Sized>(
     container_id: &str,
 ) -> Result<Option<String>, RepositoryError> {
     Ok(file_container_locator_in(
-        store.catalog_unchecked()?,
+        &*store.catalog_unchecked()?,
         container_id,
     ))
 }
 
 fn file_container_locator_in(
-    cat: crate::catalog::RepositoryCatalog,
+    cat: &crate::catalog::RepositoryCatalog,
     container_id: &str,
 ) -> Option<String> {
     cat.containers
-        .into_iter()
+        .iter()
         .filter(|e| e.locator.as_deref() != Some(crate::catalog::ROOT_CONTAINER_LOCATOR))
         .find(|e| e.id == container_id)
-        .and_then(|e| e.locator)
+        .and_then(|e| e.locator.clone())
 }
 
 /// The body shared by `load_container` and `load_container_unchecked` — the two
@@ -2713,6 +2973,7 @@ pub mod memory {
                 relation_type_paths: vec![],
                 lifecycle_paths: vec![],
                 composition_paths: vec![],
+                package_dependencies: None,
             };
             let mut boundaries = HashMap::new();
             boundaries.insert(None, primary_boundary);
@@ -3595,11 +3856,13 @@ pub mod memory {
         // --- Catalog (RFC-038): the shared walker enumerates this store's
         // object maps through `list_files_recursive`/`load_instance_json` ---
 
-        fn catalog(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
-            crate::catalog::build_checked(self)
+        fn catalog(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
+            crate::catalog::build_checked(self).map(Rc::new)
         }
 
-        fn catalog_unchecked(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+        fn catalog_unchecked(
+            &self,
+        ) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
             let should_fail = matches!(*self.fail_at.borrow(), Some(FailPoint::CatalogUnchecked));
             if should_fail {
                 *self.fail_at.borrow_mut() = None;
@@ -3608,7 +3871,7 @@ pub mod memory {
                     source: std::io::Error::other("injected fault: catalog_unchecked"),
                 });
             }
-            crate::catalog::build(self)
+            crate::catalog::build(self).map(Rc::new)
         }
 
         fn catalog_validity_token(&self) -> Result<String, RepositoryError> {
@@ -3799,6 +4062,7 @@ pub mod memory {
             entry.namespace = boundary.namespace.clone();
             entry.name = boundary.name.clone();
             entry.version = boundary.version.clone();
+            entry.package_dependencies = boundary.package_dependencies.clone();
             // field_paths and type_paths intentionally not updated — managed by
             // add_definition_to_boundary / remove_definition_from_boundary only.
             Ok(())
@@ -3828,6 +4092,7 @@ pub mod memory {
                     relation_type_paths: vec![],
                     lifecycle_paths: vec![],
                     composition_paths: vec![],
+                    package_dependencies: None,
                 }
             });
             drop(boundaries);
@@ -4314,6 +4579,177 @@ mod tests {
         assert_eq!(loaded["instanceId"], "abc-123");
     }
 
+    // --- ADR-049 write recorder ---
+
+    fn mem_file_store() -> FileStore {
+        FileStore::from_vfs(Rc::new(MemVfs::new()))
+    }
+
+    fn entry(target: ChangeTarget, id: &str, kind: ChangeKind) -> ChangeEntry {
+        ChangeEntry {
+            target,
+            id: id.into(),
+            kind,
+            source_instance_id: None,
+            target_instance_id: None,
+        }
+    }
+
+    #[test]
+    fn recorder_reports_create_update_delete_and_coalesces() {
+        let store = mem_file_store();
+        store.set_change_recording(true);
+        let clone = store.clone();
+        let rec = serde_json::json!({ "instanceId": "r1" });
+        store
+            .save_instance_json("records/tier-2/r1.json", &rec)
+            .unwrap();
+        // created then updated stays created (clones share the buffer)
+        clone
+            .save_instance_json("records/tier-2/r1.json", &rec)
+            .unwrap();
+        store
+            .save_instance_json(
+                "relations/x.json",
+                &serde_json::json!({ "relationId": "x" }),
+            )
+            .unwrap();
+        store
+            .save_instance_json(
+                "containers/c.json",
+                &serde_json::json!({ "containerId": "c" }),
+            )
+            .unwrap();
+        // not an instance/relation/container path, and no id: unrecorded
+        store
+            .save_instance_json("package/p.json", &serde_json::json!({ "id": "p" }))
+            .unwrap();
+        store
+            .save_instance_json("records/tier-2/noid.json", &serde_json::json!({}))
+            .unwrap();
+        assert_eq!(
+            store.drain_changes(),
+            vec![
+                entry(ChangeTarget::Instance, "r1", ChangeKind::Created),
+                entry(ChangeTarget::Relation, "x", ChangeKind::Created),
+                entry(ChangeTarget::Container, "c", ChangeKind::Created),
+            ]
+        );
+        assert!(store.drain_changes().is_empty(), "drain empties the buffer");
+
+        store
+            .save_instance_json("records/tier-2/r1.json", &rec)
+            .unwrap();
+        store.delete_instance_file("relations/x.json").unwrap();
+        assert_eq!(
+            store.drain_changes(),
+            vec![
+                entry(ChangeTarget::Instance, "r1", ChangeKind::Updated),
+                entry(ChangeTarget::Relation, "x", ChangeKind::Deleted),
+            ]
+        );
+
+        // created then deleted at the same path in one window never existed: dropped
+        store
+            .save_instance_json(
+                "records/tier-2/t.json",
+                &serde_json::json!({ "instanceId": "t" }),
+            )
+            .unwrap();
+        store.delete_instance_file("records/tier-2/t.json").unwrap();
+        assert_eq!(store.drain_changes(), vec![]);
+        // path move, new path written first then old removed: the id survives
+        store
+            .save_instance_json(
+                "records/tier-2/n1.json",
+                &serde_json::json!({ "instanceId": "n" }),
+            )
+            .unwrap();
+        store.drain_changes();
+        store
+            .save_instance_json(
+                "records/tier-2/n2.json",
+                &serde_json::json!({ "instanceId": "n" }),
+            )
+            .unwrap();
+        store
+            .delete_instance_file("records/tier-2/n1.json")
+            .unwrap();
+        assert_eq!(
+            store.drain_changes(),
+            vec![entry(ChangeTarget::Instance, "n", ChangeKind::Updated)]
+        );
+        store
+            .save_instance_json(
+                "records/tier-2/m1.json",
+                &serde_json::json!({ "instanceId": "m" }),
+            )
+            .unwrap();
+        store.drain_changes();
+        store
+            .delete_instance_file("records/tier-2/m1.json")
+            .unwrap();
+        store
+            .save_instance_json(
+                "records/tier-2/m2.json",
+                &serde_json::json!({ "instanceId": "m" }),
+            )
+            .unwrap();
+        assert_eq!(
+            store.drain_changes(),
+            vec![entry(ChangeTarget::Instance, "m", ChangeKind::Updated)]
+        );
+        // removing an absent / id-less file records nothing
+        let _ = store.delete_instance_file("records/tier-2/absent.json");
+        assert!(store.drain_changes().is_empty());
+        store.set_change_recording(false);
+        store
+            .save_instance_json(
+                "records/tier-2/q.json",
+                &serde_json::json!({ "instanceId": "q" }),
+            )
+            .unwrap();
+        assert!(
+            store.drain_changes().is_empty(),
+            "off by default / when disabled"
+        );
+    }
+
+    #[test]
+    fn recorder_is_empty_when_epoch_unmoved() {
+        let store = mem_file_store();
+        store
+            .save_instance_json(
+                "records/tier-2/a.json",
+                &serde_json::json!({ "instanceId": "a" }),
+            )
+            .unwrap();
+        store.drain_changes();
+        let e = store.write_epoch();
+        let _ = store.load_instance_json("records/tier-2/a.json").unwrap();
+        assert_eq!(store.write_epoch(), e);
+        assert!(store.drain_changes().is_empty());
+    }
+
+    /// Guard (ADR-049): every Vfs mutation must pass through the three recording
+    /// wrappers, or the recorder (and the epoch) would miss it.
+    #[test]
+    fn no_vfs_mutation_bypasses_the_wrappers() {
+        let src = include_str!("store.rs");
+        let prod = &src[..src.find("#[cfg(test)]\nmod tests").expect("tests module")];
+        for needle in [
+            "self.vfs.write(",
+            "self.vfs.remove(",
+            "self.vfs.create_dir_all(",
+        ] {
+            assert_eq!(
+                prod.matches(needle).count(),
+                1,
+                "{needle} must appear only in its wrapper"
+            );
+        }
+    }
+
     #[test]
     fn memory_store_delete_instance_removes_key() {
         let root = std::path::PathBuf::from("/fake");
@@ -4369,7 +4805,6 @@ mod tests {
             description: None,
             container_type: None,
             tags: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             created_at: None,
@@ -4465,6 +4900,7 @@ mod tests {
 
     fn minimal_record_for_store(id: &str, type_name: &str, tags: Option<Vec<String>>) -> Record {
         Record {
+            created_by: None,
             field_meta: None,
             instance_id: id.to_string(),
             type_id: "type-xyz-0001".to_string(),
@@ -4482,6 +4918,7 @@ mod tests {
 
     fn minimal_note_for_store(id: &str, title: &str, tags: Option<Vec<String>>) -> Note {
         Note {
+            created_by: None,
             instance_id: id.to_string(),
             title: Some(title.to_string()),
             tags,
@@ -4556,6 +4993,7 @@ mod tests {
 
     fn minimal_relation_for_store(id: &str) -> srs_core::types::relation::Relation {
         srs_core::types::relation::Relation {
+            created_by: None,
             relation_id: id.to_string(),
             relation_type: "precedes".to_string(),
             source_instance_id: "aaaa0001-0000-4000-a000-000000000001".to_string(),
@@ -5582,6 +6020,34 @@ mod tests {
         MemVfs::from_map(files)
     }
 
+    /// A cache hit hands out the memo itself, never a deep copy: per-id lookups
+    /// (`load_record_by_id` once per listed record) cloned the whole catalog
+    /// each, so listing a muSrs-sized repo by type cost ~120 ms in WASM.
+    #[test]
+    fn catalog_hit_shares_the_memo_instead_of_copying_it() {
+        let store = FileStore::from_vfs(std::rc::Rc::new(minimal_mem_repo()));
+        let a = store.catalog().unwrap();
+        assert!(Rc::ptr_eq(&a, &store.catalog().unwrap()));
+        let u = store.catalog_unchecked().unwrap();
+        assert!(Rc::ptr_eq(&u, &store.catalog_unchecked().unwrap()));
+
+        // A write still invalidates: the next read is a fresh snapshot, and a
+        // snapshot held across the write keeps its old contents.
+        let before = a.instances.len();
+        store
+            .save_record(&minimal_record_for_store(
+                "10000000-0000-4000-8000-000000000002",
+                "R",
+                None,
+            ))
+            .unwrap();
+        let c = store.catalog().unwrap();
+        assert!(!Rc::ptr_eq(&a, &c));
+        assert_eq!(a.instances.len(), before);
+        assert_eq!(c.instances.len(), before + 1);
+        assert!(!Rc::ptr_eq(&u, &store.catalog_unchecked().unwrap()));
+    }
+
     #[test]
     fn catalog_is_memoized_across_repeated_lookups() {
         let counting = std::rc::Rc::new(CountingVfs::new(minimal_mem_repo()));
@@ -5642,6 +6108,56 @@ mod tests {
             "save_record must invalidate the memoized catalog so the next \
              lookup sees the new instance"
         );
+    }
+
+    /// srs-rust#1228: the discovery index memo dies with the catalog memo on any write.
+    #[test]
+    fn discovery_index_cache_invalidated_by_record_save() {
+        #[derive(Debug)]
+        struct Stub;
+        impl crate::discovery_index::DiscoveryIndex for Stub {
+            fn score(&self, _: &[String], c: &[&str]) -> Vec<f32> {
+                vec![0.0; c.len()]
+            }
+            fn top_terms(&self, _: &str, _: usize) -> Option<Vec<String>> {
+                None
+            }
+        }
+        let temp = tempfile::TempDir::new().unwrap();
+        write_catalog_ready_file_repo(&temp);
+        let store = FileStore::new(temp.path());
+        *store.discovery_index_cache().unwrap().borrow_mut() = Some(Rc::new(Stub));
+        assert!(store.discovery_index_cache().unwrap().borrow().is_some());
+        store
+            .save_record(&minimal_record_for_store(
+                "20000000-0000-4000-8000-000000000001",
+                "R",
+                None,
+            ))
+            .unwrap();
+        assert!(store.discovery_index_cache().unwrap().borrow().is_none());
+    }
+
+    /// srs-rust#1057: clones share one VFS, so a write through one clone must
+    /// invalidate the memoized catalog of every other clone.
+    #[test]
+    fn catalog_cache_invalidated_by_write_through_a_clone() {
+        let temp = tempfile::TempDir::new().unwrap();
+        write_catalog_ready_file_repo(&temp);
+        let store = FileStore::new(temp.path());
+        let clone = store.clone();
+        let id = "20000000-0000-4000-8000-000000000001";
+
+        // Warm both caches.
+        assert!(store.find_instance(id).unwrap().is_none());
+        assert!(clone.find_instance(id).unwrap().is_none());
+
+        clone
+            .save_record(&minimal_record_for_store(id, "R", None))
+            .unwrap();
+
+        assert!(store.find_instance(id).unwrap().is_some());
+        assert!(clone.find_instance(id).unwrap().is_some());
     }
 
     #[test]
@@ -5739,6 +6255,7 @@ mod tests {
         for (i, (from, to)) in edges.iter().enumerate() {
             store
                 .save_relation(&srs_core::types::relation::Relation {
+                    created_by: None,
                     relation_id: format!("60000000-0000-4000-a000-{i:012}"),
                     relation_type: "contains".to_string(),
                     source_instance_id: from.to_string(),

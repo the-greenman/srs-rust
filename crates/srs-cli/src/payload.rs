@@ -19,6 +19,7 @@
 
 use schemars::JsonSchema;
 use serde::Serialize;
+use srs_core::types::view::RecordProperty as SvcRecordProperty;
 use srs_core::types::{
     container::Container,
     field::FieldType,
@@ -33,12 +34,16 @@ use srs_core::types::{
     view::{Composition, View},
     vocabulary::Vocabulary,
 };
+use srs_repository::render_service as svc_render;
 use srs_repository::{
     agent_index_service::AgentIndex,
     analysis::{FoundationNoteSet, RepoMap, TagAudit},
     container_service::ContainerSummary,
     container_view_service::ContainerView,
-    discovery_service::DiscoveryResult,
+    context_query_service::{EdgeDirection, NeighbourEdge, NeighbourSummary, NeighboursResult},
+    discovery_service::{
+        DiscoveryFacets, DiscoveryHit, DiscoveryResult, FacetCount, FacetCounts, FieldFacet,
+    },
     protocol_run_service::RunSummary,
     record_store::{
         AllowedLifecycleTransitionsResult, LifecycleTransitionOption, ListRecordTagsResult,
@@ -567,6 +572,30 @@ pub struct ContainerListPayload {
     pub containers: Vec<ContainerSummary>,
 }
 
+/// Payload for `container copy` (srs-rust#1136): the new container plus the anchor fork.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerCopyPayload {
+    #[schemars(with = "serde_json::Value")]
+    pub container: Container,
+    /// `[{ originalId, forkId }]` — the anchor fork (empty when the source had no anchor).
+    #[schemars(with = "serde_json::Value")]
+    pub forks: Vec<srs_repository::fork_service::ForkPair>,
+    #[schemars(with = "serde_json::Value")]
+    pub relations: Vec<Relation>,
+}
+
+/// Payload for `record fork` (srs-rust#1136).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordForkPayload {
+    pub container_id: String,
+    #[schemars(with = "serde_json::Value")]
+    pub forks: Vec<srs_repository::fork_service::ForkPair>,
+    #[schemars(with = "serde_json::Value")]
+    pub relations: Vec<Relation>,
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerPayload {
@@ -584,30 +613,39 @@ pub struct ContainerDeletePayload {
 #[serde(rename_all = "camelCase")]
 pub struct ContainerMembersPayload {
     pub container_id: String,
-    pub member_instance_ids: Vec<String>,
+    /// RFC-043 [R15]: the arrangement — `{instanceId, depth?}` entries in order.
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub members: Vec<srs_core::types::container::ContainerEntry>,
+}
+
+/// Issue #1156: the derived outline — `entries` is the whole arrangement and `body` the
+/// document body (anchor and identity entries set aside), each entry carrying
+/// `{instanceId, depth, parentInstanceId, hasChildren, runSize, runEnd}`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerMembersOutlinePayload {
+    pub container_id: String,
+    pub anchor_instance_id: Option<String>,
+    pub identity_instance_id: Option<String>,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub entries: Vec<srs_core::arrangement::OutlineEntry>,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub body: Vec<srs_core::arrangement::OutlineEntry>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerMembersMutatePayload {
     pub container_id: String,
-    pub instance_id: String,
-    pub member_instance_ids: Vec<String>,
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ContainerRootsPayload {
-    pub container_id: String,
-    pub root_instance_ids: Vec<String>,
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ContainerRootsMutatePayload {
-    pub container_id: String,
-    pub instance_id: String,
-    pub root_instance_ids: Vec<String>,
+    /// The entry the operation addressed (absent for `repair`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub members: Vec<srs_core::types::container::ContainerEntry>,
+    /// Entries whose depth a promoting removal lowered ([R7]).
+    pub promoted: Vec<String>,
+    /// Entries the operation removed.
+    pub removed: Vec<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -633,8 +671,294 @@ pub struct ContainerViewPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct FindPayload {
-    #[schemars(with = "serde_json::Value")]
-    pub result: DiscoveryResult,
+    pub result: DiscoveryResultPayload,
+}
+
+/// Payload for `relation neighbours` — a bounded page of an instance's edges, `total` before paging.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NeighboursPayload {
+    pub result: NeighboursResultPayload,
+}
+
+// Declared twins of the service types (ADR-011: schemars stays out of srs-repository; ADR-048
+// rule 3). Field changes break the exhaustive `From` destructuring below; serde-attribute
+// drift is caught by `tests/payload_mirror_fidelity.rs`.
+
+/// Mirrors `discovery_service::DiscoveryResult`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveryResultPayload {
+    pub hits: Vec<DiscoveryHitPayload>,
+    pub total: usize,
+    pub facets: DiscoveryFacetsPayload,
+    pub diagnostics: Vec<String>,
+}
+
+impl From<DiscoveryResult> for DiscoveryResultPayload {
+    fn from(r: DiscoveryResult) -> Self {
+        let DiscoveryResult {
+            hits,
+            total,
+            facets,
+            diagnostics,
+        } = r;
+        Self {
+            hits: hits.into_iter().map(Into::into).collect(),
+            total,
+            facets: facets.into(),
+            diagnostics,
+        }
+    }
+}
+
+/// Mirrors `discovery_service::DiscoveryHit`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveryHitPayload {
+    pub instance_id: String,
+    pub uri: String,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_id: Option<String>,
+    pub container_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_namespace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lifecycle_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
+    pub matched_fields: Vec<String>,
+}
+
+impl From<DiscoveryHit> for DiscoveryHitPayload {
+    fn from(h: DiscoveryHit) -> Self {
+        let DiscoveryHit {
+            instance_id,
+            uri,
+            label,
+            type_id,
+            container_ids,
+            type_namespace,
+            type_name,
+            lifecycle_state,
+            score,
+            snippet,
+            matched_fields,
+        } = h;
+        Self {
+            instance_id,
+            uri,
+            label,
+            type_id,
+            container_ids,
+            type_namespace,
+            type_name,
+            lifecycle_state,
+            score,
+            snippet,
+            matched_fields,
+        }
+    }
+}
+
+/// Mirrors `discovery_service::DiscoveryFacets`; empty/zero parts are omitted.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveryFacetsPayload {
+    #[serde(default, skip_serializing_if = "FacetCountsPayload::is_empty")]
+    pub by_type: FacetCountsPayload,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub notes: usize,
+    #[serde(default, skip_serializing_if = "FacetCountsPayload::is_empty")]
+    pub tags: FacetCountsPayload,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<FieldFacetPayload>,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
+}
+
+impl From<DiscoveryFacets> for DiscoveryFacetsPayload {
+    fn from(f: DiscoveryFacets) -> Self {
+        let DiscoveryFacets {
+            by_type,
+            notes,
+            tags,
+            fields,
+        } = f;
+        Self {
+            by_type: by_type.into(),
+            notes,
+            tags: tags.into(),
+            fields: fields.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Mirrors `discovery_service::FacetCounts`.
+#[derive(Debug, Default, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FacetCountsPayload {
+    pub values: Vec<FacetCountPayload>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub other: usize,
+}
+
+impl FacetCountsPayload {
+    fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+}
+
+impl From<FacetCounts> for FacetCountsPayload {
+    fn from(c: FacetCounts) -> Self {
+        let FacetCounts { values, other } = c;
+        Self {
+            values: values.into_iter().map(Into::into).collect(),
+            other,
+        }
+    }
+}
+
+/// Mirrors `discovery_service::FacetCount`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FacetCountPayload {
+    pub value: String,
+    pub count: usize,
+}
+
+impl From<FacetCount> for FacetCountPayload {
+    fn from(c: FacetCount) -> Self {
+        let FacetCount { value, count } = c;
+        Self { value, count }
+    }
+}
+
+/// Mirrors `discovery_service::FieldFacet` (counts flattened into the object).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldFacetPayload {
+    pub field: String,
+    #[serde(flatten)]
+    pub counts: FacetCountsPayload,
+}
+
+impl From<FieldFacet> for FieldFacetPayload {
+    fn from(f: FieldFacet) -> Self {
+        let FieldFacet { field, counts } = f;
+        Self {
+            field,
+            counts: counts.into(),
+        }
+    }
+}
+
+/// Mirrors `context_query_service::NeighboursResult`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NeighboursResultPayload {
+    pub instance_id: String,
+    pub total: usize,
+    pub neighbours: Vec<NeighbourEdgePayload>,
+}
+
+impl From<NeighboursResult> for NeighboursResultPayload {
+    fn from(r: NeighboursResult) -> Self {
+        let NeighboursResult {
+            instance_id,
+            total,
+            neighbours,
+        } = r;
+        Self {
+            instance_id,
+            total,
+            neighbours: neighbours.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Mirrors `context_query_service::NeighbourEdge`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NeighbourEdgePayload {
+    pub direction: EdgeDirectionPayload,
+    pub relation_id: String,
+    pub relation_type: String,
+    pub neighbour: NeighbourSummaryPayload,
+}
+
+impl From<NeighbourEdge> for NeighbourEdgePayload {
+    fn from(e: NeighbourEdge) -> Self {
+        let NeighbourEdge {
+            direction,
+            relation_id,
+            relation_type,
+            neighbour,
+        } = e;
+        Self {
+            direction: direction.into(),
+            relation_id,
+            relation_type,
+            neighbour: neighbour.into(),
+        }
+    }
+}
+
+/// Mirrors `context_query_service::EdgeDirection`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum EdgeDirectionPayload {
+    Out,
+    In,
+}
+
+impl From<EdgeDirection> for EdgeDirectionPayload {
+    fn from(d: EdgeDirection) -> Self {
+        match d {
+            EdgeDirection::Out => Self::Out,
+            EdgeDirection::In => Self::In,
+        }
+    }
+}
+
+/// Mirrors `context_query_service::NeighbourSummary`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NeighbourSummaryPayload {
+    pub instance_id: String,
+    pub uri: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_namespace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_name: Option<String>,
+}
+
+impl From<NeighbourSummary> for NeighbourSummaryPayload {
+    fn from(n: NeighbourSummary) -> Self {
+        let NeighbourSummary {
+            instance_id,
+            uri,
+            label,
+            type_namespace,
+            type_name,
+        } = n;
+        Self {
+            instance_id,
+            uri,
+            label,
+            type_namespace,
+            type_name,
+        }
+    }
 }
 
 /// Payload for `record validate` — no-write record input validation (preflight).
@@ -1278,8 +1602,12 @@ pub struct ProjectedRecord {
     /// same order/condition as the markdown/html/adoc renderer's structured
     /// heading recursion. Omitted when the section has no `titleFieldId`, or
     /// the record has no `contains` children.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<ProjectedRecord>,
+    /// RFC-043 [R11]: the effective arrangement depth, present when above 0
+    /// (arranged sections only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub depth: Option<u32>,
 }
 
 /// A single section in a JSON projection document.
@@ -1295,7 +1623,7 @@ pub struct ProjectedSection {
     /// `container-subset` source with `containerScope: "subtree"`. Omitted
     /// (never flattened into `records`) when this section renders no
     /// nested section.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sections: Vec<ProjectedSection>,
 }
 
@@ -1313,6 +1641,159 @@ pub struct CompositionProjection {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preamble: Option<String>,
     pub sections: Vec<ProjectedSection>,
+}
+
+// ── Render projection mirrors (ADR-048 rule 3; fidelity: payload_mirror_fidelity.rs) ──
+
+impl From<svc_render::ProjectedRelationTarget> for ProjectedRelationTarget {
+    fn from(t: svc_render::ProjectedRelationTarget) -> Self {
+        let svc_render::ProjectedRelationTarget {
+            instance_id,
+            display_label,
+        } = t;
+        Self {
+            instance_id,
+            display_label,
+        }
+    }
+}
+
+impl From<svc_render::ProjectedRelationDirection> for ProjectedRelationDirection {
+    fn from(d: svc_render::ProjectedRelationDirection) -> Self {
+        match d {
+            svc_render::ProjectedRelationDirection::Forward => Self::Forward,
+            svc_render::ProjectedRelationDirection::Inverse => Self::Inverse,
+        }
+    }
+}
+
+impl From<svc_render::ProjectedRelationRow> for ProjectedRelationRow {
+    fn from(r: svc_render::ProjectedRelationRow) -> Self {
+        let svc_render::ProjectedRelationRow {
+            relation_type,
+            direction,
+            label,
+            targets,
+        } = r;
+        Self {
+            relation_type,
+            direction: direction.into(),
+            label,
+            targets: targets.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<SvcRecordProperty> for ProjectedRecordProperty {
+    fn from(p: SvcRecordProperty) -> Self {
+        match p {
+            SvcRecordProperty::LifecycleState => Self::LifecycleState,
+            SvcRecordProperty::Tags => Self::Tags,
+            SvcRecordProperty::CreatedAt => Self::CreatedAt,
+            SvcRecordProperty::UpdatedAt => Self::UpdatedAt,
+        }
+    }
+}
+
+impl From<svc_render::ProjectedPropertyValue> for ProjectedPropertyValue {
+    fn from(v: svc_render::ProjectedPropertyValue) -> Self {
+        match v {
+            svc_render::ProjectedPropertyValue::Scalar(s) => Self::Scalar(s),
+            svc_render::ProjectedPropertyValue::List(l) => Self::List(l),
+        }
+    }
+}
+
+impl From<svc_render::ProjectedPropertyRow> for ProjectedPropertyRow {
+    fn from(r: svc_render::ProjectedPropertyRow) -> Self {
+        let svc_render::ProjectedPropertyRow {
+            property,
+            label,
+            value,
+        } = r;
+        Self {
+            property: property.into(),
+            label,
+            value: value.into(),
+        }
+    }
+}
+
+impl From<svc_render::ProjectedRecord> for ProjectedRecord {
+    fn from(r: svc_render::ProjectedRecord) -> Self {
+        let svc_render::ProjectedRecord {
+            instance_id,
+            type_id,
+            type_version,
+            type_namespace,
+            type_name,
+            record_heading,
+            preamble,
+            fields,
+            ordered_field_keys,
+            relations,
+            properties,
+            children,
+            depth,
+        } = r;
+        Self {
+            instance_id,
+            type_id,
+            type_version,
+            type_namespace,
+            type_name,
+            record_heading,
+            preamble,
+            fields,
+            ordered_field_keys,
+            relations: relations.map(|v| v.into_iter().map(Into::into).collect()),
+            properties: properties.map(|v| v.into_iter().map(Into::into).collect()),
+            children: children.into_iter().map(Into::into).collect(),
+            depth,
+        }
+    }
+}
+
+impl From<svc_render::ProjectedSection> for ProjectedSection {
+    fn from(s: svc_render::ProjectedSection) -> Self {
+        let svc_render::ProjectedSection {
+            section_id,
+            title,
+            order,
+            records,
+            sections,
+        } = s;
+        Self {
+            section_id,
+            title,
+            order,
+            records: records.into_iter().map(Into::into).collect(),
+            sections: sections.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<svc_render::CompositionProjection> for CompositionProjection {
+    fn from(p: svc_render::CompositionProjection) -> Self {
+        let svc_render::CompositionProjection {
+            schema,
+            composition_id,
+            container_id,
+            generated_at,
+            container_title,
+            preamble,
+            sections,
+        } = p;
+        Self {
+            schema,
+            composition_id,
+            container_id,
+            generated_at,
+            container_title,
+            preamble,
+            sections: sections.into_iter().map(Into::into).collect(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -1535,7 +2016,8 @@ pub struct RepoDiffPayload {
 #[serde(rename_all = "camelCase")]
 pub struct RepoValidatePayload {
     /// Diagnostic entries serialized from `ValidationDiagnostic` objects.
-    /// Each entry contains `severity`, `path`, `schemaId?`, and `message`.
+    /// Each entry contains `severity` (`error`, `warning` or `info`; `info` is
+    /// counted in neither summary total), `path`, `schemaId?`, and `message`.
     pub diagnostics: Vec<serde_json::Value>,
     pub summary: RepoValidateSummary,
 }
@@ -1662,6 +2144,73 @@ pub struct PackageUpdatePayload {
     pub version: String,
 }
 
+/// `package dependency list|add|remove|check` (RFC-044, srs-rust#1168): the
+/// requiring boundary's `packageDependencies` after the operation (for
+/// `check`, the stdin requirement list), each with its consumer-check
+/// outcome. Mirrors `PackageDependenciesResult`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageDependenciesPayload {
+    /// Requiring boundary path; `null` for the primary package and for `check`.
+    pub selector: Option<String>,
+    /// The requiring package's own `id` (for `check`, the input's, possibly empty).
+    pub package_id: String,
+    /// `added` | `updated` | `repaired` | `removed`; `null` for `list` and `check`.
+    pub action: Option<String>,
+    pub dependencies: Vec<PackageDependencyEntry>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageDependencyEntry {
+    /// The required package's `id`; `null` for a legacy entry ([R11]).
+    pub package_id: Option<String>,
+    /// Display label.
+    pub namespace: String,
+    /// Display label.
+    pub name: String,
+    /// SemVer 2.0.0 requirement (RFC-044 [R3]).
+    pub version: String,
+    pub satisfied: bool,
+    /// One of `no-package-id`, `self-requirement`, `missing`,
+    /// `version-unknown`, `incompatible`, `prerelease-excluded`,
+    /// `version-too-low`; `null` when satisfied.
+    pub reason: Option<String>,
+    /// Installed version of each candidate (`null` = unknown).
+    pub candidate_versions: Vec<Option<String>>,
+    /// Candidate `namespace/name` labels that differ from the entry's.
+    pub mismatched_labels: Vec<String>,
+}
+
+impl From<srs_repository::package_dependency_service::PackageDependenciesResult>
+    for PackageDependenciesPayload
+{
+    fn from(r: srs_repository::package_dependency_service::PackageDependenciesResult) -> Self {
+        let text = |v: serde_json::Value| v.as_str().map(str::to_string);
+        Self {
+            selector: r.selector,
+            package_id: r.package_id,
+            action: r
+                .action
+                .and_then(|a| serde_json::to_value(a).ok().and_then(text)),
+            dependencies: r
+                .dependencies
+                .into_iter()
+                .map(|d| PackageDependencyEntry {
+                    package_id: d.entry.package_id,
+                    namespace: d.entry.namespace,
+                    name: d.entry.name,
+                    version: d.entry.version,
+                    satisfied: d.satisfied,
+                    reason: d.reason.map(|r| r.as_str().to_string()),
+                    candidate_versions: d.candidate_versions,
+                    mismatched_labels: d.mismatched_labels,
+                })
+                .collect(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PackageRefPayload {
@@ -1689,6 +2238,116 @@ pub struct PackageInstallPayload {
     pub conflicts: Vec<PackageInstallConflictEntry>,
     /// Per-kind breakdown for kinds present in the source package.
     pub kinds: Vec<PackageInstallKindEntry>,
+    /// Non-fatal `.srspkg` pre-load transformer notes (RFC-043
+    /// `migration-memberorder-dropped`, ...); always empty for a directory install.
+    pub notes: Vec<String>,
+}
+
+impl From<srs_repository::package_install_service::InstallPackageResult> for PackageInstallPayload {
+    fn from(r: srs_repository::package_install_service::InstallPackageResult) -> Self {
+        Self {
+            boundary_path: r.boundary_path,
+            package_id: r.package_id,
+            namespace: r.namespace,
+            name: r.name,
+            version: r.version,
+            installed_at: r.installed_at,
+            installed: r.installed,
+            skipped_identical: r.skipped_identical,
+            conflicts: r
+                .conflicts
+                .into_iter()
+                .map(|c| PackageInstallConflictEntry {
+                    kind: c.kind,
+                    key: c.key,
+                    source_id: c.source_id,
+                    existing_id: c.existing_id,
+                })
+                .collect(),
+            kinds: r
+                .kinds
+                .into_iter()
+                .map(|k| PackageInstallKindEntry {
+                    kind: k.kind,
+                    installed: k.installed,
+                    skipped_identical: k.skipped_identical,
+                    conflicts: k.conflicts,
+                })
+                .collect(),
+            notes: r.notes,
+        }
+    }
+}
+
+/// `srs package export` (ADR-050): the written `.srspkg` and its summary.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageExportPayload {
+    /// Path the `.srspkg` was written to.
+    pub output_path: String,
+    pub package_id: String,
+    pub package_namespace: String,
+    pub package_name: String,
+    pub package_version: String,
+    /// The `dataModelRevision` stamped into the bundle: the repository's own stamp.
+    pub data_model_revision: u64,
+    /// The bundle's `publishedAt`; part of the bytes, so a reproducible sha256
+    /// needs a fixed `--published-at`.
+    pub published_at: String,
+    /// `sha256:<64 lowercase hex>` of the written file's bytes.
+    pub sha256: String,
+    pub byte_length: usize,
+    pub definition_count: usize,
+    /// Ids carried from other package boundaries by the closure (sorted); core
+    /// definitions are listed, never carried.
+    pub inlined: Vec<String>,
+    /// Per-kind counts, install order, non-empty kinds only.
+    pub kinds: Vec<PackageExportKindEntry>,
+    /// Entries in the bundle's `dependencyRefs` (every reached definition).
+    pub dependency_ref_count: usize,
+    /// The bundle's `mode`: `bundled` or `standalone`.
+    pub mode: String,
+    /// Non-fatal export notes (e.g. `bundle-below-reader-floor`).
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageExportKindEntry {
+    pub kind: String,
+    pub count: usize,
+}
+
+impl PackageExportPayload {
+    pub fn new(
+        output_path: String,
+        s: srs_repository::package_bundle::PackageExportSummary,
+    ) -> Self {
+        Self {
+            output_path,
+            package_id: s.package_id,
+            package_namespace: s.package_namespace,
+            package_name: s.package_name,
+            package_version: s.package_version,
+            data_model_revision: s.data_model_revision,
+            published_at: s.published_at,
+            sha256: s.sha256,
+            byte_length: s.byte_length,
+            definition_count: s.definition_count,
+            inlined: s.inlined,
+            kinds: s
+                .kinds
+                .into_iter()
+                .map(|k| PackageExportKindEntry {
+                    kind: k.kind,
+                    count: k.count,
+                })
+                .collect(),
+            dependency_ref_count: s.dependency_ref_count,
+            mode: s.mode.as_str().to_string(),
+            notes: s.notes,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -2142,8 +2801,22 @@ pub struct ContextRecordPayload {
     /// RFC-039 carrier: object keyed by Field.name ([R2b]).
     #[schemars(with = "serde_json::Value")]
     pub field_values: srs_core::types::record::FieldValues,
+    /// BEHAVIOUR CHANGE (#1134): formerly outbound only. Consumers that assumed
+    /// `sourceId == recordId` must check `direction`. Both directions; each entry is a RelationSummary plus `direction` (out|in), the
+    /// other endpoint inline as `neighbour`, and the relation's own optional `createdAt` / `createdBy` (#1246).
     #[schemars(with = "Vec<serde_json::Value>")]
-    pub relations: Vec<srs_repository::relation_service::RelationSummary>,
+    pub relations: Vec<srs_repository::context_query_service::ContextRelation>,
+    /// Present with the global `--container`: the container the arrangement was read from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_id: Option<String>,
+    /// This record's outline entry in `container_id`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<serde_json::Value>")]
+    pub entry: Option<srs_core::arrangement::OutlineEntry>,
+    /// Descendant outline entries of `entry`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<Vec<serde_json::Value>>")]
+    pub subtree: Option<Vec<srs_core::arrangement::OutlineEntry>>,
     pub tagged_chunks: Vec<serde_json::Value>,
     pub protocol_run_history: Vec<serde_json::Value>,
 }
@@ -2375,7 +3048,7 @@ pub struct ExportBundlePayload {
     pub rendered_filename: String,
     pub attachment_count: usize,
     pub output_path: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<String>,
 }
 
@@ -2384,8 +3057,15 @@ pub struct ExportBundlePayload {
 pub struct OkfBundlePayload {
     pub file_count: usize,
     pub output_dir: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RenderMarkdownPayload {
+    /// Safe HTML (raw HTML escaped, link/image URLs restricted); injectable with innerHTML.
+    pub html: String,
 }
 
 // ── Archive payloads ──────────────────────────────────────────────────────────
@@ -2398,6 +3078,24 @@ pub struct OkfBundlePayload {
 pub struct ArchivePackPayload {
     pub output_path: String,
     pub file_size_bytes: u64,
+}
+
+/// Payload for `srs slice export` (RFC-026 container slice, ADR-051).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SliceExportPayload {
+    pub output_path: String,
+    pub file_size_bytes: u64,
+    pub container_id: String,
+    pub slice_repository_id: String,
+    pub origin_repository_id: String,
+    pub exported_at: String,
+    pub instance_count: usize,
+    pub relation_count: usize,
+    pub container_count: usize,
+    pub source_document_count: usize,
+    pub package_count: usize,
+    pub external_relation_ref_count: usize,
 }
 
 /// Payload for `srs archive unpack`.

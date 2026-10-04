@@ -137,6 +137,11 @@ fn relation_list() {
 }
 
 #[test]
+fn relation_neighbours() {
+    check::<NeighboursPayload>("relation-neighbours");
+}
+
+#[test]
 fn relation_get() {
     check::<RelationPayload>("relation-get");
 }
@@ -186,6 +191,16 @@ fn container_get() {
 }
 
 #[test]
+fn container_copy() {
+    check::<ContainerCopyPayload>("container-copy");
+}
+
+#[test]
+fn record_fork() {
+    check::<RecordForkPayload>("record-fork");
+}
+
+#[test]
 fn container_delete() {
     check::<ContainerDeletePayload>("container-delete");
 }
@@ -196,18 +211,23 @@ fn container_members_list() {
 }
 
 #[test]
+fn container_members_outline() {
+    check::<ContainerMembersOutlinePayload>("container-members-outline");
+}
+
+#[test]
 fn container_members_add() {
     check::<ContainerMembersMutatePayload>("container-members-add");
 }
 
 #[test]
-fn container_roots_list() {
-    check::<ContainerRootsPayload>("container-roots-list");
+fn container_members_move() {
+    check::<ContainerMembersMutatePayload>("container-members-move");
 }
 
 #[test]
-fn container_roots_add() {
-    check::<ContainerRootsMutatePayload>("container-roots-add");
+fn container_members_repair() {
+    check::<ContainerMembersMutatePayload>("container-members-repair");
 }
 
 #[test]
@@ -397,6 +417,11 @@ fn composition_delete() {
 // ── Render ────────────────────────────────────────────────────────────────────
 
 #[test]
+fn render_markdown() {
+    check::<RenderMarkdownPayload>("render-markdown");
+}
+
+#[test]
 fn render_composition() {
     check::<RenderCompositionPayload>("render-composition");
 }
@@ -526,6 +551,21 @@ fn package_update() {
 }
 
 #[test]
+fn package_dependencies() {
+    check::<PackageDependenciesPayload>("package-dependencies");
+}
+
+#[test]
+fn package_install() {
+    check::<PackageInstallPayload>("package-install");
+}
+
+#[test]
+fn package_export() {
+    check::<PackageExportPayload>("package-export");
+}
+
+#[test]
 fn package_refs() {
     check::<PackageRefPayload>("package-refs");
 }
@@ -642,4 +682,11 @@ fn attachment_link() {
 #[test]
 fn attachment_resolve_view_attachments() {
     check::<ResolveViewAttachmentsPayload>("attachment-resolve-view-attachments");
+}
+
+// ── Slice ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn slice_export() {
+    check::<SliceExportPayload>("slice-export");
 }

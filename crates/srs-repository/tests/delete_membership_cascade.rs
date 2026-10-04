@@ -68,7 +68,6 @@ fn container(id: &str, title: &str) -> Container {
         container_type: None,
         identity_instance_id: None,
         anchor_instance_id: None,
-        root_instance_ids: None,
         member_instance_ids: None,
         child_container_ids: None,
         tags: None,
@@ -81,6 +80,7 @@ fn container(id: &str, title: &str) -> Container {
 
 fn note(id: &str) -> Note {
     Note {
+        created_by: None,
         instance_id: id.to_string(),
         title: Some("Note".to_string()),
         tags: None,
@@ -98,6 +98,7 @@ fn note(id: &str) -> Note {
 fn populate(store: &dyn RepositoryStore) {
     store
         .save_record(&Record {
+            created_by: None,
             field_meta: None,
             instance_id: RECORD_ID.to_string(),
             type_id: "00000000-0000-4000-8000-000000000001".to_string(),
@@ -117,28 +118,31 @@ fn populate(store: &dyn RepositoryStore) {
 
     let mut root = container(ROOT_CONTAINER_ID, "Root");
     root.identity_instance_id = Some(KEEPER_ID.to_string());
-    // srs#446/I-145: anchorInstanceId gets the same delete-cascade treatment as
-    // identityInstanceId — named here on NOTE_ID, which run_cascade_suite deletes.
-    root.anchor_instance_id = Some(NOTE_ID.to_string());
-    root.root_instance_ids = Some(vec![NOTE_ID.to_string(), KEEPER_ID.to_string()]);
-    root.member_instance_ids = Some(vec![
+    // RFC-043 [R7]: a cascade that would remove the identity or anchor entry is rejected, so the
+    // pointers name the surviving KEEPER_ID, never a doomed instance.
+    root.anchor_instance_id = Some(KEEPER_ID.to_string());
+    root.member_instance_ids = Some(srs_core::types::container::entries(vec![
         KEEPER_ID.to_string(),
         NOTE_ID.to_string(),
         RECORD_ID.to_string(),
-    ]);
+    ]));
     let mut manifest = store.load_manifest().unwrap();
     manifest.container = Some(root);
     store.save_manifest(&manifest).unwrap();
 
     let mut section = container(SECTION_CONTAINER_ID, "Section");
-    section.member_instance_ids = Some(vec![RECORD_ID.to_string(), KEEPER_ID.to_string()]);
-    // Roots on a *file-backed* container, not just on the inline root — and the
-    // record is its only root, so this also pins the collapse to absent.
-    section.root_instance_ids = Some(vec![RECORD_ID.to_string()]);
+    section.member_instance_ids = Some(srs_core::types::container::entries(vec![
+        RECORD_ID.to_string(),
+        KEEPER_ID.to_string(),
+    ]));
+    // An anchor on a *file-backed* container, not just on the inline root.
+    section.anchor_instance_id = Some(KEEPER_ID.to_string());
     store.save_container(&section).unwrap();
 
     let mut sole = container(SOLE_CONTAINER_ID, "Sole");
-    sole.member_instance_ids = Some(vec![RECORD_ID.to_string()]);
+    sole.member_instance_ids = Some(srs_core::types::container::entries(vec![
+        RECORD_ID.to_string()
+    ]));
     store.save_container(&sole).unwrap();
 }
 
@@ -165,29 +169,16 @@ fn run_cascade_suite(store: &dyn RepositoryStore) {
 
     let root = store.load_manifest().unwrap().container.unwrap();
     assert_eq!(
-        root.member_instance_ids,
-        Some(vec![KEEPER_ID.to_string()]),
+        root.member_ids(),
+        vec![KEEPER_ID.to_string()],
         "inline root container membership must have been cleaned"
     );
     assert_eq!(
-        root.root_instance_ids,
-        Some(vec![KEEPER_ID.to_string()]),
-        "rootInstanceIds is cleaned too, not just memberInstanceIds"
-    );
-    assert_eq!(
         container_service::get_container(store, SECTION_CONTAINER_ID)
             .unwrap()
-            .member_instance_ids,
-        Some(vec![KEEPER_ID.to_string()]),
+            .member_ids(),
+        vec![KEEPER_ID.to_string()],
         "file-backed container membership must have been cleaned"
-    );
-    assert!(
-        container_service::get_container(store, SECTION_CONTAINER_ID)
-            .unwrap()
-            .root_instance_ids
-            .is_none(),
-        "rootInstanceIds is cleaned on a file-backed container too, and an \
-         emptied array collapses to absent"
     );
     assert!(
         container_service::get_container(store, SOLE_CONTAINER_ID)
@@ -208,11 +199,57 @@ fn run_cascade_suite(store: &dyn RepositoryStore) {
         Some(KEEPER_ID.to_string()),
         "an identity naming a surviving instance is left alone"
     );
-    assert!(
-        root.anchor_instance_id.is_none(),
-        "srs#446/I-145: a dangling anchorInstanceId is fatal at repo-validate time \
-         (RFC-009 I-145 'not a member') — the cascade must clear it just like identity"
+    assert_eq!(
+        root.anchor_instance_id,
+        Some(KEEPER_ID.to_string()),
+        "an anchor naming a surviving instance is left alone"
     );
+}
+
+/// RFC-043 [R7]: a delete whose cascade would remove the entry named by `identityInstanceId`
+/// or `anchorInstanceId` is rejected whole (`arrangement-pointer`) — before the instance or
+/// any container is touched — until the pointer is moved to another member.
+fn run_pointer_guard_suite(store: &dyn RepositoryStore) {
+    populate(store);
+    // Point the file-backed section's anchor at the doomed record.
+    let mut section = container_service::get_container(store, SECTION_CONTAINER_ID).unwrap();
+    section.anchor_instance_id = Some(RECORD_ID.to_string());
+    store.save_container(&section).unwrap();
+
+    let err = record_store::delete_record(store, RECORD_ID, true).unwrap_err();
+    assert!(err.to_string().contains("arrangement-pointer"), "{err}");
+    assert!(
+        store.find_instance(RECORD_ID).unwrap().is_some(),
+        "a rejected delete must leave the instance in place"
+    );
+    assert_eq!(
+        container_service::get_container(store, SOLE_CONTAINER_ID)
+            .unwrap()
+            .member_ids(),
+        vec![RECORD_ID.to_string()],
+        "a rejected delete must not have edited any other container"
+    );
+    assert_loads_clean(store, "after a rejected delete");
+
+    // Move the pointer, and the same delete goes through.
+    let mut section = container_service::get_container(store, SECTION_CONTAINER_ID).unwrap();
+    section.anchor_instance_id = Some(KEEPER_ID.to_string());
+    store.save_container(&section).unwrap();
+    record_store::delete_record(store, RECORD_ID, true).unwrap();
+    assert_loads_clean(store, "after the pointer was moved and the delete retried");
+}
+
+#[test]
+fn memory_store_rejects_a_cascade_that_would_remove_a_pointer_entry() {
+    run_pointer_guard_suite(&MemoryStore::empty());
+}
+
+#[test]
+fn file_store_rejects_a_cascade_that_would_remove_a_pointer_entry() {
+    let tmp = TempDir::new().unwrap();
+    let store = FileStore::new(tmp.path());
+    create_repository(&store, &init_input()).unwrap();
+    run_pointer_guard_suite(&store);
 }
 
 /// The ordering claim, made testable: the cascade runs *before* the instance is
@@ -244,19 +281,13 @@ fn a_failed_membership_write_never_leaves_the_repository_unloadable() {
     assert_loads_clean(&store, "after a failed delete");
 }
 
-/// Deleting the record a container names as its `identityInstanceId` must leave
-/// a repository that is *valid*, not merely loadable: a dangling identity is
-/// I-81 at **error** severity. RFC-029 says a root container with no identity is
-/// valid, so the cascade clears it.
-///
-/// Run against the shape `repo create` actually produces — the scaffolded Tier-2
-/// purpose record, identity and sole member of the inline root container —
-/// rather than a synthetic one. In that shape the repository is left with no
-/// instances at all, and the last assertion pins what that costs: navigation has
-/// nothing to resolve and says so. `srs container update` re-points an identity
-/// once a successor exists.
+/// Deleting the record a container names as its `identityInstanceId` is rejected
+/// (`arrangement-pointer`, RFC-043 [R7]) — the pointer must be moved to another member
+/// first. Run against the shape `repo create` actually produces: the scaffolded Tier-2
+/// purpose record, identity and sole member of the inline root container. The repository is
+/// left exactly as it was: loadable, valid, identity intact.
 #[test]
-fn deleting_a_container_identity_record_leaves_a_valid_repository() {
+fn deleting_a_container_identity_record_is_rejected_and_changes_nothing() {
     let tmp = TempDir::new().unwrap();
     let store = FileStore::new(tmp.path());
     let created = create_repository_with_intent(&store, &init_input()).unwrap();
@@ -264,58 +295,28 @@ fn deleting_a_container_identity_record_leaves_a_valid_repository() {
         .identity_instance_id
         .expect("repo create scaffolds a purpose record");
 
+    let err = record_store::delete_record(&store, &identity, true).unwrap_err();
+    assert!(err.to_string().contains("arrangement-pointer"), "{err}");
+
+    assert_loads_clean(&store, "after a rejected identity delete");
+    assert!(store.find_instance(&identity).unwrap().is_some());
     let root = store.load_manifest().unwrap().container.unwrap();
     assert_eq!(
         root.identity_instance_id.as_deref(),
-        Some(identity.as_str()),
-        "premise: the scaffolded record is the root container's identity"
+        Some(identity.as_str())
     );
-
-    record_store::delete_record(&store, &identity, true).unwrap();
-
-    assert_loads_clean(&store, "after deleting the identity record");
-    let root = store.load_manifest().unwrap().container.unwrap();
-    assert!(
-        root.identity_instance_id.is_none(),
-        "a dangling identityInstanceId is I-81 at error severity — it must be cleared"
-    );
-    assert!(
-        !root
-            .member_instance_ids
-            .unwrap_or_default()
-            .contains(&identity),
-        "and the membership goes with it"
-    );
-
+    assert!(root.has_member(&identity));
     let report = validation::validate_repository(&store).unwrap();
-    let errors: Vec<_> = report
-        .diagnostics
-        .iter()
-        .filter(|d| d.severity == validation::DiagnosticSeverity::Error)
-        .collect();
     assert!(
-        errors.is_empty(),
-        "repository must still validate: {errors:?}"
-    );
-
-    // #834 pinned the cost here as a hard error: navigation could not resolve an
-    // identity, so it failed outright. #838/ADR-044 removes that cost — an
-    // identity-less root container is valid under RFC-029, so navigation now
-    // succeeds and reports the absence instead of failing. What must still hold
-    // is that the absence is stated, never inferred or papered over.
-    let nav = repository_navigation_service::repository_navigation(&store)
-        .expect("an identity-less container still navigates (RFC-029 permits it)");
-    assert!(
-        nav.identity.is_none(),
-        "identity must be absent, not inferred from a root: {nav:?}"
-    );
-    assert!(
-        nav.diagnostics
+        report
+            .diagnostics
             .iter()
-            .any(|d| d.contains("identityInstanceId")),
-        "the diagnostic must name what is missing, got {:?}",
-        nav.diagnostics
+            .all(|d| d.severity != validation::DiagnosticSeverity::Error),
+        "{:?}",
+        report.diagnostics
     );
+    let nav = repository_navigation_service::repository_navigation(&store).unwrap();
+    assert!(nav.identity.is_some());
 }
 
 #[test]

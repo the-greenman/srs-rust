@@ -124,12 +124,6 @@ pub struct DeleteCompositionResult {
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
-fn slugify(name: &str) -> String {
-    name.to_lowercase()
-        .replace(|c: char| !c.is_alphanumeric() && c != '-' && c != ' ', "")
-        .replace(' ', "-")
-}
-
 /// Locate the package-relative path (e.g. `"views/foo-abcd1234.json"`) for a View by ID.
 /// Uses `resolve_definition_owner` to find the boundary, then scans the `package.json` views
 /// array and checks each file's `id` field.
@@ -493,8 +487,8 @@ pub fn create_view(
         source: e,
     })?;
     store.ensure_views_dir(&format!("{boundary_path}/views"))?;
-    let id_prefix = &view.id[..view.id.len().min(8)];
-    let rel_filename = format!("views/{}-{}.json", slugify(&view.name), id_prefix);
+    let rel_filename =
+        crate::package_service::definition_rel_path(DefinitionKind::View, &view.name, &view.id);
     let full_path = format!("{boundary_path}/{rel_filename}");
     store.save_view(&full_path, &view)?;
     store.add_definition_to_boundary(&selector, DefinitionKind::View, &rel_filename)?;
@@ -617,11 +611,10 @@ pub fn create_composition(
         source: e,
     })?;
     store.ensure_compositions_dir(&format!("{boundary_path}/compositions"))?;
-    let id_prefix = &composition.id[..composition.id.len().min(8)];
-    let rel_filename = format!(
-        "compositions/{}-{}.json",
-        slugify(&composition.name),
-        id_prefix
+    let rel_filename = crate::package_service::definition_rel_path(
+        DefinitionKind::Composition,
+        &composition.name,
+        &composition.id,
     );
     let full_path = format!("{boundary_path}/{rel_filename}");
     store.save_composition(&full_path, &composition)?;
@@ -767,7 +760,7 @@ mod tests {
                 description: None,
                 order: 0,
                 source: SectionSource::ContainerSubset {
-                    container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+                    container_id: Some("00000000-0000-4000-8000-000000000c01".to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,
@@ -1127,7 +1120,7 @@ mod tests {
 
         let mut dv = minimal_composition("bad-scope");
         dv.sections[0].source = SectionSource::ContainerSubset {
-            container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+            container_id: Some("00000000-0000-4000-8000-000000000c01".to_string()),
             container_type: None,
             type_filter: None,
             container_scope: Some(ContainerScope::Repository),
@@ -1151,7 +1144,7 @@ mod tests {
         // `containerScope` on `container-subset` at all.
         let mut ok_dv = minimal_composition("ok-scope");
         ok_dv.sections[0].source = SectionSource::ContainerSubset {
-            container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+            container_id: Some("00000000-0000-4000-8000-000000000c01".to_string()),
             container_type: None,
             type_filter: None,
             container_scope: Some(ContainerScope::Subtree),
@@ -1603,8 +1596,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
-            anchor_instance_id: None,
-            root_instance_ids: Some(vec![instance_id.to_string()]),
+            anchor_instance_id: Some(instance_id.to_string()),
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -1649,8 +1641,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
-            anchor_instance_id: None,
-            root_instance_ids: Some(vec![instance_id.to_string()]),
+            anchor_instance_id: Some(instance_id.to_string()),
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -1711,12 +1702,13 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
+            // RFC-043: position is layout — the mismatched-type instance is the FIRST entry,
+            // the declared anchor comes second; the anchor (not the first entry) types the match.
             anchor_instance_id: Some(anchor_instance_id.to_string()),
-            root_instance_ids: Some(vec![
-                other_root_instance_id.to_string(),
-                anchor_instance_id.to_string(),
-            ]),
-            member_instance_ids: None,
+            member_instance_ids: Some(srs_core::types::container::entries([
+                other_root_instance_id,
+                anchor_instance_id,
+            ])),
             child_container_ids: None,
             tags: None,
             created_at: None,
@@ -1731,7 +1723,7 @@ mod tests {
             result.len(),
             1,
             "expected the declared anchor's type to drive the match, not the \
-             positionally-first root's mismatched type"
+             first entry's mismatched type"
         );
         assert_eq!(result[0].id, "dv-test-id");
     }
@@ -1757,7 +1749,6 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -1876,8 +1867,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
-            anchor_instance_id: None,
-            root_instance_ids: Some(vec![instance_id.to_string()]),
+            anchor_instance_id: Some(instance_id.to_string()),
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -1944,8 +1934,7 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
-            anchor_instance_id: None,
-            root_instance_ids: Some(vec![instance_id.to_string()]),
+            anchor_instance_id: Some(instance_id.to_string()),
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,

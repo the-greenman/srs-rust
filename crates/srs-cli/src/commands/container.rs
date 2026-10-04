@@ -1,34 +1,39 @@
-use crate::commands::{
-    with_store, CliContext, ContainerCommand, ContainerMembersCommand, ContainerRootsCommand,
-};
+use crate::commands::{with_store, CliContext, ContainerCommand, ContainerMembersCommand};
 use crate::output;
 use crate::payload::{
-    ContainerDeletePayload, ContainerListPayload, ContainerMembersMutatePayload,
-    ContainerMembersPayload, ContainerPayload, ContainerRootsMutatePayload, ContainerRootsPayload,
-    ContainerValidatePayload, ContainerViewPayload,
+    ContainerCopyPayload, ContainerDeletePayload, ContainerListPayload,
+    ContainerMembersMutatePayload, ContainerMembersOutlinePayload, ContainerMembersPayload,
+    ContainerPayload, ContainerValidatePayload, ContainerViewPayload,
 };
 use anyhow::Result;
-use srs_core::types::container::Container;
+use srs_core::arrangement::RelativeMove;
 use srs_repository::container_service::{
-    add_container_member, add_root, create_container, delete_container, get_container,
-    list_container_members, list_containers, list_roots, remove_container_member, remove_root,
-    update_container, validate_container_invariants, ContainerListFilter, ContainerPatch,
+    add_member, add_member_relative, copy_container, create_container, delete_container,
+    get_arrangement, get_container, get_outline, list_containers, move_member,
+    move_member_relative, remove_member, repair_members, update_container,
+    validate_container_invariants, ArrangementResult, ContainerCopyInput, ContainerCreateInput,
+    ContainerListFilter, ContainerPatch,
 };
 use srs_repository::container_view_service::{resolve_container_view, ResolveContainerViewInput};
+use srs_repository::error::RepositoryError;
 
 pub fn dispatch(ctx: CliContext, cmd: ContainerCommand) -> Result<String> {
     match cmd {
         ContainerCommand::List {
             container_type,
             member_instance_id,
-            root_instance_id,
-        } => cmd_list(ctx, container_type, member_instance_id, root_instance_id),
+            anchor_instance_id,
+        } => cmd_list(ctx, container_type, member_instance_id, anchor_instance_id),
         ContainerCommand::Create => cmd_create(ctx),
+        ContainerCommand::Copy {
+            container_id,
+            title,
+            new_container_id,
+        } => cmd_copy(ctx, container_id, title, new_container_id),
         ContainerCommand::Get { container_id } => cmd_get(ctx, container_id),
         ContainerCommand::Update { container_id } => cmd_update(ctx, container_id),
         ContainerCommand::Delete { container_id } => cmd_delete(ctx, container_id),
         ContainerCommand::Members(sub) => dispatch_members(ctx, sub),
-        ContainerCommand::Roots(sub) => dispatch_roots(ctx, sub),
         ContainerCommand::Validate { container_id } => cmd_validate(ctx, container_id),
         ContainerCommand::ResolveView {
             container_id,
@@ -59,25 +64,50 @@ fn cmd_list(
     ctx: CliContext,
     container_type: Option<String>,
     member_instance_id: Option<String>,
-    root_instance_id: Option<String>,
+    anchor_instance_id: Option<String>,
 ) -> Result<String> {
     let filter = ContainerListFilter {
         container_type,
         member_instance_id,
-        root_instance_id,
+        anchor_instance_id,
     };
     let containers = with_store(&ctx, |store| Ok(list_containers(store, &filter)?))?;
     output::serialize("container list", ContainerListPayload { containers })
 }
 
 fn cmd_create(ctx: CliContext) -> Result<String> {
-    let container: Container = match crate::input::from_stdin("container") {
+    let input: ContainerCreateInput = match crate::input::from_stdin("container") {
         Ok(v) => v,
         Err(e) => return Ok(output::err("container create", vec![e.to_string()])),
     };
-    match with_store(&ctx, |store| Ok(create_container(store, container)?)) {
+    match with_store(&ctx, |store| Ok(create_container(store, input.into())?)) {
         Ok(container) => output::serialize("container create", ContainerPayload { container }),
         Err(e) => Ok(output::err("container create", vec![e.to_string()])),
+    }
+}
+
+fn cmd_copy(
+    ctx: CliContext,
+    container_id: String,
+    title: Option<String>,
+    new_container_id: Option<String>,
+) -> Result<String> {
+    let input = ContainerCopyInput {
+        title,
+        container_id: new_container_id,
+    };
+    match with_store(&ctx, |store| {
+        Ok(copy_container(store, &container_id, input)?)
+    }) {
+        Ok(r) => output::serialize(
+            "container copy",
+            ContainerCopyPayload {
+                container: r.container,
+                forks: r.forks,
+                relations: r.relations,
+            },
+        ),
+        Err(e) => Ok(output::err("container copy", vec![e.to_string()])),
     }
 }
 
@@ -117,98 +147,157 @@ fn cmd_delete(ctx: CliContext, container_id: String) -> Result<String> {
     }
 }
 
+fn mutate_payload(
+    container_id: String,
+    instance_id: Option<String>,
+    r: ArrangementResult,
+) -> ContainerMembersMutatePayload {
+    ContainerMembersMutatePayload {
+        container_id,
+        instance_id,
+        members: r.members,
+        promoted: r.promoted,
+        removed: r.removed,
+    }
+}
+
+/// Fold the `--before/--after/--into <ID>` flags into the `(relativeTo, placement)` pair.
+fn relative_flags(
+    before: Option<String>,
+    after: Option<String>,
+    into: Option<String>,
+) -> (Option<String>, Option<&'static str>) {
+    match (before, after, into) {
+        (Some(t), _, _) => (Some(t), Some("before")),
+        (_, Some(t), _) => (Some(t), Some("after")),
+        (_, _, Some(t)) => (Some(t), Some("into")),
+        _ => (None, None),
+    }
+}
+
 fn dispatch_members(ctx: CliContext, cmd: ContainerMembersCommand) -> Result<String> {
     match cmd {
         ContainerMembersCommand::List { container_id } => {
-            let member_instance_ids = with_store(&ctx, |store| {
-                Ok(list_container_members(store, &container_id)?)
-            })?;
+            let members = with_store(&ctx, |store| Ok(get_arrangement(store, &container_id)?))?;
             output::serialize(
                 "container members list",
                 ContainerMembersPayload {
                     container_id,
-                    member_instance_ids,
+                    members,
+                },
+            )
+        }
+        ContainerMembersCommand::Outline { container_id } => {
+            let o = with_store(&ctx, |store| Ok(get_outline(store, &container_id)?))?;
+            output::serialize(
+                "container members outline",
+                ContainerMembersOutlinePayload {
+                    container_id: o.container_id,
+                    anchor_instance_id: o.anchor_instance_id,
+                    identity_instance_id: o.identity_instance_id,
+                    entries: o.entries,
+                    body: o.body,
                 },
             )
         }
         ContainerMembersCommand::Add {
             container_id,
             instance_id,
+            position,
+            depth,
+            before,
+            after,
+            into,
         } => {
-            let member_instance_ids = with_store(&ctx, |store| {
-                Ok(add_container_member(store, &container_id, &instance_id)?)
+            let (rel, placement) = relative_flags(before, after, into);
+            let r = with_store(&ctx, |store| {
+                match RelativeMove::parse(rel.as_deref(), placement, None)
+                    .map_err(|message| RepositoryError::InvalidInput { message })?
+                {
+                    Some(RelativeMove::Place { target, placement }) => Ok(add_member_relative(
+                        store,
+                        &container_id,
+                        &instance_id,
+                        &target,
+                        placement,
+                    )?),
+                    _ => Ok(add_member(
+                        store,
+                        &container_id,
+                        &instance_id,
+                        position,
+                        depth,
+                    )?),
+                }
             })?;
             output::serialize(
                 "container members add",
-                ContainerMembersMutatePayload {
-                    container_id,
-                    instance_id,
-                    member_instance_ids,
-                },
+                mutate_payload(container_id, Some(instance_id), r),
             )
         }
         ContainerMembersCommand::Remove {
             container_id,
             instance_id,
         } => {
-            let member_instance_ids = with_store(&ctx, |store| {
-                Ok(remove_container_member(store, &container_id, &instance_id)?)
+            let r = with_store(&ctx, |store| {
+                Ok(remove_member(store, &container_id, &instance_id)?)
             })?;
             output::serialize(
                 "container members remove",
-                ContainerMembersMutatePayload {
-                    container_id,
-                    instance_id,
-                    member_instance_ids,
-                },
+                mutate_payload(container_id, Some(instance_id), r),
             )
         }
-    }
-}
-
-fn dispatch_roots(ctx: CliContext, cmd: ContainerRootsCommand) -> Result<String> {
-    match cmd {
-        ContainerRootsCommand::List { container_id } => {
-            let root_instance_ids =
-                with_store(&ctx, |store| Ok(list_roots(store, &container_id)?))?;
-            output::serialize(
-                "container roots list",
-                ContainerRootsPayload {
-                    container_id,
-                    root_instance_ids,
-                },
-            )
-        }
-        ContainerRootsCommand::Add {
+        ContainerMembersCommand::Move {
             container_id,
             instance_id,
+            position,
+            depth,
+            before,
+            after,
+            into,
+            indent,
+            outdent,
+            up,
+            down,
         } => {
-            let root_instance_ids = with_store(&ctx, |store| {
-                Ok(add_root(store, &container_id, &instance_id)?)
+            let (rel, placement) = relative_flags(before, after, into);
+            let shift = [
+                (indent, "indent"),
+                (outdent, "outdent"),
+                (up, "up"),
+                (down, "down"),
+            ]
+            .into_iter()
+            .find_map(|(on, name)| on.then_some(name));
+            let r = with_store(&ctx, |store| {
+                match RelativeMove::parse(rel.as_deref(), placement, shift)
+                    .map_err(|message| RepositoryError::InvalidInput { message })?
+                {
+                    Some(mv) => Ok(move_member_relative(
+                        store,
+                        &container_id,
+                        &instance_id,
+                        &mv,
+                    )?),
+                    None => Ok(move_member(
+                        store,
+                        &container_id,
+                        &instance_id,
+                        position,
+                        depth,
+                    )?),
+                }
             })?;
             output::serialize(
-                "container roots add",
-                ContainerRootsMutatePayload {
-                    container_id,
-                    instance_id,
-                    root_instance_ids,
-                },
+                "container members move",
+                mutate_payload(container_id, Some(instance_id), r),
             )
         }
-        ContainerRootsCommand::Remove {
-            container_id,
-            instance_id,
-        } => {
-            let root_instance_ids = with_store(&ctx, |store| {
-                Ok(remove_root(store, &container_id, &instance_id)?)
-            })?;
+        ContainerMembersCommand::Repair { container_id } => {
+            let r = with_store(&ctx, |store| Ok(repair_members(store, &container_id)?))?;
             output::serialize(
-                "container roots remove",
-                ContainerRootsMutatePayload {
-                    container_id,
-                    instance_id,
-                    root_instance_ids,
-                },
+                "container members repair",
+                mutate_payload(container_id, None, r),
             )
         }
     }

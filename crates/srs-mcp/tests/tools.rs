@@ -7,7 +7,7 @@ use rmcp::ServiceExt;
 use srs_core::types::container::Container;
 use srs_mcp::SrsMcpServer;
 use srs_repository::container_service;
-use srs_repository::discovery_service::{self, DiscoveryQuery};
+use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage};
 use srs_repository::package_service::{
     create_field_normalized, create_relation_type_normalized, create_type_normalized,
 };
@@ -156,6 +156,36 @@ fn make_lifecycle_fixture() -> LifecycleFixture {
     )
     .unwrap();
 
+    // Type whose lifecycle declares a hard relational `superseded` state (RFC-022),
+    // for successor-relation derivation (srs-rust#1238).
+    create_type_normalized(
+        &store,
+        serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "namespace": NS,
+            "name": "governed",
+            "version": 1,
+            "fields": [
+                { "fieldId": base.title_field_id, "order": 1, "required": true }
+            ],
+            "lifecycle": {
+                "states": [
+                    {"key": "draft", "isInitial": true},
+                    {"key": "closed", "isFinal": true},
+                    {"key": "superseded", "isFinal": true,
+                     "requiresRelation": {"relationType": ["supersedes"]}}
+                ],
+                "transitions": [
+                    {"name": "close", "from": "draft", "to": "closed"},
+                    {"name": "supersede", "from": "draft", "to": "superseded"}
+                ],
+                "initialState": "draft"
+            }
+        }),
+        None,
+    )
+    .unwrap();
+
     // Install supersedes and refines relation types (required by record_successor)
     for (key, label, category) in [
         ("supersedes", "Supersedes", "refinement"),
@@ -190,7 +220,6 @@ fn make_lifecycle_fixture() -> LifecycleFixture {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -487,9 +516,26 @@ async fn tool_note_create_and_find_roundtrip() {
             content_match: Some("quarterly budget".into()),
             ..Default::default()
         },
+        // MCP ranks by default (srs-rust#1228).
+        FindPage {
+            rank: true,
+            ..Default::default()
+        },
     )
     .unwrap();
     assert_eq!(structured, &serde_json::to_value(&direct).unwrap());
+    assert!(direct.hits.iter().all(|h| h.score.is_some()));
+    // `rank: false` restores the unranked Layer-1 order.
+    let plain = call(
+        &client,
+        "find",
+        serde_json::json!({ "contentMatch": "quarterly budget", "rank": false }),
+    )
+    .await;
+    let plain_hits = plain.structured_content.as_ref().unwrap()["hits"]
+        .as_array()
+        .unwrap();
+    assert!(plain_hits.iter().all(|h| h.get("score").is_none()));
     let hits = structured["hits"].as_array().unwrap();
     assert!(
         hits.iter()
@@ -523,6 +569,49 @@ async fn tool_note_create_and_find_roundtrip() {
         .unwrap()
         .is_empty());
 
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn tool_find_defaults_to_25_hits_with_full_total() {
+    let fx = make_fixture();
+    let client = connect(&fx).await;
+    for i in 0..27 {
+        let created = call(
+            &client,
+            "note_create",
+            serde_json::json!({
+                "title": format!("Note {i}"),
+                "sections": [{ "name": "body", "content": "paging needle", "label": "Body" }]
+            }),
+        )
+        .await;
+        assert_eq!(created.is_error, Some(false), "{created:?}");
+    }
+    let count = |args: serde_json::Value| {
+        let client = &client;
+        async move {
+            let r = call(client, "find", args).await;
+            let s = r.structured_content.unwrap();
+            (
+                s["hits"].as_array().unwrap().len(),
+                s["total"].as_u64().unwrap(),
+            )
+        }
+    };
+    let q = |extra: serde_json::Value| {
+        let mut v = serde_json::json!({ "contentMatch": "paging needle" });
+        v.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        v
+    };
+    assert_eq!(count(q(serde_json::json!({}))).await, (25, 27));
+    assert_eq!(count(q(serde_json::json!({ "offset": 25 }))).await, (2, 27));
+    assert_eq!(count(q(serde_json::json!({ "limit": 0 }))).await, (0, 27));
+    // limit 0 is the map call: no hits, but facets still count the whole match set.
+    let map = call(&client, "find", q(serde_json::json!({ "limit": 0 }))).await;
+    assert_eq!(map.structured_content.unwrap()["facets"]["notes"], 27);
     client.cancel().await.unwrap();
 }
 
@@ -824,6 +913,92 @@ async fn tool_record_transition_promotes_draft_to_active() {
     client.cancel().await.unwrap();
 }
 
+/// srs-rust#1238: omitted `relationType` is derived from the lifecycle for a
+/// closed (final, no outgoing transitions) record.
+#[tokio::test]
+async fn tool_record_successor_omitted_relation_type_derives_supersedes() {
+    let fx = make_lifecycle_fixture();
+    let client = connect(&fx.base).await;
+    let create = call(
+        &client,
+        "record_create",
+        serde_json::json!({
+            "type": format!("{NS}/governed"),
+            "fieldValues": { "title": "Closed Decision" }
+        }),
+    )
+    .await;
+    let predecessor_id = create.structured_content.as_ref().unwrap()["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let t = call(
+        &client,
+        "record_transition",
+        serde_json::json!({ "instanceId": predecessor_id, "byTransition": "close" }),
+    )
+    .await;
+    assert_eq!(t.is_error, Some(false), "close failed: {t:?}");
+    let r = call(
+        &client,
+        "record_successor",
+        serde_json::json!({
+            "predecessorId": predecessor_id,
+            "fieldValues": { "title": "Replacement" }
+        }),
+    )
+    .await;
+    assert_eq!(r.is_error, Some(false), "record_successor failed: {r:?}");
+    let result = r.structured_content.as_ref().unwrap();
+    assert_eq!(
+        result["relation"]["relationType"].as_str(),
+        Some("supersedes"),
+        "derived relation must be echoed: {result}"
+    );
+    assert_eq!(
+        result["relation"]["targetInstanceId"].as_str(),
+        Some(predecessor_id.as_str())
+    );
+    client.cancel().await.unwrap();
+}
+
+/// srs-rust#1238: `relationType` is optional on the tool; omitted against a
+/// lifecycle declaring no relational state, the core answers with a structured
+/// error naming the problem rather than the schema refusing the call.
+#[tokio::test]
+async fn tool_record_successor_omitted_relation_type_is_core_error() {
+    let fx = make_lifecycle_fixture();
+    let client = connect(&fx.base).await;
+    let create = call(
+        &client,
+        "record_create",
+        serde_json::json!({
+            "type": format!("{NS}/decision"),
+            "fieldValues": { "title": "Original Decision" }
+        }),
+    )
+    .await;
+    let predecessor_id = create.structured_content.as_ref().unwrap()["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let r = call(
+        &client,
+        "record_successor",
+        serde_json::json!({
+            "predecessorId": predecessor_id,
+            "fieldValues": { "title": "Revised" }
+        }),
+    )
+    .await;
+    assert_eq!(r.is_error, Some(true), "expected core error: {r:?}");
+    assert!(
+        format!("{r:?}").contains("SUCCESSOR_RELATION_TYPE_UNDETERMINED"),
+        "expected the structured code, got: {r:?}"
+    );
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn tool_record_successor_creates_linked_pair() {
     let fx = make_lifecycle_fixture();
@@ -981,6 +1156,85 @@ async fn tool_note_graduate_promotes_to_record() {
 }
 
 #[tokio::test]
+async fn tool_container_relative_moves_and_outline() {
+    let fx = make_lifecycle_fixture();
+    let client = connect(&fx.base).await;
+    let mut ids = Vec::new();
+    for title in ["One", "Two", "Three"] {
+        let c = call(
+            &client,
+            "record_create",
+            serde_json::json!({ "type": format!("{NS}/decision"), "fieldValues": { "title": title } }),
+        )
+        .await;
+        assert_eq!(c.is_error, Some(false), "{c:?}");
+        let id = c.structured_content.as_ref().unwrap()["instanceId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let a = call(
+            &client,
+            "container_member_add",
+            serde_json::json!({ "containerId": fx.container_id, "instanceId": id }),
+        )
+        .await;
+        assert_eq!(a.is_error, Some(false), "{a:?}");
+        ids.push(id);
+    }
+    let mv = |args: serde_json::Value| {
+        let client = &client;
+        let cid = fx.container_id.clone();
+        async move {
+            let mut a = args;
+            a["containerId"] = cid.into();
+            call(client, "container_member_move", a).await
+        }
+    };
+    // into: Three becomes a child of Two
+    let r =
+        mv(serde_json::json!({ "instanceId": ids[2], "relativeTo": ids[1], "placement": "into" }))
+            .await;
+    assert_eq!(r.is_error, Some(false), "{r:?}");
+    let o = call(
+        &client,
+        "container_outline",
+        serde_json::json!({ "containerId": fx.container_id }),
+    )
+    .await;
+    assert_eq!(o.is_error, Some(false), "{o:?}");
+    let entries = o.structured_content.as_ref().unwrap()["entries"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let three = entries
+        .iter()
+        .find(|e| e["instanceId"] == ids[2].as_str())
+        .unwrap();
+    assert_eq!(three["parentInstanceId"], ids[1].as_str());
+    assert_eq!(three["depth"], 1);
+    // outdent + step up, then an illegal mix and an illegal self-target are rejected
+    let r = mv(serde_json::json!({ "instanceId": ids[2], "shift": "outdent" })).await;
+    assert_eq!(r.is_error, Some(false), "{r:?}");
+    let r = mv(serde_json::json!({ "instanceId": ids[2], "shift": "up" })).await;
+    assert_eq!(r.is_error, Some(false), "{r:?}");
+    let members = r.structured_content.as_ref().unwrap()["members"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let order: Vec<&str> = members
+        .iter()
+        .map(|m| m["instanceId"].as_str().unwrap())
+        .collect();
+    let pos = |i: &String| order.iter().position(|x| x == i).unwrap();
+    assert!(pos(&ids[2]) < pos(&ids[1]), "{order:?}");
+    let r =
+        mv(serde_json::json!({ "instanceId": ids[0], "relativeTo": ids[0], "placement": "into" }))
+            .await;
+    assert_eq!(r.is_error, Some(true), "{r:?}");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn tool_container_member_add_then_remove() {
     let fx = make_lifecycle_fixture();
     let client = connect(&fx.base).await;
@@ -1016,14 +1270,14 @@ async fn tool_container_member_add_then_remove() {
         Some(false),
         "container_member_add failed: {add:?}"
     );
-    let members = add.structured_content.as_ref().unwrap()["memberInstanceIds"]
+    let members = add.structured_content.as_ref().unwrap()["members"]
         .as_array()
         .unwrap();
     assert!(
         members
             .iter()
-            .any(|m| m.as_str() == Some(instance_id.as_str())),
-        "added instance must appear in memberInstanceIds: {members:?}"
+            .any(|m| m["instanceId"].as_str() == Some(instance_id.as_str())),
+        "added instance must appear in the arrangement: {members:?}"
     );
 
     // Idempotent add — no error.
@@ -1053,14 +1307,14 @@ async fn tool_container_member_add_then_remove() {
         Some(false),
         "container_member_remove failed: {remove:?}"
     );
-    let members_after = remove.structured_content.as_ref().unwrap()["memberInstanceIds"]
+    let members_after = remove.structured_content.as_ref().unwrap()["members"]
         .as_array()
         .unwrap();
     assert!(
         !members_after
             .iter()
-            .any(|m| m.as_str() == Some(instance_id.as_str())),
-        "removed instance must not appear in memberInstanceIds: {members_after:?}"
+            .any(|m| m["instanceId"].as_str() == Some(instance_id.as_str())),
+        "removed instance must not appear in the arrangement: {members_after:?}"
     );
 
     // Repository still consistent: no error diagnostics. Non-error
@@ -1354,4 +1608,165 @@ async fn tool_protocol_run_list_filters_by_status_and_protocol() {
     assert_eq!(runs[0]["runId"], completed_id);
 
     client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn tool_neighbours_pages_filters_and_matches_service() {
+    let fx = make_fixture();
+    let client = connect(&fx).await;
+    let mut ids = vec![];
+    for i in 0..4 {
+        let created = call(
+            &client,
+            "note_create",
+            serde_json::json!({
+                "title": format!("Note {i}"),
+                "sections": [{ "name": "body", "content": "x", "label": "Body" }]
+            }),
+        )
+        .await;
+        ids.push(
+            created.structured_content.unwrap()["instanceId"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        );
+    }
+    // ids[0] is the hub: one outbound edge, two inbound.
+    for (s, t) in [(0, 1), (2, 0), (3, 0)] {
+        let r = call(
+            &client,
+            "relation_create",
+            serde_json::json!({
+                "relationType": "depends-on",
+                "sourceInstanceId": ids[s],
+                "targetInstanceId": ids[t]
+            }),
+        )
+        .await;
+        assert_eq!(r.is_error, Some(false), "{r:?}");
+    }
+    let n = |extra: serde_json::Value| {
+        let client = &client;
+        let mut v = serde_json::json!({ "instanceId": ids[0] });
+        v.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        async move { call(client, "neighbours", v).await }
+    };
+
+    let all = n(serde_json::json!({})).await;
+    let s = all.structured_content.as_ref().unwrap();
+    assert_eq!(s["total"], 3);
+    assert_eq!(s["neighbours"].as_array().unwrap().len(), 3);
+    // The tool is the core service, serialised.
+    let store = FileStore::new(fx.dir.path());
+    let direct = srs_repository::context_query_service::list_neighbours(
+        &store,
+        srs_repository::context_query_service::NeighboursQuery {
+            instance_id: ids[0].clone(),
+            relation_type: None,
+            direction: None,
+        },
+        srs_repository::context_query_service::NeighboursPage {
+            limit: Some(25),
+            offset: 0,
+        },
+    )
+    .unwrap();
+    assert_eq!(s, &serde_json::to_value(&direct).unwrap());
+    // Neighbours carry id/label, never the record.
+    assert!(s["neighbours"][0]["neighbour"]["label"].is_string());
+    assert!(s["neighbours"][0]["neighbour"].get("sections").is_none());
+
+    let page = n(serde_json::json!({ "limit": 1, "offset": 2 })).await;
+    let p = page.structured_content.unwrap();
+    assert_eq!(
+        (
+            p["total"].as_u64(),
+            p["neighbours"].as_array().unwrap().len()
+        ),
+        (Some(3), 1)
+    );
+    let beyond = n(serde_json::json!({ "offset": 99 })).await;
+    assert_eq!(
+        beyond.structured_content.unwrap()["neighbours"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+
+    let out = n(serde_json::json!({ "direction": "out" })).await;
+    let o = out.structured_content.unwrap();
+    assert_eq!(o["total"], 1);
+    assert_eq!(o["neighbours"][0]["neighbour"]["instanceId"], ids[1]);
+    let none = n(serde_json::json!({ "relationType": "refines" })).await;
+    assert_eq!(none.structured_content.unwrap()["total"], 0);
+
+    let missing = call(
+        &client,
+        "neighbours",
+        serde_json::json!({ "instanceId": "nope" }),
+    )
+    .await;
+    assert_eq!(missing.is_error, Some(true));
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn tool_similar_matches_service_and_excludes_source() {
+    let fx = make_fixture();
+    let client = connect(&fx).await;
+    let mut ids = vec![];
+    for (title, body) in [
+        ("Wombat habitat", "wombat burrow habitat drainage"),
+        ("Burrow drainage", "wombat burrow flooding"),
+        ("Budget", "quarterly spend review"),
+    ] {
+        let created = call(
+            &client,
+            "note_create",
+            serde_json::json!({ "title": title, "sections": [{ "name": "body", "content": body, "label": "Body" }] }),
+        )
+        .await;
+        ids.push(
+            created.structured_content.unwrap()["instanceId"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        );
+    }
+    let r = call(
+        &client,
+        "similar",
+        serde_json::json!({ "instanceId": ids[0] }),
+    )
+    .await;
+    assert_eq!(r.is_error, Some(false), "{r:?}");
+    let store = FileStore::new(fx.dir.path());
+    let direct = discovery_service::similar(
+        &store,
+        &ids[0],
+        DiscoveryQuery::default(),
+        FindPage {
+            limit: Some(25),
+            rank: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    // (f32 scores re-serialise at slightly different f64 digits, so compare the shape, not bytes.)
+    let got = r.structured_content.as_ref().unwrap();
+    assert_eq!(got["total"], direct.total);
+    assert_eq!(
+        got["hits"][0]["instanceId"],
+        direct.hits[0].instance_id.as_str()
+    );
+    let hits = direct
+        .hits
+        .iter()
+        .map(|h| h.instance_id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(hits, vec![ids[1].as_str()]);
 }

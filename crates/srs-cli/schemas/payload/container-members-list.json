@@ -4,17 +4,16 @@
   "type": "object",
   "required": [
     "containerId",
-    "memberInstanceIds"
+    "members"
   ],
   "properties": {
     "containerId": {
       "type": "string"
     },
-    "memberInstanceIds": {
+    "members": {
+      "description": "RFC-043 [R15]: the arrangement — `{instanceId, depth?}` entries in order.",
       "type": "array",
-      "items": {
-        "type": "string"
-      }
+      "items": true
     }
   }
 }

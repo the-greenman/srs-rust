@@ -1,0 +1,97 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PackageDependenciesPayload",
+  "description": "`package dependency list|add|remove|check` (RFC-044, srs-rust#1168): the requiring boundary's `packageDependencies` after the operation (for `check`, the stdin requirement list), each with its consumer-check outcome. Mirrors `PackageDependenciesResult`.",
+  "type": "object",
+  "required": [
+    "dependencies",
+    "packageId"
+  ],
+  "properties": {
+    "action": {
+      "description": "`added` | `updated` | `repaired` | `removed`; `null` for `list` and `check`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageDependencyEntry"
+      }
+    },
+    "packageId": {
+      "description": "The requiring package's own `id` (for `check`, the input's, possibly empty).",
+      "type": "string"
+    },
+    "selector": {
+      "description": "Requiring boundary path; `null` for the primary package and for `check`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "definitions": {
+    "PackageDependencyEntry": {
+      "type": "object",
+      "required": [
+        "candidateVersions",
+        "mismatchedLabels",
+        "name",
+        "namespace",
+        "satisfied",
+        "version"
+      ],
+      "properties": {
+        "candidateVersions": {
+          "description": "Installed version of each candidate (`null` = unknown).",
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "mismatchedLabels": {
+          "description": "Candidate `namespace/name` labels that differ from the entry's.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "description": "Display label.",
+          "type": "string"
+        },
+        "namespace": {
+          "description": "Display label.",
+          "type": "string"
+        },
+        "packageId": {
+          "description": "The required package's `id`; `null` for a legacy entry ([R11]).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "description": "One of `no-package-id`, `self-requirement`, `missing`, `version-unknown`, `incompatible`, `prerelease-excluded`, `version-too-low`; `null` when satisfied.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "satisfied": {
+          "type": "boolean"
+        },
+        "version": {
+          "description": "SemVer 2.0.0 requirement (RFC-044 [R3]).",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

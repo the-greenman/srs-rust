@@ -6,7 +6,7 @@
 //! because `to_js()` calls `js_sys::JSON::parse` which panics off-wasm.
 //! The wasm-pack build proves the binding itself compiles and is exported.
 
-use srs_repository::discovery_service::{find, DiscoveryQuery};
+use srs_repository::discovery_service::{find, DiscoveryQuery, FindPage};
 use srs_repository::FileStore;
 
 const FIELD_TITLE: &str = "11111111-1111-4111-8111-111111111111";
@@ -97,9 +97,31 @@ fn fixture_store() -> FileStore {
 #[test]
 fn find_empty_query_returns_all() {
     let store = fixture_store();
-    let result = find(&store, DiscoveryQuery::default()).expect("find must succeed");
+    let result =
+        find(&store, DiscoveryQuery::default(), FindPage::default()).expect("find must succeed");
     assert_eq!(result.total, 2, "both records returned for empty query");
     assert_eq!(result.hits.len(), 2);
+}
+
+/// Facets count the whole match set even with `limit: 0`, and serialise with the camelCase keys
+/// the JS caller reads (the binding returns the `DiscoveryResult` unchanged).
+#[test]
+fn find_limit_zero_returns_facets_only() {
+    let store = fixture_store();
+    let page = FindPage {
+        limit: Some(0),
+        ..Default::default()
+    };
+    let result = find(&store, DiscoveryQuery::default(), page).expect("find must succeed");
+    assert!(result.hits.is_empty());
+    let json = serde_json::to_value(&result).unwrap();
+    let total: u64 = json["facets"]["byType"]["values"]
+        .as_array()
+        .expect("byType.values")
+        .iter()
+        .map(|v| v["count"].as_u64().unwrap())
+        .sum();
+    assert_eq!(total, 2);
 }
 
 /// `content_match` filters to records whose text projection contains the substring.
@@ -112,6 +134,7 @@ fn find_content_match_filters_hits() {
             content_match: Some("authority".to_string()),
             ..Default::default()
         },
+        FindPage::default(),
     )
     .expect("find must succeed");
     assert_eq!(result.hits.len(), 1, "only 'Building Authority' matches");
@@ -140,8 +163,24 @@ fn find_type_name_filter_is_exact() {
             type_name: Some("nonexistent".to_string()),
             ..Default::default()
         },
+        FindPage::default(),
     )
     .expect("find must succeed");
     assert_eq!(result.hits.len(), 0, "unknown type_name yields no hits");
     assert_eq!(result.total, 0);
+}
+
+/// `similar` (backing the `find_similar` binding): never returns the source, same hit shape.
+#[test]
+fn similar_excludes_the_source() {
+    use srs_repository::discovery_service::similar;
+    let store = fixture_store();
+    let result = similar(
+        &store,
+        REC_AUTHORITY,
+        DiscoveryQuery::default(),
+        FindPage::default(),
+    )
+    .expect("similar must succeed");
+    assert!(result.hits.iter().all(|h| h.instance_id != REC_AUTHORITY));
 }

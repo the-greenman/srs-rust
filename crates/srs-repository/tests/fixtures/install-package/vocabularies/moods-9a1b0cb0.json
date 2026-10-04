@@ -1,0 +1,17 @@
+{
+  "id": "9a1b0cb0-000b-4aaa-8bbb-00000000b001",
+  "version": 1,
+  "namespace": "com.example.install",
+  "name": "moods",
+  "mode": "closed",
+  "terms": [
+    {
+      "id": "9a1b0cb1-000b-4aaa-8bbb-00000000b002",
+      "version": 1,
+      "namespace": "com.example.install",
+      "key": "calm",
+      "label": "Calm"
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00Z"
+}

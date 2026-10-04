@@ -435,7 +435,6 @@ pub fn set_manifest_root_container(
             name: None,
             description: None,
             container_type: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -448,10 +447,15 @@ pub fn set_manifest_root_container(
     container.identity_instance_id = Some(input.identity_instance_id.clone());
     container.title = title.clone();
     let members = container.member_instance_ids.get_or_insert_with(Vec::new);
-    if !members.iter().any(|m| m == &input.identity_instance_id) {
-        members.push(input.identity_instance_id.clone());
+    if !members
+        .iter()
+        .any(|m| m.instance_id == input.identity_instance_id)
+    {
+        members.push(srs_core::types::container::ContainerEntry::new(
+            input.identity_instance_id.clone(),
+        ));
     }
-    let member_instance_ids = members.clone();
+    let member_instance_ids: Vec<String> = members.iter().map(|m| m.instance_id.clone()).collect();
     manifest.container = Some(container);
 
     write_manifest(store, &manifest)?;
@@ -940,6 +944,7 @@ mod tests {
     fn seed_note(store: &MemoryStore, id: &str) {
         store
             .save_note(&srs_core::types::note::Note {
+                created_by: None,
                 instance_id: id.to_string(),
                 title: Some("seed".to_string()),
                 tags: None,
@@ -980,10 +985,7 @@ mod tests {
         );
         // Canonical shape: manifest title as fallback, identity in members (I-81).
         assert_eq!(container.title, "My Repo");
-        assert_eq!(
-            container.member_instance_ids.as_deref(),
-            Some(&[VALID_IDENTITY_ID.to_string()][..])
-        );
+        assert_eq!(container.member_ids(), vec![VALID_IDENTITY_ID.to_string()]);
     }
 
     #[test]
@@ -1057,13 +1059,14 @@ mod tests {
             container_id: VALID_CONTAINER_ID.to_string(),
             title: "Old Title".to_string(),
             identity_instance_id: None,
-            anchor_instance_id: None,
             namespace: None,
             name: None,
             description: Some("kept".to_string()),
             container_type: None,
-            root_instance_ids: Some(vec![other_member.to_string()]),
-            member_instance_ids: Some(vec![other_member.to_string()]),
+            anchor_instance_id: Some(other_member.to_string()),
+            member_instance_ids: Some(srs_core::types::container::entries(vec![
+                other_member.to_string()
+            ])),
             child_container_ids: None,
             tags: None,
             created_at: None,
@@ -1091,15 +1094,11 @@ mod tests {
         let manifest = store.load_manifest().unwrap();
         let container = manifest.container.as_ref().unwrap();
         assert_eq!(
-            container.member_instance_ids.as_deref(),
-            Some(&[other_member.to_string(), VALID_IDENTITY_ID.to_string()][..])
+            container.member_ids(),
+            vec![other_member.to_string(), VALID_IDENTITY_ID.to_string()]
         );
         // Other embed fields preserved.
         assert_eq!(container.description.as_deref(), Some("kept"));
-        assert_eq!(
-            container.root_instance_ids.as_deref(),
-            Some(&[other_member.to_string()][..])
-        );
         // Manifest title wins over the stale embed title.
         assert_eq!(container.title, "My Repo");
     }
@@ -1201,10 +1200,7 @@ mod tests {
             Some(VALID_IDENTITY_ID)
         );
         assert_eq!(container.title, "Roundtrip Repo");
-        assert_eq!(
-            container.member_instance_ids.as_deref(),
-            Some(&[VALID_IDENTITY_ID.to_string()][..])
-        );
+        assert_eq!(container.member_ids(), vec![VALID_IDENTITY_ID.to_string()]);
     }
 
     // ── unset_manifest_root_container (owner ruling srs-rust#742) ──────────────
@@ -1523,7 +1519,7 @@ mod tests {
                 description: None,
                 order: 0,
                 source: SectionSource::ContainerSubset {
-                    container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+                    container_id: Some("00000000-0000-4000-8000-000000000c01".to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,

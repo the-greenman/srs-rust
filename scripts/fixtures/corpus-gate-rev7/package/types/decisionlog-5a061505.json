@@ -1,0 +1,18 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/type.json",
+  "createdAt": "2026-06-25T00:00:00Z",
+  "description": "Header root record for a decision-log container. Carries the log title and acts as the typed anchor for RFC-009 rootTypeRefs dispatch.",
+  "fields": [
+    {
+      "displayLabel": "Title",
+      "fieldId": "d7e82557-9045-5e92-a494-d99112bbec4a",
+      "order": 0,
+      "required": true
+    }
+  ],
+  "id": "5a061505-dd0e-4c8d-9e20-fa28a3c42b68",
+  "lifecycleRef": "3c504040-7920-43aa-8fbd-eda21dc7c07b",
+  "name": "decision_log",
+  "namespace": "governance",
+  "version": 1
+}

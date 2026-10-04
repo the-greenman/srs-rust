@@ -1,0 +1,23 @@
+{
+  "aiGuidance": {
+    "examples": [
+      {
+        "description": "Meeting-frequency decision",
+        "output": "Without a regular meeting time, coordination is happening ad hoc and some members feel out of the loop. The absence of structure is creating unequal access to decisions."
+      }
+    ],
+    "extraction": "Look for expressions of frustration, tension, or a named gap in current practice. The friction answers why this needs to be decided today. Extract it as a concrete condition, not a wish.",
+    "negativeGuidance": "Do not describe what the group wants to do about the friction — that belongs in Alternatives or the Decision Statement. Friction is the forcing function, not the solution direction.",
+    "purpose": "Names the specific pain, conflict, or gap that is forcing a decision right now — the concrete thing that cannot be left unresolved."
+  },
+  "createdAt": "2026-05-26T00:00:00Z",
+  "description": "The specific pain, conflict, or gap that makes a decision necessary now.",
+  "id": "1a1c0a5d-a1df-5d03-95f2-32af73bb71da",
+  "name": "friction",
+  "namespace": "governance",
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
+  "version": 1
+}

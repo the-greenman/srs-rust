@@ -64,12 +64,6 @@ pub struct DeleteThemeResult {
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
-fn slugify(name: &str) -> String {
-    name.to_lowercase()
-        .replace(|c: char| !c.is_alphanumeric() && c != '-' && c != ' ', "")
-        .replace(' ', "-")
-}
-
 /// Locate the package-relative path (e.g. `"themes/foo-abcd1234.json"`) for a Theme by ID.
 fn find_theme_path(
     store: &dyn RepositoryStore,
@@ -205,8 +199,8 @@ pub fn create_theme(
         source: e,
     })?;
     store.ensure_themes_dir(&format!("{boundary_path}/themes"))?;
-    let id_prefix = &theme.id[..theme.id.len().min(8)];
-    let rel_filename = format!("themes/{}-{}.json", slugify(&theme.name), id_prefix);
+    let rel_filename =
+        crate::package_service::definition_rel_path(DefinitionKind::Theme, &theme.name, &theme.id);
     let full_path = format!("{boundary_path}/{rel_filename}");
     store.save_theme(&full_path, &theme)?;
     store.add_definition_to_boundary(&selector, DefinitionKind::Theme, &rel_filename)?;
@@ -381,7 +375,7 @@ mod tests {
                 description: None,
                 order: 0,
                 source: SectionSource::ContainerSubset {
-                    container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+                    container_id: Some("00000000-0000-4000-8000-000000000c01".to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,
@@ -431,7 +425,7 @@ mod tests {
                 description: None,
                 order: 0,
                 source: SectionSource::ContainerSubset {
-                    container_id: "00000000-0000-4000-8000-000000000c01".to_string(),
+                    container_id: Some("00000000-0000-4000-8000-000000000c01".to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,

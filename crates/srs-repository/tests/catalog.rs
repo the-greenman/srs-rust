@@ -957,6 +957,7 @@ fn validity_token_tracks_the_enumerated_id_set() {
 fn memory_store_catalog_enumerates_saved_instances() {
     let store = MemoryStore::empty();
     let note = srs_core::types::note::Note {
+        created_by: None,
         instance_id: "00000000-0000-4000-8000-000000000abc".to_string(),
         title: Some("t".to_string()),
         tags: None,

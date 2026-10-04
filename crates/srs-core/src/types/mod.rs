@@ -1,3 +1,4 @@
+pub mod actor;
 pub mod address;
 pub mod blueprint;
 pub mod container;
@@ -6,6 +7,7 @@ pub mod field;
 pub mod field_type;
 pub mod lifecycle;
 pub mod note;
+pub mod package_dependency;
 pub mod protocol;
 pub mod record;
 pub mod record_type;

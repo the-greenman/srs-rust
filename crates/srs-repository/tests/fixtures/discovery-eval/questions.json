@@ -1,0 +1,437 @@
+{
+  "corpus": {
+    "source": "muDemocracy.org muSrs, packed by `srs archive pack`",
+    "sourceCommit": "4c45f35f2cd19d8990edca3a9424899de092d261",
+    "instances": 886,
+    "archive": "musrs-pinned.srs",
+    "archiveBytes": 2936741
+  },
+  "questions": [
+    {
+      "id": "q01",
+      "question": "Why don't groups notice when they have made a decision?",
+      "query": "recognise a decision",
+      "kinds": [
+        "vocab"
+      ],
+      "expectedInstanceIds": [
+        "001578fc-5d60-4c6f-803b-83d70a24bb56"
+      ],
+      "expectedLabels": [
+        "P-10"
+      ]
+    },
+    {
+      "id": "q02",
+      "question": "Why do minutes fail to say what was actually decided?",
+      "query": "minutes resolution",
+      "kinds": [
+        "untitled"
+      ],
+      "expectedInstanceIds": [
+        "352a821a-0e46-4566-8109-0dedbb516921"
+      ],
+      "expectedLabels": [
+        "P-28"
+      ]
+    },
+    {
+      "id": "q03",
+      "question": "Why do groups push back on defining roles?",
+      "query": "resist roles",
+      "kinds": [
+        "untitled",
+        "vocab"
+      ],
+      "expectedInstanceIds": [
+        "bb736960-e0bc-4914-90ff-c10a5891d864"
+      ],
+      "expectedLabels": [
+        "P-06"
+      ]
+    },
+    {
+      "id": "q04",
+      "question": "Why do groups put disengagement down to apathy?",
+      "query": "apathy",
+      "kinds": [
+        "untitled"
+      ],
+      "expectedInstanceIds": [
+        "2905500f-e34b-411a-a2ae-af637ea799fa"
+      ],
+      "expectedLabels": [
+        "P-08"
+      ]
+    },
+    {
+      "id": "q05",
+      "question": "Where should a group keep its decision records so they can be found?",
+      "query": "where records are stored",
+      "kinds": [
+        "untitled",
+        "vocab"
+      ],
+      "expectedInstanceIds": [
+        "1f807a5a-cb4f-4880-8ada-c85d39058bf3"
+      ],
+      "expectedLabels": [
+        "P-90"
+      ]
+    },
+    {
+      "id": "q06",
+      "question": "Why does writing a decision down make people treat it as untouchable?",
+      "query": "decision locked in",
+      "kinds": [
+        "untitled",
+        "vocab"
+      ],
+      "expectedInstanceIds": [
+        "e152a71c-151a-4c8e-9d47-765ec0405625"
+      ],
+      "expectedLabels": [
+        "P-96"
+      ]
+    },
+    {
+      "id": "q07",
+      "question": "How does AI quietly remove human accountability?",
+      "query": "AI accountability",
+      "kinds": [
+        "vocab"
+      ],
+      "expectedInstanceIds": [
+        "325b9f7c-6b39-4b81-989a-fea810a1e966",
+        "56f2d104-1007-4c6d-90b2-c588a5022dc5"
+      ],
+      "expectedLabels": [
+        "C-25",
+        "P-80"
+      ]
+    },
+    {
+      "id": "q08",
+      "question": "What happened to the co-operative movement?",
+      "query": "co-operatives decline",
+      "kinds": [
+        "vocab",
+        "untitled"
+      ],
+      "expectedInstanceIds": [
+        "4bee7a7b-b8fd-4098-87a0-f840ce6cecb6",
+        "1d0e4841-cda2-4915-b68c-fd0dc106dc91"
+      ],
+      "expectedLabels": [
+        "C-39",
+        "P-47c"
+      ]
+    },
+    {
+      "id": "q09",
+      "question": "Is democracy just voting?",
+      "query": "voting",
+      "kinds": [
+        "untitled"
+      ],
+      "expectedInstanceIds": [
+        "f236a297-df42-49e5-82cd-ffbc68f9f2d6"
+      ],
+      "expectedLabels": [
+        "P-02"
+      ]
+    },
+    {
+      "id": "q10",
+      "question": "Why does a decentralised network struggle to spread information?",
+      "query": "information diffusion",
+      "kinds": [
+        "untitled"
+      ],
+      "expectedInstanceIds": [
+        "030efcd3-829a-4646-8862-439688b8d4ac"
+      ],
+      "expectedLabels": [
+        "C-13"
+      ]
+    },
+    {
+      "id": "q11",
+      "question": "What did Quakers do about rotating roles?",
+      "query": "Quaker rotation",
+      "kinds": [
+        "untitled"
+      ],
+      "expectedInstanceIds": [
+        "0de468a0-5735-4196-afb4-2df7433881a3"
+      ],
+      "expectedLabels": [
+        "C-97"
+      ]
+    },
+    {
+      "id": "q12",
+      "question": "Did ancient Athens keep records of its decisions?",
+      "query": "Athens decisions written",
+      "kinds": [
+        "untitled"
+      ],
+      "expectedInstanceIds": [
+        "838c346f-2ca4-4f01-99c5-54226e44a24b"
+      ],
+      "expectedLabels": [
+        "C-85"
+      ]
+    },
+    {
+      "id": "q13",
+      "question": "What are the legal duties for charities to keep minutes?",
+      "query": "charity minutes law",
+      "kinds": [
+        "untitled",
+        "vocab"
+      ],
+      "expectedInstanceIds": [
+        "5df10428-2118-4e2b-bf70-d424251d6545",
+        "0d91ef4d-91ab-49fe-bbd0-69c39371f09f"
+      ],
+      "expectedLabels": [
+        "C-87",
+        "P-54"
+      ]
+    },
+    {
+      "id": "q14",
+      "question": "What counts as a sufficient boundary for a group?",
+      "query": "sufficient boundary",
+      "kinds": [
+        "untitled",
+        "run-report-noise"
+      ],
+      "expectedInstanceIds": [
+        "f6509324-4370-408f-bb5d-7b8ba41cdce8"
+      ],
+      "expectedLabels": [
+        "C-51"
+      ]
+    },
+    {
+      "id": "q15",
+      "question": "What is wrong with treating democracy as control rather than feedback?",
+      "query": "feedback",
+      "kinds": [
+        "untitled",
+        "run-report-noise"
+      ],
+      "expectedInstanceIds": [
+        "53d4b9b6-c3d0-424d-84b9-ac2c1a06161a"
+      ],
+      "expectedLabels": [
+        "C-30"
+      ]
+    },
+    {
+      "id": "q16",
+      "question": "Is disagreement a sign of a healthy group?",
+      "query": "disagreement",
+      "kinds": [
+        "untitled",
+        "run-report-noise"
+      ],
+      "expectedInstanceIds": [
+        "b775256d-096e-4152-b5e2-4160eec9dc8e"
+      ],
+      "expectedLabels": [
+        "C-20"
+      ]
+    },
+    {
+      "id": "q17",
+      "question": "What role should AI play in a democratic body?",
+      "query": "AI sensemaking",
+      "kinds": [
+        "untitled"
+      ],
+      "expectedInstanceIds": [
+        "e31d9120-2f4b-4585-82f1-c140725036bc"
+      ],
+      "expectedLabels": [
+        "C-46"
+      ]
+    },
+    {
+      "id": "q18",
+      "question": "Why is persuasion by AI a worry?",
+      "query": "persuasion",
+      "kinds": [
+        "untitled"
+      ],
+      "expectedInstanceIds": [
+        "269c0788-adaf-4b25-bcf5-b69b68bab53a"
+      ],
+      "expectedLabels": [
+        "P-84"
+      ]
+    },
+    {
+      "id": "q19",
+      "question": "Why is it hard to keep volunteer committee members going?",
+      "query": "volunteer burnout",
+      "kinds": [
+        "untitled",
+        "vocab"
+      ],
+      "expectedInstanceIds": [
+        "2fcc3c67-a280-4442-aee4-86c24183bc26"
+      ],
+      "expectedLabels": [
+        "P-40"
+      ]
+    },
+    {
+      "id": "q20",
+      "question": "Why do newcomers not put forward ideas?",
+      "query": "newcomers speaking up",
+      "kinds": [
+        "untitled",
+        "vocab"
+      ],
+      "expectedInstanceIds": [
+        "703f3e42-8b57-48f1-980d-05d684fea944"
+      ],
+      "expectedLabels": [
+        "P-34"
+      ]
+    },
+    {
+      "id": "q21",
+      "question": "What do we say about whether groups are ready for the training?",
+      "query": "training not ready",
+      "kinds": [
+        "untitled",
+        "vocab"
+      ],
+      "expectedInstanceIds": [
+        "643827ca-6a1e-43f0-bad3-bcec2bfd0aaf"
+      ],
+      "expectedLabels": [
+        "Boundary work out of launch scope"
+      ]
+    },
+    {
+      "id": "q22",
+      "question": "Which standing job is about moving from a decision record to small democracy?",
+      "query": "small democracy standing job",
+      "kinds": [
+        "run-report-noise"
+      ],
+      "expectedInstanceIds": [
+        "0510b863-5ffc-482a-b702-5784963fcdf8"
+      ],
+      "expectedLabels": [
+        "Propose the ways from a decision record to small democracy"
+      ]
+    },
+    {
+      "id": "q23",
+      "question": "Where do the Rochdale Pioneers appear in the sources?",
+      "query": "Rochdale Pioneers rule book",
+      "kinds": [
+        "run-report-noise"
+      ],
+      "expectedInstanceIds": [
+        "0503c92e-4403-4889-8370-bbd14a9e6321",
+        "7330123b-cf5b-4fd7-bd35-93c3f493c0b2"
+      ],
+      "expectedLabels": [
+        "Rochdale Society of Equitable Pioneers rule book, 1844 — REA",
+        "The Rochdale Pioneers"
+      ]
+    },
+    {
+      "id": "q24",
+      "question": "When does governance fail over where a decision is taken?",
+      "query": "boundary",
+      "kinds": [
+        "untitled",
+        "run-report-noise"
+      ],
+      "expectedInstanceIds": [
+        "87a9cd07-0c73-4619-ac89-a16c7d756f5b"
+      ],
+      "expectedLabels": [
+        "C-53"
+      ]
+    },
+    {
+      "id": "q25",
+      "question": "Which claims are refusals rather than findings?",
+      "query": "refusal",
+      "kinds": [
+        "tag"
+      ],
+      "expectedInstanceIds": [
+        "04620efb-09b2-4bb7-9c99-f42ac4e22c7e",
+        "0529ff96-345e-45fd-9296-1e44dd8bbe74",
+        "1a916ecb-83c8-4cd4-9031-23c20754c0fb",
+        "2bc373de-582b-48a3-9bee-38632a8cb992",
+        "480b2cac-958c-4e27-90ad-b992ae713c2a",
+        "50de641e-5067-4a9d-8009-0a4be4fd91ca",
+        "58edc1d4-75b8-4b7b-b8ed-5ff01c02a68c",
+        "6cb06f57-4176-494a-860e-8485b7118b34",
+        "73268a21-5af9-436b-af99-26d803df08e0",
+        "7ba2ff1c-8689-4364-b3a1-49baedf5e1d8",
+        "b7d2a336-44f0-45bf-95e5-80ecbfe6f59d",
+        "e6ea4dcc-5d7a-4159-8a79-069bf167675e"
+      ],
+      "expectedLabels": [
+        "C-152",
+        "C-82",
+        "C-145",
+        "C-100",
+        "C-130",
+        "C-171",
+        "C-160",
+        "C-04",
+        "C-168",
+        "C-84",
+        "C-175",
+        "C-124"
+      ]
+    },
+    {
+      "id": "q26",
+      "question": "Who is a group's decision for? What if it is everyone?",
+      "query": "constituency",
+      "kinds": [
+        "untitled",
+        "vocab"
+      ],
+      "expectedInstanceIds": [
+        "090ef5fb-1797-4e97-ac74-509d7e73cde8",
+        "dd15b972-96a2-4aa9-82b2-603c088b6e22",
+        "2b1c1e2c-7d69-46ba-823a-ced53956331c"
+      ],
+      "expectedLabels": [
+        "P-51",
+        "P-52",
+        "P-58"
+      ]
+    },
+    {
+      "id": "q27",
+      "question": "Try a small practice and keep it only if it helps in a normal meeting",
+      "query": "try small keep if useful",
+      "kinds": [
+        "untitled",
+        "vocab"
+      ],
+      "expectedInstanceIds": [
+        "5a9ff70d-3b6e-4598-b1ae-1bd40dee2e52"
+      ],
+      "expectedLabels": [
+        "Group practice: development and continuity"
+      ]
+    }
+  ]
+}

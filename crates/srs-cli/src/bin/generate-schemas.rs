@@ -58,6 +58,7 @@ fn main() {
 
     // Relation payloads
     write_schema!("relation-list", RelationListPayload);
+    write_schema!("relation-neighbours", NeighboursPayload);
     write_schema!("relation-get", RelationPayload);
     write_schema!("relation-create", RelationPayload);
     write_schema!("relation-delete", RelationDeletePayload);
@@ -75,15 +76,17 @@ fn main() {
     // Container payloads
     write_schema!("container-list", ContainerListPayload);
     write_schema!("container-get", ContainerPayload);
+    write_schema!("container-copy", ContainerCopyPayload);
+    write_schema!("record-fork", RecordForkPayload);
     write_schema!("container-create", ContainerPayload);
     write_schema!("container-update", ContainerPayload);
     write_schema!("container-delete", ContainerDeletePayload);
     write_schema!("container-members-list", ContainerMembersPayload);
+    write_schema!("container-members-outline", ContainerMembersOutlinePayload);
     write_schema!("container-members-add", ContainerMembersMutatePayload);
     write_schema!("container-members-remove", ContainerMembersMutatePayload);
-    write_schema!("container-roots-list", ContainerRootsPayload);
-    write_schema!("container-roots-add", ContainerRootsMutatePayload);
-    write_schema!("container-roots-remove", ContainerRootsMutatePayload);
+    write_schema!("container-members-move", ContainerMembersMutatePayload);
+    write_schema!("container-members-repair", ContainerMembersMutatePayload);
     write_schema!("container-validate", ContainerValidatePayload);
     write_schema!("container-resolve-view", ContainerViewPayload);
 
@@ -172,6 +175,7 @@ fn main() {
     write_schema!("render-composition", RenderCompositionPayload);
     write_schema!("render-export-bundle", ExportBundlePayload);
     write_schema!("render-okf-bundle", OkfBundlePayload);
+    write_schema!("render-markdown", RenderMarkdownPayload);
 
     // Repo payloads
     write_schema!("repo-create", RepoCreatePayload);
@@ -215,7 +219,9 @@ fn main() {
     write_schema!("package-create", PackageCreatePayload);
     write_schema!("package-import", PackageImportPayload);
     write_schema!("package-install", PackageInstallPayload);
+    write_schema!("package-export", PackageExportPayload);
     write_schema!("package-update", PackageUpdatePayload);
+    write_schema!("package-dependencies", PackageDependenciesPayload);
     write_schema!("package-refs", PackageRefPayload);
     write_schema!("package-imports", PackageImportsPayload);
 
@@ -260,6 +266,7 @@ fn main() {
     // Archive payloads (ADR-033, ADR-036)
     write_schema!("archive-pack", ArchivePackPayload);
     write_schema!("archive-unpack", ArchiveUnpackPayload);
+    write_schema!("slice-export", SliceExportPayload);
 
     println!("done.");
 }

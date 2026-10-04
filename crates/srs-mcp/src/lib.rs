@@ -6,15 +6,12 @@
 //! result serialized. No business logic lives here.
 
 mod application;
-pub mod json_application;
-mod prompts;
-mod resources;
 pub mod server;
-pub mod tools;
-mod uri;
 
-pub use application::McpApplication;
 pub use server::SrsMcpServer;
+/// The tool catalogue and handlers live in `srs-mcp-core`; re-exported so the
+/// existing `srs_mcp::tools` paths (names, descriptions) stay stable.
+pub use srs_mcp_core::tools;
 
 use std::path::PathBuf;
 
@@ -23,8 +20,12 @@ use std::path::PathBuf;
 ///
 /// Builds a current-thread tokio runtime internally so callers (the CLI)
 /// stay fully synchronous. Async never leaves this crate (ADR-037).
-pub fn serve_stdio(repo_path: PathBuf) -> anyhow::Result<()> {
-    let server = SrsMcpServer::new(repo_path)?;
+///
+/// `actor` is the host-supplied RFC-046 session actor (raw JSON, from the CLI's
+/// `--actor` / `SRS_ACTOR`), stamped as `createdBy` on everything this server
+/// creates. It never comes from a tool argument.
+pub fn serve_stdio(repo_path: PathBuf, actor: Option<serde_json::Value>) -> anyhow::Result<()> {
+    let server = SrsMcpServer::new(repo_path)?.with_session_actor(actor);
     // Stdio transport uses tokio's blocking pool for stdin/stdout — no I/O
     // driver needed. Timers ARE needed: rmcp's shutdown path uses tokio::time.
     let runtime = tokio::runtime::Builder::new_current_thread()

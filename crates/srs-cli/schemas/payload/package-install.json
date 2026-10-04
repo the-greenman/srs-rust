@@ -10,6 +10,7 @@
     "kinds",
     "name",
     "namespace",
+    "notes",
     "packageId",
     "skippedIdentical",
     "version"
@@ -48,6 +49,13 @@
     },
     "namespace": {
       "type": "string"
+    },
+    "notes": {
+      "description": "Non-fatal `.srspkg` pre-load transformer notes (RFC-043 `migration-memberorder-dropped`, ...); always empty for a directory install.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     },
     "packageId": {
       "description": "Upstream package identity (provenance echo).",

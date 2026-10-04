@@ -19,13 +19,17 @@ use rmcp::{RoleServer, ServerHandler};
 use srs_repository::error::RepositoryError;
 use srs_repository::store::{FileStore, RepositoryStore};
 
-use crate::application::McpApplication;
+use srs_mcp_core::SrsMcpApplication;
+
+use crate::application;
 
 /// MCP server over a single SRS repository.
 #[derive(Debug)]
 pub struct SrsMcpServer {
     repo_path: PathBuf,
     repository_id: String,
+    /// RFC-046 host-supplied session actor, applied to every per-request store.
+    session_actor: Option<serde_json::Value>,
 }
 
 impl SrsMcpServer {
@@ -59,7 +63,14 @@ impl SrsMcpServer {
         Ok(Self {
             repo_path,
             repository_id,
+            session_actor: None,
         })
+    }
+
+    /// Set the RFC-046 session actor stamped on everything this server creates.
+    pub fn with_session_actor(mut self, actor: Option<serde_json::Value>) -> Self {
+        self.session_actor = actor;
+        self
     }
 
     /// The repository identity from the manifest (`repositoryId`).
@@ -67,15 +78,19 @@ impl SrsMcpServer {
         &self.repository_id
     }
 
-    /// A fresh store for one request — per-invocation semantics, like the CLI.
-    pub(crate) fn open_store(&self) -> FileStore {
-        FileStore::new(&self.repo_path)
+    /// A fresh application (and `FileStore`) for one request — per-invocation
+    /// semantics, like the CLI.
+    pub(crate) fn open_app(&self) -> application::App {
+        let app =
+            SrsMcpApplication::new(FileStore::new(&self.repo_path), self.repository_id.clone());
+        app.set_session_actor(self.session_actor.clone());
+        app
     }
 }
 
 impl ServerHandler for SrsMcpServer {
     fn get_info(&self) -> ServerInfo {
-        McpApplication::server_info()
+        application::server_info()
     }
 
     // Handlers are synchronous service calls wrapped in ready futures: the
@@ -87,8 +102,8 @@ impl ServerHandler for SrsMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListResourcesResult, McpError>> + Send + '_ {
-        let store = self.open_store();
-        ready(McpApplication::new(&store, &self.repository_id).list_resources())
+        let mut app = self.open_app();
+        ready(application::list_resources(&mut app))
     }
 
     fn list_resource_templates(
@@ -96,10 +111,8 @@ impl ServerHandler for SrsMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListResourceTemplatesResult, McpError>> + Send + '_ {
-        let store = self.open_store();
-        ready(Ok(
-            McpApplication::new(&store, &self.repository_id).list_resource_templates()
-        ))
+        let mut app = self.open_app();
+        ready(application::list_resource_templates(&mut app))
     }
 
     fn read_resource(
@@ -107,8 +120,8 @@ impl ServerHandler for SrsMcpServer {
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ReadResourceResult, McpError>> + Send + '_ {
-        let store = self.open_store();
-        ready(McpApplication::new(&store, &self.repository_id).read_resource(&request.uri))
+        let mut app = self.open_app();
+        ready(application::read_resource(&mut app, &request.uri))
     }
 
     fn list_tools(
@@ -116,10 +129,8 @@ impl ServerHandler for SrsMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
-        let store = self.open_store();
-        ready(Ok(
-            McpApplication::new(&store, &self.repository_id).list_tools()
-        ))
+        let mut app = self.open_app();
+        ready(application::list_tools(&mut app))
     }
 
     fn call_tool(
@@ -127,11 +138,12 @@ impl ServerHandler for SrsMcpServer {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<CallToolResult, McpError>> + Send + '_ {
-        let store = self.open_store();
-        ready(
-            McpApplication::new(&store, &self.repository_id)
-                .call_tool(&request.name, request.arguments),
-        )
+        let mut app = self.open_app();
+        ready(application::call_tool(
+            &mut app,
+            &request.name,
+            request.arguments,
+        ))
     }
 
     fn list_prompts(
@@ -139,8 +151,8 @@ impl ServerHandler for SrsMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListPromptsResult, McpError>> + Send + '_ {
-        let store = self.open_store();
-        ready(McpApplication::new(&store, &self.repository_id).list_prompts())
+        let mut app = self.open_app();
+        ready(application::list_prompts(&mut app))
     }
 
     fn get_prompt(
@@ -148,11 +160,12 @@ impl ServerHandler for SrsMcpServer {
         request: GetPromptRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<GetPromptResult, McpError>> + Send + '_ {
-        let store = self.open_store();
-        ready(
-            McpApplication::new(&store, &self.repository_id)
-                .get_prompt(&request.name, request.arguments.as_ref()),
-        )
+        let mut app = self.open_app();
+        ready(application::get_prompt(
+            &mut app,
+            &request.name,
+            request.arguments.as_ref(),
+        ))
     }
 }
 
@@ -166,6 +179,7 @@ mod tests {
         let info = SrsMcpServer {
             repo_path: PathBuf::from("/nonexistent"),
             repository_id: "test".into(),
+            session_actor: None,
         }
         .get_info();
         assert_eq!(info.server_info.name, "srs-mcp");
@@ -184,6 +198,7 @@ mod tests {
         let info = SrsMcpServer {
             repo_path: PathBuf::from("/nonexistent"),
             repository_id: "test".into(),
+            session_actor: None,
         }
         .get_info();
         assert_eq!(

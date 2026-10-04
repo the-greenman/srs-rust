@@ -98,6 +98,9 @@ fn current_revision_source_with_subpackage() -> FileStore {
                     "dataModelRevision": CURRENT_DATA_MODEL_REVISION,
                     "packageDependencies": [
                         {
+                            // RFC-044: a fixed synthetic packageId, authored test data
+                            // (the package exists nowhere, so it is never resolved).
+                            "packageId": "e0000001-0000-4000-a000-000000000001",
                             "namespace": "com.semanticops.roundtrip.external",
                             "name": "external-dep",
                             "version": "3.2.1",
@@ -144,6 +147,9 @@ fn current_revision_source_with_subpackage() -> FileStore {
                     "createdAt": "2025-06-01T12:00:00Z",
                     "packageDependencies": [
                         {
+                            // RFC-044: a fixed synthetic packageId, authored test data
+                            // (the package exists nowhere, so it is never resolved).
+                            "packageId": "e0000002-0000-4000-a000-000000000002",
                             "namespace": "com.semanticops.roundtrip.sub.external",
                             "name": "sub-external-dep",
                             "version": "0.9.0",

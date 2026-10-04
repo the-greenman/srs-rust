@@ -26,7 +26,8 @@ use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
 use crate::writer::{new_instance_id, write_manifest};
 use serde::{Deserialize, Serialize};
-use srs_core::types::container::Container;
+use srs_core::arrangement;
+use srs_core::types::container::{Container, ContainerEntry};
 use srs_core::validation::container::validate_container;
 use srs_schema::{SchemaRegistry, CONTAINER_SCHEMA_ID};
 use std::collections::{HashMap, HashSet};
@@ -52,8 +53,8 @@ pub struct ContainerPatch {
     pub meta: Option<serde_json::Value>,
     pub identity_instance_id: Option<String>,
     pub anchor_instance_id: Option<String>,
-    pub root_instance_ids: Option<Vec<String>>,
-    pub member_instance_ids: Option<Vec<String>>,
+    /// RFC-043: the whole ordered outline (replaces the arrangement; order is data, never sorted).
+    pub member_instance_ids: Option<Vec<ContainerEntry>>,
     pub child_container_ids: Option<Vec<String>>,
 }
 
@@ -69,7 +70,7 @@ pub struct ContainerValidationReport {
 pub struct ContainerListFilter {
     pub container_type: Option<String>,
     pub member_instance_id: Option<String>,
-    pub root_instance_id: Option<String>,
+    pub anchor_instance_id: Option<String>,
 }
 
 pub fn list_containers(
@@ -107,12 +108,9 @@ pub fn list_containers(
                 continue;
             }
         }
-        if let Some(ref root_filter) = filter.root_instance_id {
-            let in_roots = container
-                .root_instance_ids
-                .as_ref()
-                .is_some_and(|ids| ids.iter().any(|id| id == root_filter));
-            if !in_roots {
+        if let Some(ref root_filter) = filter.anchor_instance_id {
+            // RFC-043 [R4]: roots are gone; "root" now means the declared anchor entry.
+            if container.anchor_instance_id.as_deref() != Some(root_filter.as_str()) {
                 continue;
             }
         }
@@ -124,6 +122,24 @@ pub fn list_containers(
     }
 
     Ok(summaries)
+}
+
+/// Declared membership, inverted: instance id -> ids of the containers that list it directly
+/// (RFC-034: declared, never derived). One pass over every container.
+pub fn membership_index(
+    store: &dyn RepositoryStore,
+) -> Result<std::collections::HashMap<String, Vec<String>>, RepositoryError> {
+    let mut index: std::collections::HashMap<String, Vec<String>> = Default::default();
+    for summary in list_containers(store, &ContainerListFilter::default())? {
+        let (container, _) = load_container_with_embed_fallback(store, &summary.container_id)?;
+        for id in direct_member_ids(&container) {
+            index
+                .entry(id)
+                .or_default()
+                .push(summary.container_id.clone());
+        }
+    }
+    Ok(index)
 }
 
 pub fn containers_for_instance(
@@ -139,12 +155,90 @@ pub fn containers_for_instance(
     )
 }
 
+/// The one `container_create` input contract (RFC-043 revision-8 shape, no `rootInstanceIds`),
+/// shared by the CLI, the WASM binding and the MCP tool so every adapter applies the same
+/// rules: unknown keys are rejected, `containerId` is minted when omitted. It carries every
+/// authorable property of `container.json` (only the `$schema` marker is left out), so no
+/// adapter can set less than another.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[cfg_attr(feature = "mcp-schema", derive(schemars::JsonSchema))]
+pub struct ContainerCreateInput {
+    pub container_id: Option<String>,
+    pub title: String,
+    pub namespace: Option<String>,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub container_type: Option<String>,
+    pub anchor_instance_id: Option<String>,
+    pub identity_instance_id: Option<String>,
+    pub member_instance_ids: Option<Vec<ContainerEntryInput>>,
+    /// RFC-034 Change B: container ids of directly nested child scopes.
+    pub child_container_ids: Option<Vec<String>>,
+    pub tags: Option<Vec<String>>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    /// Implementation-local metadata; cross-system keys should be namespaced.
+    pub meta: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+/// One outline entry of [`ContainerCreateInput`].
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[cfg_attr(feature = "mcp-schema", derive(schemars::JsonSchema))]
+pub struct ContainerEntryInput {
+    pub instance_id: String,
+    pub depth: Option<u32>,
+}
+
+impl From<ContainerCreateInput> for Container {
+    fn from(i: ContainerCreateInput) -> Self {
+        Container {
+            container_id: i.container_id.unwrap_or_default(),
+            title: i.title,
+            namespace: i.namespace,
+            name: i.name,
+            description: i.description,
+            container_type: i.container_type,
+            identity_instance_id: i.identity_instance_id,
+            anchor_instance_id: i.anchor_instance_id,
+            member_instance_ids: i.member_instance_ids.map(|v| {
+                v.into_iter()
+                    .map(|e| ContainerEntry {
+                        instance_id: e.instance_id,
+                        depth: e.depth,
+                    })
+                    .collect()
+            }),
+            child_container_ids: i.child_container_ids,
+            tags: i.tags,
+            created_at: i.created_at,
+            updated_at: i.updated_at,
+            meta: i.meta.map(serde_json::Value::Object),
+            extra: Default::default(),
+        }
+    }
+}
+
 pub fn create_container(
     store: &dyn RepositoryStore,
     mut container: Container,
 ) -> Result<Container, RepositoryError> {
     if container.container_id.is_empty() {
         container.container_id = new_instance_id();
+    }
+
+    // srs-rust#1167: create is a create, not an upsert — an id that already resolves
+    // (file-backed, or the manifest's embedded root with no file yet) is refused.
+    // Callers that mean "replace" go through `update_container`.
+    match load_container_with_embed_fallback(store, &container.container_id) {
+        Ok(_) => {
+            return Err(RepositoryError::ContainerAlreadyExists {
+                container_id: container.container_id.clone(),
+            })
+        }
+        Err(RepositoryError::ContainerNotFound { .. }) => {}
+        Err(e) => return Err(e),
     }
 
     // Schema validation at service boundary
@@ -163,6 +257,7 @@ pub fn create_container(
         .map_err(|source| RepositoryError::ContainerValidation { source })?;
 
     require_resolvable_instances(store, declared_membership(&container))?;
+    require_valid_arrangement(store, &container)?;
     require_resolvable_identity(store, &container)?;
     require_valid_child_containers(
         store,
@@ -398,8 +493,7 @@ pub fn update_container(
     patch: ContainerPatch,
 ) -> Result<ContainerUpdateResult, RepositoryError> {
     let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
-    let before_roots = container.root_instance_ids.clone().unwrap_or_default();
-    let before_members = container.member_instance_ids.clone().unwrap_or_default();
+    let before_members = container.member_ids();
     let before_children = container.child_container_ids.clone().unwrap_or_default();
     if let Some(v) = patch.title {
         container.title = v;
@@ -429,18 +523,10 @@ pub fn update_container(
         container.anchor_instance_id = Some(v.clone());
     }
     let mut diagnostics: Vec<String> = Vec::new();
-    if let Some(mut v) = patch.root_instance_ids {
-        v.sort();
-        v.dedup();
-        if let Some(d) = diagnose_removed_ids("rootInstanceIds", &before_roots, &v) {
-            diagnostics.push(d);
-        }
-        container.root_instance_ids = if v.is_empty() { None } else { Some(v) };
-    }
-    if let Some(mut v) = patch.member_instance_ids {
-        v.sort();
-        v.dedup();
-        if let Some(d) = diagnose_removed_ids("memberInstanceIds", &before_members, &v) {
+    if let Some(v) = patch.member_instance_ids {
+        // RFC-043 [R6]: order is data — the replacement is stored exactly as given.
+        let after: Vec<String> = v.iter().map(|e| e.instance_id.clone()).collect();
+        if let Some(d) = diagnose_removed_ids("memberInstanceIds", &before_members, &after) {
             diagnostics.push(d);
         }
         container.member_instance_ids = if v.is_empty() { None } else { Some(v) };
@@ -470,6 +556,7 @@ pub fn update_container(
         .map_err(|source| RepositoryError::ContainerValidation { source })?;
 
     require_resolvable_instances(store, declared_membership(&container))?;
+    require_valid_arrangement(store, &container)?;
     require_resolvable_identity(store, &container)?;
     require_valid_child_containers(
         store,
@@ -515,46 +602,17 @@ pub fn delete_container(
     Ok(container_id.to_string())
 }
 
-/// The **one** typing-anchor resolution (RFC-009 Change A, amended by srs#446/I-145):
-/// prefers the declared `anchorInstanceId`, falling back to `rootInstanceIds[0]` only
-/// transitionally (pre-#446 containers with no anchor). "Declaration over location"
-/// (`rfc-decision-cce3c00e`, cell Containment) — every caller resolving "which record's
-/// type is this container's typing anchor" routes through here rather than reading
-/// `rootInstanceIds.first()` directly (`compositions_for_container`, RFC-009 I-63
-/// rootTypeRefs matching). Pure — no I/O, no diagnostic; callers that need to know
-/// whether the transitional fallback fired check `container.anchor_instance_id.is_none()`
-/// themselves (see `container_view_service::resolve_container_view`'s I-145 diagnostic).
+/// The **one** typing-anchor resolution (RFC-009 Change A, amended by srs#446/I-145 and
+/// RFC-043 [R4]): the declared `anchorInstanceId`, nothing else. The transitional
+/// `rootInstanceIds[0]` fallback is withdrawn with `rootInstanceIds`. Pure — no I/O.
 pub fn typing_anchor_instance_id(container: &Container) -> Option<String> {
-    container
-        .anchor_instance_id
-        .clone()
-        .or_else(|| container.root_instance_ids.as_ref()?.first().cloned())
+    container.anchor_instance_id.clone()
 }
 
-/// RFC-042 Revision 5 [R22]'s own anchor resolution — **not**
-/// [`typing_anchor_instance_id`], which this deliberately does not call.
-///
-/// [R22]: "A child container whose `anchorInstanceId`, or absent one whose
-/// **single** `rootInstanceId`, is a direct member of the parent MUST render
-/// at that member's position... A child container with no such anchor MUST
-/// render after every positioned member." The load-bearing word is *single*:
-/// a container with two or more `rootInstanceIds` and no declared
-/// `anchorInstanceId` has **no** [R22] anchor — it falls into the "no such
-/// anchor" (rootless-tail) bucket — whereas `typing_anchor_instance_id`
-/// would happily hand back `rootInstanceIds[0]`, "any first root,
-/// unconditionally". That fallback is right for *typing* (RFC-009: some
-/// record must supply the Type match) and wrong for *positioning* (RFC-034
-/// [R3]/RFC-042 [R22]: an unordered multi-root container has no declared
-/// single point to position against — this call site never reads
-/// `.first()`).
+/// RFC-042 Revision 5 [R22]'s anchor resolution (RFC-043 [R9]: the single-root fallback is
+/// removed) — the declared anchor, as for typing.
 pub(crate) fn r22_position_anchor_instance_id(container: &Container) -> Option<String> {
-    if let Some(anchor) = &container.anchor_instance_id {
-        return Some(anchor.clone());
-    }
-    match container.root_instance_ids.as_deref() {
-        Some([single]) => Some(single.clone()),
-        _ => None,
-    }
+    container.anchor_instance_id.clone()
 }
 
 /// RFC-034 [R1]: a Container's **direct membership** — `rootInstanceIds` ∪
@@ -567,19 +625,7 @@ pub(crate) fn r22_position_anchor_instance_id(container: &Container) -> Option<S
 /// the shallow half; `"subtree"` and every other membership consumer wants
 /// [`effective_member_ids`] instead.
 fn direct_member_ids(container: &Container) -> Vec<String> {
-    let mut combined: Vec<String> = Vec::new();
-    let mut seen: HashSet<&str> = HashSet::new();
-    for id in container
-        .root_instance_ids
-        .iter()
-        .chain(container.member_instance_ids.iter())
-        .flatten()
-    {
-        if seen.insert(id.as_str()) {
-            combined.push(id.clone());
-        }
-    }
-    combined
+    container.member_ids()
 }
 
 /// RFC-034 [R1] direct membership, indexed by each container's declared root(s),
@@ -599,16 +645,15 @@ pub(crate) fn direct_children_by_root(
     let mut by_root: HashMap<String, Vec<String>> = HashMap::new();
     for summary in list_containers(store, &ContainerListFilter::default())? {
         let container = get_container(store, &summary.container_id)?;
-        let Some(roots) = container.root_instance_ids.clone() else {
+        // RFC-043 [R19]: the section container of a record is the Container whose
+        // `anchorInstanceId` equals it.
+        let Some(root_id) = container.anchor_instance_id.clone() else {
             continue;
         };
-        let members = direct_member_ids(&container);
-        for root_id in &roots {
-            let entry = by_root.entry(root_id.clone()).or_default();
-            for id in &members {
-                if id != root_id && !entry.contains(id) {
-                    entry.push(id.clone());
-                }
+        let entry = by_root.entry(root_id.clone()).or_default();
+        for id in direct_member_ids(&container) {
+            if id != root_id && !entry.contains(&id) {
+                entry.push(id);
             }
         }
     }
@@ -736,12 +781,31 @@ fn require_valid_child_containers(
 /// resolve-view`, the MCP container resource, `containers_for_instance`,
 /// RFC-012 `containerId` filtering (via `list_records_filtered`). RFC-011
 /// `containerScope: "explicit"` wants [`list_direct_members`] instead.
-pub(crate) fn list_members(
+pub fn list_members(
     store: &dyn RepositoryStore,
     container_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
     let container = get_container(store, container_id)?;
     effective_member_ids(store, &container)
+}
+
+/// `container_id` plus every container reachable through `childContainerIds`
+/// (the containers whose members make up `list_members`).
+pub fn container_closure(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+) -> Result<Vec<String>, RepositoryError> {
+    let mut out: Vec<String> = Vec::new();
+    let mut stack = vec![container_id.to_string()];
+    while let Some(id) = stack.pop() {
+        if out.contains(&id) {
+            continue;
+        }
+        let (c, _) = load_container_with_embed_fallback(store, &id)?;
+        stack.extend(c.child_container_ids.into_iter().flatten());
+        out.push(id);
+    }
+    Ok(out)
 }
 
 /// Direct membership (RFC-034 [R1]) — this container's own `rootInstanceIds`
@@ -811,11 +875,35 @@ fn require_resolvable_instances<'a>(
 /// check that does apply to it).
 fn declared_membership(container: &Container) -> impl Iterator<Item = &str> {
     container
-        .root_instance_ids
+        .member_instance_ids
         .iter()
-        .chain(container.member_instance_ids.iter())
         .flatten()
-        .map(String::as_str)
+        .map(|e| e.instance_id.as_str())
+}
+
+/// RFC-043 [R2] write-time arrangement check: depth rules, exactly-once, and (root
+/// container) the identity entry at depth 0 with no descendants.
+fn require_valid_arrangement(
+    store: &dyn RepositoryStore,
+    container: &Container,
+) -> Result<(), RepositoryError> {
+    let Some(entries) = &container.member_instance_ids else {
+        return Ok(());
+    };
+    let identity = root_identity(store, &container.container_id, container);
+    match arrangement::check_entries(entries, identity)
+        .into_iter()
+        .next()
+    {
+        Some(v) => Err(arrangement_error(v)),
+        None => Ok(()),
+    }
+}
+
+fn arrangement_error(v: arrangement::Violation) -> RepositoryError {
+    RepositoryError::InvalidInput {
+        message: v.to_string(),
+    }
 }
 
 /// `identityInstanceId` must name an instance that actually exists.
@@ -842,88 +930,416 @@ fn require_resolvable_identity(
     Ok(())
 }
 
+/// Result of a member operation (RFC-043 Change D): the container's arrangement after the
+/// operation, the ids whose depth was lowered by a promoting removal ([R7]: the operation
+/// reports them), and the ids it removed.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ArrangementResult {
+    pub members: Vec<ContainerEntry>,
+    #[serde(default)]
+    pub promoted: Vec<String>,
+    #[serde(default)]
+    pub removed: Vec<String>,
+}
+
+pub(crate) fn is_root_container(store: &dyn RepositoryStore, container_id: &str) -> bool {
+    store
+        .load_manifest()
+        .ok()
+        .and_then(|m| m.container)
+        .is_some_and(|c| c.container_id == container_id)
+}
+
+fn pointer_error(container: &Container, instance_id: &str, what: &str) -> RepositoryError {
+    arrangement_error(arrangement::Violation {
+        code: arrangement::CODE_POINTER,
+        instance_id: instance_id.to_string(),
+        message: format!(
+            "{} of container {} names this entry; move the pointer to another member first",
+            what, container.container_id
+        ),
+    })
+}
+
+fn require_not_pointer(container: &Container, instance_id: &str) -> Result<(), RepositoryError> {
+    if container.identity_instance_id.as_deref() == Some(instance_id) {
+        return Err(pointer_error(container, instance_id, "identityInstanceId"));
+    }
+    if container.anchor_instance_id.as_deref() == Some(instance_id) {
+        return Err(pointer_error(container, instance_id, "anchorInstanceId"));
+    }
+    Ok(())
+}
+
+/// Flat arrangement read ([R15]): the container's entries with depth, in order.
+pub fn get_arrangement(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+) -> Result<Vec<ContainerEntry>, RepositoryError> {
+    Ok(get_container(store, container_id)?
+        .member_instance_ids
+        .unwrap_or_default())
+}
+
+fn store_entries(container: &mut Container, entries: Vec<ContainerEntry>) {
+    container.member_instance_ids = if entries.is_empty() {
+        None
+    } else {
+        Some(entries)
+    };
+}
+
+/// **add** / **insert** (Change D). With no `position` the entry is appended at `depth`
+/// (default 0). An id that is already a member is returned unchanged unless a position or
+/// depth was asked for (use [`move_member`]).
 pub fn add_member(
     store: &dyn RepositoryStore,
     container_id: &str,
     instance_id: &str,
-) -> Result<Vec<String>, RepositoryError> {
+    position: Option<usize>,
+    depth: Option<u32>,
+) -> Result<ArrangementResult, RepositoryError> {
     require_resolvable_instances(store, [instance_id])?;
     let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
-    let mut members = container.member_instance_ids.unwrap_or_default();
-    if members.iter().any(|id| id == instance_id) {
-        return Ok(members);
+    let entries = container.member_instance_ids.clone().unwrap_or_default();
+    if entries.iter().any(|e| e.instance_id == instance_id) {
+        if position.is_some() || depth.is_some() {
+            return Err(RepositoryError::InvalidInput {
+                message: format!(
+                    "{instance_id} is already a member of {container_id}; use move to reposition it"
+                ),
+            });
+        }
+        return Ok(ArrangementResult {
+            members: entries,
+            ..Default::default()
+        });
     }
-    members.push(instance_id.to_string());
-    members.sort();
-    container.member_instance_ids = Some(members.clone());
+    let identity = root_identity(store, container_id, &container);
+    let out = arrangement::insert(
+        &entries,
+        ContainerEntry::at(instance_id, depth.unwrap_or(0)),
+        position,
+        identity,
+    )
+    .map_err(arrangement_error)?;
+    store_entries(&mut container, out.clone());
     save_container_syncing_embed(store, &container, is_embed_only, false)?;
-    Ok(members)
+    Ok(ArrangementResult {
+        members: out,
+        ..Default::default()
+    })
 }
 
-/// Remove a member — a **repair** operation (ADR-045), so it reads and writes
-/// through the unchecked catalog. Dropping a membership entry can only reduce
-/// incoherence, and it is the only way back out of a repository bricked by a
-/// dangling container reference (srs-rust#841).
+/// **remove** (Change D, [R7]) — the promoting removal. A **repair**-seam operation
+/// (ADR-045): it reads and writes through the unchecked catalog so it still works on a
+/// repository bricked by a dangling reference (srs-rust#841). Rejected with
+/// `arrangement-pointer` when the entry is the container's identity or anchor.
 pub fn remove_member(
     store: &dyn RepositoryStore,
     container_id: &str,
     instance_id: &str,
-) -> Result<Vec<String>, RepositoryError> {
+) -> Result<ArrangementResult, RepositoryError> {
     let (mut container, is_embed_only) = load_container_for_repair(store, container_id)?;
-    let mut members = container.member_instance_ids.unwrap_or_default();
-    members.retain(|id| id != instance_id);
-    if members.is_empty() {
-        container.member_instance_ids = None;
-    } else {
-        container.member_instance_ids = Some(members.clone());
-    }
+    require_not_pointer(&container, instance_id)?;
+    let entries = container.member_instance_ids.clone().unwrap_or_default();
+    let Some((out, promoted)) = arrangement::remove_promoting(&entries, instance_id) else {
+        return Ok(ArrangementResult {
+            members: entries,
+            ..Default::default()
+        });
+    };
+    store_entries(&mut container, out.clone());
     save_container_for_repair(store, &container, is_embed_only)?;
-    Ok(container.member_instance_ids.unwrap_or_default())
+    Ok(ArrangementResult {
+        members: out,
+        promoted,
+        removed: vec![instance_id.to_string()],
+    })
+}
+
+/// **move** / **set depth** (Change D): move the run of `instance_id` to `position`
+/// (against the list without the run; default: where it is) taking `depth` (default:
+/// its current depth).
+pub fn move_member(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    instance_id: &str,
+    position: Option<usize>,
+    depth: Option<u32>,
+) -> Result<ArrangementResult, RepositoryError> {
+    rearrange(store, container_id, |entries, identity| {
+        arrangement::move_run(entries, instance_id, position, depth, identity)
+            .map_err(arrangement_error)
+    })
+}
+
+/// The identity entry the [R2] identity rule pins: only the root container has one.
+fn root_identity<'a>(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    container: &'a Container,
+) -> Option<&'a str> {
+    is_root_container(store, container_id)
+        .then_some(container.identity_instance_id.as_deref())
+        .flatten()
+}
+
+/// The shared write path of the arrangement edits: load the container, apply `op` to its
+/// entries with the root container's identity (for the [R2] identity rule), persist the result.
+fn rearrange(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    op: impl FnOnce(&[ContainerEntry], Option<&str>) -> Result<Vec<ContainerEntry>, RepositoryError>,
+) -> Result<ArrangementResult, RepositoryError> {
+    let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
+    let entries = container.member_instance_ids.clone().unwrap_or_default();
+    let identity = root_identity(store, container_id, &container);
+    let out = op(&entries, identity)?;
+    store_entries(&mut container, out.clone());
+    save_container_syncing_embed(store, &container, is_embed_only, false)?;
+    Ok(ArrangementResult {
+        members: out,
+        ..Default::default()
+    })
+}
+
+/// **move relative** (Change D, issue #1156): `before` / `after` / `into` another entry,
+/// `indent` / `outdent`, or `up` / `down` one sibling step — each resolved to the one
+/// `move_run` validity path in `srs_core::arrangement`.
+pub fn move_member_relative(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    instance_id: &str,
+    mv: &arrangement::RelativeMove,
+) -> Result<ArrangementResult, RepositoryError> {
+    rearrange(store, container_id, |entries, identity| {
+        mv.apply(entries, instance_id, identity)
+            .map_err(arrangement_error)
+    })
+}
+
+/// **add relative**: add a new member and place it `before` / `after` / `into` `target` in one
+/// write. Rejected (nothing written) when `instance_id` is already a member.
+pub fn add_member_relative(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    instance_id: &str,
+    target: &str,
+    placement: arrangement::Placement,
+) -> Result<ArrangementResult, RepositoryError> {
+    require_resolvable_instances(store, [instance_id])?;
+    rearrange(store, container_id, |entries, identity| {
+        if entries.iter().any(|e| e.instance_id == instance_id) {
+            return Err(RepositoryError::InvalidInput {
+                message: format!(
+                    "{instance_id} is already a member of {container_id}; use move to reposition it"
+                ),
+            });
+        }
+        arrangement::insert(entries, ContainerEntry::new(instance_id), None, identity)
+            .and_then(|e| arrangement::place(&e, instance_id, target, placement, identity))
+            .map_err(arrangement_error)
+    })
+}
+
+/// **replace** (srs-rust#1136): swap member ids in place, keeping each entry's position and
+/// depth, in ONE write. Each `old` must be a member and not the identity/anchor pointer; each
+/// `new` must not already be a member. The fork service's swap.
+pub fn replace_members(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+    swaps: &[(String, String)],
+) -> Result<ArrangementResult, RepositoryError> {
+    let new_ids: Vec<&str> = swaps.iter().map(|(_, n)| n.as_str()).collect();
+    require_resolvable_instances(store, new_ids.iter().copied())?;
+    let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
+    let mut entries = container.member_instance_ids.clone().unwrap_or_default();
+    for (old, new) in swaps {
+        require_not_pointer(&container, old)?;
+        if entries.iter().any(|e| e.instance_id == *new) {
+            return Err(RepositoryError::InvalidInput {
+                message: format!("{new} is already a member of {container_id}"),
+            });
+        }
+        let e = entries
+            .iter_mut()
+            .find(|e| e.instance_id == *old)
+            .ok_or_else(|| RepositoryError::InvalidInput {
+                message: format!("{old} is not a member of {container_id}"),
+            })?;
+        e.instance_id = new.clone();
+    }
+    store_entries(&mut container, entries.clone());
+    save_container_syncing_embed(store, &container, is_embed_only, false)?;
+    Ok(ArrangementResult {
+        members: entries,
+        ..Default::default()
+    })
+}
+
+/// Input of [`copy_container`]. Both keys optional.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[cfg_attr(feature = "mcp-schema", derive(schemars::JsonSchema))]
+pub struct ContainerCopyInput {
+    /// Default: `"<source title> (copy)"`.
+    pub title: Option<String>,
+    /// Default: minted. An existing id is refused.
+    pub container_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerCopyResult {
+    pub container: Container,
+    /// The anchor fork (`derived-from` its original) when the source had an anchor.
+    pub forks: Vec<crate::fork_service::ForkPair>,
+    pub relations: Vec<srs_core::types::relation::Relation>,
+}
+
+/// **copy** (srs-rust#1136): a new container that SHARES the source's member records
+/// (arrangement copied verbatim, `childContainerIds` shared by reference). The one exception
+/// is the anchor (title) record: it is forked through the fork core and the new container's
+/// anchor entry / `anchorInstanceId` / `identityInstanceId` (if it named the anchor) point at
+/// the fork, so no two containers share an anchor. No member record is duplicated. An
+/// `identityInstanceId` naming a record other than the anchor stays shared (v1).
+pub fn copy_container(
+    store: &dyn RepositoryStore,
+    source_id: &str,
+    input: ContainerCopyInput,
+) -> Result<ContainerCopyResult, RepositoryError> {
+    if is_root_container(store, source_id) {
+        return Err(RepositoryError::ContainerIsRepositoryRoot {
+            container_id: source_id.to_string(),
+        });
+    }
+    let source = get_container(store, source_id)?;
+    let mut copy = source.clone();
+    copy.container_id = input.container_id.unwrap_or_else(new_instance_id);
+    copy.title = input
+        .title
+        .unwrap_or_else(|| format!("{} (copy)", source.title));
+    let now = chrono::Utc::now().to_rfc3339();
+    copy.created_at = Some(now.clone());
+    copy.updated_at = Some(now);
+    // Fail early on an existing id, before forking anything.
+    match load_container_with_embed_fallback(store, &copy.container_id) {
+        Ok(_) => {
+            return Err(RepositoryError::ContainerAlreadyExists {
+                container_id: copy.container_id,
+            })
+        }
+        Err(RepositoryError::ContainerNotFound { .. }) => {}
+        Err(e) => return Err(e),
+    }
+    let (forks, relations) = match source.anchor_instance_id.clone() {
+        Some(anchor) => crate::fork_service::fork_records(store, &[anchor])?,
+        None => (vec![], vec![]),
+    };
+    if let Some(pair) = forks.first() {
+        let swap = |id: &mut String| {
+            if *id == pair.original_id {
+                *id = pair.fork_id.clone();
+            }
+        };
+        copy.anchor_instance_id.as_mut().map(swap);
+        copy.identity_instance_id.as_mut().map(swap);
+        for e in copy.member_instance_ids.iter_mut().flatten() {
+            swap(&mut e.instance_id);
+        }
+    }
+    match create_container(store, copy) {
+        Ok(container) => Ok(ContainerCopyResult {
+            container,
+            forks,
+            relations,
+        }),
+        Err(e) => {
+            for p in &forks {
+                crate::record_store::attempt_rollback_delete(store, &p.fork_id);
+            }
+            Err(e)
+        }
+    }
+}
+
+/// The structured outline read ([R15], issue #1156): the whole arrangement with derived
+/// parent / run (`entries`) and the document `body` — the entries that remain once the
+/// container's anchor and identity entries are set aside by the promoting removal ([R7]).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerOutline {
+    pub container_id: String,
+    pub anchor_instance_id: Option<String>,
+    pub identity_instance_id: Option<String>,
+    pub entries: Vec<arrangement::OutlineEntry>,
+    pub body: Vec<arrangement::OutlineEntry>,
+}
+
+/// Read a container's outline. The body rule is the renderer's: the anchor is the section
+/// lead and never a plain member ([`r22_position_anchor_instance_id`]); the identity entry
+/// is the container's identity record, which navigation excludes (`identityInstanceId`).
+pub fn get_outline(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+) -> Result<ContainerOutline, RepositoryError> {
+    let container = get_container(store, container_id)?;
+    let entries = container.member_instance_ids.clone().unwrap_or_default();
+    let anchor = r22_position_anchor_instance_id(&container);
+    let identity = container.identity_instance_id.clone();
+    let (body, _, _) = arrangement::retain_promoting(&entries, |id| {
+        anchor.as_deref() != Some(id) && identity.as_deref() != Some(id)
+    });
+    Ok(ContainerOutline {
+        container_id: container.container_id.clone(),
+        anchor_instance_id: anchor,
+        identity_instance_id: identity,
+        entries: arrangement::outline(&entries),
+        body: arrangement::outline(&body),
+    })
+}
+
+/// **repair** (Change D, [R20]) — remove every entry whose `instanceId` does not resolve,
+/// each by the promoting removal; report each. Exempt from the pointer guard; never touches
+/// `identityInstanceId` or `anchorInstanceId` (a dangling pointer stays a reported
+/// validation error). Idempotent. Repair seam: reads through the unchecked catalog.
+pub fn repair_members(
+    store: &dyn RepositoryStore,
+    container_id: &str,
+) -> Result<ArrangementResult, RepositoryError> {
+    let (mut container, is_embed_only) = load_container_for_repair(store, container_id)?;
+    let known: HashSet<String> = store
+        .catalog_unchecked()?
+        .instances
+        .iter()
+        .map(|e| e.id.clone())
+        .collect();
+    let entries = container.member_instance_ids.clone().unwrap_or_default();
+    let (out, removed, promoted) = arrangement::retain_promoting(&entries, |id| known.contains(id));
+    if removed.is_empty() {
+        return Ok(ArrangementResult {
+            members: entries,
+            ..Default::default()
+        });
+    }
+    store_entries(&mut container, out.clone());
+    save_container_for_repair(store, &container, is_embed_only)?;
+    Ok(ArrangementResult {
+        members: out,
+        promoted,
+        removed,
+    })
 }
 
 pub fn list_roots(
     store: &dyn RepositoryStore,
     container_id: &str,
 ) -> Result<Vec<String>, RepositoryError> {
+    // RFC-043 [R4]: `rootInstanceIds` is removed; a container's root is its anchor entry.
     let container = get_container(store, container_id)?;
-    Ok(container.root_instance_ids.unwrap_or_default())
-}
-
-pub fn add_root(
-    store: &dyn RepositoryStore,
-    container_id: &str,
-    instance_id: &str,
-) -> Result<Vec<String>, RepositoryError> {
-    require_resolvable_instances(store, [instance_id])?;
-    let (mut container, is_embed_only) = load_container_with_embed_fallback(store, container_id)?;
-    let mut roots = container.root_instance_ids.unwrap_or_default();
-    if roots.iter().any(|id| id == instance_id) {
-        return Ok(roots);
-    }
-    roots.push(instance_id.to_string());
-    roots.sort();
-    container.root_instance_ids = Some(roots.clone());
-    save_container_syncing_embed(store, &container, is_embed_only, false)?;
-    Ok(container.root_instance_ids.unwrap_or_default())
-}
-
-/// Remove a root — a **repair** operation on the same terms as
-/// [`remove_member`] (ADR-045).
-pub fn remove_root(
-    store: &dyn RepositoryStore,
-    container_id: &str,
-    instance_id: &str,
-) -> Result<Vec<String>, RepositoryError> {
-    let (mut container, is_embed_only) = load_container_for_repair(store, container_id)?;
-    let mut roots = container.root_instance_ids.unwrap_or_default();
-    roots.retain(|id| id != instance_id);
-    if roots.is_empty() {
-        container.root_instance_ids = None;
-    } else {
-        container.root_instance_ids = Some(roots.clone());
-    }
-    save_container_for_repair(store, &container, is_embed_only)?;
-    Ok(container.root_instance_ids.unwrap_or_default())
+    Ok(container.anchor_instance_id.into_iter().collect())
 }
 
 /// RFC-038 Change F: remove `instance_id` from `memberInstanceIds` and
@@ -943,84 +1359,38 @@ pub fn remove_root(
 /// permits both the inline-root manifest write and the file-backed container
 /// writes below.
 ///
-/// `containers_for_instance` matches `memberInstanceIds` *and* `rootInstanceIds`
-/// across file-backed containers and the inline root alike — exactly the set the
-/// catalog draws its container references from.
+/// `containers_for_instance` matches `memberInstanceIds` across file-backed containers and
+/// the inline root alike — exactly the set the catalog draws its container references from.
 ///
-/// `identityInstanceId` is cleared in the same edit when it names the deleted
-/// instance. It is not an [R13] reference — the catalog does not resolve it — but
-/// leaving it behind only trades the fatal diagnostic for an invalid repository:
-/// `validate` reports **I-81 as an error** ("identityInstanceId is not in
-/// rootInstanceIds or memberInstanceIds") and `repository_navigation` fails
-/// outright on the unresolvable identity. RFC-029 states that a root container
-/// with no `identityInstanceId` is valid, so clearing is the state that stays
-/// valid; `srs container update` re-points an identity when a successor exists
-/// (clearing one deliberately has no encoding — srs-rust#837).
+/// Revision 8 (RFC-043 [R7]): each container drops the entry by the promoting removal
+/// (descendants move up one level). An entry named by `identityInstanceId` or
+/// `anchorInstanceId` is never silently cleared; the cascade is rejected whole
+/// (`arrangement-pointer`) before any container is written, so the caller must re-point or
+/// clear the pointer first.
 ///
-/// Two consequences worth knowing, neither introduced here:
-/// - a root container left with no identity *and* no roots has no navigation —
-///   `repository_navigation` returns `NotFound`, which is what `repo create`'s
-///   scaffolded shape becomes once its sole purpose record is deleted;
-/// - when roots do remain, navigation silently promotes the first one to the
-///   identity node and drops it from `sections`. That fallback predates this
-///   cascade and fires for any identity-less root container — srs-rust#838.
-///
-/// `anchorInstanceId` (srs#446/I-145) is cleared the same way and for the same reason:
-/// leaving it behind trades a fatal `validate` diagnostic ("I-145: anchorInstanceId is
-/// not a member") for an invalid repository, and — unlike identity — clearing it always
-/// falls back cleanly to the transitional `rootInstanceIds[0]` typing-anchor rule rather
-/// than leaving the container without any usable state.
-///
-/// Only containers that list the instance are visited, so an identity or anchor naming a
-/// non-member is not reached. RFC-013/I-81 requires an identity to be a member (enforced
-/// on the root container), and I-145 requires the same of `anchorInstanceId` (enforced on
-/// every container), so that shape is already invalid.
-///
-/// The edits are applied to one loaded container and written once rather than
-/// through `remove_member`/`remove_root`: they must land in a single write (the
-/// inline root's is a non-atomic `manifest.json` truncate), and no existing
-/// helper can clear an identity.
+/// The edits are applied to each loaded container and written once, rather than through
+/// [`remove_member`], so the pointer check covers every container before the first write.
 pub(crate) fn remove_instance_from_all_containers(
     store: &dyn RepositoryStore,
     instance_id: &str,
 ) -> Result<(), RepositoryError> {
+    // RFC-043 [R7]: a cascade that would remove the entry named by `identityInstanceId` or
+    // `anchorInstanceId` is rejected whole, before any container is written.
+    let mut loaded = Vec::new();
     for summary in containers_for_instance(store, instance_id)? {
-        let (mut container, is_embed_only) =
+        let (container, is_embed_only) =
             load_container_with_embed_fallback(store, &summary.container_id)?;
-        let mut changed = false;
-        for ids in [
-            &mut container.member_instance_ids,
-            &mut container.root_instance_ids,
-        ] {
-            if let Some(v) = ids.as_mut() {
-                let before = v.len();
-                v.retain(|id| id != instance_id);
-                changed |= v.len() != before;
-                if v.is_empty() {
-                    *ids = None;
-                }
-            }
+        if container.has_member(instance_id) {
+            require_not_pointer(&container, instance_id)?;
+            loaded.push((container, is_embed_only));
         }
-        if container.identity_instance_id.as_deref() == Some(instance_id) {
-            container.identity_instance_id = None;
-            changed = true;
-        }
-        // Same rationale as identityInstanceId above, for the RFC-009 typing anchor
-        // (srs#446/I-145): leaving a dangling anchorInstanceId behind trades a fatal
-        // I-145 diagnostic ("not a member") for an invalid repository, and clearing it
-        // is always a valid state (absence falls back to the transitional
-        // rootInstanceIds[0] rule, same as a pre-#446 container).
-        if container.anchor_instance_id.as_deref() == Some(instance_id) {
-            container.anchor_instance_id = None;
-            changed = true;
-        }
-        // RFC-034: `containers_for_instance` also returns containers that reach
-        // the instance only through a declared `childContainerIds` ancestor —
-        // those declare nothing of their own to remove, and [R22] does not
-        // license writing a container this delete does not actually change.
-        if !changed {
+    }
+    for (mut container, is_embed_only) in loaded {
+        let entries = container.member_instance_ids.clone().unwrap_or_default();
+        let Some((out, _)) = arrangement::remove_promoting(&entries, instance_id) else {
             continue;
-        }
+        };
+        store_entries(&mut container, out);
         save_container_syncing_embed(store, &container, is_embed_only, false)?;
     }
     Ok(())
@@ -1033,32 +1403,6 @@ pub(crate) fn is_member(
 ) -> Result<bool, RepositoryError> {
     let members = list_members(store, container_id)?;
     Ok(members.iter().any(|id| id == instance_id))
-}
-
-/// Add a member to a container — public entry point for membership management commands.
-pub fn add_container_member(
-    store: &dyn RepositoryStore,
-    container_id: &str,
-    instance_id: &str,
-) -> Result<Vec<String>, RepositoryError> {
-    add_member(store, container_id, instance_id)
-}
-
-/// Remove a member from a container — public entry point for membership management commands.
-pub fn remove_container_member(
-    store: &dyn RepositoryStore,
-    container_id: &str,
-    instance_id: &str,
-) -> Result<Vec<String>, RepositoryError> {
-    remove_member(store, container_id, instance_id)
-}
-
-/// List members of a container — public entry point for membership inspection commands.
-pub fn list_container_members(
-    store: &dyn RepositoryStore,
-    container_id: &str,
-) -> Result<Vec<String>, RepositoryError> {
-    list_members(store, container_id)
 }
 
 pub fn validate_container_invariants(
@@ -1107,32 +1451,24 @@ pub fn validate_container_invariants(
 
     // RFC-013 [R6]/[R9] as amended by RFC-038 [R25]: resolved against the
     // same snapshot's instance set, not `manifest.instanceIndex`.
-    let known_ids: HashSet<String> = cat.instances.into_iter().map(|e| e.id).collect();
+    let known_ids: HashSet<String> = cat.instances.iter().map(|e| e.id.clone()).collect();
 
-    if let Some(ref ids) = container.member_instance_ids {
-        if ids.iter().any(|id| id == &container.container_id) {
-            errors.push("containerId must not appear in memberInstanceIds".to_string());
-        }
-        for id in ids {
-            if !known_ids.contains(id) {
+    if let Some(ref entries) = container.member_instance_ids {
+        for e in entries {
+            if e.instance_id == container.container_id {
+                errors.push("containerId must not appear in memberInstanceIds".to_string());
+            }
+            if !known_ids.contains(&e.instance_id) {
                 errors.push(format!(
-                    "memberInstanceId '{}' not found in the instance set",
-                    id
+                    "{}: memberInstanceId '{}' not found in the instance set",
+                    arrangement::CODE_UNRESOLVED,
+                    e.instance_id
                 ));
             }
         }
-    }
-    if let Some(ref ids) = container.root_instance_ids {
-        if ids.iter().any(|id| id == &container.container_id) {
-            errors.push("containerId must not appear in rootInstanceIds".to_string());
-        }
-        for id in ids {
-            if !known_ids.contains(id) {
-                errors.push(format!(
-                    "rootInstanceId '{}' not found in the instance set",
-                    id
-                ));
-            }
+        for v in arrangement::check_entries(entries, root_identity(store, container_id, &container))
+        {
+            errors.push(v.to_string());
         }
     }
 
@@ -1167,6 +1503,7 @@ mod tests {
     fn seed_instance(store: &MemoryStore, id: &str) {
         store
             .save_note(&srs_core::types::note::Note {
+                created_by: None,
                 instance_id: id.to_string(),
                 title: None,
                 tags: None,
@@ -1190,7 +1527,6 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -1202,78 +1538,23 @@ mod tests {
     }
 
     #[test]
-    fn typing_anchor_instance_id_prefers_declared_anchor() {
+    fn typing_anchor_is_the_declared_anchor_and_nothing_else() {
         let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
-        c.root_instance_ids = Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]);
-        c.anchor_instance_id = Some("22222222-2222-4222-8222-222222222222".to_string());
-        assert_eq!(
-            typing_anchor_instance_id(&c),
-            Some("22222222-2222-4222-8222-222222222222".to_string())
-        );
-    }
-
-    #[test]
-    fn typing_anchor_instance_id_falls_back_to_first_root_when_absent() {
-        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
-        c.root_instance_ids = Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]);
-        assert_eq!(
-            typing_anchor_instance_id(&c),
-            Some("11111111-1111-4111-8111-111111111111".to_string())
-        );
-    }
-
-    #[test]
-    fn typing_anchor_instance_id_none_when_no_anchor_and_no_roots() {
-        let c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
+        // RFC-043 [R4]: no rootInstanceIds[0] fallback — members do not imply an anchor.
+        c.member_instance_ids = Some(srs_core::types::container::entries([
+            "11111111-1111-4111-8111-111111111111",
+        ]));
         assert_eq!(typing_anchor_instance_id(&c), None);
-    }
-
-    #[test]
-    fn r22_position_anchor_prefers_declared_anchor() {
-        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
-        c.root_instance_ids = Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]);
+        assert_eq!(r22_position_anchor_instance_id(&c), None);
         c.anchor_instance_id = Some("22222222-2222-4222-8222-222222222222".to_string());
+        assert_eq!(
+            typing_anchor_instance_id(&c),
+            Some("22222222-2222-4222-8222-222222222222".to_string())
+        );
         assert_eq!(
             r22_position_anchor_instance_id(&c),
             Some("22222222-2222-4222-8222-222222222222".to_string())
         );
-    }
-
-    #[test]
-    fn r22_position_anchor_falls_back_to_single_root_when_absent() {
-        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
-        c.root_instance_ids = Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]);
-        assert_eq!(
-            r22_position_anchor_instance_id(&c),
-            Some("11111111-1111-4111-8111-111111111111".to_string())
-        );
-    }
-
-    /// The critical nuance the RFC-042 [R22] resolution must get right and
-    /// `typing_anchor_instance_id` gets wrong for this purpose: two or more
-    /// `rootInstanceIds` with no declared `anchorInstanceId` is NOT "the
-    /// first one" — it is no anchor at all under [R22].
-    #[test]
-    fn r22_position_anchor_none_when_multiple_roots_and_no_declared_anchor() {
-        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
-        c.root_instance_ids = Some(vec![
-            "11111111-1111-4111-8111-111111111111".to_string(),
-            "33333333-3333-4333-8333-333333333333".to_string(),
-        ]);
-        assert_eq!(r22_position_anchor_instance_id(&c), None);
-        // Contrast with typing_anchor_instance_id, which DOES fall back to
-        // the first root — proving the two functions genuinely disagree on
-        // this input rather than one being a redundant wrapper of the other.
-        assert_eq!(
-            typing_anchor_instance_id(&c),
-            Some("11111111-1111-4111-8111-111111111111".to_string())
-        );
-    }
-
-    #[test]
-    fn r22_position_anchor_none_when_no_anchor_and_no_roots() {
-        let c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
-        assert_eq!(r22_position_anchor_instance_id(&c), None);
     }
 
     #[test]
@@ -1284,6 +1565,59 @@ mod tests {
         assert_eq!(out.title, "Sprint 1");
         let listed = list_containers(&store, &ContainerListFilter::default()).unwrap();
         assert_eq!(listed.len(), 1);
+    }
+
+    /// srs-rust#1167: create is a create, not an upsert — a second `create_container`
+    /// call against an id that already resolves must refuse rather than silently
+    /// replacing the existing container (including its membership).
+    #[test]
+    fn create_container_refuses_existing_id() {
+        let store = make_store();
+        let c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Sprint 1");
+        create_container(&store, c.clone()).unwrap();
+
+        let mut replacement =
+            minimal_container("550e8400-e29b-41d4-a716-446655440000", "Overwritten title");
+        replacement.member_instance_ids = Some(srs_core::types::container::entries([
+            "11111111-1111-4111-8111-111111111111",
+        ]));
+        let err = create_container(&store, replacement).unwrap_err();
+        assert!(
+            matches!(
+                &err,
+                RepositoryError::ContainerAlreadyExists { container_id }
+                    if container_id == "550e8400-e29b-41d4-a716-446655440000"
+            ),
+            "expected ContainerAlreadyExists, got {err:?}"
+        );
+
+        // The original container survives untouched.
+        let loaded = get_container(&store, "550e8400-e29b-41d4-a716-446655440000").unwrap();
+        assert_eq!(loaded.title, "Sprint 1");
+        assert_eq!(loaded.member_instance_ids, None);
+    }
+
+    /// srs-rust#1167: the same refusal applies to the manifest's embedded root
+    /// container even before any `containers/*.json` file for it exists — the id
+    /// is already claimed, so `create` must still refuse it. `update_container` is
+    /// the path for materialising the root's full definition.
+    #[test]
+    fn create_container_refuses_manifest_root_id_with_no_file() {
+        let root_id = "650e8400-e29b-41d4-a716-446655440000";
+        let store = make_store();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.container = Some(minimal_container(root_id, ""));
+        write_manifest(&store, &manifest).unwrap();
+
+        let err = create_container(&store, minimal_container(root_id, "Root")).unwrap_err();
+        assert!(
+            matches!(
+                &err,
+                RepositoryError::ContainerAlreadyExists { container_id }
+                    if container_id == root_id
+            ),
+            "expected ContainerAlreadyExists, got {err:?}"
+        );
     }
 
     #[test]
@@ -1407,6 +1741,7 @@ mod tests {
         .unwrap();
         store
             .save_relation(&srs_core::types::relation::Relation {
+                created_by: None,
                 relation_id: "de000001-0000-4000-a000-000000000001".to_string(),
                 relation_type: "contains".to_string(),
                 source_instance_id: created.container_id.clone(),
@@ -1536,9 +1871,11 @@ mod tests {
             &store,
             &created.container_id,
             "11111111-1111-4111-8111-111111111111",
+            None,
+            None,
         )
         .unwrap();
-        assert_eq!(out.len(), 1);
+        assert_eq!(out.members.len(), 1);
     }
 
     #[test]
@@ -1553,15 +1890,19 @@ mod tests {
             &store,
             &created.container_id,
             "11111111-1111-4111-8111-111111111111",
+            None,
+            None,
         )
         .unwrap();
         let out = add_member(
             &store,
             &created.container_id,
             "11111111-1111-4111-8111-111111111111",
+            None,
+            None,
         )
         .unwrap();
-        assert_eq!(out.len(), 1);
+        assert_eq!(out.members.len(), 1);
     }
 
     #[test]
@@ -1576,6 +1917,8 @@ mod tests {
             &store,
             &created.container_id,
             "11111111-1111-4111-8111-111111111111",
+            None,
+            None,
         )
         .unwrap();
         let out = remove_member(
@@ -1584,7 +1927,7 @@ mod tests {
             "11111111-1111-4111-8111-111111111111",
         )
         .unwrap();
-        assert!(out.is_empty());
+        assert!(out.members.is_empty());
     }
 
     #[test]
@@ -1601,7 +1944,7 @@ mod tests {
             "11111111-1111-4111-8111-111111111111",
         )
         .unwrap();
-        assert!(out.is_empty());
+        assert!(out.members.is_empty());
     }
 
     #[test]
@@ -1616,6 +1959,8 @@ mod tests {
             &store,
             &created.container_id,
             "11111111-1111-4111-8111-111111111111",
+            None,
+            None,
         )
         .unwrap();
         remove_member(
@@ -1628,44 +1973,92 @@ mod tests {
         assert!(got.member_instance_ids.is_none());
     }
 
-    #[test]
-    fn add_root_adds_id() {
-        let store = make_store();
-        let created = create_container(
-            &store,
-            minimal_container("550e8400-e29b-41d4-a716-446655440000", "Roots"),
-        )
-        .unwrap();
-        let out = add_root(
-            &store,
-            &created.container_id,
-            "11111111-1111-4111-8111-111111111111",
-        )
-        .unwrap();
-        assert_eq!(out.len(), 1);
+    const A: &str = "11111111-1111-4111-8111-111111111111";
+    const B: &str = "22222222-2222-4222-8222-222222222222";
+
+    fn ids(r: &ArrangementResult) -> Vec<(String, u32)> {
+        r.members
+            .iter()
+            .map(|e| (e.instance_id.clone(), e.depth()))
+            .collect()
     }
 
     #[test]
-    fn remove_root_removes_id() {
+    fn add_insert_move_and_set_depth_follow_the_rfc_043_rules() {
         let store = make_store();
-        let created = create_container(
+        let c = create_container(
             &store,
-            minimal_container("550e8400-e29b-41d4-a716-446655440000", "Roots"),
+            minimal_container("550e8400-e29b-41d4-a716-446655440000", "Outline"),
         )
         .unwrap();
-        add_root(
-            &store,
-            &created.container_id,
-            "11111111-1111-4111-8111-111111111111",
-        )
-        .unwrap();
-        let out = remove_root(
-            &store,
-            &created.container_id,
-            "11111111-1111-4111-8111-111111111111",
-        )
-        .unwrap();
-        assert!(out.is_empty());
+        add_member(&store, &c.container_id, A, None, None).unwrap();
+        // depth may rise by one: B at depth 1 under A
+        let r = add_member(&store, &c.container_id, B, None, Some(1)).unwrap();
+        assert_eq!(ids(&r), vec![(A.into(), 0), (B.into(), 1)]);
+        // a depth jump is rejected whole and changes nothing
+        let err = move_member(&store, &c.container_id, B, None, Some(2)).unwrap_err();
+        assert!(err.to_string().contains("arrangement-depth"), "{err}");
+        assert_eq!(get_arrangement(&store, &c.container_id).unwrap().len(), 2);
+        // outdent B to 0, move it first
+        let r = move_member(&store, &c.container_id, B, Some(0), Some(0)).unwrap();
+        assert_eq!(ids(&r), vec![(B.into(), 0), (A.into(), 0)]);
+        // promoting removal: A under B, remove B, A is promoted
+        move_member(&store, &c.container_id, A, None, Some(1)).unwrap();
+        let r = remove_member(&store, &c.container_id, B).unwrap();
+        assert_eq!(ids(&r), vec![(A.into(), 0)]);
+        assert_eq!(r.promoted, vec![A.to_string()]);
+        assert_eq!(r.removed, vec![B.to_string()]);
+    }
+
+    #[test]
+    fn relative_moves_and_outline_read() {
+        use srs_core::arrangement::{Placement, RelativeMove, Shift};
+        const C: &str = "33333333-3333-4333-8333-333333333333";
+        let store = make_store();
+        seed_instance(&store, C);
+        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Rel");
+        c.member_instance_ids = Some(srs_core::types::container::entries([A, B]));
+        c.anchor_instance_id = Some(A.to_string());
+        let c = create_container(&store, c).unwrap();
+        let id = &c.container_id;
+        // anchor A leads; body is [B]
+        let o = get_outline(&store, id).unwrap();
+        assert_eq!(o.entries.len(), 2);
+        assert_eq!(o.body.len(), 1);
+        assert_eq!(o.body[0].instance_id, B);
+        // indent B under A (A is first entry), then outdent back
+        let r = move_member_relative(&store, id, B, &RelativeMove::Shift(Shift::Indent)).unwrap();
+        assert_eq!(ids(&r), vec![(A.into(), 0), (B.into(), 1)]);
+        let o = get_outline(&store, id).unwrap();
+        assert_eq!(o.entries[1].parent_instance_id.as_deref(), Some(A));
+        assert_eq!(o.body[0].depth, 0); // anchor set aside: B promoted in the body view
+        let r = move_member_relative(&store, id, B, &RelativeMove::Shift(Shift::Outdent)).unwrap();
+        assert_eq!(ids(&r), vec![(A.into(), 0), (B.into(), 0)]);
+        let place = |t: &str, p| RelativeMove::Place {
+            target: t.into(),
+            placement: p,
+        };
+        let err = move_member_relative(&store, id, A, &place(A, Placement::Into)).unwrap_err();
+        assert!(err.to_string().contains("arrangement-target"), "{err}");
+        let r = move_member_relative(&store, id, B, &place(A, Placement::Before)).unwrap();
+        assert_eq!(ids(&r), vec![(B.into(), 0), (A.into(), 0)]);
+        assert!(add_member_relative(&store, id, B, A, Placement::After).is_err());
+        // add relative: C into B, atomic and persisted
+        let r = add_member_relative(&store, id, C, B, Placement::Into).unwrap();
+        assert_eq!(ids(&r), vec![(B.into(), 0), (C.into(), 1), (A.into(), 0)]);
+        assert_eq!(get_arrangement(&store, id).unwrap(), r.members);
+    }
+
+    #[test]
+    fn removing_the_identity_or_anchor_entry_is_rejected() {
+        let store = make_store();
+        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Pointers");
+        c.member_instance_ids = Some(srs_core::types::container::entries([A, B]));
+        c.anchor_instance_id = Some(A.to_string());
+        let c = create_container(&store, c).unwrap();
+        let err = remove_member(&store, &c.container_id, A).unwrap_err();
+        assert!(err.to_string().contains("arrangement-pointer"), "{err}");
+        remove_member(&store, &c.container_id, B).unwrap();
     }
 
     #[test]
@@ -1696,11 +2089,17 @@ mod tests {
         members: &[&str],
     ) -> Container {
         let mut c = minimal_container(id, "Invalid");
-        let own = |v: &[&str]| -> Option<Vec<String>> {
-            (!v.is_empty()).then(|| v.iter().map(|s| s.to_string()).collect())
-        };
-        c.root_instance_ids = own(roots);
-        c.member_instance_ids = own(members);
+        // RFC-043: roots are gone; the first former root becomes the anchor and every id is an
+        // ordinary entry.
+        let mut all: Vec<&str> = Vec::new();
+        for id in roots.iter().chain(members.iter()) {
+            if !all.contains(id) {
+                all.push(id);
+            }
+        }
+        c.anchor_instance_id = roots.first().map(|s| s.to_string());
+        c.member_instance_ids =
+            (!all.is_empty()).then(|| srs_core::types::container::entries(all.iter().copied()));
         store.save_container_unchecked(&c).unwrap();
         c
     }
@@ -1759,8 +2158,11 @@ mod tests {
         seed_instance(&store, "aaaaaaaa-0000-4000-8000-00000000000a");
         seed_instance(&store, "bbbbbbbb-0000-4000-8000-00000000000b");
         let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "A");
-        c.root_instance_ids = Some(vec!["aaaaaaaa-0000-4000-8000-00000000000a".to_string()]);
-        c.member_instance_ids = Some(vec!["bbbbbbbb-0000-4000-8000-00000000000b".to_string()]);
+        c.anchor_instance_id = Some("aaaaaaaa-0000-4000-8000-00000000000a".to_string());
+        c.member_instance_ids = Some(srs_core::types::container::entries(vec![
+            "aaaaaaaa-0000-4000-8000-00000000000a".to_string(),
+            "bbbbbbbb-0000-4000-8000-00000000000b".to_string(),
+        ]));
         let created = create_container(&store, c).unwrap();
         assert_eq!(
             list_members(&store, &created.container_id).unwrap(),
@@ -1781,18 +2183,26 @@ mod tests {
         seed_instance(&store, "cccccccc-0000-4000-8000-00000000000c");
 
         let mut c = minimal_container("00000000-0000-4000-8000-00000000000c", "C");
-        c.root_instance_ids = Some(vec!["bbbbbbbb-0000-4000-8000-00000000000b".to_string()]);
-        c.member_instance_ids = Some(vec!["cccccccc-0000-4000-8000-00000000000c".to_string()]);
+        c.anchor_instance_id = Some("bbbbbbbb-0000-4000-8000-00000000000b".to_string());
+        c.member_instance_ids = Some(srs_core::types::container::entries(vec![
+            "bbbbbbbb-0000-4000-8000-00000000000b".to_string(),
+            "cccccccc-0000-4000-8000-00000000000c".to_string(),
+        ]));
         create_container(&store, c).unwrap();
 
         let mut b = minimal_container("00000000-0000-4000-8000-00000000000b", "B");
-        b.root_instance_ids = Some(vec!["aaaaaaaa-0000-4000-8000-00000000000a".to_string()]);
-        b.member_instance_ids = Some(vec!["bbbbbbbb-0000-4000-8000-00000000000b".to_string()]);
+        b.anchor_instance_id = Some("aaaaaaaa-0000-4000-8000-00000000000a".to_string());
+        b.member_instance_ids = Some(srs_core::types::container::entries(vec![
+            "aaaaaaaa-0000-4000-8000-00000000000a".to_string(),
+            "bbbbbbbb-0000-4000-8000-00000000000b".to_string(),
+        ]));
         b.child_container_ids = Some(vec!["00000000-0000-4000-8000-00000000000c".to_string()]);
         create_container(&store, b).unwrap();
 
         let mut a = minimal_container("00000000-0000-4000-8000-00000000000a", "A");
-        a.member_instance_ids = Some(vec!["aaaaaaaa-0000-4000-8000-00000000000a".to_string()]);
+        a.member_instance_ids = Some(srs_core::types::container::entries(vec![
+            "aaaaaaaa-0000-4000-8000-00000000000a".to_string(),
+        ]));
         a.child_container_ids = Some(vec!["00000000-0000-4000-8000-00000000000b".to_string()]);
         create_container(&store, a).unwrap();
 
@@ -1842,15 +2252,21 @@ mod tests {
         seed_instance(&store, "eeeeeeee-0000-4000-8000-00000000000e");
 
         let mut area = minimal_container("00000000-0000-4000-8000-0000000000a1", "Area");
-        area.root_instance_ids = Some(vec!["aaaaaaaa-0000-4000-8000-00000000000a".to_string()]);
-        area.member_instance_ids = Some(vec!["bbbbbbbb-0000-4000-8000-00000000000b".to_string()]);
+        area.anchor_instance_id = Some("aaaaaaaa-0000-4000-8000-00000000000a".to_string());
+        area.member_instance_ids = Some(srs_core::types::container::entries(vec![
+            "aaaaaaaa-0000-4000-8000-00000000000a".to_string(),
+            "bbbbbbbb-0000-4000-8000-00000000000b".to_string(),
+        ]));
         let area = create_container(&store, area).unwrap();
 
         // `Proj` roots at `b`, a member of `Area` — but `Area` never declares
         // `Proj` as a child, so no admission occurs.
         let mut proj = minimal_container("00000000-0000-4000-8000-0000000000a2", "Proj");
-        proj.root_instance_ids = Some(vec!["bbbbbbbb-0000-4000-8000-00000000000b".to_string()]);
-        proj.member_instance_ids = Some(vec!["eeeeeeee-0000-4000-8000-00000000000e".to_string()]);
+        proj.anchor_instance_id = Some("bbbbbbbb-0000-4000-8000-00000000000b".to_string());
+        proj.member_instance_ids = Some(srs_core::types::container::entries(vec![
+            "bbbbbbbb-0000-4000-8000-00000000000b".to_string(),
+            "eeeeeeee-0000-4000-8000-00000000000e".to_string(),
+        ]));
         create_container(&store, proj).unwrap();
 
         assert_eq!(
@@ -1871,7 +2287,9 @@ mod tests {
         seed_instance(&store, "bbbbbbbb-0000-4000-8000-00000000000b");
 
         let mut child = minimal_container("00000000-0000-4000-8000-0000000000b1", "B");
-        child.member_instance_ids = Some(vec!["bbbbbbbb-0000-4000-8000-00000000000b".to_string()]);
+        child.member_instance_ids = Some(srs_core::types::container::entries(vec![
+            "bbbbbbbb-0000-4000-8000-00000000000b".to_string(),
+        ]));
         create_container(&store, child).unwrap();
 
         let mut a = minimal_container("00000000-0000-4000-8000-0000000000a1", "A");
@@ -1913,7 +2331,10 @@ mod tests {
             }),
         );
         let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Doc");
-        c.root_instance_ids = Some(vec!["root-note".to_string()]);
+        c.anchor_instance_id = Some("root-note".to_string());
+        c.member_instance_ids = Some(srs_core::types::container::entries(vec![
+            "root-note".to_string()
+        ]));
         let created = create_container(&store, c).unwrap();
 
         assert_eq!(
@@ -1937,11 +2358,16 @@ mod tests {
         seed_instance(&store, "bbbbbbbb-0000-4000-8000-00000000000b");
 
         let mut child = minimal_container("00000000-0000-4000-8000-0000000000b1", "B");
-        child.root_instance_ids = Some(vec!["bbbbbbbb-0000-4000-8000-00000000000b".to_string()]);
+        child.anchor_instance_id = Some("bbbbbbbb-0000-4000-8000-00000000000b".to_string());
+        child.member_instance_ids = Some(srs_core::types::container::entries(vec![
+            "bbbbbbbb-0000-4000-8000-00000000000b".to_string(),
+        ]));
         create_container(&store, child).unwrap();
 
         let mut a = minimal_container("00000000-0000-4000-8000-0000000000a1", "A");
-        a.member_instance_ids = Some(vec!["aaaaaaaa-0000-4000-8000-00000000000a".to_string()]);
+        a.member_instance_ids = Some(srs_core::types::container::entries(vec![
+            "aaaaaaaa-0000-4000-8000-00000000000a".to_string(),
+        ]));
         a.child_container_ids = Some(vec!["00000000-0000-4000-8000-0000000000b1".to_string()]);
         let a = create_container(&store, a).unwrap();
 
@@ -2040,11 +2466,17 @@ mod tests {
                 .unwrap();
         }
         let mut child = minimal_container("550e8400-e29b-41d4-a716-446655440001", "Child");
-        child.root_instance_ids = Some(vec!["child-note".to_string()]);
+        child.anchor_instance_id = Some("child-note".to_string());
+        child.member_instance_ids = Some(srs_core::types::container::entries(vec![
+            "child-note".to_string()
+        ]));
         create_container(&store, child).unwrap();
 
         let mut root = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Root");
-        root.root_instance_ids = Some(vec!["root-note".to_string()]);
+        root.anchor_instance_id = Some("root-note".to_string());
+        root.member_instance_ids = Some(srs_core::types::container::entries(vec![
+            "root-note".to_string()
+        ]));
         root.child_container_ids = Some(vec!["550e8400-e29b-41d4-a716-446655440001".to_string()]);
         let created = create_container(&store, root).unwrap();
 
@@ -2056,6 +2488,21 @@ mod tests {
             list_members(&file_store, &created.container_id).unwrap(),
             vec!["root-note".to_string(), "child-note".to_string()]
         );
+    }
+
+    /// RFC-043 [R6]: order is data — a copy (memory -> file) keeps entry order and depth.
+    #[test]
+    fn copy_preserves_entry_order_and_depth() {
+        let store = make_store();
+        let mut c = minimal_container("550e8400-e29b-41d4-a716-446655440000", "Outline");
+        // Deliberately not id-sorted, with nesting.
+        c.member_instance_ids = Some(vec![ContainerEntry::new(B), ContainerEntry::at(A, 1)]);
+        create_container(&store, c).unwrap();
+        let temp = tempfile::TempDir::new().unwrap();
+        let file_store = crate::FileStore::new(temp.path());
+        crate::repository_portability::copy_repository(&store, &file_store).unwrap();
+        let got = get_arrangement(&file_store, "550e8400-e29b-41d4-a716-446655440000").unwrap();
+        assert_eq!(got, vec![ContainerEntry::new(B), ContainerEntry::at(A, 1)]);
     }
 
     #[test]
@@ -2072,7 +2519,7 @@ mod tests {
         )
         .unwrap();
         let member = "11111111-1111-4111-8111-111111111111";
-        add_member(&store, &a.container_id, member).unwrap();
+        add_member(&store, &a.container_id, member, None, None).unwrap();
         let out = containers_for_instance(&store, member).unwrap();
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].container_id, a.container_id);
@@ -2087,7 +2534,7 @@ mod tests {
         )
         .unwrap();
         let member = "11111111-1111-4111-8111-111111111111";
-        add_root(&store, &a.container_id, member).unwrap();
+        add_member(&store, &a.container_id, member, None, None).unwrap();
         let out = containers_for_instance(&store, member).unwrap();
         assert_eq!(out.len(), 1);
     }
@@ -2118,12 +2565,22 @@ mod tests {
         )
         .unwrap();
         let id = "11111111-1111-4111-8111-111111111111";
-        add_root(&store, &a.container_id, id).unwrap();
-        add_member(&store, &b.container_id, id).unwrap();
+        // RFC-043: "root" is the anchor entry.
+        add_member(&store, &a.container_id, id, None, None).unwrap();
+        update_container(
+            &store,
+            &a.container_id,
+            ContainerPatch {
+                anchor_instance_id: Some(id.to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        add_member(&store, &b.container_id, id, None, None).unwrap();
         let out = list_containers(
             &store,
             &ContainerListFilter {
-                root_instance_id: Some(id.to_string()),
+                anchor_instance_id: Some(id.to_string()),
                 ..Default::default()
             },
         )
@@ -2150,7 +2607,7 @@ mod tests {
         .unwrap();
         let id = "11111111-1111-4111-8111-111111111111";
         assert!(!is_member(&store, &created.container_id, id).unwrap());
-        add_member(&store, &created.container_id, id).unwrap();
+        add_member(&store, &created.container_id, id, None, None).unwrap();
         assert!(is_member(&store, &created.container_id, id).unwrap());
     }
 
@@ -2185,7 +2642,7 @@ mod tests {
         let id = "550e8400-e29b-41d4-a716-446655440000";
         create_container(&store, minimal_container(id, "Test")).unwrap();
         let member = "11111111-1111-4111-8111-111111111111";
-        add_member(&store, id, member).unwrap();
+        add_member(&store, id, member, None, None).unwrap();
         assert!(is_member(&store, id, member).unwrap());
         remove_member(&store, id, member).unwrap();
         assert!(!is_member(&store, id, member).unwrap());
@@ -2202,34 +2659,25 @@ mod tests {
     }
 
     #[test]
-    fn add_root_succeeds_with_resolvable_instance_id() {
+    fn add_member_succeeds_with_resolvable_instance_id_and_is_idempotent() {
         let store = make_store();
         let cid = seeded_container(&store, "550e8400-e29b-41d4-a716-446655440000");
         let member = "11111111-1111-4111-8111-111111111111";
-        assert_eq!(add_root(&store, &cid, member).unwrap(), vec![member]);
+        assert_eq!(
+            add_member(&store, &cid, member, None, None)
+                .unwrap()
+                .members,
+            srs_core::types::container::entries([member])
+        );
         // idempotent
-        assert_eq!(add_root(&store, &cid, member).unwrap(), vec![member]);
+        assert_eq!(
+            add_member(&store, &cid, member, None, None)
+                .unwrap()
+                .members,
+            srs_core::types::container::entries([member])
+        );
     }
 
-    #[test]
-    fn add_root_rejects_blank_instance_id() {
-        let store = make_store();
-        let cid = seeded_container(&store, "550e8400-e29b-41d4-a716-446655440000");
-        for blank in ["", "   "] {
-            assert!(matches!(
-                add_root(&store, &cid, blank),
-                Err(RepositoryError::InvalidInput { .. })
-            ));
-        }
-        assert!(get_container(&store, &cid)
-            .unwrap()
-            .root_instance_ids
-            .is_none());
-    }
-
-    /// The blank-id message must survive an already-bricked repository — that is
-    /// where it matters most, and it is the one diagnostic the catalog cannot
-    /// give. The check therefore runs ahead of the catalog build.
     #[test]
     fn blank_instance_id_is_reported_even_on_a_bricked_repository() {
         let store = make_store();
@@ -2239,25 +2687,11 @@ mod tests {
 
         assert!(
             matches!(
-                add_member(&store, id, "  "),
+                add_member(&store, id, "  ", None, None),
                 Err(RepositoryError::InvalidInput { .. })
             ),
             "a blank id must be named as such, not buried under a CatalogLoad"
         );
-    }
-
-    #[test]
-    fn add_root_rejects_unresolvable_instance_id() {
-        let store = make_store();
-        let cid = seeded_container(&store, "550e8400-e29b-41d4-a716-446655440000");
-        assert!(matches!(
-            add_root(&store, &cid, UNRESOLVABLE),
-            Err(RepositoryError::InstanceNotFound { .. })
-        ));
-        assert!(get_container(&store, &cid)
-            .unwrap()
-            .root_instance_ids
-            .is_none());
     }
 
     #[test]
@@ -2266,7 +2700,7 @@ mod tests {
         let cid = seeded_container(&store, "550e8400-e29b-41d4-a716-446655440000");
         for blank in ["", "   "] {
             assert!(matches!(
-                add_member(&store, &cid, blank),
+                add_member(&store, &cid, blank, None, None),
                 Err(RepositoryError::InvalidInput { .. })
             ));
         }
@@ -2281,7 +2715,7 @@ mod tests {
         let store = make_store();
         let cid = seeded_container(&store, "550e8400-e29b-41d4-a716-446655440000");
         assert!(matches!(
-            add_member(&store, &cid, UNRESOLVABLE),
+            add_member(&store, &cid, UNRESOLVABLE, None, None),
             Err(RepositoryError::InstanceNotFound { .. })
         ));
         assert!(get_container(&store, &cid)
@@ -2292,22 +2726,45 @@ mod tests {
 
     /// The repair path (ADR-045) on a file-backed container: a dangling root
     /// makes the checked catalog fatal, and `remove_root` is the way back out.
+    /// The repair path (ADR-045) on a file-backed container: a dangling member makes the
+    /// checked catalog fatal, and `repair_members` is the way back out (RFC-043 [R20]).
     #[test]
-    fn remove_root_repairs_bricked_file_backed_container() {
+    fn repair_members_unbricks_a_file_backed_container_and_is_idempotent() {
         let store = make_store();
         let id = "550e8400-e29b-41d4-a716-446655440000";
-        create_container_with_membership(&store, id, &[UNRESOLVABLE], &[]);
+        create_container_with_membership(&store, id, &[], &[A, UNRESOLVABLE, B]);
         assert!(store.catalog().is_err(), "container should be bricked");
 
-        remove_root(&store, id, UNRESOLVABLE).unwrap();
-
+        let r = repair_members(&store, id).unwrap();
+        assert_eq!(r.removed, vec![UNRESOLVABLE.to_string()]);
         store
             .catalog()
             .expect("repository loads again after repair");
-        assert!(get_container(&store, id)
-            .unwrap()
-            .root_instance_ids
-            .is_none());
+        assert_eq!(get_arrangement(&store, id).unwrap().len(), 2);
+        // idempotent
+        let again = repair_members(&store, id).unwrap();
+        assert!(again.removed.is_empty());
+    }
+
+    /// Repair promotes the dangling entry's descendants and leaves a dangling pointer alone
+    /// (re-pointing it is a semantic choice, [R20]).
+    #[test]
+    fn repair_promotes_descendants_and_leaves_dangling_pointers() {
+        let store = make_store();
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        let mut c = minimal_container(id, "Outline");
+        c.member_instance_ids = Some(vec![
+            srs_core::types::container::ContainerEntry::new(UNRESOLVABLE),
+            srs_core::types::container::ContainerEntry::at(A, 1),
+            srs_core::types::container::ContainerEntry::new(B),
+        ]);
+        c.anchor_instance_id = Some(UNRESOLVABLE.to_string());
+        store.save_container_unchecked(&c).unwrap();
+        let r = repair_members(&store, id).unwrap();
+        assert_eq!(ids(&r), vec![(A.into(), 0), (B.into(), 0)]);
+        assert_eq!(r.promoted, vec![A.to_string()]);
+        let got = store.load_container_unchecked(id).unwrap();
+        assert_eq!(got.anchor_instance_id.as_deref(), Some(UNRESOLVABLE));
     }
 
     #[test]
@@ -2327,18 +2784,21 @@ mod tests {
     /// The same repair on the embed-only root container ([R1]) — the shape the
     /// #841 reproduction actually hits, and the one whose fallback must not
     /// route through the checked `resolve_root_container`.
+    /// The same repair on the embed-only root container ([R1]) — the shape the #841
+    /// reproduction actually hits, and the one whose fallback must not route through the
+    /// checked `resolve_root_container`.
     #[test]
-    fn remove_root_repairs_bricked_embed_root_container() {
+    fn repair_members_unbricks_the_embed_root_container() {
         let store = make_store();
         let id = "550e8400-e29b-41d4-a716-446655440000";
         let mut root = minimal_container(id, "Root");
-        root.root_instance_ids = Some(vec![UNRESOLVABLE.to_string()]);
+        root.member_instance_ids = Some(srs_core::types::container::entries([UNRESOLVABLE]));
         let mut manifest = store.load_manifest().unwrap();
         manifest.container = Some(root);
         store.save_manifest(&manifest).unwrap();
         assert!(store.catalog().is_err(), "repository should be bricked");
 
-        remove_root(&store, id, UNRESOLVABLE).unwrap();
+        repair_members(&store, id).unwrap();
 
         store
             .catalog()
@@ -2348,7 +2808,7 @@ mod tests {
             .unwrap()
             .container
             .unwrap()
-            .root_instance_ids
+            .member_instance_ids
             .is_none());
     }
 
@@ -2489,23 +2949,23 @@ mod tests {
     }
 
     #[test]
-    fn update_container_patches_root_instance_ids() {
+    fn update_container_patches_anchor_instance_id() {
         let store = make_store();
         let id = "550e8400-e29b-41d4-a716-446655440000";
         create_container(&store, minimal_container(id, "Root")).unwrap();
         let patch = ContainerPatch {
-            root_instance_ids: Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]),
+            anchor_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
             ..ContainerPatch::default()
         };
         let updated = update_container(&store, id, patch).unwrap().container;
         assert_eq!(
-            updated.root_instance_ids,
-            Some(vec!["11111111-1111-4111-8111-111111111111".to_string()])
+            updated.anchor_instance_id,
+            Some("11111111-1111-4111-8111-111111111111".to_string())
         );
         let reloaded = get_container(&store, id).unwrap();
         assert_eq!(
-            reloaded.root_instance_ids,
-            Some(vec!["11111111-1111-4111-8111-111111111111".to_string()])
+            reloaded.anchor_instance_id,
+            Some("11111111-1111-4111-8111-111111111111".to_string())
         );
     }
 
@@ -2515,18 +2975,24 @@ mod tests {
         let id = "550e8400-e29b-41d4-a716-446655440000";
         create_container(&store, minimal_container(id, "Container")).unwrap();
         let patch = ContainerPatch {
-            member_instance_ids: Some(vec!["22222222-2222-4222-8222-222222222222".to_string()]),
+            member_instance_ids: Some(srs_core::types::container::entries(vec![
+                "22222222-2222-4222-8222-222222222222".to_string(),
+            ])),
             ..ContainerPatch::default()
         };
         let updated = update_container(&store, id, patch).unwrap().container;
         assert_eq!(
             updated.member_instance_ids,
-            Some(vec!["22222222-2222-4222-8222-222222222222".to_string()])
+            Some(srs_core::types::container::entries([
+                "22222222-2222-4222-8222-222222222222"
+            ]))
         );
         let reloaded = get_container(&store, id).unwrap();
         assert_eq!(
             reloaded.member_instance_ids,
-            Some(vec!["22222222-2222-4222-8222-222222222222".to_string()])
+            Some(srs_core::types::container::entries([
+                "22222222-2222-4222-8222-222222222222"
+            ]))
         );
     }
 
@@ -2539,15 +3005,17 @@ mod tests {
         let id = "550e8400-e29b-41d4-a716-446655440000";
         seed_instance(&store, "33333333-3333-4333-8333-333333333333");
         let mut c = minimal_container(id, "Container");
-        c.member_instance_ids = Some(vec![
+        c.member_instance_ids = Some(srs_core::types::container::entries(vec![
             "11111111-1111-4111-8111-111111111111".to_string(),
             "22222222-2222-4222-8222-222222222222".to_string(),
             "33333333-3333-4333-8333-333333333333".to_string(),
-        ]);
+        ]));
         create_container(&store, c).unwrap();
 
         let patch = ContainerPatch {
-            member_instance_ids: Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]),
+            member_instance_ids: Some(srs_core::types::container::entries(vec![
+                "11111111-1111-4111-8111-111111111111".to_string(),
+            ])),
             ..ContainerPatch::default()
         };
         let result = update_container(&store, id, patch).unwrap();
@@ -2556,12 +3024,16 @@ mod tests {
         // stored membership is exactly the patch's list.
         assert_eq!(
             result.container.member_instance_ids,
-            Some(vec!["11111111-1111-4111-8111-111111111111".to_string()])
+            Some(srs_core::types::container::entries([
+                "11111111-1111-4111-8111-111111111111"
+            ]))
         );
         let reloaded = get_container(&store, id).unwrap();
         assert_eq!(
             reloaded.member_instance_ids,
-            Some(vec!["11111111-1111-4111-8111-111111111111".to_string()])
+            Some(srs_core::types::container::entries([
+                "11111111-1111-4111-8111-111111111111"
+            ]))
         );
 
         // The removal is now visible.
@@ -2584,18 +3056,18 @@ mod tests {
         let store = make_store();
         let id = "550e8400-e29b-41d4-a716-446655440000";
         let mut c = minimal_container(id, "Container");
-        c.member_instance_ids = Some(vec![
+        c.member_instance_ids = Some(srs_core::types::container::entries(vec![
             "11111111-1111-4111-8111-111111111111".to_string(),
             "22222222-2222-4222-8222-222222222222".to_string(),
-        ]);
+        ]));
         create_container(&store, c).unwrap();
 
         // Same set, reordered — a no-op removal-wise.
         let patch = ContainerPatch {
-            member_instance_ids: Some(vec![
+            member_instance_ids: Some(srs_core::types::container::entries(vec![
                 "22222222-2222-4222-8222-222222222222".to_string(),
                 "11111111-1111-4111-8111-111111111111".to_string(),
-            ]),
+            ])),
             ..ContainerPatch::default()
         };
         let result = update_container(&store, id, patch).unwrap();
@@ -2603,31 +3075,16 @@ mod tests {
     }
 
     #[test]
-    fn update_container_with_empty_root_instance_ids_clears_field() {
-        let store = make_store();
-        let id = "550e8400-e29b-41d4-a716-446655440000";
-        let mut c = minimal_container(id, "Container");
-        c.root_instance_ids = Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]);
-        create_container(&store, c).unwrap();
-        let patch = ContainerPatch {
-            root_instance_ids: Some(vec![]),
-            ..ContainerPatch::default()
-        };
-        let updated = update_container(&store, id, patch).unwrap().container;
-        assert!(updated.root_instance_ids.is_none());
-        let reloaded = get_container(&store, id).unwrap();
-        assert!(reloaded.root_instance_ids.is_none());
-    }
-
-    #[test]
     fn update_container_with_empty_member_instance_ids_clears_field() {
         let store = make_store();
         let id = "550e8400-e29b-41d4-a716-446655440000";
         let mut c = minimal_container(id, "Container");
-        c.member_instance_ids = Some(vec!["22222222-2222-4222-8222-222222222222".to_string()]);
+        c.member_instance_ids = Some(srs_core::types::container::entries(vec![
+            "22222222-2222-4222-8222-222222222222".to_string(),
+        ]));
         create_container(&store, c).unwrap();
         let patch = ContainerPatch {
-            member_instance_ids: Some(vec![]),
+            member_instance_ids: Some(Vec::new()),
             ..ContainerPatch::default()
         };
         let updated = update_container(&store, id, patch).unwrap().container;
@@ -2636,28 +3093,35 @@ mod tests {
         assert!(reloaded.member_instance_ids.is_none());
     }
 
+    /// RFC-043 [R6]: order is data — a patched arrangement is stored exactly as given.
     #[test]
-    fn update_container_sorts_patched_root_and_member_ids() {
+    fn update_container_preserves_patched_entry_order_and_depth() {
         let store = make_store();
         let id = "550e8400-e29b-41d4-a716-446655440000";
         create_container(&store, minimal_container(id, "Container")).unwrap();
-        seed_instance(&store, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
-        seed_instance(&store, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+        let (a, b) = (
+            "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        );
+        seed_instance(&store, a);
+        seed_instance(&store, b);
         let patch = ContainerPatch {
-            root_instance_ids: Some(vec![
-                "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb".to_string(),
-                "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".to_string(),
+            member_instance_ids: Some(vec![
+                srs_core::types::container::ContainerEntry::new(a),
+                srs_core::types::container::ContainerEntry::at(b, 1),
             ]),
             ..ContainerPatch::default()
         };
         let updated = update_container(&store, id, patch).unwrap().container;
         assert_eq!(
-            updated.root_instance_ids,
+            updated.member_instance_ids,
             Some(vec![
-                "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".to_string(),
-                "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb".to_string(),
+                srs_core::types::container::ContainerEntry::new(a),
+                srs_core::types::container::ContainerEntry::at(b, 1),
             ])
         );
+        let reloaded = get_container(&store, id).unwrap();
+        assert_eq!(reloaded.member_ids(), vec![a.to_string(), b.to_string()]);
     }
 
     #[test]
@@ -2672,8 +3136,10 @@ mod tests {
 
         let patch = ContainerPatch {
             identity_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
-            root_instance_ids: Some(vec!["11111111-1111-4111-8111-111111111111".to_string()]),
-            member_instance_ids: Some(vec!["22222222-2222-4222-8222-222222222222".to_string()]),
+            anchor_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
+            member_instance_ids: Some(srs_core::types::container::entries(vec![
+                "22222222-2222-4222-8222-222222222222".to_string(),
+            ])),
             ..ContainerPatch::default()
         };
         let updated = update_container(&store, container_id, patch)
@@ -2684,12 +3150,14 @@ mod tests {
             Some("11111111-1111-4111-8111-111111111111".to_string())
         );
         assert_eq!(
-            updated.root_instance_ids,
-            Some(vec!["11111111-1111-4111-8111-111111111111".to_string()])
+            updated.anchor_instance_id,
+            Some("11111111-1111-4111-8111-111111111111".to_string())
         );
         assert_eq!(
             updated.member_instance_ids,
-            Some(vec!["22222222-2222-4222-8222-222222222222".to_string()])
+            Some(srs_core::types::container::entries([
+                "22222222-2222-4222-8222-222222222222"
+            ]))
         );
         let manifest = store.load_manifest().unwrap();
         assert_eq!(
@@ -2698,12 +3166,14 @@ mod tests {
         );
         let reloaded = get_container(&store, container_id).unwrap();
         assert_eq!(
-            reloaded.root_instance_ids,
-            Some(vec!["11111111-1111-4111-8111-111111111111".to_string()])
+            reloaded.anchor_instance_id,
+            Some("11111111-1111-4111-8111-111111111111".to_string())
         );
         assert_eq!(
             reloaded.member_instance_ids,
-            Some(vec!["22222222-2222-4222-8222-222222222222".to_string()])
+            Some(srs_core::types::container::entries([
+                "22222222-2222-4222-8222-222222222222"
+            ]))
         );
     }
 
@@ -2821,13 +3291,13 @@ mod tests {
         let embed_id = "aaa00000-0000-4000-8000-000000000001";
         let store = embed_only_store(embed_id, "Root");
         let member = "11111111-1111-4111-8111-111111111111";
-        add_member(&store, embed_id, member).unwrap();
+        add_member(&store, embed_id, member, None, None).unwrap();
         let manifest = store.load_manifest().unwrap();
         let embed = manifest.container.unwrap();
         assert!(embed
             .member_instance_ids
             .as_ref()
-            .is_some_and(|ids| ids.contains(&member.to_string())));
+            .is_some_and(|ids| ids.iter().any(|e| e.instance_id == member)));
     }
 
     #[test]
@@ -2835,43 +3305,53 @@ mod tests {
         let embed_id = "aaa00000-0000-4000-8000-000000000001";
         let store = embed_only_store(embed_id, "Root");
         let member = "11111111-1111-4111-8111-111111111111";
-        add_member(&store, embed_id, member).unwrap();
+        add_member(&store, embed_id, member, None, None).unwrap();
         remove_member(&store, embed_id, member).unwrap();
         let manifest = store.load_manifest().unwrap();
         let embed = manifest.container.unwrap();
         assert!(embed
             .member_instance_ids
             .as_ref()
-            .is_none_or(|ids| !ids.contains(&member.to_string())));
+            .is_none_or(|ids| !ids.iter().any(|e| e.instance_id == member)));
     }
 
     #[test]
-    fn embed_only_add_root_updates_manifest() {
+    fn embed_only_move_member_updates_manifest() {
         let embed_id = "aaa00000-0000-4000-8000-000000000001";
         let store = embed_only_store(embed_id, "Root");
-        let root = "11111111-1111-4111-8111-111111111111";
-        add_root(&store, embed_id, root).unwrap();
-        let manifest = store.load_manifest().unwrap();
-        let embed = manifest.container.unwrap();
-        assert!(embed
-            .root_instance_ids
-            .as_ref()
-            .is_some_and(|ids| ids.contains(&root.to_string())));
-    }
-
-    #[test]
-    fn embed_only_remove_root_updates_manifest() {
-        let embed_id = "aaa00000-0000-4000-8000-000000000001";
-        let store = embed_only_store(embed_id, "Root");
-        let root = "11111111-1111-4111-8111-111111111111";
-        add_root(&store, embed_id, root).unwrap();
-        remove_root(&store, embed_id, root).unwrap();
-        let manifest = store.load_manifest().unwrap();
-        let embed = manifest.container.unwrap();
-        assert!(embed
-            .root_instance_ids
-            .as_ref()
-            .is_none_or(|ids| !ids.contains(&root.to_string())));
+        seed_instance(&store, "22222222-2222-4222-8222-222222222222");
+        add_member(
+            &store,
+            embed_id,
+            "11111111-1111-4111-8111-111111111111",
+            None,
+            None,
+        )
+        .unwrap();
+        add_member(
+            &store,
+            embed_id,
+            "22222222-2222-4222-8222-222222222222",
+            None,
+            None,
+        )
+        .unwrap();
+        move_member(
+            &store,
+            embed_id,
+            "22222222-2222-4222-8222-222222222222",
+            Some(0),
+            None,
+        )
+        .unwrap();
+        let embed = store.load_manifest().unwrap().container.unwrap();
+        assert_eq!(
+            embed.member_ids(),
+            vec![
+                "22222222-2222-4222-8222-222222222222".to_string(),
+                "11111111-1111-4111-8111-111111111111".to_string()
+            ]
+        );
     }
 
     #[test]

@@ -1,23 +1,15 @@
 use crate::commands::{with_store, CliContext, RenderCommand};
 use crate::output;
 use crate::payload::{
-    CompositionProjection, ExportBundlePayload, OkfBundlePayload, ProjectedPropertyRow,
-    ProjectedPropertyValue, ProjectedRecord, ProjectedRecordProperty, ProjectedRelationDirection,
-    ProjectedRelationRow, ProjectedRelationTarget, ProjectedSection, RenderCompositionPayload,
+    CompositionProjection, ExportBundlePayload, OkfBundlePayload, RenderCompositionPayload,
+    RenderMarkdownPayload,
 };
 use anyhow::Result;
-use srs_core::types::view::RecordProperty as SvcRecordProperty;
 use srs_repository::export_service::{export_record_bundle, ExportBundleInput};
 use srs_repository::okf_export_service::{
     group_relation_links_by_type, OkfBundle, OkfEntry, OkfExportInput,
 };
-use srs_repository::render_service::{
-    render_composition, CompositionProjection as SvcProjection,
-    ProjectedPropertyRow as SvcPropertyRow, ProjectedPropertyValue as SvcPropertyValue,
-    ProjectedRecord as SvcRecord, ProjectedRelationDirection as SvcRelationDirection,
-    ProjectedRelationRow as SvcRelationRow, ProjectedRelationTarget as SvcRelationTarget,
-    ProjectedSection as SvcSection, RenderCompositionOptions,
-};
+use srs_repository::render_service::{render_composition, RenderCompositionOptions};
 use std::path::{Path, PathBuf};
 
 pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String> {
@@ -27,8 +19,17 @@ pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String> {
             view_format,
             theme_variant,
             instance,
+            exclude,
             output,
-        } => cmd_render_composition(ctx, view, view_format, theme_variant, instance, output),
+        } => cmd_render_composition(
+            ctx,
+            view,
+            view_format,
+            theme_variant,
+            instance,
+            exclude,
+            output,
+        ),
         RenderCommand::ExportBundle {
             view,
             instance,
@@ -38,99 +39,16 @@ pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String> {
             container_id,
             output,
         } => cmd_render_okf_bundle(ctx, container_id, output),
-    }
-}
-
-fn map_relation_target(t: SvcRelationTarget) -> ProjectedRelationTarget {
-    ProjectedRelationTarget {
-        instance_id: t.instance_id,
-        display_label: t.display_label,
-    }
-}
-
-fn map_relation_direction(d: SvcRelationDirection) -> ProjectedRelationDirection {
-    match d {
-        SvcRelationDirection::Forward => ProjectedRelationDirection::Forward,
-        SvcRelationDirection::Inverse => ProjectedRelationDirection::Inverse,
-    }
-}
-
-fn map_relation_row(row: SvcRelationRow) -> ProjectedRelationRow {
-    ProjectedRelationRow {
-        relation_type: row.relation_type,
-        direction: map_relation_direction(row.direction),
-        label: row.label,
-        targets: row.targets.into_iter().map(map_relation_target).collect(),
-    }
-}
-
-fn map_record_property(p: SvcRecordProperty) -> ProjectedRecordProperty {
-    match p {
-        SvcRecordProperty::LifecycleState => ProjectedRecordProperty::LifecycleState,
-        SvcRecordProperty::Tags => ProjectedRecordProperty::Tags,
-        SvcRecordProperty::CreatedAt => ProjectedRecordProperty::CreatedAt,
-        SvcRecordProperty::UpdatedAt => ProjectedRecordProperty::UpdatedAt,
-    }
-}
-
-fn map_property_value(v: SvcPropertyValue) -> ProjectedPropertyValue {
-    match v {
-        SvcPropertyValue::Scalar(s) => ProjectedPropertyValue::Scalar(s),
-        SvcPropertyValue::List(l) => ProjectedPropertyValue::List(l),
-    }
-}
-
-fn map_property_row(row: SvcPropertyRow) -> ProjectedPropertyRow {
-    ProjectedPropertyRow {
-        property: map_record_property(row.property),
-        label: row.label,
-        value: map_property_value(row.value),
-    }
-}
-
-fn map_record(r: SvcRecord) -> ProjectedRecord {
-    ProjectedRecord {
-        instance_id: r.instance_id,
-        type_id: r.type_id,
-        type_version: r.type_version,
-        type_namespace: r.type_namespace,
-        type_name: r.type_name,
-        record_heading: r.record_heading,
-        preamble: r.preamble,
-        fields: r.fields,
-        ordered_field_keys: r.ordered_field_keys,
-        relations: r
-            .relations
-            .map(|rows| rows.into_iter().map(map_relation_row).collect()),
-        properties: r
-            .properties
-            .map(|rows| rows.into_iter().map(map_property_row).collect()),
-        // srs-rust#1127: children recurse through the same mapping.
-        children: r.children.into_iter().map(map_record).collect(),
-    }
-}
-
-fn map_section(s: SvcSection) -> ProjectedSection {
-    ProjectedSection {
-        section_id: s.section_id,
-        title: s.title,
-        order: s.order,
-        records: s.records.into_iter().map(map_record).collect(),
-        // RFC-042 Revision 5 [R25]: nested sections recurse through the same
-        // mapping, never flattened into `records`.
-        sections: s.sections.into_iter().map(map_section).collect(),
-    }
-}
-
-fn map_projection(p: SvcProjection) -> CompositionProjection {
-    CompositionProjection {
-        schema: p.schema,
-        composition_id: p.composition_id,
-        container_id: p.container_id,
-        generated_at: p.generated_at,
-        container_title: p.container_title,
-        preamble: p.preamble,
-        sections: p.sections.into_iter().map(map_section).collect(),
+        RenderCommand::Markdown => {
+            let mut md = String::new();
+            std::io::Read::read_to_string(&mut std::io::stdin(), &mut md)?;
+            output::serialize(
+                "render markdown",
+                RenderMarkdownPayload {
+                    html: srs_core::markdown::render_markdown(&md),
+                },
+            )
+        }
     }
 }
 
@@ -140,6 +58,7 @@ fn cmd_render_composition(
     format: Option<String>,
     theme_variant: Option<String>,
     instance: Option<String>,
+    exclude: Vec<String>,
     output_path: Option<PathBuf>,
 ) -> Result<String> {
     match with_store(&ctx, |store| {
@@ -149,11 +68,12 @@ fn cmd_render_composition(
             format: format.as_deref(),
             theme_variant: theme_variant.as_deref(),
             container_id: ctx.container_id.as_deref(),
+            exclude_instance_ids: &exclude,
             instance_id_filter: instance.as_deref(),
         })?)
     }) {
         Ok(result) => {
-            let projection = result.projection.map(map_projection);
+            let projection = result.projection.map(CompositionProjection::from);
             if let Some(path) = output_path {
                 // Output delivery: writing caller-specified --output path is thin I/O glue,
                 // not repository management. This is intentionally in the CLI layer.

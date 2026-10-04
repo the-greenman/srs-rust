@@ -1,0 +1,39 @@
+{
+  "$schema": "https://srs.semanticops.com/schema/2.0/view.json",
+  "createdAt": "2026-06-01T00:00:00Z",
+  "description": "Compact decision log field view showing statement, alternatives, rationale, and revisit trigger.",
+  "fieldViews": [
+    {
+      "displayLabel": "Decision",
+      "fieldId": "de1296e0-e083-58d9-97a0-cb2b91fec02e",
+      "order": 0,
+      "required": true,
+      "visible": true
+    },
+    {
+      "displayLabel": "Alternatives",
+      "fieldId": "636ce948-2110-57b4-a3ed-04354ec17843",
+      "order": 1,
+      "required": false,
+      "visible": true
+    },
+    {
+      "displayLabel": "Rationale",
+      "fieldId": "3340532b-d845-5e54-92b3-819ed05365c5",
+      "order": 2,
+      "required": false,
+      "visible": true
+    },
+    {
+      "displayLabel": "Revisit",
+      "fieldId": "c04b7f84-9a55-5353-8c9f-2b62f6a1e34e",
+      "order": 3,
+      "required": false,
+      "visible": true
+    }
+  ],
+  "id": "faebd240-83c4-4bc8-a383-8335f841a234",
+  "name": "decision-log",
+  "namespace": "governance",
+  "version": 1
+}

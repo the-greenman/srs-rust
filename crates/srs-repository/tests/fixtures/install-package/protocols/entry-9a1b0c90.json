@@ -25,6 +25,6 @@
       "stageId": "9a1b0c91-0009-4aaa-8bbb-00000000a002"
     }
   ],
-  "targetType": "com.example.install/entry",
+  "targetType": "9a1b0c30-0003-4aaa-8bbb-000000004001",
   "version": 1
 }

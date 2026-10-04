@@ -29,7 +29,7 @@ use crate::writer::new_instance_id;
 use srs_core::types::relation::{Relation, RelationsCollection};
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
 use srs_core::validation::relation::{validate_relation, RelationValidationContext};
-use srs_schema::{SchemaRegistry, RELATIONS_COLLECTION_SCHEMA_ID};
+use srs_schema::{SchemaRegistry, RELATION_SCHEMA_ID};
 use std::collections::{HashMap, HashSet};
 
 /// Summary for relation list operations
@@ -262,9 +262,17 @@ pub fn create_relation(
     mut relation: Relation,
     definitions: &[RelationTypeDefinition],
 ) -> Result<CreateRelationResult, RepositoryError> {
+    // RFC-046 [R3]/[R4]: the one place a created relation is stamped; a request-supplied
+    // createdBy is `actor-supplied`. Refuses before any write.
+    relation.created_by =
+        crate::actor_service::creation_actor(store, relation.created_by.is_some())?;
     if relation.relation_id.trim().is_empty() {
         relation.relation_id = new_instance_id();
     }
+    // #1246: stamp when absent (caller value wins, #511 convention).
+    relation
+        .created_at
+        .get_or_insert_with(|| chrono::Utc::now().to_rfc3339());
     let (known_instance_ids, instance_type_ids) = load_validation_data(store)?;
     let ctx = RelationValidationContext {
         definitions,
@@ -518,20 +526,22 @@ pub(crate) fn inbound_relations_to(
     )
 }
 
-/// Validate one relation's JSON shape against the relations-collection schema's
-/// item contract (wrapped in a synthetic single-entry collection).
+/// Validate one relation's JSON shape against the standalone `relation.json`
+/// schema (the retired collection schema predates RFC-046's `createdBy`).
 fn schema_validate_relation(relation: &Relation) -> Result<(), RepositoryError> {
     let path = relation_object_path(&relation.relation_id);
-    let value = serde_json::to_value(relation).map_err(|e| RepositoryError::Serialize {
+    let mut value = serde_json::to_value(relation).map_err(|e| RepositoryError::Serialize {
         path: std::path::PathBuf::from(&path),
         source: e,
     })?;
-    let wrapped = serde_json::json!({
-        "$schema": "https://srs.semanticops.com/schema/2.0/relations-collection.json",
-        "relations": [value]
-    });
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert(
+            "$schema".to_string(),
+            serde_json::Value::String(crate::store::RELATION_OBJECT_SCHEMA_URL.to_string()),
+        );
+    }
     SchemaRegistry::global()
-        .validate_by_id(RELATIONS_COLLECTION_SCHEMA_ID, &wrapped)
+        .validate_by_id(RELATION_SCHEMA_ID, &value)
         .map_err(|e| RepositoryError::SchemaValidation {
             path: std::path::PathBuf::from(&path),
             message: e.to_string(),
@@ -799,9 +809,11 @@ pub fn rebuild_precedes_chain(
             known_instance_ids: &known_instance_ids,
             instance_type_ids: &instance_type_ids,
         };
+        let actor = crate::actor_service::creation_actor(store, false)?;
         let mut rels = Vec::with_capacity(input.instance_ids.len() - 1);
         for window in input.instance_ids.windows(2) {
             let relation = Relation {
+                created_by: actor.clone(),
                 relation_id: new_instance_id(),
                 relation_type: "precedes".to_string(),
                 source_instance_id: window[0].clone(),
@@ -1060,9 +1072,11 @@ fn apply_precedes_splice(
             known_instance_ids: &known_instance_ids,
             instance_type_ids: &instance_type_ids,
         };
+        let actor = crate::actor_service::creation_actor(store, false)?;
         let mut rels = Vec::with_capacity(create_pairs.len());
         for (source, target) in create_pairs {
             let relation = Relation {
+                created_by: actor.clone(),
                 relation_id: new_instance_id(),
                 relation_type: "precedes".to_string(),
                 source_instance_id: source,
@@ -1269,6 +1283,7 @@ mod tests {
 
     fn make_relation(id: &str, src: &str, tgt: &str, rel_type: &str) -> Relation {
         Relation {
+            created_by: None,
             relation_id: id.to_string(),
             relation_type: rel_type.to_string(),
             source_instance_id: src.to_string(),
@@ -1542,6 +1557,7 @@ mod tests {
         let store = MemoryStore::default();
         store
             .save_record(&Record {
+                created_by: None,
                 field_meta: None,
                 instance_id: "00000000-0000-4000-8000-00000000005c".to_string(),
                 type_id: src_type_id.to_string(),
@@ -1558,6 +1574,7 @@ mod tests {
             .unwrap();
         store
             .save_record(&Record {
+                created_by: None,
                 field_meta: None,
                 instance_id: "00000000-0000-4000-8000-00000000007c".to_string(),
                 type_id: tgt_type_id.to_string(),

@@ -286,6 +286,7 @@ mod tests {
         create_relation_auto(
             store,
             Relation {
+                created_by: None,
                 relation_id: String::new(),
                 relation_type: GRADUATION_RELATION_TYPE.to_string(),
                 source_instance_id: source.to_string(),

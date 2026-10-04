@@ -1,0 +1,20 @@
+{
+  "createdAt": "2026-05-31T14:55:35.204278944+00:00",
+  "fieldValues": {
+    "title": "Pilot duration and review",
+    "alternatives_considered": "Open-ended pilot with no fixed review date — judged too likely to drift.",
+    "decision_statement": "Six-month pilot, June to December 2026. At the end of that period the group meets to decide what comes next: continue, extend, change scope, or close.",
+    "rationale": "A defined lifespan makes the review real rather than optional. Open-ended pilots drift without a moment of explicit recommitment.",
+    "revisit_when": "December 2026. The review meeting produces a new decision that either supersedes this one or records closure."
+  },
+  "instanceId": "9054911c-5285-4c3e-8198-4b9650169001",
+  "lifecycleState": "ratified",
+  "tags": [
+    "governance"
+  ],
+  "typeId": "1fcad6a2-9f78-5e41-94ba-d82e88b822f3",
+  "typeName": "decision",
+  "typeNamespace": "governance",
+  "typeVersion": 1,
+  "updatedAt": "2026-07-14T09:51:59.406075841+00:00"
+}

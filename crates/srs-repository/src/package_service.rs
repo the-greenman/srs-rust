@@ -543,7 +543,7 @@ pub fn create_field_in_package(
     store.load_package_boundary(&selector)?;
 
     let boundary_path = selector.as_deref().unwrap_or("package");
-    let rel_filename = format!("fields/{}-{}.json", slugify(&field.name), &field.id[..8]);
+    let rel_filename = definition_rel_path(DefinitionKind::Field, &field.name, &field.id);
     let full_path = format!("{boundary_path}/{rel_filename}");
 
     store.ensure_fields_dir(&format!("{boundary_path}/fields"))?;
@@ -626,6 +626,29 @@ pub(crate) fn find_field_path(
     Ok(None)
 }
 
+/// The shared filename scheme for a definition inside a package boundary (ADR-050):
+/// `{dir}/{slugify(slug_source)}-{id[..min(8)]}.json`, `dir` per kind. Used by the
+/// field/type/relation-type/view/composition/theme/blueprint/protocol creators and the
+/// `.srspkg` reader. Not (yet) by `lifecycle_service`/`vocabulary_service`, whose slug maps
+/// every non-alphanumeric character to `-` (e.g. `a_b` -> `a-b`, here `a_b`); converging
+/// them would rename files those creators write today (srs-rust#1209).
+pub(crate) fn definition_rel_path(kind: DefinitionKind, slug_source: &str, id: &str) -> String {
+    let dir = match kind {
+        DefinitionKind::Field => "fields",
+        DefinitionKind::Type => "types",
+        DefinitionKind::View => "views",
+        DefinitionKind::Composition => "compositions",
+        DefinitionKind::RelationType => "relation-types",
+        DefinitionKind::Blueprint => "blueprints",
+        DefinitionKind::Protocol => "protocols",
+        DefinitionKind::Vocabulary => "vocabularies",
+        DefinitionKind::Lifecycle => "lifecycles",
+        DefinitionKind::Theme => "themes",
+    };
+    let id8 = id.get(..8).unwrap_or(id);
+    format!("{dir}/{}-{id8}.json", slugify(slug_source))
+}
+
 /// Convert a name to a filesystem-friendly slug
 fn slugify(name: &str) -> String {
     name.to_lowercase()
@@ -693,11 +716,8 @@ pub fn create_type_in_package(
         record_type.id = new_instance_id();
     }
     let boundary_path = selector.as_deref().unwrap_or("package");
-    let rel_filename = format!(
-        "types/{}-{}.json",
-        slugify(&record_type.name),
-        &record_type.id[..8]
-    );
+    let rel_filename =
+        definition_rel_path(DefinitionKind::Type, &record_type.name, &record_type.id);
     let full_path = format!("{boundary_path}/{rel_filename}");
 
     let raw = serde_json::to_value(&record_type).map_err(|e| RepositoryError::Serialize {
@@ -843,9 +863,7 @@ pub fn create_relation_type(
     }
 
     let boundary_path = selector.as_deref().unwrap_or("package");
-    let slug = slugify(&def.key);
-    let id_prefix = &def.id[..8.min(def.id.len())];
-    let rel_filename = format!("relation-types/{slug}-{id_prefix}.json");
+    let rel_filename = definition_rel_path(DefinitionKind::RelationType, &def.key, &def.id);
     let full_path = format!("{boundary_path}/{rel_filename}");
 
     store.ensure_relation_types_dir(&format!("{boundary_path}/relation-types"))?;
@@ -972,6 +990,14 @@ pub fn delete_relation_type(
 }
 
 /// Find the repo-root-relative path and owner for a relation type definition by its ID.
+///
+/// `PackageBoundary` only carries `field_paths`/`type_paths`/`blueprint_paths`/
+/// `protocol_paths` — RelationType (like View, Composition, Lifecycle,
+/// Vocabulary) is resolved by scanning the owner's `package.json`
+/// `relationTypes` array directly (mirrors
+/// `lifecycle_service::find_lifecycle_path`/`view_service::find_view_path`),
+/// not `PackageBoundary.relation_type_paths`, which `MemoryStore` never
+/// populates.
 pub(crate) fn find_relation_type_path(
     store: &dyn RepositoryStore,
     id: &str,
@@ -981,11 +1007,12 @@ pub(crate) fn find_relation_type_path(
         Err(RepositoryError::DefinitionNotFound { .. }) => return Ok(None),
         Err(e) => return Err(e),
     };
-    let pkg_json = store.load_package_json()?;
+    let prefix = owner.as_deref().unwrap_or("package");
+    let pkg_json = store.load_instance_json(&format!("{prefix}/package.json"))?;
     if let Some(paths) = pkg_json.get("relationTypes").and_then(|v| v.as_array()) {
         for entry in paths {
             if let Some(rel) = entry.as_str() {
-                let full = format!("package/{rel}");
+                let full = format!("{prefix}/{rel}");
                 if let Ok(val) = store.load_instance_json(&full) {
                     if val["id"].as_str() == Some(id) {
                         return Ok(Some((full, owner)));
@@ -1104,6 +1131,7 @@ pub fn create_package(
         relation_type_paths: vec![],
         lifecycle_paths: vec![],
         composition_paths: vec![],
+        package_dependencies: None,
     };
     store.save_package_boundary_metadata(&boundary)?;
     store.register_package_boundary(&selector)?;
@@ -2703,6 +2731,52 @@ mod tests {
     }
 
     #[test]
+    fn update_relation_type_resolves_sub_package_boundary() {
+        // Regression for srs-rust#1178: `relation-type update` returned
+        // DefinitionNotFound for a RelationTypeDefinition created in a
+        // declared sub-package, even though create/list/validate all resolve
+        // it there. update_type/update_field already use the owner boundary
+        // returned by resolve_definition_owner (via find_type_path/
+        // find_field_path); find_relation_type_path did not.
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+
+        let store = MemoryStore::default();
+        let selector = Some("packages/essay".to_string());
+        store.register_package_boundary(&selector).unwrap();
+
+        let def = RelationTypeDefinition {
+            schema: Some(RELATION_TYPE_SCHEMA_ID.to_string()),
+            id: "rt-sub-003".to_string(),
+            version: 1,
+            key: "comments-on".to_string(),
+            namespace: "com.mudemocracy.essay".to_string(),
+            label: "Comments On".to_string(),
+            description: "A sub-package relation type".to_string(),
+            category: RelationTypeCategory::Dependency,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            status: None,
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: None,
+            require_same_type: None,
+            updated_at: None,
+            meta: None,
+        };
+        create_relation_type(&store, def.clone(), selector).unwrap();
+
+        let mut updated = def;
+        updated.description = "updated description".to_string();
+
+        let result = update_relation_type(&store, updated).unwrap();
+        assert_eq!(
+            result.relation_type_definition.description,
+            "updated description"
+        );
+    }
+
+    #[test]
     fn list_packages_returns_primary_and_sub_packages() {
         let store = MemoryStore::default();
         let input = CreatePackageInput {
@@ -2751,6 +2825,7 @@ mod tests {
             namespace: "com.lpi.pkg".to_string(),
             name: "lpi".to_string(),
             version: "1.0.0".to_string(),
+            package_dependencies: None,
             definitions: vec![PackageSourceDefinition {
                 kind: DefinitionKind::Field,
                 rel_path: "fields/alpha.json".to_string(),

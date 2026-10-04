@@ -7,12 +7,20 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-srs-repository = { workspace = true }
+srs-repository = { workspace = true, features = ["mcp-schema"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+srs-core = { workspace = true }
+indexmap = { workspace = true }
+# schemars 1.x for MCP tool input schemas only (ADR-011: library crates stay schemars-free; this one
+# owns the tool catalogue). Pure Rust, wasm32-safe.
+schemars = "1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # Repository services allocate UUIDs for validated writes; use the browser
 # entropy backend whenever this core is linked into the WASM executor.
 uuid = { workspace = true, features = ["js"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
+
+[dev-dependencies]
+tempfile = "3"

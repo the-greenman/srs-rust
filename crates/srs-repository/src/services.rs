@@ -259,7 +259,9 @@ pub fn create_note_in_context(
     let result = create_note(store, input.note)?;
 
     if let Some(ref cid) = input.container_id {
-        if let Err(e) = container_service::add_member(store, cid, &result.note.instance_id) {
+        if let Err(e) =
+            container_service::add_member(store, cid, &result.note.instance_id, None, None)
+        {
             // Best-effort rollback — same caveats as ADR-024.
             // TODO: fault-injection test for this error arm pending a FailStore test double (see ADR-024).
             let _ = delete_note(store, &result.note.instance_id);
@@ -442,6 +444,7 @@ pub fn graduate_note(
     if let Err(e) = relation_service::create_relation(
         store,
         Relation {
+            created_by: None,
             relation_id: String::new(),
             relation_type: GRADUATION_RELATION_TYPE.to_string(),
             source_instance_id: create_result.record.instance_id.clone(),
@@ -483,6 +486,9 @@ pub fn create_note(
     store: &dyn RepositoryStore,
     mut note: Note,
 ) -> Result<CreateNoteResult, RepositoryError> {
+    // RFC-046 [R3]/[R4]: the one place a new note is stamped; a request-supplied
+    // createdBy is `actor-supplied`. Refuses before any write.
+    note.created_by = crate::actor_service::creation_actor(store, note.created_by.is_some())?;
     if note.instance_id.is_empty() {
         note.instance_id = new_instance_id();
     }
@@ -573,7 +579,7 @@ pub fn remove_note_tag(
 /// Service: Update an existing note
 pub fn update_note(
     store: &dyn RepositoryStore,
-    note: Note,
+    mut note: Note,
 ) -> Result<UpdateNoteResult, RepositoryError> {
     if store.find_instance(&note.instance_id)?.is_none() {
         return Err(RepositoryError::NoteNotFound {
@@ -581,6 +587,10 @@ pub fn update_note(
             id: note.instance_id.clone(),
         });
     }
+    // RFC-046 [R5]: a whole-object update keeps the stored createdBy; an identical
+    // one is allowed, a different/new one is `actor-changed`.
+    let stored = store.load_note_by_id(&note.instance_id)?.created_by;
+    note.created_by = crate::actor_service::check_update_actor(&note.created_by, &stored)?;
 
     // Schema validation before core validation
     let raw = serde_json::to_value(&note).map_err(|e| RepositoryError::Serialize {
@@ -662,6 +672,7 @@ mod tests {
 
     fn make_note(id: &str, title: &str) -> Note {
         Note {
+            created_by: None,
             instance_id: id.to_string(),
             title: Some(title.to_string()),
             tags: Some(vec!["test".to_string(), "sample".to_string()]),
@@ -1000,6 +1011,7 @@ mod tests {
     fn create_note_mints_id_and_stores_note() {
         let store = MemoryStore::default();
         let note = Note {
+            created_by: None,
             instance_id: "".to_string(),
             title: Some("My New Note".to_string()),
             tags: None,
@@ -1041,6 +1053,7 @@ mod tests {
         use srs_core::types::note::NoteSection;
         let store = MemoryStore::default();
         let note = Note {
+            created_by: None,
             instance_id: "".to_string(),
             title: None,
             tags: None,
@@ -1120,6 +1133,7 @@ mod tests {
         let store = store_with_note(&note, "records/notes/test-note.json");
 
         let updated = Note {
+            created_by: None,
             instance_id: note.instance_id.clone(),
             title: Some("Updated Title".to_string()),
             tags: note.tags.clone(),
@@ -1221,6 +1235,7 @@ mod tests {
         );
         store
             .save_relation(&srs_core::types::relation::Relation {
+                created_by: None,
                 relation_id: "dd000001-0000-4000-a000-000000000001".to_string(),
                 relation_type: "evidences".to_string(),
                 source_instance_id: "other-instance".to_string(),
@@ -1709,6 +1724,7 @@ mod tests {
         let initial_len = store.catalog().unwrap().instances.len();
 
         let note = Note {
+            created_by: None,
             instance_id: "".to_string(),
             title: Some("Rollback Test Note".to_string()),
             tags: None,
@@ -1762,7 +1778,6 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: None,
             member_instance_ids: None,
             child_container_ids: None,
             tags: None,
@@ -1780,6 +1795,7 @@ mod tests {
 
         let input = CreateNoteInput {
             note: Note {
+                created_by: None,
                 instance_id: "".to_string(),
                 title: Some("Context Note".to_string()),
                 tags: None,
@@ -1877,6 +1893,7 @@ mod tests {
         relation_service::create_relation(
             &store,
             Relation {
+                created_by: None,
                 relation_id: String::new(),
                 relation_type: "derived-from".to_string(),
                 source_instance_id: "22222222-2222-4222-8222-222222222222".to_string(),

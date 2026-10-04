@@ -59,7 +59,18 @@ fn cmd_note_get(ctx: CliContext, id: String) -> Result<String> {
 }
 
 fn cmd_note_create(ctx: CliContext) -> Result<String> {
-    let note: Note = crate::input::from_stdin("note")?;
+    let raw = crate::input::value_from_stdin("note")?;
+
+    // RFC-046: refuse a request-supplied createdBy on the raw input, before the typed parse.
+    if let Err(e) = with_store(&ctx, |store| {
+        if let Some(obj) = raw.as_object() {
+            srs_repository::actor_service::reject_supplied_created_by(store, obj)?;
+        }
+        Ok(())
+    }) {
+        return Ok(output::err("note create", vec![e.to_string()]));
+    }
+    let note: Note = crate::input::from_str("note", &raw.to_string())?;
 
     let container_id = ctx.container_id.clone();
     match with_store(&ctx, |store| {

@@ -15,8 +15,10 @@ const FIELD_TITLE: &str = "aaaa0001-0000-4000-8000-000000000001";
 const TYPE_ID: &str = "bbbb0001-0000-4000-8000-000000000001";
 const RECORD_ID: &str = "cccc0001-0000-4000-8000-000000000001";
 
-fn fixture_store() -> FileStore {
-    let srsj = serde_json::json!({
+const OTHER_ID: &str = "cccc0001-0000-4000-8000-000000000002";
+
+fn fixture_srsj() -> String {
+    serde_json::json!({
         "srsj": "2",
         "manifest": {
             "dataModelRevision": 2,
@@ -73,14 +75,67 @@ fn fixture_store() -> FileStore {
                 "typeNamespace": "com.test",
                 "typeName": "decision",
                 "fieldValues": {"title": "First Decision"}
+            },
+            format!("records/tier-2/{OTHER_ID}.json"): {
+                "instanceId": OTHER_ID,
+                "typeId": TYPE_ID,
+                "typeVersion": 1,
+                "typeNamespace": "com.test",
+                "typeName": "decision",
+                "fieldValues": {"title": "Second Decision"}
+            },
+            "relations/dddd0001-0000-4000-8000-000000000001.json": {
+                "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+                "relationId": "dddd0001-0000-4000-8000-000000000001",
+                "relationType": "depends-on",
+                "sourceInstanceId": OTHER_ID,
+                "targetInstanceId": RECORD_ID,
+                "createdAt": "2026-01-01T00:00:00Z"
             }
             // No `.revisions.json` sidecar: rfc-decision-2a1e1590 retired the
             // mechanism, and catalog.rs no longer tolerates one (srs-rust#866)
             // — a repository carrying one now fails to load at all ([R24]).
         }
     })
-    .to_string();
-    srs_repository::srsj::open_srsj(&srsj).expect("fixture srsj must load")
+    .to_string()
+}
+
+fn fixture_store() -> FileStore {
+    srs_repository::srsj::open_srsj(&fixture_srsj()).expect("fixture srsj must load")
+}
+
+/// #1134 acceptance: the native dispatcher and the browser session answer the context
+/// resource identically (one shared `SrsMcpApplication`), inbound edge and neighbour included.
+#[test]
+fn context_resource_native_matches_browser_session() {
+    use serde_json::{json, Value};
+    let srsj = fixture_srsj();
+    let uri = format!("srs://test-repo-context/context/{RECORD_ID}");
+    let req = json!({"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri": uri}});
+
+    let mut native = srs_mcp_core::McpDispatcher::new(
+        srs_mcp_core::SrsMcpApplication::open(srs_repository::srsj::open_srsj(&srsj).unwrap())
+            .unwrap(),
+    );
+    let init = json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18"}});
+    native.dispatch(init.clone()).unwrap();
+    let native_out = native.dispatch(req.clone()).unwrap();
+
+    let repo = srs_bindings::SrsRepository::load(&srsj).ok().unwrap();
+    let mut session = repo.open_mcp_session().ok().unwrap();
+    session.handle(&init.to_string()).unwrap();
+    let browser_out: Value =
+        serde_json::from_str(&session.handle(&req.to_string()).unwrap()).unwrap();
+
+    assert_eq!(native_out, browser_out);
+    let text = native_out["result"]["contents"][0]["text"]
+        .as_str()
+        .unwrap();
+    let ctx: Value = serde_json::from_str(text).unwrap();
+    assert_eq!(ctx["relations"][0]["direction"], "in");
+    assert_eq!(ctx["relations"][0]["sourceId"], OTHER_ID);
+    assert_eq!(ctx["relations"][0]["neighbour"]["kind"], "record");
+    assert_eq!(ctx["relations"][0]["neighbour"]["instanceId"], OTHER_ID);
 }
 
 #[test]
@@ -107,6 +162,8 @@ fn context_record_returns_type_and_fields() {
         &store,
         RecordContextQuery {
             record_id: RECORD_ID.to_string(),
+            container_id: None,
+            exclude_relation_categories: vec![],
         },
     )
     .expect("get_record_context must succeed");
@@ -132,4 +189,51 @@ fn context_field_not_found_errors() {
         },
     );
     assert!(err.is_err(), "missing record must return an error");
+}
+
+#[test]
+fn context_record_query_accepts_exclude_relation_categories_key() {
+    // The WASM `context_record` input is this struct deserialized from JSON: pin the key.
+    let q: RecordContextQuery = serde_json::from_str(
+        r#"{"recordId":"r","excludeRelationCategories":["composition","sequence"]}"#,
+    )
+    .unwrap();
+    assert_eq!(q.exclude_relation_categories.len(), 2);
+    let d: RecordContextQuery = serde_json::from_str(r#"{"recordId":"r"}"#).unwrap();
+    assert!(d.exclude_relation_categories.is_empty());
+    assert!(serde_json::from_str::<RecordContextQuery>(
+        r#"{"recordId":"r","excludeRelationCategories":["nope"]}"#
+    )
+    .is_err());
+}
+
+/// srs-rust#1229: the `neighbours` binding is the core service; the fixture's single edge
+/// OTHER -> RECORD is an `in` edge of RECORD, paged with the full total.
+#[test]
+fn neighbours_service_pages_with_total() {
+    use srs_repository::context_query_service::{
+        list_neighbours, EdgeDirection, NeighboursPage, NeighboursQuery,
+    };
+    let store = fixture_store();
+    let q = |direction| NeighboursQuery {
+        instance_id: RECORD_ID.to_string(),
+        relation_type: None,
+        direction,
+    };
+    let r = list_neighbours(&store, q(None), NeighboursPage::default()).unwrap();
+    assert_eq!(r.total, 1);
+    assert_eq!(r.neighbours[0].direction, EdgeDirection::In);
+    assert_eq!(r.neighbours[0].neighbour.instance_id, OTHER_ID);
+    let page = NeighboursPage {
+        limit: Some(0),
+        offset: 0,
+    };
+    let empty = list_neighbours(&store, q(Some(EdgeDirection::In)), page).unwrap();
+    assert_eq!((empty.total, empty.neighbours.len()), (1, 0));
+    let none = list_neighbours(
+        &store,
+        q(Some(EdgeDirection::Out)),
+        NeighboursPage::default(),
+    );
+    assert_eq!(none.unwrap().total, 0);
 }

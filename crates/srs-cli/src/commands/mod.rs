@@ -20,6 +20,7 @@ pub mod relation_type;
 pub mod render;
 pub mod repo;
 pub mod schema;
+pub mod slice;
 pub mod tag;
 pub mod term;
 pub mod theme;
@@ -224,12 +225,29 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub pretty: bool,
 
-    /// Container scope: constrains list/create/delete to this container's membership
+    /// Container scope: constrains list/create/delete to this container's membership; on `context record` it adds the record's arrangement subtree in this container
     #[arg(long = "container", global = true)]
     pub container_id: Option<String>,
 
+    /// Session actor for everything this invocation creates (RFC-046 `createdBy`):
+    /// JSON `{"kind":"human|ai","id":"<non-empty>","name":"<optional>"}`. Defaults to the
+    /// `SRS_ACTOR` environment variable; with neither, creations are unattributed. Host
+    /// configuration only — a request payload never carries it. An invalid value refuses
+    /// every creating command (`actor-invalid`); a corpus below dataModelRevision 9 refuses
+    /// an actor session (`revision-too-old`) until `repo apply-migration --id
+    /// rfc046-actor-provenance`.
+    #[arg(long, global = true)]
+    pub actor: Option<String>,
+
     #[command(subcommand)]
     pub command: Commands,
+}
+
+/// Parse the host-supplied actor text. Text that is not JSON is kept as a JSON
+/// string so it fails R1 at the first creating operation (`actor-invalid`) rather
+/// than silently meaning "no actor".
+pub(crate) fn parse_actor_arg(raw: &str) -> serde_json::Value {
+    serde_json::from_str(raw).unwrap_or_else(|_| serde_json::Value::String(raw.to_string()))
 }
 
 /// Global CLI context passed to command handlers
@@ -240,6 +258,8 @@ pub struct CliContext {
     pub format: OutputFormat,
     pub pretty: bool,
     pub container_id: Option<String>,
+    /// RFC-046 session actor (raw JSON), from `--actor` / `SRS_ACTOR`.
+    pub actor: Option<serde_json::Value>,
 }
 
 pub fn with_store<T>(
@@ -249,6 +269,7 @@ pub fn with_store<T>(
     match ctx.store {
         StoreBackend::File => {
             let store = FileStore::new(&ctx.repo);
+            store.set_session_actor(ctx.actor.clone());
             f(&store)
         }
         StoreBackend::Json => {
@@ -258,6 +279,7 @@ pub fn with_store<T>(
             let mut session = SrsjSession::open(&ctx.repo).with_context(|| {
                 format!("Failed to open .srsj session at {}", ctx.repo.display())
             })?;
+            session.store().set_session_actor(ctx.actor.clone());
             let result = f(session.store())?;
             session.flush()?;
             Ok(result)
@@ -388,6 +410,21 @@ pub enum Commands {
     /// Archive pack/unpack commands (.srs SRSzip format, ADR-036)
     #[command(subcommand)]
     Archive(ArchiveCommand),
+    /// RFC-026 container slices: one container as a standalone .srs (ADR-051)
+    #[command(subcommand)]
+    Slice(SliceCommand),
+}
+
+#[derive(Subcommand)]
+pub enum SliceCommand {
+    /// Export the container named by the global `--container` as a standalone
+    /// `.srs` slice archive (RFC-026): its records, the relations among them,
+    /// its sub-containers, their source documents and every package they use;
+    /// cut relations are recorded in the manifest's `slice.externalRelationRefs`.
+    Export {
+        /// Output file path for the .srs slice archive
+        output: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -450,12 +487,12 @@ pub enum ContainerCommand {
         /// Filter by containerType
         #[arg(long = "type")]
         container_type: Option<String>,
-        /// Return only containers where this instance appears in memberInstanceIds OR rootInstanceIds
+        /// Return only containers where this instance appears in memberInstanceIds (or a child container's)
         #[arg(long = "member")]
         member_instance_id: Option<String>,
-        /// Return only containers where this instance appears specifically in rootInstanceIds
+        /// Return only containers whose anchorInstanceId is this instance (RFC-043: roots are gone)
         #[arg(long = "root")]
-        root_instance_id: Option<String>,
+        anchor_instance_id: Option<String>,
     },
     /// Create a new container (reads JSON from stdin)
     Create,
@@ -463,14 +500,21 @@ pub enum ContainerCommand {
     Get { container_id: String },
     /// Update a container (reads partial JSON patch from stdin)
     Update { container_id: String },
+    /// Copy a container: shares the member records, forks only the anchor (derived-from)
+    Copy {
+        container_id: String,
+        /// Title of the copy (default: "<title> (copy)")
+        #[arg(long)]
+        title: Option<String>,
+        /// Id of the copy (default: minted; an existing id is refused)
+        #[arg(long = "new-id")]
+        new_container_id: Option<String>,
+    },
     /// Delete a container by ID
     Delete { container_id: String },
     /// Member instance management
     #[command(subcommand)]
     Members(ContainerMembersCommand),
-    /// Root instance management
-    #[command(subcommand)]
-    Roots(ContainerRootsCommand),
     /// Validate container invariants
     Validate { container_id: String },
     /// Resolve a structured container view: root + ordered members + Composition-driven
@@ -484,34 +528,73 @@ pub enum ContainerCommand {
     },
 }
 
-#[derive(Subcommand)]
-pub enum ContainerMembersCommand {
-    List {
-        container_id: String,
-    },
-    Add {
-        container_id: String,
-        instance_id: String,
-    },
-    Remove {
-        container_id: String,
-        instance_id: String,
-    },
-}
+const RELATIVE_FLAGS: [&str; 7] = ["before", "after", "into", "indent", "outdent", "up", "down"];
 
 #[derive(Subcommand)]
-pub enum ContainerRootsCommand {
-    List {
-        container_id: String,
-    },
+pub enum ContainerMembersCommand {
+    /// List the container's arrangement: entries `{instanceId, depth?}` in order (RFC-043)
+    List { container_id: String },
+    /// The derived outline: entries and document body with parent, depth and run (RFC-043)
+    Outline { container_id: String },
+    /// Add a member; appends at depth 0 unless --position / --depth / --before|--after|--into
     Add {
         container_id: String,
         instance_id: String,
+        /// 0-based position to insert at (default: append)
+        #[arg(long, conflicts_with_all = ["before", "after", "into"])]
+        position: Option<usize>,
+        /// Nesting depth (default 0)
+        #[arg(long, conflicts_with_all = ["before", "after", "into"])]
+        depth: Option<u32>,
+        /// Place just before this entry (its sibling)
+        #[arg(long, value_name = "ID", conflicts_with_all = ["after", "into"])]
+        before: Option<String>,
+        /// Place just after this entry's run (its sibling)
+        #[arg(long, value_name = "ID", conflicts_with = "into")]
+        after: Option<String>,
+        /// Place as the last child of this entry
+        #[arg(long, value_name = "ID")]
+        into: Option<String>,
     },
+    /// Remove a member; its descendants are promoted one level
     Remove {
         container_id: String,
         instance_id: String,
     },
+    /// Move an entry's run: --position/--depth (absolute), or one relative flag
+    Move {
+        container_id: String,
+        instance_id: String,
+        /// 0-based position, against the list without the moved run (default: stay)
+        #[arg(long, conflicts_with_all = RELATIVE_FLAGS)]
+        position: Option<usize>,
+        /// New depth for the entry (its descendants shift with it)
+        #[arg(long, conflicts_with_all = RELATIVE_FLAGS)]
+        depth: Option<u32>,
+        /// Move just before this entry (its sibling)
+        #[arg(long, value_name = "ID", conflicts_with_all = ["after", "into", "indent", "outdent", "up", "down"])]
+        before: Option<String>,
+        /// Move just after this entry's run (its sibling)
+        #[arg(long, value_name = "ID", conflicts_with_all = ["into", "indent", "outdent", "up", "down"])]
+        after: Option<String>,
+        /// Move to be the last child of this entry
+        #[arg(long, value_name = "ID", conflicts_with_all = ["indent", "outdent", "up", "down"])]
+        into: Option<String>,
+        /// Depth + 1, clamped to the previous entry's depth + 1
+        #[arg(long, conflicts_with_all = ["outdent", "up", "down"])]
+        indent: bool,
+        /// Depth - 1
+        #[arg(long, conflicts_with_all = ["up", "down"])]
+        outdent: bool,
+        /// Swap with the previous sibling
+        #[arg(long, conflicts_with = "down")]
+        up: bool,
+        /// Swap with the next sibling
+        #[arg(long)]
+        down: bool,
+    },
+    /// Remove every entry whose instance no longer resolves (RFC-043 repair)
+    Repair { container_id: String },
 }
 
 #[derive(Subcommand)]
@@ -625,18 +708,18 @@ pub enum RepoCommand {
         /// Repository description
         #[arg(long)]
         description: Option<String>,
-        /// SRS version stored in manifest
-        #[arg(long = "srs-version", default_value = "2.0-draft")]
-        srs_version: String,
+        /// SRS version stored in manifest (default: 2.0-draft)
+        #[arg(long = "srs-version")]
+        srs_version: Option<String>,
         /// Primary package ID (UUID); auto-generated if omitted
         #[arg(long = "package-id")]
         package_id: Option<String>,
-        /// Primary package name
-        #[arg(long = "package-name", default_value = "primary")]
-        package_name: String,
-        /// Primary package version
-        #[arg(long = "package-version", default_value = "1.0.0")]
-        package_version: String,
+        /// Primary package name (default: primary)
+        #[arg(long = "package-name")]
+        package_name: Option<String>,
+        /// Primary package version (default: 1.0.0)
+        #[arg(long = "package-version")]
+        package_version: Option<String>,
         /// Primary package namespace (defaults to repository namespace)
         #[arg(long = "package-namespace")]
         package_namespace: Option<String>,
@@ -1258,10 +1341,19 @@ pub enum RecordCommand {
         #[arg(long)]
         id: String,
     },
-    /// Create a successor record that supersedes or refines this one (ext:lifecycle)
+    /// Create a successor record that supersedes or refines this one (ext:lifecycle).
+    /// `relationType` in the stdin JSON is optional: omitted, it is derived from the
+    /// predecessor's lifecycle `requiresRelation` (RFC-022 R6), or an error names the candidates.
     Successor {
         /// Record instance ID of the predecessor
         #[arg(long)]
+        id: String,
+    },
+    /// Fork a record and its nested children into ONE container (derived-from the originals).
+    /// The global `--container <ID>` is REQUIRED: the forks are swapped into that container
+    /// only; every other container keeps the originals.
+    Fork {
+        /// Record instance ID at the root of the arrangement subtree to fork
         id: String,
     },
     /// Query allowed lifecycle transitions for a record (ext:lifecycle)
@@ -1317,6 +1409,23 @@ pub enum RelationCommand {
         /// Deprecated: JSON output is now the default (no-op)
         #[arg(long, hide = true)]
         json: bool,
+    },
+    /// List an instance's relation neighbours, paged (id, label, type — never the record)
+    Neighbours {
+        /// Instance ID (Record or Note)
+        id: String,
+        /// Only edges of this relation type
+        #[arg(long = "type")]
+        relation_type: Option<String>,
+        /// Only edges in this direction relative to the instance: out | in (default: both)
+        #[arg(long)]
+        direction: Option<srs_repository::context_query_service::EdgeDirection>,
+        /// Maximum edges to return (default: all; `total` always counts every match)
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Number of edges to skip, after the deterministic sort
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
     },
     /// Create a relation (reads JSON from stdin)
     Create {
@@ -1530,6 +1639,10 @@ pub enum RenderCommand {
         /// producing a per-record export document
         #[arg(long)]
         instance: Option<String>,
+        /// Instance UUID to drop from ContainerSubset sections (repeatable); in an arranged
+        /// section its descendants move up one level (RFC-043 promoting removal)
+        #[arg(long = "exclude")]
+        exclude: Vec<String>,
         /// Optional output file path for rendered content
         #[arg(long)]
         output: Option<PathBuf>,
@@ -1555,6 +1668,8 @@ pub enum RenderCommand {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Render markdown read from stdin to safe HTML (pure; needs no repository)
+    Markdown,
 }
 
 #[derive(Subcommand)]
@@ -1588,10 +1703,15 @@ pub enum PackageCommand {
         #[arg(long, default_value = "upstream-tracked")]
         mode: String,
     },
-    /// Install an external package directory into this repository (one-shot copy)
+    /// Install an external package directory, or a `.srspkg` Package Bundle
+    /// (`--bundle`), into this repository (one-shot copy)
     Install {
         /// Filesystem path of the source package directory (contains package.json)
-        source_dir: String,
+        #[arg(required_unless_present = "bundle", conflicts_with = "bundle")]
+        source_dir: Option<String>,
+        /// Install from a `.srspkg` Package Bundle file instead of a directory
+        #[arg(long)]
+        bundle: Option<PathBuf>,
         /// Target boundary path relative to repo root (default: packages/<package-name>)
         #[arg(long)]
         boundary: Option<String>,
@@ -1599,6 +1719,30 @@ pub enum PackageCommand {
         /// instead of skipping the conflicting definitions
         #[arg(long)]
         strict: bool,
+    },
+    /// Export a package boundary as a deterministic `.srspkg` Package Bundle
+    /// (ADR-050). The reported sha256 is `sha256:<64 lowercase hex>` of the file;
+    /// pass a fixed `--published-at` for a reproducible hash.
+    Export {
+        /// Boundary path (omit for primary package)
+        #[arg(long)]
+        selector: Option<String>,
+        /// Output file path for the `.srspkg`
+        #[arg(long)]
+        output: PathBuf,
+        /// RFC 3339 `publishedAt` (default: now); part of the bytes
+        #[arg(long)]
+        published_at: Option<String>,
+        /// Optional `publisher` text
+        #[arg(long)]
+        publisher: Option<String>,
+        /// Optional `homepage` URL
+        #[arg(long)]
+        homepage: Option<String>,
+        /// `bundled` (default) carries the reference closure; `standalone` only the
+        /// package's own definitions (both list every reached definition in `dependencyRefs`)
+        #[arg(long, default_value = "bundled", value_parser = |s: &str| s.parse::<srs_repository::package_bundle::BundleMode>())]
+        mode: srs_repository::package_bundle::BundleMode,
     },
     /// Update package boundary metadata (namespace, name, or version)
     Update {
@@ -1615,26 +1759,11 @@ pub enum PackageCommand {
         #[arg(long)]
         version: Option<String>,
     },
-    /// Create a new package slice (alias for create; permanent alias, not intended to diverge)
-    SliceCreate {
-        /// Package UUID
-        #[arg(long = "id")]
-        id: String,
-        /// Package namespace (e.g. com.example)
-        #[arg(long)]
-        namespace: String,
-        /// Package name (kebab-case)
-        #[arg(long)]
-        name: String,
-        /// Package version (semver, e.g. 1.0.0)
-        #[arg(long, default_value = "1.0.0")]
-        version: String,
-        /// Boundary path relative to repo root (e.g. package/my-ext)
-        #[arg(long = "path")]
-        boundary_path: String,
-    },
     /// List all imported definitions with live divergence state
     Imports,
+    /// Package requirements (`packageDependencies`, RFC-044), keyed by packageId
+    #[command(subcommand)]
+    Dependency(PackageDependencyCommand),
     /// [Deprecated: use `package import` instead] Enable a local sub-package
     #[command(hide = true)]
     Enable {
@@ -1646,6 +1775,48 @@ pub enum PackageCommand {
     Disable {
         /// Relative path to the sub-package directory (e.g. package/spec-authoring-core)
         path: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PackageDependencyCommand {
+    /// List a package's requirements with each entry's check outcome
+    List {
+        /// Requiring package boundary path (omit for primary package)
+        #[arg(long = "selector")]
+        selector: Option<String>,
+    },
+    /// Add or replace the requirement on an installed package, by packageId.
+    /// Labels (namespace/name) are filled from the installed package, never
+    /// guessed. A legacy entry (no packageId) labelled like that package is
+    /// rewritten only with --repair-legacy; without it the add is refused.
+    Add {
+        /// Requiring package boundary path (omit for primary package)
+        #[arg(long = "selector")]
+        selector: Option<String>,
+        /// The required package's `id` (UUID)
+        #[arg(long = "package-id")]
+        package_id: String,
+        /// Minimum SemVer 2.0.0 version, same compatibility band (RFC-044 [R3])
+        #[arg(long)]
+        version: String,
+        /// Replace the legacy entry (no packageId) whose namespace/name equal
+        /// the installed package's labels exactly with this packageId
+        #[arg(long = "repair-legacy")]
+        repair_legacy: bool,
+    },
+    /// Check a requirement list against the installed set before install
+    /// (reads `{packageId?, packageDependencies: [...]}` JSON from stdin, e.g.
+    /// a package bundle); each entry with its outcome. Never writes.
+    Check,
+    /// Remove the requirement on a packageId
+    Remove {
+        /// Requiring package boundary path (omit for primary package)
+        #[arg(long = "selector")]
+        selector: Option<String>,
+        /// The required package's `id` (UUID)
+        #[arg(long = "package-id")]
+        package_id: String,
     },
 }
 
@@ -1705,6 +1876,20 @@ pub struct FindArgs {
     /// srs#448/rfc-decision-53635966, srs-rust#888).
     #[arg(long = "tier")]
     pub tier: Option<u8>,
+    /// Maximum hits to return (default: all; `total` always counts every match)
+    #[arg(long = "limit")]
+    pub limit: Option<usize>,
+    /// Number of hits to skip, after the deterministic sort
+    #[arg(long = "offset", default_value_t = 0)]
+    pub offset: usize,
+    /// Order --text hits by BM25 relevance (fills `score`) instead of by instanceId
+    #[arg(long = "rank")]
+    pub rank: bool,
+    /// More like this: instances similar to this instance (Record or Note id), ranked by BM25
+    /// over its top-weighted terms, excluding itself. The other filters narrow the candidates;
+    /// not combinable with --text.
+    #[arg(long = "similar", value_name = "INSTANCE_ID", conflicts_with = "text")]
+    pub similar: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -1762,6 +1947,11 @@ pub fn dispatch(cli: Cli) -> Result<String> {
             path: std::path::PathBuf::from("."),
             store: StoreBackend::File,
         },
+        // render markdown is a pure stdin → HTML transform; no repository involved.
+        Commands::Render(RenderCommand::Markdown) => RepositoryLocation {
+            path: std::path::PathBuf::from("."),
+            store: StoreBackend::File,
+        },
         _ => resolve_repo(cli.repo.clone(), cli.store)?,
     };
 
@@ -1772,6 +1962,11 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         format: cli.format,
         pretty: cli.pretty,
         container_id: cli.container_id,
+        actor: cli
+            .actor
+            .or_else(|| std::env::var("SRS_ACTOR").ok())
+            .filter(|raw| !raw.trim().is_empty())
+            .map(|raw| parse_actor_arg(&raw)),
     };
 
     match cli.command {
@@ -1802,6 +1997,7 @@ pub fn dispatch(cli: Cli) -> Result<String> {
         Commands::Context(ctx_cmd) => context::dispatch(ctx, ctx_cmd),
         Commands::Attachment(cmd) => attachment::dispatch(ctx, cmd),
         Commands::Archive(archive_cmd) => archive::dispatch(ctx, archive_cmd),
+        Commands::Slice(cmd) => slice::dispatch(ctx, cmd),
         Commands::Mcp(mcp_cmd) => mcp::dispatch(ctx, mcp_cmd),
     }
 }

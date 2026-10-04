@@ -1,0 +1,14 @@
+{
+  "containerId": "b30db206-e9a7-4588-a9aa-53451aacd243",
+  "containerType": "document",
+  "createdAt": "2026-05-31T00:00:00Z",
+  "memberInstanceIds": [
+    "448d64d4-ae82-4971-b027-3b78b9c7a90a",
+    "5bbf9209-1dc9-44b2-b0a3-f2192db5a879",
+    "8ed62308-f7b4-47e1-b1a2-5490908efd86"
+  ],
+  "rootInstanceIds": [
+    "5bbf9209-1dc9-44b2-b0a3-f2192db5a879"
+  ],
+  "title": "Roles"
+}

@@ -19,7 +19,9 @@ use crate::store::RepositoryStore;
 use serde::Serialize;
 
 /// The data-model generation this build writes.
-/// The revision this build reads and writes — the SectionSource ->
+/// The revision this build reads and writes — RFC-046 actor provenance
+/// (`createdBy` on Record, Note and Relation; migration #9, a pure re-stamp).
+/// Revision 8 is RFC-043's ordered container entries; the SectionSource ->
 /// DiscoveryQuery collapse + ExportConfig unification (migration #7:
 /// srs-rust#924, srs#525, `rfc-decision-cce3c00e`, `rfc-decision-9ee14517`).
 /// The Composition rename + semanticObjectType collapse + packageDependencies
@@ -27,7 +29,7 @@ use serde::Serialize;
 /// is revision 5; Tier 1 (TypedRecord) retirement is revision 4; RFC-040's
 /// metamodel v1.1.0 engine sync is revision 3; RFC-039's carrier model is
 /// revision 2; RFC-032's fieldType model is revision 1.
-pub const CURRENT_DATA_MODEL_REVISION: u64 = 7;
+pub const CURRENT_DATA_MODEL_REVISION: u64 = 9;
 /// The revision the RFC-032 `field-type` migration produces.
 pub const FIELD_TYPE_REVISION: u64 = 1;
 /// The revision RFC-040's metamodel v1.1.0 engine sync produces. This is
@@ -104,6 +106,14 @@ pub const COMPOSITION_CUTOVER_REVISION: u64 = 6;
 /// (ADR-045-style repair seam), same as `composition-cutover`.
 pub const DISCOVERY_QUERY_CUTOVER_REVISION: u64 = 7;
 
+/// The revision the RFC-043 `rfc043-container-entries` migration produces (migration #8:
+/// container members become ordered entries; `rootInstanceIds` and `memberOrder` removed).
+pub const RFC043_CONTAINER_ENTRIES_REVISION: u64 = 8;
+
+/// The revision the RFC-046 `rfc046-actor-provenance` migration produces (migration #9:
+/// a pure re-stamp — no existing instance carries `createdBy`, so no data changes).
+pub const RFC046_ACTOR_PROVENANCE_REVISION: u64 = 9;
+
 /// The manifest property carrying the generation stamp (RFC-033 [R6] / #265).
 pub const DATA_MODEL_REVISION_KEY: &str = "dataModelRevision";
 
@@ -123,12 +133,29 @@ pub struct FieldTypeMigrationResult {
 
 /// Read a repository's declared data-model generation. Absent ⇒ 0 (RFC-033 [R6]).
 pub fn data_model_revision(store: &dyn RepositoryStore) -> Result<u64, RepositoryError> {
-    let manifest = store.load_manifest()?;
-    Ok(manifest
-        .extra
-        .get(DATA_MODEL_REVISION_KEY)
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0))
+    match store.load_manifest() {
+        Ok(manifest) => Ok(manifest
+            .extra
+            .get(DATA_MODEL_REVISION_KEY)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)),
+        // A revision-7 root container (bare-id members) does not parse as a typed Manifest
+        // (RFC-043 [R16]); the stamp is still readable from the raw text, so the migration
+        // ladder and `repo migrations` keep working on it.
+        Err(RepositoryError::ManifestParse { .. } | RepositoryError::Rfc043MigrationNeeded) => {
+            let text = store.load_manifest_raw_text()?;
+            let raw: serde_json::Value =
+                serde_json::from_str(&text).map_err(|source| RepositoryError::ManifestParse {
+                    path: std::path::PathBuf::from("manifest.json"),
+                    source,
+                })?;
+            Ok(raw
+                .get(DATA_MODEL_REVISION_KEY)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Whether this repository still needs migration #1.
@@ -360,6 +387,53 @@ pub fn composition_cutover_migration_needed(
     store: &dyn RepositoryStore,
 ) -> Result<bool, RepositoryError> {
     Ok(data_model_revision(store)? < COMPOSITION_CUTOVER_REVISION)
+}
+
+/// Whether this repository still needs migration #9 (RFC-046).
+pub fn rfc046_actor_provenance_migration_needed(
+    store: &dyn RepositoryStore,
+) -> Result<bool, RepositoryError> {
+    Ok(data_model_revision(store)? < RFC046_ACTOR_PROVENANCE_REVISION)
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Rfc046ActorProvenanceMigrationResult {
+    pub from_revision: u64,
+    pub to_revision: u64,
+}
+
+/// Apply migration #9 (RFC-046 [R10]): re-stamp `dataModelRevision: 9`. Changes no
+/// instance data — no pre-9 instance carries `createdBy` — and preserves every
+/// existing instance exactly ([R6]). Requires revision 8 (`rfc043-container-entries`).
+pub fn migrate_rfc046_actor_provenance(
+    store: &dyn RepositoryStore,
+) -> Result<Rfc046ActorProvenanceMigrationResult, RepositoryError> {
+    let from_revision = data_model_revision(store)?;
+    let required = RFC043_CONTAINER_ENTRIES_REVISION;
+    if from_revision < required {
+        return Err(RepositoryError::InvalidSnapshotData {
+            message: format!(
+                "rfc046-actor-provenance migration requires data-model revision >= {required} \
+                 (found {from_revision}): run `srs repo apply-migration --id \
+                 rfc043-container-entries` first (RFC-043, migration #8)"
+            ),
+        });
+    }
+    if from_revision < RFC046_ACTOR_PROVENANCE_REVISION {
+        stamp_data_model_revision(store, RFC046_ACTOR_PROVENANCE_REVISION)?;
+    }
+    Ok(Rfc046ActorProvenanceMigrationResult {
+        from_revision,
+        to_revision: RFC046_ACTOR_PROVENANCE_REVISION,
+    })
+}
+
+/// Whether this repository still needs migration #8 (RFC-043).
+pub fn rfc043_container_entries_migration_needed(
+    store: &dyn RepositoryStore,
+) -> Result<bool, RepositoryError> {
+    Ok(crate::rfc043_container_entries_migration_service::migration_needed(store))
 }
 
 /// Whether this repository still needs migration #7.

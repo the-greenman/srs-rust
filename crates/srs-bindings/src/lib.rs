@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use srs_core::arrangement::RelativeMove;
 use srs_core::types::record::{FieldMeta, FieldValues};
 use srs_repository::attachment_service::{
     self as attachment_service, AddAttachmentInput, GetAttachmentBytesInput,
@@ -9,13 +10,18 @@ use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service;
 use srs_repository::container_service::{self, ContainerListFilter};
 use srs_repository::container_view_service::{self, ResolveContainerViewInput};
-use srs_repository::context_query_service::{self, FieldContextQuery, RecordContextQuery};
-use srs_repository::discovery_service::{self, DiscoveryQuery};
+use srs_repository::context_query_service::{
+    self, EdgeDirection, FieldContextQuery, NeighboursPage, NeighboursQuery, RecordContextQuery,
+};
+use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage};
 use srs_repository::doctor_service::{self, DoctorInput};
 use srs_repository::governance_scaffold_service::{self, CreateGovernanceRepositoryInput};
 use srs_repository::manifest_service;
 use srs_repository::migrate_identity_service;
 use srs_repository::migration_registry_service;
+use srs_repository::package_bundle;
+use srs_repository::package_dependency_service;
+use srs_repository::package_install_service;
 use srs_repository::package_service::{
     self, FieldListFilter, GetFieldResult, GetTypeResult, ListPackageImportsFilter,
     RelationTypeListFilter, TypeListFilter,
@@ -41,6 +47,7 @@ use srs_repository::repository_navigation_service;
 use srs_repository::services::{
     self, graduate_note as graduate_note_service, GraduateNoteInput, ListNotesFilter,
 };
+use srs_repository::store::RepositoryStore as _;
 use srs_repository::tag_service;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation;
@@ -81,8 +88,130 @@ pub struct SrsRepository {
     store: FileStore,
 }
 
+/// A browser-hosted MCP session over an already-open repository (srs-rust#1057).
+///
+/// Wraps the transport-agnostic `srs-mcp-core` dispatcher over a clone of the
+/// repository's store. Clones share the in-memory VFS (and catalog-cache
+/// validity), so MCP writes are visible to this repository handle's reads and
+/// to `export_*`; nothing is persisted until the host explicitly saves/exports.
+/// Transport (Streamable HTTP framing, auth, origin policy) is the host's job.
+#[wasm_bindgen]
+pub struct McpSession {
+    dispatcher: srs_mcp_core::McpDispatcher<srs_mcp_core::SrsMcpApplication<FileStore>>,
+    store: FileStore,
+}
+
+#[wasm_bindgen]
+impl McpSession {
+    /// Handle one JSON-RPC message (text). Returns the JSON-RPC response text,
+    /// or `undefined` for a notification (host answers 202 / no body).
+    pub fn handle(&mut self, message: &str) -> Option<String> {
+        self.dispatcher.dispatch_str(message)
+    }
+
+    /// Write generation of the underlying repository (shared with the
+    /// `SrsRepository` handle). Compare before/after `handle` to learn whether
+    /// a request mutated it: reads and rejected writes leave it unchanged.
+    /// Exposed as `f64` (exact below 2^53) because JS numbers are doubles.
+    pub fn write_epoch(&self) -> f64 {
+        self.store.write_epoch() as f64
+    }
+
+    /// What the last `handle` wrote, once (srs-rust#1202, ADR-049), as JSON:
+    /// `{"tool":"record_update","changed":[{"target":"instance|relation|container","id":"..","kind":"created|updated|deleted"}]}`.
+    /// `undefined` when the request wrote nothing (reads, guard rejections). Recorded by
+    /// the store at its write seam; the MCP response is unchanged. A container member
+    /// change is `updated`; the manifest's root container is not reported.
+    pub fn take_write_summary(&mut self) -> Option<String> {
+        let summary = self.dispatcher.application_mut().take_write_summary()?;
+        serde_json::to_string(&summary).ok()
+    }
+
+    /// Install a write guard for this session, replacing any previous one
+    /// (srs-rust#1165): `{"containerIds":[..],"instanceIds":[..],"fillOnlyFields":[..]}`,
+    /// every key optional. Guarded records are read-only to MCP writes except
+    /// `fillOnlyFields` while unset; rejections are tool errors. The UI's own
+    /// writes through `SrsRepository` are unaffected.
+    pub fn set_write_guard(&mut self, json: &str) -> Result<(), JsValue> {
+        let guard: srs_mcp_core::guard::WriteGuard =
+            serde_json::from_str(json).map_err(|e| js_err(e.to_string()))?;
+        self.dispatcher
+            .application_mut()
+            .set_write_guard(Some(guard));
+        Ok(())
+    }
+
+    /// Set the session actor (RFC-046) stamped as `createdBy` on everything this MCP
+    /// session creates: `{"kind":"human|ai","id":"<non-empty>","name":"<optional>"}`.
+    /// The host fixes `kind` and `id`; omit `name` and the session fills it from the MCP
+    /// `initialize` `clientInfo.name` (control chars stripped, trimmed, capped at 120 chars; none if empty). That
+    /// handle is client-supplied and display-only (RFC-046 `Actor.name` is a hint, never
+    /// identity); a non-empty `name` the host sets wins (null/"" do not count), and the client can never change `kind`/`id`.
+    /// Call before `initialize`; a later `set_actor` replaces the actor, handle included.
+    /// Host-supplied only — never from tool arguments. The JSON is not validated here:
+    /// an invalid actor refuses every creating tool call with `actor-invalid` (R12),
+    /// and an actor on a corpus below dataModelRevision 9 with `revision-too-old` (R11).
+    pub fn set_actor(&mut self, json: &str) -> Result<(), JsValue> {
+        let actor: serde_json::Value =
+            serde_json::from_str(json).map_err(|e| js_err(e.to_string()))?;
+        self.dispatcher
+            .application_mut()
+            .set_session_actor(Some(actor));
+        Ok(())
+    }
+
+    /// Clear the session actor: subsequent creations are unattributed.
+    pub fn clear_actor(&mut self) {
+        self.dispatcher.application_mut().set_session_actor(None);
+    }
+
+    /// Remove the session's write guard.
+    pub fn clear_write_guard(&mut self) {
+        self.dispatcher.application_mut().set_write_guard(None);
+    }
+
+    /// Whether the client has completed `initialize`.
+    pub fn is_initialized(&self) -> bool {
+        self.dispatcher.is_initialized()
+    }
+}
+
 #[wasm_bindgen]
 impl SrsRepository {
+    /// Write generation of this repository: advances on every successful mutation (UI
+    /// service calls and MCP writes alike), never on reads. The same store counter
+    /// `McpSession::write_epoch` reads. `f64` because JS numbers are doubles (exact below 2^53).
+    pub fn write_epoch(&self) -> f64 {
+        self.store.write_epoch() as f64
+    }
+
+    /// Set the session actor (RFC-046) stamped as `createdBy` on everything created through
+    /// this handle (UI writes), as `{"kind":"human|ai","id":"<non-empty>","name":"<optional>"}`.
+    /// Independent of any MCP session's actor. Not validated here (see
+    /// `McpSession::set_actor`).
+    pub fn set_actor(&self, json: &str) -> Result<(), JsValue> {
+        let actor: serde_json::Value =
+            serde_json::from_str(json).map_err(|e| js_err(e.to_string()))?;
+        self.store.set_session_actor(Some(actor));
+        Ok(())
+    }
+
+    /// Clear this handle's session actor: subsequent creations are unattributed.
+    pub fn clear_actor(&self) {
+        self.store.set_session_actor(None);
+    }
+
+    /// Open an MCP session over this repository (resources, prompts, and the
+    /// validated tool surface — the same application `srs mcp serve` runs).
+    pub fn open_mcp_session(&self) -> Result<McpSession, JsValue> {
+        let application = srs_mcp_core::SrsMcpApplication::open(self.store.clone())
+            .map_err(|e| js_err(e.message))?;
+        Ok(McpSession {
+            store: self.store.clone(),
+            dispatcher: srs_mcp_core::McpDispatcher::new(application),
+        })
+    }
+
     /// Load a repository from a `.srsj` JSON string.
     ///
     /// `.srsj` is a boundary codec (ADR-038, RFC-038 [R19]): the envelope is
@@ -119,6 +248,18 @@ impl SrsRepository {
         Ok(SrsRepository { store })
     }
 
+    /// Create a blank repository in memory (no seed): the same core service as
+    /// `srs repo create`. `input_json` is `CreateBlankRepositoryInput`:
+    /// `{ "namespace": string, "title"?, "description"?, "repositoryId"?,
+    /// "srsVersion"?, "packageId"?, "packageName"?, "packageVersion"?,
+    /// "packageNamespace"? }` — defaults are the core's. Export with
+    /// `export_srsj()` / `export_tree()` / `export_archive()`.
+    pub fn create(input_json: &str) -> Result<SrsRepository, JsValue> {
+        Ok(SrsRepository {
+            store: create_blank_from_json(input_json).map_err(js_err)?,
+        })
+    }
+
     /// Load a repository from an exploded file tree (ADR-038).
     ///
     /// `files` is a JS object mapping repo-relative forward-slash paths to
@@ -147,8 +288,9 @@ impl SrsRepository {
     /// Validate the repository. Returns a `RepositoryValidationReport` as a JS value with two
     /// top-level keys:
     ///
-    /// - `diagnostics`: array of `{ severity, path, schemaId, message }` objects. Entries with
-    ///   `severity: "warning"` are non-blocking advisories; they do not affect `summary.errors`
+    /// - `diagnostics`: array of `{ severity, path, schemaId, message }` objects; `severity` is
+    ///   `"error"`, `"warning"` or `"info"`. Entries with `severity: "warning"` (and `"info"`,
+    ///   counted in neither summary total) are non-blocking advisories; they do not affect `summary.errors`
     ///   and the repository still passes validation when they are present. RFC-017 I-107
     ///   attachment size-limit violations (emitted when a `com.semanticops.base/repo_settings`
     ///   record specifies `max_per_file_bytes`) are one example of a warning source.
@@ -203,11 +345,47 @@ impl SrsRepository {
     /// Run a discovery query against the repository.
     /// `query_json` is a JSON object matching `DiscoveryQuery` (camelCase fields;
     /// all optional — omit or pass `"{}"` for "return all").
+    /// `limit` (default: all matches) and `offset` (default 0) page the hits after the
+    /// deterministic sort; `total` is the full match count. `rank` (default false) orders
+    /// content-match hits by BM25 relevance and fills `score`.
     /// Returns a `DiscoveryResult` as a JS value.
-    pub fn find(&self, query_json: &str) -> Result<JsValue, JsValue> {
+    pub fn find(
+        &self,
+        query_json: &str,
+        limit: Option<usize>,
+        offset: Option<usize>,
+        rank: Option<bool>,
+    ) -> Result<JsValue, JsValue> {
         let query: DiscoveryQuery =
             serde_json::from_str(query_json).map_err(|e| js_err(format!("invalid query: {e}")))?;
-        let result = discovery_service::find(&self.store, query).map_err(js_err)?;
+        let page = FindPage {
+            limit,
+            offset: offset.unwrap_or(0),
+            rank: rank.unwrap_or(false),
+        };
+        let result = discovery_service::find(&self.store, query, page).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// "More like this": instances similar to `instance_id`, ranked by BM25 over its top-weighted
+    /// terms, excluding itself. `query_json` carries the structured `DiscoveryQuery` filters (no
+    /// `contentMatch`); `limit`/`offset` page the hits. Returns a `DiscoveryResult` as a JS value.
+    pub fn find_similar(
+        &self,
+        instance_id: &str,
+        query_json: &str,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> Result<JsValue, JsValue> {
+        let query: DiscoveryQuery =
+            serde_json::from_str(query_json).map_err(|e| js_err(format!("invalid query: {e}")))?;
+        let page = FindPage {
+            limit,
+            offset: offset.unwrap_or(0),
+            rank: true,
+        };
+        let result =
+            discovery_service::similar(&self.store, instance_id, query, page).map_err(js_err)?;
         to_js(&result)
     }
 
@@ -296,6 +474,22 @@ impl SrsRepository {
         Ok(js_sys::Uint8Array::from(bytes.as_slice()))
     }
 
+    /// Export one container as an RFC-026 slice archive (`.srs` ZIP bytes): the
+    /// same `slice_service::export_container_slice` as `srs slice export`
+    /// (ADR-051). Refusals surface as the service error, e.g.
+    /// `slice-root-identity-invalid: ...`.
+    pub fn export_slice(&self, container_id: &str) -> Result<js_sys::Uint8Array, JsValue> {
+        let export = srs_repository::slice_service::export_container_slice(
+            &self.store,
+            srs_repository::slice_service::ExportSliceInput {
+                container_id: container_id.to_string(),
+                ..Default::default()
+            },
+        )
+        .map_err(js_err)?;
+        Ok(js_sys::Uint8Array::from(export.bytes.as_slice()))
+    }
+
     /// Return the raw bytes of a source-document attachment by `documentId`.
     ///
     /// Repositories loaded via [`SrsRepository::load`] (from a `.srsj` string) never contain
@@ -329,6 +523,13 @@ impl SrsRepository {
     ) -> Result<JsValue, JsValue> {
         let input: CreateRecordBindingInput =
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        srs_repository::actor_service::creation_actor(
+            &self.store,
+            input
+                .extra
+                .contains_key(srs_repository::actor_service::CREATED_BY_KEY),
+        )
+        .map_err(js_err)?;
         let record = record_store::create_record(
             &self.store,
             type_id,
@@ -369,6 +570,7 @@ impl SrsRepository {
                 field_values: input.field_values,
                 field_meta: input.field_meta,
                 tags: input.tags,
+                extra: input.extra,
             },
         )
         .map_err(js_err)?;
@@ -435,6 +637,39 @@ impl SrsRepository {
         to_js(&summaries)
     }
 
+    /// Bounded read of an instance's relation neighbours (srs-rust#1229): each edge's type and
+    /// direction plus the neighbour's id, label and type, never the record. `direction` is
+    /// `"out"` | `"in"` (omit for both); `limit` (default: all) and `offset` (default 0) page
+    /// the edges after the deterministic sort; `total` counts every match.
+    /// Returns a `NeighboursResult` as a JS value.
+    pub fn neighbours(
+        &self,
+        instance_id: &str,
+        relation_type: Option<String>,
+        direction: Option<String>,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> Result<JsValue, JsValue> {
+        let direction = direction
+            .map(|d| d.parse::<EdgeDirection>())
+            .transpose()
+            .map_err(js_err)?;
+        let result = context_query_service::list_neighbours(
+            &self.store,
+            NeighboursQuery {
+                instance_id: instance_id.to_string(),
+                relation_type,
+                direction,
+            },
+            NeighboursPage {
+                limit,
+                offset: offset.unwrap_or(0),
+            },
+        )
+        .map_err(js_err)?;
+        to_js(&result)
+    }
+
     /// Create a relation. `input_json` is a JSON object whose fields match the `Relation` struct
     /// (camelCase: `relationType`, `sourceInstanceId`, `targetInstanceId`; `relationId` is
     /// auto-generated if absent or empty). Also accepts the canonical standalone `relation.json`
@@ -444,6 +679,10 @@ impl SrsRepository {
     pub fn create_relation(&self, input_json: &str) -> Result<JsValue, JsValue> {
         let raw: serde_json::Value = serde_json::from_str(input_json)
             .map_err(|e| js_err(format!("invalid relation input: {e}")))?;
+        if let Some(obj) = raw.as_object() {
+            srs_repository::actor_service::reject_supplied_created_by(&self.store, obj)
+                .map_err(js_err)?;
+        }
         let relation = relation_service::parse_relation_input(raw).map_err(js_err)?;
         let result =
             relation_service::create_relation_auto(&self.store, relation).map_err(js_err)?;
@@ -608,7 +847,9 @@ impl SrsRepository {
     /// Create a successor record that supersedes or refines an existing record.
     /// `predecessor_id` is the instance ID of the record being superseded/refined.
     /// `input_json` is a JSON object:
-    ///   `{ "relationType": "supersedes"|"refines", "fieldValues": {...}, "lifecycleState"?: "...", "typeVersion"?: N }`.
+    ///   `{ "relationType"?: "supersedes"|"refines", "fieldValues": {...}, "lifecycleState"?: "...", "typeVersion"?: N }`.
+    /// `relationType` may be omitted: the core derives it from the predecessor's lifecycle
+    /// `requiresRelation` (RFC-022 R6) or errors with `SUCCESSOR_RELATION_TYPE_UNDETERMINED`.
     /// Returns `{ "record": <Record>, "relation": <Relation> }` as a JS value.
     /// The relation runs from the successor (source) to the predecessor (target).
     pub fn create_record_successor(
@@ -659,6 +900,9 @@ impl SrsRepository {
     /// `sections[*].sections` (RFC-042 Revision 5 [R25]) carries nested sections produced by a
     /// `container-subset` source with `containerScope: "subtree"`; it is omitted when a section
     /// renders no nested section, and its records are never flattened into the parent's `records`.
+    /// `exclude_instance_ids` (JS `string[]`, optional) drops those instances from container-subset
+    /// sections; an arranged section removes each by the RFC-043 promoting removal. Additive: the
+    /// single-record `instance_id_filter` is unchanged.
     /// `containerId` is always present in the JSON but may be `null` when the view is
     /// not scoped to a container.
     /// `records[*].relations` is present when the document view defines a `relationsPresentation`;
@@ -674,7 +918,9 @@ impl SrsRepository {
         format: &str,
         container_id: Option<String>,
         instance_id_filter: Option<String>,
+        exclude_instance_ids: Option<Vec<String>>,
     ) -> Result<JsValue, JsValue> {
+        let exclude = exclude_instance_ids.unwrap_or_default();
         let result = render_service::render_composition(RenderCompositionOptions {
             store: &self.store,
             view_id,
@@ -682,6 +928,7 @@ impl SrsRepository {
             theme_variant: None,
             container_id: container_id.as_deref(),
             instance_id_filter: instance_id_filter.as_deref(),
+            exclude_instance_ids: &exclude,
         })
         .map_err(js_err)?;
         to_js(&result)
@@ -707,7 +954,8 @@ impl SrsRepository {
     }
 
     /// List container summaries. `filter_json` is a JSON string matching
-    /// `{ "containerType"?: string, "memberInstanceId"?: string, "rootInstanceId"?: string }`;
+    /// `{ "containerType"?: string, "memberInstanceId"?: string, "anchorInstanceId"?: string }`
+    /// (matches the container's `anchorInstanceId`, RFC-043 [R4]; `rootInstanceId` is accepted as an alias);
     /// pass `"{}"` for all containers. Returns a JS array of `ContainerSummary` objects.
     pub fn list_containers(&self, filter_json: &str) -> Result<JsValue, JsValue> {
         let parsed: ContainerListBindingFilter = serde_json::from_str(filter_json)
@@ -715,13 +963,13 @@ impl SrsRepository {
         let filter = ContainerListFilter {
             container_type: parsed.container_type,
             member_instance_id: parsed.member_instance_id,
-            root_instance_id: parsed.root_instance_id,
+            anchor_instance_id: parsed.anchor_instance_id,
         };
         let summaries = container_service::list_containers(&self.store, &filter).map_err(js_err)?;
         to_js(&summaries)
     }
 
-    /// Get a single container by ID, including its `rootInstanceIds` and `memberInstanceIds`.
+    /// Get a single container by ID, including its ordered `memberInstanceIds` entries.
     /// Returns the `Container` as a JS value.
     pub fn get_container(&self, container_id: &str) -> Result<JsValue, JsValue> {
         let container =
@@ -729,30 +977,172 @@ impl SrsRepository {
         to_js(&container)
     }
 
-    /// Add an instance to a container's `memberInstanceIds` (idempotent).
-    /// Returns the updated member-id list as a JS array of strings.
+    /// Create a container (RFC-043 revision-8 shape; same service as `srs container create` and
+    /// the MCP `container_create` tool). `input_json` is
+    /// `{ "title": string, "containerId"?: uuid (minted if omitted), "description"?, "containerType"?,
+    /// "anchorInstanceId"?, "identityInstanceId"?, "memberInstanceIds"?: [{instanceId, depth?}],
+    /// "tags"? }`. Returns the created `Container`; a JS error carries the validation message.
+    pub fn create_container(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let container = create_container_from_json(&self.store, input_json).map_err(js_err)?;
+        to_js(&container)
+    }
+
+    /// Patch a container (srs-rust#1199; same service as `srs container update`). `patch_json` is
+    /// the CLI's `ContainerPatch`: any of `{ title, namespace, name, description, containerType,
+    /// tags, meta, identityInstanceId, anchorInstanceId, memberInstanceIds, childContainerIds }`;
+    /// omitted keys are untouched, unknown keys are rejected. Returns `{ container, diagnostics }`.
+    pub fn update_container(
+        &self,
+        container_id: &str,
+        patch_json: &str,
+    ) -> Result<JsValue, JsValue> {
+        let result =
+            update_container_from_json(&self.store, container_id, patch_json).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Copy a container (srs-rust#1136; same service as `srs container copy` and the MCP
+    /// `container_copy` tool): shares the member records, forks only the anchor.
+    /// `input_json` is `{ "title"?: string, "containerId"?: uuid }` (may be empty/`{}`).
+    /// Returns `{ container, forks: [{originalId, forkId}], relations }`.
+    pub fn copy_container(&self, source_id: &str, input_json: &str) -> Result<JsValue, JsValue> {
+        let result =
+            copy_container_from_json(&self.store, source_id, input_json).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Fork `instance_id` and its nested children inside `container_id` (srs-rust#1136; same
+    /// service as `srs record fork` and the MCP `record_fork` tool). Returns
+    /// `{ containerId, forks: [{originalId, forkId}], relations }`.
+    pub fn fork_record(&self, container_id: &str, instance_id: &str) -> Result<JsValue, JsValue> {
+        let result =
+            srs_repository::fork_service::fork_subtree(&self.store, container_id, instance_id)
+                .map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Add an instance to a container's ordered `memberInstanceIds` outline (RFC-043).
+    /// `position` (0-based; omit to append) and `depth` (omit for 0). Idempotent when neither is
+    /// given. Returns `{ members: [{instanceId, depth?}], promoted, removed }`.
     pub fn add_container_member(
         &self,
         container_id: &str,
         instance_id: &str,
+        position: Option<u32>,
+        depth: Option<u32>,
     ) -> Result<JsValue, JsValue> {
-        let members =
-            container_service::add_container_member(&self.store, container_id, instance_id)
-                .map_err(js_err)?;
-        to_js(&members)
+        let result = container_service::add_member(
+            &self.store,
+            container_id,
+            instance_id,
+            position.map(|p| p as usize),
+            depth,
+        )
+        .map_err(js_err)?;
+        to_js(&result)
     }
 
-    /// Remove an instance from a container's `memberInstanceIds`.
-    /// Returns the updated member-id list as a JS array of strings.
+    /// Remove an instance from a container's outline, promoting its descendants. Same result
+    /// shape as `add_container_member`.
     pub fn remove_container_member(
         &self,
         container_id: &str,
         instance_id: &str,
     ) -> Result<JsValue, JsValue> {
-        let members =
-            container_service::remove_container_member(&self.store, container_id, instance_id)
+        let result = container_service::remove_member(&self.store, container_id, instance_id)
+            .map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Move an entry's run to `position` and/or set its `depth` (RFC-043 move / set depth).
+    pub fn move_container_member(
+        &self,
+        container_id: &str,
+        instance_id: &str,
+        position: Option<u32>,
+        depth: Option<u32>,
+    ) -> Result<JsValue, JsValue> {
+        let result = container_service::move_member(
+            &self.store,
+            container_id,
+            instance_id,
+            position.map(|p| p as usize),
+            depth,
+        )
+        .map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Relative move (issue #1156): give `relative_to` + `placement` (`"before"` | `"after"` |
+    /// `"into"`) or `shift` (`"indent"` | `"outdent"` | `"up"` | `"down"`), not both. The core
+    /// resolves it against the outline, so no client arithmetic is needed. Same result shape as
+    /// `move_container_member`; a JS error carries a rejection (illegal target, identity pin, [R2]).
+    pub fn move_container_member_relative(
+        &self,
+        container_id: &str,
+        instance_id: &str,
+        relative_to: Option<String>,
+        placement: Option<String>,
+        shift: Option<String>,
+    ) -> Result<JsValue, JsValue> {
+        let mv = RelativeMove::parse(
+            relative_to.as_deref(),
+            placement.as_deref(),
+            shift.as_deref(),
+        )
+        .map_err(|e| JsValue::from_str(&e))?
+        .ok_or_else(|| JsValue::from_str("give relativeTo with placement, or shift"))?;
+        let result =
+            container_service::move_member_relative(&self.store, container_id, instance_id, &mv)
                 .map_err(js_err)?;
-        to_js(&members)
+        to_js(&result)
+    }
+
+    /// Add an instance and place it `before` / `after` / `into` `relative_to` in one write.
+    pub fn add_container_member_relative(
+        &self,
+        container_id: &str,
+        instance_id: &str,
+        relative_to: &str,
+        placement: &str,
+    ) -> Result<JsValue, JsValue> {
+        let Some(RelativeMove::Place { target, placement }) =
+            RelativeMove::parse(Some(relative_to), Some(placement), None)
+                .map_err(|e| JsValue::from_str(&e))?
+        else {
+            return Err(JsValue::from_str("relativeTo and placement are required"));
+        };
+        let result = container_service::add_member_relative(
+            &self.store,
+            container_id,
+            instance_id,
+            &target,
+            placement,
+        )
+        .map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// The derived outline: `{ containerId, anchorInstanceId, identityInstanceId, entries, body }`
+    /// where each entry is `{ instanceId, depth, parentInstanceId, hasChildren, runSize, runEnd }`
+    /// and `body` excludes the anchor and identity entries (the renderer's rule).
+    pub fn get_container_outline(&self, container_id: &str) -> Result<JsValue, JsValue> {
+        let outline = container_service::get_outline(&self.store, container_id).map_err(js_err)?;
+        to_js(&outline)
+    }
+
+    /// Remove every entry that no longer resolves to an instance (RFC-043 repair).
+    pub fn repair_container_members(&self, container_id: &str) -> Result<JsValue, JsValue> {
+        let result =
+            container_service::repair_members(&self.store, container_id).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// The container's arrangement: its entries with `depth`, in order (RFC-043 [R15]).
+    pub fn get_container_arrangement(&self, container_id: &str) -> Result<JsValue, JsValue> {
+        let entries =
+            container_service::get_arrangement(&self.store, container_id).map_err(js_err)?;
+        to_js(&entries)
     }
 
     /// List the containers an instance belongs to — every container whose `memberInstanceIds`
@@ -986,6 +1376,54 @@ impl SrsRepository {
         to_js(&packages)
     }
 
+    /// RFC-044 requirement check before install (same service as `srs package dependency
+    /// check`): `input_json` is `{ "packageId"?: uuid, "packageDependencies": DependencyRef[] }`
+    /// — a package bundle, or a requirement list that is not a package's (srs-web's
+    /// `EditorDefinition` requires; omit `packageId`). Returns `{ selector: null, packageId,
+    /// action: null, dependencies: [{packageId?, namespace, name, version, satisfied,
+    /// reason?, candidateVersions, mismatchedLabels}] }`; `reason` is one of RFC-044's seven
+    /// codes. Clients present the outcome; they never compare versions themselves.
+    pub fn check_package_requirements(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: package_dependency_service::BundleRequirements =
+            serde_json::from_str(input_json).map_err(js_err)?;
+        let result =
+            package_dependency_service::check_bundle(&self.store, &input).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Export a package boundary as a deterministic .srspkg (same service as `srs package export`).
+    /// input_json: {"selector"?: string|null, "publishedAt"?: string, "publisher"?: string}.
+    /// Pass a fixed publishedAt for a reproducible sha256. Returns {text, summary}
+    /// (PackageBundleExport; summary.sha256 is "sha256:<hex>"). Read-only: write_epoch does not move.
+    pub fn export_package_bundle(&self, input_json: &str) -> Result<JsValue, JsValue> {
+        let input: package_bundle::ExportPackageInput =
+            serde_json::from_str(input_json).map_err(js_err)?;
+        let result = package_bundle::export_package_bundle(&self.store, input).map_err(js_err)?;
+        to_js(&result)
+    }
+
+    /// Install a .srspkg (same service as `srs package install --bundle`). bundle_json is the file's
+    /// text (verify its sha256 over the file bytes before calling); options_json:
+    /// {"boundaryPath"?: string, "strict"?: bool} ("{}" for defaults). Returns InstallPackageResult
+    /// (same fields as the CLI payload, incl. notes). Advances write_epoch; the session is dirty.
+    /// Call check_package_requirements(bundle_json) first for RFC-044 requirement outcomes
+    /// (BundleRequirements reads packageId/packageDependencies from the same text).
+    pub fn install_package_bundle(
+        &self,
+        bundle_json: &str,
+        options_json: &str,
+    ) -> Result<JsValue, JsValue> {
+        let options: package_install_service::InstallBundleOptions =
+            serde_json::from_str(options_json).map_err(js_err)?;
+        let result = package_install_service::install_package_bundle_bytes(
+            &self.store,
+            bundle_json.as_bytes(),
+            options,
+        )
+        .map_err(js_err)?;
+        to_js(&result)
+    }
+
     /// Aggregate import records across all boundaries and run live divergence detection.
     /// Returns an `ImportSummary` object (`{generatedAt, fields, types, views, blueprints,
     /// protocols, relationTypes, skippedDefinitions?}`).
@@ -1107,7 +1545,7 @@ impl SrsRepository {
     /// List all known migrations with their applicability status for this repository.
     ///
     /// Returns a JSON array of `{ id, title, description, status }` objects where
-    /// `status` has exactly one of `needed`, `alreadyApplied`, or `notApplicable` set to `true`.
+    /// `status` is a string: `needed`, `alreadyApplied` or `notApplicable`.
     pub fn available_migrations(&self) -> Result<JsValue, JsValue> {
         let result = migration_registry_service::list_migrations(&self.store).map_err(js_err)?;
         to_js(&result)
@@ -1163,12 +1601,15 @@ impl SrsRepository {
         to_js(&result)
     }
 
-    /// Assemble context for a record: all field values and relations.
+    /// Assemble context for a record: field values and every relation touching it (both
+    /// directions, neighbour inline).
     ///
-    /// `input_json` is `{"recordId": "<id>"}`.
+    /// `input_json` is `{"recordId": "<id>", "containerId"?: "<id>", "excludeRelationCategories"?: ["composition","sequence"]}`;
+    /// the latter drops edges by `RelationTypeDefinition.category` (#1188); with `containerId` the
+    /// result also carries `entry` and `subtree` (the record's arrangement there).
     /// Returns a `RecordContextResult` with `recordId`, `typeId`, `typeName`,
-    /// `typeNamespace`, `displayLabel`, `fieldValues`, `relations`, `taggedChunks`,
-    /// and `protocolRunHistory`.
+    /// `typeNamespace`, `displayLabel`, `fieldValues`, `relations`, optional
+    /// `containerId`/`entry`/`subtree`, `taggedChunks`, and `protocolRunHistory`.
     pub fn context_record(&self, input_json: &str) -> Result<JsValue, JsValue> {
         let input: RecordContextQuery =
             serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
@@ -1314,6 +1755,14 @@ impl SrsRepository {
 
 // ── Repo-independent free functions (ADR-013 addendum) ───────────────────────
 
+/// Render markdown to safe HTML (srs-rust#1191): raw HTML is escaped and link/image
+/// URLs are limited to http, https, mailto and relative, so the result is safe to
+/// inject with `innerHTML`. Repo-independent free function; JS name `renderMarkdown`.
+#[wasm_bindgen(js_name = renderMarkdown)]
+pub fn render_markdown(md: &str) -> String {
+    srs_core::markdown::render_markdown(md)
+}
+
 /// Parse a registry catalog JSON string into a `Registry` object.
 ///
 /// `catalog_json` is the raw text of a `.json` registry catalog file
@@ -1364,6 +1813,53 @@ struct CompositionListBindingFilter {
     root_type_id: Option<String>,
 }
 
+/// `create` core. Free function so native tests exercise it.
+fn create_blank_from_json(input_json: &str) -> Result<srs_repository::FileStore, String> {
+    let input: repository_lifecycle::CreateBlankRepositoryInput =
+        serde_json::from_str(input_json).map_err(|e| format!("invalid input: {e}"))?;
+    let store = srs_repository::new_tree_session();
+    repository_lifecycle::create_blank_repository(&store, input).map_err(|e| e.to_string())?;
+    Ok(store)
+}
+
+/// `create_container` core: parse the container JSON and call the one core service.
+/// Free function so native tests exercise it (`to_js` panics off-wasm).
+fn create_container_from_json(
+    store: &srs_repository::FileStore,
+    input_json: &str,
+) -> Result<srs_core::types::container::Container, String> {
+    let input: container_service::ContainerCreateInput =
+        serde_json::from_str(input_json).map_err(|e| format!("invalid input: {e}"))?;
+    container_service::create_container(store, input.into()).map_err(|e| e.to_string())
+}
+
+/// `update_container` core: parse the patch and call the one core service.
+fn update_container_from_json(
+    store: &srs_repository::FileStore,
+    container_id: &str,
+    patch_json: &str,
+) -> Result<serde_json::Value, String> {
+    let patch: container_service::ContainerPatch =
+        serde_json::from_str(patch_json).map_err(|e| format!("invalid input: {e}"))?;
+    let r = container_service::update_container(store, container_id, patch)
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "container": r.container, "diagnostics": r.diagnostics }))
+}
+
+/// `copy_container` core: parse the optional input and call the one core service.
+fn copy_container_from_json(
+    store: &srs_repository::FileStore,
+    source_id: &str,
+    input_json: &str,
+) -> Result<container_service::ContainerCopyResult, String> {
+    let input: container_service::ContainerCopyInput = if input_json.trim().is_empty() {
+        Default::default()
+    } else {
+        serde_json::from_str(input_json).map_err(|e| format!("invalid input: {e}"))?
+    };
+    container_service::copy_container(store, source_id, input).map_err(|e| e.to_string())
+}
+
 /// Input shape for `list_containers` — parsed from caller-supplied JSON.
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1372,8 +1868,8 @@ struct ContainerListBindingFilter {
     container_type: Option<String>,
     #[serde(default)]
     member_instance_id: Option<String>,
-    #[serde(default)]
-    root_instance_id: Option<String>,
+    #[serde(default, alias = "rootInstanceId")]
+    anchor_instance_id: Option<String>,
 }
 
 /// Input shape for `list_fields` — parsed from caller-supplied JSON.
@@ -1419,6 +1915,9 @@ struct CreateRecordBindingInput {
     field_meta: Option<indexmap::IndexMap<String, FieldMeta>>,
     #[serde(default)]
     tags: Option<Vec<String>>,
+    /// Only so a request-supplied `createdBy` is caught (`actor-supplied`, RFC-046).
+    #[serde(flatten)]
+    extra: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -1442,6 +1941,215 @@ struct LinkAttachmentBindingInput {
 
 #[cfg(test)]
 mod tests {
+    use super::SrsRepository;
+    use srs_repository::RepositoryStore;
+
+    #[test]
+    fn mcp_session_write_guard_rejects_then_clears() {
+        let store = super::create_blank_from_json(
+            r#"{"title":"T","description":"Why","namespace":"com.t.x"}"#,
+        )
+        .unwrap();
+        let identity = store
+            .load_manifest()
+            .unwrap()
+            .container
+            .unwrap()
+            .identity_instance_id
+            .unwrap();
+        let c = super::create_container_from_json(&store, r#"{"title":"C"}"#).unwrap();
+        let repo = SrsRepository { store };
+        let mut s = repo.open_mcp_session().unwrap();
+        let init = r#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#;
+        s.handle(init).unwrap();
+        s.set_write_guard(&format!(r#"{{"containerIds":["{}"]}}"#, c.container_id))
+            .unwrap();
+        let call = format!(
+            r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"container_member_add","arguments":{{"containerId":"{}","instanceId":"{identity}"}}}}}}"#,
+            c.container_id
+        );
+        let e0 = s.write_epoch();
+        let rejected = s.handle(&call).unwrap();
+        assert!(rejected.contains("write guard") && rejected.contains("\"isError\":true"));
+        assert_eq!(s.write_epoch(), e0, "rejection must not advance the epoch");
+        s.clear_write_guard();
+        assert!(s.handle(&call).unwrap().contains("\"isError\":false"));
+        assert!(s.write_epoch() > e0);
+    }
+
+    /// RFC-046: the actor is host-set per handle — the MCP session's actor and the UI
+    /// handle's actor are independent, and neither comes from tool arguments.
+    #[test]
+    fn session_actors_are_per_handle_and_stamp_createdby() {
+        let store = super::create_blank_from_json(
+            r#"{"title":"T","description":"Why","namespace":"com.t.x"}"#,
+        )
+        .unwrap();
+        let repo = SrsRepository { store };
+        let mut s = repo.open_mcp_session().unwrap();
+        s.handle(r#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#)
+            .unwrap();
+        let note = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"note_create","arguments":{"title":"N","sections":[{"name":"b","content":"x"}]}}}"#;
+
+        s.set_actor(r#"{"kind":"ai","id":"agent-1"}"#).unwrap();
+        let stamped = s.handle(note).unwrap();
+        assert!(
+            stamped.contains(r#"\"createdBy\""#) && stamped.contains("agent-1"),
+            "{stamped}"
+        );
+
+        // The UI handle has its own (here: no) actor — its writes are unattributed.
+        let ui = srs_repository::services::create_note(
+            &repo.store,
+            serde_json::from_str(r#"{"title":"U","sections":[{"name":"b","content":"x"}]}"#)
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(ui.note.created_by.is_none());
+        repo.set_actor(r#"{"kind":"human","id":"user-7"}"#).unwrap();
+        let ui = srs_repository::services::create_note(
+            &repo.store,
+            serde_json::from_str(r#"{"title":"U2","sections":[{"name":"b","content":"x"}]}"#)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(ui.note.created_by.unwrap().id, "user-7");
+
+        s.clear_actor();
+        let anon = s.handle(note).unwrap();
+        assert!(!anon.contains("createdBy"), "{anon}");
+    }
+
+    #[test]
+    fn repository_write_epoch_advances_on_ui_writes_not_reads() {
+        let store = super::create_blank_from_json(
+            r#"{"title":"T","description":"Why","namespace":"com.t.x"}"#,
+        )
+        .unwrap();
+        let identity = store
+            .load_manifest()
+            .unwrap()
+            .container
+            .unwrap()
+            .identity_instance_id
+            .unwrap();
+        let repo = SrsRepository { store };
+        let e0 = repo.write_epoch();
+
+        let c = super::create_container_from_json(&repo.store, r#"{"title":"C"}"#).unwrap();
+        let e1 = repo.write_epoch();
+        assert!(e1 > e0, "container create must advance the epoch");
+
+        srs_repository::container_service::get_container(&repo.store, &c.container_id).unwrap();
+        srs_repository::container_service::list_containers(&repo.store, &Default::default())
+            .unwrap();
+        assert_eq!(repo.write_epoch(), e1, "reads must not advance it");
+
+        let copy = super::copy_container_from_json(&repo.store, &c.container_id, "").unwrap();
+        assert_eq!(copy.container.title, "C (copy)");
+        assert!(
+            repo.write_epoch() > e1,
+            "container copy must advance the epoch"
+        );
+        assert!(
+            super::copy_container_from_json(&repo.store, &c.container_id, r#"{"x":1}"#).is_err()
+        );
+
+        srs_repository::container_service::add_member(
+            &repo.store,
+            &c.container_id,
+            &identity,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(repo.write_epoch() > e1, "member add must advance the epoch");
+
+        // One counter: an MCP session over this repository reads the same epoch.
+        let session = repo.open_mcp_session().unwrap();
+        assert_eq!(session.write_epoch(), repo.write_epoch());
+        super::create_container_from_json(&repo.store, r#"{"title":"D"}"#).unwrap();
+        assert_eq!(session.write_epoch(), repo.write_epoch());
+    }
+
+    #[test]
+    fn update_container_patches_title_and_rejects_unknown_keys() {
+        let store =
+            super::create_blank_from_json(r#"{"title":"T","namespace":"com.t.x"}"#).unwrap();
+        let c = super::create_container_from_json(&store, r#"{"title":"Old"}"#).unwrap();
+        let r = super::update_container_from_json(&store, &c.container_id, r#"{"title":"New"}"#)
+            .unwrap();
+        assert_eq!(r["container"]["title"], "New");
+        assert_eq!(r["diagnostics"], serde_json::json!([]));
+        assert!(
+            super::update_container_from_json(&store, &c.container_id, r#"{"bogus":1}"#).is_err()
+        );
+    }
+
+    #[test]
+    fn create_container_accepts_child_containers_and_meta_and_rejects_unknown_keys() {
+        let store = super::create_blank_from_json(
+            r#"{"title":"T","description":"Why","namespace":"com.t.x"}"#,
+        )
+        .unwrap();
+        let child = super::create_container_from_json(&store, r#"{"title":"C"}"#).unwrap();
+        let parent = super::create_container_from_json(
+            &store,
+            &serde_json::json!({
+                "title": "P",
+                "childContainerIds": [child.container_id],
+                "meta": { "x": 1 }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(parent.child_container_ids, Some(vec![child.container_id]));
+        assert_eq!(parent.meta, Some(serde_json::json!({ "x": 1 })));
+        assert!(super::create_container_from_json(&store, r#"{"title":"x","bogus":1}"#).is_err());
+    }
+    #[test]
+    fn create_blank_validates_and_round_trips() {
+        let store = super::create_blank_from_json(
+            r#"{"title":"T","description":"Why","namespace":"com.t.x"}"#,
+        )
+        .unwrap();
+        let report = srs_repository::validation::validate_repository(&store).unwrap();
+        assert_eq!(report.summary.errors, 0, "{:?}", report.diagnostics);
+        let m = store.load_manifest().unwrap();
+        assert_eq!(m.extra["dataModelRevision"], 9);
+        let c = m.container.as_ref().unwrap();
+        let id = c.identity_instance_id.clone().unwrap();
+        let members = c.member_instance_ids.as_ref().unwrap();
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].instance_id, id);
+        assert!(members[0].depth.unwrap_or(0) == 0);
+        assert!(!c.extra.contains_key("rootInstanceIds"));
+
+        // session round trip: export_srsj -> load
+        let srsj = srs_repository::srsj::to_srsj_string(&store).unwrap();
+        let again = srs_repository::srsj::open_srsj(&srsj).unwrap();
+        let r2 = srs_repository::validation::validate_repository(&again).unwrap();
+        assert_eq!(r2.summary.errors, 0);
+        assert_eq!(
+            again.load_manifest().unwrap().extra["repositoryId"],
+            m.extra["repositoryId"]
+        );
+        assert!(
+            super::create_blank_from_json("{}").is_err(),
+            "namespace required"
+        );
+        assert!(
+            super::create_blank_from_json(r#"{"namespace":"a.b","purpose":"x"}"#).is_err(),
+            "unknown keys refused"
+        );
+        assert!(
+            super::create_blank_from_json(r#"{"namespace":"a.b","title":" "}"#).is_err(),
+            "blank title refused"
+        );
+    }
+
+    use super::create_container_from_json;
+    use serde_json::json;
     use srs_repository::record_store::CreateRecordInput;
     use srs_repository::services::{graduate_note as graduate_note_service, GraduateNoteInput};
 
@@ -1646,6 +2354,7 @@ mod tests {
                 ),
                 field_meta: None,
                 tags: None,
+                extra: Default::default(),
             },
         )
         .expect("create_record_in_container should succeed");
@@ -1659,7 +2368,7 @@ mod tests {
         let container =
             container_service::get_container(&store, "cccccccc-cccc-4ccc-8ccc-cccccccccccc")
                 .expect("container loaded");
-        let members = container.member_instance_ids.unwrap_or_default();
+        let members = container.member_ids();
         assert!(
             members.contains(&instance_id.to_string()),
             "instanceId must appear in container memberInstanceIds"
@@ -2421,6 +3130,7 @@ mod tests {
             relations: Some(vec![row]),
             properties: None,
             children: vec![],
+            depth: None,
         };
         let json = serde_json::to_value(&record).expect("ProjectedRecord must serialize");
         assert_eq!(json["typeVersion"].as_u64(), Some(1));
@@ -2480,6 +3190,7 @@ mod tests {
             relations: None,
             properties: None,
             children: vec![],
+            depth: None,
         };
         let json = serde_json::to_value(&record).expect("ProjectedRecord must serialize");
         assert_eq!(
@@ -2490,5 +3201,94 @@ mod tests {
             json.get("fieldGroups").is_none(),
             "fieldGroups key no longer exists on ProjectedRecord"
         );
+    }
+
+    fn empty_store() -> srs_repository::FileStore {
+        use srs_repository::repository_lifecycle::{
+            create_repository, InitializeRepositoryInput, PrimaryPackageMetadata,
+            RepositoryMetadata,
+        };
+        let store = srs_repository::tree_session::new_tree_session();
+        create_repository(
+            &store,
+            &InitializeRepositoryInput {
+                repository: RepositoryMetadata {
+                    repository_id: "parity".into(),
+                    namespace: "com.example.parity".into(),
+                    srs_version: "2.0".into(),
+                    title: Some("Parity".into()),
+                    description: None,
+                },
+                primary_package: PrimaryPackageMetadata {
+                    id: "pkg".into(),
+                    namespace: "com.example.parity".into(),
+                    name: "fixture".into(),
+                    version: "1.0.0".into(),
+                },
+            },
+        )
+        .unwrap();
+        store
+    }
+
+    /// WASM `create_container` and the MCP `container_create` tool take the same JSON and
+    /// persist the same container (#1133 parity).
+    #[test]
+    fn create_container_wasm_and_mcp_agree() {
+        let wasm_store = empty_store();
+        let mcp_store = empty_store();
+        let note = |store: &srs_repository::FileStore| {
+            srs_repository::services::create_note(
+                store,
+                srs_core::types::note::Note {
+                    created_by: None,
+                    instance_id: String::new(),
+                    title: Some("Intro".into()),
+                    tags: None,
+                    sections: vec![],
+                    graduated_at: None,
+                    source_refs: None,
+                    created_at: None,
+                    updated_at: None,
+                    meta: None,
+                },
+            )
+            .unwrap()
+            .note
+            .instance_id
+        };
+        let (a, b) = (note(&wasm_store), note(&mcp_store));
+        let args = |id: &str| {
+            json!({
+                "containerId": "c0000000-0000-4000-8000-000000000001",
+                "title": "Essay", "containerType": "essay",
+                "anchorInstanceId": id, "identityInstanceId": id,
+                "memberInstanceIds": [{"instanceId": id}]
+            })
+        };
+        let wasm = create_container_from_json(&wasm_store, &args(&a).to_string()).unwrap();
+
+        let app = srs_mcp_core::SrsMcpApplication::open(mcp_store.clone()).unwrap();
+        let mut d = srs_mcp_core::McpDispatcher::new(app);
+        d.dispatch_str(r#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#);
+        d.dispatch_str(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#);
+        let call = json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
+            "params":{"name":"container_create","arguments":args(&b)}});
+        let resp: serde_json::Value =
+            serde_json::from_str(&d.dispatch_str(&call.to_string()).unwrap()).unwrap();
+        assert_eq!(resp["result"]["isError"], false, "{resp}");
+        let mcp: srs_core::types::container::Container =
+            serde_json::from_value(resp["result"]["structuredContent"].clone()).unwrap();
+
+        let norm = |mut c: srs_core::types::container::Container, id: &str| {
+            c.created_at = None;
+            c.updated_at = None;
+            serde_json::to_string(&c).unwrap().replace(id, "<id>")
+        };
+        assert_eq!(norm(wasm, &a), norm(mcp, &b));
+
+        // An unresolvable member is rejected with a message, not persisted.
+        let bad = json!({"title":"x","memberInstanceIds":[{"instanceId":"nope"}]}).to_string();
+        assert!(create_container_from_json(&wasm_store, &bad).is_err());
     }
 }

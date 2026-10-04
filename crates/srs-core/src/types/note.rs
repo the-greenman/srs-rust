@@ -20,6 +20,9 @@ pub struct Note {
     pub created_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
+    /// RFC-046: creator, stamped from the session actor; see `Record::created_by`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<super::actor::Actor>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<serde_json::Value>,
 }
@@ -52,6 +55,7 @@ mod tests {
     #[test]
     fn note_roundtrips_json() {
         let note = Note {
+            created_by: None,
             instance_id: "test-id".to_string(),
             title: Some("Test Title".to_string()),
             tags: Some(vec!["tag1".to_string(), "tag2".to_string()]),
@@ -149,6 +153,7 @@ mod tests {
     fn minimal_note_passes_schema_contract() {
         let reg = srs_schema::SchemaRegistry::global();
         let note = Note {
+            created_by: None,
             instance_id: "00000000-0000-4000-8000-000000000001".to_string(),
             title: None,
             tags: None,

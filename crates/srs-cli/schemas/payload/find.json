@@ -7,6 +7,198 @@
     "result"
   ],
   "properties": {
-    "result": true
+    "result": {
+      "$ref": "#/definitions/DiscoveryResultPayload"
+    }
+  },
+  "definitions": {
+    "DiscoveryFacetsPayload": {
+      "description": "Mirrors `discovery_service::DiscoveryFacets`; empty/zero parts are omitted.",
+      "type": "object",
+      "properties": {
+        "byType": {
+          "$ref": "#/definitions/FacetCountsPayload"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/FieldFacetPayload"
+          }
+        },
+        "notes": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "tags": {
+          "$ref": "#/definitions/FacetCountsPayload"
+        }
+      }
+    },
+    "DiscoveryHitPayload": {
+      "description": "Mirrors `discovery_service::DiscoveryHit`.",
+      "type": "object",
+      "required": [
+        "containerIds",
+        "instanceId",
+        "label",
+        "matchedFields",
+        "uri"
+      ],
+      "properties": {
+        "containerIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "instanceId": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "lifecycleState": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "matchedFields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "score": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        },
+        "snippet": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "typeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "typeName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "typeNamespace": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "uri": {
+          "type": "string"
+        }
+      }
+    },
+    "DiscoveryResultPayload": {
+      "description": "Mirrors `discovery_service::DiscoveryResult`.",
+      "type": "object",
+      "required": [
+        "diagnostics",
+        "facets",
+        "hits",
+        "total"
+      ],
+      "properties": {
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "facets": {
+          "$ref": "#/definitions/DiscoveryFacetsPayload"
+        },
+        "hits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DiscoveryHitPayload"
+          }
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "FacetCountPayload": {
+      "description": "Mirrors `discovery_service::FacetCount`.",
+      "type": "object",
+      "required": [
+        "count",
+        "value"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    "FacetCountsPayload": {
+      "description": "Mirrors `discovery_service::FacetCounts`.",
+      "type": "object",
+      "required": [
+        "values"
+      ],
+      "properties": {
+        "other": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/FacetCountPayload"
+          }
+        }
+      }
+    },
+    "FieldFacetPayload": {
+      "description": "Mirrors `discovery_service::FieldFacet` (counts flattened into the object).",
+      "type": "object",
+      "required": [
+        "field",
+        "values"
+      ],
+      "properties": {
+        "field": {
+          "type": "string"
+        },
+        "other": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/FacetCountPayload"
+          }
+        }
+      }
+    }
   }
 }

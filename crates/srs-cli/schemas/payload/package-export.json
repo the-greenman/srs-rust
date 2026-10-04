@@ -1,0 +1,115 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PackageExportPayload",
+  "description": "`srs package export` (ADR-050): the written `.srspkg` and its summary.",
+  "type": "object",
+  "required": [
+    "byteLength",
+    "dataModelRevision",
+    "definitionCount",
+    "dependencyRefCount",
+    "inlined",
+    "kinds",
+    "mode",
+    "notes",
+    "outputPath",
+    "packageId",
+    "packageName",
+    "packageNamespace",
+    "packageVersion",
+    "publishedAt",
+    "sha256"
+  ],
+  "properties": {
+    "byteLength": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    },
+    "dataModelRevision": {
+      "description": "The `dataModelRevision` stamped into the bundle: the repository's own stamp.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "definitionCount": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    },
+    "dependencyRefCount": {
+      "description": "Entries in the bundle's `dependencyRefs` (every reached definition).",
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    },
+    "inlined": {
+      "description": "Ids carried from other package boundaries by the closure (sorted); core definitions are listed, never carried.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "kinds": {
+      "description": "Per-kind counts, install order, non-empty kinds only.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageExportKindEntry"
+      }
+    },
+    "mode": {
+      "description": "The bundle's `mode`: `bundled` or `standalone`.",
+      "type": "string"
+    },
+    "notes": {
+      "description": "Non-fatal export notes (e.g. `bundle-below-reader-floor`).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "outputPath": {
+      "description": "Path the `.srspkg` was written to.",
+      "type": "string"
+    },
+    "packageId": {
+      "type": "string"
+    },
+    "packageName": {
+      "type": "string"
+    },
+    "packageNamespace": {
+      "type": "string"
+    },
+    "packageVersion": {
+      "type": "string"
+    },
+    "publishedAt": {
+      "description": "The bundle's `publishedAt`; part of the bytes, so a reproducible sha256 needs a fixed `--published-at`.",
+      "type": "string"
+    },
+    "sha256": {
+      "description": "`sha256:<64 lowercase hex>` of the written file's bytes.",
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "PackageExportKindEntry": {
+      "type": "object",
+      "required": [
+        "count",
+        "kind"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "kind": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

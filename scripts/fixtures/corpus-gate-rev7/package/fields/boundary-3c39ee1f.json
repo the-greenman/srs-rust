@@ -1,0 +1,15 @@
+{
+  "aiGuidance": {
+    "purpose": ""
+  },
+  "createdAt": "2026-05-26T00:00:00Z",
+  "description": "The limits of this role — where the role's authority ends or must be shared.",
+  "id": "3c39ee1f-6fe0-5da7-a0b6-928aa3a63211",
+  "name": "boundary",
+  "namespace": "governance",
+  "fieldType": {
+    "datatype": "string",
+    "format": "plain"
+  },
+  "version": 1
+}

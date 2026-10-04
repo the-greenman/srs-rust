@@ -1,0 +1,24 @@
+{
+  "containerId": "138e2fac-6a8a-4a06-9511-5aefd99ceae9",
+  "containerType": "decision_log",
+  "createdAt": "2026-05-31T00:00:00Z",
+  "memberInstanceIds": [
+    "2235c7d8-3f25-4774-bf2c-408e499bd8a6",
+    "2fba1783-f3f2-42a6-8d67-d39601e27241",
+    "38501856-26a5-4227-a877-eada79ce591a",
+    "3be7b057-9167-42a4-b0db-2a8b30666cef",
+    "4a989562-4a9d-4c86-a365-91bf14d55f06",
+    "728ef118-d796-409d-a58d-2fb062a0b976",
+    "9054911c-5285-4c3e-8198-4b9650169001",
+    "9af57e54-03fb-4625-9a4c-8d2a254ff2b7",
+    "a9ca11cf-fd34-4901-b5f6-51e20737cb56",
+    "d8599dd7-e8d7-45d1-a192-d1a0ac97f8d5",
+    "dd715d4a-8640-4641-b79d-e44f728c547b",
+    "e8e5ea7e-de96-4e94-b8d5-800df14b0b9e",
+    "eb4024a0-486f-4d64-a4e4-5d80297129d2"
+  ],
+  "rootInstanceIds": [
+    "bf64442b-1e2b-4597-95e7-a665439c7f6f"
+  ],
+  "title": "Decision Log"
+}

@@ -183,6 +183,7 @@ fn create_relation_appears_in_list_by_source() {
     let store = srs_repository::srsj::open_srsj(GALLERY_SRSJ).expect("gallery must load");
 
     let relation = Relation {
+        created_by: None,
         relation_id: "b1000001-0000-4000-a000-000000000001".to_string(),
         relation_type: GALLERY_REL_TYPE.to_string(),
         source_instance_id: GALLERY_SRC.to_string(),
@@ -228,6 +229,7 @@ fn delete_relation_removes_it() {
 
     // Create a relation to delete.
     let relation = Relation {
+        created_by: None,
         relation_id: "b1000002-0000-4000-a000-000000000002".to_string(),
         relation_type: GALLERY_REL_TYPE.to_string(),
         source_instance_id: GALLERY_SRC.to_string(),
@@ -404,7 +406,7 @@ fn create_record_successor_supersedes() {
         &store,
         "rec-lc-001",
         CreateRecordSuccessorInput {
-            relation_type: "supersedes".to_string(),
+            relation_type: Some("supersedes".to_string()),
             field_values: FieldValues(
                 [("title".to_string(), serde_json::json!("Successor Proposal"))]
                     .into_iter()
@@ -447,7 +449,7 @@ fn create_record_successor_refines() {
         &store,
         "rec-lc-001",
         CreateRecordSuccessorInput {
-            relation_type: "refines".to_string(),
+            relation_type: Some("refines".to_string()),
             field_values: FieldValues(
                 [("title".to_string(), serde_json::json!("Refined Proposal"))]
                     .into_iter()
@@ -485,6 +487,7 @@ fn create_relation_depends_on() {
         srs_repository::srsj::open_srsj(&lifecycle_srsj()).expect("lifecycle fixture must load");
 
     let relation = Relation {
+        created_by: None,
         relation_id: "b1000003-0000-4000-a000-000000000003".to_string(),
         relation_type: "depends-on".to_string(),
         source_instance_id: "rec-lc-001".to_string(),

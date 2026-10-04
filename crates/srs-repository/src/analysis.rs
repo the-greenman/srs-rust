@@ -846,7 +846,6 @@ mod tests {
                 namespace: None,
                 name: None,
                 description: None,
-                root_instance_ids: None,
                 member_instance_ids: None,
                 child_container_ids: None,
                 tags: None,

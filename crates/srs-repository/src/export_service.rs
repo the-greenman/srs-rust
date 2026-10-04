@@ -32,6 +32,7 @@ pub fn export_record_bundle(
         theme_variant: None,
         container_id: None,
         instance_id_filter: Some(&input.instance_id),
+        exclude_instance_ids: &[],
     })?;
 
     let attach_result = resolve_composition_attachments(

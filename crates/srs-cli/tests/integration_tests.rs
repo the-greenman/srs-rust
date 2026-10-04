@@ -127,9 +127,8 @@ fn create_navigation_repo() -> TempDir {
                 "containerId": root_container,
                 "title": "Example Governance",
                 "identityInstanceId": identity,
-                "rootInstanceIds": [identity],
-                "memberInstanceIds": [decisions, articles]
-            },
+
+                "memberInstanceIds": [{"instanceId": identity}, {"instanceId": articles}, {"instanceId": decisions}], "anchorInstanceId": identity},
         }),
     );
 
@@ -204,18 +203,14 @@ fn create_navigation_repo() -> TempDir {
         serde_json::json!({
             "containerId": articles_container,
             "title": "Articles",
-            "containerType": "stale-hint-is-not-a-key",
-            "rootInstanceIds": [articles]
-        }),
+            "containerType": "stale-hint-is-not-a-key", "memberInstanceIds": [{"instanceId": articles}], "anchorInstanceId": articles}),
     );
     write_json(
         &root.join("containers/decisions.json"),
         serde_json::json!({
             "containerId": decisions_container,
             "title": "Decision Log",
-            "containerType": "another-stale-hint",
-            "rootInstanceIds": [decisions]
-        }),
+            "containerType": "another-stale-hint", "memberInstanceIds": [{"instanceId": decisions}], "anchorInstanceId": decisions}),
     );
     write_json(
         &root.join("relations/00000000-0000-4000-8000-00000000d000.json"),
@@ -614,7 +609,7 @@ fn repo_create_happy_path() {
             "repo",
             "create",
             "--repository-id",
-            "repo-123",
+            "b0000001-0000-4000-8000-000000000001",
             "--namespace",
             "com.semanticops.test",
             "--package-id",
@@ -626,7 +621,10 @@ fn repo_create_happy_path() {
 
     assert_eq!(result["ok"], true);
     assert_eq!(result["command"], "repo create");
-    assert_eq!(result["payload"]["repositoryId"], "repo-123");
+    assert_eq!(
+        result["payload"]["repositoryId"],
+        "b0000001-0000-4000-8000-000000000001"
+    );
     assert_eq!(result["payload"]["packageId"], "pkg-123");
     assert!(
         result["payload"]["identityInstanceId"].as_str().is_some(),
@@ -701,7 +699,7 @@ fn repo_create_without_existing_repo_does_not_call_detect() {
             "repo",
             "create",
             "--repository-id",
-            "repo-456",
+            "b0000002-0000-4000-8000-000000000002",
             "--namespace",
             "com.semanticops.test",
             "--package-id",
@@ -730,7 +728,7 @@ fn repo_create_existing_repo_errors() {
             "repo",
             "create",
             "--repository-id",
-            "repo-789",
+            "b0000003-0000-4000-8000-000000000003",
             "--namespace",
             "com.semanticops.test",
             "--package-id",
@@ -748,7 +746,7 @@ fn repo_create_existing_repo_errors() {
             "repo",
             "create",
             "--repository-id",
-            "repo-789",
+            "b0000003-0000-4000-8000-000000000003",
             "--namespace",
             "com.semanticops.test",
             "--package-id",
@@ -828,7 +826,7 @@ fn json_store_repo_create_and_note_ops_work() {
             "repo",
             "create",
             "--repository-id",
-            "repo-json-1",
+            "b0000006-0000-4000-8000-000000000006",
             "--namespace",
             "com.semanticops.json",
             "--package-id",
@@ -876,7 +874,7 @@ fn json_store_backend_is_inferred_from_repo_location() {
             "repo",
             "create",
             "--repository-id",
-            "repo-json-inferred",
+            "b0000008-0000-4000-8000-000000000008",
             "--namespace",
             "com.semanticops.json",
             "--package-id",
@@ -1003,7 +1001,7 @@ fn json_store_current_directory_repo_is_auto_detected() {
             "repo",
             "create",
             "--repository-id",
-            "repo-json-cwd",
+            "b0000007-0000-4000-8000-000000000007",
             "--namespace",
             "com.semanticops.json",
             "--package-id",
@@ -3279,6 +3277,75 @@ fn relation_list_returns_relations() {
 }
 
 #[test]
+fn relation_neighbours_pages_with_total_and_filters() {
+    let temp = create_temp_repo();
+    let note = |title: &str| {
+        run_srs_stdin_in_dir(
+            temp.path(),
+            &["note", "create"],
+            &format!(r#"{{"title":"{title}","sections":[{{"name":"intro","content":"t"}}]}}"#),
+        )["payload"]["note"]["instanceId"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let (n1, n2, n3) = (note("one"), note("two"), note("three"));
+    std::fs::create_dir_all(temp.path().join("relations")).unwrap();
+    for (i, (rtype, s, t)) in [("contains", &n1, &n2), ("depends-on", &n2, &n3)]
+        .into_iter()
+        .enumerate()
+    {
+        let rid = format!("eeeeeeee-0000-4000-8000-0000000000f{i}");
+        std::fs::write(
+            temp.path().join(format!("relations/{rid}.json")),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/relation.json",
+                "relationId": rid,
+                "relationType": rtype,
+                "sourceInstanceId": s,
+                "targetInstanceId": t,
+                "createdAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+    let (note2, note3) = (n2.as_str(), n3.as_str());
+    let all = run_srs_in_dir(temp.path(), &["relation", "neighbours", note2]);
+    assert_eq!(all["ok"], true, "{:?}", all["diagnostics"]);
+    assert_eq!(all["payload"]["result"]["total"], 2, "{all}");
+    let page = run_srs_in_dir(
+        temp.path(),
+        &[
+            "relation",
+            "neighbours",
+            note2,
+            "--limit",
+            "1",
+            "--offset",
+            "1",
+        ],
+    );
+    assert_eq!(page["payload"]["result"]["total"], 2);
+    assert_eq!(
+        page["payload"]["result"]["neighbours"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let out = run_srs_in_dir(
+        temp.path(),
+        &["relation", "neighbours", note2, "--direction", "out"],
+    );
+    let edges = out["payload"]["result"]["neighbours"].as_array().unwrap();
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0]["neighbour"]["instanceId"], note3);
+    let missing = run_srs_in_dir(temp.path(), &["relation", "neighbours", "nope"]);
+    assert_eq!(missing["ok"], false);
+}
+
+#[test]
 fn relation_list_filters_by_source_target_and_type() {
     let temp = create_temp_repo();
 
@@ -3859,7 +3926,7 @@ fn create_temp_repo_with_protocol_package() -> TempDir {
         serde_json::to_string_pretty(&serde_json::json!({
             "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
             "srsVersion": "2.0",
-            "dataModelRevision": 7,
+            "dataModelRevision": 9,
             "repositoryId": "00000000-0000-4000-8000-000000009900",
             "title": "Protocol Test Repo",
             "container": {
@@ -4320,6 +4387,35 @@ fn container_create_returns_container() {
 }
 
 #[test]
+fn container_create_accepts_child_containers_and_meta_and_rejects_unknown_keys() {
+    let temp = make_container_test_repo();
+    let child = run_srs_stdin_in_dir(
+        temp.path(),
+        &["container", "create"],
+        r#"{"title":"Child"}"#,
+    );
+    let child_id = child["payload"]["container"]["containerId"].clone();
+    let payload = serde_json::json!({
+        "title": "Parent",
+        "childContainerIds": [child_id],
+        "meta": { "x": 1 }
+    })
+    .to_string();
+    let result = run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+    assert_eq!(result["ok"], true, "{result}");
+    let c = &result["payload"]["container"];
+    assert_eq!(c["childContainerIds"], serde_json::json!([child_id]));
+    assert_eq!(c["meta"], serde_json::json!({ "x": 1 }));
+
+    let bad = run_srs_stdin_in_dir(
+        temp.path(),
+        &["container", "create"],
+        r#"{"title":"x","bogus":1}"#,
+    );
+    assert_eq!(bad["ok"], false, "{bad}");
+}
+
+#[test]
 fn container_create_without_id_mints_uuid() {
     let temp = make_container_test_repo();
     let payload = serde_json::json!({
@@ -4405,7 +4501,7 @@ fn container_update_list_reflects_new_title() {
 }
 
 #[test]
-fn container_update_patches_root_instance_ids() {
+fn container_update_patches_anchor_instance_id() {
     let temp = make_container_test_repo();
     let payload = serde_json::json!({
         "containerId":"00000000-0000-4000-8000-000000000001",
@@ -4413,9 +4509,7 @@ fn container_update_patches_root_instance_ids() {
     })
     .to_string();
     run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
-    let patch = serde_json::json!({
-        "rootInstanceIds":["11111111-1111-4111-8111-111111111111"]
-    })
+    let patch = serde_json::json!({"memberInstanceIds": [{"instanceId": "11111111-1111-4111-8111-111111111111"}], "anchorInstanceId": "11111111-1111-4111-8111-111111111111"})
     .to_string();
     let updated = run_srs_stdin_in_dir(
         temp.path(),
@@ -4428,16 +4522,19 @@ fn container_update_patches_root_instance_ids() {
     );
     assert_eq!(updated["ok"], true);
     assert_eq!(
-        updated["payload"]["container"]["rootInstanceIds"],
-        serde_json::json!(["11111111-1111-4111-8111-111111111111"])
+        updated["payload"]["container"]["anchorInstanceId"],
+        "11111111-1111-4111-8111-111111111111"
     );
+    assert!(updated["payload"]["container"]
+        .get("rootInstanceIds")
+        .is_none());
     let got = run_srs_in_dir(
         temp.path(),
         &["container", "get", "00000000-0000-4000-8000-000000000001"],
     );
     assert_eq!(
-        got["payload"]["container"]["rootInstanceIds"],
-        serde_json::json!(["11111111-1111-4111-8111-111111111111"])
+        got["payload"]["container"]["anchorInstanceId"],
+        "11111111-1111-4111-8111-111111111111"
     );
 }
 
@@ -4451,7 +4548,7 @@ fn container_update_patches_member_instance_ids() {
     .to_string();
     run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
     let patch = serde_json::json!({
-        "memberInstanceIds":["22222222-2222-4222-8222-222222222222"]
+        "memberInstanceIds":[{"instanceId": "22222222-2222-4222-8222-222222222222"}]
     })
     .to_string();
     let updated = run_srs_stdin_in_dir(
@@ -4466,7 +4563,7 @@ fn container_update_patches_member_instance_ids() {
     assert_eq!(updated["ok"], true);
     assert_eq!(
         updated["payload"]["container"]["memberInstanceIds"],
-        serde_json::json!(["22222222-2222-4222-8222-222222222222"])
+        serde_json::json!([{"instanceId": "22222222-2222-4222-8222-222222222222"}])
     );
 }
 
@@ -4548,7 +4645,7 @@ fn container_members_add_list_remove() {
         ],
     );
     assert_eq!(listed["ok"], true);
-    assert_eq!(listed["payload"]["memberInstanceIds"][0], member);
+    assert_eq!(listed["payload"]["members"][0]["instanceId"], member);
     let removed = run_srs_in_dir(
         temp.path(),
         &[
@@ -4560,56 +4657,69 @@ fn container_members_add_list_remove() {
         ],
     );
     assert_eq!(removed["ok"], true);
-    assert_eq!(
-        removed["payload"]["memberInstanceIds"],
-        serde_json::json!([])
-    );
+    assert_eq!(removed["payload"]["members"], serde_json::json!([]));
 }
 
+/// RFC-043 Change D through the CLI: add with position and depth, move, set depth, promoting
+/// removal, and a rejected depth jump that changes nothing.
 #[test]
-fn container_roots_add_list_remove() {
+fn container_members_arrange_with_depth_move_and_promoting_removal() {
     let temp = make_container_test_repo();
-    let payload = serde_json::json!({
-        "containerId":"00000000-0000-4000-8000-000000000001",
-        "title":"Roots"
-    })
-    .to_string();
+    let cid = "00000000-0000-4000-8000-000000000001";
+    let payload = serde_json::json!({ "containerId": cid, "title": "Outline" }).to_string();
     run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
-    let root = "11111111-1111-4111-8111-111111111111";
+    let a = "11111111-1111-4111-8111-111111111111";
+    let b = "22222222-2222-4222-8222-222222222222";
+
+    run_srs_in_dir(temp.path(), &["container", "members", "add", cid, a]);
     let added = run_srs_in_dir(
         temp.path(),
-        &[
-            "container",
-            "roots",
-            "add",
-            "00000000-0000-4000-8000-000000000001",
-            root,
-        ],
+        &["container", "members", "add", cid, b, "--depth", "1"],
     );
-    assert_eq!(added["ok"], true);
-    let listed = run_srs_in_dir(
+    assert_eq!(
+        added["payload"]["members"],
+        serde_json::json!([{"instanceId": a}, {"instanceId": b, "depth": 1}])
+    );
+
+    // A depth jump is rejected whole.
+    let (_, rejected) = run_srs_any_status_in_dir(
+        temp.path(),
+        &["container", "members", "move", cid, b, "--depth", "2"],
+    );
+    assert_eq!(rejected["ok"], false);
+    assert!(
+        rejected.to_string().contains("arrangement-depth"),
+        "{rejected}"
+    );
+    let listed = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
+    assert_eq!(listed["payload"]["members"].as_array().unwrap().len(), 2);
+
+    // Move b to the front at depth 0, then nest a under it and remove b: a is promoted.
+    run_srs_in_dir(
         temp.path(),
         &[
             "container",
-            "roots",
-            "list",
-            "00000000-0000-4000-8000-000000000001",
+            "members",
+            "move",
+            cid,
+            b,
+            "--position",
+            "0",
+            "--depth",
+            "0",
         ],
     );
-    assert_eq!(listed["ok"], true);
-    assert_eq!(listed["payload"]["rootInstanceIds"][0], root);
-    let removed = run_srs_in_dir(
+    run_srs_in_dir(
         temp.path(),
-        &[
-            "container",
-            "roots",
-            "remove",
-            "00000000-0000-4000-8000-000000000001",
-            root,
-        ],
+        &["container", "members", "move", cid, a, "--depth", "1"],
     );
-    assert_eq!(removed["ok"], true);
-    assert_eq!(removed["payload"]["rootInstanceIds"], serde_json::json!([]));
+    let removed = run_srs_in_dir(temp.path(), &["container", "members", "remove", cid, b]);
+    assert_eq!(
+        removed["payload"]["members"],
+        serde_json::json!([{"instanceId": a}])
+    );
+    assert_eq!(removed["payload"]["promoted"], serde_json::json!([a]));
+    assert_eq!(removed["payload"]["removed"], serde_json::json!([b]));
 }
 
 // --- srs-rust#841: a membership write must never brick the repository ---
@@ -4623,18 +4733,18 @@ fn make_guarded_container(temp: &TempDir) -> &'static str {
 }
 
 #[test]
-fn container_roots_add_rejects_blank_instance_id() {
+fn container_members_add_rejects_blank_instance_id() {
     let temp = make_container_test_repo();
     let cid = make_guarded_container(&temp);
     for blank in ["", "   "] {
         let (_, result) =
-            run_srs_any_status_in_dir(temp.path(), &["container", "roots", "add", cid, blank]);
+            run_srs_any_status_in_dir(temp.path(), &["container", "members", "add", cid, blank]);
         assert_eq!(result["ok"], false, "blank id must be rejected: {result}");
     }
     // The repository still loads — nothing was persisted.
-    let listed = run_srs_in_dir(temp.path(), &["container", "roots", "list", cid]);
+    let listed = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
     assert_eq!(listed["ok"], true);
-    assert_eq!(listed["payload"]["rootInstanceIds"], serde_json::json!([]));
+    assert_eq!(listed["payload"]["members"], serde_json::json!([]));
 }
 
 #[test]
@@ -4647,10 +4757,7 @@ fn container_members_add_rejects_unresolvable_instance_id() {
     assert_eq!(result["ok"], false, "unresolvable id must be rejected");
     let listed = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
     assert_eq!(listed["ok"], true);
-    assert_eq!(
-        listed["payload"]["memberInstanceIds"],
-        serde_json::json!([])
-    );
+    assert_eq!(listed["payload"]["members"], serde_json::json!([]));
 }
 
 /// `container create` may not persist a membership id that resolves to nothing
@@ -4660,12 +4767,13 @@ fn container_members_add_rejects_unresolvable_instance_id() {
 fn container_create_rejects_unresolvable_membership_id() {
     let temp = make_container_test_repo();
     let ghost = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
-    for key in ["rootInstanceIds", "memberInstanceIds"] {
+    {
+        let key = "memberInstanceIds";
         let cid = "00000000-0000-4000-8000-000000000001";
         let payload = serde_json::json!({
             "containerId": cid,
             "title": "Bricked",
-            key: [ghost],
+            key: [{"instanceId": ghost}],
         })
         .to_string();
         let (_, result) =
@@ -4691,50 +4799,53 @@ fn container_update_rejects_unresolvable_membership_id() {
     let temp = make_container_test_repo();
     let cid = make_guarded_container(&temp);
     let ghost = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
-    for key in ["rootInstanceIds", "memberInstanceIds"] {
-        let payload = serde_json::json!({ key: [ghost] }).to_string();
+    {
+        let key = "memberInstanceIds";
+        let payload = serde_json::json!({ key: [{"instanceId": ghost}] }).to_string();
         let (_, result) =
             run_srs_stdin_any_status_in_dir(temp.path(), &["container", "update", cid], &payload);
         assert_eq!(
             result["ok"], false,
             "{key}: unresolvable id must be rejected"
         );
-        let listed = run_srs_in_dir(temp.path(), &["container", "roots", "list", cid]);
+        let listed = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
         assert_eq!(listed["ok"], true, "{key}: repository must still load");
-        assert_eq!(listed["payload"]["rootInstanceIds"], serde_json::json!([]));
+        assert_eq!(listed["payload"]["members"], serde_json::json!([]));
     }
 }
 
-/// The recovery half (ADR-045): a repository already bricked by a dangling
+/// The recovery half (ADR-045, RFC-043 [R20]): a repository already bricked by a dangling
 /// container reference is repairable through the CLI alone.
 #[test]
-fn container_roots_remove_repairs_bricked_repository() {
+fn container_members_repair_unbricks_a_bricked_repository() {
     let temp = make_container_test_repo();
     let cid = "00000000-0000-4000-8000-000000000001";
     let ghost = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
     // No CLI writer can reach this state any more (srs-rust#841 closed the add
     // path, #845 the create/update path), which is the point: the repository was
-    // damaged by something other than this tool, and `remove` is still the way
+    // damaged by something other than this tool, and `repair` is still the way
     // back out.
     write_json(
         &temp.path().join("containers/bricked.json"),
         serde_json::json!({
             "containerId": cid,
             "title": "Bricked",
-            "rootInstanceIds": [ghost],
+            "memberInstanceIds": [{"instanceId": ghost}]
         }),
     );
 
     // Every ordinary read routes through the checked catalog and now fails.
-    let (_, bricked) = run_srs_any_status_in_dir(temp.path(), &["container", "roots", "list", cid]);
+    let (_, bricked) =
+        run_srs_any_status_in_dir(temp.path(), &["container", "members", "list", cid]);
     assert_eq!(bricked["ok"], false, "repository should be bricked");
 
-    let repaired = run_srs_in_dir(temp.path(), &["container", "roots", "remove", cid, ghost]);
-    assert_eq!(repaired["ok"], true, "removal must work on a bricked repo");
+    let repaired = run_srs_in_dir(temp.path(), &["container", "members", "repair", cid]);
+    assert_eq!(repaired["ok"], true, "repair must work on a bricked repo");
+    assert_eq!(repaired["payload"]["removed"], serde_json::json!([ghost]));
 
-    let after = run_srs_in_dir(temp.path(), &["container", "roots", "list", cid]);
+    let after = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
     assert_eq!(after["ok"], true, "repository must load again: {after}");
-    assert_eq!(after["payload"]["rootInstanceIds"], serde_json::json!([]));
+    assert_eq!(after["payload"]["members"], serde_json::json!([]));
 }
 
 #[test]
@@ -4800,15 +4911,25 @@ fn container_list_member_and_root_filters() {
     run_srs_stdin_in_dir(temp.path(), &["container", "create"], &a);
     run_srs_stdin_in_dir(temp.path(), &["container", "create"], &b);
     let id = "11111111-1111-4111-8111-111111111111";
+    // RFC-043: "root" is the anchor entry — an ordinary member that is also the anchor.
     run_srs_in_dir(
         temp.path(),
         &[
             "container",
-            "roots",
+            "members",
             "add",
             "00000000-0000-4000-8000-000000000001",
             id,
         ],
+    );
+    run_srs_stdin_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "update",
+            "00000000-0000-4000-8000-000000000001",
+        ],
+        &serde_json::json!({ "anchorInstanceId": id }).to_string(),
     );
     run_srs_in_dir(
         temp.path(),
@@ -4907,10 +5028,10 @@ fn container_scope_note_create_adds_to_container() {
     assert_eq!(created["ok"], true);
 
     let members = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
-    let arr = members["payload"]["memberInstanceIds"].as_array().unwrap();
+    let arr = members["payload"]["members"].as_array().unwrap();
     assert!(arr
         .iter()
-        .any(|v| v == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"));
+        .any(|v| v["instanceId"] == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"));
 }
 
 #[test]
@@ -5005,10 +5126,7 @@ fn container_scope_note_delete_removes_membership() {
     );
     assert_eq!(got["ok"], false);
     let members = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
-    assert_eq!(
-        members["payload"]["memberInstanceIds"],
-        serde_json::json!([])
-    );
+    assert_eq!(members["payload"]["members"], serde_json::json!([]));
 }
 
 #[test]
@@ -5464,39 +5582,83 @@ fn package_update_metadata_only() {
 }
 
 #[test]
-fn slice_create_output_matches_package_create() {
-    // slice create is a permanent alias for package create — its output shape must be identical.
+fn slice_export_writes_a_valid_slice_archive() {
     let temp = create_temp_repo_with_package();
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(temp.path().join("manifest.json")).unwrap()).unwrap();
+    let root = manifest["container"]["containerId"].as_str().unwrap();
+    let out = temp.path().join("root.srs");
+    let out = out.to_str().unwrap();
 
-    std::fs::create_dir_all(temp.path().join("pkg/slice")).unwrap();
+    let (_, missing) = run_srs_any_status_in_dir(temp.path(), &["slice", "export", out]);
+    assert_eq!(missing["ok"], false, "--container is required: {missing:?}");
 
+    let result = run_srs_in_dir(temp.path(), &["slice", "export", "--container", root, out]);
+    assert_eq!(result["ok"], true, "slice export: {result:?}");
+    assert_eq!(result["command"], "slice export");
+    assert_eq!(result["payload"]["containerId"], root);
+    assert_eq!(
+        result["payload"]["originRepositoryId"],
+        manifest["repositoryId"]
+    );
+    assert_ne!(
+        result["payload"]["sliceRepositoryId"],
+        manifest["repositoryId"]
+    );
+
+    let target = temp.path().join("unpacked");
+    let unpacked = run_srs_in_dir(
+        temp.path(),
+        &[
+            "archive",
+            "unpack",
+            out,
+            "--target",
+            target.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(unpacked["ok"], true, "{unpacked:?}");
+    let validated = run_srs_in_dir(&target, &["repo", "validate"]);
+    assert_eq!(
+        validated["payload"]["summary"]["errors"], 0,
+        "{validated:?}"
+    );
+
+    // RFC-034 [R9] / I-151: a declared memberless child is carried; an
+    // undeclared empty container is not.
+    let child = run_srs_stdin_in_dir(
+        temp.path(),
+        &["container", "create"],
+        r#"{"title":"Child"}"#,
+    );
+    let child_id = child["payload"]["container"]["containerId"].clone();
+    run_srs_stdin_in_dir(
+        temp.path(),
+        &["container", "create"],
+        r#"{"title":"Stray"}"#,
+    );
+    let parent = run_srs_stdin_in_dir(
+        temp.path(),
+        &["container", "create"],
+        &serde_json::json!({"title": "Parent", "childContainerIds": [child_id]}).to_string(),
+    );
+    let parent_id = parent["payload"]["container"]["containerId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let out = temp.path().join("parent.srs");
     let result = run_srs_in_dir(
         temp.path(),
         &[
-            "package",
-            "slice-create",
-            "--id",
-            "slice-pkg-001",
-            "--namespace",
-            "com.slice",
-            "--name",
             "slice",
-            "--version",
-            "1.0.0",
-            "--path",
-            "pkg/slice",
+            "export",
+            "--container",
+            &parent_id,
+            out.to_str().unwrap(),
         ],
     );
-    assert_eq!(
-        result["ok"], true,
-        "slice create should succeed: {:?}",
-        result
-    );
-    assert_eq!(
-        result["command"], "package create",
-        "slice create must emit same command name as package create"
-    );
-    assert_eq!(result["payload"]["id"], "slice-pkg-001");
+    assert_eq!(result["ok"], true, "slice export: {result:?}");
+    assert_eq!(result["payload"]["containerCount"], 2, "{result:?}");
 }
 
 #[test]
@@ -6484,7 +6646,7 @@ fn type_schema_emits_draft07_for_record_field_values() {
             "repo",
             "create",
             "--repository-id",
-            "repo-type-schema",
+            "b0000009-0000-4000-8000-000000000009",
             "--namespace",
             "com.semanticops.schemademo",
             "--package-id",
@@ -6595,7 +6757,7 @@ fn type_schema_honors_editor_hint_override() {
             "repo",
             "create",
             "--repository-id",
-            "repo-editor-hint",
+            "b0000005-0000-4000-8000-000000000005",
             "--namespace",
             "com.semanticops.editorhint",
             "--package-id",
@@ -6699,7 +6861,7 @@ fn type_schema_unknown_type_returns_error_envelope() {
             "repo",
             "create",
             "--repository-id",
-            "repo-type-schema-err",
+            "b0000010-0000-4000-8000-000000000010",
             "--namespace",
             "com.semanticops.schemaerr",
             "--package-id",
@@ -6740,7 +6902,7 @@ fn blueprint_schema_emits_nested_draft07() {
             "repo",
             "create",
             "--repository-id",
-            "repo-bp-schema",
+            "b0000004-0000-4000-8000-000000000004",
             "--namespace",
             "com.semanticops.bpschema",
             "--package-id",
@@ -7862,7 +8024,7 @@ fn repo_migrations_lists_the_registered_migrations() {
     let migrations = result["payload"]["migrations"]
         .as_array()
         .expect("migrations must be an array");
-    assert_eq!(migrations.len(), 12, "expected exactly twelve migrations");
+    assert_eq!(migrations.len(), 14, "expected exactly fourteen migrations");
 
     let ids: Vec<&str> = migrations
         .iter()
@@ -7880,6 +8042,8 @@ fn repo_migrations_lists_the_registered_migrations() {
             "substrate-properties-to-meta",
             "composition-cutover",
             "discovery-query-cutover",
+            "rfc043-container-entries",
+            "rfc046-actor-provenance",
             "migrate-identity",
             "repo-upgrade",
             "rfc038-storage"
@@ -7926,6 +8090,8 @@ fn repo_migrations_lists_the_registered_migrations() {
     assert_eq!(status("substrate-properties-to-meta", "needed"), true);
     assert_eq!(status("composition-cutover", "needed"), true);
     assert_eq!(status("discovery-query-cutover", "needed"), true);
+    assert_eq!(status("rfc043-container-entries", "needed"), true);
+    assert_eq!(status("rfc046-actor-provenance", "needed"), true);
     assert_eq!(status("rfc038-storage", "alreadyApplied"), true);
     assert_eq!(status("migrate-identity", "notApplicable"), true);
     assert_eq!(status("repo-upgrade", "alreadyApplied"), true);
@@ -8189,6 +8355,21 @@ fn repo_apply_migration_field_type_rewrites_a_legacy_field_end_to_end() {
         discovery_query_cutover["ok"], true,
         "expected ok: {discovery_query_cutover:?}"
     );
+    let rfc043 = run_srs_in_dir(
+        repo,
+        &[
+            "repo",
+            "apply-migration",
+            "--id",
+            "rfc043-container-entries",
+        ],
+    );
+    assert_eq!(rfc043["ok"], true, "expected ok: {rfc043:?}");
+    let rfc046 = run_srs_in_dir(
+        repo,
+        &["repo", "apply-migration", "--id", "rfc046-actor-provenance"],
+    );
+    assert_eq!(rfc046["ok"], true, "expected ok: {rfc046:?}");
     let storage = run_srs_in_dir(repo, &["repo", "apply-migration", "--id", "rfc038-storage"]);
     assert_eq!(storage["ok"], true, "expected ok: {storage:?}");
     let after = run_srs_in_dir(repo, &["repo", "validate"]);
@@ -8313,7 +8494,7 @@ fn create_repo_with_tier0_identity() -> TempDir {
                 "containerId": container_id,
                 "title": "Test Repo",
                 "identityInstanceId": note_id,
-                "memberInstanceIds": [note_id]
+                "memberInstanceIds": [{"instanceId": note_id}]
             },
         }),
     );
@@ -8376,4 +8557,64 @@ fn tree_accepts_positional_root_instance_id() {
         .expect("roots array");
     assert_eq!(roots.len(), 1);
     assert_eq!(roots[0]["instanceId"], articles);
+}
+
+#[test]
+fn render_markdown_stdin_needs_no_repo() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = run_srs_stdin_in_dir(dir.path(), &["render", "markdown"], "*a* <b>x</b>");
+    assert_eq!(out["ok"], true);
+    assert_eq!(
+        out["payload"]["html"],
+        "<p><em>a</em> &lt;b&gt;x&lt;/b&gt;</p>\n"
+    );
+}
+
+#[test]
+fn find_similar_excludes_source_ranks_related_and_rejects_text() {
+    let temp = TempDir::new().expect("temp dir");
+    let repo = temp.path().join("similar");
+    run_srs_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            repo.to_str().unwrap(),
+            "repo",
+            "create",
+            "--namespace",
+            "com.example.similar",
+            "--package-name",
+            "p",
+            "--package-version",
+            "1.0.0",
+            "--srs-version",
+            "2.0-draft",
+        ],
+    );
+    let dir = repo.as_path();
+    let note = |title: &str, body: &str| -> String {
+        run_srs_stdin_in_dir(
+            dir,
+            &["note", "create"],
+            &serde_json::json!({"title": title, "sections": [{"name": "body", "content": body}]})
+                .to_string(),
+        )["payload"]["note"]["instanceId"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let src = note("Wombat habitat", "wombat burrow habitat drainage");
+    let related = note("Burrow drainage", "wombat burrow flooding");
+    let _other = note("Budget", "quarterly spend review");
+
+    let out = run_srs_in_dir(dir, &["find", "--similar", &src]);
+    assert_eq!(out["ok"], true, "{out:?}");
+    let hits = out["payload"]["result"]["hits"].as_array().unwrap();
+    assert_eq!(hits.len(), 1, "{out:?}");
+    assert_eq!(hits[0]["instanceId"], related.as_str());
+    assert!(hits[0]["score"].as_f64().unwrap() > 0.0);
+
+    // Refused at parse time (clap conflict); core also rejects contentMatch as a backstop.
+    let (ok, _) = run_srs_raw(dir, &["find", "--similar", &src, "--text", "x"]);
+    assert!(!ok, "--similar with --text must be refused");
 }

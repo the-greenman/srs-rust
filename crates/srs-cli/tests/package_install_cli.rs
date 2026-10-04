@@ -201,3 +201,279 @@ fn package_install_cli_boundary_override() {
         .iter()
         .any(|p| p["boundaryPath"] == "packages/custom-slot"));
 }
+
+// ── .srspkg export / install --bundle (#632, #690; ADR-050) ─────────────────
+
+/// Raw runner: exit status plus the parsed stdout envelope (if any).
+fn run_raw(dir: &Path, args: &[&str]) -> (bool, Option<Value>) {
+    let output = Command::new(env!("CARGO_BIN_EXE_srs"))
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("Failed to execute srs command");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    (output.status.success(), serde_json::from_str(&stdout).ok())
+}
+
+const AT: &str = "2026-10-03T00:00:00Z";
+const SELECTOR: &str = "packages/cli-fixture";
+
+/// A workspace with repo A (source package installed) and an empty repo B.
+fn two_repos() -> (TempDir, String, String) {
+    let workspace = TempDir::new().unwrap();
+    let source_dir = workspace.path().join("source-pkg");
+    std::fs::create_dir_all(&source_dir).unwrap();
+    write_source_package(&source_dir);
+    let a = workspace.path().join("a").to_string_lossy().into_owned();
+    let b = workspace.path().join("b").to_string_lossy().into_owned();
+    for (repo, ns) in [(&a, "com.cli.a"), (&b, "com.cli.b")] {
+        std::fs::create_dir_all(repo).unwrap();
+        run_srs(
+            workspace.path(),
+            &["--repo", repo, "repo", "create", "--namespace", ns],
+        );
+    }
+    run_srs(
+        workspace.path(),
+        &[
+            "--repo",
+            &a,
+            "package",
+            "install",
+            &source_dir.to_string_lossy(),
+        ],
+    );
+    (workspace, a, b)
+}
+
+fn export(dir: &Path, repo: &str, out: &str) -> Value {
+    run_srs(
+        dir,
+        &[
+            "--repo",
+            repo,
+            "package",
+            "export",
+            "--selector",
+            SELECTOR,
+            "--output",
+            out,
+            "--published-at",
+            AT,
+        ],
+    )
+}
+
+#[test]
+fn package_export_cli_writes_srspkg_and_reports_sha256() {
+    use sha2::{Digest, Sha256};
+    let (ws, a, _b) = two_repos();
+    let out = ws.path().join("p.srspkg");
+    let result = export(ws.path(), &a, &out.to_string_lossy());
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(result["command"], "package export");
+    let bytes = std::fs::read(&out).unwrap();
+    let p = &result["payload"];
+    assert_eq!(
+        p["sha256"],
+        format!("sha256:{}", hex::encode(Sha256::digest(&bytes)))
+    );
+    assert_eq!(p["byteLength"], bytes.len());
+    assert_eq!(p["definitionCount"], 3);
+    assert_eq!(p["publishedAt"], AT);
+    // The item Type references both of its own Fields.
+    assert_eq!(p["dependencyRefCount"], 2);
+    assert_eq!(p["mode"], "bundled");
+    assert_eq!(p["notes"], serde_json::json!([]));
+    let bundle: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(bundle["dependencyRefs"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn package_export_cli_is_deterministic_with_published_at() {
+    let (ws, a, _b) = two_repos();
+    let (p1, p2) = (ws.path().join("1.srspkg"), ws.path().join("2.srspkg"));
+    export(ws.path(), &a, &p1.to_string_lossy());
+    export(ws.path(), &a, &p2.to_string_lossy());
+    assert_eq!(std::fs::read(&p1).unwrap(), std::fs::read(&p2).unwrap());
+}
+
+#[test]
+fn package_install_cli_bundle_roundtrip() {
+    let (ws, a, b) = two_repos();
+    let out = ws.path().join("p.srspkg").to_string_lossy().into_owned();
+    export(ws.path(), &a, &out);
+    let installed = run_srs(
+        ws.path(),
+        &["--repo", &b, "package", "install", "--bundle", &out],
+    );
+    assert_eq!(installed["ok"], true, "{installed}");
+    assert_eq!(installed["payload"]["installed"], 3);
+    assert_eq!(installed["payload"]["notes"], serde_json::json!([]));
+    let list = run_srs(ws.path(), &["--repo", &b, "package", "list"]);
+    assert!(list["payload"]["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|p| p["boundaryPath"] == SELECTOR));
+    let validate = run_srs(ws.path(), &["--repo", &b, "repo", "validate"]);
+    assert_eq!(validate["payload"]["summary"]["errors"], 0, "{validate}");
+}
+
+#[test]
+fn package_install_cli_rejects_source_dir_with_bundle() {
+    let (ws, _a, b) = two_repos();
+    let (ok, _) = run_raw(
+        ws.path(),
+        &[
+            "--repo", &b, "package", "install", "some-dir", "--bundle", "p.srspkg",
+        ],
+    );
+    assert!(!ok, "clap must refuse <source_dir> together with --bundle");
+}
+
+#[test]
+fn package_export_cli_unknown_selector_is_error_envelope() {
+    let (ws, a, _b) = two_repos();
+    let out = ws.path().join("x.srspkg").to_string_lossy().into_owned();
+    let (_, env) = run_raw(
+        ws.path(),
+        &[
+            "--repo",
+            &a,
+            "package",
+            "export",
+            "--selector",
+            "packages/nope",
+            "--output",
+            &out,
+        ],
+    );
+    let env = env.expect("an error envelope on stdout");
+    assert_eq!(env["ok"], false, "{env}");
+}
+
+#[test]
+fn package_install_cli_bundle_newer_revision_is_error_envelope() {
+    let (ws, a, b) = two_repos();
+    let out = ws.path().join("p.srspkg");
+    export(ws.path(), &a, &out.to_string_lossy());
+    let mut v: Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
+    v["dataModelRevision"] = serde_json::json!(99);
+    let newer = ws.path().join("newer.srspkg");
+    std::fs::write(&newer, serde_json::to_vec(&v).unwrap()).unwrap();
+    let (_, env) = run_raw(
+        ws.path(),
+        &[
+            "--repo",
+            &b,
+            "package",
+            "install",
+            "--bundle",
+            &newer.to_string_lossy(),
+        ],
+    );
+    let env = env.expect("an error envelope on stdout");
+    assert_eq!(env["ok"], false, "{env}");
+    assert!(env.to_string().contains("bundle-revision-too-new"), "{env}");
+}
+
+/// `srs package export` with extra flags, against repo `repo`.
+fn export_with(dir: &Path, repo: &str, out: &str, extra: &[&str]) -> (bool, Option<Value>) {
+    let mut args = vec![
+        "--repo",
+        repo,
+        "package",
+        "export",
+        "--selector",
+        SELECTOR,
+        "--output",
+        out,
+        "--published-at",
+        AT,
+    ];
+    args.extend_from_slice(extra);
+    run_raw(dir, &args)
+}
+
+#[test]
+fn package_export_cli_mode_standalone() {
+    let (ws, a, _b) = two_repos();
+    let out = ws.path().join("s.srspkg").to_string_lossy().into_owned();
+    let (ok, env) = export_with(ws.path(), &a, &out, &["--mode", "standalone"]);
+    let env = env.unwrap();
+    assert!(ok, "{env}");
+    assert_eq!(env["payload"]["mode"], "standalone");
+    let bundle: Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
+    assert_eq!(bundle["mode"], "standalone");
+    let (ok, _) = export_with(ws.path(), &a, &out, &["--mode", "bogus"]);
+    assert!(!ok, "clap must refuse an unknown --mode");
+}
+
+#[test]
+fn package_export_cli_writes_homepage() {
+    let (ws, a, _b) = two_repos();
+    let out = ws.path().join("h.srspkg").to_string_lossy().into_owned();
+    let (ok, env) = export_with(
+        ws.path(),
+        &a,
+        &out,
+        &["--homepage", "https://example.org/pkg"],
+    );
+    assert!(ok, "{env:?}");
+    let bundle: Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
+    assert_eq!(bundle["homepage"], "https://example.org/pkg");
+    export(ws.path(), &a, &out);
+    let bundle: Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
+    assert!(bundle.get("homepage").is_none());
+}
+
+#[test]
+fn package_export_cli_reports_below_floor_notes() {
+    let (ws, a, _b) = two_repos();
+    let out = ws.path().join("n.srspkg").to_string_lossy().into_owned();
+    srs_repository::field_type_migration_service::stamp_data_model_revision(
+        &srs_repository::store::FileStore::new(Path::new(&a)),
+        6,
+    )
+    .unwrap();
+    let env = export(ws.path(), &a, &out);
+    let notes = env["payload"]["notes"].as_array().unwrap();
+    assert_eq!(notes.len(), 1, "{env}");
+    assert!(
+        notes[0]
+            .as_str()
+            .unwrap()
+            .contains("bundle-below-reader-floor"),
+        "{env}"
+    );
+    assert_eq!(env["payload"]["dataModelRevision"], 6);
+}
+
+#[test]
+fn package_install_cli_bundle_below_floor_is_error_envelope() {
+    let (ws, a, b) = two_repos();
+    let out = ws.path().join("p.srspkg");
+    export(ws.path(), &a, &out.to_string_lossy());
+    let mut v: Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
+    v["dataModelRevision"] = serde_json::json!(6);
+    let old = ws.path().join("old.srspkg");
+    std::fs::write(&old, serde_json::to_vec(&v).unwrap()).unwrap();
+    let (_, env) = run_raw(
+        ws.path(),
+        &[
+            "--repo",
+            &b,
+            "package",
+            "install",
+            "--bundle",
+            &old.to_string_lossy(),
+        ],
+    );
+    let env = env.expect("an error envelope on stdout");
+    assert_eq!(env["ok"], false, "{env}");
+    assert!(
+        env.to_string().contains("bundle-migration-step-missing"),
+        "{env}"
+    );
+}

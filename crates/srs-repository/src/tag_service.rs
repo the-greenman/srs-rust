@@ -89,7 +89,7 @@ pub fn query_by_tag(
     container_id: Option<&str>,
 ) -> Result<TagQueryResult, RepositoryError> {
     let filtered_ids: Option<std::collections::HashSet<String>> = if let Some(cid) = container_id {
-        let members = crate::container_service::list_container_members(store, cid)?;
+        let members = crate::container_service::list_members(store, cid)?;
         Some(members.into_iter().collect())
     } else {
         None

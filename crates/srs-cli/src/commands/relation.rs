@@ -1,9 +1,11 @@
 use crate::commands::{with_store, CliContext, RelationCommand};
 use crate::output;
 use crate::payload::{
-    PrecedesChainSplicePayload, RelationDeletePayload, RelationListPayload, RelationPayload,
+    NeighboursPayload, PrecedesChainSplicePayload, RelationDeletePayload, RelationListPayload,
+    RelationPayload,
 };
 use anyhow::Result;
+use srs_repository::context_query_service::{list_neighbours, NeighboursPage, NeighboursQuery};
 use srs_repository::relation_service::{
     create_relation_auto, delete_relation, get_relation_by_id, insert_into_precedes_chain,
     list_relations, move_in_precedes_chain, parse_relation_input, remove_from_precedes_chain,
@@ -19,6 +21,21 @@ pub fn dispatch(ctx: CliContext, cmd: RelationCommand) -> Result<String> {
             relation_type,
             json: _,
         } => cmd_relation_list(ctx, source, target, relation_type),
+        RelationCommand::Neighbours {
+            id,
+            relation_type,
+            direction,
+            limit,
+            offset,
+        } => cmd_relation_neighbours(
+            ctx,
+            NeighboursQuery {
+                instance_id: id,
+                relation_type,
+                direction,
+            },
+            NeighboursPage { limit, offset },
+        ),
         RelationCommand::Create { json: _ } => cmd_relation_create(ctx),
         RelationCommand::Get { id, json: _ } => cmd_relation_get(ctx, id),
         RelationCommand::Delete { id, json: _ } => cmd_relation_delete(ctx, id),
@@ -44,6 +61,22 @@ fn cmd_relation_list(
     output::serialize("relation list", RelationListPayload { relations })
 }
 
+fn cmd_relation_neighbours(
+    ctx: CliContext,
+    query: NeighboursQuery,
+    page: NeighboursPage,
+) -> Result<String> {
+    match with_store(&ctx, |store| Ok(list_neighbours(store, query, page)?)) {
+        Ok(result) => output::serialize(
+            "relation neighbours",
+            NeighboursPayload {
+                result: result.into(),
+            },
+        ),
+        Err(e) => Ok(output::err("relation neighbours", vec![e.to_string()])),
+    }
+}
+
 fn cmd_relation_get(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(get_relation_by_id(store, &id)?))? {
         GetRelationResult::Found(relation) => output::serialize(
@@ -64,12 +97,13 @@ fn cmd_relation_create(ctx: CliContext) -> Result<String> {
         Ok(raw) => raw,
         Err(e) => return Ok(output::err("relation create", vec![e.to_string()])),
     };
-    let relation = match parse_relation_input(raw) {
-        Ok(relation) => relation,
-        Err(e) => return Ok(output::err("relation create", vec![e.to_string()])),
-    };
-
-    match with_store(&ctx, |store| Ok(create_relation_auto(store, relation)?)) {
+    match with_store(&ctx, |store| {
+        if let Some(obj) = raw.as_object() {
+            srs_repository::actor_service::reject_supplied_created_by(store, obj)?;
+        }
+        let relation = parse_relation_input(raw)?;
+        Ok(create_relation_auto(store, relation)?)
+    }) {
         Ok(result) => output::serialize(
             "relation create",
             RelationPayload {

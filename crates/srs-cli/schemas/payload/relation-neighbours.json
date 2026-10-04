@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NeighboursPayload",
+  "description": "Payload for `relation neighbours` — a bounded page of an instance's edges, `total` before paging.",
+  "type": "object",
+  "required": [
+    "result"
+  ],
+  "properties": {
+    "result": {
+      "$ref": "#/definitions/NeighboursResultPayload"
+    }
+  },
+  "definitions": {
+    "EdgeDirectionPayload": {
+      "description": "Mirrors `context_query_service::EdgeDirection`.",
+      "type": "string",
+      "enum": [
+        "out",
+        "in"
+      ]
+    },
+    "NeighbourEdgePayload": {
+      "description": "Mirrors `context_query_service::NeighbourEdge`.",
+      "type": "object",
+      "required": [
+        "direction",
+        "neighbour",
+        "relationId",
+        "relationType"
+      ],
+      "properties": {
+        "direction": {
+          "$ref": "#/definitions/EdgeDirectionPayload"
+        },
+        "neighbour": {
+          "$ref": "#/definitions/NeighbourSummaryPayload"
+        },
+        "relationId": {
+          "type": "string"
+        },
+        "relationType": {
+          "type": "string"
+        }
+      }
+    },
+    "NeighbourSummaryPayload": {
+      "description": "Mirrors `context_query_service::NeighbourSummary`.",
+      "type": "object",
+      "required": [
+        "instanceId",
+        "uri"
+      ],
+      "properties": {
+        "instanceId": {
+          "type": "string"
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "typeName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "typeNamespace": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "uri": {
+          "type": "string"
+        }
+      }
+    },
+    "NeighboursResultPayload": {
+      "description": "Mirrors `context_query_service::NeighboursResult`.",
+      "type": "object",
+      "required": [
+        "instanceId",
+        "neighbours",
+        "total"
+      ],
+      "properties": {
+        "instanceId": {
+          "type": "string"
+        },
+        "neighbours": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NeighbourEdgePayload"
+          }
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    }
+  }
+}

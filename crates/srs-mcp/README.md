@@ -18,16 +18,17 @@ service call, and no business logic lives here.
 | `srs://<repositoryId>/navigation` | Identity record + ordered navigation sections (JSON) |
 | `srs://<repositoryId>/record/{instanceId}` | One record, any tier (JSON; resource template) |
 | `srs://<repositoryId>/container/<containerId>` | Container resolve-view: authored columns + ordered members (JSON) |
-| `srs://<repositoryId>/composition/<compositionId>` | Rendered document view (markdown) |
+| `srs://<repositoryId>/composition/<compositionId>` | Rendered document view (markdown). Optional `?containerId=<id>` renders it for that container (needed when a container-subset section names none); optional, repeatable `?excludeInstanceId=<id>` drops that member (in an arranged section its descendants move up one level; the `srs render composition --container` / `--exclude` inputs) |
 | `srs://<repositoryId>/type/{typeId}` | Type authoring schema: fieldIds, required flags, aiGuidance (JSON; enumerated + template) |
+| `srs://<repositoryId>/relation-types` | Every installed relation type, used or not: key, label, category, description (JSON; the valid `relationType` keys) |
 
 The `srs://` scheme is implementation tooling, not spec — every component is an
 existing SRS identifier (see ADR-037 §6).
 
 **Tools**: `repo_validate`, `find`, `record_create`, `record_update`,
 `record_transition`, `record_allowed_transitions`, `record_successor`,
-`relation_create`, `note_create`, `note_graduate`, `container_member_add`,
-`container_member_remove`, `type_schema`, `protocol_run_create`,
+`relation_create`, `relation_delete`, `note_create`, `note_graduate`, `container_create`, `container_member_add`,
+`container_member_remove`, `container_member_move`, `container_member_repair`, `container_outline`, `type_schema`, `protocol_run_create`,
 `protocol_run_advance`, `protocol_run_get`, `protocol_run_list`,
 `protocol_run_complete`, `protocol_run_abandon` — the validated write
 workflows plus discovery. The protocol run tools mirror the CLI's `srs

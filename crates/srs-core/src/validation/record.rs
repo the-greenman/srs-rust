@@ -202,6 +202,7 @@ mod tests {
             panic!("test values must be an object")
         };
         Record {
+            created_by: None,
             instance_id: "inst-1".to_string(),
             type_id: "type-1".to_string(),
             type_version: 1,

@@ -7,12 +7,10 @@ use crate::container_service::{self, ContainerListFilter};
 use crate::error::RepositoryError;
 use crate::record_label;
 use crate::record_store;
-use crate::relation_graph;
-use crate::relation_service;
 use crate::store::RepositoryStore;
 use serde::{Deserialize, Serialize};
 use srs_core::types::record::Record;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -26,6 +24,11 @@ pub struct NavigationNode {
     pub display_label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub section_container_id: Option<String>,
+    /// RFC-043 [R12]: the entry's `depth` in the root container's outline (0 = a navigation
+    /// section; deeper entries nest under the nearest preceding shallower entry). Omitted at 0.
+    /// A client may show the nesting or filter on depth 0 — the spec does not choose.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub depth: u32,
     /// The part-of tree below this node: `contains` targets, ordered by the
     /// `precedes` chain among siblings (rfc-decision-0750c62f consequence 3 —
     /// navigation below the root container follows the part-of tree, not the
@@ -40,6 +43,10 @@ pub struct NavigationNode {
     /// how `cycle_pruned` is scoped to `tree_service`.
     #[serde(default)]
     pub already_expanded: bool,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,8 +116,9 @@ pub fn repository_navigation_with_depth(
             let note_entry = store
                 .catalog()?
                 .instances
-                .into_iter()
-                .find(|e| &e.id == identity_id && e.tier == Some(0));
+                .iter()
+                .find(|e| &e.id == identity_id && e.tier == Some(0))
+                .cloned();
             Some(if let Some(entry) = note_entry {
                 // Transitional grace for un-migrated repos whose identityInstanceId points to a
                 // Tier-0 note. Surface a diagnostic and use the catalog-derived title as the
@@ -143,16 +151,12 @@ pub fn repository_navigation_with_depth(
         }
     };
 
-    // RFC-013 I-80/R2: root-container membership = memberInstanceIds ∪ rootInstanceIds.
-    let member_ids: Vec<String> = {
-        let mut ids: HashSet<String> = root_container
-            .member_instance_ids
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
-        ids.extend(root_container.root_instance_ids.unwrap_or_default());
-        ids.into_iter().collect()
-    };
+    // RFC-043 [R12]: navigation order IS the root container's entry order (identity excluded);
+    // `precedes` and Rule [N+12] are never consulted.
+    let entries = root_container
+        .member_instance_ids
+        .clone()
+        .unwrap_or_default();
     // Sections are resolved tier-aware (srs-rust#842). RFC-013 puts no tier
     // constraint on the non-identity members that are the navigation sections,
     // and RFC-029 Change B explicitly permits `repo create` to scaffold a Tier-0
@@ -167,10 +171,14 @@ pub fn repository_navigation_with_depth(
     // longer surface a Tier-1 member for this loop to special-case: every
     // resolvable member is now Tier 0 or Tier 2, both of which load through
     // the tier-aware `get_instance_by_id` seam below.
-    let instances = store.catalog()?.instances;
-    let section_containers = section_containers_by_root(store)?;
-    let mut section_members = Vec::new();
-    for id in &member_ids {
+    let cat = store.catalog()?;
+    let instances = &cat.instances;
+    let (section_containers, link_diagnostics) = section_containers_by_root(store)?;
+    diagnostics.extend(link_diagnostics);
+    let mut sections: Vec<NavigationNode> = Vec::new();
+    for entry in &entries {
+        let id = &entry.instance_id;
+        let depth = entry.depth();
         // With no identity, nothing is excluded — every root stays in `sections`.
         if identity_id.as_deref() == Some(id.as_str()) {
             continue;
@@ -193,38 +201,31 @@ pub fn repository_navigation_with_depth(
                 path: PathBuf::from(format!("instance/{id}")),
             }
         })?;
-        let created_at = instance.created_at().map(str::to_string);
-        section_members.push(SectionMember {
-            created_at,
-            node: match instance {
-                record_store::LoadedInstance::Record(record) => node_for_record(
+        sections.push(match instance {
+            record_store::LoadedInstance::Record(record) => {
+                let mut node = node_for_record(
                     &record,
                     &identity_field_index,
                     &field_name_index,
                     section_container_id,
-                ),
-                // A Note has no type binding and no identity field, so its
-                // own title is the only label there is.
-                record_store::LoadedInstance::Note(note) => NavigationNode {
-                    display_label: note
-                        .title
-                        .clone()
-                        .unwrap_or_else(|| note.instance_id.clone()),
-                    instance_id: note.instance_id,
-                    section_container_id,
-                    ..Default::default()
-                },
+                );
+                node.depth = depth;
+                node
+            }
+            // A Note has no type binding and no identity field, so its
+            // own title is the only label there is.
+            record_store::LoadedInstance::Note(note) => NavigationNode {
+                display_label: note
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| note.instance_id.clone()),
+                instance_id: note.instance_id,
+                section_container_id,
+                depth,
+                ..Default::default()
             },
         });
     }
-
-    let relations = relation_service::load_relations(store)?;
-    // RFC-013 step 4: a `precedes` fork or cycle among the sections still yields
-    // one deterministic order — and says so out loud.
-    let (ordered, ordering_diagnostics) =
-        relation_graph::sort_by_precedes_chain_diagnosed(section_members, &relations);
-    diagnostics.extend(ordering_diagnostics);
-    let mut sections: Vec<NavigationNode> = ordered.into_iter().map(|m| m.node).collect();
 
     // rfc-decision-0750c62f consequence 3: below the root container, navigation is the
     // part-of tree. One traversal, one home — `tree_service` already walks `contains`
@@ -265,23 +266,6 @@ pub fn repository_navigation_with_depth(
     })
 }
 
-/// A resolved section node awaiting `precedes` ordering. Carries `created_at`
-/// separately because a section member need not be a Record (srs-rust#842).
-#[derive(Clone)]
-struct SectionMember {
-    node: NavigationNode,
-    created_at: Option<String>,
-}
-
-impl relation_graph::PrecedesSortable for SectionMember {
-    fn precedes_instance_id(&self) -> &str {
-        &self.node.instance_id
-    }
-    fn precedes_created_at(&self) -> Option<&str> {
-        self.created_at.as_deref()
-    }
-}
-
 fn node_for_record(
     record: &Record,
     identity_field_index: &HashMap<(String, u32), String>,
@@ -296,6 +280,7 @@ fn node_for_record(
         type_name: record.type_name.clone(),
         display_label: display_label(record, identity_field_index, field_name_index),
         section_container_id,
+        depth: 0,
         children: Vec::new(),
         already_expanded: false,
     }
@@ -309,6 +294,7 @@ fn node_for_tree_node(
 ) -> NavigationNode {
     NavigationNode {
         section_container_id: section_containers.get(&node.instance_id).cloned(),
+        depth: 0,
         children: node
             .children
             .into_iter()
@@ -332,25 +318,43 @@ fn display_label(
     record_label::record_display_label(record, identity_field_index, field_name_index)
 }
 
-/// `rootInstanceId -> containerId` for every container declaring roots — the
-/// descent hook shared by navigation sections and container members (srs-rust#949).
+/// `anchorInstanceId -> containerId` — RFC-043 [R19]: the section container of a record is
+/// the Container whose `anchorInstanceId` equals it. The descent hook shared by navigation
+/// sections and container members (srs-rust#949). Where more than one container names the same
+/// anchor the link is ambiguous: it is omitted and a `section-container-ambiguous` diagnostic
+/// is returned — never resolved by position or storage order.
 pub(crate) fn section_containers_by_root(
     store: &dyn RepositoryStore,
-) -> Result<HashMap<String, String>, RepositoryError> {
-    let containers = container_service::list_containers(store, &ContainerListFilter::default())?;
-    Ok(containers
-        .into_iter()
-        .filter_map(|summary| {
-            let container = container_service::get_container(store, &summary.container_id).ok()?;
-            let roots = container.root_instance_ids?;
-            Some((summary.container_id, roots))
-        })
-        .flat_map(|(container_id, roots)| {
-            roots
-                .into_iter()
-                .map(move |root_id| (root_id, container_id.clone()))
-        })
-        .collect())
+) -> Result<(HashMap<String, String>, Vec<String>), RepositoryError> {
+    let mut by_anchor: HashMap<String, Vec<String>> = HashMap::new();
+    for summary in container_service::list_containers(store, &ContainerListFilter::default())? {
+        let Ok(container) = container_service::get_container(store, &summary.container_id) else {
+            continue;
+        };
+        if let Some(anchor) = container.anchor_instance_id {
+            by_anchor
+                .entry(anchor)
+                .or_default()
+                .push(summary.container_id);
+        }
+    }
+    let mut map = HashMap::new();
+    let mut diagnostics = Vec::new();
+    let mut anchors: Vec<_> = by_anchor.into_iter().collect();
+    anchors.sort();
+    for (anchor, mut containers) in anchors {
+        if containers.len() == 1 {
+            map.insert(anchor, containers.remove(0));
+        } else {
+            containers.sort();
+            diagnostics.push(format!(
+                "section-container-ambiguous: anchor {anchor} is named by {} containers ({}); no section-container link is chosen (RFC-043 [R19])",
+                containers.len(),
+                containers.join(", ")
+            ));
+        }
+    }
+    Ok((map, diagnostics))
 }
 
 #[cfg(test)]
@@ -406,6 +410,7 @@ mod tests {
 
     fn record(id: &str, title: &str, created_at: &str) -> Record {
         Record {
+            created_by: None,
             field_meta: None,
             instance_id: id.to_string(),
             type_id: format!("type-{id}"),
@@ -480,7 +485,6 @@ mod tests {
                 container_type: None,
                 identity_instance_id: identity.clone(),
                 anchor_instance_id: None,
-                root_instance_ids: None,
                 member_instance_ids: None,
                 child_container_ids: None,
                 tags: None,
@@ -523,29 +527,21 @@ mod tests {
             "records/decision-log-root.json",
         );
 
-        container_service::create_container(
+        // a000 is already claimed as the manifest's embedded root above — materialising
+        // its full definition is a replace, not a create (srs-rust#1167).
+        container_service::update_container(
             &store,
-            Container {
-                container_id: "00000000-0000-4000-8000-00000000a000".to_string(),
-                title: "Example Governance".to_string(),
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
+            "00000000-0000-4000-8000-00000000a000",
+            container_service::ContainerPatch {
+                title: Some("Example Governance".to_string()),
                 identity_instance_id: identity,
-                anchor_instance_id: None,
-                member_instance_ids: Some(vec![
+                member_instance_ids: Some(srs_core::types::container::entries(vec![
                     "00000000-0000-4000-8000-00000000a100".to_string(),
                     "00000000-0000-4000-8000-00000000a300".to_string(),
                     "00000000-0000-4000-8000-00000000a200".to_string(),
-                ]),
-                root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a100".to_string()]),
-                child_container_ids: None,
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
+                ])),
+                anchor_instance_id: Some("00000000-0000-4000-8000-00000000a100".to_string()),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -560,10 +556,9 @@ mod tests {
                 description: None,
                 container_type: Some("stale-hint-is-not-a-key".to_string()),
                 identity_instance_id: None,
-                anchor_instance_id: None,
                 member_instance_ids: None,
                 child_container_ids: None,
-                root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a200".to_string()]),
+                anchor_instance_id: Some("00000000-0000-4000-8000-00000000a200".to_string()),
                 tags: None,
                 created_at: None,
                 updated_at: None,
@@ -583,10 +578,9 @@ mod tests {
                 description: None,
                 container_type: Some("another-stale-hint".to_string()),
                 identity_instance_id: None,
-                anchor_instance_id: None,
                 member_instance_ids: None,
                 child_container_ids: None,
-                root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a300".to_string()]),
+                anchor_instance_id: Some("00000000-0000-4000-8000-00000000a300".to_string()),
                 tags: None,
                 created_at: None,
                 updated_at: None,
@@ -606,7 +600,7 @@ mod tests {
     }
 
     #[test]
-    fn repository_navigation_returns_identity_and_precedes_ordered_sections() {
+    fn repository_navigation_returns_identity_and_entry_ordered_sections() {
         let store = nav_store();
         let nav = super::repository_navigation(&store).unwrap();
 
@@ -621,15 +615,17 @@ mod tests {
             .iter()
             .map(|section| section.display_label.as_str())
             .collect();
-        assert_eq!(labels, vec!["Articles", "Decision Log"]);
+        // RFC-043 [R12]: navigation order IS the root container's entry order (Decision Log is
+        // listed before Articles); the `precedes` edge Articles -> Decision Log is ignored.
+        assert_eq!(labels, vec!["Decision Log", "Articles"]);
 
         assert_eq!(
             nav.sections[0].section_container_id.as_deref(),
-            Some("00000000-0000-4000-8000-00000000b000")
+            Some("00000000-0000-4000-8000-00000000c000")
         );
         assert_eq!(
             nav.sections[1].section_container_id.as_deref(),
-            Some("00000000-0000-4000-8000-00000000c000")
+            Some("00000000-0000-4000-8000-00000000b000")
         );
         assert!(nav.diagnostics.is_empty());
     }
@@ -643,13 +639,14 @@ mod tests {
     /// `sort_by_precedes_chain` keys a missing one on `""` — which sorts before
     /// every ISO timestamp, silently pinning every Tier-0 section to the front.
     #[test]
-    fn tier_0_section_orders_by_its_own_created_at() {
+    fn tier_0_section_takes_its_entry_position() {
         let store = nav_store_with_identity(None);
         // a100 = 2026-01-01, a200 = 2026-01-02 (which `precedes` a300); this
         // note is timestamped between a100 and a200, so that is where it belongs.
         let note_id = "00000000-0000-4000-8000-00000000a250";
         store
             .save_note(&srs_core::types::note::Note {
+                created_by: None,
                 instance_id: note_id.to_string(),
                 title: Some("Middle Note".to_string()),
                 tags: None,
@@ -661,8 +658,14 @@ mod tests {
                 meta: None,
             })
             .unwrap();
-        container_service::add_member(&store, "00000000-0000-4000-8000-00000000a000", note_id)
-            .unwrap();
+        container_service::add_member(
+            &store,
+            "00000000-0000-4000-8000-00000000a000",
+            note_id,
+            None,
+            None,
+        )
+        .unwrap();
 
         let nav = super::repository_navigation(&store).unwrap();
         let labels: Vec<&str> = nav
@@ -674,11 +677,11 @@ mod tests {
             labels,
             vec![
                 "Example Governance",
-                "Middle Note",
+                "Decision Log",
                 "Articles",
-                "Decision Log"
+                "Middle Note"
             ],
-            "the Tier-0 note must sort by its own createdAt, not ahead of everything"
+            "the Tier-0 note sits at its entry position (appended), not sorted by createdAt"
         );
     }
 
@@ -697,11 +700,10 @@ mod tests {
                 container_type: None,
                 identity_instance_id: Some("00000000-0000-4000-8000-00000000a100".to_string()),
                 anchor_instance_id: None,
-                root_instance_ids: None,
-                member_instance_ids: Some(vec![
+                member_instance_ids: Some(srs_core::types::container::entries(vec![
                     "00000000-0000-4000-8000-00000000a100".to_string(),
                     "00000000-0000-4000-8000-00000000a200".to_string(),
-                ]),
+                ])),
                 child_container_ids: None,
                 tags: None,
                 created_at: None,
@@ -791,8 +793,9 @@ mod tests {
                 container_type: None,
                 identity_instance_id: Some(note_id.clone()),
                 anchor_instance_id: None,
-                root_instance_ids: None,
-                member_instance_ids: Some(vec![note_id.clone()]),
+                member_instance_ids: Some(srs_core::types::container::entries(vec![
+                    note_id.clone()
+                ])),
                 child_container_ids: None,
                 tags: None,
                 created_at: None,
@@ -931,49 +934,32 @@ mod tests {
 
         // Replace sub-containers b000 and c000 with variants where each root record
         // is also listed as a member of its own container (the "root is also a member" shape).
-        // create_container overwrites an existing container when the container_id matches.
-        container_service::create_container(
+        // Both already exist from nav_store(), so this goes through update, not create
+        // (srs-rust#1167).
+        container_service::update_container(
             &store,
-            Container {
-                container_id: "00000000-0000-4000-8000-00000000b000".to_string(),
-                title: "Articles".to_string(),
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
-                identity_instance_id: None,
-                anchor_instance_id: None,
-                member_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a200".to_string()]),
-                root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a200".to_string()]),
-                child_container_ids: None,
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
+            "00000000-0000-4000-8000-00000000b000",
+            container_service::ContainerPatch {
+                title: Some("Articles".to_string()),
+                member_instance_ids: Some(srs_core::types::container::entries(vec![
+                    "00000000-0000-4000-8000-00000000a200".to_string(),
+                ])),
+                anchor_instance_id: Some("00000000-0000-4000-8000-00000000a200".to_string()),
+                ..Default::default()
             },
         )
         .unwrap();
 
-        container_service::create_container(
+        container_service::update_container(
             &store,
-            Container {
-                container_id: "00000000-0000-4000-8000-00000000c000".to_string(),
-                title: "Decision Log".to_string(),
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
-                identity_instance_id: None,
-                anchor_instance_id: None,
-                member_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a300".to_string()]),
-                root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a300".to_string()]),
-                child_container_ids: None,
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
+            "00000000-0000-4000-8000-00000000c000",
+            container_service::ContainerPatch {
+                title: Some("Decision Log".to_string()),
+                member_instance_ids: Some(srs_core::types::container::entries(vec![
+                    "00000000-0000-4000-8000-00000000a300".to_string(),
+                ])),
+                anchor_instance_id: Some("00000000-0000-4000-8000-00000000a300".to_string()),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -983,22 +969,19 @@ mod tests {
         assert_eq!(nav.sections.len(), 2);
         assert_eq!(
             nav.sections[0].section_container_id.as_deref(),
-            Some("00000000-0000-4000-8000-00000000b000")
+            Some("00000000-0000-4000-8000-00000000c000")
         );
         assert_eq!(
             nav.sections[1].section_container_id.as_deref(),
-            Some("00000000-0000-4000-8000-00000000c000")
+            Some("00000000-0000-4000-8000-00000000b000")
         );
         assert!(nav.diagnostics.is_empty());
     }
 
     #[test]
-    fn repository_navigation_root_instance_ids_only_yields_same_sections() {
-        // Regression for: rootInstanceIds was effectively dead for the root container.
-        // RFC-013 I-80/R2: membership = memberInstanceIds ∪ rootInstanceIds.
-        // This test constructs a root container where all section IDs are in
-        // rootInstanceIds only (memberInstanceIds contains only the identity), and
-        // asserts that navigation returns the same sections as if they were in memberInstanceIds.
+    fn repository_navigation_yields_every_non_identity_entry_in_order() {
+        // RFC-043 [R12]: every non-identity entry of the root container's outline is a
+        // navigation entry, in entry order.
         let manifest = Manifest {
             container: Some(Container {
                 container_id: "00000000-0000-4000-8000-00000000e000".to_string(),
@@ -1008,12 +991,12 @@ mod tests {
                 description: None,
                 container_type: None,
                 identity_instance_id: Some("00000000-0000-4000-8000-00000000e100".to_string()),
-                anchor_instance_id: None,
-                root_instance_ids: Some(vec![
+                anchor_instance_id: Some("00000000-0000-4000-8000-00000000e200".to_string()),
+                member_instance_ids: Some(srs_core::types::container::entries(vec![
+                    "00000000-0000-4000-8000-00000000e100".to_string(),
                     "00000000-0000-4000-8000-00000000e200".to_string(),
                     "00000000-0000-4000-8000-00000000e300".to_string(),
-                ]),
-                member_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000e100".to_string()]),
+                ])),
                 child_container_ids: None,
                 tags: None,
                 created_at: None,
@@ -1065,11 +1048,7 @@ mod tests {
             identity_of(&nav).instance_id,
             "00000000-0000-4000-8000-00000000e100"
         );
-        assert_eq!(
-            nav.sections.len(),
-            2,
-            "both rootInstanceIds sections must appear"
-        );
+        assert_eq!(nav.sections.len(), 2, "both section entries must appear");
         let section_ids: std::collections::HashSet<&str> = nav
             .sections
             .iter()
@@ -1080,10 +1059,79 @@ mod tests {
         assert!(nav.diagnostics.is_empty());
     }
 
+    /// RFC-043 [R19]: two containers anchored on one record make the link ambiguous — reported,
+    /// and no link is chosen by position or storage order.
     #[test]
-    fn repository_navigation_union_deduplicates_ids_in_both_arrays() {
-        // When an ID appears in both rootInstanceIds and memberInstanceIds, it must appear
-        // as a section exactly once (no duplicate NavigationNode).
+    fn shared_anchor_reports_section_container_ambiguous_and_links_nothing() {
+        let store = nav_store();
+        container_service::create_container(
+            &store,
+            Container {
+                container_id: "00000000-0000-4000-8000-00000000b001".to_string(),
+                title: "Articles again".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                anchor_instance_id: Some("00000000-0000-4000-8000-00000000a200".to_string()),
+                member_instance_ids: None,
+                child_container_ids: None,
+                tags: None,
+                created_at: None,
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .unwrap();
+        let nav = super::repository_navigation(&store).unwrap();
+        let articles = nav
+            .sections
+            .iter()
+            .find(|s| s.display_label == "Articles")
+            .unwrap();
+        assert!(articles.section_container_id.is_none());
+        assert!(
+            nav.diagnostics
+                .iter()
+                .any(|d| d.starts_with("section-container-ambiguous")),
+            "{:?}",
+            nav.diagnostics
+        );
+    }
+
+    /// RFC-043 [R12]: the payload carries each entry's `depth`, in entry order.
+    #[test]
+    fn navigation_carries_entry_depth_in_order() {
+        let store = nav_store();
+        let root = "00000000-0000-4000-8000-00000000a000";
+        // [identity a100, decision log a300, articles a200] -> nest articles under decision log.
+        container_service::move_member(
+            &store,
+            root,
+            "00000000-0000-4000-8000-00000000a200",
+            None,
+            Some(1),
+        )
+        .unwrap();
+        let nav = super::repository_navigation(&store).unwrap();
+        let shape: Vec<(&str, u32)> = nav
+            .sections
+            .iter()
+            .map(|s| (s.display_label.as_str(), s.depth))
+            .collect();
+        assert_eq!(shape, vec![("Decision Log", 0), ("Articles", 1)]);
+        let json = serde_json::to_value(&nav).unwrap();
+        assert_eq!(json["sections"][1]["depth"], 1);
+        assert!(
+            json["sections"][0].get("depth").is_none(),
+            "depth 0 is omitted"
+        );
+    }
+
+    #[test]
+    fn repository_navigation_lists_a_single_entry_section_once() {
         let manifest = Manifest {
             container: Some(Container {
                 container_id: "00000000-0000-4000-8000-00000000f000".to_string(),
@@ -1093,14 +1141,13 @@ mod tests {
                 description: None,
                 container_type: None,
                 identity_instance_id: Some("00000000-0000-4000-8000-00000000f100".to_string()),
-                anchor_instance_id: None,
                 // Section ID appears in BOTH arrays (the dedup scenario), in the
                 // embed itself — RFC-038 [R1]: the root container is embed-only.
-                root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000f200".to_string()]),
-                member_instance_ids: Some(vec![
+                anchor_instance_id: Some("00000000-0000-4000-8000-00000000f200".to_string()),
+                member_instance_ids: Some(srs_core::types::container::entries(vec![
                     "00000000-0000-4000-8000-00000000f100".to_string(),
                     "00000000-0000-4000-8000-00000000f200".to_string(),
-                ]),
+                ])),
                 child_container_ids: None,
                 tags: None,
                 created_at: None,
@@ -1263,25 +1310,15 @@ mod tests {
     fn navigation_children_carry_the_section_container_hook() {
         let store = nav_store_with_part_of_tree();
         // b000 roots a200, which is now a child-bearing section; scope a220 too.
-        container_service::create_container(
+        // c000 already exists from nav_store(), so this re-anchors it via update,
+        // not create (srs-rust#1167).
+        container_service::update_container(
             &store,
-            srs_core::types::container::Container {
-                container_id: "00000000-0000-4000-8000-00000000c000".to_string(),
-                title: "Article Two".to_string(),
-                namespace: None,
-                name: None,
-                description: None,
-                container_type: None,
-                identity_instance_id: None,
-                anchor_instance_id: None,
-                member_instance_ids: None,
-                child_container_ids: None,
-                root_instance_ids: Some(vec!["00000000-0000-4000-8000-00000000a220".to_string()]),
-                tags: None,
-                created_at: None,
-                updated_at: None,
-                meta: None,
-                extra: std::collections::BTreeMap::new(),
+            "00000000-0000-4000-8000-00000000c000",
+            container_service::ContainerPatch {
+                title: Some("Article Two".to_string()),
+                anchor_instance_id: Some("00000000-0000-4000-8000-00000000a220".to_string()),
+                ..Default::default()
             },
         )
         .unwrap();

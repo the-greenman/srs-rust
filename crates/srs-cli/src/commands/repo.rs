@@ -30,8 +30,8 @@ use srs_repository::manifest_service::{
 use srs_repository::migrate_identity_service;
 use srs_repository::migration_registry_service;
 use srs_repository::repository_lifecycle::{
-    create_repository_with_intent, init_new_repository, InitNewRepositoryInput,
-    InitializeRepositoryInput, PrimaryPackageMetadata, RepositoryMetadata,
+    create_blank_repository, init_new_repository, CreateBlankRepositoryInput,
+    InitNewRepositoryInput,
 };
 use srs_repository::repository_navigation_service::repository_navigation_with_depth;
 use srs_repository::repository_portability::copy_repository;
@@ -54,15 +54,17 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
             package_namespace,
         } => cmd_repo_create(
             ctx,
-            repository_id,
-            namespace,
-            title,
-            description,
-            srs_version,
-            package_id,
-            package_name,
-            package_version,
-            package_namespace,
+            CreateBlankRepositoryInput {
+                namespace,
+                title,
+                description,
+                repository_id,
+                srs_version,
+                package_id,
+                package_name,
+                package_version,
+                package_namespace,
+            },
         ),
         RepoCommand::Map { json: _ } => cmd_repo_map(ctx),
         RepoCommand::Navigation { depth } => cmd_repo_navigation(ctx, depth),
@@ -175,48 +177,18 @@ fn cmd_repo_doctor(ctx: CliContext, fix: bool) -> Result<String> {
     output::serialize("repo doctor", RepoDoctorPayload::from(report))
 }
 
-#[allow(clippy::too_many_arguments)]
-fn cmd_repo_create(
-    ctx: CliContext,
-    repository_id: Option<String>,
-    namespace: String,
-    title: Option<String>,
-    description: Option<String>,
-    srs_version: String,
-    package_id: Option<String>,
-    package_name: String,
-    package_version: String,
-    package_namespace: Option<String>,
-) -> Result<String> {
-    let repository_id = repository_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let package_id = package_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-
-    let input = InitializeRepositoryInput {
-        repository: RepositoryMetadata {
-            repository_id,
-            namespace: namespace.clone(),
-            srs_version,
-            title,
-            description,
-        },
-        primary_package: PrimaryPackageMetadata {
-            id: package_id,
-            namespace: package_namespace.unwrap_or(namespace),
-            name: package_name,
-            version: package_version,
-        },
-    };
-
+/// Adapter only: every default lives in `create_blank_repository` (#1151).
+fn cmd_repo_create(ctx: CliContext, input: CreateBlankRepositoryInput) -> Result<String> {
     let result = match ctx.store {
         StoreBackend::File => {
             let store = FileStore::new(&ctx.repo);
-            create_repository_with_intent(&store, &input)?
+            create_blank_repository(&store, input)?
         }
         StoreBackend::Json => {
             let mut session = SrsjSession::create(&ctx.repo).with_context(|| {
                 format!("Failed to create .srsj session at {}", ctx.repo.display())
             })?;
-            let result = create_repository_with_intent(session.store(), &input)?;
+            let result = create_blank_repository(session.store(), input)?;
             session.flush()?;
             result
         }
@@ -429,7 +401,10 @@ fn render_agent_index(idx: &srs_repository::agent_index_service::AgentIndex) -> 
     if !idx.entry_points.is_empty() {
         out.push_str("\n## Suggested Entry Points\n\n");
         for ep in &idx.entry_points {
-            out.push_str(&format!("- `{}`\n", ep));
+            match &ep.uri {
+                Some(uri) => out.push_str(&format!("- `{}` ({})\n", ep.path, uri)),
+                None => out.push_str(&format!("- `{}`\n", ep.path)),
+            }
         }
     }
     out

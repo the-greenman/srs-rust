@@ -11,7 +11,10 @@ use srs_mcp_core::srs_resources;
 use srs_repository::agent_index_service::build_agent_index;
 use srs_repository::analysis::build_repo_map;
 use srs_repository::container_view_service::{resolve_container_view, ResolveContainerViewInput};
-use srs_repository::package_service::{create_field_normalized, create_type_normalized};
+use srs_repository::package_service::{
+    create_field_normalized, create_relation_type_normalized, create_type_normalized,
+    list_relation_types_filtered, RelationTypeListFilter,
+};
 use srs_repository::protocol_service::{create_protocol, list_protocol_stages, list_protocols};
 use srs_repository::record_store::get_record_by_id;
 use srs_repository::render_service::{render_composition, RenderCompositionOptions};
@@ -209,12 +212,25 @@ async fn list_resources_enumerates_containers_and_views() {
         .await
         .unwrap()
         .resource_templates;
-    assert_eq!(templates.len(), 4);
+    assert_eq!(templates.len(), 5);
     let tmpl_uris: Vec<&str> = templates.iter().map(|t| t.uri_template.as_str()).collect();
     assert!(tmpl_uris.contains(&format!("srs://{}/record/{{instanceId}}", fx.repo_id).as_str()));
     assert!(tmpl_uris.contains(&format!("srs://{}/type/{{typeId}}", fx.repo_id).as_str()));
     assert!(tmpl_uris.contains(&format!("srs://{}/protocol/{{protocolId}}", fx.repo_id).as_str()));
-    assert!(tmpl_uris.contains(&format!("srs://{}/tree/{{instanceId}}", fx.repo_id).as_str()));
+    assert!(tmpl_uris.contains(
+        &format!(
+            "srs://{}/tree/{{instanceId}}{{?maxDepth,relationType,typeFilter}}",
+            fx.repo_id
+        )
+        .as_str()
+    ));
+    assert!(tmpl_uris.contains(
+        &format!(
+            "srs://{}/context/{{containerId}}/{{instanceId}}{{?excludeRelationCategories}}",
+            fx.repo_id
+        )
+        .as_str()
+    ));
 
     // Protocols: one list resource plus one concrete resource per definition.
     assert!(uris.contains(&format!("srs://{}/protocol", fx.repo_id).as_str()));
@@ -227,17 +243,15 @@ async fn list_resources_enumerates_containers_and_views() {
     client.cancel().await.unwrap();
 }
 
+/// The native rmcp model must carry the core's JSON catalogue losslessly: the
+/// stdio server serves exactly what the browser dispatcher serves.
 #[test]
-fn core_resource_catalogue_matches_native_for_dynamic_fixture() {
+fn core_resource_catalogue_round_trips_through_rmcp_models() {
     let fx = make_fixture();
     let store = store_for(&fx);
-    let native = srs_mcp::McpApplication::new(&store, &fx.repo_id)
-        .list_resources()
-        .unwrap();
-    assert_eq!(
-        srs_resources::list_resources(&store, &fx.repo_id).unwrap(),
-        serde_json::to_value(native).unwrap()
-    );
+    let core = srs_resources::list_resources(&store, &fx.repo_id).unwrap();
+    let native: rmcp::model::ListResourcesResult = serde_json::from_value(core.clone()).unwrap();
+    assert_eq!(serde_json::to_value(native).unwrap(), core);
 }
 
 async fn read_text(
@@ -263,6 +277,29 @@ async fn read_text(
 }
 
 #[tokio::test]
+async fn read_record_resolves_a_tier0_note() {
+    let fx = make_fixture();
+    std::fs::create_dir_all(fx.dir.path().join("records/notes")).unwrap();
+    let note_id = uuid::Uuid::new_v4().to_string();
+    std::fs::write(
+        fx.dir.path().join(format!("records/notes/{note_id}.json")),
+        serde_json::json!({
+            "instanceId": note_id,
+            "title": "A note",
+            "sections": [{"name": "body", "content": "hello"}]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let client = connect(&fx).await;
+    let (_, text) = read_text(&client, format!("srs://{}/record/{}", fx.repo_id, note_id)).await;
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(v["instanceId"], note_id.as_str());
+    assert_eq!(v["title"], "A note");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn read_record_matches_service_output() {
     let fx = make_fixture();
     let client = connect(&fx).await;
@@ -278,6 +315,43 @@ async fn read_record_matches_service_output() {
         .unwrap()
         .expect("identity record exists");
     assert_eq!(text, serde_json::to_string_pretty(&record).unwrap());
+
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn read_context_exclude_categories_matches_service_and_rejects_unknown() {
+    use srs_core::types::relation_type_definition::RelationTypeCategory::{Composition, Sequence};
+    use srs_repository::context_query_service::{get_record_context, RecordContextQuery};
+    let fx = make_fixture();
+    let client = connect(&fx).await;
+
+    let (_, text) = read_text(
+        &client,
+        format!(
+            "srs://{}/context/{}?excludeRelationCategories=composition,sequence",
+            fx.repo_id, fx.identity_id
+        ),
+    )
+    .await;
+    let expected = get_record_context(
+        &store_for(&fx),
+        RecordContextQuery {
+            record_id: fx.identity_id.clone(),
+            container_id: None,
+            exclude_relation_categories: vec![Composition, Sequence],
+        },
+    )
+    .unwrap();
+    assert_eq!(text, serde_json::to_string_pretty(&expected).unwrap());
+
+    let err = client
+        .read_resource(ReadResourceRequestParams::new(format!(
+            "srs://{}/context/{}?excludeRelationCategories=nope",
+            fx.repo_id, fx.identity_id
+        )))
+        .await;
+    assert!(err.is_err());
 
     client.cancel().await.unwrap();
 }
@@ -341,6 +415,7 @@ async fn read_view_renders_markdown() {
         theme_variant: None,
         container_id: None,
         instance_id_filter: None,
+        exclude_instance_ids: &[],
     })
     .unwrap();
     assert_eq!(text, expected.rendered);
@@ -510,9 +585,10 @@ async fn read_tree_agent_index_and_descent_hook() {
             description: None,
             container_type: None,
             identity_instance_id: None,
-            anchor_instance_id: None,
-            root_instance_ids: Some(vec![fx.identity_id.clone()]),
-            member_instance_ids: None,
+            anchor_instance_id: Some(fx.identity_id.clone()),
+            member_instance_ids: Some(srs_core::types::container::entries([fx
+                .identity_id
+                .clone()])),
             child_container_ids: None,
             tags: None,
             created_at: None,
@@ -548,6 +624,33 @@ async fn read_tree_agent_index_and_descent_hook() {
     let parsed: serde_json::Value = serde_json::from_str(&sub_text).unwrap();
     assert_eq!(parsed["roots"][0]["instanceId"], fx.identity_id);
 
+    // #1229: query params reach `build_tree`; a bad query is refused.
+    let (_, bounded) = read_text(
+        &client,
+        format!(
+            "srs://{}/tree?maxDepth=0&relationType=depends-on",
+            fx.repo_id
+        ),
+    )
+    .await;
+    let expected = build_tree(
+        &store,
+        TreeOptions {
+            max_depth: Some(0),
+            relation_type: "depends-on".into(),
+            ..TreeOptions::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(bounded, serde_json::to_string_pretty(&expected).unwrap());
+    assert!(client
+        .read_resource(rmcp::model::ReadResourceRequestParams::new(format!(
+            "srs://{}/tree?maxDepth=x",
+            fx.repo_id
+        )))
+        .await
+        .is_err());
+
     let (_, idx_text) = read_text(&client, format!("srs://{}/agent-index", fx.repo_id)).await;
     assert_eq!(
         idx_text,
@@ -568,5 +671,252 @@ async fn read_tree_agent_index_and_descent_hook() {
         .expect("identity is a root-container member");
     assert_eq!(member["sectionContainerId"], sub.container_id);
 
+    client.cancel().await.unwrap();
+}
+
+/// #1251: the relation-types resource lists every installed type (an unused package type and
+/// the core types), equals the service WASM uses, is enumerated, and is named by agent-index.
+#[tokio::test]
+async fn read_relation_types_lists_installed_unused_and_core_types() {
+    let fx = make_fixture();
+    let store = store_for(&fx);
+    create_relation_type_normalized(
+        &store,
+        serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "version": 1,
+            "key": "com.example.mcptest/bears-on",
+            "namespace": "com.example.mcptest",
+            "label": "Bears on",
+            "description": "Never used by any relation",
+            "category": "dependency"
+        }),
+        None,
+    )
+    .unwrap();
+    let client = connect(&fx).await;
+    let uri = format!("srs://{}/relation-types", fx.repo_id);
+
+    let listed = client.list_resources(None).await.unwrap().resources;
+    assert!(listed.iter().any(|r| r.uri == uri));
+
+    let (_, text) = read_text(&client, uri.clone()).await;
+    let body: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        body["relationTypes"],
+        serde_json::to_value(
+            list_relation_types_filtered(&store, RelationTypeListFilter::default()).unwrap()
+        )
+        .unwrap()
+    );
+    let keys: Vec<&str> = body["relationTypes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["key"].as_str().unwrap())
+        .collect();
+    assert!(keys.contains(&"com.example.mcptest/bears-on"), "{keys:?}");
+    assert!(keys.contains(&"contains"), "core types listed: {keys:?}");
+
+    let (_, idx_text) = read_text(&client, format!("srs://{}/agent-index", fx.repo_id)).await;
+    let idx: serde_json::Value = serde_json::from_str(&idx_text).unwrap();
+    assert_eq!(idx["relationTypesUri"], uri);
+
+    client.cancel().await.unwrap();
+}
+
+/// srs-rust#1255: `composition/{id}?containerId=&excludeInstanceId=` is a pass-through to
+/// `render_composition`. Essay shape: container-subset, arranged, no literal containerId,
+/// a paragraph view, an anchor record whose type has an identity field.
+#[tokio::test]
+async fn read_composition_renders_for_container_and_exclude() {
+    use srs_repository::container_service::create_container;
+    use srs_repository::record_store::create_record;
+    use srs_repository::view_service::create_view_normalized;
+
+    let fx = make_fixture();
+    let store = store_for(&fx);
+    let new_id = || uuid::Uuid::new_v4().to_string();
+    let ns = "com.example.mcptest";
+    let (f_etitle, f_ptitle, f_body) = (new_id(), new_id(), new_id());
+    for (id, name) in [
+        (&f_etitle, "etitle"),
+        (&f_ptitle, "ptitle"),
+        (&f_body, "pbody"),
+    ] {
+        create_field_normalized(
+            &store,
+            serde_json::json!({"id": id, "namespace": ns, "name": name, "version": 1, "valueType": "string",
+                "aiGuidance": {"purpose": "Fixture text."}}),
+            None,
+        )
+        .unwrap();
+    }
+    let (t_essay, t_para) = (new_id(), new_id());
+    create_type_normalized(
+        &store,
+        serde_json::json!({"id": t_essay, "namespace": ns, "name": "essay", "version": 1,
+            "identityFieldId": f_etitle,
+            "fields": [{"fieldId": f_etitle, "order": 1, "required": true}]}),
+        None,
+    )
+    .unwrap();
+    create_type_normalized(
+        &store,
+        serde_json::json!({"id": t_para, "namespace": ns, "name": "paragraph", "version": 1,
+            "fields": [{"fieldId": f_ptitle, "order": 1, "required": false},
+                       {"fieldId": f_body, "order": 2, "required": true}]}),
+        None,
+    )
+    .unwrap();
+    let para_view = new_id();
+    create_view_normalized(
+        &store,
+        serde_json::json!({"$schema": "https://srs.semanticops.com/schema/2.0/view.json", "id": para_view, "namespace": ns, "name": "paragraph-view", "version": 1,
+            "compatibleTypes": [format!("{ns}/paragraph")],
+            "fieldViews": [
+                {"fieldId": f_ptitle, "order": 0, "required": false, "visible": true,
+                 "displayHint": "de-emphasised", "labelMode": "none"},
+                {"fieldId": f_body, "order": 1, "required": true, "visible": true, "labelMode": "none"}]}),
+        None,
+    )
+    .unwrap();
+    let comp_id = new_id();
+    create_composition_normalized(
+        &store,
+        serde_json::json!({
+            "$schema": "https://srs.semanticops.com/schema/2.0/composition.json",
+            "id": comp_id, "namespace": ns, "name": "essay-like", "version": 1,
+            "sections": [{"sectionId": "essay", "order": 0,
+                "source": {"type": "container-subset"},
+                "renderViewId": para_view,
+                "ordering": {"source": "arranged"}}]}),
+        None,
+    )
+    .unwrap();
+
+    let fv = |v: serde_json::Value| serde_json::from_value(v).unwrap();
+    let anchor = create_record(
+        &store,
+        &t_essay,
+        1,
+        fv(serde_json::json!({"etitle": "Anchor Title"})),
+        None,
+        None,
+    )
+    .unwrap();
+    let p1 = create_record(
+        &store,
+        &t_para,
+        1,
+        fv(serde_json::json!({"ptitle": "LeadOne", "pbody": "Body one."})),
+        None,
+        None,
+    )
+    .unwrap();
+    let p2 = create_record(
+        &store,
+        &t_para,
+        1,
+        fv(serde_json::json!({"pbody": "Body two."})),
+        None,
+        None,
+    )
+    .unwrap();
+    let container_id = new_id();
+    create_container(
+        &store,
+        srs_core::types::container::Container {
+            container_id: container_id.clone(),
+            title: "Essay Container".into(),
+            namespace: None,
+            name: None,
+            description: None,
+            container_type: None,
+            identity_instance_id: None,
+            anchor_instance_id: Some(anchor.instance_id.clone()),
+            member_instance_ids: Some(srs_core::types::container::entries([
+                anchor.instance_id.clone(),
+                p1.instance_id.clone(),
+                p2.instance_id.clone(),
+            ])),
+            child_container_ids: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            meta: None,
+            extra: Default::default(),
+        },
+    )
+    .unwrap();
+
+    let client = connect(&fx).await;
+    let base = format!("srs://{}/composition/{}", fx.repo_id, comp_id);
+    let expected = |container: Option<&str>, exclude: &[String]| {
+        render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: &comp_id,
+            format: Some("markdown"),
+            theme_variant: None,
+            container_id: container,
+            instance_id_filter: None,
+            exclude_instance_ids: exclude,
+        })
+        .unwrap()
+        .rendered
+    };
+
+    // No container: heading plus the [R9] diagnostic only, no members.
+    let (_, bare) = read_text(&client, base.clone()).await;
+    assert_eq!(bare, expected(None, &[]));
+    assert!(!bare.contains("Body one."), "{bare}");
+
+    // Container: every member renders, and it is exactly the service's output.
+    let (mime, full) = read_text(&client, format!("{base}?containerId={container_id}")).await;
+    assert_eq!(mime.as_deref(), Some("text/markdown"));
+    assert_eq!(full, expected(Some(&container_id), &[]));
+    assert!(full.contains("Essay Container"), "{full}");
+    assert!(
+        full.contains("Body one.") && full.contains("Body two."),
+        "{full}"
+    );
+
+    // Repeatable exclude: drops those members only.
+    let (_, one) = read_text(
+        &client,
+        format!(
+            "{base}?containerId={container_id}&excludeInstanceId={}&excludeInstanceId={}",
+            p1.instance_id, anchor.instance_id
+        ),
+    )
+    .await;
+    assert_eq!(
+        one,
+        expected(
+            Some(&container_id),
+            &[p1.instance_id.clone(), anchor.instance_id.clone()]
+        )
+    );
+    assert!(
+        one.contains("Body two.") && !one.contains("Body one."),
+        "{one}"
+    );
+    assert!(!one.contains("Anchor Title"), "{one}");
+
+    // containerId at most once; unknown keys (including the retired instanceId) refused.
+    for bad in [
+        format!("?containerId={container_id}&containerId={container_id}"),
+        "?bogus=1".to_string(),
+        "?instanceId=a".to_string(),
+    ] {
+        let err = client
+            .read_resource(ReadResourceRequestParams::new(format!("{base}{bad}")))
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("invalid srs:// uri"),
+            "{bad}: {err}"
+        );
+    }
     client.cancel().await.unwrap();
 }

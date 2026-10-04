@@ -74,6 +74,10 @@ pub struct PackageBoundary {
     pub lifecycle_paths: Vec<String>,
     /// Paths of composition files, relative to the boundary directory.
     pub composition_paths: Vec<String>,
+    /// RFC-044: the raw `packageDependencies` entries, verbatim (a legacy
+    /// entry is preserved unchanged until repaired, [R11]). `None` = the
+    /// property is absent, and a metadata save leaves it absent.
+    pub package_dependencies: Option<Vec<serde_json::Value>>,
 }
 
 impl PackageBoundary {
@@ -114,6 +118,7 @@ impl PackageBoundary {
             relation_type_paths: str_paths("relationTypes"),
             lifecycle_paths: str_paths("lifecycles"),
             composition_paths: str_paths("compositions"),
+            package_dependencies: pkg_json["packageDependencies"].as_array().cloned(),
         }
     }
 }

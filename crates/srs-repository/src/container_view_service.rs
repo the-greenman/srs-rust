@@ -94,8 +94,9 @@ pub struct ResolvedMember {
 
 /// The structured container view: root + ordered members + column spec.
 ///
-/// `members` is the full roots-first deduped membership; when present, `root` is the
-/// container's first root and also appears as the first entry of `members`.
+/// `members` is the full deduped membership (RFC-043: in the governing section's order, or entry
+/// order); when present, `root` is the container's anchor entry and also appears in `members`
+/// wherever the arrangement puts it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContainerView {
@@ -136,7 +137,7 @@ pub fn resolve_container_view(
 
     // Validate the container exists and read its root binding directly. Composition
     // matching and member ordering below go through `compositions_for_container` and
-    // `list_container_members`, which each re-load the container — an acceptable cost on
+    // `list_members`, which each re-load the container — an acceptable cost on
     // this Layer-1 read path in exchange for reusing the tested membership/matching logic
     // rather than duplicating it here.
     let container = container_service::get_container(store, &container_id)?;
@@ -149,20 +150,6 @@ pub fn resolve_container_view(
     // `compositions_for_container`). Surface it here — the one caller with both an
     // already-loaded `container` and an existing `diagnostics` bag — rather than only via
     // a separate `repo validate` invocation the caller of this function may never make.
-    if container.anchor_instance_id.is_none()
-        && container
-            .root_instance_ids
-            .as_ref()
-            .is_some_and(|ids| !ids.is_empty())
-    {
-        diagnostics.push(format!(
-            "resolve-container-view: container {container_id} has no anchorInstanceId; \
-             falling back to rootInstanceIds[0] as the typing anchor (RFC-009 I-145). This \
-             positional fallback is transitional and is withdrawn at the Continuity flip \
-             (rfc-decision-cce3c00e axis 2-8, the first full public release) — set \
-             anchorInstanceId explicitly before then"
-        ));
-    }
 
     // Build instance_id -> tier and instance_id -> display label lookups from one catalog
     // snapshot. The label index provides display labels for Tier-0 members (the entity
@@ -226,12 +213,8 @@ pub fn resolve_container_view(
         .map(section_exclude_lifecycle_states)
         .unwrap_or_default();
 
-    // Resolve the root (first root_instance_id, if any).
-    let mut root = match container
-        .root_instance_ids
-        .as_ref()
-        .and_then(|ids| ids.first())
-    {
+    // Resolve the root: the container's anchor entry (RFC-043 [R19]), if any.
+    let mut root = match container.anchor_instance_id.as_ref() {
         Some(root_id) => resolve_member(
             store,
             root_id,
@@ -246,26 +229,15 @@ pub fn resolve_container_view(
         None => None,
     };
 
-    // Resolve ordered members (roots-first, deduped). The roots-first prefix
-    // is this projection's own structural invariant (documented on
-    // `ContainerView.members`), independent of Composition-driven
-    // presentation order, so it is carved off and preserved as declared;
-    // RFC-015 [N+29]/#379 ordering — memberOrder, else authored
-    // fieldId+direction, else the [N+12] fallback, sourced from the governing
-    // section — applies only to the non-root tail. `type_filter: None` on
-    // that call — this projection's contract is "the full membership,
-    // reordered", never narrowed (`ContainerView.members` doc comment).
-    let member_ids = container_service::list_container_members(store, &container_id)?;
-    let root_id_set: std::collections::HashSet<&str> = container
-        .root_instance_ids
-        .as_deref()
-        .unwrap_or(&[])
-        .iter()
-        .map(|s| s.as_str())
-        .collect();
-    let (root_members, tail_members): (Vec<String>, Vec<String>) = member_ids
-        .into_iter()
-        .partition(|id| root_id_set.contains(id.as_str()));
+    // Resolve ordered members (RFC-043 Change F: entry order only — the roots-first prefix is
+    // gone). An `arranged` governing section keeps the container's entry order; otherwise the
+    // authored fieldId+direction, else the [N+12] fallback, sourced from the governing section,
+    // applies (#379). `type_filter: None` on that call — this projection's contract is "the
+    // full membership, reordered", never narrowed (`ContainerView.members` doc comment).
+    let member_ids = container_service::list_members(store, &container_id)?;
+    // RFC-043 Change F: members are in entry order only — no roots-first prefix; the anchor
+    // sits wherever the arrangement puts it.
+    let tail_members = member_ids;
 
     let ordered_tail = match governing_section {
         Some(section) => {
@@ -302,7 +274,7 @@ pub fn resolve_container_view(
         }
         None => tail_members,
     };
-    let ordered_member_ids: Vec<String> = root_members.into_iter().chain(ordered_tail).collect();
+    let ordered_member_ids: Vec<String> = ordered_tail;
 
     let mut members = Vec::new();
     for id in &ordered_member_ids {
@@ -322,7 +294,9 @@ pub fn resolve_container_view(
     }
 
     // Descent hook: stamp the sub-container each member roots (srs-rust#949).
-    let section_containers = repository_navigation_service::section_containers_by_root(store)?;
+    let (section_containers, link_diagnostics) =
+        repository_navigation_service::section_containers_by_root(store)?;
+    diagnostics.extend(link_diagnostics);
     for m in members.iter_mut().chain(root.iter_mut()) {
         m.section_container_id = section_containers.get(&m.instance_id).cloned();
     }
@@ -521,7 +495,7 @@ fn source_targets_container(source: &SectionSource, container_id: &str) -> bool 
     match source {
         SectionSource::ContainerSubset {
             container_id: cid, ..
-        } => cid == container_id,
+        } => cid.as_deref() == Some(container_id),
         SectionSource::DiscoveryQuery {
             container_ids: Some(ids),
             ..
@@ -717,6 +691,7 @@ mod tests {
 
     fn record(instance_id: &str, title_field_name: &str, title: &str) -> Record {
         Record {
+            created_by: None,
             field_meta: None,
             instance_id: instance_id.to_string(),
             type_id: TYPE_ID.to_string(),
@@ -798,16 +773,12 @@ mod tests {
             description: None,
             container_type: None,
             identity_instance_id: None,
-            anchor_instance_id: None,
-            root_instance_ids: if roots.is_empty() {
-                None
-            } else {
-                Some(roots.into_iter().map(|s| s.to_string()).collect())
-            },
-            member_instance_ids: if members.is_empty() {
-                None
-            } else {
-                Some(members.into_iter().map(|s| s.to_string()).collect())
+            // RFC-043: a former root is the anchor entry; roots and members are one ordered
+            // list (roots first, as the old projection listed them).
+            anchor_instance_id: roots.first().map(|s| s.to_string()),
+            member_instance_ids: {
+                let all: Vec<&str> = roots.iter().chain(members.iter()).copied().collect();
+                (!all.is_empty()).then(|| srs_core::types::container::entries(all))
             },
             child_container_ids: None,
             tags: None,
@@ -855,7 +826,7 @@ mod tests {
             "s1",
             0,
             SectionSource::ContainerSubset {
-                container_id: CONTAINER_ID.to_string(),
+                container_id: Some(CONTAINER_ID.to_string()),
                 container_type: None,
                 type_filter: None,
                 container_scope: None,
@@ -894,7 +865,7 @@ mod tests {
             "s1",
             0,
             SectionSource::ContainerSubset {
-                container_id: CONTAINER_ID.to_string(),
+                container_id: Some(CONTAINER_ID.to_string()),
                 container_type: None,
                 type_filter: None,
                 container_scope: None,
@@ -965,7 +936,7 @@ mod tests {
                 "s1",
                 0,
                 SectionSource::ContainerSubset {
-                    container_id: CONTAINER_ID.to_string(),
+                    container_id: Some(CONTAINER_ID.to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,
@@ -1007,7 +978,7 @@ mod tests {
                 "s1",
                 0,
                 SectionSource::ContainerSubset {
-                    container_id: CONTAINER_ID.to_string(),
+                    container_id: Some(CONTAINER_ID.to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,
@@ -1053,33 +1024,6 @@ mod tests {
         assert!(result.columns.is_empty());
         assert_eq!(result.members.len(), 2);
         assert!(result.root.is_some());
-    }
-
-    #[test]
-    fn resolve_container_view_no_anchor_warns_transitional_fallback_naming_continuity_flip() {
-        let fields = vec![field("f-title", "title")];
-        let view = view_with_fields(vec![field_view("f-title", 0, None, None)]);
-        let root = record("root-1", "title", "Root");
-        let store = build_store(
-            fields,
-            vec![view],
-            vec![],
-            vec![("root-1", 2, serde_json::to_value(&root).unwrap())],
-        );
-        // No anchorInstanceId set — make_container's default (srs#446/I-145 transitional
-        // fallback: rootInstanceIds[0] is used as the typing anchor).
-        container_service::create_container(&store, make_container(vec!["root-1"], vec![]))
-            .unwrap();
-
-        let result = resolve_container_view(&store, input(None)).unwrap();
-        assert!(
-            result
-                .diagnostics
-                .iter()
-                .any(|d| d.contains("I-145") && d.contains("Continuity flip")),
-            "expected an I-145 transitional-fallback diagnostic naming the Continuity flip, got: {:?}",
-            result.diagnostics
-        );
     }
 
     #[test]
@@ -1166,7 +1110,7 @@ mod tests {
                 "s1",
                 0,
                 SectionSource::ContainerSubset {
-                    container_id: CONTAINER_ID.to_string(),
+                    container_id: Some(CONTAINER_ID.to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,
@@ -1210,18 +1154,8 @@ mod tests {
         );
         assert_eq!(note.display_label, "My Note");
         assert!(note.is_visible_by_default);
-        assert!(
-            result.diagnostics.iter().all(|d| d.contains("I-145")),
-            "no diagnostics expected other than the srs#446/I-145 transitional-fallback \
-             note (this test's container has no anchorInstanceId), got: {:?}",
-            result.diagnostics
-        );
-        assert!(
-            result.diagnostics.iter().any(|d| d.contains("I-145")),
-            "this test's container has roots and no anchorInstanceId, so the \
-             transitional-fallback note is expected to actually be present, not just \
-             absent-of-anything-else"
-        );
+        // RFC-043 [R4]: the I-145 positional fallback (and its note) is gone.
+        assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
     }
 
     // resolve_container_view_includes_tier1_typed_record_member retired by
@@ -1244,7 +1178,7 @@ mod tests {
                 "s1",
                 0,
                 SectionSource::ContainerSubset {
-                    container_id: CONTAINER_ID.to_string(),
+                    container_id: Some(CONTAINER_ID.to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,
@@ -1292,7 +1226,7 @@ mod tests {
                 "s1",
                 0,
                 SectionSource::ContainerSubset {
-                    container_id: CONTAINER_ID.to_string(),
+                    container_id: Some(CONTAINER_ID.to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,
@@ -1317,18 +1251,8 @@ mod tests {
         assert!(root.record.is_none(), "Tier-0 root must have record: None");
         assert_eq!(root.display_label, "Root Note");
         assert!(root.is_visible_by_default);
-        assert!(
-            result.diagnostics.iter().all(|d| d.contains("I-145")),
-            "no diagnostics expected other than the srs#446/I-145 transitional-fallback \
-             note (this test's container has no anchorInstanceId), got: {:?}",
-            result.diagnostics
-        );
-        assert!(
-            result.diagnostics.iter().any(|d| d.contains("I-145")),
-            "this test's container has roots and no anchorInstanceId, so the \
-             transitional-fallback note is expected to actually be present, not just \
-             absent-of-anything-else"
-        );
+        // RFC-043 [R4]: the I-145 positional fallback (and its note) is gone.
+        assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
     }
 
     #[test]
@@ -1339,7 +1263,7 @@ mod tests {
                 "s1",
                 0,
                 SectionSource::ContainerSubset {
-                    container_id: CONTAINER_ID.to_string(),
+                    container_id: Some(CONTAINER_ID.to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,
@@ -1352,9 +1276,14 @@ mod tests {
 
         let result = resolve_container_view(&store, input(None)).unwrap();
         assert_eq!(result.root.as_ref().unwrap().display_label, "Root Decision");
-        // members are roots-first: root-1 then mem-1.
-        assert_eq!(result.members[0].display_label, "Root Decision");
-        assert_eq!(result.members[1].display_label, "Member Decision");
+        // RFC-043 Change F: no roots-first prefix — members follow the section's rule order.
+        let labels: Vec<&str> = result
+            .members
+            .iter()
+            .map(|m| m.display_label.as_str())
+            .collect();
+        assert!(labels.contains(&"Root Decision") && labels.contains(&"Member Decision"));
+        assert_eq!(result.members.len(), 2);
         assert_eq!(result.members[0].tier, 2);
     }
 
@@ -1380,16 +1309,15 @@ mod tests {
         )
     }
 
-    /// RFC-015 [N+29]/#379: `resolve_container_view` previously ignored the
-    /// governing section's `ordering` entirely — members came back in
-    /// declared/authored order regardless. `memberOrder` must now be honored.
+    /// RFC-043: an `arranged` governing section lists members in the container's own entry
+    /// order (the arrangement), never re-sorted.
     #[test]
-    fn resolve_container_view_applies_member_order_to_non_root_members() {
+    fn resolve_container_view_arranged_section_keeps_entry_order() {
         let mut s = section(
             "s1",
             0,
             SectionSource::ContainerSubset {
-                container_id: CONTAINER_ID.to_string(),
+                container_id: Some(CONTAINER_ID.to_string()),
                 container_type: None,
                 type_filter: None,
                 container_scope: None,
@@ -1399,13 +1327,13 @@ mod tests {
         s.ordering = Some(SectionOrdering {
             field_id: None,
             direction: None,
-            member_order: Some(vec!["mem-b".to_string(), "mem-a".to_string()]),
+            source: Some(srs_core::types::view::OrderingSource::Arranged),
         });
         let store = store_with_three_records(vec![s]);
-        // Declared/authored order is mem-a then mem-b; memberOrder reverses it.
+        // The arrangement lists mem-b before mem-a.
         container_service::create_container(
             &store,
-            make_container(vec!["root-1"], vec!["mem-a", "mem-b"]),
+            make_container(vec!["root-1"], vec!["mem-b", "mem-a"]),
         )
         .unwrap();
 
@@ -1426,7 +1354,7 @@ mod tests {
             "s1",
             0,
             SectionSource::ContainerSubset {
-                container_id: CONTAINER_ID.to_string(),
+                container_id: Some(CONTAINER_ID.to_string()),
                 container_type: None,
                 type_filter: None,
                 container_scope: None,
@@ -1436,7 +1364,7 @@ mod tests {
         s.ordering = Some(SectionOrdering {
             field_id: Some("f-title".to_string()),
             direction: Some(SortDirection::Desc),
-            member_order: None,
+            source: None,
         });
         let store = store_with_three_records(vec![s]);
         // Declared/authored order is mem-a then mem-b; desc-by-title reverses it.
@@ -1455,16 +1383,15 @@ mod tests {
         assert_eq!(labels, vec!["Root Decision", "B-member", "A-member"]);
     }
 
-    /// The roots-first structural invariant survives even when `memberOrder`
-    /// names the root id — root placement is this projection's own
-    /// contract, not a presentation-layer concern.
+    /// RFC-043 Change F: the roots-first prefix is gone — the anchor entry sits wherever the
+    /// arrangement puts it, and `root` still resolves to the anchor.
     #[test]
-    fn resolve_container_view_member_order_keeps_root_first() {
+    fn resolve_container_view_anchor_sits_where_the_arrangement_puts_it() {
         let mut s = section(
             "s1",
             0,
             SectionSource::ContainerSubset {
-                container_id: CONTAINER_ID.to_string(),
+                container_id: Some(CONTAINER_ID.to_string()),
                 container_type: None,
                 type_filter: None,
                 container_scope: None,
@@ -1474,17 +1401,16 @@ mod tests {
         s.ordering = Some(SectionOrdering {
             field_id: None,
             direction: None,
-            member_order: Some(vec!["mem-b".to_string(), "mem-a".to_string()]),
+            source: Some(srs_core::types::view::OrderingSource::Arranged),
         });
         let store = store_with_three_records(vec![s]);
-        container_service::create_container(
-            &store,
-            make_container(vec!["root-1"], vec!["mem-a", "mem-b"]),
-        )
-        .unwrap();
+        let mut c = make_container(vec![], vec!["mem-b", "root-1", "mem-a"]);
+        c.anchor_instance_id = Some("root-1".to_string());
+        container_service::create_container(&store, c).unwrap();
 
         let result = resolve_container_view(&store, input(None)).unwrap();
-        assert_eq!(result.members[0].display_label, "Root Decision");
+        assert_eq!(result.members[1].display_label, "Root Decision");
+        assert_eq!(result.root.as_ref().unwrap().display_label, "Root Decision");
     }
 
     #[test]
@@ -1536,7 +1462,7 @@ mod tests {
                 "section-0001",
                 0,
                 SectionSource::ContainerSubset {
-                    container_id: CONTAINER_ID.to_string(),
+                    container_id: Some(CONTAINER_ID.to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,
@@ -1641,7 +1567,7 @@ mod tests {
             "s1",
             0,
             SectionSource::ContainerSubset {
-                container_id: CONTAINER_ID.to_string(),
+                container_id: Some(CONTAINER_ID.to_string()),
                 container_type: None,
                 type_filter: None,
                 container_scope: None,
@@ -1673,7 +1599,7 @@ mod tests {
                 "s1",
                 0,
                 SectionSource::ContainerSubset {
-                    container_id: CONTAINER_ID.to_string(),
+                    container_id: Some(CONTAINER_ID.to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,
@@ -2008,7 +1934,7 @@ mod tests {
             "s1",
             0,
             SectionSource::ContainerSubset {
-                container_id: CONTAINER_ID.to_string(),
+                container_id: Some(CONTAINER_ID.to_string()),
                 container_type: None,
                 type_filter: None,
                 container_scope: None,
@@ -2061,7 +1987,7 @@ mod tests {
             "s1",
             0,
             SectionSource::ContainerSubset {
-                container_id: CONTAINER_ID.to_string(),
+                container_id: Some(CONTAINER_ID.to_string()),
                 container_type: None,
                 type_filter: None,
                 container_scope: None,
@@ -2100,7 +2026,7 @@ mod tests {
             "s1",
             0,
             SectionSource::ContainerSubset {
-                container_id: CONTAINER_ID.to_string(),
+                container_id: Some(CONTAINER_ID.to_string()),
                 container_type: None,
                 type_filter: None,
                 container_scope: None,
@@ -2156,7 +2082,7 @@ mod tests {
                 "s1",
                 0,
                 SectionSource::ContainerSubset {
-                    container_id: CONTAINER_ID.to_string(),
+                    container_id: Some(CONTAINER_ID.to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,
@@ -2225,7 +2151,7 @@ mod tests {
             "s1",
             0,
             SectionSource::ContainerSubset {
-                container_id: CONTAINER_ID.to_string(),
+                container_id: Some(CONTAINER_ID.to_string()),
                 container_type: None,
                 type_filter: None,
                 container_scope: None,
@@ -2383,7 +2309,7 @@ mod tests {
                 "section-0001",
                 0,
                 SectionSource::ContainerSubset {
-                    container_id: CONTAINER_ID.to_string(),
+                    container_id: Some(CONTAINER_ID.to_string()),
                     container_type: None,
                     type_filter: None,
                     container_scope: None,
@@ -2421,6 +2347,7 @@ mod tests {
             provenance: None,
         };
         let root = Record {
+            created_by: None,
             field_meta: None,
             instance_id: ROOT.to_string(),
             type_id: TYPE_A.to_string(),

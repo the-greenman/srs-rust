@@ -14,8 +14,18 @@
     "typeNamespace"
   ],
   "properties": {
+    "containerId": {
+      "description": "Present with the global `--container`: the container the arrangement was read from.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "displayLabel": {
       "type": "string"
+    },
+    "entry": {
+      "description": "This record's outline entry in `container_id`."
     },
     "fieldValues": {
       "description": "RFC-039 carrier: object keyed by Field.name ([R2b])."
@@ -28,7 +38,16 @@
       "type": "string"
     },
     "relations": {
+      "description": "BEHAVIOUR CHANGE (#1134): formerly outbound only. Consumers that assumed `sourceId == recordId` must check `direction`. Both directions; each entry is a RelationSummary plus `direction` (out|in), the other endpoint inline as `neighbour`, and the relation's own optional `createdAt` / `createdBy` (#1246).",
       "type": "array",
+      "items": true
+    },
+    "subtree": {
+      "description": "Descendant outline entries of `entry`.",
+      "type": [
+        "array",
+        "null"
+      ],
       "items": true
     },
     "taggedChunks": {

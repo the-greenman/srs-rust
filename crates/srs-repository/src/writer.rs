@@ -96,6 +96,7 @@ mod tests {
 
     fn make_note(id: &str, title: &str) -> Note {
         Note {
+            created_by: None,
             instance_id: id.to_string(),
             title: Some(title.to_string()),
             tags: Some(vec!["test".to_string()]),
