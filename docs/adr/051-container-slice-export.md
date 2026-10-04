@@ -61,7 +61,8 @@ export --container <id> <out.srs>`, WASM `SrsRepository::export_slice`).
    `containers/<id>.json`. `.srs/` carries only the marker.
 6. **Refusals** (`RepositoryError::SliceRefused { code }`): `slice-root-identity-invalid` when
    the boundary's identity entry is absent, below depth 0 or has descendants (D2: the outline
-   is never rewritten); `slice-exported-at-invalid`; `slice-repository-id-reused`.
+   is never rewritten); `slice-exported-at-invalid`; `slice-repository-id-reused`;
+   `slice-root-level-package-unsupported` (a package rooted at the repository root).
 7. **Validator (Change E).** With a `slice` block: `spec.type` not `container` is an error
    ([R10]), `spec.id` not the root container is an error ([R12]), a reused `repositoryId` is an
    error ([R3]), undeclared `ext:slices` is a warning ([R4]), and one info diagnostic counts the
@@ -82,7 +83,15 @@ members that anchor no container (I-82). These are warnings, not errors, and are
 Rev 9 input rather than relaxed here. A composition in a package the slice does not use is not
 carried even if it could render the slice's records (references are followed forward only).
 
-**Neutral:** no import, merge or reintegration; no MCP tool; record-level closure stays deferred
+`childContainerIds` are copied as-is, so a child absent from the slice stays named; a later
+`container update` on the slice that re-checks children will refuse until it is fixed. Manifest
+properties other than `packageRefs` (e.g. a legacy `changelogPath`) are kept even if their
+target is not carried. A Type held only by a package no `packageRefs` names is not carried; the
+validator reports the slice, as it would the source.
+
+**Neutral:** the CLI and WASM adapters take no `exportedAt`/`repositoryId` override, so their
+output differs per run by those two values only (RFC-026 [R3] requires the fresh id); the
+service is byte-deterministic given both. No import, merge or reintegration; no MCP tool; record-level closure stays deferred
 ([R10]). `srs package slice-create` (an alias of `package create`, #656) is removed.
 
 ## Implementation charter (ADR-048)

@@ -304,6 +304,14 @@ pub fn export_container_slice(
 
     // --- Packages (D1 = P3): whole boundaries, closed at package granularity.
     let kept_roots = used_package_roots(store, &type_ids, &relation_types)?;
+    // ponytail: a package rooted at the repository root would make every file
+    // "package content"; refused until a corpus needs it.
+    if kept_roots.iter().any(|r| r.is_empty() || r == ".") {
+        return Err(refuse(
+            "slice-root-level-package-unsupported",
+            "a package rooted at the repository root cannot be carried by a slice yet",
+        ));
+    }
     let mut all_roots: BTreeSet<String> = cat.package_roots.iter().cloned().collect();
     all_roots.extend(kept_roots.iter().cloned());
     for (path, bytes) in &tree {

@@ -362,3 +362,45 @@ fn dangling_boundary_entry_refuses_the_export() {
         Err(RepositoryError::CatalogLoad { .. })
     ));
 }
+
+#[test]
+fn source_documents_cited_by_carried_relations_are_carried() {
+    let mut t = rich();
+    edit(&mut t, &format!("relations/{PRECEDES}.json"), |r| {
+        r["sourceRefs"] = json!([{"sourceType": "repository-document",
+                                  "sourceId": "77777777-7777-4777-8777-777777777772"}]);
+    });
+    let e = export(t, DECISIONS).unwrap();
+    assert_eq!(e.summary.source_document_count, 2);
+    assert!(files(&e).contains_key("source-documents/other.md"));
+    assert_eq!(errors(&e), Vec::<String>::new());
+}
+
+#[test]
+fn source_root_container_is_written_as_a_file_when_it_qualifies() {
+    let mut t = rich();
+    edit(&mut t, "containers/decisions-55555555.json", |c| {
+        c["memberInstanceIds"] =
+            json!([{"instanceId": PURPOSE}, {"instanceId": D1}, {"instanceId": D2}]);
+    });
+    let e = export(t, DECISIONS).unwrap();
+    let f = files(&e);
+    assert_eq!(
+        get(&f, &format!("containers/{ROOT}.json"))["memberInstanceIds"],
+        json!([{"instanceId": PURPOSE}])
+    );
+    assert_eq!(errors(&e), Vec::<String>::new());
+}
+
+#[test]
+fn package_dependencies_of_a_carried_package_are_carried() {
+    let mut t = rich();
+    edit(&mut t, "packages/extra/package.json", |p| {
+        p["packageDependencies"] = json!([{"packageId": "aaaaaaaa-0000-4000-8000-000000000002",
+            "namespace": "com.example.treefix", "name": "packages-unused", "version": "1.0.0"}]);
+    });
+    let e = export(t, DECISIONS).unwrap();
+    assert_eq!(e.summary.package_count, 3);
+    assert!(files(&e).contains_key("packages/unused/fields/note.json"));
+    assert_eq!(errors(&e), Vec::<String>::new());
+}
