@@ -228,7 +228,7 @@ fn successor_stamps_new_record_and_relation_not_the_predecessor() {
         &store,
         &pred.instance_id,
         CreateRecordSuccessorInput {
-            relation_type: "supersedes".to_string(),
+            relation_type: Some("supersedes".to_string()),
             field_values: purpose_input("v2").field_values,
             lifecycle_state: None,
             type_version: None,
@@ -414,7 +414,7 @@ fn create_requests_carrying_created_by_are_actor_supplied_including_extras() {
         &store,
         &pred.instance_id,
         CreateRecordSuccessorInput {
-            relation_type: "supersedes".to_string(),
+            relation_type: Some("supersedes".to_string()),
             field_values: purpose_input("s").field_values,
             lifecycle_state: None,
             type_version: None,

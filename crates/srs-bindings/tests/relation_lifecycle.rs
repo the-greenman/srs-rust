@@ -406,7 +406,7 @@ fn create_record_successor_supersedes() {
         &store,
         "rec-lc-001",
         CreateRecordSuccessorInput {
-            relation_type: "supersedes".to_string(),
+            relation_type: Some("supersedes".to_string()),
             field_values: FieldValues(
                 [("title".to_string(), serde_json::json!("Successor Proposal"))]
                     .into_iter()
@@ -449,7 +449,7 @@ fn create_record_successor_refines() {
         &store,
         "rec-lc-001",
         CreateRecordSuccessorInput {
-            relation_type: "refines".to_string(),
+            relation_type: Some("refines".to_string()),
             field_values: FieldValues(
                 [("title".to_string(), serde_json::json!("Refined Proposal"))]
                     .into_iter()

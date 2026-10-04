@@ -154,7 +154,10 @@ This is the governance-profile workflow (`governance-profile.md` §6.3–6.4, §
 4. Link the Decision to the Exercise with `derived-from`.
 5. Move the Decision through lifecycle: `record transition` `draft → proposed → ratified`, recording `ratification_note`.
 6. Add the durable records to the Container's membership; confirm the (session-scoped) exercise is *not* owned by the meeting.
-7. When the decision later changes, `record successor` it (`supersedes`) — do not edit the ratified record.
+7. When the decision later changes, `record successor` it; do not edit the ratified record.
+   - Omit `relationType`. A `closed` decision has no outgoing transitions, so the core derives `supersedes` from the lifecycle's hard `requiresRelation` on `superseded` (RFC-022 R6/I-99, #1238). An explicit `"relationType": "refines"` still wins.
+   - Against a Type whose lifecycle declares no relational state (e.g. the seed's `purpose`) the same call fails with `SUCCESSOR_RELATION_TYPE_UNDETERMINED` and writes nothing.
+   - To try it: `srs-gov repo-create --output gov.srsj`, then `srs --repo gov.srsj ...` works on the `.srsj` directly.
 8. Render the decision log: `srs render document-view --view <decision-log-view>`.
 
 **Negative case.** Attempt a lifecycle transition that the lifecycle definition does not allow (e.g. `draft → ratified` skipping `proposed`, if disallowed), or attempt to edit a `closed`/ratified record's semantic fields — confirm the operation is rejected or flagged.

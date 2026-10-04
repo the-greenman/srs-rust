@@ -377,6 +377,12 @@ pub enum RepositoryError {
         direction: String,
     },
 
+    #[error(
+        "SUCCESSOR_RELATION_TYPE_UNDETERMINED: {}",
+        successor_undetermined_detail(candidates)
+    )]
+    SuccessorRelationTypeUndetermined { candidates: Vec<String> },
+
     #[error("LIFECYCLE_FULFILLMENT_NOT_APPLICABLE: target state '{state}' declares no requiresRelation — fulfillment must be omitted")]
     LifecycleFulfillmentNotApplicable { state: String },
 
@@ -901,6 +907,10 @@ impl PartialEq for RepositoryError {
                 },
             ) => sa == sb && ra == rb && da == db,
             (
+                RepositoryError::SuccessorRelationTypeUndetermined { candidates: a },
+                RepositoryError::SuccessorRelationTypeUndetermined { candidates: b },
+            ) => a == b,
+            (
                 RepositoryError::LifecycleFulfillmentNotApplicable { state: a },
                 RepositoryError::LifecycleFulfillmentNotApplicable { state: b },
             ) => a == b,
@@ -1003,5 +1013,14 @@ impl RepositoryError {
         matches!(self, RepositoryError::NotFound { .. })
             || matches!(self, RepositoryError::Io { source, .. }
                 if source.kind() == std::io::ErrorKind::NotFound)
+    }
+}
+
+/// Message tail for `SuccessorRelationTypeUndetermined` (srs-rust#1238).
+fn successor_undetermined_detail(candidates: &[String]) -> String {
+    if candidates.is_empty() {
+        "the predecessor's lifecycle declares no hard incoming requiresRelation; pass relationType explicitly".to_string()
+    } else {
+        format!("the predecessor's lifecycle declares several candidate relation types {candidates:?}; pass relationType explicitly")
     }
 }
