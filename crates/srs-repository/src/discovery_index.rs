@@ -32,6 +32,10 @@ pub trait DiscoveryIndex: Debug {
     /// One relevance score per candidate instance id, parallel to `candidates`; higher is
     /// better. `words` are already normalized ([`text_projection::normalize`]).
     fn score(&self, words: &[String], candidates: &[&str]) -> Vec<f32>;
+
+    /// The `limit` terms most characteristic of instance `id`, best first (srs-rust#1230,
+    /// "more like this"); `None` if the index does not know `id`. Same determinism contract.
+    fn top_terms(&self, id: &str, limit: usize) -> Option<Vec<String>>;
 }
 
 const K1: f64 = 1.2;
@@ -61,6 +65,16 @@ pub struct Bm25Index {
     docs: Vec<Doc>,
     by_id: HashMap<String, usize>,
     avg_len: f32,
+    /// Documents containing each whole token (not substring): idf for [`DiscoveryIndex::top_terms`].
+    token_df: HashMap<String, usize>,
+}
+
+/// Shortest token that can be a similarity term (drops "of", "a", "the"-sized noise).
+const MIN_TERM_CHARS: usize = 3;
+
+fn tokens(text: &str) -> impl Iterator<Item = &str> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|t| t.chars().count() >= MIN_TERM_CHARS)
 }
 
 fn weight(seg: &TextSegment) -> f32 {
@@ -108,11 +122,20 @@ impl Bm25Index {
                 text_projection::project_note_text(&note),
             );
         }
+        let mut token_df: HashMap<String, usize> = HashMap::new();
+        for doc in &docs {
+            let distinct: std::collections::HashSet<&str> =
+                doc.parts.iter().flat_map(|(_, t)| tokens(t)).collect();
+            for t in distinct {
+                *token_df.entry(t.to_string()).or_default() += 1;
+            }
+        }
         let avg_len = (docs.iter().map(|d| d.len).sum::<f32>() / docs.len().max(1) as f32).max(1.0);
         Ok(Self {
             docs,
             by_id,
             avg_len,
+            token_df,
         })
     }
 }
@@ -154,5 +177,70 @@ impl DiscoveryIndex for Bm25Index {
                 ((raw * 1e4).round() / 1e4) as f32
             })
             .collect()
+    }
+
+    fn top_terms(&self, id: &str, limit: usize) -> Option<Vec<String>> {
+        let doc = &self.docs[*self.by_id.get(id)?];
+        let n = self.docs.len() as f64;
+        let mut tf: HashMap<&str, f64> = HashMap::new();
+        for (wt, text) in &doc.parts {
+            for t in tokens(text) {
+                *tf.entry(t).or_default() += f64::from(*wt);
+            }
+        }
+        let mut ranked: Vec<(i64, &str)> = tf
+            .into_iter()
+            .map(|(t, w)| {
+                let df = self.token_df.get(t).copied().unwrap_or(1) as f64;
+                let idf = (1.0 + (n - df + 0.5) / (df + 0.5)).ln();
+                // Quantised so wasm32 and native pick the same terms on near-ties.
+                (-((w * (K1 + 1.0) / (w + K1) * idf * 1e4).round() as i64), t)
+            })
+            .collect();
+        ranked.sort(); // best score first, ties by term
+        Some(
+            ranked
+                .into_iter()
+                .take(limit)
+                .map(|(_, t)| t.to_string())
+                .collect(),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn top_terms_prefers_rare_title_terms() {
+        let doc = |t: &str, body: &str| Doc {
+            len: 4.0,
+            parts: vec![(W_TITLE, t.into()), (W_BODY, body.into())],
+        };
+        let docs = vec![
+            doc("zebra", "common common common"),
+            doc("other", "common words"),
+            doc("third", "common"),
+        ];
+        let mut token_df = HashMap::new();
+        for d in &docs {
+            for t in d.parts.iter().flat_map(|(_, t)| tokens(t)) {
+                token_df.entry(t.to_string()).or_insert(0);
+            }
+        }
+        token_df.insert("zebra".into(), 1);
+        token_df.insert("common".into(), 3);
+        let by_id = [("a", 0), ("b", 1), ("c", 2)]
+            .map(|(k, v)| (k.to_string(), v))
+            .into();
+        let index = Bm25Index {
+            docs,
+            by_id,
+            avg_len: 4.0,
+            token_df,
+        };
+        assert_eq!(index.top_terms("a", 1), Some(vec!["zebra".to_string()]));
+        assert_eq!(index.top_terms("missing", 1), None);
     }
 }

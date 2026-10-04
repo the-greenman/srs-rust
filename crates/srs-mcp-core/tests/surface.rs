@@ -63,11 +63,11 @@ fn application_reads_repository_id_from_manifest() {
 }
 
 #[test]
-fn tool_catalogue_has_all_thirty_tools_and_core_owns_the_schemas() {
+fn tool_catalogue_has_all_thirty_one_tools_and_core_owns_the_schemas() {
     let (_dir, mut d) = setup();
     let listed = rpc(&mut d, "tools/list", json!({}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 30);
+    assert_eq!(tools.len(), 31);
     assert!(tools
         .iter()
         .all(|t| t["description"].is_string() && t["inputSchema"]["type"] == "object"));

@@ -28,7 +28,7 @@
 //!   that stemming, synonyms or an embedding layer would have to fix.
 
 use serde::Deserialize;
-use srs_repository::discovery_service::{find, DiscoveryQuery, FindPage};
+use srs_repository::discovery_service::{find, similar, DiscoveryQuery, FindPage};
 use srs_repository::text_projection::{
     build_field_text_index, normalize, project_note_text, project_text,
 };
@@ -70,6 +70,7 @@ fn methods() -> Vec<(&'static str, Method)> {
         ("substring (phrase, unranked: id order)", phrase),
         ("all-words (Layer 1, unranked: id order)", all_words),
         ("BM25 (all-words candidates, ranked)", bm25),
+        ("BM25 top-5, then similar to its top hit", bm25_then_similar),
     ]
 }
 
@@ -96,6 +97,32 @@ fn all_words(store: &dyn RepositoryStore, query: &str) -> Vec<String> {
 
 fn bm25(store: &dyn RepositoryStore, query: &str) -> Vec<String> {
     find_ids(store, query, true)
+}
+
+/// `similar` (srs-rust#1230) as a follow-up to a search: keep BM25's top 5, then append the
+/// instances similar to BM25's top hit (the "found one, what else is about this?" workflow).
+/// A top-10 slice is therefore 5 direct + 5 neighbours, never more direct hits than `bm25` has.
+fn bm25_then_similar(store: &dyn RepositoryStore, query: &str) -> Vec<String> {
+    let direct = bm25(store, query);
+    let Some(seed) = direct.first() else {
+        return direct;
+    };
+    let mut out: Vec<String> = direct.iter().take(5).cloned().collect();
+    for hit in similar_ids(store, seed) {
+        if !out.contains(&hit) {
+            out.push(hit);
+        }
+    }
+    out
+}
+
+fn similar_ids(store: &dyn RepositoryStore, seed: &str) -> Vec<String> {
+    similar(store, seed, DiscoveryQuery::default(), FindPage::default())
+        .expect("similar")
+        .hits
+        .into_iter()
+        .map(|h| h.instance_id)
+        .collect()
 }
 
 /// The pre-#1218 Layer-1 matcher: the whole query as one contiguous phrase in a single segment.
@@ -193,6 +220,10 @@ struct Totals {
     found10_by_question: Vec<usize>,
     hit_sets: Vec<HashSet<String>>,
     by_kind: BTreeMap<String, (usize, usize)>, // kind -> (expected ids, found in top 10)
+    /// (question id, expected id) found in the top 10.
+    found: HashSet<(String, String)>,
+    /// (question id, expected id, class) missed in the top 10.
+    missed: Vec<(String, String, &'static str)>,
 }
 
 fn data_dir() -> PathBuf {
@@ -282,7 +313,11 @@ fn discovery_eval_table() {
                     probe.classify_absent(&q.query, id)
                 };
                 *t.misses.entry(class).or_default() += 1;
+                t.missed.push((q.id.clone(), id.clone(), class));
                 classes.push(class);
+            }
+            for id in q.expected_instance_ids.iter().filter(|i| top10.contains(i)) {
+                t.found.insert((q.id.clone(), id.clone()));
             }
             detail += &format!(
                 "  {} {:<34} hits={:<4} R@10={}/{} first={:<5} {}\n",
@@ -321,6 +356,80 @@ fn discovery_eval_table() {
         );
     }
 
+    // Does lexical similarity cover related content the query words miss? Of the expected ids BM25
+    // misses as `vocabulary-mismatch`, how many does "similar to BM25's top hit" bring into the top 10?
+    let bm25_t = &results
+        .iter()
+        .find(|(n, _)| n.starts_with("BM25 ("))
+        .unwrap()
+        .1;
+    let sim_t = &results
+        .iter()
+        .find(|(n, _)| n.starts_with("BM25 top-5"))
+        .unwrap()
+        .1;
+    let vocab: Vec<_> = bm25_t
+        .missed
+        .iter()
+        .filter(|(_, _, c)| *c == "vocabulary-mismatch")
+        .collect();
+    let recovered: Vec<_> = vocab
+        .iter()
+        .filter(|(q, id, _)| sim_t.found.contains(&(q.clone(), id.clone())))
+        .collect();
+    let all_missed_recovered = bm25_t
+        .missed
+        .iter()
+        .filter(|(q, id, _)| sim_t.found.contains(&(q.clone(), id.clone())))
+        .count();
+    println!(
+        "\nsimilar vs BM25 misses: vocabulary-mismatch misses {} , recovered by similar-to-top-hit {} {:?}; all BM25 misses recovered {} of {}",
+        vocab.len(),
+        recovered.len(),
+        recovered.iter().map(|(q, id, _)| format!("{q}:{}", &id[..8])).collect::<Vec<_>>(),
+        all_missed_recovered,
+        bm25_t.missed.len()
+    );
+    // Deterministic on the pinned corpus (3 of 12 at #1230). Raise it, never lower it.
+    assert!(
+        recovered.len() >= 3,
+        "similar recovers fewer vocabulary-mismatch misses than before"
+    );
+    let lost = bm25_t
+        .found
+        .iter()
+        .filter(|k| !sim_t.found.contains(*k))
+        .count();
+    println!("expected ids in BM25 top 10 but pushed out by the similar row (5+5 split): {lost}");
+
+    // Related-to: questions with several expected records. Seed with each expected record and ask
+    // whether similar brings the other expected records into its top 10.
+    let (mut related, mut related_found) = (0, 0);
+    for q in fx
+        .questions
+        .iter()
+        .filter(|q| q.expected_instance_ids.len() >= 2 && q.kinds.iter().all(|k| k != "tag"))
+    {
+        for seed in &q.expected_instance_ids {
+            let top10: Vec<String> = similar_ids(&store, seed).into_iter().take(10).collect();
+            for other in q.expected_instance_ids.iter().filter(|o| *o != seed) {
+                related += 1;
+                related_found += usize::from(top10.contains(other));
+            }
+        }
+    }
+    println!("related-to (expected records of one question, non-tag): similar recovers {related_found} of {related} ordered pairs in its top 10");
+    // `similar` never returns its seed.
+    for q in &fx.questions {
+        for seed in &q.expected_instance_ids {
+            assert!(
+                !similar_ids(&store, seed).contains(seed),
+                "{} similar returned its seed",
+                q.id
+            );
+        }
+    }
+
     // Ranking only orders: BM25 returns exactly the all-words set, and on no question
     // finds fewer expected ids in the top 10 than the substring baseline (srs-rust#1228).
     let row = |prefix: &str| {
@@ -330,7 +439,7 @@ fn discovery_eval_table() {
             .unwrap_or_else(|| panic!("{prefix} row present"))
             .1
     };
-    let (sub_row, words_row, bm25_row) = (row("substring"), row("all-words"), row("BM25"));
+    let (sub_row, words_row, bm25_row) = (row("substring"), row("all-words"), row("BM25 ("));
     assert_eq!(
         bm25_row.hit_sets, words_row.hit_sets,
         "BM25 changed the hit set"

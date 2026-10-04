@@ -367,6 +367,28 @@ impl SrsRepository {
         to_js(&result)
     }
 
+    /// "More like this": instances similar to `instance_id`, ranked by BM25 over its top-weighted
+    /// terms, excluding itself. `query_json` carries the structured `DiscoveryQuery` filters (no
+    /// `contentMatch`); `limit`/`offset` page the hits. Returns a `DiscoveryResult` as a JS value.
+    pub fn find_similar(
+        &self,
+        instance_id: &str,
+        query_json: &str,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> Result<JsValue, JsValue> {
+        let query: DiscoveryQuery =
+            serde_json::from_str(query_json).map_err(|e| js_err(format!("invalid query: {e}")))?;
+        let page = FindPage {
+            limit,
+            offset: offset.unwrap_or(0),
+            rank: true,
+        };
+        let result =
+            discovery_service::similar(&self.store, instance_id, query, page).map_err(js_err)?;
+        to_js(&result)
+    }
+
     /// Get a single record by instance ID. Returns a `RecordSummary` (`{ instanceId, displayLabel, record }`)
     /// as a JS value, or `null` if not found.
     pub fn get_record(&self, id: &str) -> Result<JsValue, JsValue> {

@@ -6062,6 +6062,9 @@ mod tests {
             fn score(&self, _: &[String], c: &[&str]) -> Vec<f32> {
                 vec![0.0; c.len()]
             }
+            fn top_terms(&self, _: &str, _: usize) -> Option<Vec<String>> {
+                None
+            }
         }
         let temp = tempfile::TempDir::new().unwrap();
         write_catalog_ready_file_repo(&temp);

@@ -39,8 +39,12 @@ pub fn dispatch(ctx: CliContext, args: FindArgs) -> Result<String> {
         offset: args.offset,
         rank: args.rank,
     };
+    let similar = args.similar;
     match with_store(&ctx, |store| {
-        Ok(discovery_service::find(store, query, page)?)
+        Ok(match &similar {
+            Some(id) => discovery_service::similar(store, id, query, page)?,
+            None => discovery_service::find(store, query, page)?,
+        })
     }) {
         Ok(result) => output::serialize("find", FindPayload { result }),
         Err(e) => Ok(output::err("find", vec![e.to_string()])),

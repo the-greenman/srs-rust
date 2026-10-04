@@ -290,34 +290,30 @@ pub fn find(
         .unwrap_or_default();
     let needle = (!words.is_empty()).then_some(words.as_slice());
 
-    let mut candidates = Vec::new();
-
-    if query.tier.is_none() || query.tier == Some(2) {
-        candidates.extend(find_tier2(store, &query, &field_text_index, needle)?);
-    }
-
-    // Tier 0 carries no typeId/typeNamespace/typeName/lifecycleState — a query
-    // constraining any of those predicates can never match it.
-    let tier2_only_predicate = query.type_id.is_some()
-        || query.type_namespace.is_some()
-        || query.type_name.is_some()
-        || query.lifecycle_state.is_some()
-        || !query.lifecycle_states.is_empty();
-
-    if !tier2_only_predicate && (query.tier.is_none() || query.tier == Some(0)) {
-        candidates.extend(find_tier0(store, &query, needle)?);
-    }
+    let mut candidates = collect_candidates(store, &query, &field_text_index, needle)?;
 
     // Deterministic order independent of index/store iteration order.
     candidates.sort_by(|a, b| a.hit.instance_id.cmp(&b.hit.instance_id));
 
-    let total = candidates.len();
     // Facets count the Layer-1 match set: independent of ranking and paging.
     let facets = build_facets(&candidates);
     let mut hits: Vec<DiscoveryHit> = candidates.into_iter().map(|c| c.hit).collect();
     if page.rank && !words.is_empty() {
         rank_hits(store, &field_text_index, &words, &mut hits)?;
     }
+
+    finish_page(store, hits, facets, page, diagnostics)
+}
+
+/// Apply paging, then fill the navigation fields (uri, containerIds) for the returned page only.
+fn finish_page(
+    store: &dyn RepositoryStore,
+    hits: Vec<DiscoveryHit>,
+    facets: DiscoveryFacets,
+    page: FindPage,
+    diagnostics: Vec<String>,
+) -> Result<DiscoveryResult, RepositoryError> {
+    let total = hits.len();
     let mut hits: Vec<DiscoveryHit> = hits
         .into_iter()
         .skip(page.offset)
@@ -347,18 +343,15 @@ pub fn find(
     })
 }
 
-/// Fill `score` from the (store-cached) [`DiscoveryIndex`] and reorder by score,
-/// ties by `instanceId`. `hits` must already be in `instanceId` order.
-fn rank_hits(
+/// The store-cached [`DiscoveryIndex`], built on first use.
+fn discovery_index(
     store: &dyn RepositoryStore,
     field_text_index: &FieldTextIndex,
-    words: &[String],
-    hits: &mut [DiscoveryHit],
-) -> Result<(), RepositoryError> {
+) -> Result<Rc<dyn DiscoveryIndex>, RepositoryError> {
     let cached = store
         .discovery_index_cache()
         .and_then(|c| c.borrow().clone());
-    let index = match cached {
+    Ok(match cached {
         Some(index) => index,
         None => {
             let index: Rc<dyn DiscoveryIndex> = Rc::new(Bm25Index::build(store, field_text_index)?);
@@ -367,7 +360,118 @@ fn rank_hits(
             }
             index
         }
-    };
+    })
+}
+
+/// Terms of the source instance used as the "more like this" query.
+const SIMILAR_TERMS: usize = 10;
+
+/// "More like this" (srs-rust#1230): instances whose text overlaps the most characteristic terms of
+/// `instance_id`, ranked by the same [`DiscoveryIndex`] as `find --rank`, in the normal hit shape.
+///
+/// The structured predicates of `query` compose exactly as in [`find`]; `content_match` is not
+/// accepted (the source is the query). The source itself is never returned, `score` is always
+/// filled, and `total` counts the instances sharing at least one term. Deterministic; ties by
+/// `instanceId`. `page.rank` is irrelevant: similar hits are always ranked.
+pub fn similar(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+    query: DiscoveryQuery,
+    page: FindPage,
+) -> Result<DiscoveryResult, RepositoryError> {
+    if query.content_match.is_some() {
+        return Err(RepositoryError::InvalidInput {
+            message: "similar takes no contentMatch: the source instance is the query".into(),
+        });
+    }
+    if store.find_instance(instance_id)?.is_none() {
+        return Err(RepositoryError::InstanceNotFound {
+            id: instance_id.to_string(),
+        });
+    }
+    let mut diagnostics = Vec::new();
+    if !unresolved_filters(store, &query, &mut diagnostics)? {
+        return Ok(DiscoveryResult {
+            hits: Vec::new(),
+            total: 0,
+            facets: DiscoveryFacets::default(),
+            diagnostics,
+        });
+    }
+    let field_text_index = text_projection::build_field_text_index(store)?;
+    let index = discovery_index(store, &field_text_index)?;
+    let words = index.top_terms(instance_id, SIMILAR_TERMS).ok_or_else(|| {
+        RepositoryError::InstanceNotFound {
+            id: instance_id.to_string(),
+        }
+    })?;
+
+    if words.is_empty() {
+        diagnostics.push(format!(
+            "warning: {instance_id} has no similarity terms (no word of 3+ characters)"
+        ));
+    }
+    let mut candidates = collect_candidates(store, &query, &field_text_index, None)?;
+    candidates.retain(|c| c.hit.instance_id != instance_id);
+    candidates.sort_by(|a, b| a.hit.instance_id.cmp(&b.hit.instance_id));
+    let ids: Vec<&str> = candidates
+        .iter()
+        .map(|c| c.hit.instance_id.as_str())
+        .collect();
+    let scores = index.score(&words, &ids);
+    for (c, score) in candidates.iter_mut().zip(scores) {
+        c.hit.score = Some(score);
+    }
+    candidates.retain(|c| c.hit.score.unwrap_or(0.0) > 0.0);
+    // Stable sort over an id-ordered list: equal scores keep id order.
+    candidates.sort_by(|a, b| {
+        b.hit
+            .score
+            .unwrap_or(0.0)
+            .total_cmp(&a.hit.score.unwrap_or(0.0))
+    });
+    // Facets count the similar set, as `find`'s count its match set.
+    let facets = build_facets(&candidates);
+    let hits = candidates.into_iter().map(|c| c.hit).collect();
+    finish_page(store, hits, facets, page, diagnostics)
+}
+
+/// Every instance passing the structured predicates (and the content words, if any), Tier 2 then Tier 0.
+fn collect_candidates(
+    store: &dyn RepositoryStore,
+    query: &DiscoveryQuery,
+    field_text_index: &FieldTextIndex,
+    needle: Option<&[String]>,
+) -> Result<Vec<Candidate>, RepositoryError> {
+    let mut hits = Vec::new();
+
+    if query.tier.is_none() || query.tier == Some(2) {
+        hits.extend(find_tier2(store, query, field_text_index, needle)?);
+    }
+
+    // Tier 0 carries no typeId/typeNamespace/typeName/lifecycleState — a query
+    // constraining any of those predicates can never match it.
+    let tier2_only_predicate = query.type_id.is_some()
+        || query.type_namespace.is_some()
+        || query.type_name.is_some()
+        || query.lifecycle_state.is_some()
+        || !query.lifecycle_states.is_empty();
+
+    if !tier2_only_predicate && (query.tier.is_none() || query.tier == Some(0)) {
+        hits.extend(find_tier0(store, query, needle)?);
+    }
+    Ok(hits)
+}
+
+/// Fill `score` from the (store-cached) [`DiscoveryIndex`] and reorder by score,
+/// ties by `instanceId`. `hits` must already be in `instanceId` order.
+fn rank_hits(
+    store: &dyn RepositoryStore,
+    field_text_index: &FieldTextIndex,
+    words: &[String],
+    hits: &mut [DiscoveryHit],
+) -> Result<(), RepositoryError> {
+    let index = discovery_index(store, field_text_index)?;
     let ids: Vec<&str> = hits.iter().map(|h| h.instance_id.as_str()).collect();
     let scores = index.score(words, &ids);
     for (hit, score) in hits.iter_mut().zip(scores) {
@@ -1148,6 +1252,83 @@ mod tests {
             }
             assert!(w.1[0] >= w.1[1]);
         }
+    }
+
+    #[test]
+    fn similar_excludes_source_and_ranks_related_first() {
+        let store = store_with(fixtures());
+        let result = similar(&store, ID1, DiscoveryQuery::default(), FindPage::default()).unwrap();
+        // ID2 shares "process" and the "policy" tag; ID3 shares nothing; the source is excluded.
+        assert_eq!(ids(&result), vec![ID2]);
+        assert!(result.hits[0].score.unwrap() > 0.0);
+        assert!(result.hits[0].uri.ends_with(ID2));
+    }
+
+    #[test]
+    fn similar_is_deterministic() {
+        let store = store_with_note();
+        let run = || similar(&store, ID1, DiscoveryQuery::default(), FindPage::default()).unwrap();
+        let (a, b) = (run(), run());
+        assert_eq!(ids(&a), ids(&b));
+        assert!(!ids(&a).contains(&ID1));
+    }
+
+    #[test]
+    fn similar_composes_structured_predicates() {
+        let store = store_with_note();
+        let all = similar(&store, ID1, DiscoveryQuery::default(), FindPage::default()).unwrap();
+        assert!(ids(&all).contains(&NOTE1) && ids(&all).contains(&ID2));
+        let tier2 = similar(
+            &store,
+            ID1,
+            DiscoveryQuery {
+                tier: Some(2),
+                ..Default::default()
+            },
+            FindPage::default(),
+        )
+        .unwrap();
+        assert_eq!(ids(&tier2), vec![ID2]);
+        // A note can be the source too.
+        let from_note = similar(
+            &store,
+            NOTE1,
+            DiscoveryQuery::default(),
+            FindPage::default(),
+        );
+        assert!(from_note
+            .unwrap()
+            .hits
+            .iter()
+            .all(|h| h.instance_id != NOTE1));
+    }
+
+    #[test]
+    fn similar_unknown_id_and_contentmatch_rejected() {
+        let store = store_with(fixtures());
+        let unknown = similar(
+            &store,
+            "nope",
+            DiscoveryQuery::default(),
+            FindPage::default(),
+        );
+        assert!(matches!(
+            unknown,
+            Err(RepositoryError::InstanceNotFound { .. })
+        ));
+        let with_text = similar(
+            &store,
+            ID1,
+            DiscoveryQuery {
+                content_match: Some("x".into()),
+                ..Default::default()
+            },
+            FindPage::default(),
+        );
+        assert!(matches!(
+            with_text,
+            Err(RepositoryError::InvalidInput { .. })
+        ));
     }
 
     #[test]

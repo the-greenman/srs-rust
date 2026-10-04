@@ -169,3 +169,18 @@ fn find_type_name_filter_is_exact() {
     assert_eq!(result.hits.len(), 0, "unknown type_name yields no hits");
     assert_eq!(result.total, 0);
 }
+
+/// `similar` (backing the `find_similar` binding): never returns the source, same hit shape.
+#[test]
+fn similar_excludes_the_source() {
+    use srs_repository::discovery_service::similar;
+    let store = fixture_store();
+    let result = similar(
+        &store,
+        REC_AUTHORITY,
+        DiscoveryQuery::default(),
+        FindPage::default(),
+    )
+    .expect("similar must succeed");
+    assert!(result.hits.iter().all(|h| h.instance_id != REC_AUTHORITY));
+}
