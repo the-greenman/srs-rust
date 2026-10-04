@@ -105,7 +105,7 @@ pub mod srs_resources {
     use srs_repository::protocol_service::{
         get_protocol_by_id, list_protocol_stages, list_protocols, GetProtocolResult,
     };
-    use srs_repository::record_store::get_record_by_id;
+    use srs_repository::record_store::{get_instance_by_id, LoadedInstance};
     use srs_repository::render_service::{render_composition, RenderCompositionOptions};
     use srs_repository::repository_navigation_service::repository_navigation;
     use srs_repository::store::RepositoryStore;
@@ -273,9 +273,11 @@ pub mod srs_resources {
                 raw_uri,
             ),
             // `Ok(None)` is not a service error, so the not-found text is adapter-authored.
-            uri::SrsUri::Record(id) => match get_record_by_id(store, &id).map_err(service_err)? {
+            // Any tier: a Tier-0 note is a legal record target (#1227).
+            uri::SrsUri::Record(id) => match get_instance_by_id(store, &id).map_err(service_err)? {
                 None => Err(not_found()),
-                Some(record) => json_contents(&record, raw_uri),
+                Some(LoadedInstance::Record(record)) => json_contents(&record, raw_uri),
+                Some(LoadedInstance::Note(note)) => json_contents(&note, raw_uri),
             },
             uri::SrsUri::Container(id) => json_contents(
                 &resolve_container_view(

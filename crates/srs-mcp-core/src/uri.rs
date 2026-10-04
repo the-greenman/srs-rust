@@ -1,5 +1,6 @@
 //! The transport-independent `srs://` resource URI contract.
 
+use srs_repository::resource_uri;
 use std::fmt;
 
 const SCHEME: &str = "srs://";
@@ -166,10 +167,10 @@ pub fn format(kind: &SrsUri, repository_id: &str) -> String {
     match kind {
         SrsUri::Map => format!("{SCHEME}{repository_id}/map"),
         SrsUri::Navigation => format!("{SCHEME}{repository_id}/navigation"),
-        SrsUri::Record(id) => format!("{SCHEME}{repository_id}/record/{id}"),
-        SrsUri::Container(id) => format!("{SCHEME}{repository_id}/container/{id}"),
+        SrsUri::Record(id) => resource_uri::record_uri(repository_id, id),
+        SrsUri::Container(id) => resource_uri::container_uri(repository_id, id),
         SrsUri::Composition(id) => format!("{SCHEME}{repository_id}/composition/{id}"),
-        SrsUri::Type(id) => format!("{SCHEME}{repository_id}/type/{id}"),
+        SrsUri::Type(id) => resource_uri::type_uri(repository_id, id),
         SrsUri::ProtocolList => format!("{SCHEME}{repository_id}/protocol"),
         SrsUri::Protocol(id) => format!("{SCHEME}{repository_id}/protocol/{id}"),
         SrsUri::Tree(q) => format!("{SCHEME}{repository_id}/tree{}", tree_query_string(q)),

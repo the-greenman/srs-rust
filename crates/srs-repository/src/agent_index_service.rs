@@ -2,17 +2,32 @@ use crate::analysis::build_repo_map;
 use crate::error::RepositoryError;
 use crate::package_service::list_types;
 use crate::repository_navigation_service::repository_navigation_with_depth;
+use crate::resource_uri;
 use crate::store::RepositoryStore;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentTypeEntry {
+    /// Readable at `srs://<repo>/type/{typeId}`.
+    pub type_id: String,
     pub namespace: String,
     pub name: String,
     pub version: u32,
     pub field_count: usize,
     pub description: Option<String>,
+}
+
+/// A suggested entry point: the manifest's file path, resolved to the instance it holds
+/// (and its `srs://` URI) when the path names one.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentEntryPoint {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uri: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,9 +50,9 @@ pub struct AgentIndex {
     pub notes: usize,
     pub types: Vec<AgentTypeEntry>,
     pub sections: Vec<AgentSectionEntry>,
-    /// Suggested starting points from manifest.aiGuidance.suggestedEntryPoints —
-    /// file paths (e.g. "records/notes/foundation.json") recommended as entry points.
-    pub entry_points: Vec<String>,
+    /// Suggested starting points from manifest.aiGuidance.suggestedEntryPoints
+    /// (file paths such as "records/notes/foundation.json"), resolved to URIs.
+    pub entry_points: Vec<AgentEntryPoint>,
 }
 
 /// Build a typed agent-index summary of a repository by composing existing services.
@@ -53,6 +68,7 @@ pub fn build_agent_index(store: &dyn RepositoryStore) -> Result<AgentIndex, Repo
     let types = type_list
         .into_iter()
         .map(|t| AgentTypeEntry {
+            type_id: t.id,
             namespace: t.namespace,
             name: t.name,
             version: t.version,
@@ -71,6 +87,32 @@ pub fn build_agent_index(store: &dyn RepositoryStore) -> Result<AgentIndex, Repo
         })
         .collect();
 
+    let cat = store.catalog()?;
+    let repo_id = repo_map
+        .repository
+        .repository_id
+        .clone()
+        .unwrap_or_default();
+    let entry_points = repo_map
+        .entry_points
+        .into_iter()
+        .map(|path| {
+            let instance_id = cat
+                .instances
+                .iter()
+                .find(|e| e.locator.as_deref() == Some(path.as_str()))
+                .map(|e| e.id.clone());
+            let uri = instance_id
+                .as_deref()
+                .map(|id| resource_uri::record_uri(&repo_id, id));
+            AgentEntryPoint {
+                path,
+                instance_id,
+                uri,
+            }
+        })
+        .collect();
+
     Ok(AgentIndex {
         repository_id: repo_map.repository.repository_id,
         title: repo_map.repository.title,
@@ -80,7 +122,7 @@ pub fn build_agent_index(store: &dyn RepositoryStore) -> Result<AgentIndex, Repo
         notes: repo_map.counts.notes,
         types,
         sections,
-        entry_points: repo_map.entry_points,
+        entry_points,
     })
 }
 
