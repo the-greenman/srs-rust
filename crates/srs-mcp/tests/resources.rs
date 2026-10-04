@@ -214,7 +214,13 @@ async fn list_resources_enumerates_containers_and_views() {
     assert!(tmpl_uris.contains(&format!("srs://{}/record/{{instanceId}}", fx.repo_id).as_str()));
     assert!(tmpl_uris.contains(&format!("srs://{}/type/{{typeId}}", fx.repo_id).as_str()));
     assert!(tmpl_uris.contains(&format!("srs://{}/protocol/{{protocolId}}", fx.repo_id).as_str()));
-    assert!(tmpl_uris.contains(&format!("srs://{}/tree/{{instanceId}}", fx.repo_id).as_str()));
+    assert!(tmpl_uris.contains(
+        &format!(
+            "srs://{}/tree/{{instanceId}}{{?maxDepth,relationType,typeFilter}}",
+            fx.repo_id
+        )
+        .as_str()
+    ));
     assert!(tmpl_uris.contains(
         &format!(
             "srs://{}/context/{{containerId}}/{{instanceId}}{{?excludeRelationCategories}}",
@@ -590,6 +596,33 @@ async fn read_tree_agent_index_and_descent_hook() {
     assert_eq!(sub_text, serde_json::to_string_pretty(&expected).unwrap());
     let parsed: serde_json::Value = serde_json::from_str(&sub_text).unwrap();
     assert_eq!(parsed["roots"][0]["instanceId"], fx.identity_id);
+
+    // #1229: query params reach `build_tree`; a bad query is refused.
+    let (_, bounded) = read_text(
+        &client,
+        format!(
+            "srs://{}/tree?maxDepth=0&relationType=depends-on",
+            fx.repo_id
+        ),
+    )
+    .await;
+    let expected = build_tree(
+        &store,
+        TreeOptions {
+            max_depth: Some(0),
+            relation_type: "depends-on".into(),
+            ..TreeOptions::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(bounded, serde_json::to_string_pretty(&expected).unwrap());
+    assert!(client
+        .read_resource(rmcp::model::ReadResourceRequestParams::new(format!(
+            "srs://{}/tree?maxDepth=x",
+            fx.repo_id
+        )))
+        .await
+        .is_err());
 
     let (_, idx_text) = read_text(&client, format!("srs://{}/agent-index", fx.repo_id)).await;
     assert_eq!(

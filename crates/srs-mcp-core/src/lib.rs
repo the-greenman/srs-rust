@@ -23,11 +23,11 @@ Orient before writing: read srs://<repositoryId>/map for counts and package info
 srs://<repositoryId>/navigation for the document structure. srs://<repositoryId>/agent-index is \
 the one-page AI orientation index (identity, counts, types, sections, entry points). \
 srs://<repositoryId>/tree is the recursive contains-tree from every root, and \
-srs://<repositoryId>/tree/{instanceId} the subtree under one instance — descend from a \
+srs://<repositoryId>/tree/{instanceId} the subtree under one instance (both take ?maxDepth=N, ?relationType=<key>, ?typeFilter=<namespace/name> to bound it; maxDepth=0 is roots only) — descend from a \
 navigation section or container member by its instanceId; container members also carry \
 sectionContainerId when they root a sub-container. Read individual records via the \
 srs://<repositoryId>/record/{instanceId} resource template (or everything about one record, relations and \
-arrangement subtree included, via srs://<repositoryId>/context/{containerId}/{instanceId}, optionally with ?excludeRelationCategories=composition,sequence to drop structural edges), containers via \
+arrangement subtree included, via srs://<repositoryId>/context/{containerId}/{instanceId}, optionally with ?excludeRelationCategories=composition,sequence to drop structural edges; for a hub record with many edges use the bounded `neighbours` tool instead), containers via \
 srs://<repositoryId>/container/<containerId>, and rendered document views via \
 srs://<repositoryId>/view/<compositionId>. Type schemas live at \
 srs://<repositoryId>/type/{typeId} (also via the type_schema tool): read one before \
@@ -118,6 +118,18 @@ pub mod srs_resources {
     const MIME_JSON: &str = "application/json";
     const MIME_MARKDOWN: &str = "text/markdown";
 
+    /// `srs tree` options for a tree URI (`root` = the `tree/{instanceId}` form).
+    fn tree_options(root: Option<String>, q: uri::TreeQuery) -> TreeOptions {
+        let d = TreeOptions::default();
+        TreeOptions {
+            root_ids: root.map(|id| vec![id]),
+            relation_type: q.relation_type.unwrap_or(d.relation_type),
+            max_depth: q.max_depth,
+            type_filter: q.type_filter,
+            ..d
+        }
+    }
+
     fn resource(
         uri: String,
         name: String,
@@ -144,7 +156,7 @@ pub mod srs_resources {
         let mut resources = vec![
             resource(uri::format(&uri::SrsUri::Map, repository_id), "map".into(), Some("Repository map".into()), Some("Counts, package info, relation summary and description for this repository — read this first to orient.".into()), MIME_JSON),
             resource(uri::format(&uri::SrsUri::Navigation, repository_id), "navigation".into(), Some("Repository navigation".into()), Some("The repository's identity record and ordered navigation sections (root container structure).".into()), MIME_JSON),
-            resource(uri::format(&uri::SrsUri::Tree, repository_id), "tree".into(), Some("Repository tree".into()), Some("Recursive `contains` tree from every auto-detected root (records not targeted by a contains edge), with depth and cycle pruning — the same result as `srs tree`. Subtrees: srs://<repositoryId>/tree/{instanceId}.".into()), MIME_JSON),
+            resource(uri::format(&uri::SrsUri::Tree(uri::TreeQuery::default()), repository_id), "tree".into(), Some("Repository tree".into()), Some("Recursive `contains` tree from every auto-detected root (records not targeted by a contains edge), with depth and cycle pruning — the same result as `srs tree`. Subtrees: srs://<repositoryId>/tree/{instanceId}. Append ?maxDepth=N (0 = roots only), ?relationType=<key> (default contains) and ?typeFilter=<namespace/name> to bound it, e.g. tree?maxDepth=1.".into()), MIME_JSON),
             resource(uri::format(&uri::SrsUri::AgentIndex, repository_id), "agent-index".into(), Some("Agent index".into()), Some("AI orientation index: repository identity, counts, installed types, top-level sections and suggested entry points — same as `srs repo agent-index`.".into()), MIME_JSON),
         ];
         for c in
@@ -228,19 +240,12 @@ pub mod srs_resources {
             uri::SrsUri::Navigation => {
                 json_contents(&repository_navigation(store).map_err(service_err)?, raw_uri)
             }
-            uri::SrsUri::Tree => json_contents(
-                &build_tree(store, TreeOptions::default()).map_err(service_err)?,
+            uri::SrsUri::Tree(q) => json_contents(
+                &build_tree(store, tree_options(None, q)).map_err(service_err)?,
                 raw_uri,
             ),
-            uri::SrsUri::TreeFrom(id) => json_contents(
-                &build_tree(
-                    store,
-                    TreeOptions {
-                        root_ids: Some(vec![id]),
-                        ..TreeOptions::default()
-                    },
-                )
-                .map_err(service_err)?,
+            uri::SrsUri::TreeFrom(id, q) => json_contents(
+                &build_tree(store, tree_options(Some(id), q)).map_err(service_err)?,
                 raw_uri,
             ),
             uri::SrsUri::AgentIndex => {
@@ -357,7 +362,7 @@ pub mod srs_resources {
                 "uriTemplate": uri::tree_template(repository_id),
                 "name": "tree",
                 "title": "Subtree by root instance id",
-                "description": "Recursive `contains` tree rooted at one instance — descend from any navigation section or container member by its instanceId.",
+                "description": "Recursive `contains` tree rooted at one instance — descend from any navigation section or container member by its instanceId. Optional ?maxDepth (0 = roots only), ?relationType, ?typeFilter bound it.",
                 "mimeType": MIME_JSON
             }
         ] })
