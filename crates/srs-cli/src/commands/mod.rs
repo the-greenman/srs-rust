@@ -1855,6 +1855,12 @@ pub struct FindArgs {
     /// srs#448/rfc-decision-53635966, srs-rust#888).
     #[arg(long = "tier")]
     pub tier: Option<u8>,
+    /// Maximum hits to return (default: all; `total` always counts every match)
+    #[arg(long = "limit")]
+    pub limit: Option<usize>,
+    /// Number of hits to skip, after the deterministic sort
+    #[arg(long = "offset", default_value_t = 0)]
+    pub offset: usize,
 }
 
 #[derive(Subcommand)]

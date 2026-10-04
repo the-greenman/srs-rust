@@ -6,7 +6,7 @@
 //! because `to_js()` calls `js_sys::JSON::parse` which panics off-wasm.
 //! The wasm-pack build proves the binding itself compiles and is exported.
 
-use srs_repository::discovery_service::{find, DiscoveryQuery};
+use srs_repository::discovery_service::{find, DiscoveryQuery, FindPage};
 use srs_repository::FileStore;
 
 const FIELD_TITLE: &str = "11111111-1111-4111-8111-111111111111";
@@ -97,7 +97,8 @@ fn fixture_store() -> FileStore {
 #[test]
 fn find_empty_query_returns_all() {
     let store = fixture_store();
-    let result = find(&store, DiscoveryQuery::default()).expect("find must succeed");
+    let result =
+        find(&store, DiscoveryQuery::default(), FindPage::default()).expect("find must succeed");
     assert_eq!(result.total, 2, "both records returned for empty query");
     assert_eq!(result.hits.len(), 2);
 }
@@ -112,6 +113,7 @@ fn find_content_match_filters_hits() {
             content_match: Some("authority".to_string()),
             ..Default::default()
         },
+        FindPage::default(),
     )
     .expect("find must succeed");
     assert_eq!(result.hits.len(), 1, "only 'Building Authority' matches");
@@ -140,6 +142,7 @@ fn find_type_name_filter_is_exact() {
             type_name: Some("nonexistent".to_string()),
             ..Default::default()
         },
+        FindPage::default(),
     )
     .expect("find must succeed");
     assert_eq!(result.hits.len(), 0, "unknown type_name yields no hits");

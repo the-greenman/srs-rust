@@ -2,7 +2,7 @@ use crate::commands::{parse_type_filter, with_store, CliContext, FindArgs};
 use crate::output;
 use crate::payload::FindPayload;
 use anyhow::Result;
-use srs_repository::discovery_service::{self, DiscoveryQuery};
+use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage};
 
 pub fn dispatch(ctx: CliContext, args: FindArgs) -> Result<String> {
     let (type_namespace, type_name) = match args.type_filter {
@@ -34,7 +34,13 @@ pub fn dispatch(ctx: CliContext, args: FindArgs) -> Result<String> {
         tier: args.tier,
         content_match: args.text,
     };
-    match with_store(&ctx, |store| Ok(discovery_service::find(store, query)?)) {
+    let page = FindPage {
+        limit: args.limit,
+        offset: args.offset,
+    };
+    match with_store(&ctx, |store| {
+        Ok(discovery_service::find(store, query, page)?)
+    }) {
         Ok(result) => output::serialize("find", FindPayload { result }),
         Err(e) => Ok(output::err("find", vec![e.to_string()])),
     }

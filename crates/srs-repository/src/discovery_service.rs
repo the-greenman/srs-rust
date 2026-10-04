@@ -62,17 +62,61 @@ pub struct DiscoveryHit {
     /// `None` at Layer 1 (deterministic, unranked). Populated only by a Layer-2 index.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub score: Option<f32>,
-    /// First matching segment's raw text, when a content match was requested.
+    /// A ~200-char window around the first match in the first matching segment, when a content match was requested.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub snippet: Option<String>,
     /// Field names (or sentinels) whose text matched the content predicate.
     pub matched_fields: Vec<String>,
 }
 
+/// Result shaping for [`find`] (srs-rust#1217). Deliberately not part of
+/// [`DiscoveryQuery`], which mirrors the spec schema: paging selects which of the
+/// matches are returned, never which instances match.
+/// `limit: None` means every match; any default cap is the adapter's choice.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FindPage {
+    pub limit: Option<usize>,
+    pub offset: usize,
+}
+
+/// Characters of text around the first match kept in a hit snippet.
+const SNIPPET_WINDOW: usize = 200;
+/// Characters of leading context before the match inside the window.
+const SNIPPET_LEAD: usize = 40;
+
+/// A window of about [`SNIPPET_WINDOW`] chars of `text` around the first
+/// occurrence of `needle` (compared after normalization), `…` marking each cut.
+/// Whole text when it fits. Counts and cuts on char boundaries.
+fn snippet_window(text: &str, needle: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= SNIPPET_WINDOW {
+        return text.to_string();
+    }
+    // Match position in chars. `normalize` may change length (e.g. case folding), so
+    // locate the match on the normalized text and clamp; the window is approximate.
+    let norm = text_projection::normalize(text);
+    let pos = norm
+        .find(needle)
+        .map_or(0, |byte| norm[..byte].chars().count());
+    let start = pos
+        .saturating_sub(SNIPPET_LEAD)
+        .min(chars.len() - SNIPPET_WINDOW);
+    let end = start + SNIPPET_WINDOW;
+    let body: String = chars[start..end].iter().collect();
+    format!(
+        "{}{}{}",
+        if start > 0 { "…" } else { "" },
+        body,
+        if end < chars.len() { "…" } else { "" }
+    )
+}
+
 /// Run a discovery query against the repository. See module docs for the contract.
+/// `page` is applied after the deterministic sort; `total` is the pre-paging match count.
 pub fn find(
     store: &dyn RepositoryStore,
     query: DiscoveryQuery,
+    page: FindPage,
 ) -> Result<DiscoveryResult, RepositoryError> {
     let diagnostics = Vec::new();
 
@@ -113,6 +157,11 @@ pub fn find(
     hits.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
 
     let total = hits.len();
+    let hits = hits
+        .into_iter()
+        .skip(page.offset)
+        .take(page.limit.unwrap_or(usize::MAX))
+        .collect();
     Ok(DiscoveryResult {
         hits,
         total,
@@ -195,7 +244,7 @@ fn match_content(segments: Vec<TextSegment>, needle: &str) -> (Vec<String>, Opti
     for seg in segments {
         if text_projection::normalize(&seg.text).contains(needle) {
             if snippet.is_none() {
-                snippet = Some(seg.text.clone());
+                snippet = Some(snippet_window(&seg.text, needle));
             }
             if seen_fields.insert(seg.field_name.clone()) {
                 matched_fields.push(seg.field_name);
@@ -530,7 +579,7 @@ mod tests {
     #[test]
     fn no_predicates_returns_all_records() {
         let store = store_with(fixtures());
-        let result = find(&store, DiscoveryQuery::default()).unwrap();
+        let result = find(&store, DiscoveryQuery::default(), FindPage::default()).unwrap();
         assert_eq!(result.total, 3);
     }
 
@@ -543,6 +592,7 @@ mod tests {
                 lifecycle_state: Some("ratified".to_string()),
                 ..Default::default()
             },
+            FindPage::default(),
         )
         .unwrap();
         assert_eq!(ids(&result), vec![ID1]);
@@ -559,6 +609,7 @@ mod tests {
                 exclude_lifecycle_states: vec!["superseded".to_string(), "closed".to_string()],
                 ..Default::default()
             },
+            FindPage::default(),
         )
         .unwrap();
         // ID2 is superseded and must be hidden; ID1 (ratified) + ID3 (draft) remain.
@@ -576,6 +627,7 @@ mod tests {
                 content_match: Some("CONSENT".to_string()),
                 ..Default::default()
             },
+            FindPage::default(),
         )
         .unwrap();
         assert_eq!(ids(&result), vec![ID1]);
@@ -593,6 +645,7 @@ mod tests {
                 tag: vec!["policy".to_string(), "ops".to_string()],
                 ..Default::default()
             },
+            FindPage::default(),
         )
         .unwrap();
         // Only the record carrying BOTH policy AND ops.
@@ -610,6 +663,7 @@ mod tests {
                 content_match: Some("budget".to_string()),
                 ..Default::default()
             },
+            FindPage::default(),
         )
         .unwrap();
         assert_eq!(ids(&result), vec![ID3]);
@@ -618,8 +672,8 @@ mod tests {
     #[test]
     fn results_are_deterministic() {
         let store = store_with(fixtures());
-        let a = find(&store, DiscoveryQuery::default()).unwrap();
-        let b = find(&store, DiscoveryQuery::default()).unwrap();
+        let a = find(&store, DiscoveryQuery::default(), FindPage::default()).unwrap();
+        let b = find(&store, DiscoveryQuery::default(), FindPage::default()).unwrap();
         assert_eq!(ids(&a), ids(&b));
     }
 
@@ -632,12 +686,12 @@ mod tests {
             content_match: Some("consent".to_string()),
             ..Default::default()
         };
-        let from_memory = find(&store, query.clone()).unwrap();
+        let from_memory = find(&store, query.clone(), FindPage::default()).unwrap();
 
         let temp = tempfile::TempDir::new().unwrap();
         let file_store = crate::store::FileStore::new(temp.path());
         crate::repository_portability::copy_repository(&store, &file_store).unwrap();
-        let from_file = find(&file_store, query).unwrap();
+        let from_file = find(&file_store, query, FindPage::default()).unwrap();
 
         assert_eq!(ids(&from_memory), vec![ID1]);
         assert_eq!(
@@ -656,6 +710,7 @@ mod tests {
                 tier: Some(0),
                 ..Default::default()
             },
+            FindPage::default(),
         )
         .unwrap();
         assert_eq!(ids(&result), vec![NOTE1]);
@@ -673,7 +728,7 @@ mod tests {
     #[test]
     fn empty_query_spans_both_tiers() {
         let store = store_with_note();
-        let result = find(&store, DiscoveryQuery::default()).unwrap();
+        let result = find(&store, DiscoveryQuery::default(), FindPage::default()).unwrap();
         assert_eq!(result.total, 4);
         let hit_ids = ids(&result);
         assert!(hit_ids.contains(&NOTE1));
@@ -688,6 +743,7 @@ mod tests {
                 type_namespace: Some("governance".to_string()),
                 ..Default::default()
             },
+            FindPage::default(),
         )
         .unwrap();
         assert_eq!(result.total, 3);
@@ -705,6 +761,7 @@ mod tests {
                 content_match: Some("recall floor".to_string()),
                 ..Default::default()
             },
+            FindPage::default(),
         )
         .unwrap();
         assert_eq!(ids(&note), vec![NOTE1]);
@@ -719,6 +776,7 @@ mod tests {
                 tag: vec!["policy".to_string()],
                 ..Default::default()
             },
+            FindPage::default(),
         )
         .unwrap();
         // ID1 (Record, tags=[policy]), ID2 (Record, tags=[ops, policy]), and NOTE1
@@ -732,12 +790,12 @@ mod tests {
         // CLAUDE.md storage rules.
         let store = store_with_note();
         let query = DiscoveryQuery::default();
-        let from_memory = find(&store, query.clone()).unwrap();
+        let from_memory = find(&store, query.clone(), FindPage::default()).unwrap();
 
         let temp = tempfile::TempDir::new().unwrap();
         let file_store = crate::store::FileStore::new(temp.path());
         crate::repository_portability::copy_repository(&store, &file_store).unwrap();
-        let from_file = find(&file_store, query).unwrap();
+        let from_file = find(&file_store, query, FindPage::default()).unwrap();
 
         assert_eq!(from_memory.total, 4);
         assert_eq!(
@@ -745,5 +803,63 @@ mod tests {
             serde_json::to_value(&from_file).unwrap(),
             "DiscoveryResult must be identical across stores (memory -> file) across both tiers"
         );
+    }
+
+    #[test]
+    fn paging_applies_after_sort_and_total_is_pre_paging() {
+        let store = store_with(fixtures());
+        let page = |limit, offset| {
+            find(
+                &store,
+                DiscoveryQuery::default(),
+                FindPage {
+                    limit: Some(limit),
+                    offset,
+                },
+            )
+            .unwrap()
+        };
+        let all = find(&store, DiscoveryQuery::default(), FindPage::default()).unwrap();
+        assert_eq!((all.total, all.hits.len()), (3, 3), "default is unbounded");
+        let first = page(2, 0);
+        let second = page(2, 2);
+        assert_eq!((first.total, second.total), (3, 3));
+        assert_eq!(ids(&first), ids(&all)[..2]);
+        assert_eq!(ids(&second), ids(&all)[2..]);
+        let none = page(0, 0);
+        assert!(none.hits.is_empty());
+        assert_eq!(none.total, 3);
+        assert!(page(5, 10).hits.is_empty());
+    }
+
+    #[test]
+    fn snippet_window_cases() {
+        let short = "a short text with needle in it";
+        assert_eq!(snippet_window(short, "needle"), short);
+
+        let long = |before: usize, after: usize| {
+            format!("{}needle{}", "x".repeat(before), "y".repeat(after))
+        };
+        // Middle: both cuts, match kept, window size bounded.
+        let mid = snippet_window(&long(500, 500), "needle");
+        assert!(mid.starts_with('…') && mid.ends_with('…') && mid.contains("needle"));
+        assert_eq!(mid.chars().count(), SNIPPET_WINDOW + 2);
+        // Near the start: no leading cut.
+        let start = snippet_window(&long(5, 500), "needle");
+        assert!(!start.starts_with('…') && start.ends_with('…') && start.contains("needle"));
+        // Near the end: no trailing cut.
+        let end = snippet_window(&long(500, 5), "needle");
+        assert!(end.starts_with('…') && !end.ends_with('…') && end.contains("needle"));
+        assert_eq!(end.chars().count(), SNIPPET_WINDOW + 1);
+    }
+
+    #[test]
+    fn snippet_window_is_multibyte_safe() {
+        let text = format!("{}démocratie{}", "é".repeat(300), "日本".repeat(300));
+        let w = snippet_window(&text, "démocratie");
+        assert!(w.contains("démocratie") && w.chars().count() <= SNIPPET_WINDOW + 2);
+        // Normalization that changes byte length must not panic either.
+        let w = snippet_window(&format!("{}İ needle", "İ".repeat(300)), "needle");
+        assert!(w.chars().count() <= SNIPPET_WINDOW + 2);
     }
 }
