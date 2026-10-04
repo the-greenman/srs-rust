@@ -103,6 +103,34 @@ pub fn installed_set(store: &dyn RepositoryStore) -> Result<Vec<InstalledMember>
             .collect(),
     };
     let mut members = Vec::new();
+    // 1b (srs-rust#1223). The primary package is always installed, exactly
+    // as `FileStore::list_package_boundaries` (store.rs) always lists it
+    // before the `packageRefs` sub-packages. Declared refs below are added
+    // on top, deduped by resolved package id (so `packageRef {mode: local,
+    // path: "package"}` does not count twice). A non-default primary path
+    // depends on srs-rust#1207.
+    // Note: the loader reads only the plural `packageRefs`; the singular
+    // `packageRef` fallback in item 1 is this function's own (pre-dates
+    // #1223) and is not loader behaviour.
+    if let Ok(primary) = store.load_package_boundary(&None) {
+        if !primary.id.is_empty() {
+            members.push(InstalledMember {
+                package: InstalledPackage {
+                    id: primary.id,
+                    namespace: primary.namespace,
+                    name: primary.name,
+                    version: Some(primary.version).filter(|v| !v.is_empty()),
+                },
+                selector: None,
+                dependencies: primary
+                    .package_dependencies
+                    .unwrap_or_default()
+                    .iter()
+                    .map(DependencyRef::from_value_lenient)
+                    .collect(),
+            });
+        }
+    }
     for r in &refs {
         let path = str_of(r, "path");
         // A local ref resolves to its manifest; the manifest wins over the
@@ -116,6 +144,13 @@ pub fn installed_set(store: &dyn RepositoryStore) -> Result<Vec<InstalledMember>
             _ => None,
         };
         if let Some(b) = resolved {
+            // Only the primary dedupes: same-id/different-version refs are distinct members.
+            if members
+                .first()
+                .is_some_and(|m| m.selector.is_none() && m.package.id == b.id)
+            {
+                continue;
+            }
             members.push(InstalledMember {
                 package: InstalledPackage {
                     id: b.id,

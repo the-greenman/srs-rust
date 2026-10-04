@@ -21,6 +21,8 @@ pub enum SrsUri {
     Context {
         container_id: Option<String>,
         instance_id: String,
+        /// `?excludeRelationCategories=composition,sequence` (#1188); wire spellings, parsed by the adapter.
+        exclude_relation_categories: Vec<String>,
     },
 }
 
@@ -48,14 +50,25 @@ pub fn parse(uri: &str, repository_id: &str) -> Result<SrsUri, UriError> {
         )));
     }
     if let Some(ids) = path.strip_prefix("context/") {
+        let (ids, query) = ids.split_once('?').unwrap_or((ids, ""));
+        let mut exclude_relation_categories = vec![];
+        for pair in query.split('&').filter(|p| !p.is_empty()) {
+            match pair.split_once('=') {
+                Some(("excludeRelationCategories", v)) => exclude_relation_categories
+                    .extend(v.split(',').filter(|c| !c.is_empty()).map(str::to_string)),
+                _ => return Err(UriError(format!("unsupported query in '{uri}'"))),
+            }
+        }
         return match ids.split('/').collect::<Vec<_>>().as_slice() {
             [iid] if !iid.is_empty() => Ok(SrsUri::Context {
                 container_id: None,
                 instance_id: iid.to_string(),
+                exclude_relation_categories,
             }),
             [cid, iid] if !cid.is_empty() && !iid.is_empty() => Ok(SrsUri::Context {
                 container_id: Some(cid.to_string()),
                 instance_id: iid.to_string(),
+                exclude_relation_categories,
             }),
             _ => Err(UriError(format!("malformed resource path in '{uri}'"))),
         };
@@ -96,13 +109,24 @@ pub fn format(kind: &SrsUri, repository_id: &str) -> String {
         SrsUri::TreeFrom(id) => format!("{SCHEME}{repository_id}/tree/{id}"),
         SrsUri::AgentIndex => format!("{SCHEME}{repository_id}/agent-index"),
         SrsUri::Context {
-            container_id: None,
+            container_id,
             instance_id,
-        } => format!("{SCHEME}{repository_id}/context/{instance_id}"),
-        SrsUri::Context {
-            container_id: Some(cid),
-            instance_id,
-        } => format!("{SCHEME}{repository_id}/context/{cid}/{instance_id}"),
+            exclude_relation_categories,
+        } => {
+            let ids = match container_id {
+                None => instance_id.clone(),
+                Some(cid) => format!("{cid}/{instance_id}"),
+            };
+            let query = if exclude_relation_categories.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "?excludeRelationCategories={}",
+                    exclude_relation_categories.join(",")
+                )
+            };
+            format!("{SCHEME}{repository_id}/context/{ids}{query}")
+        }
     }
 }
 
@@ -115,7 +139,7 @@ pub fn tree_template(repository_id: &str) -> String {
 }
 
 pub fn context_template(repository_id: &str) -> String {
-    format!("{SCHEME}{repository_id}/context/{{containerId}}/{{instanceId}}")
+    format!("{SCHEME}{repository_id}/context/{{containerId}}/{{instanceId}}{{?excludeRelationCategories}}")
 }
 
 pub fn type_template(repository_id: &str) -> String {
@@ -143,6 +167,25 @@ mod tests {
     }
 
     #[test]
+    fn context_uri_query_parses_and_rejects_unknown_keys() {
+        let u = format!("srs://{REPO}/context/c/i?excludeRelationCategories=composition,sequence");
+        assert_eq!(
+            parse(&u, REPO),
+            Ok(SrsUri::Context {
+                container_id: Some("c".into()),
+                instance_id: "i".into(),
+                exclude_relation_categories: vec!["composition".into(), "sequence".into()],
+            })
+        );
+        assert!(parse(&format!("srs://{REPO}/context/i?bogus=1"), REPO).is_err());
+        assert!(parse(
+            &format!("srs://{REPO}/context/i?excludeRelationCategories=sequence&foo=1"),
+            REPO
+        )
+        .is_err());
+    }
+
+    #[test]
     fn uri_roundtrip_all_kinds() {
         let kinds = [
             SrsUri::Map,
@@ -159,10 +202,17 @@ mod tests {
             SrsUri::Context {
                 container_id: None,
                 instance_id: "i".into(),
+                exclude_relation_categories: vec![],
             },
             SrsUri::Context {
                 container_id: Some("c".into()),
                 instance_id: "i".into(),
+                exclude_relation_categories: vec![],
+            },
+            SrsUri::Context {
+                container_id: None,
+                instance_id: "i".into(),
+                exclude_relation_categories: vec!["composition".into(), "sequence".into()],
             },
         ];
         for kind in kinds {

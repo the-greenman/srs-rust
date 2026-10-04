@@ -1509,7 +1509,8 @@ impl SrsRepository {
     /// Assemble context for a record: field values and every relation touching it (both
     /// directions, neighbour inline).
     ///
-    /// `input_json` is `{"recordId": "<id>", "containerId"?: "<id>"}`; with `containerId` the
+    /// `input_json` is `{"recordId": "<id>", "containerId"?: "<id>", "excludeRelationCategories"?: ["composition","sequence"]}`;
+    /// the latter drops edges by `RelationTypeDefinition.category` (#1188); with `containerId` the
     /// result also carries `entry` and `subtree` (the record's arrangement there).
     /// Returns a `RecordContextResult` with `recordId`, `typeId`, `typeName`,
     /// `typeNamespace`, `displayLabel`, `fieldValues`, `relations`, optional
