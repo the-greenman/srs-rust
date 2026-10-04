@@ -579,6 +579,9 @@ async fn tool_find_defaults_to_25_hits_with_full_total() {
     assert_eq!(count(q(serde_json::json!({}))).await, (25, 27));
     assert_eq!(count(q(serde_json::json!({ "offset": 25 }))).await, (2, 27));
     assert_eq!(count(q(serde_json::json!({ "limit": 0 }))).await, (0, 27));
+    // limit 0 is the map call: no hits, but facets still count the whole match set.
+    let map = call(&client, "find", q(serde_json::json!({ "limit": 0 }))).await;
+    assert_eq!(map.structured_content.unwrap()["facets"]["notes"], 27);
     client.cancel().await.unwrap();
 }
 

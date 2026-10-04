@@ -136,8 +136,11 @@ instance must carry ALL), lifecycleState, excludeLifecycleStates, tier, and cont
 order, not just the title; a phrase match is always included). Hits are ranked by BM25 \
 relevance (score) unless rank is false, which orders by instanceId. Types are written \
 'namespace/name'. Returns hits with instanceId, label, type, lifecycleState, snippet, and \
-matchedFields. Serves Tier 2 (Records) and Tier 0 (Notes; type and lifecycle filters exclude \
-them). A typeId, type, or containerId that names nothing returns zero hits with a warning \
+matchedFields. Also returns facets: counts over the WHOLE match set, before limit/offset \
+(byType, tags, notes, and one entry per closed string field (at most 25), each the top 20 values plus \
+an other count). find with limit 0 and no filters returns no hits and is the cheap map of the \
+repository; add a type filter for that type's keyword map. Serves Tier 2 (Records) and Tier 0 \
+(Notes; type and lifecycle filters exclude them). A typeId, type, or containerId that names nothing returns zero hits with a warning \
 diagnostic.";
 
 pub const DESC_RECORD_CREATE: &str = "Create a typed Tier-2 Record. 'type' is \
