@@ -3053,10 +3053,14 @@ $SRS_BIN repo validate --repo "$SCRATCH" --pretty
 srs --repo $REPO context record $P                    # relations: out depends-on, in derived-from (record), in derived-from (note)
 srs --repo $REPO context record $P --container $CID   # entry depth 0, subtree = the two nested records
 srs --repo $REPO context record $COMMENT --container $CID   # error: not a member of container
+srs --repo $REPO context record $P --exclude-category composition --exclude-category sequence   # #1188: contains/precedes edges gone, others kept
+srs --repo $REPO context record $P --exclude-category nope   # error: unknown relation category
 srs --repo $REPO repo validate                        # 0 errors
 ```
 
-**Done when.** The three edges carry `direction` and a `neighbour` of kind `record`/`note`, `subtree` lists only descendants in outline order, and the non-member case is an error envelope.
+**Done when.** The three edges carry `direction` and a `neighbour` of kind `record`/`note`, `subtree` lists only descendants in outline order, and the non-member case is an error envelope. With `--exclude-category composition --exclude-category sequence` (MCP: `?excludeRelationCategories=composition,sequence`; WASM: `excludeRelationCategories`) edges of those categories (core `contains`, `precedes`) disappear and the rest are unchanged; no flag leaves the output as before.
+
+**Verified 2026-10-04 (#1188):** scratch repo, identity record with `precedes` and `depends-on` edges: no flag returns both; `--exclude-category composition --exclude-category sequence` returns only `depends-on`; `--exclude-category dependency` returns only `precedes`; `--exclude-category nope` is refused; `repo validate` 0 errors.
 
 ### S49 — Publish a package as a `.srspkg` and install it into a fresh repository (`srs package export` / `srs package install --bundle`, #632/#690/#663, RFC-003 Rev 10 #1212)
 

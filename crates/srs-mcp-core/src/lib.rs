@@ -27,7 +27,7 @@ srs://<repositoryId>/tree/{instanceId} the subtree under one instance — descen
 navigation section or container member by its instanceId; container members also carry \
 sectionContainerId when they root a sub-container. Read individual records via the \
 srs://<repositoryId>/record/{instanceId} resource template (or everything about one record, relations and \
-arrangement subtree included, via srs://<repositoryId>/context/{containerId}/{instanceId}), containers via \
+arrangement subtree included, via srs://<repositoryId>/context/{containerId}/{instanceId}, optionally with ?excludeRelationCategories=composition,sequence to drop structural edges), containers via \
 srs://<repositoryId>/container/<containerId>, and rendered document views via \
 srs://<repositoryId>/view/<compositionId>. Type schemas live at \
 srs://<repositoryId>/type/{typeId} (also via the type_schema tool): read one before \
@@ -250,12 +250,18 @@ pub mod srs_resources {
             uri::SrsUri::Context {
                 container_id,
                 instance_id,
+                exclude_relation_categories,
             } => json_contents(
                 &get_record_context(
                     store,
                     RecordContextQuery {
                         record_id: instance_id,
                         container_id,
+                        exclude_relation_categories: exclude_relation_categories
+                            .iter()
+                            .map(|c| c.parse())
+                            .collect::<Result<_, String>>()
+                            .map_err(McpApplicationError::invalid_params)?,
                     },
                 )
                 .map_err(service_err)?,
@@ -344,7 +350,7 @@ pub mod srs_resources {
                 "uriTemplate": uri::context_template(repository_id),
                 "name": "context",
                 "title": "Record context in a container",
-                "description": "Everything about one record in one read: field values, every relation in both directions with the other endpoint inline (comments, notes, sources), and its arrangement subtree in the container. Drop the containerId segment (srs://<repositoryId>/context/{instanceId}) for the record and its relations only.",
+                "description": "Everything about one record in one read: field values, every relation in both directions with the other endpoint inline (comments, notes, sources), and its arrangement subtree in the container. Drop the containerId segment (srs://<repositoryId>/context/{instanceId}) for the record and its relations only. Append ?excludeRelationCategories=composition,sequence to drop edges by relation-type category (e.g. structural contains/precedes).",
                 "mimeType": MIME_JSON
             },
             {
