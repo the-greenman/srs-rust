@@ -2,7 +2,7 @@
 //!
 //! Runs ~25 realistic questions (`tests/fixtures/discovery-eval/questions.json`, fixture data, not
 //! spec content) against a PINNED muSrs export (`musrs-pinned.srs`, packed with
-//! `srs archive pack` from muDemocracy.org commit 6e6cd5b, 886 instances), through the real
+//! `srs archive pack` from muDemocracy.org commit 4c45f35f, 886 instances), through the real
 //! `discovery_service::find`, and prints a table plus a classification of every miss.
 //!
 //! One command:  `cargo test -p srs-repository --test discovery_eval -- --nocapture`
