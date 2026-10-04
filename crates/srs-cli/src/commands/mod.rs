@@ -1623,6 +1623,10 @@ pub enum RenderCommand {
         /// producing a per-record export document
         #[arg(long)]
         instance: Option<String>,
+        /// Instance UUID to drop from ContainerSubset sections (repeatable); in an arranged
+        /// section its descendants move up one level (RFC-043 promoting removal)
+        #[arg(long = "exclude")]
+        exclude: Vec<String>,
         /// Optional output file path for rendered content
         #[arg(long)]
         output: Option<PathBuf>,

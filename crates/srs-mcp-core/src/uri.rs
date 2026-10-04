@@ -11,7 +11,8 @@ pub enum SrsUri {
     Navigation,
     Record(String),
     Container(String),
-    Composition(String),
+    /// `composition/{id}[?containerId=&instanceId=]` (#1255): the `render_composition` container / instance-filter inputs.
+    Composition(String, CompositionQuery),
     Type(String),
     ProtocolList,
     Protocol(String),
@@ -39,6 +40,52 @@ pub struct TreeQuery {
     pub max_depth: Option<u32>,
     pub relation_type: Option<String>,
     pub type_filter: Option<String>,
+}
+
+/// The `render_composition` inputs a composition URI may carry (#1255); verbatim ids, no
+/// percent-decoding. `excludeInstanceId` is repeatable.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CompositionQuery {
+    pub container_id: Option<String>,
+    pub exclude_instance_ids: Vec<String>,
+}
+
+fn parse_composition_query(query: &str, uri: &str) -> Result<CompositionQuery, UriError> {
+    let mut q = CompositionQuery::default();
+    for pair in query.split('&').filter(|p| !p.is_empty()) {
+        match pair.split_once('=') {
+            Some(("containerId", v)) if !v.is_empty() => {
+                if q.container_id.replace(v.to_string()).is_some() {
+                    return Err(UriError(format!(
+                        "duplicate query key 'containerId' in '{uri}'"
+                    )));
+                }
+            }
+            Some(("excludeInstanceId", v)) if !v.is_empty() => {
+                q.exclude_instance_ids.push(v.to_string())
+            }
+            _ => return Err(UriError(format!("unsupported query in '{uri}'"))),
+        }
+    }
+    Ok(q)
+}
+
+fn composition_query_string(q: &CompositionQuery) -> String {
+    let parts: Vec<String> = q
+        .container_id
+        .iter()
+        .map(|c| format!("containerId={c}"))
+        .chain(
+            q.exclude_instance_ids
+                .iter()
+                .map(|i| format!("excludeInstanceId={i}")),
+        )
+        .collect();
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", parts.join("&"))
+    }
 }
 
 fn parse_tree_query(query: &str, uri: &str) -> Result<TreeQuery, UriError> {
@@ -137,7 +184,7 @@ pub fn parse(uri: &str, repository_id: &str) -> Result<SrsUri, UriError> {
     }
     let (path, query) = path.split_once('?').unwrap_or((path, ""));
     let is_tree = path == "tree" || path.starts_with("tree/");
-    if !query.is_empty() && !is_tree {
+    if !query.is_empty() && !is_tree && !path.starts_with("composition/") {
         return Err(UriError(format!("unsupported query in '{uri}'")));
     }
     match path.split_once('/') {
@@ -153,7 +200,10 @@ pub fn parse(uri: &str, repository_id: &str) -> Result<SrsUri, UriError> {
         Some((kind, id)) if !id.is_empty() && !id.contains('/') => match kind {
             "record" => Ok(SrsUri::Record(id.to_string())),
             "container" => Ok(SrsUri::Container(id.to_string())),
-            "composition" => Ok(SrsUri::Composition(id.to_string())),
+            "composition" => Ok(SrsUri::Composition(
+                id.to_string(),
+                parse_composition_query(query, uri)?,
+            )),
             "type" => Ok(SrsUri::Type(id.to_string())),
             "protocol" => Ok(SrsUri::Protocol(id.to_string())),
             "tree" => Ok(SrsUri::TreeFrom(
@@ -172,7 +222,10 @@ pub fn format(kind: &SrsUri, repository_id: &str) -> String {
         SrsUri::Navigation => format!("{SCHEME}{repository_id}/navigation"),
         SrsUri::Record(id) => resource_uri::record_uri(repository_id, id),
         SrsUri::Container(id) => resource_uri::container_uri(repository_id, id),
-        SrsUri::Composition(id) => format!("{SCHEME}{repository_id}/composition/{id}"),
+        SrsUri::Composition(id, q) => format!(
+            "{SCHEME}{repository_id}/composition/{id}{}",
+            composition_query_string(q)
+        ),
         SrsUri::Type(id) => resource_uri::type_uri(repository_id, id),
         SrsUri::ProtocolList => format!("{SCHEME}{repository_id}/protocol"),
         SrsUri::Protocol(id) => format!("{SCHEME}{repository_id}/protocol/{id}"),
@@ -293,13 +346,36 @@ mod tests {
     }
 
     #[test]
+    fn composition_uri_query_rejects_duplicates_unknown_keys_and_other_kinds() {
+        for bad in [
+            "composition/abc?containerId=a&containerId=b",
+            "composition/abc?instanceId=a",
+            "composition/abc?containerId=",
+            "composition/abc?maxDepth=1",
+            "container/abc?containerId=a",
+        ] {
+            assert!(
+                parse(&format!("srs://{REPO}/{bad}"), REPO).is_err(),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
     fn uri_roundtrip_all_kinds() {
         let kinds = [
             SrsUri::Map,
             SrsUri::Navigation,
             SrsUri::Record("abc".into()),
             SrsUri::Container("def".into()),
-            SrsUri::Composition("ghi".into()),
+            SrsUri::Composition("ghi".into(), CompositionQuery::default()),
+            SrsUri::Composition(
+                "ghi".into(),
+                CompositionQuery {
+                    container_id: Some("c".into()),
+                    exclude_instance_ids: vec!["i".into(), "j".into()],
+                },
+            ),
             SrsUri::Type("jkl".into()),
             SrsUri::ProtocolList,
             SrsUri::Protocol("mno".into()),

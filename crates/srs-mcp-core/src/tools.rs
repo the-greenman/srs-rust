@@ -126,7 +126,7 @@ for that). Optional relationType and direction (out|in; default both) filter; li
 
 pub const DESC_READ: &str = "Read any srs:// resource and return exactly what resources/read \
 returns for it (map, navigation, agent-index, tree, tree/{instanceId}, record/{instanceId}, \
-context/{containerId}/{instanceId}, container/{id}, view/{compositionId}, type/{typeId}, protocol, \
+context/{containerId}/{instanceId}, container/{id}, composition/{compositionId}[?containerId=&excludeInstanceId=], type/{typeId}, protocol, \
 protocol/{id}, relation-types). For clients that cannot read resources. Output text is capped at 96000 bytes (before the notice); a longer \
 resource is cut with a trailing notice and structuredContent.truncated = true — then use find \
 {limit}, tree/{instanceId}, container_outline or record/{id} for a bounded read.";

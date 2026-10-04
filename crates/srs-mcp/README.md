@@ -18,7 +18,7 @@ service call, and no business logic lives here.
 | `srs://<repositoryId>/navigation` | Identity record + ordered navigation sections (JSON) |
 | `srs://<repositoryId>/record/{instanceId}` | One record, any tier (JSON; resource template) |
 | `srs://<repositoryId>/container/<containerId>` | Container resolve-view: authored columns + ordered members (JSON) |
-| `srs://<repositoryId>/composition/<compositionId>` | Rendered document view (markdown) |
+| `srs://<repositoryId>/composition/<compositionId>` | Rendered document view (markdown). Optional `?containerId=<id>` renders it for that container (needed when a container-subset section names none); optional, repeatable `?excludeInstanceId=<id>` drops that member (in an arranged section its descendants move up one level; the `srs render composition --container` / `--exclude` inputs) |
 | `srs://<repositoryId>/type/{typeId}` | Type authoring schema: fieldIds, required flags, aiGuidance (JSON; enumerated + template) |
 | `srs://<repositoryId>/relation-types` | Every installed relation type, used or not: key, label, category, description (JSON; the valid `relationType` keys) |
 

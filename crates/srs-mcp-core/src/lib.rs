@@ -29,7 +29,7 @@ sectionContainerId when they root a sub-container. Read individual records via t
 srs://<repositoryId>/record/{instanceId} resource template (or everything about one record, relations and \
 arrangement subtree included, via srs://<repositoryId>/context/{containerId}/{instanceId}, optionally with ?excludeRelationCategories=composition,sequence to drop structural edges; for a hub record with many edges use the bounded `neighbours` tool instead), containers via \
 srs://<repositoryId>/container/<containerId>, and rendered document views via \
-srs://<repositoryId>/composition/<compositionId>. Type schemas live at \
+srs://<repositoryId>/composition/<compositionId> (markdown; append ?containerId=<id> to render the composition for that container, required when its container-subset section names none, and, repeatable, ?excludeInstanceId=<id> to drop that member from the rendering, its arranged descendants moving up one level; containerId at most once). Type schemas live at \
 srs://<repositoryId>/type/{typeId} (also via the type_schema tool): read one before \
 authoring records of an unfamiliar type — its properties are keyed by Field.name (the \
 same keys record_create fieldValues uses, RFC-039) and carry aiGuidance. Installed relation types (every one, used or not — the valid relationType keys) live at srs://<repositoryId>/relation-types. Protocols (staged \
@@ -177,7 +177,10 @@ pub mod srs_resources {
             .map_err(|e| e.to_string())?
         {
             resources.push(resource(
-                uri::format(&uri::SrsUri::Composition(v.id), repository_id),
+                uri::format(
+                    &uri::SrsUri::Composition(v.id, Default::default()),
+                    repository_id,
+                ),
                 format!("{}/{}", v.namespace, v.name),
                 None,
                 Some(v.description),
@@ -297,14 +300,15 @@ pub mod srs_resources {
                 .map_err(service_err)?,
                 raw_uri,
             ),
-            uri::SrsUri::Composition(id) => {
+            uri::SrsUri::Composition(id, q) => {
                 let result = render_composition(RenderCompositionOptions {
                     store,
                     view_id: &id,
                     format: Some("markdown"),
                     theme_variant: None,
-                    container_id: None,
+                    container_id: q.container_id.as_deref(),
                     instance_id_filter: None,
+                    exclude_instance_ids: &q.exclude_instance_ids,
                 })
                 .map_err(service_err)?;
                 Ok(contents(raw_uri, MIME_MARKDOWN, result.rendered))

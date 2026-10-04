@@ -31,6 +31,11 @@ pub struct RenderCompositionOptions<'a> {
     /// producing a per-record export document. Takes precedence over any instance-level
     /// selection already in the view definition.
     pub instance_id_filter: Option<&'a str>,
+    /// Instance ids dropped from `container-subset` sections. In an arranged section each is
+    /// removed from the outline by the RFC-043 promoting removal (its descendants move up one
+    /// level; order and the other depths are unchanged). Ignored by `containerScope: "subtree"`.
+    /// Unlike `instance_id_filter` (single-record export) this is a plain exclude set.
+    pub exclude_instance_ids: &'a [String],
 }
 
 impl<'a> RenderCompositionOptions<'a> {
@@ -42,6 +47,7 @@ impl<'a> RenderCompositionOptions<'a> {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         }
     }
 }
@@ -341,6 +347,7 @@ pub fn render_composition(
             &relations,
             opts.container_id,
             opts.instance_id_filter,
+            opts.exclude_instance_ids,
             &mut diagnostics,
         )?;
         return Ok(RenderResult {
@@ -379,6 +386,7 @@ pub fn render_composition(
             &relations,
             opts.container_id,
             opts.instance_id_filter,
+            opts.exclude_instance_ids,
             &mut diagnostics,
         )?);
     }
@@ -434,6 +442,7 @@ fn project_composition_json(
     relations: &[Relation],
     cli_container_id: Option<&str>,
     instance_id_filter: Option<&str>,
+    exclude: &[String],
     diagnostics: &mut Vec<String>,
 ) -> Result<CompositionProjection, RepositoryError> {
     // RFC-043: an arranged section may omit `containerId`; the container being rendered
@@ -482,6 +491,7 @@ fn project_composition_json(
             relations,
             cli_container_id,
             instance_id_filter,
+            exclude,
             diagnostics,
         )?;
         projected_sections.push(projected);
@@ -550,6 +560,7 @@ fn substitute_vars_json_blanked(
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn project_section_json(
     store: &dyn RepositoryStore,
     package: &Package,
@@ -557,6 +568,7 @@ fn project_section_json(
     relations: &[Relation],
     cli_container_id: Option<&str>,
     instance_id_filter: Option<&str>,
+    exclude: &[String],
     diagnostics: &mut Vec<String>,
 ) -> Result<ProjectedSection, RepositoryError> {
     let (entries, rank) = resolve_section_entries(
@@ -566,6 +578,7 @@ fn project_section_json(
         relations,
         cli_container_id,
         instance_id_filter,
+        exclude,
         diagnostics,
     )?;
     let (records, sections) = project_entries_json(
@@ -1916,6 +1929,7 @@ fn resolve_effective_view_id<'a>(
     section.render_view_id.as_deref()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_section(
     store: &dyn RepositoryStore,
     ctx: &RenderContext<'_>,
@@ -1923,6 +1937,7 @@ fn render_section(
     relations: &[Relation],
     cli_container_id: Option<&str>,
     instance_id_filter: Option<&str>,
+    exclude: &[String],
     diagnostics: &mut Vec<String>,
 ) -> Result<String, RepositoryError> {
     let (entries, rank) = resolve_section_entries(
@@ -1932,6 +1947,7 @@ fn render_section(
         relations,
         cli_container_id,
         instance_id_filter,
+        exclude,
         diagnostics,
     )?;
 
@@ -2320,6 +2336,7 @@ fn arranged_direct_members(
     section_id: &str,
     ordering: Option<&srs_core::types::view::SectionOrdering>,
     type_filter: Option<&[String]>,
+    exclude: &[String],
     package: &Package,
     relations: &[Relation],
     diagnostics: &mut Vec<String>,
@@ -2352,10 +2369,11 @@ fn arranged_direct_members(
         }
     }
     let (kept, _, _) = srs_core::arrangement::retain_promoting(&entries, |id| {
-        loaded.get(id).is_some_and(|inst| match type_filter {
-            Some(f) => relation_graph::passes_type_filter(inst, f, package),
-            None => true,
-        })
+        !exclude.iter().any(|x| x == id)
+            && loaded.get(id).is_some_and(|inst| match type_filter {
+                Some(f) => relation_graph::passes_type_filter(inst, f, package),
+                None => true,
+            })
     });
     let kept = if matches!(
         ordering.and_then(|o| o.direction.as_ref()),
@@ -2394,6 +2412,7 @@ fn resolve_section_entries(
     relations: &[Relation],
     cli_container_id: Option<&str>,
     instance_id_filter: Option<&str>,
+    exclude: &[String],
     diagnostics: &mut Vec<String>,
 ) -> Result<(Vec<SectionEntry>, Option<ArrangedRank>), RepositoryError> {
     if let SectionSource::ContainerSubset {
@@ -2447,6 +2466,7 @@ fn resolve_section_entries(
                     &section.section_id,
                     section.ordering.as_ref(),
                     type_filter_slice,
+                    exclude,
                     package,
                     relations,
                     diagnostics,
@@ -2465,7 +2485,14 @@ fn resolve_section_entries(
                 relations,
                 diagnostics,
             )?;
-            return Ok((records.into_iter().map(SectionEntry::Plain).collect(), None));
+            return Ok((
+                records
+                    .into_iter()
+                    .filter(|r| !exclude.iter().any(|x| x == r.instance_id()))
+                    .map(SectionEntry::Plain)
+                    .collect(),
+                None,
+            ));
         }
     }
 
@@ -4546,6 +4573,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should work");
 
@@ -4571,6 +4599,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         });
         assert!(matches!(
             result,
@@ -4602,6 +4631,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         // The valid record has entries ["first", "second"]; both must appear in output
@@ -4637,6 +4667,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -4673,6 +4704,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -4710,6 +4742,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         // Section title "Items" produces an H2; no H3 should appear between it and field rows
@@ -4731,6 +4764,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -4752,6 +4786,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -4783,6 +4818,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -4833,6 +4869,7 @@ mod tests {
             theme_variant: Some("print"),
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -4859,6 +4896,7 @@ mod tests {
             theme_variant: Some("missing"),
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -4888,6 +4926,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -4914,6 +4953,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -4948,6 +4988,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -4971,6 +5012,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -4993,6 +5035,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -5014,6 +5057,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -5043,6 +5087,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -5064,6 +5109,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -5090,6 +5136,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let proj = result.projection.unwrap();
@@ -5122,6 +5169,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -5145,6 +5193,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -5680,6 +5729,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -5709,6 +5759,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: Some(&text_id),
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -5980,6 +6031,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -6213,6 +6265,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect(
             "render must not hard-error descending a `contains` edge into a \
@@ -6518,6 +6571,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -6562,6 +6616,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -6617,6 +6672,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -6679,6 +6735,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -6735,6 +6792,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -6831,6 +6889,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -6865,6 +6924,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: Some(&text_id),
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -6891,6 +6951,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -7381,6 +7442,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let out = &result.rendered;
@@ -7422,6 +7484,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render");
         let out = &result.rendered;
@@ -7450,6 +7513,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should not hard-error on unknown renderer");
         assert!(
@@ -7519,6 +7583,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let out = &result.rendered;
@@ -7549,6 +7614,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should not hard-error");
         assert!(
@@ -7788,6 +7854,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -7818,6 +7885,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -8088,6 +8156,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -8115,6 +8184,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed")
     }
@@ -8171,6 +8241,59 @@ mod tests {
         assert_eq!(seq, vec![(ARR_A, 0), (ARR_B, 0), (ARR_C, 1)]);
     }
 
+    /// srs-rust#1255: `exclude_instance_ids` drops entries from an arranged outline by the
+    /// promoting removal: an excluded parent's descendants move up one level, an excluded leaf
+    /// just disappears, and order is otherwise unchanged.
+    #[test]
+    fn arranged_exclude_promotes_children_and_drops_leaves() {
+        // B (0), C (1), A (2)
+        let store = make_member_order_store(vec![ARR_B.into(), ARR_C.into(), ARR_A.into()], None);
+        crate::container_service::move_member(&store, ARR_CONTAINER, ARR_C, None, Some(1)).unwrap();
+        crate::container_service::move_member(&store, ARR_CONTAINER, ARR_A, None, Some(2)).unwrap();
+        let seq = |exclude: &[String]| -> Vec<(String, u64)> {
+            let projection = render_composition(RenderCompositionOptions {
+                store: &store,
+                view_id: "dv-member-order",
+                format: Some("json"),
+                theme_variant: None,
+                container_id: None,
+                instance_id_filter: None,
+                exclude_instance_ids: exclude,
+            })
+            .unwrap()
+            .projection
+            .unwrap();
+            let v = serde_json::to_value(&projection).unwrap();
+            v["sections"][0]["records"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| {
+                    (
+                        r["instanceId"].as_str().unwrap().to_string(),
+                        r.get("depth").and_then(|d| d.as_u64()).unwrap_or(0),
+                    )
+                })
+                .collect()
+        };
+        let own = |id: &str, d| (id.to_string(), d);
+        assert_eq!(seq(&[]), vec![own(ARR_B, 0), own(ARR_C, 1), own(ARR_A, 2)]);
+        // Parent excluded: C and A each move up one level.
+        assert_eq!(seq(&[ARR_B.into()]), vec![own(ARR_C, 0), own(ARR_A, 1)]);
+        // Middle excluded: its child moves up under B.
+        assert_eq!(seq(&[ARR_C.into()]), vec![own(ARR_B, 0), own(ARR_A, 1)]);
+        // Leaf excluded: nothing else changes.
+        assert_eq!(seq(&[ARR_A.into()]), vec![own(ARR_B, 0), own(ARR_C, 1)]);
+        // Markdown agrees.
+        let md = render_composition(RenderCompositionOptions {
+            exclude_instance_ids: &[ARR_B.to_string()],
+            ..RenderCompositionOptions::new(&store, "dv-member-order")
+        })
+        .unwrap()
+        .rendered;
+        assert!(!md.contains("B-middle") && md.contains("C-last") && md.contains("A-first"));
+    }
+
     /// [N+29] step (4): `direction: desc` reverses the whole combined
     /// sequence — the listed prefix and the appended [N+12] tail together.
     #[test]
@@ -8189,6 +8312,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -8627,6 +8751,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let rendered = &result.rendered;
@@ -8769,6 +8894,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let rendered = &result.rendered;
@@ -8820,6 +8946,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -9158,6 +9285,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render MUST NOT fail on heading overflow (RFC-042 [R23])");
 
@@ -9211,6 +9339,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -9246,6 +9375,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -9520,6 +9650,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -9583,6 +9714,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -9635,6 +9767,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -9669,6 +9802,7 @@ mod tests {
             theme_variant: Some("print"),
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -10057,6 +10191,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -10083,6 +10218,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -10109,6 +10245,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -10142,6 +10279,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -10175,6 +10313,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -10206,6 +10345,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -10286,6 +10426,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
 
@@ -10322,6 +10463,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -10341,6 +10483,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -10515,6 +10658,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -10554,6 +10698,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -10592,6 +10737,7 @@ mod tests {
                 theme_variant: None,
                 container_id: None,
                 instance_id_filter: None,
+                exclude_instance_ids: &[],
             })
             .expect("render should succeed")
         };
@@ -10641,6 +10787,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -10673,6 +10820,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -10761,6 +10909,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -10909,6 +11058,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let subtree_ids = rfc011_instance_ids_in_result(&subtree_result);
@@ -10924,6 +11074,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let explicit_ids = rfc011_instance_ids_in_result(&explicit_result);
@@ -10955,6 +11106,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -10996,6 +11148,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let mut mem_ids = rfc011_instance_ids_in_result(&mem_result);
@@ -11069,6 +11222,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let mut file_ids = rfc011_instance_ids_in_result(&file_result);
@@ -11115,6 +11269,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -11200,6 +11355,7 @@ mod tests {
             theme_variant: None,
             container_id: Some(C1_ID),
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let ids = rfc011_instance_ids_in_result(&result);
@@ -11233,6 +11389,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         assert!(
@@ -11263,6 +11420,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         assert!(
@@ -11345,6 +11503,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         assert!(
@@ -11376,6 +11535,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         assert!(
@@ -11699,6 +11859,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -11731,6 +11892,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         // titleFieldId=f-other → "Other Title"; identityFieldId (f-head) → "My Identity Heading"
@@ -11756,6 +11918,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -11779,6 +11942,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -11798,6 +11962,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let projection = result
@@ -12045,6 +12210,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed")
         .rendered
@@ -12197,6 +12363,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -12532,6 +12699,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -12557,6 +12725,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -12587,6 +12756,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         assert!(
@@ -12621,6 +12791,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed");
         let projection = result
@@ -13116,6 +13287,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("json projection must not fail on a dangling section containerId");
 
@@ -13305,6 +13477,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("json projection must not fail on a tier-0 note container member");
 
@@ -14658,6 +14831,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let proj = result.projection.unwrap();
@@ -14711,6 +14885,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let proj = result.projection.unwrap();
@@ -14765,6 +14940,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let proj = result.projection.unwrap();
@@ -14828,6 +15004,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let proj = result.projection.unwrap();
@@ -14871,6 +15048,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let proj = result.projection.unwrap();
@@ -14903,6 +15081,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let proj = result.projection.unwrap();
@@ -15026,6 +15205,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let mem_proj = mem_result.projection.unwrap();
@@ -15116,6 +15296,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let file_proj = file_result.projection.unwrap();
@@ -16129,6 +16310,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .expect("render should succeed")
         .rendered
@@ -16577,6 +16759,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         assert!(
@@ -16620,6 +16803,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         assert!(
@@ -16660,6 +16844,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let proj = result.projection.unwrap();
@@ -16710,6 +16895,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: None,
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let proj = result.projection.unwrap();
@@ -16737,6 +16923,7 @@ mod tests {
             theme_variant: None,
             container_id: None,
             instance_id_filter: Some("rec-root"),
+            exclude_instance_ids: &[],
         })
         .unwrap();
         let proj = result.projection.unwrap();
