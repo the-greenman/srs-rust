@@ -26,7 +26,10 @@ RFC-026 Revision 9 amendment is drafted in parallel to match:
 - **D2.** The boundary becomes the root container, whose identity entry RFC-043 requires to be
   a depth-0 entry without descendants; a non-root container's need not be.
 - **D3.** Change C step 6 ("all entry ids within the included set") is vacuously true for an
-  empty container.
+  empty container. The RFC-026 Rev 9 draft (srs#886) then found that steps 2 and 6 were
+  replaced on 2026-09-06 by the accepted RFC-034 [R9] (Invariant I-151) and never marked. The
+  owner ruled on 2026-10-04 that container closure follows RFC-034 [R9] / I-151, which makes D3
+  moot.
 
 ## Decision
 
@@ -42,10 +45,19 @@ export --container <id> <out.srs>`, WASM `SrsRepository::export_slice`).
 2. **Checked catalog (ADR-045).** Membership comes from `store.catalog()`; an incoherent
    repository (a dangling entry, say) is refused, never silently cut. The boundary's entries
    still pass through `arrangement::retain_promoting` (RFC-043 [R18]).
-3. **Closure.** Included instances = the boundary's entry ids. Relations with both endpoints
+3. **Closure (RFC-034 [R9], I-151).** The carried containers are exactly the boundary and its
+   declared `childContainerIds` descendants, transitively. Included instances = the entry ids of
+   every one of them (`effective(boundary)`). A declared child with no entries is still carried;
+   an undeclared container is never carried, even when all its entries are included.
+   Membership is declared, never derived (RFC-034, `rfc-decision-0750c62f`): carrying a
+   container because its entries happen to fall inside the slice would derive structure the
+   source never declared, and the subset test was vacuously true for every empty container.
+   `childContainerIds` are copied as-is, and every id they name is carried. A child id naming no
+   container (`slice-child-container-missing`) or a cycle (`slice-child-container-cycle`)
+   refuses the export: [R7] leaves `effective(C)` undefined over a broken graph and forbids a
+   partial result, and a slice must not copy a dangling id. Relations with both endpoints
    included are carried; with exactly one, recorded in `slice.externalRelationRefs` (sorted by
-   `relationId`); with none, omitted. A sub-container is carried when it has at least one entry
-   and every entry is included (D3); `childContainerIds` are copied as-is. Source documents
+   `relationId`); with none, omitted. Source documents
    cited by included instances **and included relations** are carried (sidecar, plus content
    unless tombstoned).
 4. **Packages (D1 = P3).** Every package the slice uses is carried whole and unchanged at its
@@ -57,12 +69,13 @@ export --container <id> <out.srs>`, WASM `SrsRepository::export_slice`).
 5. **Manifest.** Source properties are kept except: a new `repositoryId` ([R3]), the boundary as
    `container` ([C] step 1; its `containers/` file is not written), `ext:slices` appended to
    `declaredExtensions` ([R4]), the `slice` block, and the `packageRefs` filter above. The
-   source root container, when it qualifies as a sub-container, is written to
+   source root container, when it is a declared descendant, is written to
    `containers/<id>.json`. `.srs/` carries only the marker.
 6. **Refusals** (`RepositoryError::SliceRefused { code }`): `slice-root-identity-invalid` when
    the boundary's identity entry is absent, below depth 0 or has descendants (D2: the outline
    is never rewritten); `slice-exported-at-invalid`; `slice-repository-id-reused`;
-   `slice-root-level-package-unsupported` (a package rooted at the repository root).
+   `slice-root-level-package-unsupported` (a package rooted at the repository root);
+   `slice-child-container-missing` and `slice-child-container-cycle` (RFC-034 [R7]).
 7. **Validator (Change E).** With a `slice` block: `spec.type` not `container` is an error
    ([R10]), `spec.id` not the root container is an error ([R12]), a reused `repositoryId` is an
    error ([R3]), undeclared `ext:slices` is a warning ([R4]), and one info diagnostic counts the
@@ -83,8 +96,7 @@ members that anchor no container (I-82). These are warnings, not errors, and are
 Rev 9 input rather than relaxed here. A composition in a package the slice does not use is not
 carried even if it could render the slice's records (references are followed forward only).
 
-`childContainerIds` are copied as-is, so a child absent from the slice stays named; a later
-`container update` on the slice that re-checks children will refuse until it is fixed. Manifest
+Manifest
 properties other than `packageRefs` (e.g. a legacy `changelogPath`) are kept even if their
 target is not carried. A Type held only by a package no `packageRefs` names is not carried; the
 validator reports the slice, as it would the source.
@@ -97,8 +109,9 @@ service is byte-deterministic given both. No import, merge or reintegration; no 
 ## Implementation charter (ADR-048)
 
 - [x] **Spec-first** — RFC-026 Rev 8 Changes A–E, [R1]–[R14], amended by RFC-038 [R25] and
-      RFC-043 [R18]; D1/D2/D3 owner rulings on #631, RFC-026 Rev 9 pending (shipped ahead of
-      the amendment, as #1210 shipped ahead of RFC-003 Rev 10).
+      RFC-043 [R18]; container closure per RFC-034 [R9] / [R7] (I-151), which replaced Change C
+      steps 2 and 6; D1/D2 owner rulings on #631, RFC-026 Rev 9 pending (srs#886; shipped ahead
+      of the amendment, as #1210 shipped ahead of RFC-003 Rev 10).
 - [x] **Layer test** — core service `slice_service`; CLI `srs slice export` and WASM
       `export_slice` are adapters only.
 - [x] **One way per goal** — `tree_entries` is the one enumeration, `pack_tree` the one ZIP

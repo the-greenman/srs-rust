@@ -8,7 +8,8 @@ use serde_json::{json, Value};
 use srs_repository::archive::archive_to_tree;
 use srs_repository::error::RepositoryError;
 use srs_repository::slice_service::{
-    export_container_slice, ExportSliceInput, SliceExport, CODE_ROOT_IDENTITY_INVALID,
+    export_container_slice, ExportSliceInput, SliceExport, CODE_CHILD_CONTAINER_CYCLE,
+    CODE_CHILD_CONTAINER_MISSING, CODE_ROOT_IDENTITY_INVALID,
 };
 use srs_repository::validation::{validate_repository, DiagnosticSeverity};
 use srs_repository::{open_tree, RepositoryStore};
@@ -26,6 +27,8 @@ const PRECEDES: &str = "44444444-4444-4444-8444-444444444441";
 const CUT: &str = "44444444-4444-4444-8444-444444444442";
 const CITES: &str = "44444444-4444-4444-8444-444444444443";
 const DOC: &str = "77777777-7777-4777-8777-777777777771";
+const EMPTY: &str = "55555555-5555-4555-8555-555555555552";
+const SUB: &str = "55555555-5555-4555-8555-555555555553";
 const SLICE_ID: &str = "99999999-9999-4999-8999-999999999991";
 
 type Tree = BTreeMap<String, Vec<u8>>;
@@ -99,7 +102,7 @@ fn sub_package(tree: &mut Tree, dir: &str, id: &str, defs: Value) {
 /// The fixture plus: a cut relation (purpose → D1), a `cites` relation type in
 /// `packages/extra` used by D1 → D2, an unused `packages/unused`, a source
 /// document cited by D1 and an uncited one, an empty container, and a
-/// sub-container holding only D1.
+/// container holding only D1. Neither is a declared child of anything.
 fn rich() -> Tree {
     let mut t = fixture();
     put(
@@ -208,7 +211,7 @@ fn container_slice_carries_the_closure_and_validates() {
         ),
         (2, 2, 1)
     );
-    assert_eq!((s.container_count, s.source_document_count), (2, 1));
+    assert_eq!((s.container_count, s.source_document_count), (1, 1));
     assert_eq!(s.origin_repository_id, ROOT);
     let f = files(&e);
     assert!(f.contains_key("records/tier-2/decision-0ce8cbdd.json"));
@@ -216,8 +219,9 @@ fn container_slice_carries_the_closure_and_validates() {
     assert!(f.contains_key(&format!("relations/{PRECEDES}.json")));
     assert!(f.contains_key(&format!("relations/{CITES}.json")));
     assert!(!f.contains_key(&format!("relations/{CUT}.json")));
-    // D3: the empty container is not carried; the sub-container is.
-    assert!(f.contains_key("containers/sub.json"));
+    // RFC-034 [R9] / I-151: undeclared containers are never carried, even
+    // `sub`, whose entries are all included.
+    assert!(!f.contains_key("containers/sub.json"));
     assert!(!f.contains_key("containers/empty.json"));
     // The boundary is inline in the manifest, not a file.
     assert!(!f.contains_key("containers/decisions-55555555.json"));
@@ -376,20 +380,88 @@ fn source_documents_cited_by_carried_relations_are_carried() {
     assert_eq!(errors(&e), Vec::<String>::new());
 }
 
+/// RFC-034 [R9]: no subset test. The source root's only entry is included
+/// here, but the root is not a declared child, so it is not carried.
 #[test]
-fn source_root_container_is_written_as_a_file_when_it_qualifies() {
+fn undeclared_container_is_not_carried_even_when_its_entries_are_included() {
     let mut t = rich();
     edit(&mut t, "containers/decisions-55555555.json", |c| {
         c["memberInstanceIds"] =
             json!([{"instanceId": PURPOSE}, {"instanceId": D1}, {"instanceId": D2}]);
     });
     let e = export(t, DECISIONS).unwrap();
-    let f = files(&e);
+    assert_eq!(e.summary.container_count, 1);
+    assert!(!files(&e).contains_key(&format!("containers/{ROOT}.json")));
+    assert_eq!(errors(&e), Vec::<String>::new());
+}
+
+/// RFC-034 [R9] / I-151: the declared descendant closure, transitively —
+/// Decisions -> Empty -> Sub. Sub's entry (the purpose record, outside the
+/// boundary's own entries) joins the slice, so the cut edge becomes internal;
+/// the memberless Empty is still carried, with its edge kept.
+#[test]
+fn declared_descendants_are_carried_with_their_entries() {
+    let mut t = rich();
+    edit(&mut t, "containers/decisions-55555555.json", |c| {
+        c["childContainerIds"] = json!([EMPTY]);
+    });
+    edit(&mut t, "containers/empty.json", |c| {
+        c["childContainerIds"] = json!([SUB]);
+    });
+    edit(&mut t, "containers/sub.json", |c| {
+        c["memberInstanceIds"] = json!([{"instanceId": PURPOSE}]);
+    });
+    let e = export(t, DECISIONS).unwrap();
+    let s = &e.summary;
     assert_eq!(
-        get(&f, &format!("containers/{ROOT}.json"))["memberInstanceIds"],
-        json!([{"instanceId": PURPOSE}])
+        (
+            s.instance_count,
+            s.relation_count,
+            s.external_relation_ref_count,
+            s.container_count
+        ),
+        (3, 3, 0, 3)
+    );
+    let f = files(&e);
+    assert!(f.contains_key("records/tier-2/purpose-b3b90185.json"));
+    assert_eq!(
+        get(&f, "containers/empty.json")["childContainerIds"],
+        json!([SUB])
+    );
+    assert!(f.contains_key("containers/sub.json"));
+    assert_eq!(
+        get(&f, "manifest.json")["container"]["childContainerIds"],
+        json!([EMPTY])
     );
     assert_eq!(errors(&e), Vec::<String>::new());
+}
+
+fn refusal(r: Result<SliceExport, RepositoryError>) -> &'static str {
+    match r {
+        Err(RepositoryError::SliceRefused { code, .. }) => code,
+        Err(e) => panic!("expected a slice refusal, got {e}"),
+        Ok(_) => panic!("expected a slice refusal, got an export"),
+    }
+}
+
+/// RFC-034 [R7]: a missing child or a cycle leaves the closure undefined, so
+/// the export is refused rather than copying a dangling id or cutting short.
+#[test]
+fn broken_child_graph_refuses_the_export() {
+    let mut t = rich();
+    edit(&mut t, "containers/decisions-55555555.json", |c| {
+        c["childContainerIds"] = json!(["55555555-5555-4555-8555-55555555ffff"]);
+    });
+    assert_eq!(refusal(export(t, DECISIONS)), CODE_CHILD_CONTAINER_MISSING);
+
+    let mut t = rich();
+    edit(&mut t, "containers/decisions-55555555.json", |c| {
+        c["childContainerIds"] = json!([SUB]);
+    });
+    edit(&mut t, "containers/sub.json", |c| {
+        c["childContainerIds"] = json!([DECISIONS]);
+    });
+    assert_eq!(refusal(export(t, DECISIONS)), CODE_CHILD_CONTAINER_CYCLE);
 }
 
 #[test]

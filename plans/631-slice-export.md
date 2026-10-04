@@ -9,6 +9,13 @@
 > **STATUS: IMPLEMENTED (2026-10-04).** Owner rulings on #631: D1 = P3 (every package the slice uses, carried
 > whole, closed at package granularity; RFC-026 Rev 9 drafted in parallel), D2 = refuse, D3 = non-empty only;
 > defaults accepted; ADR-051 accepted. Phases 1-4 done.
+>
+> **AMENDED (2026-10-04, owner ruling on PR #1259):** container closure follows the accepted RFC-034 [R9] /
+> Invariant I-151, not Rev 8's subset rule (Change C steps 2 and 6 were replaced at RFC-034's acceptance,
+> found by the Rev 9 draft, srs#886). The slice carries the boundary and exactly its declared
+> `childContainerIds` descendants, transitively, and includes every entry id of each. A declared memberless
+> child is carried; an undeclared container never is. A missing child or a cycle refuses the export
+> (RFC-034 [R7]). D3 and F1/F2 are moot.
 
 ## Summary
 
@@ -91,7 +98,7 @@ RFC-literal path, P2 with a fresh package UUID and the reference-site closure is
 Recommendation: **refuse the export** with `slice-root-identity-invalid` naming the container and entry
 (no silent outline rewrite, no dropped identity). Reversible later; no muSrs container hits it (all depth 0).
 
-### D3. Empty containers (F2)
+### D3. Empty containers (F2) — moot, superseded by RFC-034 [R9] (see the amendment above)
 
 Recommendation: a sub-container is included only when it has **at least one** entry and all its entry ids are
 inside. File the vacuous-truth reading as a spec finding on RFC-026.
@@ -106,7 +113,7 @@ inside. File the vacuous-truth reading as a spec finding on RFC-026.
 - Manifest: every source property kept except the RFC-mandated rewrites (`repositoryId`, `container`,
   `declaredExtensions` += `ext:slices`, `slice`); `dataModelRevision` stays the source's. The boundary
   container's own `containers/*.json` file is not written (it is inline). If the source root container is
-  itself a qualifying sub-container (only when slicing the root), it is written to `containers/<id>.json`.
+  a declared descendant of the boundary, it is written to `containers/<id>.json`.
 - `exportedAt` defaults to now; the service input takes an optional override (deterministic tests).
 
 ## Agent Assignments
@@ -148,7 +155,8 @@ pub struct SliceExport { pub bytes: Vec<u8>, pub summary: SliceExportSummary }
 pub fn export_container_slice(store: &dyn RepositoryStore, input: ExportSliceInput) -> Result<SliceExport, RepositoryError>;
 ```
 Errors: unknown container (`ContainerNotFound`), a checked-catalog refusal (ADR-045), `SliceRefused { code }`
-(`slice-root-identity-invalid`, `slice-exported-at-invalid`, `slice-repository-id-reused`). `archive_pack` keeps its signature; its ZIP loop
+(`slice-root-identity-invalid`, `slice-exported-at-invalid`, `slice-repository-id-reused`,
+`slice-child-container-missing`, `slice-child-container-cycle`). `archive_pack` keeps its signature; its ZIP loop
 moves to a shared `pack_tree(entries, writer)`.
 
 ### Entity schema sync
@@ -158,11 +166,13 @@ None: the `slice` defs are already mirrored.
 ## Phases
 
 ### Phase 1: core service (`srs-repository/src/slice_service.rs`)
-- Closure: included = boundary entry ids ∩ catalog instance set; relations split (both in / exactly one in /
-  none); sub-containers per step 6 + D3; source documents per step 5 + F6; packages per D1.
+- Closure (RFC-034 [R9]): carried containers = the boundary and its declared `childContainerIds`
+  descendants; included = their entry ids ∩ catalog instance set; relations split (both in / exactly one in /
+  none); source documents per step 5 + F6; packages per D1.
 - Manifest rewrite on the raw JSON (unknown keys preserved); `slice` block; new UUID.
 - Tests (MemoryStore + tree session): closure, cut edges recorded with `relationId`, both-outside omitted,
-  sub-container in/out, promoting removal on a dangling entry, D2 refusal, determinism (fixed `exported_at`
+  declared descendants carried (memberless included) and undeclared never, missing child / cycle refused,
+  promoting removal on a dangling entry, D2 refusal, determinism (fixed `exported_at`
   and a seeded id → identical bytes), slice validates with 0 errors after `archive_to_tree`.
 
 ### Phase 2: validator (Change E + slice-block checks) in `validation.rs`

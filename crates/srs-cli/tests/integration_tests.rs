@@ -5623,6 +5623,42 @@ fn slice_export_writes_a_valid_slice_archive() {
         validated["payload"]["summary"]["errors"], 0,
         "{validated:?}"
     );
+
+    // RFC-034 [R9] / I-151: a declared memberless child is carried; an
+    // undeclared empty container is not.
+    let child = run_srs_stdin_in_dir(
+        temp.path(),
+        &["container", "create"],
+        r#"{"title":"Child"}"#,
+    );
+    let child_id = child["payload"]["container"]["containerId"].clone();
+    run_srs_stdin_in_dir(
+        temp.path(),
+        &["container", "create"],
+        r#"{"title":"Stray"}"#,
+    );
+    let parent = run_srs_stdin_in_dir(
+        temp.path(),
+        &["container", "create"],
+        &serde_json::json!({"title": "Parent", "childContainerIds": [child_id]}).to_string(),
+    );
+    let parent_id = parent["payload"]["container"]["containerId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let out = temp.path().join("parent.srs");
+    let result = run_srs_in_dir(
+        temp.path(),
+        &[
+            "slice",
+            "export",
+            "--container",
+            &parent_id,
+            out.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(result["ok"], true, "slice export: {result:?}");
+    assert_eq!(result["payload"]["containerCount"], 2, "{result:?}");
 }
 
 #[test]

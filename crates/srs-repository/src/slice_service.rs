@@ -20,8 +20,13 @@
 //! - **D2:** a boundary whose identity entry is not a depth-0 entry with no
 //!   descendants is refused (`slice-root-identity-invalid`); the outline is
 //!   never rewritten to make it fit.
-//! - **D3:** a sub-container is carried only when it has at least one entry and
-//!   every entry id is included (Change C step 6 without its vacuous case).
+//! - **Containers (RFC-034 [R9], Invariant I-151; ruling of 2026-10-04):** the
+//!   slice carries the boundary and exactly its declared `childContainerIds`
+//!   descendants, transitively, and includes every entry id of each. Membership
+//!   is declared, never derived: an undeclared container is never carried, even
+//!   when all its entries are included, and a declared child with no entries is
+//!   still carried. A missing child or a cycle refuses the export ([R7]). This
+//!   replaces RFC-026 Change C steps 2 and 6 (the subset test), so D3 is moot.
 //! - Source documents referenced by included **relations** are carried too;
 //!   `childContainerIds` are copied as-is; the manifest keeps every source
 //!   property except the RFC-required rewrites (and the `packageRefs` of
@@ -41,6 +46,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// Refusal code for a boundary whose identity entry cannot be a root identity (D2).
 pub const CODE_ROOT_IDENTITY_INVALID: &str = "slice-root-identity-invalid";
+/// Refusal code for a `childContainerIds` entry naming no container (RFC-034 [R7]).
+pub const CODE_CHILD_CONTAINER_MISSING: &str = "slice-child-container-missing";
+/// Refusal code for a `childContainerIds` cycle, self-reference included (RFC-034 [R7]).
+pub const CODE_CHILD_CONTAINER_CYCLE: &str = "slice-child-container-cycle";
 
 #[derive(Debug, Clone, Default)]
 pub struct ExportSliceInput {
@@ -109,6 +118,58 @@ fn document_refs(v: &Value) -> impl Iterator<Item = String> + '_ {
         .map(|r| str_of(r, "sourceId").to_string())
 }
 
+/// RFC-034 [R9]: `root` and every container reachable from it through declared
+/// `childContainerIds` edges. [R7]: a missing target or a cycle leaves the
+/// closure undefined, so it refuses rather than returning a partial set.
+fn declared_closure(
+    by_id: &HashMap<&str, &Value>,
+    root: &str,
+) -> Result<BTreeSet<String>, RepositoryError> {
+    fn visit(
+        by_id: &HashMap<&str, &Value>,
+        id: &str,
+        path: &mut Vec<String>,
+        seen: &mut BTreeSet<String>,
+    ) -> Result<(), RepositoryError> {
+        if path.iter().any(|p| p == id) {
+            return Err(refuse(
+                CODE_CHILD_CONTAINER_CYCLE,
+                format!(
+                    "childContainerIds cycle: {} -> {id} (RFC-034 [R7])",
+                    path.join(" -> ")
+                ),
+            ));
+        }
+        if !seen.insert(id.to_string()) {
+            return Ok(());
+        }
+        path.push(id.to_string());
+        let children = by_id[id]
+            .get("childContainerIds")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str);
+        for child in children {
+            if !by_id.contains_key(child) {
+                return Err(refuse(
+                    CODE_CHILD_CONTAINER_MISSING,
+                    format!(
+                        "container '{id}' names child container '{child}', which does not \
+                         exist (RFC-034 [R7]; repair the edge first)"
+                    ),
+                ));
+            }
+            visit(by_id, child, path, seen)?;
+        }
+        path.pop();
+        Ok(())
+    }
+    let mut seen = BTreeSet::new();
+    visit(by_id, root, &mut Vec::new(), &mut seen)?;
+    Ok(seen)
+}
+
 /// Export one container as an RFC-026 slice archive (`.srs` bytes).
 pub fn export_container_slice(
     store: &dyn RepositoryStore,
@@ -171,8 +232,16 @@ pub fn export_container_slice(
         })?;
     let mut boundary = boundary.clone();
 
-    // --- Instances: the boundary's entry ids that name an instance (step 2;
-    // at revision >= 8 the fixpoint adds nothing). RFC-043 [R18]/[R7]: an
+    // --- Containers carried: the boundary and its declared descendants
+    // (RFC-034 [R9], I-151). ---------------------------------------------
+    let by_id: HashMap<&str, &Value> = containers
+        .iter()
+        .map(|(id, _, v)| (id.as_str(), v))
+        .collect();
+    let closure = declared_closure(&by_id, &input.container_id)?;
+
+    // --- Instances: effective(boundary) = the entry ids of every container in
+    // the closure that name an instance (RFC-034 [R9]). RFC-043 [R18]/[R7]: an
     // entry naming no instance is dropped by the promoting removal; the checked
     // catalog already refuses a dangling entry, so today this keeps every one.
     let instances: HashMap<&str, &str> = cat
@@ -210,7 +279,15 @@ pub fn export_container_slice(
             ));
         }
     }
-    let included: BTreeSet<String> = retained.iter().map(|e| e.instance_id.clone()).collect();
+    let mut included: BTreeSet<String> = retained.iter().map(|e| e.instance_id.clone()).collect();
+    for id in closure.iter().filter(|id| **id != input.container_id) {
+        included.extend(
+            entries_of(by_id[id.as_str()])
+                .into_iter()
+                .map(|e| e.instance_id)
+                .filter(|i| instances.contains_key(i.as_str())),
+        );
+    }
 
     let mut out: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     let mut doc_ids: BTreeSet<String> = BTreeSet::new();
@@ -260,14 +337,10 @@ pub fn export_container_slice(
     }
     external.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // --- Sub-containers (step 6 + D3). The boundary itself goes inline. ---
-    let mut container_count = 1;
+    // --- Declared descendants, written whole (RFC-034 [R9]). The boundary
+    // itself goes inline. -------------------------------------------------
     for (id, path, v) in &containers {
-        if *id == input.container_id {
-            continue;
-        }
-        let ids = entries_of(v);
-        if ids.is_empty() || !ids.iter().all(|e| included.contains(&e.instance_id)) {
+        if *id == input.container_id || !closure.contains(id) {
             continue;
         }
         let bytes = match tree.get(path) {
@@ -276,7 +349,6 @@ pub fn export_container_slice(
             None => pretty(v),
         };
         out.insert(path.clone(), bytes);
-        container_count += 1;
     }
 
     // --- Source documents (step 5 + relations): sidecar, and content unless
@@ -387,7 +459,7 @@ pub fn export_container_slice(
             exported_at,
             instance_count: included.len(),
             relation_count,
-            container_count,
+            container_count: closure.len(),
             source_document_count,
             package_count: kept_roots.len(),
             external_relation_ref_count,
