@@ -670,6 +670,14 @@ pub struct FindPayload {
     pub result: DiscoveryResult,
 }
 
+/// Payload for `relation neighbours` — a bounded page of an instance's edges, `total` before paging.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NeighboursPayload {
+    #[schemars(with = "serde_json::Value")]
+    pub result: srs_repository::context_query_service::NeighboursResult,
+}
+
 /// Payload for `record validate` — no-write record input validation (preflight).
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]

@@ -10,7 +10,9 @@ use srs_repository::blueprint_schema_service::{self, BlueprintSchemaInput};
 use srs_repository::blueprint_service;
 use srs_repository::container_service::{self, ContainerListFilter};
 use srs_repository::container_view_service::{self, ResolveContainerViewInput};
-use srs_repository::context_query_service::{self, FieldContextQuery, RecordContextQuery};
+use srs_repository::context_query_service::{
+    self, EdgeDirection, FieldContextQuery, NeighboursPage, NeighboursQuery, RecordContextQuery,
+};
 use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage};
 use srs_repository::doctor_service::{self, DoctorInput};
 use srs_repository::governance_scaffold_service::{self, CreateGovernanceRepositoryInput};
@@ -592,6 +594,39 @@ impl SrsRepository {
         };
         let summaries = relation_service::list_relations(&self.store, filter).map_err(js_err)?;
         to_js(&summaries)
+    }
+
+    /// Bounded read of an instance's relation neighbours (srs-rust#1229): each edge's type and
+    /// direction plus the neighbour's id, label and type, never the record. `direction` is
+    /// `"out"` | `"in"` (omit for both); `limit` (default: all) and `offset` (default 0) page
+    /// the edges after the deterministic sort; `total` counts every match.
+    /// Returns a `NeighboursResult` as a JS value.
+    pub fn neighbours(
+        &self,
+        instance_id: &str,
+        relation_type: Option<String>,
+        direction: Option<String>,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> Result<JsValue, JsValue> {
+        let direction = direction
+            .map(|d| d.parse::<EdgeDirection>())
+            .transpose()
+            .map_err(js_err)?;
+        let result = context_query_service::list_neighbours(
+            &self.store,
+            NeighboursQuery {
+                instance_id: instance_id.to_string(),
+                relation_type,
+                direction,
+            },
+            NeighboursPage {
+                limit,
+                offset: offset.unwrap_or(0),
+            },
+        )
+        .map_err(js_err)?;
+        to_js(&result)
     }
 
     /// Create a relation. `input_json` is a JSON object whose fields match the `Relation` struct

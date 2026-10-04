@@ -206,3 +206,34 @@ fn context_record_query_accepts_exclude_relation_categories_key() {
     )
     .is_err());
 }
+
+/// srs-rust#1229: the `neighbours` binding is the core service; the fixture's single edge
+/// OTHER -> RECORD is an `in` edge of RECORD, paged with the full total.
+#[test]
+fn neighbours_service_pages_with_total() {
+    use srs_repository::context_query_service::{
+        list_neighbours, EdgeDirection, NeighboursPage, NeighboursQuery,
+    };
+    let store = fixture_store();
+    let q = |direction| NeighboursQuery {
+        instance_id: RECORD_ID.to_string(),
+        relation_type: None,
+        direction,
+    };
+    let r = list_neighbours(&store, q(None), NeighboursPage::default()).unwrap();
+    assert_eq!(r.total, 1);
+    assert_eq!(r.neighbours[0].direction, EdgeDirection::In);
+    assert_eq!(r.neighbours[0].neighbour.instance_id, OTHER_ID);
+    let page = NeighboursPage {
+        limit: Some(0),
+        offset: 0,
+    };
+    let empty = list_neighbours(&store, q(Some(EdgeDirection::In)), page).unwrap();
+    assert_eq!((empty.total, empty.neighbours.len()), (1, 0));
+    let none = list_neighbours(
+        &store,
+        q(Some(EdgeDirection::Out)),
+        NeighboursPage::default(),
+    );
+    assert_eq!(none.unwrap().total, 0);
+}

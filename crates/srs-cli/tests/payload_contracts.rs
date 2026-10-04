@@ -137,6 +137,11 @@ fn relation_list() {
 }
 
 #[test]
+fn relation_neighbours() {
+    check::<NeighboursPayload>("relation-neighbours");
+}
+
+#[test]
 fn relation_get() {
     check::<RelationPayload>("relation-get");
 }

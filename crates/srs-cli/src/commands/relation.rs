@@ -1,9 +1,11 @@
 use crate::commands::{with_store, CliContext, RelationCommand};
 use crate::output;
 use crate::payload::{
-    PrecedesChainSplicePayload, RelationDeletePayload, RelationListPayload, RelationPayload,
+    NeighboursPayload, PrecedesChainSplicePayload, RelationDeletePayload, RelationListPayload,
+    RelationPayload,
 };
 use anyhow::Result;
+use srs_repository::context_query_service::{list_neighbours, NeighboursPage, NeighboursQuery};
 use srs_repository::relation_service::{
     create_relation_auto, delete_relation, get_relation_by_id, insert_into_precedes_chain,
     list_relations, move_in_precedes_chain, parse_relation_input, remove_from_precedes_chain,
@@ -19,6 +21,21 @@ pub fn dispatch(ctx: CliContext, cmd: RelationCommand) -> Result<String> {
             relation_type,
             json: _,
         } => cmd_relation_list(ctx, source, target, relation_type),
+        RelationCommand::Neighbours {
+            id,
+            relation_type,
+            direction,
+            limit,
+            offset,
+        } => cmd_relation_neighbours(
+            ctx,
+            NeighboursQuery {
+                instance_id: id,
+                relation_type,
+                direction,
+            },
+            NeighboursPage { limit, offset },
+        ),
         RelationCommand::Create { json: _ } => cmd_relation_create(ctx),
         RelationCommand::Get { id, json: _ } => cmd_relation_get(ctx, id),
         RelationCommand::Delete { id, json: _ } => cmd_relation_delete(ctx, id),
@@ -42,6 +59,17 @@ fn cmd_relation_list(
     };
     let relations = with_store(&ctx, |store| Ok(list_relations(store, filter)?))?;
     output::serialize("relation list", RelationListPayload { relations })
+}
+
+fn cmd_relation_neighbours(
+    ctx: CliContext,
+    query: NeighboursQuery,
+    page: NeighboursPage,
+) -> Result<String> {
+    match with_store(&ctx, |store| Ok(list_neighbours(store, query, page)?)) {
+        Ok(result) => output::serialize("relation neighbours", NeighboursPayload { result }),
+        Err(e) => Ok(output::err("relation neighbours", vec![e.to_string()])),
+    }
 }
 
 fn cmd_relation_get(ctx: CliContext, id: String) -> Result<String> {

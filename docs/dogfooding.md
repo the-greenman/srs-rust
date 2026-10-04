@@ -3202,6 +3202,26 @@ $SRS package export --selector packages/essay --output /tmp/dogfood-s49-old.srsp
 
 **Verified 2026-10-03 (#1212, RFC-003 Rev 10, branch binary).** Every block above run as written in one shell, in order (`ESSAY` set to the absolute essay path): sha256 `sha256:ce1640fb...08420f20` (16989 bytes) for both exports, `dependencyRefCount` 10 (8 field, 1 type, 1 view), `mode` `bundled`, `dataModelRevision` 9, `notes` `[]`; reinstall `skippedIdentical: 17`; imports `["clean"]`; writer `repo validate` 0 errors; re-export identical. Reviews package: bundled 2 definitions, 1 dependencyRef, the essay `title` Field inlined; standalone 1 definition, 1 dependencyRef, nothing inlined; standalone into the writer: installed 1, 0 errors; into an empty repository: installed 1, then `repo validate` `ok: false` naming `SRS038-R13-DANGLING-REFERENCE` for the `title` Field id (spec question D4). Negatives: `bundle-revision-too-new` (10); `bundle-migration-step-missing` naming `6 -> 7 (discovery-query-cutover)` and, unstamped, `0 -> 1 (field-type)`; `bundle-readme-unsupported`; `bundle-published-at-invalid`; clap `invalid value 'bogus' for '--mode <MODE>'`; nothing installed. Revision-8 bundle: installed 17, 0 errors. Below-floor export: `dataModelRevision` 6 with the `bundle-below-reader-floor` note.
 
+### S50 — An agent pages a hub record's neighbours without loading them all (`srs relation neighbours`, #1229)
+
+**Intention.** An agent orienting on a hub record (hundreds of inbound edges) needs the edge count and a bounded page of who is connected, not every neighbour inlined as `context record` does.
+
+**CLI surface.** `srs relation neighbours <id> [--type T] [--direction out|in] [--limit N] [--offset N]`; MCP tool `neighbours` (default `limit` 25, max 100); WASM `SrsRepository::neighbours`. MCP tree bounds: `srs://<repoId>/tree?maxDepth=0&relationType=<key>&typeFilter=<ns/name>` (CLI equivalent: `srs tree --depth/--relation-type/--type`).
+
+**Steps.** In a fresh repo create a hub note and three notes, three `depends-on` edges into the hub and one `refines` edge out. Then:
+
+```bash
+srs --repo $REPO relation neighbours $HUB --limit 2 --offset 1   # total 4, 2 edges
+srs --repo $REPO relation neighbours $HUB --direction out --type refines   # total 1, direction out
+srs --repo $REPO relation neighbours $HUB --direction sideways   # error: expected out|in
+srs --repo $REPO relation neighbours nope                        # error envelope: not found
+srs --repo $REPO repo validate                                   # 0 errors
+```
+
+**Done when.** `total` counts every matching edge regardless of `--limit`; each edge carries `direction`, `relationType` and a `neighbour` of `instanceId` and `label` only (never the record); unknown ids and bad directions are errors.
+
+**Verified 2026-10-04 (#1229):** scratch repo per the steps: `--limit 2 --offset 1` returned total 4 with 2 edges; `--direction out --type refines` returned total 1; `repo validate` 0 errors. MCP tool and tree query parameters verified by `crates/srs-mcp/tests/{tools,resources}.rs`.
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -3264,6 +3284,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
 | `registry` (ext:registry — `registry list`, `registry get`) | S25; WASM free functions (`parse_registry`, `list_registry_entries`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#244) |
 | `federation` (ext:federation) | _removed — srs decision 4f1e12e5 + owner disposition srs-rust#878 (2026-09-01); return is committed, see the spec roadmap's federation entry; S26 retired with it_ |
+| `relation neighbours` (bounded neighbour page, #1229) | S50 |
 | `context` (ext:addressability — `context field`, `context record`) | S48 (`context record` both-direction relations + `--container` subtree, #1134); S27 (historical — `context revision`/revision-tracing removed srs-rust#917); WASM bindings (`context_field`, `context_record` on `SrsRepository`) verified via native integration tests in `crates/srs-bindings/tests/context_query.rs` (#251) |
 | `package` | CLI: covered implicitly by field/type creation in S2; **`srs package install`/`srs package import`/`srs package imports`** end-to-end in S29 (#246); WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330); **`srs package export` / `srs package install --bundle`** (`.srspkg`, ADR-050) in S49 (#632/#690); RFC-003 Rev 10 (#1212): `--mode bundled|standalone`, `--homepage`, `dependencyRefs`/`dependencyRefCount`, repository-stamped `dataModelRevision`, the [C6] reader step chain (`bundle-migration-step-missing`), the below-floor export note and the standalone-without-dependencies [R13] consequence, all in S49; WASM `export_package_bundle` / `install_package_bundle` via `crates/srs-bindings/tests/package_bundle.rs` (#663) |
 | `attachment list` | S31 |
