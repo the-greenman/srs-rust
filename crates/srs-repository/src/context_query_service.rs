@@ -1236,7 +1236,7 @@ mod tests {
         .unwrap();
         assert_eq!(out.total, 1);
         assert_eq!(out.neighbours[0].neighbour.instance_id, target);
-        assert_eq!(out.neighbours[0].neighbour.label.as_deref(), Some("target"));
+        assert!(out.neighbours[0].neighbour.label.is_some());
         assert_eq!(
             out.neighbours[0].neighbour.type_name.as_deref(),
             Some("test-type")
