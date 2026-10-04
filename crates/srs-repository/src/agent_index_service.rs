@@ -255,6 +255,7 @@ mod tests {
             tags: None,
             created_at: None,
             updated_at: None,
+            created_by: None,
             extra: BTreeMap::new(),
         }
     }
@@ -269,6 +270,7 @@ mod tests {
             notes: None,
             source_refs: None,
             meta: None,
+            created_by: None,
         }
     }
 
@@ -337,8 +339,9 @@ mod tests {
             container_type: None,
             identity_instance_id: None,
             anchor_instance_id: None,
-            root_instance_ids: Some(vec![root_id.to_string()]),
-            member_instance_ids: None,
+            member_instance_ids: Some(vec![srs_core::types::container::ContainerEntry::new(
+                root_id,
+            )]),
             child_container_ids: None,
             tags: None,
             created_at: None,
