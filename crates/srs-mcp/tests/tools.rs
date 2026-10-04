@@ -486,10 +486,26 @@ async fn tool_note_create_and_find_roundtrip() {
             content_match: Some("quarterly budget".into()),
             ..Default::default()
         },
-        FindPage::default(),
+        // MCP ranks by default (srs-rust#1228).
+        FindPage {
+            rank: true,
+            ..Default::default()
+        },
     )
     .unwrap();
     assert_eq!(structured, &serde_json::to_value(&direct).unwrap());
+    assert!(direct.hits.iter().all(|h| h.score.is_some()));
+    // `rank: false` restores the unranked Layer-1 order.
+    let plain = call(
+        &client,
+        "find",
+        serde_json::json!({ "contentMatch": "quarterly budget", "rank": false }),
+    )
+    .await;
+    let plain_hits = plain.structured_content.as_ref().unwrap()["hits"]
+        .as_array()
+        .unwrap();
+    assert!(plain_hits.iter().all(|h| h.get("score").is_none()));
     let hits = structured["hits"].as_array().unwrap();
     assert!(
         hits.iter()

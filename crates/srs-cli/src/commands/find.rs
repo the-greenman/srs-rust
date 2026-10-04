@@ -37,6 +37,7 @@ pub fn dispatch(ctx: CliContext, args: FindArgs) -> Result<String> {
     let page = FindPage {
         limit: args.limit,
         offset: args.offset,
+        rank: args.rank,
     };
     match with_store(&ctx, |store| {
         Ok(discovery_service::find(store, query, page)?)

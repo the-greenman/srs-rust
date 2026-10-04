@@ -7,7 +7,7 @@
 //!
 //! One command:  `cargo test -p srs-repository --test discovery_eval -- --nocapture`
 //!
-//! Adding a method (BM25 #1228, `similar` #1230, all-words #1218): append one entry to
+//! Adding a method (`similar` #1230; all-words #1218 and BM25 #1228 are rows already): append one entry to
 //! [`methods`]. A method maps a query string to instance ids, best first.
 //!
 //! Layer-1 is unranked (id order), so "recall@10" for it is the first 10 hits as returned;
@@ -17,7 +17,7 @@
 //! claim/problem whose label is only an id (C-13, P-10); `run-report-noise` = the query words also
 //! occur in long run-reports; `tag` = answer is defined by a tag.
 //!
-//! Layer-1 rows are unranked: never quote them as a ranking number.
+//! Layer-1 rows (substring, all-words) are unranked: never quote them as a ranking number.
 //!
 //! Miss classes for an expected id that is not in a method's top 10:
 //! - `ranking`: returned, but below rank 10;
@@ -29,6 +29,9 @@
 
 use serde::Deserialize;
 use srs_repository::discovery_service::{find, DiscoveryQuery, FindPage};
+use srs_repository::text_projection::{
+    build_field_text_index, normalize, project_note_text, project_text,
+};
 use srs_repository::{archive_unpack, FileStore, RepositoryStore};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Cursor;
@@ -63,19 +66,56 @@ type Method = fn(&dyn RepositoryStore, &str) -> Vec<String>;
 
 /// The methods under evaluation, in table order.
 fn methods() -> Vec<(&'static str, Method)> {
-    vec![("substring (Layer 1, unranked: id order)", substring)]
+    vec![
+        ("substring (phrase, unranked: id order)", phrase),
+        ("all-words (Layer 1, unranked: id order)", all_words),
+        ("BM25 (all-words candidates, ranked)", bm25),
+    ]
 }
 
-fn substring(store: &dyn RepositoryStore, query: &str) -> Vec<String> {
+fn find_ids(store: &dyn RepositoryStore, query: &str, rank: bool) -> Vec<String> {
     let q = DiscoveryQuery {
         content_match: Some(query.to_string()),
         ..Default::default()
     };
-    find(store, q, FindPage::default())
+    let page = FindPage {
+        rank,
+        ..Default::default()
+    };
+    find(store, q, page)
         .expect("find")
         .hits
         .into_iter()
         .map(|h| h.instance_id)
+        .collect()
+}
+
+fn all_words(store: &dyn RepositoryStore, query: &str) -> Vec<String> {
+    find_ids(store, query, false)
+}
+
+fn bm25(store: &dyn RepositoryStore, query: &str) -> Vec<String> {
+    find_ids(store, query, true)
+}
+
+/// The pre-#1218 Layer-1 matcher: the whole query as one contiguous phrase in a single segment.
+/// Derived from the all-words hits (a superset), so it needs no second corpus walk.
+fn phrase(store: &dyn RepositoryStore, query: &str) -> Vec<String> {
+    let needle = normalize(query);
+    let index = build_field_text_index(store).expect("field index");
+    all_words(store, query)
+        .into_iter()
+        .filter(|id| {
+            let tier = store.find_instance(id).unwrap().expect("instance").tier;
+            let segments = if tier == 0 {
+                project_note_text(&store.load_note_by_id(id).expect("note"))
+            } else {
+                project_text(&store.load_record_by_id(id).expect("record"), &index)
+            };
+            segments
+                .iter()
+                .any(|s| normalize(&s.text).contains(&needle))
+        })
         .collect()
 }
 
@@ -107,7 +147,7 @@ impl<'a> Probe<'a> {
         let store = self.store;
         self.in_text
             .entry(word.to_string())
-            .or_insert_with(|| substring(store, word).into_iter().collect())
+            .or_insert_with(|| all_words(store, word).into_iter().collect())
             .contains(id)
     }
 
@@ -150,6 +190,8 @@ struct Totals {
     recall_all: f64,
     rr: f64,
     misses: BTreeMap<&'static str, usize>,
+    found10_by_question: Vec<usize>,
+    hit_sets: Vec<HashSet<String>>,
     by_kind: BTreeMap<String, (usize, usize)>, // kind -> (expected ids, found in top 10)
 }
 
@@ -219,6 +261,8 @@ fn discovery_eval_table() {
                 .iter()
                 .position(|r| q.expected_instance_ids.contains(r))
                 .map(|p| p + 1);
+            t.found10_by_question.push(found10);
+            t.hit_sets.push(ranked.iter().cloned().collect());
             t.recall10 += found10 as f64 / n;
             t.recall_all += found_all as f64 / n;
             t.rr += first.map_or(0.0, |p| 1.0 / p as f64);
@@ -274,6 +318,28 @@ fn discovery_eval_table() {
         println!(
             "{name}: found@10 / expected by question kind: {:?}",
             t.by_kind
+        );
+    }
+
+    // Ranking only orders: BM25 returns exactly the all-words set, and on no question
+    // finds fewer expected ids in the top 10 than the substring baseline (srs-rust#1228).
+    let row = |prefix: &str| {
+        &results
+            .iter()
+            .find(|(name, _)| name.starts_with(prefix))
+            .unwrap_or_else(|| panic!("{prefix} row present"))
+            .1
+    };
+    let (sub_row, words_row, bm25_row) = (row("substring"), row("all-words"), row("BM25"));
+    assert_eq!(
+        bm25_row.hit_sets, words_row.hit_sets,
+        "BM25 changed the hit set"
+    );
+    for (i, q) in fx.questions.iter().enumerate() {
+        assert!(
+            bm25_row.found10_by_question[i] >= sub_row.found10_by_question[i],
+            "{}: BM25 top-10 recall fell below substring",
+            q.id
         );
     }
 

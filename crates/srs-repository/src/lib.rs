@@ -16,6 +16,7 @@ pub(crate) mod core_package;
 pub(crate) mod core_purpose;
 pub mod detect;
 pub mod diff;
+pub mod discovery_index;
 pub mod discovery_query_cutover_migration_service;
 pub mod discovery_service;
 pub mod doctor_service;

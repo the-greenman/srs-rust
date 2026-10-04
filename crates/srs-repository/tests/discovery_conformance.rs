@@ -219,6 +219,13 @@ fn ext_discovery_fixture_scenarios() {
         let result = find(&store, query, FindPage::default())
             .unwrap_or_else(|e| panic!("scenario '{}': find() failed: {e}", scenario.name));
 
+        // Conformance stays on Layer 1: unranked, so no hit carries a score (srs-rust#1228).
+        assert!(
+            result.hits.iter().all(|h| h.score.is_none()),
+            "scenario '{}': conformance must not rank",
+            scenario.name
+        );
+
         let actual: BTreeSet<String> = result.hits.iter().map(|h| h.instance_id.clone()).collect();
         let expected: BTreeSet<String> = scenario.expected_instance_ids.iter().cloned().collect();
 
