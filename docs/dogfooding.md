@@ -3234,6 +3234,18 @@ srs --repo $REPO repo validate                                   # 0 errors
 
 **Verified 2026-10-04 (#1227):** against muSrs: hit `CP-MECH-01` returned `uri`, `typeId` and 3 `containerIds`; `read` on its uri and on a note's `record/{id}` both returned JSON; `neighbours` total 17 with `uri` on each neighbour.
 
+### S52 — An agent learns what a repository holds before searching it (`find` facets, `limit: 0`, #1219)
+
+**Intention.** A remote agent that has never seen a repository asks one cheap question, "what is in here?", and uses the answer to write a precise query instead of guessing keywords.
+
+**CLI surface.** `srs find --limit 0` (and the MCP `find {limit: 0}` / bindings `find`): `payload.result.facets` = `byType`, `notes`, `tags`, `fields[]` (closed string fields keyed by `Field.name`), each `{values:[{value,count}], other?}`, counted over the whole match set before paging.
+
+**Steps.** `srs find --repo ../../muDemocracy.org/muSrs --limit 0 --pretty`; then `--type com.mudemocracy.argument/problem --limit 0`; then `--text democracy --limit 3` and compare `total` with the sum of `facets.byType`. Negative: `--container <unknown uuid> --limit 0` returns `facets: {}` with the containerId warning.
+
+**Done when.** `hits` is empty and `total` is 886; `byType` totals 861 plus `notes` 25 equal `srs repo map`'s 886; the problem-type call lists `kind` (condition 55, consequence 33, shift 24, ...), `persona` and `scale`; open string fields never appear; the reply is under 128 KB.
+
+**Verified 2026-10-04 (#1219):** unfiltered `--limit 0` on muSrs: 14,316 bytes, 22 field facets, `byType` top = source 177, claim 177, problem 138; `tags.other` 853 (long tail bounded to 20 values); `--limit 25` reply 15,258 bytes; the problem type call gave 138 problems with `kind`, `persona`, `scale`.
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -3311,6 +3323,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `render export-bundle` (flat ZIP export: rendered doc + attachments, ADR-035, #289) | S38 (#289); service-layer tests in `export_service.rs` (3 tests: no-attachment, with-attachment, cross-store roundtrip via `tempfile::NamedTempFile`). |
 | `render okf-bundle` (OKF markdown folder export — index.md + per-instance files with YAML frontmatter, descending the full `contains` tree from each direct member, #677/srs-rust#1104) | S45 (#677, re-verified srs-rust#1104); 13 unit tests in `okf_export_service.rs` (empty container, note-only, record-only, mixed, field-value pairs, ordering, display-label multiline strip, slug-collision-safe path via id8, empty-slug fallback, record with field values → field_pairs, two-level `contains` descent, multi-parent dedup, id8-collision fallback to full instance id); WASM binding deferred to #758. |
 | `srs-gov export-decision` (governance operator exports shareable bundle, #289) | S38 (#289); exercises record lookup → view discovery → `render export-bundle` chain; `--explain` pre-stages all 3 underlying srs calls; default output filename (`<id8>.zip`). |
+| `find` facets over the match set, `limit: 0` repository map (#1219) | S52 |
 | `find` hit `uri`/`typeId`/`containerIds`, neighbour `uri`, agent-index `entryPoints` (#1227) | S51 |
 | `mcp serve` (MCP stdio server: resources map/navigation/record/container/view/**type** + all 13 tools: `repo_validate`/`find`/`type_schema`/`record_create`/`relation_create`/`note_create`/`record_update`/`record_transition`/`record_allowed_transitions`/`record_successor`/`note_graduate`/`container_member_add`/`container_member_remove` + **prompts** `prompts/list`/`prompts/get`, ADR-037 + #692 amendment + #682 prompts + **#680 second-wave write tools**) | S42 (incl. the #692 discover-then-author step, #682 prompts step 10b, and #680 second-wave step 10c); 32 crate tests in `crates/srs-mcp/` (13 unit + 13 duplex-transport integration + 6 second-wave integration) + 2 binary-level handshake tests in `crates/srs-cli/tests/mcp_serve.rs` + 4 unit tests in `crates/srs-mcp/src/prompts.rs` |
 

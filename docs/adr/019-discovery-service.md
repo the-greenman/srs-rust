@@ -4,7 +4,7 @@
 - **Date:** 2026-06-28
 - **Supersedes:** —
 - **Superseded by:** —
-- **Amended by:** srs-rust#797 (Tier 0/1 discovery landed — see the note below §Consequences); srs-rust#1228 (first `DiscoveryIndex`, BM25 ranking — see the end)
+- **Amended by:** srs-rust#797 (Tier 0/1 discovery landed — see the note below §Consequences); srs-rust#1228 (first `DiscoveryIndex`, BM25 ranking — see the end); srs-rust#1219 (result facets — see the end)
 
 > Tracking note: epic #212 issue #214 titled this "ADR-018". In this repository
 > 018 is already taken (`018-container-view-column-source-precedence.md`), so the
@@ -171,3 +171,7 @@ Decision 5's reserved extension point now exists: `discovery_index::DiscoveryInd
   native and wasm32 order alike.
 - A vector or embedding index would be a second `DiscoveryIndex` implementation; none is
   built (srs#726 open question 6). Measured by the eval harness (srs-rust#1231).
+
+## Amendment (2026-10-04, #1219) — facets over the match set
+
+`DiscoveryResult` is now `{ hits, total, facets, diagnostics }` (the `Neutral` note above that defers pagination predates `FindPage`, #1217). `facets` are counts over the whole Layer-1 match set, before paging, computed in the same pass as `total`: `byType` (`namespace/name`), `notes` (Tier 0, which has no type), `tags`, and `fields` (one entry per closed string field, keyed by `Field.name`, counted only when no package field of that name is open). Each facet keeps the top 20 values by count (ties by value) plus an `other` occurrence count; at most 25 field facets are kept, so a reply stays far below the 128 KB relay limit. `find` with `limit: 0` is the repository map. A Layer-2 index may rank hits but must leave facets unchanged. Result shaping only: `discovery.json` is untouched, no spec change.

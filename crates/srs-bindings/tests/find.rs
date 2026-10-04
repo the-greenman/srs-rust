@@ -103,6 +103,27 @@ fn find_empty_query_returns_all() {
     assert_eq!(result.hits.len(), 2);
 }
 
+/// Facets count the whole match set even with `limit: 0`, and serialise with the camelCase keys
+/// the JS caller reads (the binding returns the `DiscoveryResult` unchanged).
+#[test]
+fn find_limit_zero_returns_facets_only() {
+    let store = fixture_store();
+    let page = FindPage {
+        limit: Some(0),
+        offset: 0,
+    };
+    let result = find(&store, DiscoveryQuery::default(), page).expect("find must succeed");
+    assert!(result.hits.is_empty());
+    let json = serde_json::to_value(&result).unwrap();
+    let total: u64 = json["facets"]["byType"]["values"]
+        .as_array()
+        .expect("byType.values")
+        .iter()
+        .map(|v| v["count"].as_u64().unwrap())
+        .sum();
+    assert_eq!(total, 2);
+}
+
 /// `content_match` filters to records whose text projection contains the substring.
 #[test]
 fn find_content_match_filters_hits() {

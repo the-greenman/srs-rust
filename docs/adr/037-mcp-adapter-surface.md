@@ -94,3 +94,7 @@ Implementation charter (ADR-048): spec-first — none needed (§6); layer — ad
 - **`record/{id}` is any tier**, as its template says: it resolves through `get_instance_by_id` and serves a Tier-0 note as a Note (it failed with "missing field typeId").
 
 Golden schemas: `find`, `repo agent-index` and `relation neighbours` embed the service types as opaque values, so no golden diff (`generate-schemas` re-run, clean). No spec change.
+
+## Amendment (2026-10-04, #1219) — `find` facets and `limit: 0`
+
+The MCP `find` reply carries `facets` (see ADR-019's #1219 amendment): the adapter serialises the service result unchanged and adds no counting. The default `limit` stays 25; an explicit `limit: 0` passes through and returns no hits with full facets, which is the cheap repository map for a resource-blind client (about 14 KB on the 886-instance muSrs; a default-limit call about 15 KB). The facets shape is not pinned by the `find` golden schema, which embeds `DiscoveryResult` opaquely; the service, MCP and bindings tests pin it. No spec change.
