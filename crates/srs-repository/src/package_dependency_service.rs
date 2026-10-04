@@ -92,16 +92,7 @@ fn str_of<'a>(v: &'a Value, k: &str) -> Option<&'a str> {
 pub fn installed_set(store: &dyn RepositoryStore) -> Result<Vec<InstalledMember>, RepositoryError> {
     let manifest = store.load_manifest()?;
     // 1. `packageRefs` (when present) wins over the singular `packageRef`.
-    let refs: Vec<Value> = match manifest.extra.get("packageRefs") {
-        Some(v) if !v.is_null() => v.as_array().cloned().unwrap_or_default(),
-        _ => manifest
-            .extra
-            .get("packageRef")
-            .filter(|v| v.is_object())
-            .cloned()
-            .into_iter()
-            .collect(),
-    };
+    let refs: Vec<Value> = crate::manifest::resolve_package_refs(&manifest);
     let mut members = Vec::new();
     // 1b (srs-rust#1223). The primary package is always installed, exactly
     // as `FileStore::list_package_boundaries` (store.rs) always lists it
@@ -109,9 +100,10 @@ pub fn installed_set(store: &dyn RepositoryStore) -> Result<Vec<InstalledMember>
     // on top, deduped by resolved package id (so `packageRef {mode: local,
     // path: "package"}` does not count twice). A non-default primary path
     // depends on srs-rust#1207.
-    // Note: the loader reads only the plural `packageRefs`; the singular
-    // `packageRef` fallback in item 1 is this function's own (pre-dates
-    // #1223) and is not loader behaviour.
+    // (srs-rust#1225) `FileStore::list_package_boundaries` and
+    // `FileStore::load_package` now resolve refs through the same
+    // `manifest::resolve_package_refs` helper, so a package declared only via
+    // the singular `packageRef` is loaded, not just counted as installed.
     if let Ok(primary) = store.load_package_boundary(&None) {
         if !primary.id.is_empty() {
             members.push(InstalledMember {

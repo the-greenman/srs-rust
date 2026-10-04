@@ -199,6 +199,95 @@ fn installed_set_includes_primary_when_no_ref_declared() {
     assert_eq!(members.len(), 2);
 }
 
+/// srs-rust#1225: `installed_set` already treats a singular-only `packageRef`
+/// as a one-element ref list (`installed_set_always_has_primary_once`), but
+/// the actual loaders (`list_package_boundaries`, `load_package`) read only
+/// the plural `packageRefs` — so a sub-package declared solely via the
+/// singular form counted as "installed" for dependency checks while its own
+/// metadata and field/type definitions were silently never loaded into the
+/// catalog.
+#[test]
+fn singular_package_ref_is_loaded_not_just_counted_installed() {
+    let store = repo_with_refs(json!({
+        "packageRef": {"mode": "local", "path": "extensions/x"},
+    }));
+
+    // installed_set already saw it before the fix (that was never the bug).
+    assert_eq!(count_id(&store, SINGULAR), 1);
+
+    // The loader must see it too: list_package_boundaries...
+    let boundaries = store.list_package_boundaries().unwrap();
+    assert!(
+        boundaries.iter().any(|b| b.id == SINGULAR),
+        "a sub-package declared only via singular packageRef must be a \
+         listed boundary: {boundaries:?}"
+    );
+}
+
+/// Same fixture shape, proving the sub-package's own definition (not just its
+/// package.json metadata) was merged by `load_package`.
+#[test]
+fn singular_package_ref_definitions_are_merged_into_catalog() {
+    let extra = json!({
+        "packageRef": {"mode": "local", "path": "extensions/x"},
+    });
+    let mut manifest = json!({
+        "$schema": srs_schema::MANIFEST_SCHEMA_ID,
+        "srsVersion": "2.0-draft",
+        "dataModelRevision": CURRENT_DATA_MODEL_REVISION,
+        "repositoryId": "00000000-0000-4000-8000-00000000dcdc",
+        "namespace": "com.example.noref",
+        "title": "No packageRef fixture",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "container": {
+            "containerId": "00000000-0000-4000-8000-00000000dcde",
+            "title": "No packageRef fixture",
+        },
+    });
+    manifest
+        .as_object_mut()
+        .unwrap()
+        .extend(extra.as_object().unwrap().clone());
+    let field_id = "f0000000-0000-4000-a000-000000000001";
+    let store = open_srsj(
+        &json!({
+            "srsj": "2",
+            "manifest": manifest,
+            "data": {
+                "package/package.json": pkg("00000000-0000-4000-8000-00000000a0a0", "com.example.deps", "primary", "1.0.0", None),
+                "extensions/x/package.json": {
+                    "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
+                    "id": SINGULAR, "namespace": "com.example", "name": "ext-x", "version": "1.0.0",
+                    "title": "ext-x", "description": "", "status": "active",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "fields": ["fields/singular.json"],
+                    "types": [],
+                },
+                "extensions/x/fields/singular.json": {
+                    "$schema": srs_schema::FIELD_SCHEMA_ID,
+                    "id": field_id,
+                    "namespace": "com.example",
+                    "name": "singular_field",
+                    "version": 1,
+                    "description": "d",
+                    "aiGuidance": {"purpose": "p"},
+                    "fieldType": {"datatype": "string"},
+                    "createdAt": "2026-01-01T00:00:00Z",
+                },
+            },
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let package = store.load_package().expect("load_package must succeed");
+    assert!(
+        package.fields.iter().any(|f| f.id == field_id),
+        "the singular packageRef's field must be merged into the catalog by load_package: {:?}",
+        package.fields.iter().map(|f| &f.id).collect::<Vec<_>>()
+    );
+}
+
 /// Item 3 of #1223's "Wanted": the WASM-bound `check_package_requirements`
 /// (here, its underlying service `check_bundle`) must satisfy a requirement
 /// on a repo's own primary package even when the manifest carries no
