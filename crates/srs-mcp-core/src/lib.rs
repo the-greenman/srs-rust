@@ -19,7 +19,7 @@ pub mod srs_metadata {
     const MIN_SUPPORTED_DATA_MODEL_REVISION: u32 = 2;
 
     const INSTRUCTIONS: &str = "This server exposes one SRS (Semantic Record System) repository. \
-Orient before writing: read srs://<repositoryId>/map for counts and package info, and \
+Clients that cannot read resources: call the read tool with any srs:// uri below (same result; output capped, with a pointer to bounded reads). Orient before writing: read srs://<repositoryId>/map for counts and package info, and \
 srs://<repositoryId>/navigation for the document structure. srs://<repositoryId>/agent-index is \
 the one-page AI orientation index (identity, counts, types, sections, entry points). \
 srs://<repositoryId>/tree is the recursive contains-tree from every root, and \
@@ -604,6 +604,9 @@ impl<S: srs_repository::store::RepositoryStore> McpApplication for SrsMcpApplica
                     .and_then(|v| v.as_str().map(ToString::to_string))
                     .ok_or_else(|| McpApplicationError::invalid_params("name must be a string"))?;
                 let arguments = arguments(&mut fields)?;
+                if name == tools::TOOL_READ {
+                    return tools::read_tool(store, &self.repository_id, arguments);
+                }
                 if let Some(guard) = &self.write_guard {
                     if let Err(message) = guard.check(store, &name, arguments.as_ref()) {
                         return Ok(tools::tool_err(message));
