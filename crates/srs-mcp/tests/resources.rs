@@ -217,7 +217,7 @@ async fn list_resources_enumerates_containers_and_views() {
     assert!(tmpl_uris.contains(&format!("srs://{}/tree/{{instanceId}}", fx.repo_id).as_str()));
     assert!(tmpl_uris.contains(
         &format!(
-            "srs://{}/context/{{containerId}}/{{instanceId}}",
+            "srs://{}/context/{{containerId}}/{{instanceId}}{{?excludeRelationCategories}}",
             fx.repo_id
         )
         .as_str()
@@ -283,6 +283,43 @@ async fn read_record_matches_service_output() {
         .unwrap()
         .expect("identity record exists");
     assert_eq!(text, serde_json::to_string_pretty(&record).unwrap());
+
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn read_context_exclude_categories_matches_service_and_rejects_unknown() {
+    use srs_core::types::relation_type_definition::RelationTypeCategory::{Composition, Sequence};
+    use srs_repository::context_query_service::{get_record_context, RecordContextQuery};
+    let fx = make_fixture();
+    let client = connect(&fx).await;
+
+    let (_, text) = read_text(
+        &client,
+        format!(
+            "srs://{}/context/{}?excludeRelationCategories=composition,sequence",
+            fx.repo_id, fx.identity_id
+        ),
+    )
+    .await;
+    let expected = get_record_context(
+        &store_for(&fx),
+        RecordContextQuery {
+            record_id: fx.identity_id.clone(),
+            container_id: None,
+            exclude_relation_categories: vec![Composition, Sequence],
+        },
+    )
+    .unwrap();
+    assert_eq!(text, serde_json::to_string_pretty(&expected).unwrap());
+
+    let err = client
+        .read_resource(ReadResourceRequestParams::new(format!(
+            "srs://{}/context/{}?excludeRelationCategories=nope",
+            fx.repo_id, fx.identity_id
+        )))
+        .await;
+    assert!(err.is_err());
 
     client.cancel().await.unwrap();
 }

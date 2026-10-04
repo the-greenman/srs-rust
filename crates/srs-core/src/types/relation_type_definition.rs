@@ -88,6 +88,15 @@ pub enum RelationTypeCategory {
     Other,
 }
 
+impl std::str::FromStr for RelationTypeCategory {
+    type Err = String;
+    /// Parses the wire spelling (`"composition"`, `"sequence"`, ...).
+    fn from_str(s: &str) -> Result<Self, String> {
+        serde_json::from_value(serde_json::Value::String(s.to_string()))
+            .map_err(|_| format!("unknown relation category '{s}'"))
+    }
+}
+
 /// Lifecycle status of a relation type definition.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -133,6 +142,32 @@ impl RelationTypeDefinition {
     /// Returns true if `irreflexive` is set to true.
     pub fn is_irreflexive(&self) -> bool {
         self.irreflexive.unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+mod category_from_str_tests {
+    use super::RelationTypeCategory::*;
+
+    #[test]
+    fn from_str_round_trips_every_variant() {
+        for c in [
+            Composition,
+            Refinement,
+            Dependency,
+            Sequence,
+            Derivation,
+            Evidence,
+            Governance,
+            Association,
+            Lifecycle,
+            Provenance,
+            Other,
+        ] {
+            let wire = serde_json::to_value(&c).unwrap();
+            assert_eq!(wire.as_str().unwrap().parse(), Ok(c));
+        }
+        assert!("nope".parse::<super::RelationTypeCategory>().is_err());
     }
 }
 
