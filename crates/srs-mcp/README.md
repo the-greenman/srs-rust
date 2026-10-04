@@ -20,6 +20,7 @@ service call, and no business logic lives here.
 | `srs://<repositoryId>/container/<containerId>` | Container resolve-view: authored columns + ordered members (JSON) |
 | `srs://<repositoryId>/composition/<compositionId>` | Rendered document view (markdown) |
 | `srs://<repositoryId>/type/{typeId}` | Type authoring schema: fieldIds, required flags, aiGuidance (JSON; enumerated + template) |
+| `srs://<repositoryId>/relation-types` | Every installed relation type, used or not: key, label, category, description (JSON; the valid `relationType` keys) |
 
 The `srs://` scheme is implementation tooling, not spec — every component is an
 existing SRS identifier (see ADR-037 §6).

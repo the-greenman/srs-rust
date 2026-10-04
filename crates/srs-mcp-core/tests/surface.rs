@@ -990,7 +990,14 @@ mod read_tool {
     #[test]
     fn read_equals_resources_read_and_errors_as_there() {
         let (_dir, mut d) = setup();
-        for path in ["map", "navigation", "agent-index", "tree", "protocol"] {
+        for path in [
+            "map",
+            "navigation",
+            "agent-index",
+            "tree",
+            "protocol",
+            "relation-types",
+        ] {
             let direct = rpc(&mut d, "resources/read", json!({ "uri": uri(path) }));
             let via = tool(&mut d, "read", json!({ "uri": uri(path) }));
             assert_eq!(

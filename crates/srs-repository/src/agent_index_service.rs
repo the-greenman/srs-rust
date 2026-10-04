@@ -53,6 +53,8 @@ pub struct AgentIndex {
     /// Suggested starting points from manifest.aiGuidance.suggestedEntryPoints
     /// (file paths such as "records/notes/foundation.json"), resolved to URIs.
     pub entry_points: Vec<AgentEntryPoint>,
+    /// `srs://<repo>/relation-types`: every installed relation type, including unused ones (#1251).
+    pub relation_types_uri: String,
 }
 
 /// Build a typed agent-index summary of a repository by composing existing services.
@@ -123,6 +125,7 @@ pub fn build_agent_index(store: &dyn RepositoryStore) -> Result<AgentIndex, Repo
         types,
         sections,
         entry_points,
+        relation_types_uri: resource_uri::relation_types_uri(&repo_id),
     })
 }
 

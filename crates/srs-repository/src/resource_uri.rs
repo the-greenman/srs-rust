@@ -19,6 +19,10 @@ pub fn container_uri(repository_id: &str, container_id: &str) -> String {
     format!("{SCHEME}{repository_id}/container/{container_id}")
 }
 
+pub fn relation_types_uri(repository_id: &str) -> String {
+    format!("{SCHEME}{repository_id}/relation-types")
+}
+
 /// The manifest's `repositoryId`, if it has one.
 pub fn repository_id(manifest: &Manifest) -> Option<&str> {
     manifest.extra.get("repositoryId").and_then(|v| v.as_str())

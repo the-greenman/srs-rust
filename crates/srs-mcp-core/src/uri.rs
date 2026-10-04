@@ -19,6 +19,8 @@ pub enum SrsUri {
     Tree(TreeQuery),
     TreeFrom(String, TreeQuery),
     AgentIndex,
+    /// `relation-types` (#1251): every installed RelationTypeDefinition.
+    RelationTypes,
     /// `context/{instanceId}` or `context/{containerId}/{instanceId}` (#1134).
     Context {
         container_id: Option<String>,
@@ -145,6 +147,7 @@ pub fn parse(uri: &str, repository_id: &str) -> Result<SrsUri, UriError> {
             "protocol" => Ok(SrsUri::ProtocolList),
             "tree" => Ok(SrsUri::Tree(parse_tree_query(query, uri)?)),
             "agent-index" => Ok(SrsUri::AgentIndex),
+            "relation-types" => Ok(SrsUri::RelationTypes),
             other => Err(UriError(format!("unknown resource kind '{other}'"))),
         },
         Some((kind, id)) if !id.is_empty() && !id.contains('/') => match kind {
@@ -178,6 +181,7 @@ pub fn format(kind: &SrsUri, repository_id: &str) -> String {
             format!("{SCHEME}{repository_id}/tree/{id}{}", tree_query_string(q))
         }
         SrsUri::AgentIndex => format!("{SCHEME}{repository_id}/agent-index"),
+        SrsUri::RelationTypes => resource_uri::relation_types_uri(repository_id),
         SrsUri::Context {
             container_id,
             instance_id,

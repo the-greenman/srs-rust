@@ -11,7 +11,10 @@ use srs_mcp_core::srs_resources;
 use srs_repository::agent_index_service::build_agent_index;
 use srs_repository::analysis::build_repo_map;
 use srs_repository::container_view_service::{resolve_container_view, ResolveContainerViewInput};
-use srs_repository::package_service::{create_field_normalized, create_type_normalized};
+use srs_repository::package_service::{
+    create_field_normalized, create_relation_type_normalized, create_type_normalized,
+    list_relation_types_filtered, RelationTypeListFilter,
+};
 use srs_repository::protocol_service::{create_protocol, list_protocol_stages, list_protocols};
 use srs_repository::record_store::get_record_by_id;
 use srs_repository::render_service::{render_composition, RenderCompositionOptions};
@@ -666,6 +669,57 @@ async fn read_tree_agent_index_and_descent_hook() {
         .find(|m| m["instanceId"] == fx.identity_id)
         .expect("identity is a root-container member");
     assert_eq!(member["sectionContainerId"], sub.container_id);
+
+    client.cancel().await.unwrap();
+}
+
+/// #1251: the relation-types resource lists every installed type (an unused package type and
+/// the core types), equals the service WASM uses, is enumerated, and is named by agent-index.
+#[tokio::test]
+async fn read_relation_types_lists_installed_unused_and_core_types() {
+    let fx = make_fixture();
+    let store = store_for(&fx);
+    create_relation_type_normalized(
+        &store,
+        serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "version": 1,
+            "key": "com.example.mcptest/bears-on",
+            "namespace": "com.example.mcptest",
+            "label": "Bears on",
+            "description": "Never used by any relation",
+            "category": "dependency"
+        }),
+        None,
+    )
+    .unwrap();
+    let client = connect(&fx).await;
+    let uri = format!("srs://{}/relation-types", fx.repo_id);
+
+    let listed = client.list_resources(None).await.unwrap().resources;
+    assert!(listed.iter().any(|r| r.uri == uri));
+
+    let (_, text) = read_text(&client, uri.clone()).await;
+    let body: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        body["relationTypes"],
+        serde_json::to_value(
+            list_relation_types_filtered(&store, RelationTypeListFilter::default()).unwrap()
+        )
+        .unwrap()
+    );
+    let keys: Vec<&str> = body["relationTypes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["key"].as_str().unwrap())
+        .collect();
+    assert!(keys.contains(&"com.example.mcptest/bears-on"), "{keys:?}");
+    assert!(keys.contains(&"contains"), "core types listed: {keys:?}");
+
+    let (_, idx_text) = read_text(&client, format!("srs://{}/agent-index", fx.repo_id)).await;
+    let idx: serde_json::Value = serde_json::from_str(&idx_text).unwrap();
+    assert_eq!(idx["relationTypesUri"], uri);
 
     client.cancel().await.unwrap();
 }
