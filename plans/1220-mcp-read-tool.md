@@ -30,7 +30,7 @@ No new ADR.
 
 - CLI output contract: no CLI command or payload changes.
 - Entity schema sync: none.
-- MCP tool catalogue grows 28 -> 29 (`surface.rs` `tool_catalogue_has_all_twenty_nine_tools…`, tools.rs `list_tools_advertises_all_twenty_nine_with_schemas`).
+- MCP tool catalogue grows 28 -> 29 (`surface.rs` `tool_catalogue_has_all_thirty_tools…`, tools.rs `list_tools_advertises_all_thirty_with_schemas`).
 
 ## Scope
 
