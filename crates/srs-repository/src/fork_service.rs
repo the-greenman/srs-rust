@@ -54,7 +54,7 @@ pub fn fork_records(
                 store,
                 id,
                 CreateRecordSuccessorInput {
-                    relation_type: FORK_RELATION_TYPE.to_string(),
+                    relation_type: Some(FORK_RELATION_TYPE.to_string()),
                     field_values: original.field_values.clone(),
                     lifecycle_state: None,
                     type_version: None,

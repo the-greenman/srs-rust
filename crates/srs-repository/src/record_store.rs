@@ -1255,8 +1255,11 @@ pub struct AllowedLifecycleTransitionsResult {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateRecordSuccessorInput {
-    /// "supersedes" or "refines"
-    pub relation_type: String,
+    /// "supersedes" or "refines". When omitted the core derives it from the
+    /// predecessor's lifecycle (RFC-022 R6 / I-99, srs-rust#1238): see
+    /// [`derive_successor_relation_type`].
+    #[serde(default)]
+    pub relation_type: Option<String>,
     pub field_values: FieldValues,
     /// Optional initial lifecycle state for the successor (defaults to Type.initialState).
     pub lifecycle_state: Option<String>,
@@ -1680,6 +1683,7 @@ pub fn create_record_successor(
     // Thread definitions out of the package block so the second write (create_relation) can
     // use them directly, avoiding a second load_package() call inside create_relation_auto.
     let definitions: Vec<RelationTypeDefinition>;
+    let resolved_relation_type: String;
     {
         let package = store.load_package()?;
         let record_type = package
@@ -1688,10 +1692,15 @@ pub fn create_record_successor(
                 type_id: predecessor.type_id.clone(),
                 version: type_version,
             })?;
+        let relation_type = match input.relation_type.clone() {
+            Some(t) => t,
+            None => derive_successor_relation_type(&package, record_type)?,
+        };
+        resolved_relation_type = relation_type.clone();
         // Validate relation_type before writing the record, so an E1 failure avoids
         // the ADR-024 best-effort rollback path (delete_record after failed create_relation).
         // relation_id is empty in the error — no relation has been created yet.
-        validate_relation_type_for_write(&package.relation_type_definitions, &input.relation_type)
+        validate_relation_type_for_write(&package.relation_type_definitions, &relation_type)
             .map_err(|e| RepositoryError::RelationValidation {
                 relation_id: String::new(),
                 message: e.message,
@@ -1732,7 +1741,7 @@ pub fn create_record_successor(
         Relation {
             created_by: None,
             relation_id: String::new(),
-            relation_type: input.relation_type,
+            relation_type: resolved_relation_type,
             source_instance_id: successor.instance_id.clone(),
             target_instance_id: predecessor_id.to_string(),
             created_at: Some(chrono::Utc::now().to_rfc3339()),
@@ -1782,6 +1791,41 @@ pub fn create_record_successor(
         record: successor,
         relation: rel_result.relation,
     })
+}
+
+/// Derive the relation type for a successor when the caller omitted it
+/// (srs-rust#1238). Candidates are the first declared `relationType` of every
+/// effective-lifecycle state whose `requiresRelation` is `hard` (the default)
+/// and `incoming` (the default), per RFC-022 R6 / I-99. Exactly one distinct
+/// candidate is used; none or several is a structured error. The core never
+/// supplies a literal of its own (RFC-022 Rationale, "No implicit default").
+fn derive_successor_relation_type(
+    package: &Package,
+    record_type: &RecordType,
+) -> Result<String, RepositoryError> {
+    let mut candidates: Vec<String> = Vec::new();
+    if let Some(lifecycle) = package.effective_lifecycle(record_type) {
+        for req in lifecycle
+            .states
+            .iter()
+            .filter_map(|s| s.requires_relation.as_ref())
+            .filter(|r| {
+                matches!(r.enforcement.as_deref(), None | Some("hard"))
+                    && r.effective_direction()
+                        == srs_core::types::lifecycle::RelationDirection::Incoming
+            })
+        {
+            if let Some(first) = req.relation_type.first() {
+                if !candidates.contains(first) {
+                    candidates.push(first.clone());
+                }
+            }
+        }
+    }
+    match candidates.as_slice() {
+        [only] => Ok(only.clone()),
+        _ => Err(RepositoryError::SuccessorRelationTypeUndetermined { candidates }),
+    }
 }
 
 /// Validate a caller-supplied lifecycle-state override before it is applied to a
@@ -3486,7 +3530,7 @@ pub(crate) mod tests {
             &store,
             &predecessor.instance_id,
             CreateRecordSuccessorInput {
-                relation_type: "supersedes".to_string(),
+                relation_type: Some("supersedes".to_string()),
                 field_values: fvs(vec![("title", json!("Updated Item"))]),
                 lifecycle_state: None,
                 type_version: None,
@@ -3516,7 +3560,7 @@ pub(crate) mod tests {
             &store,
             &predecessor.instance_id,
             CreateRecordSuccessorInput {
-                relation_type: "not-a-real-type".to_string(),
+                relation_type: Some("not-a-real-type".to_string()),
                 field_values: fvs(vec![("title", json!("Should Fail"))]),
                 lifecycle_state: None,
                 type_version: None,
@@ -3698,7 +3742,7 @@ pub(crate) mod tests {
             &store,
             &predecessor.instance_id,
             CreateRecordSuccessorInput {
-                relation_type: "supersedes".to_string(),
+                relation_type: Some("supersedes".to_string()),
                 field_values: fvs(vec![("title", json!("Retired Type"))]),
                 lifecycle_state: None,
                 type_version: None,
@@ -3729,7 +3773,7 @@ pub(crate) mod tests {
             &store,
             &predecessor.instance_id,
             CreateRecordSuccessorInput {
-                relation_type: "supersedes".to_string(),
+                relation_type: Some("supersedes".to_string()),
                 field_values: fvs(vec![("title", json!("Deprecated Type"))]),
                 lifecycle_state: None,
                 type_version: None,
@@ -3760,7 +3804,7 @@ pub(crate) mod tests {
             &store,
             &predecessor.instance_id,
             CreateRecordSuccessorInput {
-                relation_type: "supersedes".to_string(),
+                relation_type: Some("supersedes".to_string()),
                 field_values: fvs(vec![("title", json!("Tombstone Type"))]),
                 lifecycle_state: None,
                 type_version: None,
@@ -3831,7 +3875,7 @@ pub(crate) mod tests {
             &store,
             &predecessor.instance_id,
             CreateRecordSuccessorInput {
-                relation_type: "supersedes".to_string(),
+                relation_type: Some("supersedes".to_string()),
                 field_values: fvs(vec![("title", json!("Conflict Type"))]),
                 lifecycle_state: None,
                 type_version: None,
@@ -3877,7 +3921,7 @@ pub(crate) mod tests {
             &store,
             &original.instance_id,
             CreateRecordSuccessorInput {
-                relation_type: "supersedes".to_string(),
+                relation_type: Some("supersedes".to_string()),
                 field_values: fvs(vec![("title", json!("Next Version"))]),
                 lifecycle_state: None,
                 type_version: None,
@@ -4146,7 +4190,7 @@ pub(crate) mod tests {
             &store,
             &predecessor.instance_id,
             CreateRecordSuccessorInput {
-                relation_type: "supersedes".to_string(),
+                relation_type: Some("supersedes".to_string()),
                 field_values: fvs(vec![("test-name", json!("Successor"))]),
                 lifecycle_state: None,
                 type_version: None,
@@ -4292,7 +4336,7 @@ pub(crate) mod tests {
             &store,
             &predecessor.instance_id,
             CreateRecordSuccessorInput {
-                relation_type: "supersedes".to_string(),
+                relation_type: Some("supersedes".to_string()),
                 field_values: fvs(vec![("test-name", json!("Successor"))]),
                 lifecycle_state: None,
                 type_version: None,
@@ -5099,7 +5143,7 @@ pub(crate) mod tests {
             &store,
             &record.instance_id,
             CreateRecordSuccessorInput {
-                relation_type: "supersedes".to_string(),
+                relation_type: Some("supersedes".to_string()),
                 field_values: fvs(vec![("title", json!("Decision 1 v2"))]),
                 lifecycle_state: None,
                 type_version: None,
@@ -5296,7 +5340,7 @@ pub(crate) mod tests {
             &store,
             &record.instance_id,
             CreateRecordSuccessorInput {
-                relation_type: "supersedes".to_string(),
+                relation_type: Some("supersedes".to_string()),
                 field_values: FieldValues::new(),
                 lifecycle_state: Some("ghost".to_string()),
                 type_version: None,
@@ -5318,7 +5362,7 @@ pub(crate) mod tests {
             &store,
             &record.instance_id,
             CreateRecordSuccessorInput {
-                relation_type: "supersedes".to_string(),
+                relation_type: Some("supersedes".to_string()),
                 field_values: FieldValues::new(),
                 lifecycle_state: Some("unreachable-state".to_string()),
                 type_version: None,
@@ -5340,7 +5384,7 @@ pub(crate) mod tests {
             &store,
             &record.instance_id,
             CreateRecordSuccessorInput {
-                relation_type: "supersedes".to_string(),
+                relation_type: Some("supersedes".to_string()),
                 field_values: fvs(vec![("title", json!("Decision 1 v2"))]),
                 lifecycle_state: Some("ratified".to_string()),
                 type_version: None,
@@ -5688,7 +5732,7 @@ pub(crate) mod tests {
             &store,
             &record.instance_id,
             CreateRecordSuccessorInput {
-                relation_type: "supersedes".to_string(),
+                relation_type: Some("supersedes".to_string()),
                 field_values: fvs(vec![("title", json!("Decision 1 v2"))]),
                 lifecycle_state: Some("superseded".to_string()),
                 type_version: None,
@@ -5710,6 +5754,125 @@ pub(crate) mod tests {
         )
         .unwrap();
         assert!(rels.is_empty(), "fulfillment artifacts must be rolled back");
+    }
+
+    fn successor_input_omitting_type() -> CreateRecordSuccessorInput {
+        CreateRecordSuccessorInput {
+            relation_type: None,
+            field_values: fvs(vec![("title", json!("Successor"))]),
+            lifecycle_state: None,
+            type_version: None,
+            extra: Default::default(),
+        }
+    }
+
+    /// srs-rust#1238: omitted relationType derives from the lifecycle's hard
+    /// `requiresRelation`, even for a record in a final state with no outgoing
+    /// transitions.
+    #[test]
+    fn successor_default_from_lifecycle() {
+        let store = make_store_with_relational_state();
+        let record = create_rfc022_record(&store, "Decision 1");
+        ratify(&store, &record.instance_id);
+        transition_record_lifecycle(
+            &store,
+            &record.instance_id,
+            TransitionLifecycleInput {
+                to: None,
+                by_transition: Some("close".to_string()),
+                fulfillment: None,
+            },
+        )
+        .unwrap();
+        let r =
+            create_record_successor(&store, &record.instance_id, successor_input_omitting_type())
+                .unwrap();
+        assert_eq!(r.relation.relation_type, "supersedes");
+        assert_eq!(r.relation.source_instance_id, r.record.instance_id);
+        assert_eq!(r.relation.target_instance_id, record.instance_id);
+    }
+
+    #[test]
+    fn successor_explicit_unchanged() {
+        let store = make_store_with_relational_state();
+        let record = create_rfc022_record(&store, "Decision 1");
+        let mut input = successor_input_omitting_type();
+        input.relation_type = Some("supersedes".to_string());
+        let r = create_record_successor(&store, &record.instance_id, input).unwrap();
+        assert_eq!(r.relation.relation_type, "supersedes");
+    }
+
+    fn derive_with(
+        edit: impl FnOnce(&mut Vec<srs_core::types::lifecycle::LifecycleState>),
+    ) -> Result<String, RepositoryError> {
+        let store = make_store_with_relational_state();
+        let mut package = store.load_package().unwrap();
+        edit(&mut package.lifecycles[0].states);
+        let record_type = package.resolve_type("type-rfc022-001", 1).unwrap();
+        derive_successor_relation_type(&package, record_type)
+    }
+
+    #[test]
+    fn successor_default_none_errors() {
+        let err = derive_with(|states| {
+            for s in states {
+                s.requires_relation = None;
+            }
+        })
+        .unwrap_err();
+        assert_eq!(
+            err,
+            RepositoryError::SuccessorRelationTypeUndetermined { candidates: vec![] }
+        );
+    }
+
+    #[test]
+    fn successor_default_ambiguous_errors() {
+        let err = derive_with(|states| {
+            let closed = states.iter_mut().find(|s| s.key == "closed").unwrap();
+            closed.requires_relation = Some(RequiresRelation {
+                enforcement: None,
+                relation_type: vec!["refines".to_string()],
+                direction: None,
+            });
+        })
+        .unwrap_err();
+        assert_eq!(
+            err,
+            RepositoryError::SuccessorRelationTypeUndetermined {
+                candidates: vec!["supersedes".to_string(), "refines".to_string()]
+            }
+        );
+    }
+
+    #[test]
+    fn successor_default_anyof_takes_first_declared() {
+        let got = derive_with(|states| {
+            let s = states.iter_mut().find(|s| s.key == "superseded").unwrap();
+            s.requires_relation.as_mut().unwrap().relation_type =
+                vec!["supersedes".to_string(), "refines".to_string()];
+        })
+        .unwrap();
+        assert_eq!(got, "supersedes");
+    }
+
+    #[test]
+    fn successor_default_ignores_advisory_and_outgoing() {
+        let err = derive_with(|states| {
+            let s = states.iter_mut().find(|s| s.key == "superseded").unwrap();
+            s.requires_relation.as_mut().unwrap().enforcement = Some("advisory".to_string());
+            let c = states.iter_mut().find(|s| s.key == "closed").unwrap();
+            c.requires_relation = Some(RequiresRelation {
+                enforcement: None,
+                relation_type: vec!["refines".to_string()],
+                direction: Some(srs_core::types::lifecycle::RelationDirection::Outgoing),
+            });
+        })
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            RepositoryError::SuccessorRelationTypeUndetermined { .. }
+        ));
     }
 
     #[test]

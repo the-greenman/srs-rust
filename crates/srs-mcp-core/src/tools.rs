@@ -203,7 +203,7 @@ isImmutable. Read this before calling record_transition — an unknown transitio
 
 pub const DESC_RECORD_SUCCESSOR: &str = "Create a successor Record and the linking relation \
 in one atomic operation. The successor inherits the predecessor's typeId (and optionally a \
-pinned typeVersion). relationType must be 'supersedes' or 'refines'. Validation is enforced \
+pinned typeVersion). relationType is 'supersedes' or 'refines'; omit it and the core derives it from the predecessor's lifecycle requiresRelation (RFC-022), or errors naming the candidates. The returned relation is authoritative. Validation is enforced \
 before any write. Returns both the new Record and the linking Relation.";
 
 pub const DESC_NOTE_GRADUATE: &str = "Promote a Tier-0 Note to a typed Tier-2 Record in \
@@ -712,7 +712,8 @@ pub struct RecordAllowedTransitionsToolInput {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RecordSuccessorToolInput {
     pub predecessor_id: String,
-    pub relation_type: String,
+    /// Optional: omitted, the core derives it from the predecessor's lifecycle (RFC-022 R6).
+    pub relation_type: Option<String>,
     /// RFC-039 carrier: an object keyed by `Field.name` verbatim.
     pub field_values: serde_json::Map<String, Value>,
     pub lifecycle_state: Option<String>,
@@ -1982,7 +1983,7 @@ mod tests {
         // RecordSuccessorToolInput → CreateRecordSuccessorInput (predecessor_id extracted)
         let succ = RecordSuccessorToolInput {
             predecessor_id: "pid".into(),
-            relation_type: "supersedes".into(),
+            relation_type: Some("supersedes".into()),
             field_values: [("f3".to_string(), serde_json::json!("v3"))]
                 .into_iter()
                 .collect(),
@@ -1992,7 +1993,7 @@ mod tests {
         };
         assert_eq!(succ.predecessor_id, "pid");
         let si: CreateRecordSuccessorInput = succ.into();
-        assert_eq!(si.relation_type, "supersedes");
+        assert_eq!(si.relation_type.as_deref(), Some("supersedes"));
         assert_eq!(si.field_values.get("f3"), Some(&serde_json::json!("v3")));
         assert_eq!(si.lifecycle_state.as_deref(), Some("draft"));
         assert_eq!(si.type_version, Some(5));

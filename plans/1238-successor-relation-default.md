@@ -1,6 +1,6 @@
 # Plan: Successor relation default from the core (#1238)
 
-> DRAFT. Stage 2.4 design pause: the API shape in "Design decision" is awaiting the owner's ruling. Phases below describe the RECOMMENDED option (B); they change if the owner picks A.
+> Owner ruling received (2026-10-04, relayed): Option B. Phases below implement it.
 
 ## Summary
 
@@ -8,7 +8,7 @@ srs-web creates successor records via `record successor` / `create_record_succes
 
 ## Spec gate (Stage 1.5)
 
-No spec change required, under either option, provided the core only DERIVES the relation from a declared `requiresRelation` and never invents a default. Citations (srs origin/master):
+No normative spec change required (owner decision 2: a non-normative RFC-022 Revision 5 clarification note ships on srs branch `docs/1238-rfc022-successor-default`), provided the core only DERIVES the relation from a declared `requiresRelation` and never invents a default. Citations (srs origin/master):
 - RFC-022 (`rfcs/rfc-022-relational-lifecycle-states.md`, Accepted Rev 4; invariants I-98/I-99/I-100). Note RFC-021 is the blueprint-optional-schema RFC; supersession is RFC-022 (issue srs#158).
 - R6 / I-99: with an any-of `relationType` array, the relation defaults to the FIRST declared type. This is the spec's precedent for defaulting from the state declaration.
 - Rationale, "No implicit relation-type default": "Defaulting to `supersedes` would re-encode the special case the object shape removes." So a core-hard-coded `"supersedes"` IS ruled out; a derived default is not.
@@ -19,10 +19,10 @@ No spec change required, under either option, provided the core only DERIVES the
 
 | Role | Agent |
 |---|---|
-| Lead Integrator | — |
-| Repository worker (srs-repository) | — |
-| CLI/bindings/MCP worker | — |
-| Verification | — |
+| Lead Integrator | /ship session (Claude) |
+| Repository Worker (srs-repository) | /ship session |
+| CLI Worker, Bindings Worker, MCP Adapter Worker (srs-cli, srs-bindings, srs-mcp-core) | /ship session |
+| Verification | Verification Agent (Stage 7, run by orchestrator) |
 
 ## Architecture Decisions
 
@@ -34,7 +34,9 @@ No spec change required, under either option, provided the core only DERIVES the
 | ADR-022 governance status is lifecycle state | no client lifecycle vocabulary; core answers | governs |
 | ADR-037 MCP adapter surface | `record_successor` tool mirrors the service | governs |
 | ADR-048 implementation decision rules | one way per goal; no parallel mechanisms | governs |
-| New ADR | none expected (implements RFC-022 R6 precedent); revisit if owner picks A | TBD |
+| Owner decision 1 (#1238) | Option B: `relationType` optional on record successor; derived from the predecessor's lifecycle hard `requiresRelation` declarations per RFC-022 R6/I-99 (first declared); none or ambiguous -> structured error naming candidates; explicit value unchanged; no new read surface | decided |
+| Owner decision 2 (#1238) | Spec note on RFC-022 (Revision 5, non-normative clarification) on srs branch `docs/1238-rfc022-successor-default`, with the `srs-usage.md` update | decided |
+| New ADR | none (implements RFC-022 R6 precedent; Option A not taken) | n/a |
 
 (ADR check: read the ADRs above plus 002, 024 (rollback), 042; nothing contradicts. Interop register: not touched beyond existing agent-facing surfaces; no new format.)
 
@@ -54,7 +56,9 @@ Trade-offs for B: minimal surface, thinnest client, single mechanism; cost is th
 ## Scope
 
 - `crates/srs-repository/src/record_store.rs`: `relation_type: Option<String>` (serde default), derivation helper over `package.effective_lifecycle`, structured error variant for no/ambiguous candidates; validation via existing `validate_relation_type_for_write` after derivation.
-- Adapters: `srs-cli` (`commands/record.rs`, help text), `srs-bindings` doc comment, `srs-mcp` `record_successor` input schema/description (optional field). No logic in adapters.
+- Adapters, no logic: CLI and WASM deserialize `CreateRecordSuccessorInput` directly (inherit the optional field; update help text in `commands/mod.rs` and the doc comment in `srs-bindings/src/lib.rs`). MCP does NOT inherit: `crates/srs-mcp-core/src/tools.rs` has a shadow `RecordSuccessorToolInput` (required `relation_type`, `deny_unknown_fields`) plus a `From` conversion; make it `Option<String>` and update the tool description/schema.
+- Callers: `fork_service.rs` passes `Some(FORK_RELATION_TYPE)`; grep `crates/*/tests` for direct constructions. `payload.rs` is unchanged (RecordSuccessorPayload is output-only).
+- Derivation reads the same resolved `record_type` (`input.type_version` or the predecessor's) inside the existing package-load block, before `validate_relation_type_for_write`; no second `load_package`. Error: new `RepositoryError::SuccessorRelationTypeUndetermined { candidates }` (message code `SUCCESSOR_RELATION_TYPE_UNDETERMINED`). The cross-state rule is an implementation extension of R6 (R6 itself is per-state); the Rev 5 note states it exactly.
 - Docs: `docs/architecture/capability-layering.md` drop interim-exception note; `srs/srs-usage.md` (record successor input) via a branch in `srs/`; `docs/dogfooding.md` scenario.
 - srs-web follow-up (separate repo): remove the `"supersedes"` literal in GovernanceShell, tracked in srs-web#215.
 
@@ -69,13 +73,13 @@ Trade-offs for B: minimal surface, thinnest client, single mechanism; cost is th
 - [ ] Make `relation_type` optional; derive via effective lifecycle; structured errors
 - [ ] Unit tests in `record_store.rs`
 #### Acceptance Criteria
-- [ ] Governance lifecycle: omitted -> `supersedes`; explicit `refines` still works
+- [ ] Governance seed lifecycle (`GovernanceLifecycle`, state `superseded`): omitted -> `supersedes`; explicit `refines` still works
 - [ ] Lifecycle with no relational state: error naming "specify relationType"
 - [ ] Two distinct candidate types: error listing them
 - [ ] any-of array: first declared type chosen (R6)
 - [ ] No hard-coded `"supersedes"` in non-test code
 #### Testing
-`cargo test -p srs-repository successor` ; tests: `successor_default_from_lifecycle`, `successor_default_none_errors`, `successor_default_ambiguous_errors`, `successor_default_anyof_first`, `successor_explicit_unchanged`.
+`cargo test -p srs-repository successor` ; tests: `successor_default_from_lifecycle`, `successor_default_none_errors`, `successor_default_ambiguous_errors`, `successor_default_anyof_first`, `successor_explicit_unchanged`, `successor_default_typeversion_override`, plus a MemoryStore vs file-store roundtrip.
 #### Milestone gate
 `cargo test -p srs-repository`; `cargo clippy -p srs-repository -- -D warnings`; tick boxes; `git commit` (#1238).
 
@@ -83,7 +87,10 @@ Trade-offs for B: minimal surface, thinnest client, single mechanism; cost is th
 **Goal:** CLI, WASM, MCP accept omission; docs match.
 **Agent:** CLI/bindings/MCP worker
 #### Tasks
-- [ ] CLI/MCP/binding docs and schemas; one CLI and one MCP test omitting `relationType`
+- [ ] MCP shadow struct optional + description (`srs-mcp-core/src/tools.rs`)
+- [ ] CLI help text; WASM doc comment
+- [ ] Tests: `record_successor_omitted_relation_type_derives_supersedes` (CLI), `record_successor_tool_omitted_relation_type` (MCP), both asserting the response `relation.relationType`; fork regression
+- [ ] Remove capability-layering interim-exception note (issue-directed; verify `list_relation_types` exists in srs-bindings)
 - [ ] capability-layering note removed; srs-usage.md branch; dogfooding scenario (closed governance article -> successor without naming relation)
 #### Acceptance Criteria
 - [ ] Parity: CLI, WASM, MCP produce the same relation for the same input
@@ -97,7 +104,7 @@ As above for each crate; commit.
 
 - [ ] `cargo test`, `cargo clippy -- -D warnings`, `cargo test --test payload_contracts` pass
 - [ ] Spec-dependent tests run with `SRS_SPEC_DIR` at a fresh clone of srs origin/master (srs-rust#874)
-- [ ] Dogfood scenario run on the branch build
+- [ ] Dogfood: `srs repo create` + governance seed, create an Article, transition to its closed final state, `srs record successor` with no relationType (expect `supersedes`), and on a lifecycle with no relational state (expect SUCCESSOR_RELATION_TYPE_UNDETERMINED)
 
 ## Coordination Rules
 
@@ -106,4 +113,5 @@ As above for each crate; commit.
 
 ## Assumptions
 
-- Owner picks B. If A, Phase 1 becomes a new read service fn plus CLI/WASM/MCP exposure and a likely ADR.
+- The ambiguity rule (several distinct candidate types) is an error, never first-wins across states.
+- Candidates count only states reachable in the effective lifecycle with `enforcement` hard (default) and `direction` incoming (default).

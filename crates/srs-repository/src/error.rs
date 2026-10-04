@@ -377,6 +377,12 @@ pub enum RepositoryError {
         direction: String,
     },
 
+    #[error(
+        "SUCCESSOR_RELATION_TYPE_UNDETERMINED: relationType omitted and the predecessor's lifecycle declares {} candidate relation type(s) {candidates:?}; supply relationType explicitly",
+        candidates.len()
+    )]
+    SuccessorRelationTypeUndetermined { candidates: Vec<String> },
+
     #[error("LIFECYCLE_FULFILLMENT_NOT_APPLICABLE: target state '{state}' declares no requiresRelation — fulfillment must be omitted")]
     LifecycleFulfillmentNotApplicable { state: String },
 
@@ -900,6 +906,10 @@ impl PartialEq for RepositoryError {
                     direction: db,
                 },
             ) => sa == sb && ra == rb && da == db,
+            (
+                RepositoryError::SuccessorRelationTypeUndetermined { candidates: a },
+                RepositoryError::SuccessorRelationTypeUndetermined { candidates: b },
+            ) => a == b,
             (
                 RepositoryError::LifecycleFulfillmentNotApplicable { state: a },
                 RepositoryError::LifecycleFulfillmentNotApplicable { state: b },
