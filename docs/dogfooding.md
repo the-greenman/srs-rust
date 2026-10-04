@@ -3276,6 +3276,7 @@ srs --repo $REPO repo validate                                   # 0 errors
 - The container whose identity entry has a descendant is refused with `slice-root-identity-invalid`, and no file is written.
 - `slice.externalRelationRefs` counts match the payload.
 - The info diagnostic reports the cut count.
+- A container with declared `childContainerIds` carries exactly those descendants and their entries (RFC-034 [R9], I-151); a container with none carries no sub-container, even one whose entries all fall inside the slice.
 
 **Verified 2026-10-04 (#631)** against a copy of muSrs (886 instances, 7 package boundaries, 57 containers including the root):
 - Every one of the 56 exportable slices validated with **0 errors**. Examples:
@@ -3292,6 +3293,20 @@ srs --repo $REPO repo validate                                   # 0 errors
   - I-81: the identity record is not a `purpose`.
   - I-82: in slices with sub-containers, root members anchor no container.
 - Composition sections naming containers outside the slice are reported as info.
+
+**Re-verified 2026-10-04 (#631, PR #1259 amended to RFC-034 [R9] / I-151)** on a fresh copy of muSrs (886 instances; the copy unmodified, so no refusal case): all 57 containers including the root exported and validated with **0 errors**. Old (subset rule) / new (I-151), only the five containers that changed; the other 52 are identical:
+
+| Container | Declared children | Instances | Relations | Cut | Containers | Warnings |
+|---|---|---|---|---|---|---|
+| The case | 0 | 154 / 154 | 358 / 358 | 710 / 710 | 7 / 1 | 155 / 2 |
+| The core case | 0 | 160 / 160 | 253 / 253 | 902 / 902 | 8 / 1 | 161 / 1 |
+| Arguments under test | 0 | 74 / 74 | 171 / 171 | 230 / 230 | 6 / 1 | 70 / 2 |
+| Guides | 5 | 6 / 28 | 8 / 26 | 22 / 43 | 1 / 6 | 1 / 1 |
+| Problem grid (0 own entries) | 12 | 0 / 139 | 0 / 138 | 0 / 539 | 1 / 13 | 1 / 1 |
+
+- Undeclared sub-containers are no longer carried, which removes the I-82 warnings above (153 in The case: root members that anchor no carried container).
+- Declared children are now carried with their entries; the subset rule had dropped them (Guides, Problem grid).
+- Every remaining warning is the corpus-level revision-8 notice (also on the source) or I-81 (identity record not a `purpose`).
 
 ## Coverage matrix
 
@@ -3367,7 +3382,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `srs-gov attachment add` / `srs-gov attachment list` | S33 |
 | `repo validate` — RFC-017 I-107 attachment_policy size/MIME diagnostics (#284) | S37 (**partial gap** — full end-to-end blocked pending srs#193 `com.semanticops.base` package); regression verified 2026-07-18: 0 policy diagnostics on spec repo and fresh repos; 12 unit tests in `validation.rs` cover maxPerFileBytes, maxDocBytes, maxTotalBytes, allowedMimeTypes (array + bare-string), tombstone skip (ADR-031), multiple-records Change B error, and both per-file limits firing independently |
 | `archive pack` / `archive unpack` (#630) + WASM `loadArchive` / `exportArchive` (#290) + WASM `getAttachmentBytes` (#291) + JsonStore/MemoryStore manifest key-order determinism (#654) | S41 (#630, #684, #654); CLI handlers `srs archive pack` / `srs archive unpack` added in `crates/srs-cli/src/commands/archive.rs`; container roundtrip bug fixed (containerIndex files now packed and unpacked). Library functions `archive_pack` / `archive_unpack` / `archive_to_vec` / `JsonStore::from_archive` implemented in `srs-repository` (ADR-033) and verified via 15 unit/integration tests: 8 original unit tests (roundtrip, determinism, entry order, timestamps, error paths, FileStore roundtrip, cross-store roundtrip) + `test_archive_no_extra_fields_and_deflated` + `test_archive_golden_fixture` + `test_archive_golden_roundtrip` (#277) + `test_load_from_archive_roundtrip` + `test_load_from_archive_rejects_invalid_bytes` (#290) + `test_archive_determinism_from_jsonstore` + `test_archive_manifest_bytes_identical_filestore_vs_jsonstore` (#654). WASM bindings `SrsRepository::load_archive(bytes)` and `SrsRepository::export_archive()` verified via `archive_service_roundtrip_smoke` in `crates/srs-bindings/src/lib.rs` and `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#290). `JsonStore::save_binary_file`/`load_binary_file` now store bytes in memory (ADR-031 amendment, #291) enabling `SrsRepository::get_attachment_bytes(documentId)` → `Uint8Array` (RFC-017 Gate D); verified via 3 integration tests in `crates/srs-bindings/tests/attachment_bytes.rs` (archive roundtrip, unknown documentId, srsj tombstone) and 5 unit tests in `json_store.rs` (#291). |
-| `slice export` (#631, RFC-026, ADR-051) + WASM `export_slice` | S46; `crates/srs-repository/tests/slice_export.rs` (closure, cut edges, both-outside omitted, D3 sub-containers, D2 refusal, packages carried/dropped, determinism, validator slice checks) and `slice_export_writes_a_valid_slice_archive` in `crates/srs-cli/tests/integration_tests.rs` |
+| `slice export` (#631, RFC-026, ADR-051) + WASM `export_slice` | S46; `crates/srs-repository/tests/slice_export.rs` (closure, cut edges, both-outside omitted, RFC-034 [R9] declared descendants carried and undeclared never, missing child / cycle refused, D2 refusal, packages carried/dropped, determinism, validator slice checks) and `slice_export_writes_a_valid_slice_archive` in `crates/srs-cli/tests/integration_tests.rs` |
 | `render export-bundle` (flat ZIP export: rendered doc + attachments, ADR-035, #289) | S38 (#289); service-layer tests in `export_service.rs` (3 tests: no-attachment, with-attachment, cross-store roundtrip via `tempfile::NamedTempFile`). |
 | `render okf-bundle` (OKF markdown folder export — index.md + per-instance files with YAML frontmatter, descending the full `contains` tree from each direct member, #677/srs-rust#1104) | S45 (#677, re-verified srs-rust#1104); 13 unit tests in `okf_export_service.rs` (empty container, note-only, record-only, mixed, field-value pairs, ordering, display-label multiline strip, slug-collision-safe path via id8, empty-slug fallback, record with field values → field_pairs, two-level `contains` descent, multi-parent dedup, id8-collision fallback to full instance id); WASM binding deferred to #758. |
 | `srs-gov export-decision` (governance operator exports shareable bundle, #289) | S38 (#289); exercises record lookup → view discovery → `render export-bundle` chain; `--explain` pre-stages all 3 underlying srs calls; default output filename (`<id8>.zip`). |

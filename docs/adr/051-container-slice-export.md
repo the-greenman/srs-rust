@@ -91,8 +91,9 @@ Dogfooded over every container of a muSrs copy: 0 errors each.
 **Negative / trade-offs:** carrying whole packages ships definitions no included record uses
 (Rev 9 changes RFC-026's "what is excluded" list). The boundary becomes a repository root, so
 RFC-013/RFC-018 root rules apply to it in full ([R12]): slicing a content container whose
-identity record is not a `purpose` warns (I-81), and one with sub-containers warns for root
-members that anchor no container (I-82). These are warnings, not errors, and are left as RFC-026
+identity record is not a `purpose` warns (I-81), and one with carried sub-containers can warn
+for root members that anchor no container (I-82; under the subset rule this fired 153 times on
+muSrs "The case", whose undeclared sub-containers I-151 no longer carries). These are warnings, not errors, and are left as RFC-026
 Rev 9 input rather than relaxed here. A composition in a package the slice does not use is not
 carried even if it could render the slice's records (references are followed forward only).
 
