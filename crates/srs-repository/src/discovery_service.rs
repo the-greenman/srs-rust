@@ -406,6 +406,11 @@ pub fn similar(
         }
     })?;
 
+    if words.is_empty() {
+        diagnostics.push(format!(
+            "warning: {instance_id} has no similarity terms (no word of 3+ characters)"
+        ));
+    }
     let mut candidates = collect_candidates(store, &query, &field_text_index, None)?;
     candidates.retain(|c| c.hit.instance_id != instance_id);
     candidates.sort_by(|a, b| a.hit.instance_id.cmp(&b.hit.instance_id));

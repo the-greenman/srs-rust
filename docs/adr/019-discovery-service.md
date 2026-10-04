@@ -175,6 +175,7 @@ Decision 5's reserved extension point now exists: `discovery_index::DiscoveryInd
 ## Amendment (2026-10-04, #1219) — facets over the match set
 
 `DiscoveryResult` is now `{ hits, total, facets, diagnostics }` (the `Neutral` note above that defers pagination predates `FindPage`, #1217). `facets` are counts over the whole Layer-1 match set, before paging, computed in the same pass as `total`: `byType` (`namespace/name`), `notes` (Tier 0, which has no type), `tags`, and `fields` (one entry per closed string field, keyed by `Field.name`, counted only when no package field of that name is open). Each facet keeps the top 20 values by count (ties by value) plus an `other` occurrence count; at most 25 field facets are kept, so a reply stays far below the 128 KB relay limit. `find` with `limit: 0` is the repository map. A Layer-2 index may rank hits but must leave facets unchanged. Result shaping only: `discovery.json` is untouched, no spec change. `byType` keys on the record's `typeNamespace`/`typeName` (the same hints every hit carries; a stale hint is a validate error, not a facet concern). Counts are of values as stored (no case folding). Field facets beyond the 25 largest are dropped without a marker; the cap is a relay-size guard, and a name that is closed-string in one field and anything else in another is never a facet.
+
 ## Amendment (srs-rust#1230): `similar`, more-like-this
 
 `discovery_service::similar(store, instanceId, query, page)` asks "what else is about this?".
@@ -192,5 +193,6 @@ so decision 5 ("an index only orders candidates the matcher already found") gove
   O(tokens x corpus).
 - Surfaces: `srs find --similar <id>` (reuses `FindPayload`), WASM `findSimilar`, MCP `similar`
   (limit default 25). Core rejects a `contentMatch`. No spec change, no payload change.
+- Terms shorter than 3 characters ("AI", two-character CJK words) are never similarity terms; a source with none returns no hits and a warning diagnostic. Known limit of the lexical approach.
 - Measured by the eval harness (srs-rust#1231): on the pinned muSrs, similar-to-top-hit recovers
   3 of the 12 vocabulary-mismatch misses BM25 leaves.

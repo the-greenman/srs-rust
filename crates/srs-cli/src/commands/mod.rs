@@ -1884,7 +1884,7 @@ pub struct FindArgs {
     /// More like this: instances similar to this instance (Record or Note id), ranked by BM25
     /// over its top-weighted terms, excluding itself. The other filters narrow the candidates;
     /// not combinable with --text.
-    #[arg(long = "similar", value_name = "INSTANCE_ID")]
+    #[arg(long = "similar", value_name = "INSTANCE_ID", conflicts_with = "text")]
     pub similar: Option<String>,
 }
 
