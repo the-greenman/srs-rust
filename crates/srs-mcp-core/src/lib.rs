@@ -32,7 +32,7 @@ srs://<repositoryId>/container/<containerId>, and rendered document views via \
 srs://<repositoryId>/composition/<compositionId>. Type schemas live at \
 srs://<repositoryId>/type/{typeId} (also via the type_schema tool): read one before \
 authoring records of an unfamiliar type — its properties are keyed by Field.name (the \
-same keys record_create fieldValues uses, RFC-039) and carry aiGuidance. Protocols (staged \
+same keys record_create fieldValues uses, RFC-039) and carry aiGuidance. Installed relation types (every one, used or not — the valid relationType keys) live at srs://<repositoryId>/relation-types. Protocols (staged \
 processes) live at srs://<repositoryId>/protocol (list) and \
 srs://<repositoryId>/protocol/{protocolId} (definition plus stages in order). Use the find tool for structured discovery \
 (type, tag, lifecycle, tier, container, content match). Writes are validated: record_create, \
@@ -101,7 +101,9 @@ pub mod srs_resources {
     };
     use srs_repository::context_query_service::{get_record_context, RecordContextQuery};
     use srs_repository::error::RepositoryError;
-    use srs_repository::package_service::{list_types_filtered, TypeListFilter};
+    use srs_repository::package_service::{
+        list_relation_types_filtered, list_types_filtered, RelationTypeListFilter, TypeListFilter,
+    };
     use srs_repository::protocol_service::{
         get_protocol_by_id, list_protocol_stages, list_protocols, GetProtocolResult,
     };
@@ -158,6 +160,7 @@ pub mod srs_resources {
             resource(uri::format(&uri::SrsUri::Navigation, repository_id), "navigation".into(), Some("Repository navigation".into()), Some("The repository's identity record and ordered navigation sections (root container structure).".into()), MIME_JSON),
             resource(uri::format(&uri::SrsUri::Tree(uri::TreeQuery::default()), repository_id), "tree".into(), Some("Repository tree".into()), Some("Recursive `contains` tree from every auto-detected root (records not targeted by a contains edge), with depth and cycle pruning — the same result as `srs tree`. Subtrees: srs://<repositoryId>/tree/{instanceId}. Append ?maxDepth=N (0 = roots only), ?relationType=<key> (default contains) and ?typeFilter=<namespace/name> to bound it, e.g. tree?maxDepth=1.".into()), MIME_JSON),
             resource(uri::format(&uri::SrsUri::AgentIndex, repository_id), "agent-index".into(), Some("Agent index".into()), Some("AI orientation index: repository identity, counts, installed types, top-level sections and suggested entry points — same as `srs repo agent-index`.".into()), MIME_JSON),
+            resource(uri::format(&uri::SrsUri::RelationTypes, repository_id), "relation-types".into(), Some("Installed relation types".into()), Some("Every installed RelationTypeDefinition in the effective package set, used or not: key (`namespace/name` or canonical short name), label, category, description, direction and constraints. Use these keys as relationType in relation_create — same as `srs relation-type list`.".into()), MIME_JSON),
         ];
         for c in
             list_containers(store, &ContainerListFilter::default()).map_err(|e| e.to_string())?
@@ -251,6 +254,10 @@ pub mod srs_resources {
             uri::SrsUri::AgentIndex => {
                 json_contents(&build_agent_index(store).map_err(service_err)?, raw_uri)
             }
+            uri::SrsUri::RelationTypes => json_contents(
+                &json!({ "relationTypes": list_relation_types_filtered(store, RelationTypeListFilter::default()).map_err(service_err)? }),
+                raw_uri,
+            ),
             // `srs context record` (+ global `--container`) as one read (#1134).
             uri::SrsUri::Context {
                 container_id,
