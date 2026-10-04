@@ -38,7 +38,10 @@ use srs_repository::{
     analysis::{FoundationNoteSet, RepoMap, TagAudit},
     container_service::ContainerSummary,
     container_view_service::ContainerView,
-    discovery_service::DiscoveryResult,
+    context_query_service::{EdgeDirection, NeighbourEdge, NeighbourSummary, NeighboursResult},
+    discovery_service::{
+        DiscoveryFacets, DiscoveryHit, DiscoveryResult, FacetCount, FacetCounts, FieldFacet,
+    },
     protocol_run_service::RunSummary,
     record_store::{
         AllowedLifecycleTransitionsResult, LifecycleTransitionOption, ListRecordTagsResult,
@@ -666,16 +669,294 @@ pub struct ContainerViewPayload {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct FindPayload {
-    #[schemars(with = "serde_json::Value")]
-    pub result: DiscoveryResult,
+    pub result: DiscoveryResultPayload,
 }
 
 /// Payload for `relation neighbours` — a bounded page of an instance's edges, `total` before paging.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct NeighboursPayload {
-    #[schemars(with = "serde_json::Value")]
-    pub result: srs_repository::context_query_service::NeighboursResult,
+    pub result: NeighboursResultPayload,
+}
+
+// Declared twins of the service types (ADR-011: schemars stays out of srs-repository; ADR-048
+// rule 3). Field changes break the exhaustive `From` destructuring below; serde-attribute
+// drift is caught by `tests/payload_mirror_fidelity.rs`.
+
+/// Mirrors `discovery_service::DiscoveryResult`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveryResultPayload {
+    pub hits: Vec<DiscoveryHitPayload>,
+    pub total: usize,
+    pub facets: DiscoveryFacetsPayload,
+    pub diagnostics: Vec<String>,
+}
+
+impl From<DiscoveryResult> for DiscoveryResultPayload {
+    fn from(r: DiscoveryResult) -> Self {
+        let DiscoveryResult {
+            hits,
+            total,
+            facets,
+            diagnostics,
+        } = r;
+        Self {
+            hits: hits.into_iter().map(Into::into).collect(),
+            total,
+            facets: facets.into(),
+            diagnostics,
+        }
+    }
+}
+
+/// Mirrors `discovery_service::DiscoveryHit`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveryHitPayload {
+    pub instance_id: String,
+    pub uri: String,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_id: Option<String>,
+    pub container_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_namespace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lifecycle_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
+    pub matched_fields: Vec<String>,
+}
+
+impl From<DiscoveryHit> for DiscoveryHitPayload {
+    fn from(h: DiscoveryHit) -> Self {
+        let DiscoveryHit {
+            instance_id,
+            uri,
+            label,
+            type_id,
+            container_ids,
+            type_namespace,
+            type_name,
+            lifecycle_state,
+            score,
+            snippet,
+            matched_fields,
+        } = h;
+        Self {
+            instance_id,
+            uri,
+            label,
+            type_id,
+            container_ids,
+            type_namespace,
+            type_name,
+            lifecycle_state,
+            score,
+            snippet,
+            matched_fields,
+        }
+    }
+}
+
+/// Mirrors `discovery_service::DiscoveryFacets`; empty/zero parts are omitted.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveryFacetsPayload {
+    #[serde(default, skip_serializing_if = "FacetCountsPayload::is_empty")]
+    pub by_type: FacetCountsPayload,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub notes: usize,
+    #[serde(default, skip_serializing_if = "FacetCountsPayload::is_empty")]
+    pub tags: FacetCountsPayload,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<FieldFacetPayload>,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
+}
+
+impl From<DiscoveryFacets> for DiscoveryFacetsPayload {
+    fn from(f: DiscoveryFacets) -> Self {
+        let DiscoveryFacets {
+            by_type,
+            notes,
+            tags,
+            fields,
+        } = f;
+        Self {
+            by_type: by_type.into(),
+            notes,
+            tags: tags.into(),
+            fields: fields.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Mirrors `discovery_service::FacetCounts`.
+#[derive(Debug, Default, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FacetCountsPayload {
+    pub values: Vec<FacetCountPayload>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub other: usize,
+}
+
+impl FacetCountsPayload {
+    fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+}
+
+impl From<FacetCounts> for FacetCountsPayload {
+    fn from(c: FacetCounts) -> Self {
+        let FacetCounts { values, other } = c;
+        Self {
+            values: values.into_iter().map(Into::into).collect(),
+            other,
+        }
+    }
+}
+
+/// Mirrors `discovery_service::FacetCount`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FacetCountPayload {
+    pub value: String,
+    pub count: usize,
+}
+
+impl From<FacetCount> for FacetCountPayload {
+    fn from(c: FacetCount) -> Self {
+        let FacetCount { value, count } = c;
+        Self { value, count }
+    }
+}
+
+/// Mirrors `discovery_service::FieldFacet` (counts flattened into the object).
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldFacetPayload {
+    pub field: String,
+    #[serde(flatten)]
+    pub counts: FacetCountsPayload,
+}
+
+impl From<FieldFacet> for FieldFacetPayload {
+    fn from(f: FieldFacet) -> Self {
+        let FieldFacet { field, counts } = f;
+        Self {
+            field,
+            counts: counts.into(),
+        }
+    }
+}
+
+/// Mirrors `context_query_service::NeighboursResult`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NeighboursResultPayload {
+    pub instance_id: String,
+    pub total: usize,
+    pub neighbours: Vec<NeighbourEdgePayload>,
+}
+
+impl From<NeighboursResult> for NeighboursResultPayload {
+    fn from(r: NeighboursResult) -> Self {
+        let NeighboursResult {
+            instance_id,
+            total,
+            neighbours,
+        } = r;
+        Self {
+            instance_id,
+            total,
+            neighbours: neighbours.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Mirrors `context_query_service::NeighbourEdge`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NeighbourEdgePayload {
+    pub direction: EdgeDirectionPayload,
+    pub relation_id: String,
+    pub relation_type: String,
+    pub neighbour: NeighbourSummaryPayload,
+}
+
+impl From<NeighbourEdge> for NeighbourEdgePayload {
+    fn from(e: NeighbourEdge) -> Self {
+        let NeighbourEdge {
+            direction,
+            relation_id,
+            relation_type,
+            neighbour,
+        } = e;
+        Self {
+            direction: direction.into(),
+            relation_id,
+            relation_type,
+            neighbour: neighbour.into(),
+        }
+    }
+}
+
+/// Mirrors `context_query_service::EdgeDirection`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum EdgeDirectionPayload {
+    Out,
+    In,
+}
+
+impl From<EdgeDirection> for EdgeDirectionPayload {
+    fn from(d: EdgeDirection) -> Self {
+        match d {
+            EdgeDirection::Out => Self::Out,
+            EdgeDirection::In => Self::In,
+        }
+    }
+}
+
+/// Mirrors `context_query_service::NeighbourSummary`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NeighbourSummaryPayload {
+    pub instance_id: String,
+    pub uri: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_namespace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_name: Option<String>,
+}
+
+impl From<NeighbourSummary> for NeighbourSummaryPayload {
+    fn from(n: NeighbourSummary) -> Self {
+        let NeighbourSummary {
+            instance_id,
+            uri,
+            label,
+            type_namespace,
+            type_name,
+        } = n;
+        Self {
+            instance_id,
+            uri,
+            label,
+            type_namespace,
+            type_name,
+        }
+    }
 }
 
 /// Payload for `record validate` — no-write record input validation (preflight).

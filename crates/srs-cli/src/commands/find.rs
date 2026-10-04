@@ -46,7 +46,12 @@ pub fn dispatch(ctx: CliContext, args: FindArgs) -> Result<String> {
             None => discovery_service::find(store, query, page)?,
         })
     }) {
-        Ok(result) => output::serialize("find", FindPayload { result }),
+        Ok(result) => output::serialize(
+            "find",
+            FindPayload {
+                result: result.into(),
+            },
+        ),
         Err(e) => Ok(output::err("find", vec![e.to_string()])),
     }
 }
