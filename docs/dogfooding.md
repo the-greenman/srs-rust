@@ -3277,8 +3277,8 @@ srs --repo $REPO repo validate                                   # 0 errors
 - `slice.externalRelationRefs` counts match the payload.
 - The info diagnostic reports the cut count.
 
-**Verified 2026-10-04 (#631)** against a copy of muSrs (886 instances, 7 package boundaries, 60 containers):
-- Every one of the 59 exportable slices validated with **0 errors**. Examples:
+**Verified 2026-10-04 (#631)** against a copy of muSrs (886 instances, 7 package boundaries, 57 containers including the root):
+- Every one of the 56 exportable slices validated with **0 errors**. Examples:
   - Tensions: 16 instances, 15 relations, 48 cut, 4 packages.
   - Guides (`childContainerIds`): 6, 8, 22.
   - Decision Log (no identity): 15, 1, 48.
