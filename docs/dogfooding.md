@@ -3227,6 +3227,8 @@ srs --repo $REPO repo validate                                   # 0 errors
 
 **Verified 2026-10-04 (#1258):** the `find` (plain, `--text rain --rank`, no-match) and `relation neighbours` envelopes from a scratch repo validate against the now-real goldens `schemas/payload/find.json` and `relation-neighbours.json` (AJV, `strict:false`); a hit with `uri` set to a number fails validation, so the contract bites on real output.
 
+**Verified 2026-10-04 (#1261):** real `render okf-bundle` (scratch repo), `render export-bundle` and `render composition --view-format json` (spec repo) output, with `diagnostics`/`children`/`sections` absent, validates against `render-okf-bundle.json`, `render-export-bundle.json` and `render-composition.json` (AJV, `strict:false`). The `render composition` projection mirror also gained the `depth` key the CLI had been dropping.
+
 ### S51 — An agent follows a `find` hit without assembling URIs (`find` / `read` over `srs mcp serve`, #1227)
 
 **Intention.** An agent in claude.ai (tools only, no resources) finds a record, then reads it, reads a Tier-0 note, and walks its neighbours using only the URIs the server handed back.

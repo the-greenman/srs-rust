@@ -19,6 +19,7 @@
 
 use schemars::JsonSchema;
 use serde::Serialize;
+use srs_core::types::view::RecordProperty as SvcRecordProperty;
 use srs_core::types::{
     container::Container,
     field::FieldType,
@@ -33,6 +34,7 @@ use srs_core::types::{
     view::{Composition, View},
     vocabulary::Vocabulary,
 };
+use srs_repository::render_service as svc_render;
 use srs_repository::{
     agent_index_service::AgentIndex,
     analysis::{FoundationNoteSet, RepoMap, TagAudit},
@@ -1600,8 +1602,12 @@ pub struct ProjectedRecord {
     /// same order/condition as the markdown/html/adoc renderer's structured
     /// heading recursion. Omitted when the section has no `titleFieldId`, or
     /// the record has no `contains` children.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<ProjectedRecord>,
+    /// RFC-043 [R11]: the effective arrangement depth, present when above 0
+    /// (arranged sections only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub depth: Option<u32>,
 }
 
 /// A single section in a JSON projection document.
@@ -1617,7 +1623,7 @@ pub struct ProjectedSection {
     /// `container-subset` source with `containerScope: "subtree"`. Omitted
     /// (never flattened into `records`) when this section renders no
     /// nested section.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sections: Vec<ProjectedSection>,
 }
 
@@ -1635,6 +1641,159 @@ pub struct CompositionProjection {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preamble: Option<String>,
     pub sections: Vec<ProjectedSection>,
+}
+
+// ── Render projection mirrors (ADR-048 rule 3; fidelity: payload_mirror_fidelity.rs) ──
+
+impl From<svc_render::ProjectedRelationTarget> for ProjectedRelationTarget {
+    fn from(t: svc_render::ProjectedRelationTarget) -> Self {
+        let svc_render::ProjectedRelationTarget {
+            instance_id,
+            display_label,
+        } = t;
+        Self {
+            instance_id,
+            display_label,
+        }
+    }
+}
+
+impl From<svc_render::ProjectedRelationDirection> for ProjectedRelationDirection {
+    fn from(d: svc_render::ProjectedRelationDirection) -> Self {
+        match d {
+            svc_render::ProjectedRelationDirection::Forward => Self::Forward,
+            svc_render::ProjectedRelationDirection::Inverse => Self::Inverse,
+        }
+    }
+}
+
+impl From<svc_render::ProjectedRelationRow> for ProjectedRelationRow {
+    fn from(r: svc_render::ProjectedRelationRow) -> Self {
+        let svc_render::ProjectedRelationRow {
+            relation_type,
+            direction,
+            label,
+            targets,
+        } = r;
+        Self {
+            relation_type,
+            direction: direction.into(),
+            label,
+            targets: targets.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<SvcRecordProperty> for ProjectedRecordProperty {
+    fn from(p: SvcRecordProperty) -> Self {
+        match p {
+            SvcRecordProperty::LifecycleState => Self::LifecycleState,
+            SvcRecordProperty::Tags => Self::Tags,
+            SvcRecordProperty::CreatedAt => Self::CreatedAt,
+            SvcRecordProperty::UpdatedAt => Self::UpdatedAt,
+        }
+    }
+}
+
+impl From<svc_render::ProjectedPropertyValue> for ProjectedPropertyValue {
+    fn from(v: svc_render::ProjectedPropertyValue) -> Self {
+        match v {
+            svc_render::ProjectedPropertyValue::Scalar(s) => Self::Scalar(s),
+            svc_render::ProjectedPropertyValue::List(l) => Self::List(l),
+        }
+    }
+}
+
+impl From<svc_render::ProjectedPropertyRow> for ProjectedPropertyRow {
+    fn from(r: svc_render::ProjectedPropertyRow) -> Self {
+        let svc_render::ProjectedPropertyRow {
+            property,
+            label,
+            value,
+        } = r;
+        Self {
+            property: property.into(),
+            label,
+            value: value.into(),
+        }
+    }
+}
+
+impl From<svc_render::ProjectedRecord> for ProjectedRecord {
+    fn from(r: svc_render::ProjectedRecord) -> Self {
+        let svc_render::ProjectedRecord {
+            instance_id,
+            type_id,
+            type_version,
+            type_namespace,
+            type_name,
+            record_heading,
+            preamble,
+            fields,
+            ordered_field_keys,
+            relations,
+            properties,
+            children,
+            depth,
+        } = r;
+        Self {
+            instance_id,
+            type_id,
+            type_version,
+            type_namespace,
+            type_name,
+            record_heading,
+            preamble,
+            fields,
+            ordered_field_keys,
+            relations: relations.map(|v| v.into_iter().map(Into::into).collect()),
+            properties: properties.map(|v| v.into_iter().map(Into::into).collect()),
+            children: children.into_iter().map(Into::into).collect(),
+            depth,
+        }
+    }
+}
+
+impl From<svc_render::ProjectedSection> for ProjectedSection {
+    fn from(s: svc_render::ProjectedSection) -> Self {
+        let svc_render::ProjectedSection {
+            section_id,
+            title,
+            order,
+            records,
+            sections,
+        } = s;
+        Self {
+            section_id,
+            title,
+            order,
+            records: records.into_iter().map(Into::into).collect(),
+            sections: sections.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<svc_render::CompositionProjection> for CompositionProjection {
+    fn from(p: svc_render::CompositionProjection) -> Self {
+        let svc_render::CompositionProjection {
+            schema,
+            composition_id,
+            container_id,
+            generated_at,
+            container_title,
+            preamble,
+            sections,
+        } = p;
+        Self {
+            schema,
+            composition_id,
+            container_id,
+            generated_at,
+            container_title,
+            preamble,
+            sections: sections.into_iter().map(Into::into).collect(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -2889,7 +3048,7 @@ pub struct ExportBundlePayload {
     pub rendered_filename: String,
     pub attachment_count: usize,
     pub output_path: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<String>,
 }
 
@@ -2898,7 +3057,7 @@ pub struct ExportBundlePayload {
 pub struct OkfBundlePayload {
     pub file_count: usize,
     pub output_dir: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<String>,
 }
 

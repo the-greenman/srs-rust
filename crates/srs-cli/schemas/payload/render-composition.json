@@ -109,7 +109,6 @@
       "description": "A single record in a JSON projection section.",
       "type": "object",
       "required": [
-        "children",
         "fields",
         "instanceId",
         "orderedFieldKeys",
@@ -125,6 +124,15 @@
           "items": {
             "$ref": "#/definitions/ProjectedRecord"
           }
+        },
+        "depth": {
+          "description": "RFC-043 [R11]: the effective arrangement depth, present when above 0 (arranged sections only).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
         },
         "fields": {
           "description": "RFC-039 [R11]: keyed by Field.name; composites recurse under their key."
@@ -253,8 +261,7 @@
       "required": [
         "order",
         "records",
-        "sectionId",
-        "sections"
+        "sectionId"
       ],
       "properties": {
         "order": {
