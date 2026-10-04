@@ -683,3 +683,10 @@ fn attachment_link() {
 fn attachment_resolve_view_attachments() {
     check::<ResolveViewAttachmentsPayload>("attachment-resolve-view-attachments");
 }
+
+// ── Slice ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn slice_export() {
+    check::<SliceExportPayload>("slice-export");
+}

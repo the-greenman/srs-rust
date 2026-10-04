@@ -304,6 +304,11 @@ pub fn validate_repository(
         }));
     }
 
+    // --- RFC-026 slice block ([R3], [R4], [R10], [R12]; Change E 1) ---
+    if let Some(slice) = manifest_value.get("slice") {
+        diagnostics.extend(slice_block_diagnostics(&manifest_value, slice));
+    }
+
     // --- RFC-013 root container invariants (I-79, I-80, I-81, I-82) ---
     // When manifest.container is absent the schema validator above already fires a
     // "missing required field" error; I-79 below is the invariant-level companion.
@@ -1548,6 +1553,13 @@ pub fn validate_repository(
 
     // --- RFC-009 root-type anchor diagnostics (I-63, I-64) ---
     // Both are advisory (Warning): neither invalidates the repository. See RFC-009.
+    // RFC-026 Change E 2/3: inside a slice an absent Type or Container is the
+    // expected result of the cut, so it is reported as info.
+    let absence = if manifest_value.get("slice").is_some() {
+        DiagnosticSeverity::Info
+    } else {
+        DiagnosticSeverity::Warning
+    };
     if let Ok(pkg) = store.load_package() {
         // I-63: each Composition.rootTypeRefs entry MUST resolve to a Type in the package.
         // An unresolved entry is reported and "will not be used for Container matching".
@@ -1558,7 +1570,7 @@ pub fn validate_repository(
                     for r in refs {
                         if pkg.resolve_type(&r.type_id, r.type_version).is_none() {
                             diagnostics.push(ValidationDiagnostic {
-                                severity: DiagnosticSeverity::Warning,
+                                severity: absence,
                                 relative_path: "package/package.json".to_string(),
                                 schema_id: None,
                                 message: format!(
@@ -1607,7 +1619,7 @@ pub fn validate_repository(
                     for cid in referenced {
                         if !resolves(cid) {
                             diagnostics.push(ValidationDiagnostic {
-                                severity: DiagnosticSeverity::Warning,
+                                severity: absence,
                                 relative_path: "package/package.json".to_string(),
                                 schema_id: None,
                                 message: format!(
@@ -2331,6 +2343,75 @@ fn validate_vocabulary_invariants(
             }
         }
     }
+}
+
+/// RFC-026 checks on a slice manifest: the spec names a container (R10) that is
+/// the root container (R12), the slice has its own identity (R3) and declares
+/// `ext:slices` (R4); plus one info diagnostic counting the cut edges (Change E 1).
+fn slice_block_diagnostics(manifest: &Value, slice: &Value) -> Vec<ValidationDiagnostic> {
+    let at = |severity, message: String| ValidationDiagnostic {
+        severity,
+        relative_path: "manifest.json".to_string(),
+        schema_id: None,
+        message,
+    };
+    let s = |v: &Value, ptr: &str| v.pointer(ptr).and_then(Value::as_str).map(str::to_string);
+    let mut out = Vec::new();
+    let spec_type = s(slice, "/spec/type").unwrap_or_default();
+    if spec_type != "container" {
+        out.push(at(
+            DiagnosticSeverity::Error,
+            format!(
+                "RFC-026 [R10]: slice.spec.type '{spec_type}' is not a defined closure rule \
+                 (only 'container' is); the slice block cannot be honoured"
+            ),
+        ));
+    }
+    let spec_id = s(slice, "/spec/id");
+    let root_id = s(manifest, "/container/containerId");
+    if spec_id != root_id {
+        out.push(at(
+            DiagnosticSeverity::Error,
+            format!(
+                "RFC-026 [R12]: slice.spec.id '{}' must equal manifest.container.containerId '{}'",
+                spec_id.unwrap_or_default(),
+                root_id.unwrap_or_default()
+            ),
+        ));
+    }
+    if s(manifest, "/repositoryId").is_some()
+        && s(manifest, "/repositoryId") == s(slice, "/origin/repositoryId")
+    {
+        out.push(at(
+            DiagnosticSeverity::Error,
+            "RFC-026 [R3]: a slice's repositoryId must differ from slice.origin.repositoryId"
+                .to_string(),
+        ));
+    }
+    let declared = manifest
+        .get("declaredExtensions")
+        .and_then(Value::as_array)
+        .is_some_and(|a| a.iter().any(|x| x == "ext:slices"));
+    if !declared {
+        out.push(at(
+            DiagnosticSeverity::Warning,
+            "RFC-026 [R4]: a slice manifest must declare 'ext:slices' in declaredExtensions"
+                .to_string(),
+        ));
+    }
+    let cut = slice
+        .get("externalRelationRefs")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    out.push(at(
+        DiagnosticSeverity::Info,
+        format!(
+            "RFC-026: this repository is a slice of {}; {cut} cross-boundary relation(s) \
+             were cut at export (slice.externalRelationRefs)",
+            s(slice, "/origin/repositoryId").unwrap_or_default()
+        ),
+    ));
+    out
 }
 
 fn tier_to_schema_id(tier: u8) -> Option<&'static str> {

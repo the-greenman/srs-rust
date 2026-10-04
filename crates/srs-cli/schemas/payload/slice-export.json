@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SliceExportPayload",
+  "description": "Payload for `srs slice export` (RFC-026 container slice, ADR-051).",
+  "type": "object",
+  "required": [
+    "containerCount",
+    "containerId",
+    "exportedAt",
+    "externalRelationRefCount",
+    "fileSizeBytes",
+    "instanceCount",
+    "originRepositoryId",
+    "outputPath",
+    "packageCount",
+    "relationCount",
+    "sliceRepositoryId",
+    "sourceDocumentCount"
+  ],
+  "properties": {
+    "containerCount": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    },
+    "containerId": {
+      "type": "string"
+    },
+    "exportedAt": {
+      "type": "string"
+    },
+    "externalRelationRefCount": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    },
+    "fileSizeBytes": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "instanceCount": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    },
+    "originRepositoryId": {
+      "type": "string"
+    },
+    "outputPath": {
+      "type": "string"
+    },
+    "packageCount": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    },
+    "relationCount": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    },
+    "sliceRepositoryId": {
+      "type": "string"
+    },
+    "sourceDocumentCount": {
+      "type": "integer",
+      "format": "uint",
+      "minimum": 0.0
+    }
+  }
+}

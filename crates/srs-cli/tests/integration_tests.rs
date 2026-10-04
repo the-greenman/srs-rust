@@ -5582,39 +5582,83 @@ fn package_update_metadata_only() {
 }
 
 #[test]
-fn slice_create_output_matches_package_create() {
-    // slice create is a permanent alias for package create — its output shape must be identical.
+fn slice_export_writes_a_valid_slice_archive() {
     let temp = create_temp_repo_with_package();
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(temp.path().join("manifest.json")).unwrap()).unwrap();
+    let root = manifest["container"]["containerId"].as_str().unwrap();
+    let out = temp.path().join("root.srs");
+    let out = out.to_str().unwrap();
 
-    std::fs::create_dir_all(temp.path().join("pkg/slice")).unwrap();
+    let (_, missing) = run_srs_any_status_in_dir(temp.path(), &["slice", "export", out]);
+    assert_eq!(missing["ok"], false, "--container is required: {missing:?}");
 
+    let result = run_srs_in_dir(temp.path(), &["slice", "export", "--container", root, out]);
+    assert_eq!(result["ok"], true, "slice export: {result:?}");
+    assert_eq!(result["command"], "slice export");
+    assert_eq!(result["payload"]["containerId"], root);
+    assert_eq!(
+        result["payload"]["originRepositoryId"],
+        manifest["repositoryId"]
+    );
+    assert_ne!(
+        result["payload"]["sliceRepositoryId"],
+        manifest["repositoryId"]
+    );
+
+    let target = temp.path().join("unpacked");
+    let unpacked = run_srs_in_dir(
+        temp.path(),
+        &[
+            "archive",
+            "unpack",
+            out,
+            "--target",
+            target.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(unpacked["ok"], true, "{unpacked:?}");
+    let validated = run_srs_in_dir(&target, &["repo", "validate"]);
+    assert_eq!(
+        validated["payload"]["summary"]["errors"], 0,
+        "{validated:?}"
+    );
+
+    // RFC-034 [R9] / I-151: a declared memberless child is carried; an
+    // undeclared empty container is not.
+    let child = run_srs_stdin_in_dir(
+        temp.path(),
+        &["container", "create"],
+        r#"{"title":"Child"}"#,
+    );
+    let child_id = child["payload"]["container"]["containerId"].clone();
+    run_srs_stdin_in_dir(
+        temp.path(),
+        &["container", "create"],
+        r#"{"title":"Stray"}"#,
+    );
+    let parent = run_srs_stdin_in_dir(
+        temp.path(),
+        &["container", "create"],
+        &serde_json::json!({"title": "Parent", "childContainerIds": [child_id]}).to_string(),
+    );
+    let parent_id = parent["payload"]["container"]["containerId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let out = temp.path().join("parent.srs");
     let result = run_srs_in_dir(
         temp.path(),
         &[
-            "package",
-            "slice-create",
-            "--id",
-            "slice-pkg-001",
-            "--namespace",
-            "com.slice",
-            "--name",
             "slice",
-            "--version",
-            "1.0.0",
-            "--path",
-            "pkg/slice",
+            "export",
+            "--container",
+            &parent_id,
+            out.to_str().unwrap(),
         ],
     );
-    assert_eq!(
-        result["ok"], true,
-        "slice create should succeed: {:?}",
-        result
-    );
-    assert_eq!(
-        result["command"], "package create",
-        "slice create must emit same command name as package create"
-    );
-    assert_eq!(result["payload"]["id"], "slice-pkg-001");
+    assert_eq!(result["ok"], true, "slice export: {result:?}");
+    assert_eq!(result["payload"]["containerCount"], 2, "{result:?}");
 }
 
 #[test]

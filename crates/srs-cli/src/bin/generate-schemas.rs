@@ -266,6 +266,7 @@ fn main() {
     // Archive payloads (ADR-033, ADR-036)
     write_schema!("archive-pack", ArchivePackPayload);
     write_schema!("archive-unpack", ArchiveUnpackPayload);
+    write_schema!("slice-export", SliceExportPayload);
 
     println!("done.");
 }

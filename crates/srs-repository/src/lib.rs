@@ -65,6 +65,7 @@ pub mod rfc043_container_entries_migration_service;
 #[cfg(test)]
 mod selector_parity_tests;
 pub mod services;
+pub mod slice_service;
 pub mod source_document_service;
 pub mod srsj;
 pub mod srsj_migration_service;
