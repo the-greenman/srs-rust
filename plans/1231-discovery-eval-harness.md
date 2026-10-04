@@ -28,7 +28,7 @@ Spec gate: no spec change (test + fixture data only; questions are fixture data,
 
 ## Scope
 
-- `tests/fixtures/discovery-eval/musrs-pinned.srs` (886 instances, from muDemocracy.org commit 6e6cd5b) and `questions.json` (26 questions, expected ids resolved with `srs find`).
+- `tests/fixtures/discovery-eval/musrs-pinned.srs` (886 instances, from muDemocracy.org commit 6e6cd5b) and `questions.json` (27 questions, expected ids resolved with `srs find`).
 - `tests/discovery_eval.rs`: loads, evaluates, prints the table and miss breakdown; one command: `cargo test -p srs-repository --test discovery_eval -- --nocapture`.
 - `docs/dogfooding.md` row only if relevant (no CLI surface change: skipped).
 

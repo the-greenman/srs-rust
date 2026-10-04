@@ -28,7 +28,7 @@
 //!   that stemming, synonyms or an embedding layer would have to fix.
 
 use serde::Deserialize;
-use srs_repository::discovery_service::{find, DiscoveryQuery};
+use srs_repository::discovery_service::{find, DiscoveryQuery, FindPage};
 use srs_repository::{archive_unpack, FileStore, RepositoryStore};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Cursor;
@@ -71,7 +71,7 @@ fn substring(store: &dyn RepositoryStore, query: &str) -> Vec<String> {
         content_match: Some(query.to_string()),
         ..Default::default()
     };
-    find(store, q)
+    find(store, q, FindPage::default())
         .expect("find")
         .hits
         .into_iter()
@@ -89,7 +89,7 @@ struct Probe<'a> {
 
 impl<'a> Probe<'a> {
     fn new(store: &'a dyn RepositoryStore) -> Self {
-        let labels = find(store, DiscoveryQuery::default())
+        let labels = find(store, DiscoveryQuery::default(), FindPage::default())
             .expect("find all")
             .hits
             .into_iter()
@@ -120,6 +120,7 @@ impl<'a> Probe<'a> {
                     tag: vec![word.to_string()], // words are already lowercased by the caller
                     ..Default::default()
                 },
+                FindPage::default(),
             )
             .expect("find tag")
             .hits
@@ -176,7 +177,7 @@ fn discovery_eval_table() {
     archive_unpack(Cursor::new(archive_bytes), &store).expect("unpack pinned muSrs archive");
 
     // Not vacuous: the pinned corpus is whole and every expected id exists in it.
-    let all: HashSet<String> = find(&store, DiscoveryQuery::default())
+    let all: HashSet<String> = find(&store, DiscoveryQuery::default(), FindPage::default())
         .unwrap()
         .hits
         .into_iter()
