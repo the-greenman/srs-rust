@@ -777,6 +777,33 @@ pub fn install_package_bundle(
         }
     };
     let selector: PackageSelector = Some(boundary_path.clone());
+    let import_summary_path = format!("{boundary_path}/.srs-import/import-records.json");
+    // Loaded before any definition write (ADR-030 addendum): an unparseable
+    // summary must abort the install while nothing is on disk yet, otherwise a
+    // re-run would see every definition as skipped-identical and the records
+    // would be lost for good. Only needed when something will be installed.
+    let existing_summary: Option<ImportSummary> = if decisions
+        .iter()
+        .any(|d| matches!(d, Decision::Install))
+    {
+        match store.load_instance_json(&import_summary_path) {
+            Ok(v) => Some(
+                serde_json::from_value(v).map_err(|e| RepositoryError::Serialize {
+                    path: PathBuf::from(&import_summary_path),
+                    source: e,
+                })?,
+            ),
+            Err(RepositoryError::NotFound { .. }) => None,
+            Err(RepositoryError::Io { source, .. })
+                if source.kind() == std::io::ErrorKind::NotFound =>
+            {
+                None
+            }
+            Err(e) => return Err(e),
+        }
+    } else {
+        None
+    };
 
     // ── Phase 3: write installs ──────────────────────────────────────────────
     let mut installed_total = 0usize;
@@ -810,25 +837,33 @@ pub fn install_package_bundle(
     // deferred (srs#374); reuse the already-persisted, already-idempotent
     // `.srs-import/import-records.json` timestamp instead of inventing a
     // second channel (Phase 5 only rewrites it when something new installed).
-    let import_summary_path = format!("{boundary_path}/.srs-import/import-records.json");
-    let installed_at = store
-        .load_instance_json(&import_summary_path)
-        .ok()
-        .and_then(|v| v["generatedAt"].as_str().map(str::to_string))
+    let installed_at = existing_summary
+        .as_ref()
+        .map(|s| s.generated_at.clone())
+        .or_else(|| {
+            // No-op re-run (nothing loaded above): reuse the persisted timestamp
+            // if readable; an unreadable file is not an error when nothing installs.
+            let v = store.load_instance_json(&import_summary_path).ok()?;
+            v["generatedAt"].as_str().map(str::to_string)
+        })
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
 
     // ── Phase 5: import records + reference copies ───────────────────────────
-    // Only written when something was actually installed (re-runs preserve the
-    // existing ImportSummary because every definition is skipped-identical).
-    // Per ADR-030: import-record writes are best-effort; a failure here does not
-    // affect the definitions already committed in Phases 1–3.
+    // Only written when something was actually installed (no-op re-runs leave the
+    // existing ImportSummary untouched). The existing summary was loaded (and
+    // validated) before Phase 3; here it is merged into, not replaced
+    // (ADR-030 addendum). Writing is best-effort: a failure here does not affect
+    // the definitions already committed in Phases 1–3.
     if installed_total > 0 {
         let _ = (|| -> Result<(), RepositoryError> {
             let import_prefix = format!("{boundary_path}/.srs-import");
             store.ensure_instance_dir(&import_prefix)?;
             store.ensure_instance_dir(&format!("{import_prefix}/refs"))?;
 
-            let mut summary = ImportSummary {
+            // Start from whatever is already on disk — a second install into this
+            // boundary (e.g. an upgraded bundle adding new definitions) must keep the
+            // records from earlier installs, not discard them (srs-rust#1206).
+            let mut summary = existing_summary.unwrap_or_else(|| ImportSummary {
                 generated_at: installed_at.clone(),
                 fields: Vec::new(),
                 types: Vec::new(),
@@ -837,7 +872,8 @@ pub fn install_package_bundle(
                 protocols: Vec::new(),
                 relation_types: Vec::new(),
                 skipped_definitions: Vec::new(),
-            };
+            });
+            summary.generated_at = installed_at.clone();
 
             for (def, decision) in bundle.definitions.iter().zip(&decisions) {
                 if !matches!(decision, Decision::Install) {
@@ -1139,6 +1175,99 @@ mod tests {
             Some(first.installed_at.as_str())
         );
         assert_eq!(summary_json["fields"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn memory_second_install_with_new_definitions_preserves_earlier_import_records() {
+        // srs-rust#1206: a second install into the same boundary that adds a
+        // genuinely new definition must not overwrite import-records.json with
+        // only this run's records — the earlier installs' records must survive.
+        let store = MemoryStore::default();
+        let first =
+            install_package_bundle(&store, &bundle(), InstallBundleOptions::default()).unwrap();
+        assert_eq!(first.installed, 3);
+
+        let mut second_bundle = bundle();
+        second_bundle.definitions.push(PackageSourceDefinition {
+            kind: DefinitionKind::Field,
+            rel_path: "fields/gamma.json".to_string(),
+            value: field_json("00000000-0000-4000-8000-0000000000c2", "gamma"),
+        });
+        let second =
+            install_package_bundle(&store, &second_bundle, InstallBundleOptions::default())
+                .unwrap();
+        assert_eq!(second.installed, 1);
+        assert_eq!(second.skipped_identical, 3);
+
+        let summary_json = crate::store::RepositoryStore::load_instance_json(
+            &store,
+            "packages/ext/.srs-import/import-records.json",
+        )
+        .expect("import-records.json must exist after second install");
+
+        // All 3 fields (2 original + 1 new) must be present, not just the new one.
+        assert_eq!(summary_json["fields"].as_array().unwrap().len(), 3);
+        assert_eq!(summary_json["relationTypes"].as_array().unwrap().len(), 1);
+
+        let ids: Vec<&str> = summary_json["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["definitionId"].as_str().unwrap())
+            .collect();
+        assert!(ids.contains(&"00000000-0000-4000-8000-0000000000a1"));
+        assert!(ids.contains(&"00000000-0000-4000-8000-0000000000b1"));
+        assert!(ids.contains(&"00000000-0000-4000-8000-0000000000c2"));
+
+        // Reference copies for the original definitions must still be there too.
+        crate::store::RepositoryStore::load_instance_json(
+            &store,
+            "packages/ext/.srs-import/refs/fields/alpha.json",
+        )
+        .expect("reference copy for alpha must survive the second install");
+    }
+
+    fn corrupt_then_bundle_with_gamma(store: &MemoryStore) -> (&'static str, PackageSourceBundle) {
+        install_package_bundle(store, &bundle(), InstallBundleOptions::default()).unwrap();
+        let path = "packages/ext/.srs-import/import-records.json";
+        crate::store::RepositoryStore::save_instance_json(
+            store,
+            path,
+            &serde_json::json!({ "fields": "not-an-array" }),
+        )
+        .unwrap();
+        let mut b = bundle();
+        b.definitions.push(PackageSourceDefinition {
+            kind: DefinitionKind::Field,
+            rel_path: "fields/gamma.json".to_string(),
+            value: field_json("00000000-0000-4000-8000-0000000000c2", "gamma"),
+        });
+        (path, b)
+    }
+
+    #[test]
+    fn memory_corrupt_import_summary_fails_before_any_write() {
+        let store = MemoryStore::default();
+        let (path, second) = corrupt_then_bundle_with_gamma(&store);
+        assert!(install_package_bundle(&store, &second, InstallBundleOptions::default()).is_err());
+        let after = crate::store::RepositoryStore::load_instance_json(&store, path).unwrap();
+        assert_eq!(after, serde_json::json!({ "fields": "not-an-array" }));
+        assert!(
+            crate::store::RepositoryStore::load_instance_json(
+                &store,
+                "packages/ext/fields/gamma.json"
+            )
+            .is_err(),
+            "new definition must not be written when the summary is unparseable"
+        );
+    }
+
+    #[test]
+    fn memory_corrupt_import_summary_with_identical_rerun_is_noop_ok() {
+        let store = MemoryStore::default();
+        let (_, _) = corrupt_then_bundle_with_gamma(&store);
+        let r = install_package_bundle(&store, &bundle(), InstallBundleOptions::default()).unwrap();
+        assert_eq!(r.installed, 0);
     }
 
     #[test]

@@ -68,3 +68,13 @@ understand that boundary without reading other parts of the repository.
 - `package import` (local directory import) does not store reference copies because there is no
   canonical "upstream" to compare against — divergence detection is not applicable.
 - `update_available` is always `None` until `ext:registry` is implemented (deferred to epic #243).
+
+## Addendum (srs-rust#1206): re-install merges; unparseable summary aborts first
+
+A re-install into an existing boundary that installs at least one new definition **merges** into the
+existing `import-records.json` (earlier records are kept; `generatedAt` is the preserved install
+timestamp). The existing summary is loaded and validated before any definition is written: absent
+means start empty; an I/O or parse error aborts the install with nothing written, because a
+half-applied install would re-run as skipped-identical and the records would be lost permanently. A
+run that installs nothing does not read the summary, so a corrupt file does not break an idempotent
+re-run. Writing the merged summary remains best-effort, as above.
