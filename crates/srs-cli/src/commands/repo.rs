@@ -401,7 +401,10 @@ fn render_agent_index(idx: &srs_repository::agent_index_service::AgentIndex) -> 
     if !idx.entry_points.is_empty() {
         out.push_str("\n## Suggested Entry Points\n\n");
         for ep in &idx.entry_points {
-            out.push_str(&format!("- `{}`\n", ep));
+            match &ep.uri {
+                Some(uri) => out.push_str(&format!("- `{}` ({})\n", ep.path, uri)),
+                None => out.push_str(&format!("- `{}`\n", ep.path)),
+            }
         }
     }
     out

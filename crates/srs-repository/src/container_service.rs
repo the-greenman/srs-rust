@@ -124,6 +124,24 @@ pub fn list_containers(
     Ok(summaries)
 }
 
+/// Declared membership, inverted: instance id -> ids of the containers that list it directly
+/// (RFC-034: declared, never derived). One pass over every container.
+pub fn membership_index(
+    store: &dyn RepositoryStore,
+) -> Result<std::collections::HashMap<String, Vec<String>>, RepositoryError> {
+    let mut index: std::collections::HashMap<String, Vec<String>> = Default::default();
+    for summary in list_containers(store, &ContainerListFilter::default())? {
+        let (container, _) = load_container_with_embed_fallback(store, &summary.container_id)?;
+        for id in direct_member_ids(&container) {
+            index
+                .entry(id)
+                .or_default()
+                .push(summary.container_id.clone());
+        }
+    }
+    Ok(index)
+}
+
 pub fn containers_for_instance(
     store: &dyn RepositoryStore,
     instance_id: &str,
