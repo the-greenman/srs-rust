@@ -172,8 +172,9 @@ pub fn export_container_slice(
     let mut boundary = boundary.clone();
 
     // --- Instances: the boundary's entry ids that name an instance (step 2;
-    // at revision >= 8 the fixpoint adds nothing). A dangling entry is dropped
-    // by the promoting removal (RFC-043 [R18]/[R7]). -------------------------
+    // at revision >= 8 the fixpoint adds nothing). RFC-043 [R18]/[R7]: an
+    // entry naming no instance is dropped by the promoting removal; the checked
+    // catalog already refuses a dangling entry, so today this keeps every one.
     let instances: HashMap<&str, &str> = cat
         .instances
         .iter()

@@ -474,6 +474,22 @@ impl SrsRepository {
         Ok(js_sys::Uint8Array::from(bytes.as_slice()))
     }
 
+    /// Export one container as an RFC-026 slice archive (`.srs` ZIP bytes): the
+    /// same `slice_service::export_container_slice` as `srs slice export`
+    /// (ADR-051). Refusals surface as the service error, e.g.
+    /// `slice-root-identity-invalid: ...`.
+    pub fn export_slice(&self, container_id: &str) -> Result<js_sys::Uint8Array, JsValue> {
+        let export = srs_repository::slice_service::export_container_slice(
+            &self.store,
+            srs_repository::slice_service::ExportSliceInput {
+                container_id: container_id.to_string(),
+                ..Default::default()
+            },
+        )
+        .map_err(js_err)?;
+        Ok(js_sys::Uint8Array::from(export.bytes.as_slice()))
+    }
+
     /// Return the raw bytes of a source-document attachment by `documentId`.
     ///
     /// Repositories loaded via [`SrsRepository::load`] (from a `.srsj` string) never contain
