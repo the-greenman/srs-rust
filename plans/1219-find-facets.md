@@ -63,14 +63,14 @@ No schema under `srs/docs/schema/2.0/` changes.
 **Agent:** Repository Worker
 
 #### Tasks
-- [ ] `text_projection.rs`: add `closed_names: HashSet<String>` to `FieldTextIndex` (built in `build_field_text_index` from `f.field_type.datatype == String && is_closed()`), accessor `is_closed_name`.
-- [ ] `discovery_service.rs`: types above; `Candidate { hit, tags, selects }` internal; `find_tier2`/`find_tier0` return candidates; `build_facets(&[Candidate]) -> DiscoveryFacets`; `DiscoveryResult.facets`; the early-return branch (unknown container filter, nothing can match) returns `DiscoveryFacets::default()`.
-- [ ] Unit tests (MemoryStore; `facets_count_the_whole_match_set_independent_of_paging`, `facets_follow_the_filters_and_count_notes`, `facet_values_are_bounded_with_an_other_count`): counts independent of limit/offset; same name closed and open is not a facet; non-string and empty-array values skipped; `limit:0` yields facets and no hits; tag counted once per instance; multiselect counts each value; notes counted in `notes`; top-N truncation with `other`; content/type filters narrow facets.
+- [x] `text_projection.rs`: add `closed_names: HashSet<String>` to `FieldTextIndex` (built in `build_field_text_index` from `f.field_type.datatype == String && is_closed()`), accessor `is_closed_name`.
+- [x] `discovery_service.rs`: types above; `Candidate { hit, tags, selects }` internal; `find_tier2`/`find_tier0` return candidates; `build_facets(&[Candidate]) -> DiscoveryFacets`; `DiscoveryResult.facets`; the early-return branch (unknown container filter, nothing can match) returns `DiscoveryFacets::default()`.
+- [x] Unit tests (MemoryStore; `facets_count_the_whole_match_set_independent_of_paging`, `facets_follow_the_filters_and_count_notes`, `facet_values_are_bounded_with_an_other_count`): counts independent of limit/offset; same name closed and open is not a facet; non-string and empty-array values skipped; `limit:0` yields facets and no hits; tag counted once per instance; multiselect counts each value; notes counted in `notes`; top-N truncation with `other`; content/type filters narrow facets.
 
 #### Acceptance Criteria
-- [ ] `facets` counts equal those of an unpaged query
-- [ ] Output bounded: more than N values yields N plus `other`
-- [ ] No extra store scans (package loaded once, membership index unchanged)
+- [x] `facets` counts equal those of an unpaged query
+- [x] Output bounded: more than N values yields N plus `other`
+- [x] No extra store scans (package loaded once, membership index unchanged)
 
 #### Testing
 ```bash
@@ -86,23 +86,23 @@ cargo test -p srs-repository discovery
 **Agent:** CLI Worker / MCP Adapter Worker
 
 #### Tasks
-- [ ] `cargo run --bin generate-schemas` (expect no diff); `cargo test --test payload_contracts`
-- [ ] `DESC_FIND` (`crates/srs-mcp-core/src/tools.rs`) mentions facets and `limit: 0`; test in `crates/srs-mcp/tests/tools.rs` asserting `structuredContent.facets` with `limit: 0` returns no hits
-- [ ] bindings test in `crates/srs-bindings/tests/find.rs` asserting camelCase keys `facets`, `byType`, `fields`; no binding code change
-- [ ] amend `docs/adr/019-discovery-service.md` and `docs/adr/037-mcp-adapter-surface.md`; add S52 and a coverage matrix row in `docs/dogfooding.md`; comment on the-greenman/srs#881; file srs-vscode payload-mirror tracking issue linked under the same epic (srs-web#306)
+- [x] `cargo run --bin generate-schemas` (no diff); `cargo test --test payload_contracts`
+- [x] `DESC_FIND` (`crates/srs-mcp-core/src/tools.rs`) mentions facets and `limit: 0`; test in `crates/srs-mcp/tests/tools.rs` asserting `structuredContent.facets` with `limit: 0` returns no hits
+- [x] bindings test in `crates/srs-bindings/tests/find.rs` asserting camelCase keys `facets`, `byType`, `fields`; no binding code change
+- [x] amend `docs/adr/019-discovery-service.md` and `docs/adr/037-mcp-adapter-surface.md`; add S52 and a coverage matrix row in `docs/dogfooding.md`; comment on the-greenman/srs#881; file srs-vscode payload-mirror tracking issue linked under the same epic (srs-web#306)
 
 #### Acceptance Criteria
-- [ ] `srs find --limit 0` on a repo prints facets, no hits
-- [ ] MCP `find {limit:0}` reply is under 128 KB on real muSrs
+- [x] `srs find --limit 0` on a repo prints facets, no hits
+- [x] MCP `find {limit:0}` reply is under 128 KB on real muSrs
 
 #### Milestone gate
 `cargo test --workspace`, clippy, `payload_contracts`, commit.
 
 ## Final Acceptance
 
-- [ ] `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` pass
-- [ ] `cargo test --test payload_contracts` passes
-- [ ] Dogfood against `/home/greenman/dev/muDemocracy.org/muSrs`: `find {limit:0}` size and top facets recorded in S52
+- [x] `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` pass
+- [x] `cargo test --test payload_contracts` passes
+- [x] Dogfood against `/home/greenman/dev/muDemocracy.org/muSrs`: `find {limit:0}` size and top facets recorded in S52
 
 ## Coordination Rules
 

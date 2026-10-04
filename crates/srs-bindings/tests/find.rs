@@ -110,7 +110,7 @@ fn find_limit_zero_returns_facets_only() {
     let store = fixture_store();
     let page = FindPage {
         limit: Some(0),
-        offset: 0,
+        ..Default::default()
     };
     let result = find(&store, DiscoveryQuery::default(), page).expect("find must succeed");
     assert!(result.hits.is_empty());

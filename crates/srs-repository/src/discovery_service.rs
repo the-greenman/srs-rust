@@ -950,6 +950,7 @@ mod tests {
             FindPage {
                 limit: Some(0),
                 offset: 5,
+                ..Default::default()
             },
         )
         .unwrap();
