@@ -41,6 +41,26 @@ pub enum EdgeDirection {
     In,
 }
 
+impl EdgeDirection {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EdgeDirection::Out => "out",
+            EdgeDirection::In => "in",
+        }
+    }
+}
+
+impl std::str::FromStr for EdgeDirection {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "out" => Ok(EdgeDirection::Out),
+            "in" => Ok(EdgeDirection::In),
+            other => Err(format!("invalid direction '{other}' (expected out|in)")),
+        }
+    }
+}
+
 /// A relation neighbour, loaded by tier (`LoadedInstance` is not `Serialize`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -270,6 +290,143 @@ pub fn get_record_context(
         subtree,
         tagged_chunks: vec![],
         protocol_run_history,
+    })
+}
+
+/// Which edges of `instance_id` to list (srs-rust#1229). `direction: None` = both.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NeighboursQuery {
+    pub instance_id: String,
+    #[serde(default)]
+    pub relation_type: Option<String>,
+    #[serde(default)]
+    pub direction: Option<EdgeDirection>,
+}
+
+/// Result shaping for [`list_neighbours`], mirroring `discovery_service::FindPage`:
+/// `limit: None` means every edge; any default cap is the adapter's choice.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NeighboursPage {
+    pub limit: Option<usize>,
+    pub offset: usize,
+}
+
+/// The instance at the other end of an edge: identity and a display label only, never the
+/// record. `label`/`type*` are omitted when the neighbour does not resolve (dangling) and
+/// `type*` for a Tier-0 note.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NeighbourSummary {
+    pub instance_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_namespace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NeighbourEdge {
+    pub direction: EdgeDirection,
+    pub relation_id: String,
+    pub relation_type: String,
+    pub neighbour: NeighbourSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NeighboursResult {
+    pub instance_id: String,
+    /// Every matching edge, before paging.
+    pub total: usize,
+    pub neighbours: Vec<NeighbourEdge>,
+}
+
+/// Bounded read of an instance's relation neighbours. Edges are filtered, sorted by
+/// `(relationType, createdAt none-last, relationId)` and paged first; only the returned page
+/// loads its neighbours (unlike [`get_record_context`], which inlines all of them).
+pub fn list_neighbours(
+    store: &dyn RepositoryStore,
+    query: NeighboursQuery,
+    page: NeighboursPage,
+) -> Result<NeighboursResult, RepositoryError> {
+    let id = &query.instance_id;
+    if record_store::get_instance_by_id(store, id)?.is_none() {
+        return Err(RepositoryError::NotFound {
+            path: std::path::PathBuf::from(id),
+        });
+    }
+    let wants = |d| query.direction.is_none_or(|q| q == d);
+    let mut edges = Vec::new();
+    for r in relation_service::load_relations(store)? {
+        if query
+            .relation_type
+            .as_ref()
+            .is_some_and(|t| *t != r.relation_type)
+        {
+            continue;
+        }
+        // A self-relation is both an out and an in edge, as in `get_record_context`.
+        if r.source_instance_id == *id && wants(EdgeDirection::Out) {
+            edges.push((EdgeDirection::Out, r.target_instance_id.clone(), r.clone()));
+        }
+        if r.target_instance_id == *id && wants(EdgeDirection::In) {
+            edges.push((EdgeDirection::In, r.source_instance_id.clone(), r));
+        }
+    }
+    edges.sort_by(|(_, _, a), (_, _, b)| {
+        let key = |r: &srs_core::types::relation::Relation| {
+            (
+                r.relation_type.clone(),
+                r.created_at.is_none(),
+                r.created_at.clone(),
+                r.relation_id.clone(),
+            )
+        };
+        key(a).cmp(&key(b))
+    });
+    let total = edges.len();
+    // Label indexes only matter for Tier-2 neighbours; tolerate a package that will not load.
+    let indexes = crate::record_label::build_label_indexes(store).ok();
+    let neighbours = edges
+        .into_iter()
+        .skip(page.offset)
+        .take(page.limit.unwrap_or(usize::MAX))
+        .map(|(direction, other, r)| {
+            let (label, type_namespace, type_name) =
+                match record_store::get_instance_by_id(store, &other) {
+                    Ok(Some(record_store::LoadedInstance::Record(rec))) => (
+                        indexes.as_ref().map(|(fni, ifi)| {
+                            crate::record_label::record_display_label(&rec, ifi, fni)
+                        }),
+                        Some(rec.type_namespace),
+                        Some(rec.type_name),
+                    ),
+                    Ok(Some(record_store::LoadedInstance::Note(n))) => {
+                        (Some(n.title.unwrap_or(n.instance_id)), None, None)
+                    }
+                    Ok(None) | Err(_) => (None, None, None),
+                };
+            NeighbourEdge {
+                direction,
+                relation_id: r.relation_id,
+                relation_type: r.relation_type,
+                neighbour: NeighbourSummary {
+                    instance_id: other,
+                    label,
+                    type_namespace,
+                    type_name,
+                },
+            }
+        })
+        .collect();
+    Ok(NeighboursResult {
+        instance_id: query.instance_id,
+        total,
+        neighbours,
     })
 }
 
@@ -976,5 +1133,135 @@ mod tests {
         let entry = &result.protocol_run_history[0];
         assert_eq!(entry["protocolId"], "proto-ctx");
         assert_eq!(entry["status"], "Active");
+    }
+    /// A hub with `n_in` inbound `depends-on` edges and one outbound `refines`.
+    fn neighbours_fixture(n_in: usize) -> (crate::store::memory::MemoryStore, String, String) {
+        use srs_core::types::relation::Relation;
+        let store = make_store();
+        let mk = |n: &str| {
+            record_store::create_record(
+                &store,
+                "type-test-001",
+                1,
+                make_field_values("test-name", json!(n)),
+                None,
+                None,
+            )
+            .unwrap()
+            .instance_id
+        };
+        let hub = mk("hub");
+        let out_target = mk("target");
+        let rel = |t: &str, s: &str, d: &str| Relation {
+            created_by: None,
+            relation_id: String::new(),
+            relation_type: t.to_string(),
+            source_instance_id: s.to_string(),
+            target_instance_id: d.to_string(),
+            created_at: None,
+            notes: None,
+            source_refs: None,
+            meta: None,
+        };
+        let mut all = vec![rel("refines", &hub, &out_target)];
+        for i in 0..n_in {
+            all.push(rel("depends-on", &mk(&format!("n{i}")), &hub));
+        }
+        for r in all {
+            // No relation-type definitions needed: write the standalone object directly.
+            let mut r = r;
+            r.relation_id = uuid::Uuid::new_v4().to_string();
+            store.save_relation(&r).unwrap();
+        }
+        (store, hub, out_target)
+    }
+
+    fn nq(id: &str) -> NeighboursQuery {
+        NeighboursQuery {
+            instance_id: id.to_string(),
+            relation_type: None,
+            direction: None,
+        }
+    }
+
+    #[test]
+    fn neighbours_pages_with_total() {
+        let (store, hub, _) = neighbours_fixture(5);
+        let all = list_neighbours(&store, nq(&hub), NeighboursPage::default()).unwrap();
+        assert_eq!((all.total, all.neighbours.len()), (6, 6));
+        let page = list_neighbours(
+            &store,
+            nq(&hub),
+            NeighboursPage {
+                limit: Some(3),
+                offset: 2,
+            },
+        )
+        .unwrap();
+        assert_eq!((page.total, page.neighbours.len()), (6, 3));
+        let ids = |r: &NeighboursResult| {
+            r.neighbours
+                .iter()
+                .map(|e| e.relation_id.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            ids(&page),
+            ids(&all)[2..5].to_vec(),
+            "page is a slice of the sorted whole"
+        );
+        let past = list_neighbours(
+            &store,
+            nq(&hub),
+            NeighboursPage {
+                limit: Some(3),
+                offset: 99,
+            },
+        )
+        .unwrap();
+        assert_eq!((past.total, past.neighbours.len()), (6, 0));
+    }
+
+    #[test]
+    fn neighbours_filters_direction_and_type() {
+        let (store, hub, target) = neighbours_fixture(2);
+        let out = list_neighbours(
+            &store,
+            NeighboursQuery {
+                direction: Some(EdgeDirection::Out),
+                ..nq(&hub)
+            },
+            NeighboursPage::default(),
+        )
+        .unwrap();
+        assert_eq!(out.total, 1);
+        assert_eq!(out.neighbours[0].neighbour.instance_id, target);
+        assert_eq!(out.neighbours[0].neighbour.label.as_deref(), Some("target"));
+        assert_eq!(
+            out.neighbours[0].neighbour.type_name.as_deref(),
+            Some("test-type")
+        );
+        let deps = list_neighbours(
+            &store,
+            NeighboursQuery {
+                relation_type: Some("depends-on".into()),
+                direction: Some(EdgeDirection::In),
+                ..nq(&hub)
+            },
+            NeighboursPage::default(),
+        )
+        .unwrap();
+        assert_eq!(deps.total, 2);
+        assert!(deps
+            .neighbours
+            .iter()
+            .all(|e| e.direction == EdgeDirection::In));
+    }
+
+    #[test]
+    fn neighbours_missing_subject_not_found() {
+        let store = make_store();
+        let err = list_neighbours(&store, nq("nope"), NeighboursPage::default()).unwrap_err();
+        assert!(matches!(err, RepositoryError::NotFound { .. }));
     }
 }

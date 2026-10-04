@@ -26,11 +26,13 @@ Autonomous run: the owner delegated the design pause; each decision is resolved 
 | D1 | One service `list_neighbours(store, NeighboursQuery, NeighboursPage)` in `context_query_service.rs` (beside `get_record_context`, reusing `EdgeDirection`); CLI, WASM and MCP are thin adapters (capability-layering.md; ADR-010, ADR-013, ADR-037). No new module. | One way per goal (charter Conformance cell "one way over many"). |
 | D2 | Filter edges with `relation_service::load_relations` (pub(crate)) rather than `list_relations`, so endpoint labels and neighbour loads happen only for the returned page, not for all 782 edges. Same filter semantics (source/target/type). | The point of the issue is bounded cost; `list_relations` resolves labels for every match before any paging. |
 | D3 | Paging mirrors `FindPage{limit: Option<usize>, offset}` from #1221: service `limit: None` = all; the MCP tool defaults to 25 (adapter's choice, per FindPage doc). `total` counts all matching edges before paging. | Existing pattern (#1217/#1221). |
-| D4 | Result: `{instanceId, total, neighbours: [{direction: out|in, relationId, relationType, neighbour: {instanceId, label?, typeNamespace?, typeName?}}]}`. Never the full record. Dangling neighbour: ids kept, label/type omitted. Self-relation appears once per direction (as in `get_record_context`). Order: `(relationType, createdAt none-last, relationId)`, identical to context. | Deterministic, same as the context service. |
+| D4 | Result: `{instanceId, total, neighbours: [{direction: out|in, relationId, relationType, neighbour: {instanceId, label?, typeNamespace?, typeName?}}]}`. Never the full record. Dangling neighbour: ids kept, label/type omitted. Self-relation appears once per direction (as in `get_record_context`). Order: `(relationType, relation createdAt none-last, relationId)` -- deliberately NOT the context service's neighbour-createdAt order, which would need every neighbour loaded and defeat the bound (review finding 1). A test pins the order. Edges whose neighbour is dangling cannot exist in a loadable catalog (SRS038-R13), so the code just omits label/type for any unresolved neighbour. | Deterministic, same as the context service. |
 | D5 | Direction omitted = both. `EdgeDirection` gains `FromStr` ("out"/"in") used by CLI and WASM; MCP deserialises it via serde. | Single parse point. |
 | D6 | Missing subject instance -> `RepositoryError::NotFound` (tool error). Tier-0 notes are valid subjects. | Consistent with context. |
 | D7 | Tree controls are `?maxDepth=&relationType=&typeFilter=` query params on the existing tree resource URIs (same mechanism as context's `excludeRelationCategories`, #1188), NOT a new tool. #1220's `read` tool passes URIs through, so claude.ai reaches them. `SrsUri::Tree` / `TreeFrom` carry a `TreeQuery`. Bad/unknown param or non-integer depth -> invalid params. | One way per goal; the issue allows either; avoids a second tree surface. |
 | D8 | The neighbour `uri` field is DEFERRED to #1227, which owns the shared `uri` field and where the `srs://` builder lives (today only in the `srs-mcp-core` adapter, which the core cannot depend on). Neighbour carries `instanceId`, so the agent can already form `record/{id}`. A comment is left on #1227. | Avoids inventing a core-side URI builder in parallel with #1227 (parallel implementation = drift). |
+| D10 | MCP tool input `NeighboursToolInput` is a shadow struct with a mandatory `From` conversion into `NeighboursQuery` + `NeighboursPage` and a unit test exercising every field (ADR-037 drift guard). The MCP `limit` is defaulted to 25 and clamped to 100 so an agent cannot recreate the 782-edge problem. | ADR-037. |
+| D11 | ADR-037 gets a dated amendment for the `neighbours` tool and tree URI params. WASM `neighbours` is kept (ADR-013 parity with `context_record`) with a bindings test. Subject check uses `get_instance_by_id` so Tier-0 notes work (test). The service's filter is a 3-line predicate; extracting a shared one from `list_relations` is declined (it filters at a different stage and label cost); the duplicated edge-collection with `get_record_context` is accepted and noted with a `ponytail:` comment on the context service's existing one. | review findings 2-5, 10. |
 | D9 | CLI surface: `srs relation neighbours <ID> [--relation-type T] [--direction out|in] [--limit N] [--offset N]`; payload `NeighboursPayload` (service type embedded via `schemars(with=Value)`, like `RelationListPayload`). | ADR-011. |
 
 No new ADR: implements ADR-010/011/013/037/048.
@@ -58,7 +60,7 @@ No `srs/docs/schema/2.0/` change.
 
 **Out of scope:**
 
-- `uri` on neighbours (D8, #1227).
+- `uri` on neighbours (D8, #1227; name `NeighbourSummary` in the comment there).
 - A WASM `tree` binding (no existing one; not requested).
 - Relation-category filter on neighbours (context has one; follow-up if needed).
 
@@ -105,7 +107,8 @@ cargo test -p srs-repository neighbours
 #### Tasks
 
 - [ ] `RelationCommand::Neighbours` in `commands/mod.rs`, handler in `commands/relation.rs`
-- [ ] `NeighboursPayload`; regenerate schemas
+- [ ] Add `NeighboursPayload` to `payload.rs`, run `cargo run --bin generate-schemas`, commit `schemas/payload/` (Contracts workflow)
+- [ ] Bindings test in `crates/srs-bindings/tests/neighbours.rs` (service-level, like `find.rs`)
 - [ ] WASM `neighbours(...)` in `srs-bindings/src/lib.rs`
 
 #### Acceptance Criteria
@@ -135,8 +138,8 @@ cargo test --test payload_contracts
 #### Tasks
 
 - [ ] `NeighboursToolInput` (camelCase, deny_unknown_fields), `TOOL_NEIGHBOURS`, `DESC_NEIGHBOURS`, list_tools entry, `call_tool` arm (default limit 25). Edits local to the new tool.
-- [ ] `uri.rs`: `TreeQuery` + parse/format for `tree` and `tree/{id}` queries; `lib.rs` read arm passes them to `TreeOptions`; update server instructions + tree resource descriptions.
-- [ ] Tests in `crates/srs-mcp/tests/{tools,resources}.rs` and `uri.rs`
+- [ ] `crates/srs-mcp-core/src/uri.rs`: `pub struct TreeQuery {max_depth: Option<u32>, relation_type: Option<String>, type_filter: Option<String>}` (Default); `SrsUri::Tree(TreeQuery)`, `SrsUri::TreeFrom(String, TreeQuery)`; `?` split off before the path split (as the context branch does); unsupported key, duplicate key or non-integer `maxDepth` -> `UriError` -> invalid params; no percent-decoding (ns/name values are safe; stated and tested). `tree_template()` becomes `tree/{instanceId}{?maxDepth,relationType,typeFilter}`; update every match site (resources/list, templates, both read arms in `lib.rs`). Parse/format round-trip tests inline in `uri.rs` (`#[cfg(test)]`). Declined: validating `relationType` against installed types (`build_tree` tolerates unknown types). Original: parse/format for `tree` and `tree/{id}` queries; `lib.rs` read arm passes them to `TreeOptions`; update server instructions + tree resource descriptions.
+- [ ] `NeighboursToolInput` From-conversion unit test (every field) in `tools.rs` tests; ADR-037 amendment; integration tests in `crates/srs-mcp/tests/{tools,resources}.rs`
 
 #### Acceptance Criteria
 
@@ -171,4 +174,4 @@ cargo test -p srs-mcp -p srs-mcp-core
 ## Assumptions
 
 - #1220 (`read` tool) is not merged; tree params are on the URI so it passes them through unchanged.
-- `Relation.created_at` is `Option<String>`.
+- (verified) `Relation.created_at` is `Option<String>`.
