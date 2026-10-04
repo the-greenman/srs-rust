@@ -133,7 +133,8 @@ pub const DESC_FIND: &str = "Deterministic discovery query (ext:discovery). All 
 optional and AND-combined: typeId, typeNamespace, typeName, containerId, tag (repeatable; \
 instance must carry ALL), lifecycleState, excludeLifecycleStates, tier, and contentMatch \
 (recall floor: matches records containing every whitespace-separated word, in any field and any \
-order, not just the title; a phrase match is always included). Types are written \
+order, not just the title; a phrase match is always included). Hits are ranked by BM25 \
+relevance (score) unless rank is false, which orders by instanceId. Types are written \
 'namespace/name'. Returns hits with instanceId, label, type, lifecycleState, snippet, and \
 matchedFields. Serves Tier 2 (Records) and Tier 0 (Notes; type and lifecycle filters exclude \
 them). A typeId, type, or containerId that names nothing returns zero hits with a warning \
@@ -324,6 +325,9 @@ pub struct FindToolInput {
     pub limit: Option<usize>,
     /// Number of hits to skip (default 0), after the deterministic sort.
     pub offset: Option<usize>,
+    /// Order hits by BM25 relevance (fills `score`) instead of by instanceId.
+    /// Defaults to true; the set of hits is the same either way.
+    pub rank: Option<bool>,
 }
 
 impl From<FindToolInput> for DiscoveryQuery {
@@ -1262,6 +1266,7 @@ pub fn call_tool(
             let page = FindPage {
                 limit: Some(input.limit.unwrap_or(FIND_DEFAULT_LIMIT)),
                 offset: input.offset.unwrap_or(0),
+                rank: input.rank.unwrap_or(true),
             };
             match discovery_service::find(store, input.into(), page) {
                 Ok(result) => tool_ok(&result),
@@ -1610,6 +1615,7 @@ mod tests {
             content_match: Some("text".into()),
             limit: None,
             offset: None,
+            rank: None,
         };
         let q: DiscoveryQuery = find.into();
         assert_eq!(q.type_id.as_deref(), Some("tid"));

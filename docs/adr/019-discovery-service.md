@@ -4,7 +4,7 @@
 - **Date:** 2026-06-28
 - **Supersedes:** —
 - **Superseded by:** —
-- **Amended by:** srs-rust#797 (Tier 0/1 discovery landed — see the note below §Consequences)
+- **Amended by:** srs-rust#797 (Tier 0/1 discovery landed — see the note below §Consequences); srs-rust#1228 (first `DiscoveryIndex`, BM25 ranking — see the end)
 
 > Tracking note: epic #212 issue #214 titled this "ADR-018". In this repository
 > 018 is already taken (`018-container-view-column-source-precedence.md`), so the
@@ -147,3 +147,27 @@ srs-gov adapter.
 - Authored-defaults metadata on DocumentView/View is an additive schema change
   coordinated through RFC #213 and the schema-mirror merge order — separate from
   this service work.
+
+## Amendment (srs-rust#1228): `DiscoveryIndex` and BM25 ranking
+
+Decision 5's reserved extension point now exists: `discovery_index::DiscoveryIndex`
+(`score(words, candidates) -> Vec<f32>`) with one implementation, `Bm25Index`.
+
+- It **orders** the Layer-1 all-words hits and fills `score`; it never adds or drops a
+  candidate, so the recall floor and RFC-012 [R4] are untouched. No spec change.
+- Opt-in through `FindPage.rank` (outside `DiscoveryQuery`, which mirrors the schema).
+  Default off for the library, CLI (`--rank`) and WASM; on by default for the MCP `find`
+  tool. Conformance fixtures stay on Layer 1.
+- Input is the existing `text_projection` segments. BM25 (k1 1.2, b 0.75) with
+  segment-kind weights: label/title 4, tag 2, short fields 2, long bodies 1. Term frequency
+  is the normalized substring count, document length the word count. No new dependency.
+- The index is memoized in a store-scoped slot (`RepositoryStore::discovery_index_cache`)
+  that `FileStore` drops with its catalog memos when the write epoch moves. Stores without a
+  slot rebuild per query.
+- The MCP default (`rank: true`) differs from CLI/WASM (off) on purpose: MCP serves agents,
+  who want relevance order; the set of hits is identical on every surface and only the order
+  differs, which RFC-012 [R4] leaves free. Weights and the 400-char short/long threshold are
+  tunable heuristics, not a contract. Scores are computed in f64 and quantised to 1e-4 so
+  native and wasm32 order alike.
+- A vector or embedding index would be a second `DiscoveryIndex` implementation; none is
+  built (srs#726 open question 6). Measured by the eval harness (srs-rust#1231).

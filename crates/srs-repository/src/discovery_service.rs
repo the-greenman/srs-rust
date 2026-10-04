@@ -8,9 +8,10 @@
 //! [`text_projection::project_text`] / [`text_projection::project_note_text`];
 //! hit labels reuse [`record_label::record_display_label`] for Tier 2 and the
 //! manifest `title` (falling back to `instanceId`) for Tier 0. Substring content
-//! matching is the recall floor — `score` is always `None` at Layer 1. A future
-//! `DiscoveryIndex` (Layer 2) may add recall and ranking but must never drop a
-//! Layer-1 match.
+//! matching is the recall floor — `score` is `None` at Layer 1. With
+//! [`FindPage::rank`] the same hits are ordered (and scored) by a
+//! [`crate::discovery_index::DiscoveryIndex`] (Layer 2, srs-rust#1228), which may
+//! reorder but never add or drop a Layer-1 match.
 //!
 //! Discovery spans both remaining tiers (RFC-012 `R1`/`I-113`, `R11`/`I-123` —
 //! see srs-rust#797; Tier 1 / TypedRecord was retired, srs#448/rfc-decision-53635966,
@@ -20,6 +21,7 @@
 //! apply uniformly.
 
 use crate::container_service;
+use crate::discovery_index::{Bm25Index, DiscoveryIndex};
 use crate::error::RepositoryError;
 use crate::record_label;
 use crate::record_store::{self, RecordListFilter};
@@ -28,6 +30,7 @@ use crate::text_projection::{self, FieldTextIndex, TextSegment};
 use serde::{Deserialize, Serialize};
 use srs_core::types::record::Record;
 use std::collections::HashSet;
+use std::rc::Rc;
 
 /// The canonical query shape now lives in `srs-core` (`srs_core::types::discovery`)
 /// so it can be the one type [`crate::render_service`]'s `SectionSource::DiscoveryQuery`
@@ -59,7 +62,7 @@ pub struct DiscoveryHit {
     pub type_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lifecycle_state: Option<String>,
-    /// `None` at Layer 1 (deterministic, unranked). Populated only by a Layer-2 index.
+    /// `None` at Layer 1 (deterministic, unranked). Populated only when ranked ([`FindPage::rank`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub score: Option<f32>,
     /// A ~200-char window around the first match in the first matching segment, when a content match was requested.
@@ -77,6 +80,10 @@ pub struct DiscoveryHit {
 pub struct FindPage {
     pub limit: Option<usize>,
     pub offset: usize,
+    /// Order content-match hits by BM25 relevance and fill `score` (srs-rust#1228)
+    /// instead of by `instanceId`. Never changes which instances match. Off by
+    /// default; the MCP `find` tool turns it on. Ignored without a `contentMatch`.
+    pub rank: bool,
 }
 
 /// Characters of text around the first match kept in a hit snippet.
@@ -165,6 +172,9 @@ pub fn find(
 
     // Deterministic order independent of index/store iteration order.
     hits.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
+    if page.rank && !words.is_empty() {
+        rank_hits(store, &field_text_index, &words, &mut hits)?;
+    }
 
     let total = hits.len();
     let hits = hits
@@ -177,6 +187,37 @@ pub fn find(
         total,
         diagnostics,
     })
+}
+
+/// Fill `score` from the (store-cached) [`DiscoveryIndex`] and reorder by score,
+/// ties by `instanceId`. `hits` must already be in `instanceId` order.
+fn rank_hits(
+    store: &dyn RepositoryStore,
+    field_text_index: &FieldTextIndex,
+    words: &[String],
+    hits: &mut [DiscoveryHit],
+) -> Result<(), RepositoryError> {
+    let cached = store
+        .discovery_index_cache()
+        .and_then(|c| c.borrow().clone());
+    let index = match cached {
+        Some(index) => index,
+        None => {
+            let index: Rc<dyn DiscoveryIndex> = Rc::new(Bm25Index::build(store, field_text_index)?);
+            if let Some(slot) = store.discovery_index_cache() {
+                *slot.borrow_mut() = Some(index.clone());
+            }
+            index
+        }
+    };
+    let ids: Vec<&str> = hits.iter().map(|h| h.instance_id.as_str()).collect();
+    let scores = index.score(words, &ids);
+    for (hit, score) in hits.iter_mut().zip(scores) {
+        hit.score = Some(score);
+    }
+    // Stable sort over an id-ordered slice: equal scores keep id order.
+    hits.sort_by(|a, b| b.score.unwrap_or(0.0).total_cmp(&a.score.unwrap_or(0.0)));
+    Ok(())
 }
 
 /// AND-conjunction: `instance_tags` must contain every value in `query_tags`.
@@ -714,6 +755,84 @@ mod tests {
     }
 
     #[test]
+    fn rank_orders_by_score_with_title_above_body_and_keeps_the_hit_set() {
+        let long_body = format!("{} consent", "filler ".repeat(300));
+        let store = store_with(vec![
+            // consent only in a long body field
+            record(ID1, "Zzz", &long_body, "draft", &[]),
+            // consent in the title
+            record(ID2, "Consent", "short statement", "draft", &[]),
+            // consent in a short statement
+            record(ID3, "Aaa", "use consent", "draft", &[]),
+        ]);
+        let q = || DiscoveryQuery {
+            content_match: Some("consent".to_string()),
+            ..Default::default()
+        };
+        let ranked = |rank| FindPage {
+            rank,
+            ..Default::default()
+        };
+        let plain = find(&store, q(), ranked(false)).unwrap();
+        assert_eq!(ids(&plain), vec![ID1, ID2, ID3]);
+        assert!(plain.hits.iter().all(|h| h.score.is_none()));
+
+        let result = find(&store, q(), ranked(true)).unwrap();
+        // title > short statement > long body
+        assert_eq!(ids(&result), vec![ID2, ID3, ID1]);
+        assert!(result.hits.iter().all(|h| h.score.is_some_and(|s| s > 0.0)));
+        assert_eq!(result.total, plain.total);
+        // Deterministic.
+        let again = find(&store, q(), ranked(true)).unwrap();
+        assert_eq!(ids(&again), ids(&result));
+        // Paging applies after ranking.
+        let page = find(
+            &store,
+            q(),
+            FindPage {
+                limit: Some(1),
+                offset: 1,
+                rank: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(ids(&page), vec![ID3]);
+        // No contentMatch: rank is a no-op, id order, no score.
+        let none = find(&store, DiscoveryQuery::default(), ranked(true)).unwrap();
+        assert_eq!(ids(&none), vec![ID1, ID2, ID3]);
+        assert!(none.hits.iter().all(|h| h.score.is_none()));
+    }
+
+    #[test]
+    fn rank_ties_break_by_instance_id_and_notes_are_ranked() {
+        let store = store_with_note();
+        let result = find(
+            &store,
+            DiscoveryQuery {
+                tag: vec!["policy".to_string()],
+                content_match: Some("policy".to_string()),
+                ..Default::default()
+            },
+            FindPage {
+                rank: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        // Same query, ranked and unranked, return the same set including the Tier-0 note.
+        assert_eq!(result.total, 3);
+        assert!(ids(&result).contains(&NOTE1));
+        // Equal scores keep instanceId order.
+        let scores: Vec<f32> = result.hits.iter().map(|h| h.score.unwrap()).collect();
+        for w in result.hits.windows(2).zip(scores.windows(2)) {
+            if w.1[0] == w.1[1] {
+                assert!(w.0[0].instance_id < w.0[1].instance_id);
+            }
+            assert!(w.1[0] >= w.1[1]);
+        }
+    }
+
+    #[test]
     fn unknown_type_and_container_filters_warn() {
         let store = store_with(fixtures());
         let r = find(
@@ -953,6 +1072,7 @@ mod tests {
                 FindPage {
                     limit: Some(limit),
                     offset,
+                    rank: false,
                 },
             )
             .unwrap()

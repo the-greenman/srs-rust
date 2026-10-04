@@ -346,19 +346,22 @@ impl SrsRepository {
     /// `query_json` is a JSON object matching `DiscoveryQuery` (camelCase fields;
     /// all optional — omit or pass `"{}"` for "return all").
     /// `limit` (default: all matches) and `offset` (default 0) page the hits after the
-    /// deterministic sort; `total` is the full match count.
+    /// deterministic sort; `total` is the full match count. `rank` (default false) orders
+    /// content-match hits by BM25 relevance and fills `score`.
     /// Returns a `DiscoveryResult` as a JS value.
     pub fn find(
         &self,
         query_json: &str,
         limit: Option<usize>,
         offset: Option<usize>,
+        rank: Option<bool>,
     ) -> Result<JsValue, JsValue> {
         let query: DiscoveryQuery =
             serde_json::from_str(query_json).map_err(|e| js_err(format!("invalid query: {e}")))?;
         let page = FindPage {
             limit,
             offset: offset.unwrap_or(0),
+            rank: rank.unwrap_or(false),
         };
         let result = discovery_service::find(&self.store, query, page).map_err(js_err)?;
         to_js(&result)

@@ -911,7 +911,17 @@ pub trait RepositoryStore {
     fn catalog_validity_token(&self) -> Result<String, RepositoryError> {
         Err(RepositoryError::CatalogUnsupported)
     }
+
+    /// Store-scoped memo slot for the discovery index (srs-rust#1228), emptied
+    /// whenever the store's write epoch moves, like the catalog memo. `None` (the
+    /// default) means the store cannot memoize and the index is rebuilt per query.
+    fn discovery_index_cache(&self) -> Option<&DiscoveryIndexCache> {
+        None
+    }
 }
+
+/// See [`RepositoryStore::discovery_index_cache`].
+pub type DiscoveryIndexCache = RefCell<Option<Rc<dyn crate::discovery_index::DiscoveryIndex>>>;
 
 // ---------------------------------------------------------------------------
 // FileStore — file-backed implementation
@@ -950,6 +960,8 @@ pub struct FileStore {
     /// different (unchecked) snapshot than `catalog()` (build_checked) and
     /// must never serve the other's cached value.
     catalog_unchecked_cache: RefCell<Option<Rc<crate::catalog::RepositoryCatalog>>>,
+    /// Discovery index memo (srs-rust#1228); dropped with the catalogs on a write.
+    discovery_index_cache: DiscoveryIndexCache,
     /// Write generation shared by every clone of this store (they share one
     /// `Rc<dyn Vfs>`): a write through any clone bumps it, and each handle drops
     /// its memoized catalogs when its own `cache_epoch` is behind (srs-rust#1057:
@@ -981,6 +993,7 @@ impl Clone for FileStore {
             rfc038_exempt: self.rfc038_exempt,
             catalog_cache: RefCell::new(None),
             catalog_unchecked_cache: RefCell::new(None),
+            discovery_index_cache: RefCell::new(None),
             epoch: self.epoch.clone(),
             cache_epoch: Cell::new(self.epoch.get()),
             session_actor: RefCell::new(self.session_actor.borrow().clone()),
@@ -1000,6 +1013,7 @@ impl FileStore {
             rfc038_exempt: false,
             catalog_cache: RefCell::new(None),
             catalog_unchecked_cache: RefCell::new(None),
+            discovery_index_cache: RefCell::new(None),
             epoch: Rc::new(Cell::new(0)),
             cache_epoch: Cell::new(0),
             session_actor: RefCell::new(None),
@@ -1017,6 +1031,7 @@ impl FileStore {
             rfc038_exempt: false,
             catalog_cache: RefCell::new(None),
             catalog_unchecked_cache: RefCell::new(None),
+            discovery_index_cache: RefCell::new(None),
             epoch: Rc::new(Cell::new(0)),
             cache_epoch: Cell::new(0),
             session_actor: RefCell::new(None),
@@ -1122,6 +1137,7 @@ impl FileStore {
             self.cache_epoch.set(self.epoch.get());
             self.catalog_cache.borrow_mut().take();
             self.catalog_unchecked_cache.borrow_mut().take();
+            self.discovery_index_cache.borrow_mut().take();
         }
     }
 
@@ -2206,6 +2222,11 @@ impl RepositoryStore for FileStore {
         let built = Rc::new(crate::catalog::build_checked(self)?);
         *self.catalog_cache.borrow_mut() = Some(built.clone());
         Ok(built)
+    }
+
+    fn discovery_index_cache(&self) -> Option<&DiscoveryIndexCache> {
+        self.sync_cache_epoch();
+        Some(&self.discovery_index_cache)
     }
 
     fn catalog_unchecked(&self) -> Result<Rc<crate::catalog::RepositoryCatalog>, RepositoryError> {
@@ -6030,6 +6051,31 @@ mod tests {
             "save_record must invalidate the memoized catalog so the next \
              lookup sees the new instance"
         );
+    }
+
+    /// srs-rust#1228: the discovery index memo dies with the catalog memo on any write.
+    #[test]
+    fn discovery_index_cache_invalidated_by_record_save() {
+        #[derive(Debug)]
+        struct Stub;
+        impl crate::discovery_index::DiscoveryIndex for Stub {
+            fn score(&self, _: &[String], c: &[&str]) -> Vec<f32> {
+                vec![0.0; c.len()]
+            }
+        }
+        let temp = tempfile::TempDir::new().unwrap();
+        write_catalog_ready_file_repo(&temp);
+        let store = FileStore::new(temp.path());
+        *store.discovery_index_cache().unwrap().borrow_mut() = Some(Rc::new(Stub));
+        assert!(store.discovery_index_cache().unwrap().borrow().is_some());
+        store
+            .save_record(&minimal_record_for_store(
+                "20000000-0000-4000-8000-000000000001",
+                "R",
+                None,
+            ))
+            .unwrap();
+        assert!(store.discovery_index_cache().unwrap().borrow().is_none());
     }
 
     /// srs-rust#1057: clones share one VFS, so a write through one clone must

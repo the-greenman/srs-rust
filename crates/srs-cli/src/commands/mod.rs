@@ -1878,6 +1878,9 @@ pub struct FindArgs {
     /// Number of hits to skip, after the deterministic sort
     #[arg(long = "offset", default_value_t = 0)]
     pub offset: usize,
+    /// Order --text hits by BM25 relevance (fills `score`) instead of by instanceId
+    #[arg(long = "rank")]
+    pub rank: bool,
 }
 
 #[derive(Subcommand)]
