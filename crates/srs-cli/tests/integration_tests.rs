@@ -8570,9 +8570,7 @@ fn find_similar_excludes_source_ranks_related_and_rejects_text() {
     assert_eq!(hits[0]["instanceId"], related.as_str());
     assert!(hits[0]["score"].as_f64().unwrap() > 0.0);
 
-    let bad = run_srs_in_dir(dir, &["find", "--similar", &src, "--text", "x"]);
-    assert_eq!(
-        bad["ok"], false,
-        "--similar with --text must be refused: {bad:?}"
-    );
+    // Refused at parse time (clap conflict); core also rejects contentMatch as a backstop.
+    let (ok, _) = run_srs_raw(dir, &["find", "--similar", &src, "--text", "x"]);
+    assert!(!ok, "--similar with --text must be refused");
 }
