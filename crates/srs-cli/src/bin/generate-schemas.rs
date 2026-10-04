@@ -58,6 +58,7 @@ fn main() {
 
     // Relation payloads
     write_schema!("relation-list", RelationListPayload);
+    write_schema!("relation-neighbours", NeighboursPayload);
     write_schema!("relation-get", RelationPayload);
     write_schema!("relation-create", RelationPayload);
     write_schema!("relation-delete", RelationDeletePayload);

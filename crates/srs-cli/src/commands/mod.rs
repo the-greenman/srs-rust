@@ -1392,6 +1392,23 @@ pub enum RelationCommand {
         #[arg(long, hide = true)]
         json: bool,
     },
+    /// List an instance's relation neighbours, paged (id, label, type — never the record)
+    Neighbours {
+        /// Instance ID (Record or Note)
+        id: String,
+        /// Only edges of this relation type
+        #[arg(long = "type")]
+        relation_type: Option<String>,
+        /// Only edges in this direction relative to the instance: out | in (default: both)
+        #[arg(long)]
+        direction: Option<srs_repository::context_query_service::EdgeDirection>,
+        /// Maximum edges to return (default: all; `total` always counts every match)
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Number of edges to skip, after the deterministic sort
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+    },
     /// Create a relation (reads JSON from stdin)
     Create {
         /// Deprecated: JSON output is now the default (no-op)
