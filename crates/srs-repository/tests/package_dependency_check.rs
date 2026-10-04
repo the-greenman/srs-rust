@@ -113,6 +113,79 @@ fn installed_set_follows_change_d() {
     assert_eq!(ids.len(), 6);
 }
 
+/// RFC-044 / srs-rust#1223: a repo whose manifest declares neither
+/// `packageRefs` nor `packageRef` (the common case — every srs-web e2e
+/// fixture and the bundled governance seed lack it) must still have its
+/// primary `package/` resolve as installed, the same way `list_packages`
+/// already treats it.
+fn repo_without_ref() -> FileStore {
+    open_srsj(
+        &json!({
+            "srsj": "2",
+            "manifest": {
+                "$schema": srs_schema::MANIFEST_SCHEMA_ID,
+                "srsVersion": "2.0-draft",
+                "dataModelRevision": CURRENT_DATA_MODEL_REVISION,
+                "repositoryId": "00000000-0000-4000-8000-00000000dcdc",
+                "namespace": "com.example.noref",
+                "title": "No packageRef fixture",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "container": {
+                    "containerId": "00000000-0000-4000-8000-00000000dcde",
+                    "title": "No packageRef fixture",
+                },
+            },
+            "data": {
+                "package/package.json": pkg("00000000-0000-4000-8000-00000000a0a0", "com.example.deps", "primary", "1.0.0", None),
+            },
+        })
+        .to_string(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn installed_set_includes_primary_when_no_ref_declared() {
+    let store = repo_without_ref();
+    let members = installed_set(&store).unwrap();
+    let primary = members
+        .iter()
+        .find(|m| m.package.id == "00000000-0000-4000-8000-00000000a0a0")
+        .expect("the primary package must be installed even with no packageRef declared (srs-rust#1223)");
+    assert_eq!(primary.package.namespace, "com.example.deps");
+    assert_eq!(primary.package.name, "primary");
+    assert_eq!(primary.package.version, Some("1.0.0".to_string()));
+    assert_eq!(primary.selector, None);
+    // primary + the implicit core package only.
+    assert_eq!(members.len(), 2);
+}
+
+/// Item 3 of #1223's "Wanted": the WASM-bound `check_package_requirements`
+/// (here, its underlying service `check_bundle`) must satisfy a requirement
+/// on a repo's own primary package even when the manifest carries no
+/// `packageRef`.
+#[test]
+fn check_bundle_satisfies_requirement_on_primary_when_no_ref_declared() {
+    let store = repo_without_ref();
+    let bundle: BundleRequirements = serde_json::from_value(json!({
+        "packageId": "",
+        "packageDependencies": [dep(
+            "00000000-0000-4000-8000-00000000a0a0",
+            "com.example.deps",
+            "primary",
+            "1.0.0",
+        )],
+    }))
+    .unwrap();
+    let result = check_bundle(&store, &bundle).unwrap();
+    assert!(
+        result.dependencies[0].satisfied,
+        "a requirement on the repo's own primary package must be satisfied even without a \
+         declared packageRef (srs-rust#1223): {:?}",
+        result.dependencies[0]
+    );
+}
+
 #[test]
 fn every_reason_code() {
     let store = repo(json!([

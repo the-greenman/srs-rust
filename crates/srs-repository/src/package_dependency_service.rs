@@ -103,6 +103,33 @@ pub fn installed_set(store: &dyn RepositoryStore) -> Result<Vec<InstalledMember>
             .collect(),
     };
     let mut members = Vec::new();
+    // 1b (srs-rust#1223). No `packageRefs`/`packageRef` declared: the loader
+    // still treats the default local `package/` as installed (same
+    // resolution as `list_packages`' primary entry, `list_package_boundaries`
+    // in store.rs) — installed-set semantics must agree with what the loader
+    // treats as installed. A declared ref (even one pointing elsewhere)
+    // leaves this to item 2/3 below; it is never added twice.
+    if refs.is_empty() {
+        if let Ok(primary) = store.load_package_boundary(&None) {
+            if !primary.id.is_empty() {
+                members.push(InstalledMember {
+                    package: InstalledPackage {
+                        id: primary.id,
+                        namespace: primary.namespace,
+                        name: primary.name,
+                        version: Some(primary.version).filter(|v| !v.is_empty()),
+                    },
+                    selector: None,
+                    dependencies: primary
+                        .package_dependencies
+                        .unwrap_or_default()
+                        .iter()
+                        .map(DependencyRef::from_value_lenient)
+                        .collect(),
+                });
+            }
+        }
+    }
     for r in &refs {
         let path = str_of(r, "path");
         // A local ref resolves to its manifest; the manifest wins over the
