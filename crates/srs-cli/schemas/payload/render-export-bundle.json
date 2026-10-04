@@ -4,7 +4,6 @@
   "type": "object",
   "required": [
     "attachmentCount",
-    "diagnostics",
     "outputPath",
     "renderedFilename"
   ],

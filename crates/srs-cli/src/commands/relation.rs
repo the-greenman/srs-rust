@@ -67,7 +67,12 @@ fn cmd_relation_neighbours(
     page: NeighboursPage,
 ) -> Result<String> {
     match with_store(&ctx, |store| Ok(list_neighbours(store, query, page)?)) {
-        Ok(result) => output::serialize("relation neighbours", NeighboursPayload { result }),
+        Ok(result) => output::serialize(
+            "relation neighbours",
+            NeighboursPayload {
+                result: result.into(),
+            },
+        ),
         Err(e) => Ok(output::err("relation neighbours", vec![e.to_string()])),
     }
 }

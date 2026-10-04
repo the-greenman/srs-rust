@@ -109,7 +109,6 @@
       "description": "A single record in a JSON projection section.",
       "type": "object",
       "required": [
-        "children",
         "fields",
         "instanceId",
         "orderedFieldKeys",
@@ -253,8 +252,7 @@
       "required": [
         "order",
         "records",
-        "sectionId",
-        "sections"
+        "sectionId"
       ],
       "properties": {
         "order": {
