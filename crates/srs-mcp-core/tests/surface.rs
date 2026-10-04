@@ -706,6 +706,20 @@ mod write_guard {
                 .set_session_actor(Some(json!({ "kind": "ai", "id": id })))
         };
         let bare = rel(&mut d); // no session actor: no createdBy
+                                // createdAt is stamped when the caller omits it (#1246).
+        let r = tool(
+            &mut d,
+            "relation_create",
+            json!({ "relationType": "refines", "sourceInstanceId": b, "targetInstanceId": a }),
+        );
+        assert!(
+            r["result"]["structuredContent"]["createdAt"].is_string(),
+            "{r}"
+        );
+        let stamped = r["result"]["structuredContent"]["relationId"]
+            .as_str()
+            .unwrap()
+            .to_string();
         actor(&d, "agent-1");
         let mine = rel(&mut d);
         actor(&d, "agent-2");
@@ -737,6 +751,7 @@ mod write_guard {
         assert_eq!(by(&mine), (true, Some("agent-1".into())));
         assert_eq!(by(&theirs).1, Some("agent-2".into()));
         assert_eq!(by(&bare).1, None);
+        assert!(by(&stamped).0);
 
         assert_rejected(&mut d, "relation_delete", json!({ "relationId": theirs }));
         assert_rejected(&mut d, "relation_delete", json!({ "relationId": bare }));
