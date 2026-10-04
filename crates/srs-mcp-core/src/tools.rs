@@ -125,7 +125,7 @@ for that). Optional relationType and direction (out|in; default both) filter; li
 pub const DESC_READ: &str = "Read any srs:// resource and return exactly what resources/read \
 returns for it (map, navigation, agent-index, tree, tree/{instanceId}, record/{instanceId}, \
 context/{containerId}/{instanceId}, container/{id}, view/{compositionId}, type/{typeId}, protocol, \
-protocol/{id}). For clients that cannot read resources. Output is capped at 96000 bytes; a longer \
+protocol/{id}). For clients that cannot read resources. Output text is capped at 96000 bytes (before the notice); a longer \
 resource is cut with a trailing notice and structuredContent.truncated = true — then use find \
 {limit}, tree/{instanceId}, container_outline or record/{id} for a bounded read.";
 
@@ -1153,6 +1153,15 @@ pub(crate) fn tool_err(message: String) -> Value {
 /// `read` result cap: under the ~128 KB browser-relay limit, with headroom for JSON framing.
 pub const MAX_READ_BYTES: usize = 96_000;
 
+/// Largest char boundary of `s` at or below `max`.
+fn utf8_floor(s: &str, max: usize) -> usize {
+    let mut cut = max.min(s.len());
+    while !s.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    cut
+}
+
 /// `read {uri}` (#1220): the `resources/read` dispatch verbatim (one path, errors as there),
 /// returned as a tool result and capped at [`MAX_READ_BYTES`] (policy, not protocol). Needs the
 /// repository id, so `SrsMcpApplication` routes it here instead of through [`call_tool`]; it
@@ -1182,10 +1191,7 @@ pub fn read_tool_capped(
     let truncated = total > max_bytes;
     let mut shown = total;
     if truncated {
-        let mut cut = max_bytes;
-        while !text.is_char_boundary(cut) {
-            cut -= 1;
-        }
+        let cut = utf8_floor(&text, max_bytes);
         text.truncate(cut);
         shown = cut;
         text.push_str(&format!(
@@ -1290,6 +1296,7 @@ pub fn call_tool(
                 Err(e) => Ok(tool_err(e.to_string())),
             }
         }
+        // `read` is routed by `SrsMcpApplication` (it needs the repository id): see `read_tool`.
         TOOL_TYPE_SCHEMA => {
             let input: TypeSchemaToolInput = parse_args(arguments)?;
             match type_schema_service::type_schema(store, input.into()) {
@@ -1722,6 +1729,14 @@ mod tests {
         let tsi: TypeSchemaInput = ts.into();
         assert_eq!(tsi.type_id, "tid");
         assert_eq!(tsi.type_version, Some(4));
+    }
+
+    #[test]
+    fn utf8_floor_never_splits_a_char() {
+        let s = "aé€😀"; // 1 + 2 + 3 + 4 bytes
+        let cuts: Vec<usize> = (0..=s.len()).map(|n| utf8_floor(s, n)).collect();
+        assert_eq!(cuts, vec![0, 1, 1, 3, 3, 3, 6, 6, 6, 6, 10]);
+        assert_eq!(utf8_floor(s, 99), 10);
     }
 
     #[test]
