@@ -1325,7 +1325,9 @@ pub enum RecordCommand {
         #[arg(long)]
         id: String,
     },
-    /// Create a successor record that supersedes or refines this one (ext:lifecycle)
+    /// Create a successor record that supersedes or refines this one (ext:lifecycle).
+    /// `relationType` in the stdin JSON is optional: omitted, it is derived from the
+    /// predecessor's lifecycle `requiresRelation` (RFC-022 R6), or an error names the candidates.
     Successor {
         /// Record instance ID of the predecessor
         #[arg(long)]

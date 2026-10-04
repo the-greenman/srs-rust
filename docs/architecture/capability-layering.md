@@ -194,10 +194,3 @@ for the complete residuals list including approved interim exceptions.
 | `orderByPrecedes`, `rebuildPrecedesChain` | `src/lib/guides/GuidesShell.svelte` | Relation-chain graph traversal and chain rebuild in TypeScript | `srs-repository` service + `srs-bindings` ordered-relations binding | [srs-web#178](https://github.com/the-greenman/srs-web/issues/178) |
 | `findFieldId`, `getFieldValue`, `getStringField` | `src/lib/governance/field-utils.ts` | TS-side linear name-scan over WASM-derived `fieldMeta`; binding should return fields addressable by name | `srs-bindings` named-field query | [srs-web#179](https://github.com/the-greenman/srs-web/issues/179) |
 | `LIFECYCLE_TRANSITIONS`, `IMMUTABLE_STATES` | `src/lib/governance/lifecycle.ts` | Hardcoded lifecycle vocabulary in TypeScript | `get_allowed_lifecycle_transitions` + `set_lifecycle_state` via `srs-bindings` (srs-rust plan #375, [ADR-022](../adr/022-governance-status-is-lifecycle-state.md)) | [srs-web#135](https://github.com/the-greenman/srs-web/issues/135) |
-
-**Approved interim exception (not a migration target):** `loadInstalledRelationTypes()`
-in `GovernanceShell.svelte` derives installed relation types by parsing `exportSrsj(repo)`
-rather than calling a dedicated binding. This is an approved exception pending
-srs-rust#411 (`list_relation_types` in `srs-bindings`). Once that binding ships,
-replace it with a direct `listRelationTypes(repo)` call and remove this note.
-See [srs-web ADR-001 §4](https://github.com/the-greenman/srs-web/blob/main/docs/adr/001-thin-client.md).

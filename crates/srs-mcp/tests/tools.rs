@@ -883,6 +883,43 @@ async fn tool_record_transition_promotes_draft_to_active() {
     client.cancel().await.unwrap();
 }
 
+/// srs-rust#1238: `relationType` is optional on the tool; omitted against a
+/// lifecycle declaring no relational state, the core answers with a structured
+/// error naming the problem rather than the schema refusing the call.
+#[tokio::test]
+async fn tool_record_successor_omitted_relation_type_is_core_error() {
+    let fx = make_lifecycle_fixture();
+    let client = connect(&fx.base).await;
+    let create = call(
+        &client,
+        "record_create",
+        serde_json::json!({
+            "type": format!("{NS}/decision"),
+            "fieldValues": { "title": "Original Decision" }
+        }),
+    )
+    .await;
+    let predecessor_id = create.structured_content.as_ref().unwrap()["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let r = call(
+        &client,
+        "record_successor",
+        serde_json::json!({
+            "predecessorId": predecessor_id,
+            "fieldValues": { "title": "Revised" }
+        }),
+    )
+    .await;
+    assert_eq!(r.is_error, Some(true), "expected core error: {r:?}");
+    assert!(
+        format!("{r:?}").contains("SUCCESSOR_RELATION_TYPE_UNDETERMINED"),
+        "expected the structured code, got: {r:?}"
+    );
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn tool_record_successor_creates_linked_pair() {
     let fx = make_lifecycle_fixture();
