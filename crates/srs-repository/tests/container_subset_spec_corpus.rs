@@ -176,6 +176,7 @@ fn container_subset_renders_real_part_container_members_exactly_once() {
         theme_variant: None,
         container_id: None,
         instance_id_filter: None,
+        exclude_instance_ids: &[],
     })
     .expect("test composition must render");
 

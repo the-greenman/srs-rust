@@ -28,8 +28,17 @@ pub fn dispatch(ctx: CliContext, cmd: RenderCommand) -> Result<String> {
             view_format,
             theme_variant,
             instance,
+            exclude,
             output,
-        } => cmd_render_composition(ctx, view, view_format, theme_variant, instance, output),
+        } => cmd_render_composition(
+            ctx,
+            view,
+            view_format,
+            theme_variant,
+            instance,
+            exclude,
+            output,
+        ),
         RenderCommand::ExportBundle {
             view,
             instance,
@@ -151,6 +160,7 @@ fn cmd_render_composition(
     format: Option<String>,
     theme_variant: Option<String>,
     instance: Option<String>,
+    exclude: Vec<String>,
     output_path: Option<PathBuf>,
 ) -> Result<String> {
     match with_store(&ctx, |store| {
@@ -160,6 +170,7 @@ fn cmd_render_composition(
             format: format.as_deref(),
             theme_variant: theme_variant.as_deref(),
             container_id: ctx.container_id.as_deref(),
+            exclude_instance_ids: &exclude,
             instance_id_filter: instance.as_deref(),
         })?)
     }) {
