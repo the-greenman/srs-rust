@@ -1,10 +1,10 @@
 {
   "corpus": {
     "source": "muDemocracy.org muSrs, packed by `srs archive pack`",
-    "sourceCommit": "6e6cd5b0558f184ddfeb243384b3b4dec27b75d5",
+    "sourceCommit": "4c45f35f2cd19d8990edca3a9424899de092d261",
     "instances": 886,
     "archive": "musrs-pinned.srs",
-    "archiveBytes": 2921288
+    "archiveBytes": 2936741
   },
   "questions": [
     {
