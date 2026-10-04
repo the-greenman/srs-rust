@@ -378,8 +378,8 @@ pub enum RepositoryError {
     },
 
     #[error(
-        "SUCCESSOR_RELATION_TYPE_UNDETERMINED: relationType omitted and the predecessor's lifecycle declares {} candidate relation type(s) {candidates:?}; supply relationType explicitly",
-        candidates.len()
+        "SUCCESSOR_RELATION_TYPE_UNDETERMINED: {}",
+        successor_undetermined_detail(candidates)
     )]
     SuccessorRelationTypeUndetermined { candidates: Vec<String> },
 
@@ -1013,5 +1013,14 @@ impl RepositoryError {
         matches!(self, RepositoryError::NotFound { .. })
             || matches!(self, RepositoryError::Io { source, .. }
                 if source.kind() == std::io::ErrorKind::NotFound)
+    }
+}
+
+/// Message tail for `SuccessorRelationTypeUndetermined` (srs-rust#1238).
+fn successor_undetermined_detail(candidates: &[String]) -> String {
+    if candidates.is_empty() {
+        "the predecessor's lifecycle declares no hard incoming requiresRelation; pass relationType explicitly".to_string()
+    } else {
+        format!("the predecessor's lifecycle declares several candidate relation types {candidates:?}; pass relationType explicitly")
     }
 }

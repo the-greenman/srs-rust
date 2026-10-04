@@ -156,6 +156,36 @@ fn make_lifecycle_fixture() -> LifecycleFixture {
     )
     .unwrap();
 
+    // Type whose lifecycle declares a hard relational `superseded` state (RFC-022),
+    // for successor-relation derivation (srs-rust#1238).
+    create_type_normalized(
+        &store,
+        serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "namespace": NS,
+            "name": "governed",
+            "version": 1,
+            "fields": [
+                { "fieldId": base.title_field_id, "order": 1, "required": true }
+            ],
+            "lifecycle": {
+                "states": [
+                    {"key": "draft", "isInitial": true},
+                    {"key": "closed", "isFinal": true},
+                    {"key": "superseded", "isFinal": true,
+                     "requiresRelation": {"relationType": ["supersedes"]}}
+                ],
+                "transitions": [
+                    {"name": "close", "from": "draft", "to": "closed"},
+                    {"name": "supersede", "from": "draft", "to": "superseded"}
+                ],
+                "initialState": "draft"
+            }
+        }),
+        None,
+    )
+    .unwrap();
+
     // Install supersedes and refines relation types (required by record_successor)
     for (key, label, category) in [
         ("supersedes", "Supersedes", "refinement"),
@@ -880,6 +910,55 @@ async fn tool_record_transition_promotes_draft_to_active() {
         .collect();
     assert_eq!(errors.len(), 0, "unexpected error diagnostics: {errors:?}");
 
+    client.cancel().await.unwrap();
+}
+
+/// srs-rust#1238: omitted `relationType` is derived from the lifecycle for a
+/// closed (final, no outgoing transitions) record.
+#[tokio::test]
+async fn tool_record_successor_omitted_relation_type_derives_supersedes() {
+    let fx = make_lifecycle_fixture();
+    let client = connect(&fx.base).await;
+    let create = call(
+        &client,
+        "record_create",
+        serde_json::json!({
+            "type": format!("{NS}/governed"),
+            "fieldValues": { "title": "Closed Decision" }
+        }),
+    )
+    .await;
+    let predecessor_id = create.structured_content.as_ref().unwrap()["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let t = call(
+        &client,
+        "record_transition",
+        serde_json::json!({ "instanceId": predecessor_id, "byTransition": "close" }),
+    )
+    .await;
+    assert_eq!(t.is_error, Some(false), "close failed: {t:?}");
+    let r = call(
+        &client,
+        "record_successor",
+        serde_json::json!({
+            "predecessorId": predecessor_id,
+            "fieldValues": { "title": "Replacement" }
+        }),
+    )
+    .await;
+    assert_eq!(r.is_error, Some(false), "record_successor failed: {r:?}");
+    let result = r.structured_content.as_ref().unwrap();
+    assert_eq!(
+        result["relation"]["relationType"].as_str(),
+        Some("supersedes"),
+        "derived relation must be echoed: {result}"
+    );
+    assert_eq!(
+        result["relation"]["targetInstanceId"].as_str(),
+        Some(predecessor_id.as_str())
+    );
     client.cancel().await.unwrap();
 }
 

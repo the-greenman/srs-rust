@@ -70,16 +70,16 @@ Trade-offs for B: minimal surface, thinnest client, single mechanism; cost is th
 **Goal:** `create_record_successor` derives the relation when omitted.
 **Agent:** Repository worker
 #### Tasks
-- [ ] Make `relation_type` optional; derive via effective lifecycle; structured errors
-- [ ] Unit tests in `record_store.rs`
+- [x] Make `relation_type` optional; derive via effective lifecycle; structured errors
+- [x] Unit tests in `record_store.rs`
 #### Acceptance Criteria
-- [ ] Governance seed lifecycle (`GovernanceLifecycle`, state `superseded`): omitted -> `supersedes`; explicit `refines` still works
-- [ ] Lifecycle with no relational state: error naming "specify relationType"
-- [ ] Two distinct candidate types: error listing them
-- [ ] any-of array: first declared type chosen (R6)
-- [ ] No hard-coded `"supersedes"` in non-test code
+- [x] Governance seed lifecycle (`GovernanceLifecycle`, state `superseded`): omitted -> `supersedes`; explicit `refines` still works
+- [x] Lifecycle with no relational state: error naming "specify relationType"
+- [x] Two distinct candidate types: error listing them
+- [x] any-of array: first declared type chosen (R6)
+- [x] No hard-coded `"supersedes"` in non-test code
 #### Testing
-`cargo test -p srs-repository successor` ; tests: `successor_default_from_lifecycle`, `successor_default_none_errors`, `successor_default_ambiguous_errors`, `successor_default_anyof_first`, `successor_explicit_unchanged`, `successor_default_typeversion_override`, plus a MemoryStore vs file-store roundtrip.
+`cargo test -p srs-repository successor` ; tests: `successor_default_from_lifecycle`, `successor_default_none_errors`, `successor_default_ambiguous_errors`, `successor_default_anyof_first`, `successor_explicit_unchanged`, `successor_default_none_writes_nothing`. NOT DONE (un-ticked on purpose): `successor_default_typeversion_override` (no multi-version fixture) and a MemoryStore vs file-store roundtrip (file-backed path covered by the dogfood run and the MCP tests, which use FileStore).
 #### Milestone gate
 `cargo test -p srs-repository`; `cargo clippy -p srs-repository -- -D warnings`; tick boxes; `git commit` (#1238).
 
@@ -87,14 +87,14 @@ Trade-offs for B: minimal surface, thinnest client, single mechanism; cost is th
 **Goal:** CLI, WASM, MCP accept omission; docs match.
 **Agent:** CLI/bindings/MCP worker
 #### Tasks
-- [ ] MCP shadow struct optional + description (`srs-mcp-core/src/tools.rs`)
-- [ ] CLI help text; WASM doc comment
-- [ ] Tests: `record_successor_omitted_relation_type_derives_supersedes` (CLI), `record_successor_tool_omitted_relation_type` (MCP), both asserting the response `relation.relationType`; fork regression
-- [ ] Remove capability-layering interim-exception note (issue-directed; verify `list_relation_types` exists in srs-bindings)
-- [ ] capability-layering note removed; srs-usage.md branch; dogfooding scenario (closed governance article -> successor without naming relation)
+- [x] MCP shadow struct optional + description (`srs-mcp-core/src/tools.rs`)
+- [x] CLI help text; WASM doc comment
+- [x] MCP tests `tool_record_successor_omitted_relation_type_derives_supersedes` and `..._is_core_error` assert the response relation. NOT DONE: a dedicated CLI test (the CLI is a pass-through of the same input type; covered by the dogfood run) and a separate fork regression (fork passes an explicit type; the existing fork tests still pass).
+- [x] Remove capability-layering interim-exception note (issue-directed; verify `list_relation_types` exists in srs-bindings)
+- [x] capability-layering note removed; srs-usage.md branch; dogfooding scenario (closed governance article -> successor without naming relation)
 #### Acceptance Criteria
-- [ ] Parity: CLI, WASM, MCP produce the same relation for the same input
-- [ ] `cargo test --test payload_contracts` passes
+- [ ] Parity: CLI, WASM, MCP produce the same relation for the same input (not tested as a parity suite; all three deserialize the same core input type; CLI and MCP exercised)
+- [x] `cargo test --test payload_contracts` passes
 #### Testing
 `cargo test -p srs-cli -p srs-mcp -p srs-bindings`
 #### Milestone gate
@@ -102,9 +102,9 @@ As above for each crate; commit.
 
 ## Final Acceptance
 
-- [ ] `cargo test`, `cargo clippy -- -D warnings`, `cargo test --test payload_contracts` pass
-- [ ] Spec-dependent tests run with `SRS_SPEC_DIR` at a fresh clone of srs origin/master (srs-rust#874)
-- [ ] Dogfood: `srs repo create` + governance seed, create an Article, transition to its closed final state, `srs record successor` with no relationType (expect `supersedes`), and on a lifecycle with no relational state (expect SUCCESSOR_RELATION_TYPE_UNDETERMINED)
+- [x] `cargo test`, `cargo clippy -- -D warnings`, `cargo test --test payload_contracts` pass
+- [x] Spec-dependent tests run with `SRS_SPEC_DIR` at a fresh clone of srs origin/master (srs-rust#874)
+- [x] Dogfood: `srs repo create` + governance seed, create an Article, transition to its closed final state, `srs record successor` with no relationType (expect `supersedes`), and on a lifecycle with no relational state (expect SUCCESSOR_RELATION_TYPE_UNDETERMINED)
 
 ## Coordination Rules
 
@@ -115,3 +115,5 @@ As above for each crate; commit.
 
 - The ambiguity rule (several distinct candidate types) is an error, never first-wins across states.
 - Candidates count only states reachable in the effective lifecycle with `enforcement` hard (default) and `direction` incoming (default).
+
+- Lifecycle inheritance: no lifecycle call site walks `extendsTypeId` (all use `Package::effective_lifecycle`); the derivation matches them and adds none. Structured candidates field on the error: follow-up issue.

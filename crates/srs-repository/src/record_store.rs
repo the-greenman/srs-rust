@@ -1799,6 +1799,10 @@ pub fn create_record_successor(
 /// and `incoming` (the default), per RFC-022 R6 / I-99. Exactly one distinct
 /// candidate is used; none or several is a structured error. The core never
 /// supplies a literal of its own (RFC-022 Rationale, "No implicit default").
+///
+/// The lifecycle comes from `Package::effective_lifecycle`, the one resolver
+/// every other lifecycle call site uses (transition, allowed-transitions,
+/// state override). None of them walks `extendsTypeId`, so neither does this.
 fn derive_successor_relation_type(
     package: &Package,
     record_type: &RecordType,
@@ -4900,6 +4904,12 @@ pub(crate) mod tests {
     /// (incoming by default). `unreachable-state` is defined but has no path
     /// from the initial state.
     fn make_store_with_relational_state() -> MemoryStore {
+        make_store_with_relational_state_edit(|_| {})
+    }
+
+    fn make_store_with_relational_state_edit(
+        edit: impl FnOnce(&mut Vec<srs_core::types::lifecycle::LifecycleState>),
+    ) -> MemoryStore {
         use crate::package::Package;
         use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::lifecycle::{
@@ -4974,6 +4984,8 @@ pub(crate) mod tests {
         closed.is_final = Some(true);
         let unreachable = state("unreachable-state");
 
+        let mut states = vec![draft, ratified, superseded, closed, unreachable];
+        edit(&mut states);
         let gov_lc = Lifecycle {
             schema: None,
             tags: None,
@@ -4981,7 +4993,7 @@ pub(crate) mod tests {
             version: 1,
             namespace: "com.test".to_string(),
             name: "governance-lifecycle".to_string(),
-            states: vec![draft, ratified, superseded, closed, unreachable],
+            states,
             transitions: vec![
                 transition("propose", "draft", "ratified"),
                 transition("supersede", "ratified", "superseded"),
@@ -5810,6 +5822,25 @@ pub(crate) mod tests {
         edit(&mut package.lifecycles[0].states);
         let record_type = package.resolve_type("type-rfc022-001", 1).unwrap();
         derive_successor_relation_type(&package, record_type)
+    }
+
+    #[test]
+    fn successor_default_none_writes_nothing() {
+        let store = make_store_with_relational_state_edit(|states| {
+            for s in states {
+                s.requires_relation = None;
+            }
+        });
+        let record = create_rfc022_record(&store, "Decision 1");
+        let err =
+            create_record_successor(&store, &record.instance_id, successor_input_omitting_type())
+                .unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("no hard incoming requiresRelation; pass relationType explicitly"));
+        let records = list_records_by_type(&store, "com.test", "decision").unwrap();
+        assert_eq!(records.len(), 1, "no successor may be written");
+        assert!(store.list_relations().unwrap().is_empty());
     }
 
     #[test]
