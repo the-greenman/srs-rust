@@ -2380,7 +2380,8 @@ impl RepositoryStore for FileStore {
             if let Some(path) = pkg_ref.get("path").and_then(|p| p.as_str()) {
                 let pkg_json_rel = vfs_join(path, "package.json");
                 if let Ok(pkg_json) = self.read_json(&pkg_json_rel) {
-                    let boundary = PackageBoundary::from_pkg_json(&pkg_json, Some(path.to_string()));
+                    let boundary =
+                        PackageBoundary::from_pkg_json(&pkg_json, Some(path.to_string()));
                     if boundary.id == primary_id {
                         continue;
                     }
