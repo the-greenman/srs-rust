@@ -46,7 +46,7 @@ A golden-file test in `crates/srs-cli/tests/payload_contracts.rs` regenerates ea
 - The pre-commit hook runs `cargo test --test payload_contracts` to catch golden schema drift before commits.
 
 **Negative / trade-offs:**
-- External types embedded in payload structs (e.g., `Note`, `Record`) appear as `{}` (any JSON) in the golden schemas. Changes to those internal fields are not caught by the golden schema test — they remain covered by the existing integration tests that run the binary and parse output.
+- External types embedded in payload structs (e.g., `Note`, `Record`) appear as `{}` (`find` and `relation neighbours` are the exception: they use declared mirror structs, srs-rust#1258) (any JSON) in the golden schemas. Changes to those internal fields are not caught by the golden schema test — they remain covered by the existing integration tests that run the binary and parse output.
 - Two type aliases (`NoteTagListPayload`, `RepoValidatePayload`) required conversion to proper structs and `From` impls to enable `JsonSchema` derivation. Future type aliases in `payload.rs` must follow this pattern.
 - The `generate-schemas` binary must be run and its output committed whenever payload structs change. This is enforced by the golden-file test but requires a two-step workflow (edit struct → run binary → commit schema).
 
