@@ -110,7 +110,7 @@ fn installed_set_follows_change_d() {
     assert!(!ids.iter().any(|(id, _)| id == SINGULAR || id == UPSTREAM));
     assert_eq!(ids.iter().filter(|(id, _)| id == G).count(), 2);
     assert!(ids.iter().any(|(id, v)| id == CORE && v.is_some()));
-    assert_eq!(ids.len(), 6);
+    assert_eq!(ids.len(), 7); // 5 refs + primary + core
 }
 
 /// RFC-044 / srs-rust#1223: a repo whose manifest declares neither
@@ -119,29 +119,68 @@ fn installed_set_follows_change_d() {
 /// primary `package/` resolve as installed, the same way `list_packages`
 /// already treats it.
 fn repo_without_ref() -> FileStore {
+    repo_with_refs(json!({}))
+}
+
+/// Same fixture with `extra` merged into the manifest (`packageRefs` etc.);
+/// carries a sub-package at `extensions/x` for refs to point at.
+fn repo_with_refs(extra: Value) -> FileStore {
+    let mut manifest = json!({
+        "$schema": srs_schema::MANIFEST_SCHEMA_ID,
+        "srsVersion": "2.0-draft",
+        "dataModelRevision": CURRENT_DATA_MODEL_REVISION,
+        "repositoryId": "00000000-0000-4000-8000-00000000dcdc",
+        "namespace": "com.example.noref",
+        "title": "No packageRef fixture",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "container": {
+            "containerId": "00000000-0000-4000-8000-00000000dcde",
+            "title": "No packageRef fixture",
+        },
+    });
+    manifest
+        .as_object_mut()
+        .unwrap()
+        .extend(extra.as_object().unwrap().clone());
     open_srsj(
         &json!({
             "srsj": "2",
-            "manifest": {
-                "$schema": srs_schema::MANIFEST_SCHEMA_ID,
-                "srsVersion": "2.0-draft",
-                "dataModelRevision": CURRENT_DATA_MODEL_REVISION,
-                "repositoryId": "00000000-0000-4000-8000-00000000dcdc",
-                "namespace": "com.example.noref",
-                "title": "No packageRef fixture",
-                "createdAt": "2026-01-01T00:00:00Z",
-                "container": {
-                    "containerId": "00000000-0000-4000-8000-00000000dcde",
-                    "title": "No packageRef fixture",
-                },
-            },
+            "manifest": manifest,
             "data": {
                 "package/package.json": pkg("00000000-0000-4000-8000-00000000a0a0", "com.example.deps", "primary", "1.0.0", None),
+                "extensions/x/package.json": pkg(SINGULAR, "com.example", "ext-x", "1.0.0", None),
             },
         })
         .to_string(),
     )
     .unwrap()
+}
+
+fn count_id(store: &FileStore, id: &str) -> usize {
+    installed_set(store)
+        .unwrap()
+        .iter()
+        .filter(|m| m.package.id == id)
+        .count()
+}
+
+const PRIMARY: &str = "00000000-0000-4000-8000-00000000a0a0";
+
+/// Review of #1224: the primary is installed whatever the ref shape, and a
+/// ref to `package` itself does not count it twice.
+#[test]
+fn installed_set_always_has_primary_once() {
+    let sub = |r: Value| repo_with_refs(r);
+    let s = sub(json!({"packageRefs": [{"mode": "local", "path": "extensions/x"}]}));
+    assert_eq!(count_id(&s, PRIMARY), 1, "sub-only packageRefs");
+    assert_eq!(count_id(&s, SINGULAR), 1);
+    assert_eq!(
+        count_id(&sub(json!({"packageRefs": []})), PRIMARY),
+        1,
+        "empty packageRefs"
+    );
+    let d = sub(json!({"packageRef": {"mode": "local", "path": "package"}}));
+    assert_eq!(count_id(&d, PRIMARY), 1, "packageRef -> package");
 }
 
 #[test]
