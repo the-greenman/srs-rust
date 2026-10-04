@@ -313,8 +313,8 @@ pub struct NeighboursPage {
 }
 
 /// The instance at the other end of an edge: identity and a display label only, never the
-/// record. `label`/`type*` are omitted when the neighbour does not resolve (dangling) and
-/// `type*` for a Tier-0 note.
+/// record. `label`/`type*` are omitted when the neighbour does not resolve (or fails to load)
+/// and `type*` for a Tier-0 note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NeighbourSummary {
@@ -377,16 +377,20 @@ pub fn list_neighbours(
             edges.push((EdgeDirection::In, r.source_instance_id.clone(), r));
         }
     }
+    // createdAt: None sorts last (Option's own order puts it first).
     edges.sort_by(|(_, _, a), (_, _, b)| {
-        let key = |r: &srs_core::types::relation::Relation| {
-            (
-                r.relation_type.clone(),
-                r.created_at.is_none(),
-                r.created_at.clone(),
-                r.relation_id.clone(),
-            )
-        };
-        key(a).cmp(&key(b))
+        (
+            &a.relation_type,
+            a.created_at.is_none(),
+            &a.created_at,
+            &a.relation_id,
+        )
+            .cmp(&(
+                &b.relation_type,
+                b.created_at.is_none(),
+                &b.created_at,
+                &b.relation_id,
+            ))
     });
     let total = edges.len();
     // Label indexes only matter for Tier-2 neighbours; tolerate a package that will not load.
@@ -1263,5 +1267,101 @@ mod tests {
         let store = make_store();
         let err = list_neighbours(&store, nq("nope"), NeighboursPage::default()).unwrap_err();
         assert!(matches!(err, RepositoryError::NotFound { .. }));
+    }
+    #[test]
+    fn neighbours_order_is_type_then_created_at_none_last_then_id() {
+        use srs_core::types::relation::Relation;
+        let (store, hub, _) = neighbours_fixture(0);
+        let other = record_store::create_record(
+            &store,
+            "type-test-001",
+            1,
+            make_field_values("test-name", json!("o")),
+            None,
+            None,
+        )
+        .unwrap()
+        .instance_id;
+        let rel = |id: &str, t: &str, at: Option<&str>| Relation {
+            created_by: None,
+            relation_id: id.to_string(),
+            relation_type: t.to_string(),
+            source_instance_id: other.clone(),
+            target_instance_id: hub.clone(),
+            created_at: at.map(str::to_string),
+            notes: None,
+            source_refs: None,
+            meta: None,
+        };
+        for r in [
+            rel("00000000-0000-4000-8000-000000000003", "depends-on", None),
+            rel(
+                "00000000-0000-4000-8000-000000000002",
+                "depends-on",
+                Some("2026-02-01T00:00:00Z"),
+            ),
+            rel(
+                "00000000-0000-4000-8000-000000000001",
+                "depends-on",
+                Some("2026-01-01T00:00:00Z"),
+            ),
+        ] {
+            store.save_relation(&r).unwrap();
+        }
+        let ids: Vec<_> = list_neighbours(&store, nq(&hub), NeighboursPage::default())
+            .unwrap()
+            .neighbours
+            .into_iter()
+            .map(|e| (e.relation_type, e.relation_id))
+            .collect();
+        let pos = |id: &str| ids.iter().position(|(_, r)| r == id).unwrap();
+        assert!(
+            pos("00000000-0000-4000-8000-000000000001")
+                < pos("00000000-0000-4000-8000-000000000002")
+                && pos("00000000-0000-4000-8000-000000000002")
+                    < pos("00000000-0000-4000-8000-000000000003"),
+            "{ids:?}"
+        );
+        assert_eq!(
+            ids[0].0, "depends-on",
+            "depends-on sorts before refines: {ids:?}"
+        );
+    }
+
+    #[test]
+    fn neighbours_note_subject_and_note_neighbour() {
+        use srs_core::types::relation::Relation;
+        let (store, hub, _) = neighbours_fixture(0);
+        let note = crate::services::create_note(
+            &store,
+            serde_json::from_value(json!({ "title": "A note", "sections": [] })).unwrap(),
+        )
+        .unwrap()
+        .note
+        .instance_id;
+        store
+            .save_relation(&Relation {
+                created_by: None,
+                relation_id: "00000000-0000-4000-8000-0000000000aa".into(),
+                relation_type: "depends-on".into(),
+                source_instance_id: note.clone(),
+                target_instance_id: hub.clone(),
+                created_at: None,
+                notes: None,
+                source_refs: None,
+                meta: None,
+            })
+            .unwrap();
+        let from_note = list_neighbours(&store, nq(&note), NeighboursPage::default()).unwrap();
+        assert_eq!(from_note.total, 1);
+        assert_eq!(from_note.neighbours[0].neighbour.instance_id, hub);
+        let from_hub = list_neighbours(&store, nq(&hub), NeighboursPage::default()).unwrap();
+        let n = from_hub
+            .neighbours
+            .iter()
+            .find(|e| e.neighbour.instance_id == note)
+            .unwrap();
+        assert_eq!(n.neighbour.label.as_deref(), Some("A note"));
+        assert!(n.neighbour.type_name.is_none());
     }
 }

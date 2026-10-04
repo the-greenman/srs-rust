@@ -108,7 +108,7 @@ cargo test -p srs-repository neighbours
 
 - [ ] `RelationCommand::Neighbours` in `commands/mod.rs`, handler in `commands/relation.rs`
 - [ ] Add `NeighboursPayload` to `payload.rs`, run `cargo run --bin generate-schemas`, commit `schemas/payload/` (Contracts workflow)
-- [ ] Bindings test in `crates/srs-bindings/tests/neighbours.rs` (service-level, like `find.rs`)
+- [ ] Bindings test in `crates/srs-bindings/tests/context_query.rs` (service-level, like `find.rs`; the WASM glue is only compile-checked, as for `find`)
 - [ ] WASM `neighbours(...)` in `srs-bindings/src/lib.rs`
 
 #### Acceptance Criteria
