@@ -23,6 +23,10 @@ Spec gate: no spec change (fixture data only).
 
 No new ADRs: same pinning decision as #1231.
 
+## Contracts
+
+No CLI output, payload struct or entity schema changes (fixture data only), so no golden schemas or schema sync apply.
+
 ## Scope
 
 - Replace `crates/srs-repository/tests/fixtures/discovery-eval/musrs-pinned.srs`; update `corpus.sourceCommit` and `corpus.archiveBytes` (2921288 -> 2936741) in `questions.json`. Questions and expected ids untouched.
@@ -38,20 +42,39 @@ No new ADRs: same pinning decision as #1231.
 
 #### Tasks
 
-- [x] Record the before table (master harness, old archive)
+- [x] Record the before table (below) (master harness, old archive)
 - [x] Pack the archive from 4c45f35, update archiveBytes/sourceCommit
 - [x] Run the eval, record the after table and re-classified misses
 - [x] Post the table on #1231, srs#726, muDemocracy.org#261
 
+#### Testing
+
+`cargo test -p srs-repository --test discovery_eval -- --nocapture`: asserts archive size, corpus size (886), every expected id resolves, BM25 hit set equals all-words, the two floors; prints all four method rows.
+
 #### Acceptance Criteria
 
+- [x] 27 questions and expected ids unchanged (diff of questions.json is only sourceCommit and archiveBytes); floors unchanged because the floored metrics did not move
 - [x] `cargo test -p srs-repository --test discovery_eval -- --nocapture` passes; every expected id resolves
 
 ## Final Acceptance
 
-- [ ] `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` pass
-- [ ] No payload structs or schemas changed (no docs surface change)
+- [x] `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` pass
+- [x] No payload structs or schemas changed (no docs surface change)
+
+## Coordination Rules
+
+Fixture, `questions.json` corpus fields, one comment line and this plan only; no `src/` change.
+
+## Results (recall@10 / recall@all / MRR)
+
+| method | before | after |
+|---|---|---|
+| substring | 0.247 / 0.346 / 0.209 | unchanged |
+| all-words | 0.525 / 0.698 / 0.391 | unchanged |
+| BM25 | 0.676 / 0.698 / 0.532 | 0.639 / 0.698 / 0.616 |
+| BM25 top-5 + similar | 0.688 / 0.735 / 0.532 | 0.688 / 0.796 / 0.620 |
 
 ## Assumptions
 
+- muSrs@4c45f35f is whole (886 instances, all expected ids resolve); the archive packs byte-identically twice.
 - The table is deterministic on the pinned corpus; docs need no update (test fixture only).
