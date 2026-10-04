@@ -19,6 +19,7 @@
 
 use schemars::JsonSchema;
 use serde::Serialize;
+use srs_core::types::view::RecordProperty as SvcRecordProperty;
 use srs_core::types::{
     container::Container,
     field::FieldType,
@@ -33,6 +34,7 @@ use srs_core::types::{
     view::{Composition, View},
     vocabulary::Vocabulary,
 };
+use srs_repository::render_service as svc_render;
 use srs_repository::{
     agent_index_service::AgentIndex,
     analysis::{FoundationNoteSet, RepoMap, TagAudit},
@@ -1642,9 +1644,6 @@ pub struct CompositionProjection {
 }
 
 // ── Render projection mirrors (ADR-048 rule 3; fidelity: payload_mirror_fidelity.rs) ──
-
-use srs_core::types::view::RecordProperty as SvcRecordProperty;
-use srs_repository::render_service as svc_render;
 
 impl From<svc_render::ProjectedRelationTarget> for ProjectedRelationTarget {
     fn from(t: svc_render::ProjectedRelationTarget) -> Self {
