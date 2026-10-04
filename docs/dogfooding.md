@@ -3245,6 +3245,17 @@ srs --repo $REPO repo validate                                   # 0 errors
 **Done when.** `hits` is empty and `total` is 886; `byType` totals 861 plus `notes` 25 equal `srs repo map`'s 886; the problem-type call lists `kind` (condition 55, consequence 33, shift 24, ...), `persona` and `scale`; open string fields never appear; the reply is under 128 KB.
 
 **Verified 2026-10-04 (#1219):** unfiltered `--limit 0` on muSrs: 14,316 bytes, 22 field facets, `byType` top = source 177, claim 177, problem 138; `tags.other` 853 (long tail bounded to 20 values); `--limit 25` reply 15,258 bytes; the problem type call gave 138 problems with `kind`, `persona`, `scale`.
+### S53 — An agent asks what else in the repository is about a record (`find --similar` / MCP `similar`, #1230)
+
+**Intention.** I found one record in muSrs and want its near-neighbours, including content that uses different wording from any query I would have guessed.
+
+**CLI surface.** `srs find --similar <instanceId>` (structured filters narrow the candidates; `--limit`, `--tier`, `--tag` and `--container` compose); MCP `similar {instanceId, limit?, ...filters}`, limit default 25; WASM `findSimilar`.
+
+**Steps.** `srs --repo ../muDemocracy.org/muSrs find --text burnout --rank --limit 1` (an archetype); `srs --repo ../muDemocracy.org/muSrs find --similar <that id> --limit 6`. Then `--tier 0`. Negative: `find --similar <id> --text x` and `find --similar nope`.
+
+**Done when.** Hits are ranked (`score` > 0), never include the source, use the normal hit shape (`uri`, `typeId`, `containerIds`); the filters narrow; `--text` is refused (`similar takes no contentMatch`) and an unknown id returns `instance not found`; `repo validate` unchanged.
+
+**Verified 2026-10-04 (#1230):** against muSrs (886 instances): the archetype `Initiator` returned 17 neighbours (archetypes Steward and Analyst, a question, claim C-13, a persona) in 0.7 s; `--tier 0` returned 6 notes; both negative cases refused as above.
 
 ## Coverage matrix
 
@@ -3325,6 +3336,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `srs-gov export-decision` (governance operator exports shareable bundle, #289) | S38 (#289); exercises record lookup → view discovery → `render export-bundle` chain; `--explain` pre-stages all 3 underlying srs calls; default output filename (`<id8>.zip`). |
 | `find` facets over the match set, `limit: 0` repository map (#1219) | S52 |
 | `find` hit `uri`/`typeId`/`containerIds`, neighbour `uri`, agent-index `entryPoints` (#1227) | S51 |
+| `find --similar` / MCP `similar` / WASM `findSimilar` (more-like-this over the BM25 index, #1230) | S53 |
 | `mcp serve` (MCP stdio server: resources map/navigation/record/container/view/**type** + all 13 tools: `repo_validate`/`find`/`type_schema`/`record_create`/`relation_create`/`note_create`/`record_update`/`record_transition`/`record_allowed_transitions`/`record_successor`/`note_graduate`/`container_member_add`/`container_member_remove` + **prompts** `prompts/list`/`prompts/get`, ADR-037 + #692 amendment + #682 prompts + **#680 second-wave write tools**) | S42 (incl. the #692 discover-then-author step, #682 prompts step 10b, and #680 second-wave step 10c); 32 crate tests in `crates/srs-mcp/` (13 unit + 13 duplex-transport integration + 6 second-wave integration) + 2 binary-level handshake tests in `crates/srs-cli/tests/mcp_serve.rs` + 4 unit tests in `crates/srs-mcp/src/prompts.rs` |
 
 | RFC-039 revision-2 carrier (`record create`/`update` object `fieldValues` + `fieldMeta`, [R9] rejection, composite values, `type schema` range expansion, `repo apply-migration --id rfc039-carrier`) | S46 (#806); migration service unit tests in `rfc039_carrier_migration_service.rs`; carrier round-trip + order tests in `srs-core` `record.rs`; value-grammar tests in `srs-core` `validation/value_shape.rs` |
