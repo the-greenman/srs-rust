@@ -13,13 +13,19 @@
 //! Layer-1 is unranked (id order), so "recall@10" for it is the first 10 hits as returned;
 //! recall@all separates "found but buried" (ranking) from "absent" (not found at all).
 //!
+//! Question kinds (`kinds`): `vocab` = the record uses other words than the query; `untitled` = a
+//! claim/problem whose label is only an id (C-13, P-10); `run-report-noise` = the query words also
+//! occur in long run-reports; `tag` = answer is defined by a tag.
+//!
+//! Layer-1 rows are unranked: never quote them as a ranking number.
+//!
 //! Miss classes for an expected id that is not in a method's top 10:
 //! - `ranking`: returned, but below rank 10;
 //! - `phrase`: absent, though every query word occurs in the record (only the contiguous phrase
 //!   fails; an all-words method removes these);
 //! - `label/tag`: absent, and each missing word is only in the record's label or tags;
-//! - `vocabulary-mismatch`: absent, and some query word occurs nowhere in the record. The only
-//!   class an embedding layer could fix.
+//! - `vocabulary-mismatch`: absent, and some query word occurs nowhere in the record. The class
+//!   that stemming, synonyms or an embedding layer would have to fix.
 
 use serde::Deserialize;
 use srs_repository::discovery_service::{find, DiscoveryQuery};
@@ -35,9 +41,11 @@ struct Fixture {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Corpus {
     instances: usize,
     archive: String,
+    archive_bytes: usize,
 }
 
 #[derive(Deserialize)]
@@ -55,7 +63,7 @@ type Method = fn(&dyn RepositoryStore, &str) -> Vec<String>;
 
 /// The methods under evaluation, in table order.
 fn methods() -> Vec<(&'static str, Method)> {
-    vec![("substring (Layer 1)", substring)]
+    vec![("substring (Layer 1, unranked: id order)", substring)]
 }
 
 fn substring(store: &dyn RepositoryStore, query: &str) -> Vec<String> {
@@ -109,7 +117,7 @@ impl<'a> Probe<'a> {
             find(
                 store,
                 DiscoveryQuery {
-                    tag: vec![word.to_string()],
+                    tag: vec![word.to_string()], // words are already lowercased by the caller
                     ..Default::default()
                 },
             )
@@ -157,13 +165,15 @@ fn discovery_eval_table() {
     let fx: Fixture =
         serde_json::from_str(&std::fs::read_to_string(dir.join("questions.json")).unwrap())
             .unwrap();
+    let archive_bytes = std::fs::read(dir.join(&fx.corpus.archive)).unwrap();
+    assert_eq!(
+        archive_bytes.len(),
+        fx.corpus.archive_bytes,
+        "archive changed: a re-pack must update questions.json (archiveBytes, expected ids)"
+    );
     let tmp = tempfile::tempdir().unwrap();
     let store = FileStore::new(tmp.path());
-    archive_unpack(
-        Cursor::new(std::fs::read(dir.join(&fx.corpus.archive)).unwrap()),
-        &store,
-    )
-    .expect("unpack pinned muSrs archive");
+    archive_unpack(Cursor::new(archive_bytes), &store).expect("unpack pinned muSrs archive");
 
     // Not vacuous: the pinned corpus is whole and every expected id exists in it.
     let all: HashSet<String> = find(&store, DiscoveryQuery::default())
@@ -266,7 +276,13 @@ fn discovery_eval_table() {
         );
     }
 
-    let substring_all = results[0].1.recall_all / n;
+    let substring_all = results
+        .iter()
+        .find(|(name, _)| name.starts_with("substring"))
+        .expect("substring baseline present")
+        .1
+        .recall_all
+        / n;
     assert!(
         substring_all >= SUBSTRING_RECALL_ALL_FLOOR,
         "Layer-1 recall@all regressed: {substring_all} < {SUBSTRING_RECALL_ALL_FLOOR}"

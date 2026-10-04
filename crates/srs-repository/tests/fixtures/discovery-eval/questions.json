@@ -3,7 +3,8 @@
     "source": "muDemocracy.org muSrs, packed by `srs archive pack`",
     "sourceCommit": "6e6cd5b0558f184ddfeb243384b3b4dec27b75d5",
     "instances": 886,
-    "archive": "musrs-pinned.srs"
+    "archive": "musrs-pinned.srs",
+    "archiveBytes": 2921288
   },
   "questions": [
     {
