@@ -295,7 +295,6 @@ pub fn find(
     // Deterministic order independent of index/store iteration order.
     candidates.sort_by(|a, b| a.hit.instance_id.cmp(&b.hit.instance_id));
 
-    let total = candidates.len();
     // Facets count the Layer-1 match set: independent of ranking and paging.
     let facets = build_facets(&candidates);
     let mut hits: Vec<DiscoveryHit> = candidates.into_iter().map(|c| c.hit).collect();
