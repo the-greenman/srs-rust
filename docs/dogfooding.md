@@ -3222,6 +3222,18 @@ srs --repo $REPO repo validate                                   # 0 errors
 
 **Verified 2026-10-04 (#1229):** scratch repo per the steps: `--limit 2 --offset 1` returned total 4 with 2 edges; `--direction out --type refines` returned total 1; `repo validate` 0 errors. MCP tool and tree query parameters verified by `crates/srs-mcp/tests/{tools,resources}.rs`.
 
+### S51 — An agent follows a `find` hit without assembling URIs (`find` / `read` over `srs mcp serve`, #1227)
+
+**Intention.** An agent in claude.ai (tools only, no resources) finds a record, then reads it, reads a Tier-0 note, and walks its neighbours using only the URIs the server handed back.
+
+**CLI surface.** `srs find` and the MCP `find` tool: each hit carries `uri`, `typeId`, `containerIds` (declared membership only); `relation neighbours` / MCP `neighbours`: each neighbour carries `uri`; `repo agent-index`: `types[].typeId`, `entryPoints[] = {path, instanceId?, uri?}`; `srs://<repo>/record/{id}` resolves a Tier-0 note.
+
+**Steps.** Drive `srs mcp serve --repo ../../muDemocracy.org/muSrs` over stdio (newline-delimited JSON-RPC): `find {contentMatch:"democracy", limit:3}`; `read {uri: <hit.uri>}`; `find {tier:0, limit:1}` then `read {uri: <note uri>}`; `neighbours {instanceId:<hit>, limit:2}`. Negative: `read` of a `record/` URI naming a missing id returns the not-found MCP error.
+
+**Done when.** Every `read` succeeds with the record or note JSON (the note previously failed with "missing field typeId"); the hit shows non-empty `containerIds`; neighbours carry `uri`.
+
+**Verified 2026-10-04 (#1227):** against muSrs: hit `CP-MECH-01` returned `uri`, `typeId` and 3 `containerIds`; `read` on its uri and on a note's `record/{id}` both returned JSON; `neighbours` total 17 with `uri` on each neighbour.
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -3299,6 +3311,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `render export-bundle` (flat ZIP export: rendered doc + attachments, ADR-035, #289) | S38 (#289); service-layer tests in `export_service.rs` (3 tests: no-attachment, with-attachment, cross-store roundtrip via `tempfile::NamedTempFile`). |
 | `render okf-bundle` (OKF markdown folder export — index.md + per-instance files with YAML frontmatter, descending the full `contains` tree from each direct member, #677/srs-rust#1104) | S45 (#677, re-verified srs-rust#1104); 13 unit tests in `okf_export_service.rs` (empty container, note-only, record-only, mixed, field-value pairs, ordering, display-label multiline strip, slug-collision-safe path via id8, empty-slug fallback, record with field values → field_pairs, two-level `contains` descent, multi-parent dedup, id8-collision fallback to full instance id); WASM binding deferred to #758. |
 | `srs-gov export-decision` (governance operator exports shareable bundle, #289) | S38 (#289); exercises record lookup → view discovery → `render export-bundle` chain; `--explain` pre-stages all 3 underlying srs calls; default output filename (`<id8>.zip`). |
+| `find` hit `uri`/`typeId`/`containerIds`, neighbour `uri`, agent-index `entryPoints` (#1227) | S51 |
 | `mcp serve` (MCP stdio server: resources map/navigation/record/container/view/**type** + all 13 tools: `repo_validate`/`find`/`type_schema`/`record_create`/`relation_create`/`note_create`/`record_update`/`record_transition`/`record_allowed_transitions`/`record_successor`/`note_graduate`/`container_member_add`/`container_member_remove` + **prompts** `prompts/list`/`prompts/get`, ADR-037 + #692 amendment + #682 prompts + **#680 second-wave write tools**) | S42 (incl. the #692 discover-then-author step, #682 prompts step 10b, and #680 second-wave step 10c); 32 crate tests in `crates/srs-mcp/` (13 unit + 13 duplex-transport integration + 6 second-wave integration) + 2 binary-level handshake tests in `crates/srs-cli/tests/mcp_serve.rs` + 4 unit tests in `crates/srs-mcp/src/prompts.rs` |
 
 | RFC-039 revision-2 carrier (`record create`/`update` object `fieldValues` + `fieldMeta`, [R9] rejection, composite values, `type schema` range expansion, `repo apply-migration --id rfc039-carrier`) | S46 (#806); migration service unit tests in `rfc039_carrier_migration_service.rs`; carrier round-trip + order tests in `srs-core` `record.rs`; value-grammar tests in `srs-core` `validation/value_shape.rs` |
