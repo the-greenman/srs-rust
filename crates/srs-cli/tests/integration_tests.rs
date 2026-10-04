@@ -8525,3 +8525,54 @@ fn render_markdown_stdin_needs_no_repo() {
         "<p><em>a</em> &lt;b&gt;x&lt;/b&gt;</p>\n"
     );
 }
+
+#[test]
+fn find_similar_excludes_source_ranks_related_and_rejects_text() {
+    let temp = TempDir::new().expect("temp dir");
+    let repo = temp.path().join("similar");
+    run_srs_in_dir(
+        temp.path(),
+        &[
+            "--repo",
+            repo.to_str().unwrap(),
+            "repo",
+            "create",
+            "--namespace",
+            "com.example.similar",
+            "--package-name",
+            "p",
+            "--package-version",
+            "1.0.0",
+            "--srs-version",
+            "2.0-draft",
+        ],
+    );
+    let dir = repo.as_path();
+    let note = |title: &str, body: &str| -> String {
+        run_srs_stdin_in_dir(
+            dir,
+            &["note", "create"],
+            &serde_json::json!({"title": title, "sections": [{"name": "body", "content": body}]})
+                .to_string(),
+        )["payload"]["note"]["instanceId"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let src = note("Wombat habitat", "wombat burrow habitat drainage");
+    let related = note("Burrow drainage", "wombat burrow flooding");
+    let _other = note("Budget", "quarterly spend review");
+
+    let out = run_srs_in_dir(dir, &["find", "--similar", &src]);
+    assert_eq!(out["ok"], true, "{out:?}");
+    let hits = out["payload"]["result"]["hits"].as_array().unwrap();
+    assert_eq!(hits.len(), 1, "{out:?}");
+    assert_eq!(hits[0]["instanceId"], related.as_str());
+    assert!(hits[0]["score"].as_f64().unwrap() > 0.0);
+
+    let bad = run_srs_in_dir(dir, &["find", "--similar", &src, "--text", "x"]);
+    assert_eq!(
+        bad["ok"], false,
+        "--similar with --text must be refused: {bad:?}"
+    );
+}

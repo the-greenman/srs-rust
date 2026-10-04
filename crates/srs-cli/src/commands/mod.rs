@@ -1881,6 +1881,11 @@ pub struct FindArgs {
     /// Order --text hits by BM25 relevance (fills `score`) instead of by instanceId
     #[arg(long = "rank")]
     pub rank: bool,
+    /// More like this: instances similar to this instance (Record or Note id), ranked by BM25
+    /// over its top-weighted terms, excluding itself. The other filters narrow the candidates;
+    /// not combinable with --text.
+    #[arg(long = "similar", value_name = "INSTANCE_ID")]
+    pub similar: Option<String>,
 }
 
 #[derive(Subcommand)]

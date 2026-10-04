@@ -84,6 +84,7 @@ pub const TOOL_PACKAGE_DEPENDENCY_LIST: &str = "package_dependency_list";
 pub const TOOL_PACKAGE_DEPENDENCY_SET: &str = "package_dependency_set";
 pub const TOOL_PACKAGE_DEPENDENCY_REMOVE: &str = "package_dependency_remove";
 pub const TOOL_NEIGHBOURS: &str = "neighbours";
+pub const TOOL_SIMILAR: &str = "similar";
 /// Agent-facing replies are size-capped: omitted `limit` on `neighbours`, and its ceiling.
 const NEIGHBOURS_DEFAULT_LIMIT: usize = 25;
 const NEIGHBOURS_MAX_LIMIT: usize = 100;
@@ -128,6 +129,14 @@ context/{containerId}/{instanceId}, container/{id}, view/{compositionId}, type/{
 protocol/{id}). For clients that cannot read resources. Output text is capped at 96000 bytes (before the notice); a longer \
 resource is cut with a trailing notice and structuredContent.truncated = true — then use find \
 {limit}, tree/{instanceId}, container_outline or record/{id} for a bounded read.";
+
+pub const DESC_SIMILAR: &str = "More like this: instances whose text overlaps the most \
+characteristic terms of one instance (instanceId), ranked by the same BM25 index as find. Use it \
+after find to ask what else in the repository is about a record, including content that uses \
+different wording from a query you would have guessed. Returns find-shaped hits (instanceId, uri, \
+label, type, score), best first, never the source itself. The structured filters of find (typeId, \
+typeNamespace, typeName, containerId, tag, lifecycleState, tier, ...) narrow the candidates; \
+there is no contentMatch. Deterministic and lexical: no embeddings. limit defaults to 25.";
 
 pub const DESC_FIND: &str = "Deterministic discovery query (ext:discovery). All axes are \
 optional and AND-combined: typeId, typeNamespace, typeName, containerId, tag (repeatable; \
@@ -331,6 +340,56 @@ pub struct FindToolInput {
     /// Order hits by BM25 relevance (fills `score`) instead of by instanceId.
     /// Defaults to true; the set of hits is the same either way.
     pub rank: Option<bool>,
+}
+
+/// Input of the `similar` tool: the source `instanceId` plus find's structured filters
+/// (no `contentMatch`: the source is the query).
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SimilarToolInput {
+    /// The instance (Record or Note) to find neighbours of.
+    pub instance_id: String,
+    pub type_id: Option<String>,
+    pub type_namespace: Option<String>,
+    pub type_name: Option<String>,
+    pub container_id: Option<String>,
+    /// AND-conjunction: the instance's tags must contain ALL specified values.
+    #[serde(default)]
+    pub tag: Vec<String>,
+    pub lifecycle_state: Option<String>,
+    #[serde(default)]
+    pub lifecycle_states: Vec<String>,
+    #[serde(default)]
+    pub exclude_lifecycle_states: Vec<String>,
+    /// Instance tier (0=Note, 2=Record).
+    pub tier: Option<u8>,
+    /// Maximum hits to return (default 25); `total` is the full count of similar instances.
+    pub limit: Option<usize>,
+    /// Number of hits to skip (default 0).
+    pub offset: Option<usize>,
+}
+
+impl SimilarToolInput {
+    fn into_parts(self) -> (String, DiscoveryQuery, FindPage) {
+        let page = FindPage {
+            limit: Some(self.limit.unwrap_or(FIND_DEFAULT_LIMIT)),
+            offset: self.offset.unwrap_or(0),
+            rank: true,
+        };
+        let query = DiscoveryQuery {
+            type_id: self.type_id,
+            type_namespace: self.type_namespace,
+            type_name: self.type_name,
+            container_id: self.container_id,
+            tag: self.tag,
+            lifecycle_state: self.lifecycle_state,
+            lifecycle_states: self.lifecycle_states,
+            exclude_lifecycle_states: self.exclude_lifecycle_states,
+            tier: self.tier,
+            content_match: None,
+        };
+        (self.instance_id, query, page)
+    }
 }
 
 impl From<FindToolInput> for DiscoveryQuery {
@@ -1112,6 +1171,7 @@ pub fn list_tools() -> Value {
             DESC_NEIGHBOURS,
             input_schema::<NeighboursToolInput>(),
         ),
+        tool(TOOL_SIMILAR, DESC_SIMILAR, input_schema::<SimilarToolInput>()),
     ] })
 }
 
@@ -1272,6 +1332,13 @@ pub fn call_tool(
                 rank: input.rank.unwrap_or(true),
             };
             match discovery_service::find(store, input.into(), page) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_SIMILAR => {
+            let (id, query, page) = parse_args::<SimilarToolInput>(arguments)?.into_parts();
+            match discovery_service::similar(store, &id, query, page) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
@@ -1788,6 +1855,7 @@ mod tests {
                 TOOL_PACKAGE_DEPENDENCY_SET,
                 TOOL_PACKAGE_DEPENDENCY_REMOVE,
                 TOOL_NEIGHBOURS,
+                TOOL_SIMILAR,
             ]
         );
         for tool in &tools {

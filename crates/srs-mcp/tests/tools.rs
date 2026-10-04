@@ -1597,3 +1597,60 @@ async fn tool_neighbours_pages_filters_and_matches_service() {
     assert_eq!(missing.is_error, Some(true));
     client.cancel().await.unwrap();
 }
+
+#[tokio::test]
+async fn tool_similar_matches_service_and_excludes_source() {
+    let fx = make_fixture();
+    let client = connect(&fx).await;
+    let mut ids = vec![];
+    for (title, body) in [
+        ("Wombat habitat", "wombat burrow habitat drainage"),
+        ("Burrow drainage", "wombat burrow flooding"),
+        ("Budget", "quarterly spend review"),
+    ] {
+        let created = call(
+            &client,
+            "note_create",
+            serde_json::json!({ "title": title, "sections": [{ "name": "body", "content": body, "label": "Body" }] }),
+        )
+        .await;
+        ids.push(
+            created.structured_content.unwrap()["instanceId"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        );
+    }
+    let r = call(
+        &client,
+        "similar",
+        serde_json::json!({ "instanceId": ids[0] }),
+    )
+    .await;
+    assert_eq!(r.is_error, Some(false), "{r:?}");
+    let store = FileStore::new(fx.dir.path());
+    let direct = discovery_service::similar(
+        &store,
+        &ids[0],
+        DiscoveryQuery::default(),
+        FindPage {
+            limit: Some(25),
+            rank: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    // (f32 scores re-serialise at slightly different f64 digits, so compare the shape, not bytes.)
+    let got = r.structured_content.as_ref().unwrap();
+    assert_eq!(got["total"], direct.total);
+    assert_eq!(
+        got["hits"][0]["instanceId"],
+        direct.hits[0].instance_id.as_str()
+    );
+    let hits = direct
+        .hits
+        .iter()
+        .map(|h| h.instance_id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(hits, vec![ids[1].as_str()]);
+}
