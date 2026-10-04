@@ -258,10 +258,10 @@ fn discovery_eval_table() {
     }
 
     let n = fx.questions.len() as f64;
-    println!("\nmethod                 recall@10  recall@all  MRR");
+    println!("\nmethod                                    recall@10  recall@all  MRR");
     for (name, t) in &results {
         println!(
-            "{:<22} {:>9.3}  {:>10.3}  {:.3}",
+            "{:<41} {:>9.3}  {:>10.3}  {:.3}",
             name,
             t.recall10 / n,
             t.recall_all / n,
