@@ -118,27 +118,37 @@ pub fn find(
     query: DiscoveryQuery,
     page: FindPage,
 ) -> Result<DiscoveryResult, RepositoryError> {
-    let diagnostics = Vec::new();
+    let mut diagnostics = Vec::new();
+    if !unresolved_filters(store, &query, &mut diagnostics)? {
+        return Ok(DiscoveryResult {
+            hits: Vec::new(),
+            total: 0,
+            diagnostics,
+        });
+    }
 
     // One field-metadata pass: the text index also carries the field_id → name map
     // that Tier-2 hit-label resolution needs, so we avoid a second `list_fields` scan.
     let field_text_index = text_projection::build_field_text_index(store)?;
 
-    let needle = query
+    // All-words match (srs-rust#1218): a superset of the phrase match, so the
+    // RFC-012 recall floor holds.
+    let words: Vec<String> = query
         .content_match
         .as_deref()
-        .map(text_projection::normalize)
-        .filter(|q| !q.is_empty());
+        .map(|q| {
+            text_projection::normalize(q)
+                .split_whitespace()
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let needle = (!words.is_empty()).then_some(words.as_slice());
 
     let mut hits = Vec::new();
 
     if query.tier.is_none() || query.tier == Some(2) {
-        hits.extend(find_tier2(
-            store,
-            &query,
-            &field_text_index,
-            needle.as_deref(),
-        )?);
+        hits.extend(find_tier2(store, &query, &field_text_index, needle)?);
     }
 
     // Tier 0 carries no typeId/typeNamespace/typeName/lifecycleState — a query
@@ -150,7 +160,7 @@ pub fn find(
         || !query.lifecycle_states.is_empty();
 
     if !tier2_only_predicate && (query.tier.is_none() || query.tier == Some(0)) {
-        hits.extend(find_tier0(store, &query, needle.as_deref())?);
+        hits.extend(find_tier0(store, &query, needle)?);
     }
 
     // Deterministic order independent of index/store iteration order.
@@ -234,24 +244,89 @@ pub(crate) fn record_matches_structured_predicates(
     true
 }
 
-/// Run the content-match recall floor over a projected segment stream: the first
-/// matching segment's raw text becomes the snippet; every distinct matching field
-/// name (first-seen order) becomes `matched_fields`.
-fn match_content(segments: Vec<TextSegment>, needle: &str) -> (Vec<String>, Option<String>) {
+/// Run the content-match recall floor over a projected segment stream. A record
+/// matches when every word of `words` occurs in some segment (any field, any order).
+/// The first segment containing a word supplies the snippet (windowed on that word);
+/// every field with a matching segment becomes `matched_fields` (first-seen order).
+/// Empty result means no match.
+fn match_content(segments: Vec<TextSegment>, words: &[String]) -> (Vec<String>, Option<String>) {
     let mut matched_fields = Vec::new();
     let mut seen_fields = HashSet::new();
+    let mut found = vec![false; words.len()];
     let mut snippet = None;
     for seg in segments {
-        if text_projection::normalize(&seg.text).contains(needle) {
+        let norm = text_projection::normalize(&seg.text);
+        let mut first_hit = None;
+        for (i, w) in words.iter().enumerate() {
+            if norm.contains(w.as_str()) {
+                found[i] = true;
+                first_hit.get_or_insert(w);
+            }
+        }
+        if let Some(w) = first_hit {
             if snippet.is_none() {
-                snippet = Some(snippet_window(&seg.text, needle));
+                snippet = Some(snippet_window(&seg.text, w));
             }
             if seen_fields.insert(seg.field_name.clone()) {
                 matched_fields.push(seg.field_name);
             }
         }
     }
-    (matched_fields, snippet)
+    if found.iter().all(|f| *f) {
+        (matched_fields, snippet)
+    } else {
+        (Vec::new(), None)
+    }
+}
+
+/// Warn (never error) when a type or container filter names nothing, so a typo is
+/// not indistinguishable from "no matches". Returns false when the query cannot
+/// match anything (an unknown container), true otherwise.
+fn unresolved_filters(
+    store: &dyn RepositoryStore,
+    query: &DiscoveryQuery,
+    diagnostics: &mut Vec<String>,
+) -> Result<bool, RepositoryError> {
+    let mut resolvable = true;
+    if let Some(cid) = &query.container_id {
+        let missing = match container_service::get_container(store, cid) {
+            Ok(_) => false,
+            Err(RepositoryError::ContainerNotFound { .. }) => true,
+            Err(e) => return Err(e),
+        };
+        if missing {
+            diagnostics.push(format!(
+                "warning: containerId '{cid}' names no container; no instances can match"
+            ));
+            resolvable = false;
+        }
+    }
+    if query.type_id.is_some() || query.type_namespace.is_some() || query.type_name.is_some() {
+        let types = crate::package_service::list_types(store)?;
+        let known = |f: &dyn Fn(&crate::package_service::TypeSummary) -> bool| types.iter().any(f);
+        if let Some(id) = &query.type_id {
+            if !known(&|t| &t.id == id) {
+                diagnostics.push(format!("warning: typeId '{id}' names no type"));
+            }
+        }
+        if query.type_namespace.is_some() || query.type_name.is_some() {
+            let hit = known(&|t| {
+                query
+                    .type_namespace
+                    .as_ref()
+                    .is_none_or(|n| &t.namespace == n)
+                    && query.type_name.as_ref().is_none_or(|n| &t.name == n)
+            });
+            if !hit {
+                diagnostics.push(format!(
+                    "warning: type '{}/{}' names no type (expected namespace/name)",
+                    query.type_namespace.as_deref().unwrap_or("*"),
+                    query.type_name.as_deref().unwrap_or("*")
+                ));
+            }
+        }
+    }
+    Ok(resolvable)
 }
 
 /// Resolve the container membership set once, if `container_id` is scoped.
@@ -274,7 +349,7 @@ fn find_tier2(
     store: &dyn RepositoryStore,
     query: &DiscoveryQuery,
     field_text_index: &FieldTextIndex,
-    needle: Option<&str>,
+    needle: Option<&[String]>,
 ) -> Result<Vec<DiscoveryHit>, RepositoryError> {
     // Push type ns/name, container, and the first tag into the store query; the
     // remaining predicates are applied in-service below.
@@ -329,7 +404,7 @@ fn find_tier2(
 fn find_tier0(
     store: &dyn RepositoryStore,
     query: &DiscoveryQuery,
-    needle: Option<&str>,
+    needle: Option<&[String]>,
 ) -> Result<Vec<DiscoveryHit>, RepositoryError> {
     let members = member_set(store, &query.container_id)?;
     let cat = store.catalog()?;
@@ -614,6 +689,69 @@ mod tests {
         .unwrap();
         // ID2 is superseded and must be hidden; ID1 (ratified) + ID3 (draft) remain.
         assert_eq!(ids(&result), vec![ID1, ID3]);
+    }
+
+    #[test]
+    fn content_match_is_all_words_any_order_any_field_and_superset_of_phrase() {
+        let store = store_with(fixtures());
+        let q = |m: &str| DiscoveryQuery {
+            content_match: Some(m.to_string()),
+            ..Default::default()
+        };
+        // Phrase match (title only) stays a match.
+        let phrase = find(&store, q("consent process"), FindPage::default()).unwrap();
+        assert_eq!(ids(&phrase), vec![ID1]);
+        // Reversed order, and words split across title + statement fields.
+        let rev = find(&store, q("process consent"), FindPage::default()).unwrap();
+        assert_eq!(ids(&rev), vec![ID1]);
+        let split = find(&store, q("adopt changes"), FindPage::default()).unwrap();
+        assert_eq!(ids(&split), vec![ID1]);
+        assert!(split.hits[0].matched_fields.len() >= 2);
+        assert!(split.hits[0].snippet.is_some());
+        // One missing word => no match.
+        let none = find(&store, q("consent zzz"), FindPage::default()).unwrap();
+        assert_eq!(none.total, 0);
+    }
+
+    #[test]
+    fn unknown_type_and_container_filters_warn() {
+        let store = store_with(fixtures());
+        let r = find(
+            &store,
+            DiscoveryQuery {
+                type_id: Some("nope".to_string()),
+                container_id: Some("nada".to_string()),
+                ..Default::default()
+            },
+            FindPage::default(),
+        )
+        .unwrap();
+        assert_eq!(r.total, 0);
+        assert!(r
+            .diagnostics
+            .iter()
+            .any(|d| d.contains("containerId 'nada'")));
+        let r = find(
+            &store,
+            DiscoveryQuery {
+                type_id: Some("nope".to_string()),
+                ..Default::default()
+            },
+            FindPage::default(),
+        )
+        .unwrap();
+        assert!(r.diagnostics.iter().any(|d| d.contains("typeId 'nope'")));
+        let r = find(
+            &store,
+            DiscoveryQuery {
+                type_namespace: Some("x".to_string()),
+                type_name: Some("y".to_string()),
+                ..Default::default()
+            },
+            FindPage::default(),
+        )
+        .unwrap();
+        assert!(r.diagnostics.iter().any(|d| d.contains("x/y")));
     }
 
     #[test]

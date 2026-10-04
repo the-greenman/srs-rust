@@ -132,9 +132,12 @@ resource is cut with a trailing notice and structuredContent.truncated = true â€
 pub const DESC_FIND: &str = "Deterministic discovery query (ext:discovery). All axes are \
 optional and AND-combined: typeId, typeNamespace, typeName, containerId, tag (repeatable; \
 instance must carry ALL), lifecycleState, excludeLifecycleStates, tier, and contentMatch \
-(recall-floor substring over every searchable text field, not just the title). Returns hits \
-with instanceId, label, type, lifecycleState, snippet, and matchedFields. This build serves \
-Tier 2 (typed Records); other tier values return zero hits with a diagnostic.";
+(recall floor: matches records containing every whitespace-separated word, in any field and any \
+order, not just the title; a phrase match is always included). Types are written \
+'namespace/name'. Returns hits with instanceId, label, type, lifecycleState, snippet, and \
+matchedFields. Serves Tier 2 (Records) and Tier 0 (Notes; type and lifecycle filters exclude \
+them). A typeId, type, or containerId that names nothing returns zero hits with a warning \
+diagnostic.";
 
 pub const DESC_RECORD_CREATE: &str = "Create a typed Tier-2 Record. 'type' is \
 'namespace/name'; read the type's schema first via the type_schema tool or the \

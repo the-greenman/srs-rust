@@ -29,7 +29,7 @@ sectionContainerId when they root a sub-container. Read individual records via t
 srs://<repositoryId>/record/{instanceId} resource template (or everything about one record, relations and \
 arrangement subtree included, via srs://<repositoryId>/context/{containerId}/{instanceId}, optionally with ?excludeRelationCategories=composition,sequence to drop structural edges; for a hub record with many edges use the bounded `neighbours` tool instead), containers via \
 srs://<repositoryId>/container/<containerId>, and rendered document views via \
-srs://<repositoryId>/view/<compositionId>. Type schemas live at \
+srs://<repositoryId>/composition/<compositionId>. Type schemas live at \
 srs://<repositoryId>/type/{typeId} (also via the type_schema tool): read one before \
 authoring records of an unfamiliar type — its properties are keyed by Field.name (the \
 same keys record_create fieldValues uses, RFC-039) and carry aiGuidance. Protocols (staged \
