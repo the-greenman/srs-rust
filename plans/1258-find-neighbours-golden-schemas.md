@@ -51,7 +51,7 @@ Mirrors are declared twins of the service types, parity gate = fidelity test. AD
 
 - [x] Add mirror structs and `From` impls in `payload.rs`
 - [x] Switch `FindPayload`/`NeighboursPayload` and handlers
-- [x] Add `crates/srs-cli/tests/payload_mirror_fidelity.rs`: fixtures exercise every Option Some/None, facets empty/non-empty, `notes`/`other` zero/non-zero, flatten, both directions, f32 score; compare as `serde_json::Value`; plus one run of real `find`/`neighbours` service output on a small repo
+- [x] Add `crates/srs-cli/tests/payload_mirror_fidelity.rs`: fixtures exercise every Option Some/None, facets empty/non-empty, `notes`/`other` zero/non-zero, flatten, both directions, f32 score; compare as `serde_json::Value`; real `find`/`neighbours` output is checked against the goldens in the dogfood pass (docs/dogfooding.md S50), not in the unit test
 - [x] Run `generate-schemas`, commit goldens
 - [x] Validate gate bites (manual, not a deliverable): rename a hit field in the mirror, `payload_contracts` fails; add a field to `DiscoveryHit`, compile fails; revert all
 

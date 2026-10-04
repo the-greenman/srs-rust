@@ -1600,7 +1600,7 @@ pub struct ProjectedRecord {
     /// same order/condition as the markdown/html/adoc renderer's structured
     /// heading recursion. Omitted when the section has no `titleFieldId`, or
     /// the record has no `contains` children.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<ProjectedRecord>,
 }
 
@@ -1617,7 +1617,7 @@ pub struct ProjectedSection {
     /// `container-subset` source with `containerScope: "subtree"`. Omitted
     /// (never flattened into `records`) when this section renders no
     /// nested section.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub sections: Vec<ProjectedSection>,
 }
 
@@ -2889,7 +2889,7 @@ pub struct ExportBundlePayload {
     pub rendered_filename: String,
     pub attachment_count: usize,
     pub output_path: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<String>,
 }
 
@@ -2898,7 +2898,7 @@ pub struct ExportBundlePayload {
 pub struct OkfBundlePayload {
     pub file_count: usize,
     pub output_dir: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<String>,
 }
 

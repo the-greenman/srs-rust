@@ -3,6 +3,7 @@
   "title": "OkfBundlePayload",
   "type": "object",
   "required": [
+    "diagnostics",
     "fileCount",
     "outputDir"
   ],
