@@ -1253,7 +1253,8 @@ fn utf8_floor(s: &str, max: usize) -> usize {
 /// returned as a tool result and capped at [`MAX_READ_BYTES`] (policy, not protocol). Needs the
 /// repository id, so `SrsMcpApplication` routes it here instead of through [`call_tool`]; it
 /// is read-only and deliberately bypasses the write guard and change drain (ADR-049).
-/// `structuredContent` is metadata only (the payload is the text, not doubled). A truncated
+/// `structuredContent` carries the same text as `content[0].text` (for clients that surface only
+/// structured content) plus metadata. A truncated
 /// JSON text is no longer valid JSON: `structuredContent.truncated` is the contract.
 pub fn read_tool(
     store: &dyn RepositoryStore,
@@ -1287,9 +1288,10 @@ srs://{repository_id}/tree/{{instanceId}}, container_outline, or srs://{reposito
         ));
     }
     Ok(json!({
-        "content": [{ "type": "text", "text": text }],
+        "content": [{ "type": "text", "text": &text }],
         "structuredContent": {
             "uri": input.uri,
+            "text": text,
             "mimeType": part["mimeType"],
             "truncated": truncated,
             "totalBytes": total,
