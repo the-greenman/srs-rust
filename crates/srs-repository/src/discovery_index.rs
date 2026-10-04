@@ -12,6 +12,10 @@
 //! a Layer-1 candidate normally has a non-zero score (a word spanning two segments scores 0 but is still returned). Length normalisation keeps the 34K-char
 //! run-reports from dominating.
 //!
+//! Build cost is one pass over every record and note, paid once per store write epoch where the
+//! store has a cache slot (`FileStore`); other stores rebuild per ranked query. The index depends
+//! only on the corpus, never on the query's filters.
+//!
 //! ponytail: document frequency is a substring scan over the cached normalized text
 //! (O(corpus) per query word). Add a token-keyed inverted index if a corpus outgrows that.
 
