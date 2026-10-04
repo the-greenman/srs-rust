@@ -319,6 +319,8 @@ pub struct NeighboursPage {
 #[serde(rename_all = "camelCase")]
 pub struct NeighbourSummary {
     pub instance_id: String,
+    /// `srs://<repo>/record/<id>`, the same URI a `find` hit carries (#1227).
+    pub uri: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -395,6 +397,8 @@ pub fn list_neighbours(
     let total = edges.len();
     // Label indexes only matter for Tier-2 neighbours; tolerate a package that will not load.
     let indexes = crate::record_label::build_label_indexes(store).ok();
+    let manifest = store.load_manifest()?;
+    let repo_id = crate::resource_uri::repository_id(&manifest).unwrap_or_default();
     let neighbours = edges
         .into_iter()
         .skip(page.offset)
@@ -419,6 +423,7 @@ pub fn list_neighbours(
                 relation_id: r.relation_id,
                 relation_type: r.relation_type,
                 neighbour: NeighbourSummary {
+                    uri: crate::resource_uri::record_uri(repo_id, &other),
                     instance_id: other,
                     label,
                     type_namespace,
@@ -1240,6 +1245,10 @@ mod tests {
         .unwrap();
         assert_eq!(out.total, 1);
         assert_eq!(out.neighbours[0].neighbour.instance_id, target);
+        assert!(out.neighbours[0]
+            .neighbour
+            .uri
+            .ends_with(&format!("/record/{target}")));
         assert!(out.neighbours[0].neighbour.label.is_some());
         assert_eq!(
             out.neighbours[0].neighbour.type_name.as_deref(),

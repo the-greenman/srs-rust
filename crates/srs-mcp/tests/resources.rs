@@ -274,6 +274,29 @@ async fn read_text(
 }
 
 #[tokio::test]
+async fn read_record_resolves_a_tier0_note() {
+    let fx = make_fixture();
+    std::fs::create_dir_all(fx.dir.path().join("records/notes")).unwrap();
+    let note_id = uuid::Uuid::new_v4().to_string();
+    std::fs::write(
+        fx.dir.path().join(format!("records/notes/{note_id}.json")),
+        serde_json::json!({
+            "instanceId": note_id,
+            "title": "A note",
+            "sections": [{"name": "body", "content": "hello"}]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let client = connect(&fx).await;
+    let (_, text) = read_text(&client, format!("srs://{}/record/{}", fx.repo_id, note_id)).await;
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(v["instanceId"], note_id.as_str());
+    assert_eq!(v["title"], "A note");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn read_record_matches_service_output() {
     let fx = make_fixture();
     let client = connect(&fx).await;

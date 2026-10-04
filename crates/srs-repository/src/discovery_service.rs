@@ -23,6 +23,7 @@ use crate::container_service;
 use crate::error::RepositoryError;
 use crate::record_label;
 use crate::record_store::{self, RecordListFilter};
+use crate::resource_uri;
 use crate::store::RepositoryStore;
 use crate::text_projection::{self, FieldTextIndex, TextSegment};
 use serde::{Deserialize, Serialize};
@@ -50,11 +51,18 @@ pub struct DiscoveryResult {
 #[serde(rename_all = "camelCase")]
 pub struct DiscoveryHit {
     pub instance_id: String,
+    /// `srs://<repo>/record/<id>`: readable as-is by the MCP `read` tool / resource.
+    pub uri: String,
     pub label: String,
-    /// `None` for Tier 0/1 instances, which carry no type binding.
+    /// The bound Type's id (readable at `srs://<repo>/type/{typeId}`); `None` for Tier 0 notes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_id: Option<String>,
+    /// Ids of the containers that declare this instance as a member.
+    pub container_ids: Vec<String>,
+    /// `None` for Tier 0 instances, which carry no type binding.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub type_namespace: Option<String>,
-    /// `None` for Tier 0/1 instances, which carry no type binding.
+    /// `None` for Tier 0 instances, which carry no type binding.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub type_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -167,11 +175,27 @@ pub fn find(
     hits.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
 
     let total = hits.len();
-    let hits = hits
+    let mut hits: Vec<DiscoveryHit> = hits
         .into_iter()
         .skip(page.offset)
         .take(page.limit.unwrap_or(usize::MAX))
         .collect();
+
+    // Navigation fields, filled for the returned page only.
+    let manifest = store.load_manifest()?;
+    let repo_id = resource_uri::repository_id(&manifest).unwrap_or_default();
+    let memberships = if hits.is_empty() {
+        Default::default()
+    } else {
+        container_service::membership_index(store)?
+    };
+    for hit in &mut hits {
+        hit.uri = resource_uri::record_uri(repo_id, &hit.instance_id);
+        hit.container_ids = memberships
+            .get(&hit.instance_id)
+            .cloned()
+            .unwrap_or_default();
+    }
     Ok(DiscoveryResult {
         hits,
         total,
@@ -382,6 +406,9 @@ fn find_tier2(
 
         hits.push(DiscoveryHit {
             instance_id: record.instance_id.clone(),
+            uri: String::new(),
+            type_id: Some(record.type_id.clone()),
+            container_ids: Vec::new(),
             label: record_label::record_display_label(
                 record,
                 field_text_index.identity_field_ids(),
@@ -442,6 +469,9 @@ fn find_tier0(
                 .clone()
                 .unwrap_or_else(|| note.instance_id.clone()),
             instance_id: note.instance_id,
+            uri: String::new(),
+            type_id: None,
+            container_ids: Vec::new(),
             type_namespace: None,
             type_name: None,
             lifecycle_state: None,
@@ -837,6 +867,21 @@ mod tests {
             serde_json::to_value(&from_file).unwrap(),
             "DiscoveryResult must be identical across stores (memory -> file)"
         );
+    }
+
+    #[test]
+    fn hits_are_navigable() {
+        let store = store_with_note();
+        let r = find(&store, DiscoveryQuery::default(), FindPage::default()).unwrap();
+        let manifest = store.load_manifest().unwrap();
+        let repo = resource_uri::repository_id(&manifest).unwrap_or_default();
+        for h in &r.hits {
+            assert_eq!(h.uri, format!("srs://{repo}/record/{}", h.instance_id));
+        }
+        let note = r.hits.iter().find(|h| h.instance_id == NOTE1).unwrap();
+        assert!(note.type_id.is_none());
+        let rec = r.hits.iter().find(|h| h.type_id.is_some()).unwrap();
+        assert!(!rec.type_id.as_deref().unwrap().is_empty());
     }
 
     #[test]
