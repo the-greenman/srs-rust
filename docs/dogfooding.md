@@ -3264,6 +3264,31 @@ srs --repo $REPO repo validate                                   # 0 errors
 
 **Verified 2026-10-04 (#1230):** against muSrs (886 instances): the archetype `Initiator` returned 17 neighbours (archetypes Steward and Analyst, a question, claim C-13, a persona) in 0.7 s; `--tier 0` returned 6 notes; both negative cases refused as above.
 
+### S54 — Upgrade an installed package to a newer release without losing local work (`srs package upgrade`, #1152)
+
+**Intention.** The essay package I installed has shipped a new release. I want its new definitions and versions, its in-place fixes where I did not touch the file, and a plain report of anything it could not safely change. My records must stay as they are.
+
+**CLI surface.** `srs package upgrade --bundle <file> [--dry-run] [--boundary <path>]`; WASM `upgrade_package_bundle(bundle_json, options_json)` (native coverage in `crates/srs-bindings/tests/package_bundle.rs`); no MCP tool, because install has none. Rules: RFC-014 R2/R3/R6, owner rulings 2026-10-05 (srs#890).
+
+**Steps.** Install a 1.3.0 bundle, then upgrade with a 1.5.0 bundle that adds a field, adds type v2, and changes type v1 in place. The runnable script is the test fixture's shape in `crates/srs-repository/tests/package_upgrade.rs`; the CLI run:
+
+```bash
+SRS=$PWD/target/debug/srs; R=/tmp/dogfood-s54-repo
+$SRS repo create --repo $R --namespace com.example.s54 > /dev/null
+$SRS package install --bundle old-1.3.0.srspkg --repo $R
+$SRS package upgrade --bundle new-1.5.0.srspkg --dry-run --repo $R   # the plan; nothing written
+$SRS package upgrade --bundle new-1.5.0.srspkg --repo $R             # added extra, newVersions essay@2, updated essay@1
+$SRS package upgrade --bundle new-1.5.0.srspkg --repo $R             # all unchanged: a no-op
+$SRS package imports --repo $R                                       # every record clean
+$SRS repo validate --repo $R                                         # 0 errors
+```
+
+**Done when.** The dry run returns the same plan the real run applies and changes no file; the real run bumps the boundary version, keeps both type versions, and reports `added`, `newVersions` and `updated`; the re-run reports everything `unchanged`; `package imports` is all `clean`; `repo validate` has 0 errors.
+
+**Negative case.** A lower bundle version is refused (`downgrade refused`). A package that is not installed is refused (`not installed; use install`). Edit the installed type file by hand and upgrade with a bundle that changes it again: the result lists it under `conflicts` with `conflictKind: "local-edit"` and the file keeps your edit. A definition dropped from the bundle is listed in `removedUpstream` and its file stays.
+
+**Verified 2026-10-05 (#1152):** all of the above run on the branch binary; the real run returned `added` field `extra`, `newVersions` type `essay@2`, `updated` type `essay@1`, `unchanged` field `title`; re-run 4 unchanged; imports all clean; validate 0 errors; downgrade and not-installed refused; local edit reported as a conflict and kept.
+
 ## S46 — Hand off one container as a standalone slice (`srs slice export`, RFC-026, #631)
 
 **Intention:** I want to give someone one part of a repository, such as an essay, a guide or a tension set, as a `.srs` that opens and validates on its own. The slice should carry the packages it needs unchanged and say exactly which relations were cut.
@@ -3374,7 +3399,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `federation` (ext:federation) | _removed — srs decision 4f1e12e5 + owner disposition srs-rust#878 (2026-09-01); return is committed, see the spec roadmap's federation entry; S26 retired with it_ |
 | `relation neighbours` (bounded neighbour page, #1229) | S50 |
 | `context` (ext:addressability — `context field`, `context record`) | S48 (`context record` both-direction relations + `--container` subtree, #1134); S27 (historical — `context revision`/revision-tracing removed srs-rust#917); WASM bindings (`context_field`, `context_record` on `SrsRepository`) verified via native integration tests in `crates/srs-bindings/tests/context_query.rs` (#251) |
-| `package` | CLI: covered implicitly by field/type creation in S2; **`srs package install`/`srs package import`/`srs package imports`** end-to-end in S29 (#246); WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330); **`srs package export` / `srs package install --bundle`** (`.srspkg`, ADR-050) in S49 (#632/#690); RFC-003 Rev 10 (#1212): `--mode bundled|standalone`, `--homepage`, `dependencyRefs`/`dependencyRefCount`, repository-stamped `dataModelRevision`, the [C6] reader step chain (`bundle-migration-step-missing`), the below-floor export note and the standalone-without-dependencies [R13] consequence, all in S49; WASM `export_package_bundle` / `install_package_bundle` via `crates/srs-bindings/tests/package_bundle.rs` (#663) |
+| `package` | CLI: covered implicitly by field/type creation in S2; **`srs package install`/`srs package import`/`srs package imports`** end-to-end in S29 (#246); WASM read binding (`list_packages`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#330); **`srs package export` / `srs package install --bundle`** (`.srspkg`, ADR-050) in S49 (#632/#690); RFC-003 Rev 10 (#1212): `--mode bundled|standalone`, `--homepage`, `dependencyRefs`/`dependencyRefCount`, repository-stamped `dataModelRevision`, the [C6] reader step chain (`bundle-migration-step-missing`), the below-floor export note and the standalone-without-dependencies [R13] consequence, all in S49; WASM `export_package_bundle` / `install_package_bundle` via `crates/srs-bindings/tests/package_bundle.rs` (#663); **`srs package upgrade`** (+ WASM `upgrade_package_bundle`) in S54 (#1152) |
 | `attachment list` | S31 |
 | `attachment add` | S32 |
 | `attachment link` | S34 (#283); service-layer tests in `attachment_service.rs` (MemoryStore + FileStore). WASM binding is a follow-up. |

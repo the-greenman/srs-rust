@@ -1720,6 +1720,21 @@ pub enum PackageCommand {
         #[arg(long)]
         strict: bool,
     },
+    /// Upgrade an installed package boundary from a newer `.srspkg` Package Bundle
+    /// (new definitions and versions installed alongside; a clean same-version
+    /// definition is overwritten, a locally edited one is reported and kept;
+    /// nothing is deleted; records are never touched)
+    Upgrade {
+        /// The `.srspkg` Package Bundle file
+        #[arg(long)]
+        bundle: PathBuf,
+        /// Compute and print the plan without writing anything
+        #[arg(long)]
+        dry_run: bool,
+        /// The installed boundary to upgrade (default: the one installed with the bundle's packageId)
+        #[arg(long)]
+        boundary: Option<String>,
+    },
     /// Export a package boundary as a deterministic `.srspkg` Package Bundle
     /// (ADR-050). The reported sha256 is `sha256:<64 lowercase hex>` of the file;
     /// pass a fixed `--published-at` for a reproducible hash.

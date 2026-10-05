@@ -1,0 +1,214 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PackageUpgradePayload",
+  "description": "`srs package upgrade` (#1152): the upgrade plan / outcome. Lists hold `{kind, id, version, name}`.",
+  "type": "object",
+  "required": [
+    "added",
+    "conflicts",
+    "dependencyWarnings",
+    "dryRun",
+    "name",
+    "newVersions",
+    "notes",
+    "packageId",
+    "previousVersion",
+    "removedUpstream",
+    "unchanged",
+    "updated",
+    "upgraded",
+    "version"
+  ],
+  "properties": {
+    "added": {
+      "description": "New definition UUIDs.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageUpgradeItem"
+      }
+    },
+    "conflicts": {
+      "description": "Not written: `local-edit`, `no-reference-copy` or `key-collision`.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageUpgradeConflict"
+      }
+    },
+    "dependencyWarnings": {
+      "description": "Unsatisfied RFC-044 requirements of the bundle; never blocking.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageDependencyEntry"
+      }
+    },
+    "dryRun": {
+      "type": "boolean"
+    },
+    "name": {
+      "type": "string"
+    },
+    "newVersions": {
+      "description": "New versions of an installed UUID, installed alongside the old ones.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageUpgradeItem"
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "packageId": {
+      "type": "string"
+    },
+    "previousVersion": {
+      "type": "string"
+    },
+    "removedUpstream": {
+      "description": "Installed from this package but absent from the bundle; kept, never deleted.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageUpgradeItem"
+      }
+    },
+    "unchanged": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageUpgradeItem"
+      }
+    },
+    "updated": {
+      "description": "Same UUID and version, changed upstream, local copy clean: overwritten.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageUpgradeItem"
+      }
+    },
+    "upgraded": {
+      "description": "The boundary version was (dry run: would be) bumped.",
+      "type": "boolean"
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "PackageDependencyEntry": {
+      "type": "object",
+      "required": [
+        "candidateVersions",
+        "mismatchedLabels",
+        "name",
+        "namespace",
+        "satisfied",
+        "version"
+      ],
+      "properties": {
+        "candidateVersions": {
+          "description": "Installed version of each candidate (`null` = unknown).",
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "mismatchedLabels": {
+          "description": "Candidate `namespace/name` labels that differ from the entry's.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "description": "Display label.",
+          "type": "string"
+        },
+        "namespace": {
+          "description": "Display label.",
+          "type": "string"
+        },
+        "packageId": {
+          "description": "The required package's `id`; `null` for a legacy entry ([R11]).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "description": "One of `no-package-id`, `self-requirement`, `missing`, `version-unknown`, `incompatible`, `prerelease-excluded`, `version-too-low`; `null` when satisfied.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "satisfied": {
+          "type": "boolean"
+        },
+        "version": {
+          "description": "SemVer 2.0.0 requirement (RFC-044 [R3]).",
+          "type": "string"
+        }
+      }
+    },
+    "PackageUpgradeConflict": {
+      "type": "object",
+      "required": [
+        "conflictKind",
+        "id",
+        "kind",
+        "name",
+        "version"
+      ],
+      "properties": {
+        "conflictKind": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "Definition kind (`field`, `type`, `relationType`, ...).",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    },
+    "PackageUpgradeItem": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "Definition kind (`field`, `type`, `relationType`, ...).",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    }
+  }
+}

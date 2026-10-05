@@ -4,7 +4,9 @@
 //! the same MemVfs tree-session store type; the wasm32 build gate covers the methods.
 
 use srs_repository::package_bundle::{export_package_bundle, ExportPackageInput};
-use srs_repository::package_install_service::install_package_bundle_bytes;
+use srs_repository::package_install_service::{
+    install_package_bundle_bytes, upgrade_package_bundle, UpgradeOptions,
+};
 use srs_repository::repository_lifecycle::{create_blank_repository, CreateBlankRepositoryInput};
 use srs_repository::FileStore;
 
@@ -107,4 +109,27 @@ fn tree_session_install_then_validate_has_zero_errors() {
     assert_eq!(r.installed, 11);
     let report = srs_repository::validation::validate_repository(&store).unwrap();
     assert_eq!(report.summary.errors, 0, "{:?}", report.diagnostics);
+}
+
+/// `upgrade_package_bundle`: a dry run writes nothing (epoch unmoved); a real run advances it.
+#[test]
+fn tree_session_upgrade_advances_write_epoch_only_when_not_dry_run() {
+    let text = export_json(&fixture_source(), FIXTURE_INPUT).text;
+    let store = blank();
+    install_package_bundle_bytes(&store, text.as_bytes(), Default::default()).unwrap();
+    let mut bundle: serde_json::Value = serde_json::from_str(&text).unwrap();
+    bundle["packageVersion"] = serde_json::json!("99.0.0");
+    let newer = serde_json::to_vec(&bundle).unwrap();
+
+    let opts = |dry_run| {
+        serde_json::from_value::<UpgradeOptions>(serde_json::json!({"dryRun": dry_run})).unwrap()
+    };
+    let e0 = store.write_epoch();
+    let dry = upgrade_package_bundle(&store, &newer, opts(true)).unwrap();
+    assert!(dry.dry_run && dry.upgraded);
+    assert_eq!(store.write_epoch(), e0);
+    let real = upgrade_package_bundle(&store, &newer, opts(false)).unwrap();
+    assert!(real.upgraded && !real.dry_run);
+    assert!(store.write_epoch() > e0);
+    assert_eq!(real.version, "99.0.0");
 }

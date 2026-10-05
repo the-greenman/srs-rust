@@ -1426,6 +1426,29 @@ impl SrsRepository {
         to_js(&result)
     }
 
+    /// Upgrade an installed package from a newer .srspkg (same service as `srs package upgrade`).
+    /// bundle_json is the file's text; options_json: {"dryRun"?: bool, "boundaryPath"?: string}
+    /// ("{}" for defaults). Returns UpgradePackageResult (same fields as the CLI payload:
+    /// packageId, name, previousVersion, version, upgraded, dryRun, added, newVersions, updated,
+    /// unchanged, conflicts, removedUpstream, dependencyWarnings, notes). A downgrade or a package
+    /// that is not installed is an error. Advances write_epoch unless dryRun (a dry run writes
+    /// nothing); the session is dirty after a real run.
+    pub fn upgrade_package_bundle(
+        &self,
+        bundle_json: &str,
+        options_json: &str,
+    ) -> Result<JsValue, JsValue> {
+        let options: package_install_service::UpgradeOptions =
+            serde_json::from_str(options_json).map_err(js_err)?;
+        let result = package_install_service::upgrade_package_bundle(
+            &self.store,
+            bundle_json.as_bytes(),
+            options,
+        )
+        .map_err(js_err)?;
+        to_js(&result)
+    }
+
     /// Aggregate import records across all boundaries and run live divergence detection.
     /// Returns an `ImportSummary` object (`{generatedAt, fields, types, views, blueprints,
     /// protocols, relationTypes, skippedDefinitions?}`).

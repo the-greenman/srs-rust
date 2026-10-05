@@ -3,7 +3,7 @@ use crate::output;
 use crate::payload::{
     PackageCreatePayload, PackageDependenciesPayload, PackageExportPayload, PackageImportPayload,
     PackageImportsPayload, PackageInstallPayload, PackageListEntry, PackageListPayload,
-    PackageRefEntry, PackageRefPayload, PackageUpdatePayload,
+    PackageRefEntry, PackageRefPayload, PackageUpdatePayload, PackageUpgradePayload,
 };
 use anyhow::{Context, Result};
 use srs_core::extensions::import_tracking::ImportMode;
@@ -14,7 +14,8 @@ use srs_repository::package_dependency_service::{
     AddPackageDependencyInput, BundleRequirements, RemovePackageDependencyInput,
 };
 use srs_repository::package_install_service::{
-    install_package, install_package_bundle_bytes, InstallBundleOptions, InstallPackageInput,
+    install_package, install_package_bundle_bytes, upgrade_package_bundle, InstallBundleOptions,
+    InstallPackageInput, UpgradeOptions,
 };
 use srs_repository::package_service::{
     create_package, import_package_local, list_package_imports, list_packages,
@@ -40,6 +41,11 @@ pub fn dispatch(ctx: CliContext, cmd: PackageCommand) -> Result<String> {
             boundary,
             strict,
         } => cmd_package_install(ctx, source_dir, bundle, boundary, strict),
+        PackageCommand::Upgrade {
+            bundle,
+            dry_run,
+            boundary,
+        } => cmd_package_upgrade(ctx, bundle, dry_run, boundary),
         PackageCommand::Export {
             selector,
             output,
@@ -177,6 +183,23 @@ fn cmd_package_install(
         }
     };
     output::serialize("package install", PackageInstallPayload::from(result))
+}
+
+fn cmd_package_upgrade(
+    ctx: CliContext,
+    bundle: PathBuf,
+    dry_run: bool,
+    boundary_path: Option<String>,
+) -> Result<String> {
+    let bytes = read_bundle_file(&bundle)?;
+    let opts = UpgradeOptions {
+        dry_run,
+        boundary_path,
+    };
+    let result = with_store(&ctx, |s| {
+        Ok(upgrade_package_bundle(s, &bytes, opts.clone())?)
+    })?;
+    output::serialize("package upgrade", PackageUpgradePayload::from(result))
 }
 
 /// File I/O only: read the .srspkg bytes (no parsing, no logic).
