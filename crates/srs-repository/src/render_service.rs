@@ -2406,10 +2406,15 @@ fn arranged_direct_members(
         .map(|(i, e)| (e.instance_id.clone(), i))
         .collect();
     let ids: Vec<String> = entries.iter().map(|e| e.instance_id.clone()).collect();
-    let roots: HashSet<String> =
-        dedupe_contains_roots(section_id, &ids, relations, dedupe_for_recursion, diagnostics)
-            .into_iter()
-            .collect();
+    let roots: HashSet<String> = dedupe_contains_roots(
+        section_id,
+        &ids,
+        relations,
+        dedupe_for_recursion,
+        diagnostics,
+    )
+    .into_iter()
+    .collect();
     let mut loaded: std::collections::HashMap<String, LoadedInstance> =
         std::collections::HashMap::new();
     for id in &ids {
@@ -16899,7 +16904,9 @@ mod tests {
     /// `contains` child back in one level down. `rec-b` is declared as an
     /// ordinary container entry AND is the target of a `contains` edge from
     /// the other entry, `rec-a`.
-    fn make_arranged_flat_contains_overlap_store(format: &str) -> crate::store::memory::MemoryStore {
+    fn make_arranged_flat_contains_overlap_store(
+        format: &str,
+    ) -> crate::store::memory::MemoryStore {
         use crate::container_service;
         use srs_core::types::container::Container;
         use srs_core::types::view::{
