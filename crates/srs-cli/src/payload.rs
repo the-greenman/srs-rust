@@ -2182,6 +2182,23 @@ pub struct PackageDependencyEntry {
     pub mismatched_labels: Vec<String>,
 }
 
+impl From<srs_repository::package_dependency_service::PackageDependencyStatus>
+    for PackageDependencyEntry
+{
+    fn from(d: srs_repository::package_dependency_service::PackageDependencyStatus) -> Self {
+        Self {
+            package_id: d.entry.package_id,
+            namespace: d.entry.namespace,
+            name: d.entry.name,
+            version: d.entry.version,
+            satisfied: d.satisfied,
+            reason: d.reason.map(|r| r.as_str().to_string()),
+            candidate_versions: d.candidate_versions,
+            mismatched_labels: d.mismatched_labels,
+        }
+    }
+}
+
 impl From<srs_repository::package_dependency_service::PackageDependenciesResult>
     for PackageDependenciesPayload
 {
@@ -2196,16 +2213,7 @@ impl From<srs_repository::package_dependency_service::PackageDependenciesResult>
             dependencies: r
                 .dependencies
                 .into_iter()
-                .map(|d| PackageDependencyEntry {
-                    package_id: d.entry.package_id,
-                    namespace: d.entry.namespace,
-                    name: d.entry.name,
-                    version: d.entry.version,
-                    satisfied: d.satisfied,
-                    reason: d.reason.map(|r| r.as_str().to_string()),
-                    candidate_versions: d.candidate_versions,
-                    mismatched_labels: d.mismatched_labels,
-                })
+                .map(PackageDependencyEntry::from)
                 .collect(),
         }
     }
@@ -2297,7 +2305,10 @@ pub struct PackageUpgradePayload {
     pub new_versions: Vec<PackageUpgradeItem>,
     /// Same UUID and version, changed upstream, local copy clean: overwritten.
     pub updated: Vec<PackageUpgradeItem>,
+    /// Content already current (including a local edit upstream did not change).
     pub unchanged: Vec<PackageUpgradeItem>,
+    /// Content current but its reference copy or import record was missing or wrong; rewritten.
+    pub repaired: Vec<PackageUpgradeItem>,
     /// Not written: `local-edit`, `no-reference-copy` or `key-collision`.
     pub conflicts: Vec<PackageUpgradeConflict>,
     /// Installed from this package but absent from the bundle; kept, never deleted.
@@ -2352,6 +2363,7 @@ impl From<srs_repository::package_install_service::UpgradePackageResult> for Pac
             new_versions: items(r.new_versions),
             updated: items(r.updated),
             unchanged: items(r.unchanged),
+            repaired: items(r.repaired),
             conflicts: r
                 .conflicts
                 .into_iter()
@@ -2364,16 +2376,7 @@ impl From<srs_repository::package_install_service::UpgradePackageResult> for Pac
             dependency_warnings: r
                 .dependency_warnings
                 .into_iter()
-                .map(|d| PackageDependencyEntry {
-                    package_id: d.entry.package_id,
-                    namespace: d.entry.namespace,
-                    name: d.entry.name,
-                    version: d.entry.version,
-                    satisfied: d.satisfied,
-                    reason: d.reason.map(|r| r.as_str().to_string()),
-                    candidate_versions: d.candidate_versions,
-                    mismatched_labels: d.mismatched_labels,
-                })
+                .map(PackageDependencyEntry::from)
                 .collect(),
             notes: r.notes,
         }

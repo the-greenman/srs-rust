@@ -63,11 +63,11 @@ fn application_reads_repository_id_from_manifest() {
 }
 
 #[test]
-fn tool_catalogue_has_all_thirty_two_tools_and_core_owns_the_schemas() {
+fn tool_catalogue_has_all_thirty_three_tools_and_core_owns_the_schemas() {
     let (_dir, mut d) = setup();
     let listed = rpc(&mut d, "tools/list", json!({}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 32);
+    assert_eq!(tools.len(), 33);
     assert!(tools
         .iter()
         .all(|t| t["description"].is_string() && t["inputSchema"]["type"] == "object"));
@@ -108,6 +108,67 @@ fn package_dependency_tools_use_the_core_service() {
         json!({ "packageId": core }),
     );
     assert_eq!(removed["result"]["structuredContent"]["action"], "removed");
+}
+
+/// `package_upgrade` calls the core service: a dry-run plan writes nothing, the real run applies it.
+#[test]
+fn package_upgrade_tool_uses_the_core_service() {
+    let (dir, mut d) = setup();
+    let bundle = |version: &str, fields: Value| {
+        json!({
+            "schemaVersion": "2.0-draft", "packageId": "9a1b0c2d-2222-4aaa-8bbb-000000000009",
+            "packageNamespace": "com.example.up", "packageName": "up", "packageVersion": version,
+            "dataModelRevision": 9, "publishedAt": "2026-10-03T00:00:00Z", "mode": "bundled",
+            "fields": fields, "types": [], "relationTypes": [], "views": [],
+            "dependencyRefs": [], "packageDependencies": []
+        })
+        .to_string()
+    };
+    let field = |id: &str, name: &str| {
+        json!({"id": id, "namespace": "com.example.up", "name": name, "version": 1,
+            "description": "d.", "fieldType": {"datatype": "string"},
+            "aiGuidance": {"purpose": "p."}, "createdAt": "2026-01-01T00:00:00Z"})
+    };
+    let (f1, f2) = (
+        "9a1b0c2d-0001-4aaa-8bbb-0000000000a1",
+        "9a1b0c2d-0001-4aaa-8bbb-0000000000a2",
+    );
+    let old = bundle("1.0.0", json!([field(f1, "one")]));
+    let new = bundle("1.1.0", json!([field(f1, "one"), field(f2, "two")]));
+
+    // Not installed: a tool error, nothing written.
+    let refused = tool(&mut d, "package_upgrade", json!({ "bundle": new }));
+    assert_eq!(refused["result"]["isError"], true, "{refused}");
+    assert!(refused.to_string().contains("not installed"));
+
+    srs_repository::package_install_service::install_package_bundle_bytes(
+        &FileStore::new(dir.path()),
+        old.as_bytes(),
+        Default::default(),
+    )
+    .unwrap();
+    let dry = tool(
+        &mut d,
+        "package_upgrade",
+        json!({ "bundle": new, "dryRun": true }),
+    );
+    let r = &dry["result"]["structuredContent"];
+    assert_eq!(r["dryRun"], true, "{dry}");
+    assert_eq!(r["added"][0]["name"], "two");
+    assert_eq!(r["previousVersion"], "1.0.0");
+    let real = tool(&mut d, "package_upgrade", json!({ "bundle": new }));
+    let r = &real["result"]["structuredContent"];
+    assert_eq!(r["dryRun"], false, "{real}");
+    assert_eq!(r["added"][0]["name"], "two");
+    assert_eq!(r["upgraded"], true);
+    let again = tool(&mut d, "package_upgrade", json!({ "bundle": new }));
+    assert_eq!(
+        again["result"]["structuredContent"]["added"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
 }
 
 #[test]

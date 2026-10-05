@@ -35,8 +35,16 @@ No new architectural decisions: this plan implements the rulings in srs-rust#115
   - Import records rewritten for touched definitions (replace, not append; `conflictState: clean`, new `sourcePackageVersion`).
   - RFC-044 `check_bundle` unsatisfied results -> `dependencyWarnings`, never blocking.
   - `dry_run`: full result, no writes.
-- Adapters: CLI `srs package upgrade --bundle <file> [--dry-run] [--boundary <path>]`; WASM `upgrade_package_bundle(bundle_json, options_json)`; MCP only if install has an MCP tool (it has none: no tool added).
+- Adapters: CLI `srs package upgrade --bundle <file> [--dry-run] [--boundary <path>]`; WASM `upgrade_package_bundle(bundle_json, options_json)`; MCP `package_upgrade` (srs-mcp-core, input `{bundle (JSON text), dryRun?, boundaryPath?}`, output = the service result). Ruling 3 names MCP; install having no MCP tool does not change that.
 - Tests: `crates/srs-repository/tests/package_upgrade.rs`, `crates/srs-bindings/tests/package_bundle.rs`. Dogfooding scenario S54.
+
+**Review round (same branch):**
+- Install and upgrade never write an Install over a file holding a different `(uuid, version)`: the target path takes the shared `-v{n}` rule (`package_bundle::version_suffixed`, also used by the reader).
+- A local edit of a definition upstream did not change is `unchanged`, not a conflict.
+- The dry run reads and parses the import summary exactly as the real run.
+- Content-current definitions with a missing or stale reference copy / import record are rewritten and listed in `repaired` (self-heal after a partial failure); a stale `sourcePackageVersion` after a version bump is refreshed quietly.
+- **Reference-copy rule change for install:** install now writes a reference copy for EVERY kind (previously only kinds with an import record), so `no-reference-copy` is a legacy-only case.
+- Several boundaries with the packageId and no `--boundary`: an error naming the selectors.
 
 **Out of scope:** manifest-level `packageRefs`/`upstreamPackage` (RFC-014 R2), install preview as a separate command, writing the srs-usage.md reference (srs repo).
 

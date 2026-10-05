@@ -3268,7 +3268,7 @@ srs --repo $REPO repo validate                                   # 0 errors
 
 **Intention.** The essay package I installed has shipped a new release. I want its new definitions and versions, its in-place fixes where I did not touch the file, and a plain report of anything it could not safely change. My records must stay as they are.
 
-**CLI surface.** `srs package upgrade --bundle <file> [--dry-run] [--boundary <path>]`; WASM `upgrade_package_bundle(bundle_json, options_json)` (native coverage in `crates/srs-bindings/tests/package_bundle.rs`); no MCP tool, because install has none. Rules: RFC-014 R2/R3/R6, owner rulings 2026-10-05 (srs#890).
+**CLI surface.** `srs package upgrade --bundle <file> [--dry-run] [--boundary <path>]`; WASM `upgrade_package_bundle(bundle_json, options_json)` (native coverage in `crates/srs-bindings/tests/package_bundle.rs`); MCP `package_upgrade {bundle, dryRun?, boundaryPath?}` (`bundle` is the file's JSON text; `crates/srs-mcp-core/tests/surface.rs`). Rules: RFC-014 R2/R3/R6, owner rulings 2026-10-05 (srs#890).
 
 **Steps.** Install a 1.3.0 bundle, then upgrade with a 1.5.0 bundle that adds a field, adds type v2, and changes type v1 in place. The runnable script is the test fixture's shape in `crates/srs-repository/tests/package_upgrade.rs`; the CLI run:
 
@@ -3285,7 +3285,7 @@ $SRS repo validate --repo $R                                         # 0 errors
 
 **Done when.** The dry run returns the same plan the real run applies and changes no file; the real run bumps the boundary version, keeps both type versions, and reports `added`, `newVersions` and `updated`; the re-run reports everything `unchanged`; `package imports` is all `clean`; `repo validate` has 0 errors.
 
-**Negative case.** A lower bundle version is refused (`downgrade refused`). A package that is not installed is refused (`not installed; use install`). Edit the installed type file by hand and upgrade with a bundle that changes it again: the result lists it under `conflicts` with `conflictKind: "local-edit"` and the file keeps your edit. A definition dropped from the bundle is listed in `removedUpstream` and its file stays.
+**Negative case.** A lower bundle version is refused (`downgrade refused`). A package that is not installed is refused (`not installed; use install`). Edit the installed type file by hand and upgrade with a bundle that changes it again: the result lists it under `conflicts` with `conflictKind: "local-edit"` and the file keeps your edit. A definition dropped from the bundle is listed in `removedUpstream` and its file stays. Delete one reference copy under `<boundary>/.srs-import/refs/` and re-run: the definition is listed in `repaired`, and the next run is a no-op. A local edit of a definition the new release did not change is `unchanged`, not a conflict.
 
 **Verified 2026-10-05 (#1152):** all of the above run on the branch binary; the real run returned `added` field `extra`, `newVersions` type `essay@2`, `updated` type `essay@1`, `unchanged` field `title`; re-run 4 unchanged; imports all clean; validate 0 errors; downgrade and not-installed refused; local edit reported as a conflict and kept.
 

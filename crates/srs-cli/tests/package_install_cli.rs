@@ -477,3 +477,83 @@ fn package_install_cli_bundle_below_floor_is_error_envelope() {
         "{env}"
     );
 }
+
+// ── package upgrade (#1152) ────────────────────────────────────────────────
+
+#[test]
+fn package_upgrade_cli_dry_run_then_real_run() {
+    let (ws, a, b) = two_repos();
+    let out = ws.path().join("p.srspkg").to_string_lossy().into_owned();
+    export(ws.path(), &a, &out);
+    run_srs(
+        ws.path(),
+        &["--repo", &b, "package", "install", "--bundle", &out],
+    );
+    // A newer release: version bump plus an in-place change to the item Type.
+    let mut bundle: Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
+    bundle["packageVersion"] = Value::from("1.1.0");
+    bundle["types"][0]["description"] = Value::from("Changed upstream.");
+    let newer = ws
+        .path()
+        .join("newer.srspkg")
+        .to_string_lossy()
+        .into_owned();
+    std::fs::write(&newer, serde_json::to_vec(&bundle).unwrap()).unwrap();
+    let version_of = || {
+        let list = run_srs(ws.path(), &["--repo", &b, "package", "list"]);
+        let pkgs = list["payload"]["packages"].as_array().unwrap().clone();
+        let p = pkgs.iter().find(|p| p["boundaryPath"] == SELECTOR).unwrap();
+        p["version"].clone()
+    };
+    let before = version_of();
+
+    let dry = run_srs(
+        ws.path(),
+        &[
+            "--repo",
+            &b,
+            "package",
+            "upgrade",
+            "--bundle",
+            &newer,
+            "--dry-run",
+        ],
+    );
+    assert_eq!(dry["ok"], true, "{dry}");
+    assert_eq!(dry["command"], "package upgrade");
+    assert_eq!(dry["payload"]["dryRun"], true);
+    assert_eq!(dry["payload"]["upgraded"], true);
+    assert_eq!(dry["payload"]["updated"][0]["kind"], "type");
+    assert_eq!(version_of(), before, "a dry run writes nothing");
+
+    let real = run_srs(
+        ws.path(),
+        &[
+            "--repo",
+            &b,
+            "package",
+            "upgrade",
+            "--bundle",
+            &newer,
+            "--boundary",
+            SELECTOR,
+        ],
+    );
+    assert_eq!(real["payload"]["dryRun"], false);
+    assert_eq!(real["payload"]["previousVersion"], "1.0.0");
+    assert_eq!(real["payload"]["updated"], dry["payload"]["updated"]);
+    assert_eq!(version_of(), "1.1.0");
+    let validate = run_srs(ws.path(), &["--repo", &b, "repo", "validate"]);
+    assert_eq!(validate["payload"]["summary"]["errors"], 0, "{validate}");
+
+    // A downgrade is an error envelope.
+    let (ok, env) = run_raw(
+        ws.path(),
+        &["--repo", &b, "package", "upgrade", "--bundle", &out],
+    );
+    assert!(!ok);
+    assert!(env.unwrap()["diagnostics"][0]
+        .as_str()
+        .unwrap()
+        .contains("downgrade refused"));
+}

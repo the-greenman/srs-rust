@@ -181,8 +181,16 @@ pub fn read_package_bundle(bytes: &[u8]) -> Result<ReadPackageBundle, Repository
 /// legacy path, later versions get a `-v{n}` suffix.
 fn versioned_rel_path(path: String, item: &Value) -> String {
     match item.get("version").and_then(Value::as_u64) {
-        Some(v) if v > 1 => path.replace(".json", &format!("-v{v}.json")),
+        Some(v) if v > 1 => version_suffixed(&path, v),
         _ => path,
+    }
+}
+
+/// The one `-v{n}` path rule (reader, install and upgrade): `a/b.json` -> `a/b-v2.json`.
+pub(crate) fn version_suffixed(path: &str, version: u64) -> String {
+    match path.strip_suffix(".json") {
+        Some(stem) => format!("{stem}-v{version}.json"),
+        None => format!("{path}-v{version}"),
     }
 }
 

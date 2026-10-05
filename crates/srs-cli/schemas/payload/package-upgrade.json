@@ -14,6 +14,7 @@
     "packageId",
     "previousVersion",
     "removedUpstream",
+    "repaired",
     "unchanged",
     "updated",
     "upgraded",
@@ -73,7 +74,15 @@
         "$ref": "#/definitions/PackageUpgradeItem"
       }
     },
+    "repaired": {
+      "description": "Content current but its reference copy or import record was missing or wrong; rewritten.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageUpgradeItem"
+      }
+    },
     "unchanged": {
+      "description": "Content already current (including a local edit upstream did not change).",
       "type": "array",
       "items": {
         "$ref": "#/definitions/PackageUpgradeItem"

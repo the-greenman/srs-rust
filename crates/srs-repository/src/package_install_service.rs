@@ -770,14 +770,65 @@ fn import_records_mut<'a>(
 fn write_ref_copy(
     store: &dyn RepositoryStore,
     boundary_path: &str,
-    def: &PackageSourceDefinition,
+    rel_path: &str,
+    value: &serde_json::Value,
 ) -> Result<(), RepositoryError> {
     let refs = format!("{boundary_path}/.srs-import/refs");
     store.ensure_instance_dir(&refs)?;
-    if let Some((dir, _)) = def.rel_path.rsplit_once('/') {
+    if let Some((dir, _)) = rel_path.rsplit_once('/') {
         store.ensure_instance_dir(&format!("{refs}/{dir}"))?;
     }
-    store.save_instance_json(&format!("{refs}/{}", def.rel_path), &def.value)
+    store.save_instance_json(&format!("{refs}/{rel_path}"), value)
+}
+
+/// Target path (relative to the boundary) for each bundle definition. A definition
+/// that is to be installed never lands on a file holding a different
+/// `(uuid, version)` identity, or one this run already wrote: it takes the
+/// `-v{n}` path (the one rule, [`crate::package_bundle::version_suffixed`]). Shared
+/// by install and upgrade (#1152).
+fn resolve_install_paths(
+    store: &dyn RepositoryStore,
+    boundary_path: &str,
+    bundle: &PackageSourceBundle,
+    decisions: &[Decision],
+) -> Result<Vec<String>, RepositoryError> {
+    let mut taken: HashSet<String> = HashSet::new();
+    let mut out = Vec::with_capacity(decisions.len());
+    for (def, decision) in bundle.definitions.iter().zip(decisions) {
+        if *decision != Decision::Install {
+            out.push(def.rel_path.clone());
+            continue;
+        }
+        let id = definition_id(def.kind, &def.value).unwrap_or_default();
+        let version = definition_version(def.kind, &def.value);
+        let occupied = |p: &str| {
+            taken.contains(p)
+                || store
+                    .load_instance_json(&format!("{boundary_path}/{p}"))
+                    .ok()
+                    .is_some_and(|v| {
+                        v["id"].as_str() != Some(id.as_str())
+                            || definition_version(def.kind, &v) != version
+                    })
+        };
+        let mut path = def.rel_path.clone();
+        if occupied(&path) {
+            path = crate::package_bundle::version_suffixed(&path, u64::from(version));
+            if occupied(&path) {
+                return Err(RepositoryError::InvalidRepositoryInitialization {
+                    message: format!(
+                        "cannot install {} '{}' v{version}: both '{}' and '{path}' hold another definition",
+                        kind_label(def.kind),
+                        definition_name(def.kind, &def.value).unwrap_or_default(),
+                        def.rel_path
+                    ),
+                });
+            }
+        }
+        taken.insert(path.clone());
+        out.push(path);
+    }
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------
@@ -919,15 +970,15 @@ pub fn install_package_bundle(
     // ── Phase 3: write installs ──────────────────────────────────────────────
     let mut installed_total = 0usize;
     let mut skipped_total = 0usize;
-    for (def, decision) in bundle.definitions.iter().zip(&decisions) {
+    let paths = resolve_install_paths(store, &boundary_path, bundle, &decisions)?;
+    for ((def, decision), rel_path) in bundle.definitions.iter().zip(&decisions).zip(&paths) {
         match decision {
             Decision::Install => {
-                if let Some((dir, _)) = def.rel_path.rsplit_once('/') {
+                if let Some((dir, _)) = rel_path.rsplit_once('/') {
                     store.ensure_instance_dir(&format!("{boundary_path}/{dir}"))?;
                 }
-                store
-                    .save_instance_json(&format!("{boundary_path}/{}", def.rel_path), &def.value)?;
-                store.add_definition_to_boundary(&selector, def.kind, &def.rel_path)?;
+                store.save_instance_json(&format!("{boundary_path}/{rel_path}"), &def.value)?;
+                store.add_definition_to_boundary(&selector, def.kind, rel_path)?;
                 installed_total += 1;
             }
             Decision::SkipIdentical => skipped_total += 1,
@@ -986,19 +1037,20 @@ pub fn install_package_bundle(
             });
             summary.generated_at = installed_at.clone();
 
-            for (def, decision) in bundle.definitions.iter().zip(&decisions) {
+            for ((def, decision), rel_path) in bundle.definitions.iter().zip(&decisions).zip(&paths)
+            {
                 if !matches!(decision, Decision::Install) {
                     continue;
                 }
+                // One rule for every kind: a reference copy beside each installed definition.
+                write_ref_copy(store, &boundary_path, rel_path, &def.value)?;
                 let Some(def_type) = to_definition_type(def.kind) else {
-                    summary.skipped_definitions.push(def.rel_path.clone());
+                    summary.skipped_definitions.push(rel_path.clone());
                     continue;
                 };
                 let Some(id) = definition_id(def.kind, &def.value) else {
                     continue;
                 };
-
-                write_ref_copy(store, &boundary_path, def)?;
                 let record = import_record(bundle, def, def_type.clone(), id, &installed_at);
                 import_records_mut(&mut summary, &def_type).push(record);
             }
@@ -1105,7 +1157,13 @@ pub struct UpgradePackageResult {
     pub new_versions: Vec<UpgradeItem>,
     /// Same UUID and version, changed upstream, local copy clean: overwritten.
     pub updated: Vec<UpgradeItem>,
+    /// Content already current (a local edit of a definition upstream did not change is
+    /// also unchanged). A definition whose reference copy or import record had to be
+    /// rewritten is in `repaired` instead.
     pub unchanged: Vec<UpgradeItem>,
+    /// Content current, but the reference copy or import record was missing or stale
+    /// (e.g. after a partial failure or a version bump); rewritten.
+    pub repaired: Vec<UpgradeItem>,
     pub conflicts: Vec<UpgradeConflict>,
     /// Installed from this package but absent from the bundle: reported, never deleted.
     pub removed_upstream: Vec<UpgradeItem>,
@@ -1137,10 +1195,22 @@ pub fn upgrade_package_bundle(
     Ok(result)
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Act {
+    /// New file (and boundary index entry).
+    New,
+    /// Overwrite a clean file whose upstream changed.
+    Overwrite,
+    /// Content current; rewrite the reference copy and/or import record only.
+    Repair,
+}
+
 /// The source-agnostic upgrade core: shares [`analyse_definitions`] with install.
 ///
-/// Records are never touched (RFC-014 R3); nothing is ever deleted; an
-/// edited-locally same-version definition is kept and reported.
+/// Records are never touched (RFC-014 R3); nothing is ever deleted; a locally
+/// edited definition that upstream also changed is kept and reported. The plan
+/// (everything up to the dry-run return) reads and validates exactly what a real
+/// run does, so a dry run fails wherever the real run would.
 pub fn upgrade_package_source(
     store: &dyn RepositoryStore,
     bundle: &PackageSourceBundle,
@@ -1153,10 +1223,10 @@ pub fn upgrade_package_source(
     let invalid = |message: String| RepositoryError::InvalidRepositoryInitialization { message };
 
     // ── Target boundary ──────────────────────────────────────────────────────
-    let boundary = store
+    let mut candidates: Vec<PackageBoundary> = store
         .list_package_boundaries()?
         .into_iter()
-        .find(|b| {
+        .filter(|b| {
             b.id == bundle.id
                 && b.selector.is_some()
                 && options
@@ -1164,18 +1234,31 @@ pub fn upgrade_package_source(
                     .as_ref()
                     .is_none_or(|p| b.selector.as_ref() == Some(p))
         })
-        .ok_or_else(|| {
-            invalid(format!(
-                "package '{}' ({}) is not installed{}; use install",
-                bundle.name,
-                bundle.id,
-                options
-                    .boundary_path
-                    .as_ref()
-                    .map(|p| format!(" at '{p}'"))
-                    .unwrap_or_default()
-            ))
-        })?;
+        .collect();
+    if candidates.len() > 1 {
+        let selectors: Vec<&str> = candidates
+            .iter()
+            .filter_map(|b| b.selector.as_deref())
+            .collect();
+        return Err(invalid(format!(
+            "package '{}' ({}) is installed at several boundaries ({}); pass --boundary",
+            bundle.name,
+            bundle.id,
+            selectors.join(", ")
+        )));
+    }
+    let boundary = candidates.pop().ok_or_else(|| {
+        invalid(format!(
+            "package '{}' ({}) is not installed{}; use install",
+            bundle.name,
+            bundle.id,
+            options
+                .boundary_path
+                .as_ref()
+                .map(|p| format!(" at '{p}'"))
+                .unwrap_or_default()
+        ))
+    })?;
     let boundary_path = boundary.selector.clone().unwrap_or_default();
 
     // ── Version check (SemVer) ───────────────────────────────────────────────
@@ -1193,8 +1276,38 @@ pub fn upgrade_package_source(
         Ordering::Greater => true,
     };
 
+    // ── Import records, read and parsed up front (ADR-030 addendum) ──────────
+    let summary_path = format!("{boundary_path}/.srs-import/import-records.json");
+    let loaded = match store.load_instance_json(&summary_path) {
+        Ok(v) => Some(serde_json::from_value::<ImportSummary>(v).map_err(|e| {
+            RepositoryError::Serialize {
+                path: PathBuf::from(&summary_path),
+                source: e,
+            }
+        })?),
+        Err(RepositoryError::NotFound { .. }) => None,
+        Err(RepositoryError::Io { source, .. })
+            if source.kind() == std::io::ErrorKind::NotFound =>
+        {
+            None
+        }
+        Err(e) => return Err(e),
+    };
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut summary = loaded.unwrap_or_else(|| ImportSummary {
+        generated_at: now.clone(),
+        fields: Vec::new(),
+        types: Vec::new(),
+        views: Vec::new(),
+        blueprints: Vec::new(),
+        protocols: Vec::new(),
+        relation_types: Vec::new(),
+        skipped_definitions: Vec::new(),
+    });
+
     // ── Classify (shared analyser) ───────────────────────────────────────────
     let analysis = analyse_definitions(store, bundle)?;
+    let paths = resolve_install_paths(store, &boundary_path, bundle, &analysis.decisions)?;
     let boundary_defs = load_boundary_definitions(store, &boundary)?;
     let identity = |d: &PackageSourceDefinition| {
         (
@@ -1203,6 +1316,41 @@ pub fn upgrade_package_source(
             definition_version(d.kind, &d.value),
         )
     };
+    // For a definition whose content is current: `None` = reference copy and import
+    // record are in order; `Some(false)` = only the record's sourcePackageVersion is
+    // stale (a version bump: refreshed quietly); `Some(true)` = the reference copy
+    // or the record is missing or wrong (reported as repaired).
+    let repair_need =
+        |summary: &mut ImportSummary, def: &PackageSourceDefinition, rel: &str| -> Option<bool> {
+            let ref_ok = store
+                .load_instance_json(&format!("{boundary_path}/.srs-import/refs/{rel}"))
+                .ok()
+                .as_ref()
+                == Some(&def.value);
+            let (id, version) = (
+                definition_id(def.kind, &def.value).unwrap_or_default(),
+                definition_version(def.kind, &def.value),
+            );
+            let (present, current) = match to_definition_type(def.kind) {
+                None => (true, true),
+                Some(t) => {
+                    let list = import_records_mut(summary, &t);
+                    let mut mine = list
+                        .iter()
+                        .filter(|r| r.definition_id == id && r.version == version);
+                    let first = mine.next();
+                    (
+                        first.is_some(),
+                        first.is_some_and(|r| r.source_package_version == bundle.version),
+                    )
+                }
+            };
+            match (ref_ok && present, current) {
+                (true, true) => None,
+                (true, false) => Some(false),
+                _ => Some(true),
+            }
+        };
 
     let mut result = UpgradePackageResult {
         package_id: bundle.id.clone(),
@@ -1215,18 +1363,19 @@ pub fn upgrade_package_source(
         new_versions: vec![],
         updated: vec![],
         unchanged: vec![],
+        repaired: vec![],
         conflicts: vec![],
         removed_upstream: vec![],
         dependency_warnings: vec![],
         notes: vec![],
     };
-    // (bundle index, file path inside the boundary) written by this run.
-    let mut writes: Vec<(usize, String)> = Vec::new();
+    // (bundle index, file path inside the boundary, what to write)
+    let mut acts: Vec<(usize, String, Act)> = Vec::new();
     for (i, def) in bundle.definitions.iter().enumerate() {
         let item = upgrade_item(def);
         match analysis.decisions[i] {
             Decision::Install => {
-                writes.push((i, def.rel_path.clone()));
+                acts.push((i, paths[i].clone(), Act::New));
                 if analysis.known_uuid[i] {
                     result.new_versions.push(item);
                 } else {
@@ -1245,18 +1394,31 @@ pub fn upgrade_package_source(
                     result.unchanged.push(item);
                     continue;
                 };
-                if installed.value == def.value {
-                    result.unchanged.push(item);
-                    continue;
-                }
+                let rel = installed.rel_path.clone();
                 let reference = store
-                    .load_instance_json(&format!(
-                        "{boundary_path}/.srs-import/refs/{}",
-                        installed.rel_path
-                    ))
+                    .load_instance_json(&format!("{boundary_path}/.srs-import/refs/{rel}"))
                     .ok();
-                if reference.as_ref() == Some(&installed.value) {
-                    writes.push((i, installed.rel_path.clone()));
+                let upstream_unchanged =
+                    installed.value == def.value || reference.as_ref() == Some(&def.value);
+                if upstream_unchanged {
+                    // Content current (a local edit upstream did not touch stays).
+                    // The reference copy is only (re)written when it is truthful:
+                    // the installed file equals the bundle, or it already does.
+                    let need = if installed.value == def.value || reference.is_some() {
+                        repair_need(&mut summary, def, &rel)
+                    } else {
+                        None
+                    };
+                    if need.is_some() {
+                        acts.push((i, rel, Act::Repair));
+                    }
+                    if need == Some(true) {
+                        result.repaired.push(item);
+                    } else {
+                        result.unchanged.push(item);
+                    }
+                } else if reference.as_ref() == Some(&installed.value) {
+                    acts.push((i, rel, Act::Overwrite));
                     result.updated.push(item);
                 } else {
                     result.conflicts.push(UpgradeConflict {
@@ -1296,56 +1458,21 @@ pub fn upgrade_package_source(
         return Ok(result);
     }
 
-    // ── Writes (summary loaded first: ADR-030 addendum) ──────────────────────
+    // ── Writes ───────────────────────────────────────────────────────────────
     let selector: PackageSelector = Some(boundary_path.clone());
-    let summary_path = format!("{boundary_path}/.srs-import/import-records.json");
-    let loaded = match store.load_instance_json(&summary_path) {
-        Ok(v) => Some(serde_json::from_value::<ImportSummary>(v).map_err(|e| {
-            RepositoryError::Serialize {
-                path: PathBuf::from(&summary_path),
-                source: e,
-            }
-        })?),
-        Err(RepositoryError::NotFound { .. }) => None,
-        Err(RepositoryError::Io { source, .. })
-            if source.kind() == std::io::ErrorKind::NotFound =>
-        {
-            None
-        }
-        Err(e) => return Err(e),
-    };
-    let now = chrono::Utc::now().to_rfc3339();
-    let mut summary = loaded.unwrap_or_else(|| ImportSummary {
-        generated_at: now.clone(),
-        fields: Vec::new(),
-        types: Vec::new(),
-        views: Vec::new(),
-        blueprints: Vec::new(),
-        protocols: Vec::new(),
-        relation_types: Vec::new(),
-        skipped_definitions: Vec::new(),
-    });
-
-    for (i, rel_path) in &writes {
+    for (i, rel_path, act) in &acts {
         let def = &bundle.definitions[*i];
-        let is_new = matches!(analysis.decisions[*i], Decision::Install);
-        if let Some((dir, _)) = rel_path.rsplit_once('/') {
-            store.ensure_instance_dir(&format!("{boundary_path}/{dir}"))?;
-        }
-        store.save_instance_json(&format!("{boundary_path}/{rel_path}"), &def.value)?;
-        if is_new {
-            store.add_definition_to_boundary(&selector, def.kind, rel_path)?;
+        if *act != Act::Repair {
+            if let Some((dir, _)) = rel_path.rsplit_once('/') {
+                store.ensure_instance_dir(&format!("{boundary_path}/{dir}"))?;
+            }
+            store.save_instance_json(&format!("{boundary_path}/{rel_path}"), &def.value)?;
+            if *act == Act::New {
+                store.add_definition_to_boundary(&selector, def.kind, rel_path)?;
+            }
         }
         // The reference copy lives at the installed path, which may differ from the bundle's.
-        write_ref_copy(
-            store,
-            &boundary_path,
-            &PackageSourceDefinition {
-                kind: def.kind,
-                rel_path: rel_path.clone(),
-                value: def.value.clone(),
-            },
-        )?;
+        write_ref_copy(store, &boundary_path, rel_path, &def.value)?;
 
         let Some(def_type) = to_definition_type(def.kind) else {
             if !summary.skipped_definitions.contains(rel_path) {
@@ -1364,7 +1491,7 @@ pub fn upgrade_package_source(
         list.retain(|r| !(r.definition_id == id && r.version == version));
         list.push(import_record(bundle, def, def_type, id, &imported_at));
     }
-    if !writes.is_empty() {
+    if !acts.is_empty() {
         let value = serde_json::to_value(&summary).map_err(|e| RepositoryError::Serialize {
             path: PathBuf::from(&summary_path),
             source: e,
