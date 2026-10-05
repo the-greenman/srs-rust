@@ -1394,15 +1394,23 @@ pub fn list_package_imports(
                 if record.mode != ImportMode::UpstreamTracked {
                     continue;
                 }
-                // Find the relative path whose JSON id matches this record.
-                let def_path = tracked_paths.iter().find(|path| {
+                // Find the path whose JSON id AND version match this record; fall back to
+                // id alone so an in-place local version bump still maps to its file (#1267).
+                let matches = |path: &&&str, with_version: bool| {
                     store
                         .load_instance_json(&format!("{boundary_path}/{path}"))
                         .ok()
-                        .and_then(|v| v["id"].as_str().map(str::to_string))
-                        .as_deref()
-                        == Some(record.definition_id.as_str())
-                });
+                        .is_some_and(|v| {
+                            v["id"].as_str() == Some(record.definition_id.as_str())
+                                && (!with_version
+                                    || v["version"].as_u64().unwrap_or(1)
+                                        == u64::from(record.version))
+                        })
+                };
+                let def_path = tracked_paths
+                    .iter()
+                    .find(|p| matches(p, true))
+                    .or_else(|| tracked_paths.iter().find(|p| matches(p, false)));
 
                 let Some(&def_path) = def_path else {
                     all_skipped.push(format!(

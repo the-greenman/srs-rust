@@ -153,7 +153,7 @@ pub fn read_package_bundle(bytes: &[u8]) -> Result<ReadPackageBundle, Repository
                 .ok_or_else(|| invalid("missing name".to_string()))?;
             definitions.push(PackageSourceDefinition {
                 kind,
-                rel_path: definition_rel_path(kind, &name, id),
+                rel_path: versioned_rel_path(definition_rel_path(kind, &name, id), item),
                 value: item.clone(),
             });
         }
@@ -175,6 +175,15 @@ pub fn read_package_bundle(bytes: &[u8]) -> Result<ReadPackageBundle, Repository
         },
         notes,
     })
+}
+
+/// Each version of a definition keeps its own file (#1267): v1 keeps the
+/// legacy path, later versions get a `-v{n}` suffix.
+fn versioned_rel_path(path: String, item: &Value) -> String {
+    match item.get("version").and_then(Value::as_u64) {
+        Some(v) if v > 1 => path.replace(".json", &format!("-v{v}.json")),
+        _ => path,
+    }
 }
 
 // ---------------------------------------------------------------------------

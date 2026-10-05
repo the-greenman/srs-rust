@@ -434,19 +434,19 @@ fn definition_version(_kind: DefinitionKind, value: &serde_json::Value) -> u32 {
 /// Index of definitions already present in the target repository.
 #[derive(Default)]
 struct ExistingIndex {
-    /// (kind label, uuid)
-    ids: HashSet<(&'static str, String)>,
+    /// (kind label, uuid, version) — the one definition identity (#1267)
+    ids: HashSet<(&'static str, String, u32)>,
     /// (kind label, logical key) → existing uuid
     keys: HashMap<(&'static str, String), String>,
 }
 
 impl ExistingIndex {
-    fn insert(&mut self, kind: DefinitionKind, id: String, key: Option<String>) {
+    fn insert(&mut self, kind: DefinitionKind, id: String, version: u32, key: Option<String>) {
         let label = kind_label(kind);
         if let Some(k) = key {
             self.keys.entry((label, k)).or_insert_with(|| id.clone());
         }
-        self.ids.insert((label, id));
+        self.ids.insert((label, id, version));
     }
 }
 
@@ -463,6 +463,7 @@ fn collect_existing(store: &dyn RepositoryStore) -> Result<ExistingIndex, Reposi
         idx.insert(
             DefinitionKind::Field,
             f.id.clone(),
+            f.version,
             Some(format!("{}/{}@{}", f.namespace, f.name, f.version)),
         );
     }
@@ -470,6 +471,7 @@ fn collect_existing(store: &dyn RepositoryStore) -> Result<ExistingIndex, Reposi
         idx.insert(
             DefinitionKind::Type,
             t.id.clone(),
+            t.version,
             Some(format!("{}/{}@{}", t.namespace, t.name, t.version)),
         );
     }
@@ -477,7 +479,12 @@ fn collect_existing(store: &dyn RepositoryStore) -> Result<ExistingIndex, Reposi
     for boundary in store.list_package_boundaries()? {
         for def in load_boundary_definitions(store, &boundary)? {
             if let Some(id) = definition_id(def.kind, &def.value) {
-                idx.insert(def.kind, id, definition_key(def.kind, &def.value));
+                idx.insert(
+                    def.kind,
+                    id,
+                    definition_version(def.kind, &def.value),
+                    definition_key(def.kind, &def.value),
+                );
             }
         }
     }
@@ -695,6 +702,7 @@ pub fn install_package_bundle(
             }
         })?;
         let key = definition_key(def.kind, &def.value);
+        let version = definition_version(def.kind, &def.value);
 
         let entry = counts.entry(label).or_insert_with(|| InstallKindCount {
             kind: label.to_string(),
@@ -703,7 +711,7 @@ pub fn install_package_bundle(
             conflicts: 0,
         });
 
-        if existing.ids.contains(&(label, id.clone())) {
+        if existing.ids.contains(&(label, id.clone(), version)) {
             entry.skipped_identical += 1;
             decisions.push(Decision::SkipIdentical);
             continue;
@@ -727,7 +735,7 @@ pub fn install_package_bundle(
         entry.installed += 1;
         decisions.push(Decision::Install);
         // Track within-run so later source entries can't duplicate earlier ones.
-        existing.insert(def.kind, id, key);
+        existing.insert(def.kind, id, version, key);
     }
 
     if options.strict && !conflicts.is_empty() {
