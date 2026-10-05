@@ -309,6 +309,12 @@ pub fn validate_repository(
         diagnostics.extend(slice_block_diagnostics(&manifest_value, slice));
     }
 
+    // RFC-026 Rev 9 Q4: inside a slice I-81 is expected (a content slice's identity is its own record).
+    let i81_severity = if manifest_value.get("slice").is_some() {
+        DiagnosticSeverity::Info
+    } else {
+        DiagnosticSeverity::Warning
+    };
     // --- RFC-013 root container invariants (I-79, I-80, I-81, I-82) ---
     // When manifest.container is absent the schema validator above already fires a
     // "missing required field" error; I-79 below is the invariant-level companion.
@@ -430,7 +436,7 @@ pub fn validate_repository(
                 if let Some(cat_entry) = cat.instances.iter().find(|e| e.id == *identity_id) {
                     if cat_entry.tier == Some(0) {
                         diagnostics.push(ValidationDiagnostic {
-                            severity: DiagnosticSeverity::Warning,
+                            severity: i81_severity,
                             relative_path: "manifest.json".to_string(),
                             schema_id: None,
                             message: format!(
@@ -452,7 +458,7 @@ pub fn validate_repository(
                                     val.get("typeName").and_then(|v| v.as_str()).unwrap_or("");
                                 if !(type_ns == "com.semanticops.core" && type_name == "purpose") {
                                     diagnostics.push(ValidationDiagnostic {
-                                        severity: DiagnosticSeverity::Warning,
+                                        severity: i81_severity,
                                         relative_path: "manifest.json".to_string(),
                                         schema_id: None,
                                         message: format!(
@@ -478,7 +484,7 @@ pub fn validate_repository(
                         }
                     } else {
                         diagnostics.push(ValidationDiagnostic {
-                            severity: DiagnosticSeverity::Warning,
+                            severity: i81_severity,
                             relative_path: "manifest.json".to_string(),
                             schema_id: None,
                             message: format!(

@@ -51,6 +51,11 @@ pub const CODE_CHILD_CONTAINER_MISSING: &str = "slice-child-container-missing";
 /// Refusal code for a `childContainerIds` cycle, self-reference included (RFC-034 [R7]).
 pub const CODE_CHILD_CONTAINER_CYCLE: &str = "slice-child-container-cycle";
 
+/// Refusal code for two carried packages holding different definitions under one `id` and `version`.
+pub const CODE_DEFINITION_IDENTITY_CONFLICT: &str = "slice-definition-identity-conflict";
+/// Refusal code for a local package path resolving outside the repository root (RFC-017).
+pub const CODE_PACKAGE_OUTSIDE_REPOSITORY: &str = "slice-package-outside-repository";
+
 #[derive(Debug, Clone, Default)]
 pub struct ExportSliceInput {
     pub container_id: String,
@@ -375,6 +380,19 @@ pub fn export_container_slice(
     }
 
     // --- Packages (D1 = P3): whole boundaries, closed at package granularity.
+    let refs = match manifest.get("packageRefs").and_then(Value::as_array) {
+        Some(a) => a.clone(),
+        None => manifest.get("packageRef").cloned().into_iter().collect(),
+    };
+    for r in refs {
+        let path = str_of(&r, "path");
+        if str_of(&r, "mode") == "local" && crate::vfs::ensure_contained(path).is_err() {
+            return Err(refuse(
+                CODE_PACKAGE_OUTSIDE_REPOSITORY,
+                format!("local package '{path}' resolves outside the repository root"),
+            ));
+        }
+    }
     let kept_roots = used_package_roots(store, &type_ids, &relation_types)?;
     // ponytail: a package rooted at the repository root would make every file
     // "package content"; refused until a corpus needs it.
@@ -485,7 +503,8 @@ fn used_package_roots(
         definitions: Vec<(DefinitionKind, Value)>,
     }
     let mut boundaries = Vec::new();
-    for b in store.list_package_boundaries()? {
+    let all = store.list_package_boundaries()?;
+    for b in all.iter() {
         let root = b.selector.clone().unwrap_or_else(|| "package".to_string());
         let dependencies = store
             .load_instance_json(&format!("{root}/package.json"))
@@ -496,13 +515,13 @@ fn used_package_roots(
             .iter()
             .map(|d| str_of(d, "packageId").to_string())
             .collect();
-        let definitions = load_boundary_definitions(store, &b)?
+        let definitions = load_boundary_definitions(store, b)?
             .into_iter()
             .map(|d| (d.kind, d.value))
             .collect();
         boundaries.push(Boundary {
             root,
-            package_id: b.id,
+            package_id: b.id.clone(),
             dependencies,
             definitions,
         });
@@ -549,8 +568,80 @@ fn used_package_roots(
             add(j, &mut kept, &mut queue);
         }
     }
+    let carried: Vec<_> = kept.iter().map(|&i| all[i].clone()).collect();
+    if let Some((id, version, at)) =
+        crate::package_bundle::first_identity_conflict(store, &carried)?
+    {
+        return Err(refuse(
+            CODE_DEFINITION_IDENTITY_CONFLICT,
+            format!("id {id} version {version} has two different definitions ({at})"),
+        ));
+    }
     Ok(kept
         .into_iter()
         .map(|i| boundaries[i].root.clone())
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The checked catalog already fatals on duplicate `id@version` in one tree, so an export cannot reach this through `export_container_slice`; the
+    /// export's own conflict check is exercised directly on two package roots.
+    #[test]
+    fn differing_definitions_under_one_identity_refuse() {
+        let field = |desc: &str| {
+            serde_json::to_vec(&json!({"id": "dddddddd-0000-4000-8000-000000000001",
+                "namespace": "n", "name": "dup", "version": 1, "description": desc,
+                "aiGuidance": {"purpose": "x"}, "fieldType": {"datatype": "string"},
+                "createdAt": "2026-07-22T00:00:00Z"}))
+            .unwrap()
+        };
+        let pkg = |id: &str, deps: Value| {
+            serde_json::to_vec(
+                &json!({"id": id, "namespace": "n", "name": "p", "title": "p",
+                "description": "", "status": "active", "createdAt": "2026-01-01T00:00:00Z",
+                "version": "1.0.0", "fields": if id.starts_with("aaaaaaaa-0000-4000-8000-0000000000a0") { json!([]) } else { json!(["fields/dup.json"]) }, "types": [],
+                "relationTypes": [], "packageDependencies": deps}),
+            )
+            .unwrap()
+        };
+        let dep =
+            |id: &str| json!({"packageId": id, "namespace": "n", "name": "p", "version": "1.0.0"});
+        let mut t = BTreeMap::new();
+        t.insert(
+            "manifest.json".to_string(),
+            serde_json::to_vec(&json!({"srsVersion": "2.0-draft", "repositoryId": "11111111-1111-4111-8111-111111111111",
+                "namespace": "n", "dataModelRevision": 2, "packageRefs": [{"mode": "local", "path": "a"}, {"mode": "local", "path": "b"}]}))
+            .unwrap(),
+        );
+        t.insert(
+            "package/package.json".into(),
+            pkg(
+                "aaaaaaaa-0000-4000-8000-0000000000a0",
+                json!([
+                    dep("aaaaaaaa-0000-4000-8000-0000000000a1"),
+                    dep("aaaaaaaa-0000-4000-8000-0000000000a2")
+                ]),
+            ),
+        );
+        t.insert(
+            "a/package.json".into(),
+            pkg("aaaaaaaa-0000-4000-8000-0000000000a1", json!([])),
+        );
+        t.insert("a/fields/dup.json".into(), field("a"));
+        t.insert(
+            "b/package.json".into(),
+            pkg("aaaaaaaa-0000-4000-8000-0000000000a2", json!([])),
+        );
+        t.insert("b/fields/dup.json".into(), field("b"));
+        let store = crate::tree_session::open_tree(t).unwrap();
+        match used_package_roots(&store, &BTreeSet::new(), &BTreeSet::new()) {
+            Err(RepositoryError::SliceRefused { code, .. }) => {
+                assert_eq!(code, CODE_DEFINITION_IDENTITY_CONFLICT)
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
 }

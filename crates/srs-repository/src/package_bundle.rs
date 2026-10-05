@@ -322,6 +322,20 @@ struct Holding {
 
 type EffectiveIndex = BTreeMap<String, BTreeMap<u64, Holding>>;
 
+/// First `(id, version, "a and b")` held differently by two of `boundaries` (or
+/// by one and the embedded core), reusing the export's PD3 comparison.
+pub(crate) fn first_identity_conflict(
+    store: &dyn RepositoryStore,
+    boundaries: &[PackageBoundary],
+) -> Result<Option<(String, u64, String)>, RepositoryError> {
+    Ok(effective_index(store, boundaries)?
+        .into_iter()
+        .find_map(|(id, vs)| {
+            vs.into_iter()
+                .find_map(|(v, h)| h.conflict.map(|at| (id.clone(), v, at)))
+        }))
+}
+
 /// Every boundary's definitions plus the embedded core's Fields and Types
 /// (PD6: core RelationTypes are KEYED, never reached, so not indexed).
 fn effective_index(
