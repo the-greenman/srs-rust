@@ -55,7 +55,7 @@ pub fn dispatch(ctx: CliContext, cmd: RepoCommand) -> Result<String> {
         } => cmd_repo_create(
             ctx,
             CreateBlankRepositoryInput {
-                namespace,
+                namespace: Some(namespace),
                 title,
                 description,
                 repository_id,

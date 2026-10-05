@@ -218,15 +218,40 @@ pub fn create_repository_with_intent(
     Ok(result)
 }
 
+/// Derive a default namespace from a repository title.
+///
+/// Produces `"com.example.<slug>"` where `<slug>` is the title lowercased,
+/// stripped of non-alphanumeric-non-space characters, with spaces replaced
+/// by hyphens (e.g. `"My Org"` → `"com.example.my-org"`).
+///
+/// `"com.example."` is an intentional placeholder prefix. Callers that require
+/// a different organisational prefix should supply an explicit `namespace` instead
+/// of relying on the derived default.
+pub(crate) fn derive_namespace_from_title(title: &str) -> String {
+    let slug = title
+        .to_lowercase()
+        .split_whitespace()
+        .map(|word| {
+            word.chars()
+                .filter(|c| c.is_alphanumeric())
+                .collect::<String>()
+        })
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    format!("com.example.{slug}")
+}
+
 /// The one `repo create` request every adapter (CLI, WASM) sends: only
-/// `namespace` is required; every other knob is defaulted here, once —
+/// `namespace` or `title` is required (an omitted namespace is derived from
+/// the title, #1265); every other knob is defaulted here, once —
 /// fresh UUIDs for the repository and primary package, srs `2.0-draft`,
 /// package `primary` 1.0.0 in the repository namespace, title = namespace.
 /// `description` becomes the purpose (identity) record's description.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreateBlankRepositoryInput {
-    pub namespace: String,
+    pub namespace: Option<String>,
     pub title: Option<String>,
     pub description: Option<String>,
     pub repository_id: Option<String>,
@@ -248,12 +273,23 @@ pub fn create_blank_repository(
     input: CreateBlankRepositoryInput,
 ) -> Result<CreateRepositoryResult, RepositoryError> {
     let mint = || uuid::Uuid::new_v4().to_string();
+    let namespace = match input.namespace {
+        Some(ns) => ns,
+        None => match input.title.as_deref() {
+            Some(t) if t.chars().any(char::is_alphanumeric) => derive_namespace_from_title(t),
+            _ => {
+                return Err(RepositoryError::InvalidInput {
+                    message: "namespace or title is required".into(),
+                })
+            }
+        },
+    };
     create_repository_with_intent(
         store,
         &InitializeRepositoryInput {
             repository: RepositoryMetadata {
                 repository_id: input.repository_id.unwrap_or_else(mint),
-                namespace: input.namespace.clone(),
+                namespace: namespace.clone(),
                 srs_version: input
                     .srs_version
                     .unwrap_or_else(|| DEFAULT_SRS_VERSION.to_string()),
@@ -262,7 +298,7 @@ pub fn create_blank_repository(
             },
             primary_package: PrimaryPackageMetadata {
                 id: input.package_id.unwrap_or_else(mint),
-                namespace: input.package_namespace.unwrap_or(input.namespace),
+                namespace: input.package_namespace.unwrap_or(namespace),
                 name: input
                     .package_name
                     .unwrap_or_else(|| DEFAULT_PACKAGE_NAME.to_string()),
@@ -452,7 +488,7 @@ mod tests {
         let result = create_blank_repository(
             &store,
             CreateBlankRepositoryInput {
-                namespace: "com.t.blank".into(),
+                namespace: Some("com.t.blank".into()),
                 ..Default::default()
             },
         )
@@ -477,17 +513,43 @@ mod tests {
         );
 
         let blank_title = CreateBlankRepositoryInput {
-            namespace: "com.t.x".into(),
+            namespace: Some("com.t.x".into()),
             title: Some("  ".into()),
             ..Default::default()
         };
         assert!(create_blank_repository(&MemoryStore::uninitialized(), blank_title).is_err());
         let bad_id = CreateBlankRepositoryInput {
-            namespace: "com.t.x".into(),
+            namespace: Some("com.t.x".into()),
             repository_id: Some("not-a-uuid".into()),
             ..Default::default()
         };
         assert!(create_blank_repository(&MemoryStore::uninitialized(), bad_id).is_err());
+    }
+
+    #[test]
+    fn create_blank_repository_derives_namespace_from_title() {
+        let store = MemoryStore::uninitialized();
+        let input = CreateBlankRepositoryInput {
+            title: Some("My Essays".into()),
+            ..Default::default()
+        };
+        create_blank_repository(&store, input).unwrap();
+        let ns = derive_namespace_from_title("My Essays");
+        assert_eq!(ns, "com.example.my-essays");
+        assert_eq!(store.load_package().unwrap().namespace, ns);
+        assert_eq!(store.load_manifest().unwrap().extra["namespace"], ns);
+    }
+
+    #[test]
+    fn create_blank_repository_needs_namespace_or_title() {
+        for title in [None, Some("".to_string()), Some("  !! ".to_string())] {
+            let input = CreateBlankRepositoryInput {
+                title,
+                ..Default::default()
+            };
+            let err = create_blank_repository(&MemoryStore::uninitialized(), input).unwrap_err();
+            assert!(err.to_string().contains("namespace or title is required"));
+        }
     }
 
     #[test]

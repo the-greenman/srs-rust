@@ -2,7 +2,9 @@ use crate::container_service::{add_member, create_container};
 use crate::error::RepositoryError;
 use crate::manifest_service::{set_manifest_root_container, SetManifestRootContainerInput};
 use crate::record_store::{create_record_in_context, CreateRecordInput};
-use crate::repository_lifecycle::{init_new_repository, InitNewRepositoryInput};
+use crate::repository_lifecycle::{
+    derive_namespace_from_title, init_new_repository, InitNewRepositoryInput,
+};
 use crate::store::RepositoryStore;
 use crate::view_service::{delete_composition, list_compositions, update_composition};
 use serde::{Deserialize, Serialize};
@@ -70,30 +72,6 @@ pub struct CreateGovernanceRepositoryResult {
     pub rebound_composition_ids: Vec<String>,
     /// See [`ScaffoldGovernanceRepoResult::removed_composition_ids`].
     pub removed_composition_ids: Vec<String>,
-}
-
-/// Derive a default namespace from a repository title.
-///
-/// Produces `"com.example.<slug>"` where `<slug>` is the title lowercased,
-/// stripped of non-alphanumeric-non-space characters, with spaces replaced
-/// by hyphens (e.g. `"My Org"` → `"com.example.my-org"`).
-///
-/// `"com.example."` is an intentional placeholder prefix. Callers that require
-/// a different organisational prefix should supply an explicit `namespace` instead
-/// of relying on the derived default.
-fn derive_namespace_from_title(title: &str) -> String {
-    let slug = title
-        .to_lowercase()
-        .split_whitespace()
-        .map(|word| {
-            word.chars()
-                .filter(|c| c.is_alphanumeric())
-                .collect::<String>()
-        })
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("-");
-    format!("com.example.{slug}")
 }
 
 /// Scaffold governance records into an already-stamped seed store.
