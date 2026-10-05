@@ -250,9 +250,11 @@ impl SrsRepository {
 
     /// Create a blank repository in memory (no seed): the same core service as
     /// `srs repo create`. `input_json` is `CreateBlankRepositoryInput`:
-    /// `{ "namespace": string, "title"?, "description"?, "repositoryId"?,
+    /// `{ "namespace"?: string, "title"?, "description"?, "repositoryId"?,
     /// "srsVersion"?, "packageId"?, "packageName"?, "packageVersion"?,
-    /// "packageNamespace"? }` — defaults are the core's. Export with
+    /// "packageNamespace"? }` — defaults are the core's. `namespace` is
+    /// optional: when omitted it is derived as `com.example.<slug>` from
+    /// `title`; one of the two is required. Export with
     /// `export_srsj()` / `export_tree()` / `export_archive()`.
     pub fn create(input_json: &str) -> Result<SrsRepository, JsValue> {
         Ok(SrsRepository {
@@ -2136,7 +2138,12 @@ mod tests {
         );
         assert!(
             super::create_blank_from_json("{}").is_err(),
-            "namespace required"
+            "namespace or title required"
+        );
+        let derived = super::create_blank_from_json(r#"{"title":"My Essays"}"#).unwrap();
+        assert_eq!(
+            derived.load_manifest().unwrap().extra["namespace"],
+            "com.example.my-essays"
         );
         assert!(
             super::create_blank_from_json(r#"{"namespace":"a.b","purpose":"x"}"#).is_err(),
