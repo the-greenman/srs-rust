@@ -2182,6 +2182,40 @@ pub struct PackageDependencyEntry {
     pub mismatched_labels: Vec<String>,
 }
 
+impl From<srs_repository::package_install_service::UpgradeDependencyWarning>
+    for PackageDependencyEntry
+{
+    fn from(d: srs_repository::package_install_service::UpgradeDependencyWarning) -> Self {
+        Self {
+            package_id: d.package_id,
+            namespace: d.namespace,
+            name: d.name,
+            version: d.version,
+            satisfied: d.satisfied,
+            reason: d.reason,
+            candidate_versions: d.candidate_versions,
+            mismatched_labels: d.mismatched_labels,
+        }
+    }
+}
+
+impl From<srs_repository::package_dependency_service::PackageDependencyStatus>
+    for PackageDependencyEntry
+{
+    fn from(d: srs_repository::package_dependency_service::PackageDependencyStatus) -> Self {
+        Self {
+            package_id: d.entry.package_id,
+            namespace: d.entry.namespace,
+            name: d.entry.name,
+            version: d.entry.version,
+            satisfied: d.satisfied,
+            reason: d.reason.map(|r| r.as_str().to_string()),
+            candidate_versions: d.candidate_versions,
+            mismatched_labels: d.mismatched_labels,
+        }
+    }
+}
+
 impl From<srs_repository::package_dependency_service::PackageDependenciesResult>
     for PackageDependenciesPayload
 {
@@ -2196,16 +2230,7 @@ impl From<srs_repository::package_dependency_service::PackageDependenciesResult>
             dependencies: r
                 .dependencies
                 .into_iter()
-                .map(|d| PackageDependencyEntry {
-                    package_id: d.entry.package_id,
-                    namespace: d.entry.namespace,
-                    name: d.entry.name,
-                    version: d.entry.version,
-                    satisfied: d.satisfied,
-                    reason: d.reason.map(|r| r.as_str().to_string()),
-                    candidate_versions: d.candidate_versions,
-                    mismatched_labels: d.mismatched_labels,
-                })
+                .map(PackageDependencyEntry::from)
                 .collect(),
         }
     }
@@ -2273,6 +2298,102 @@ impl From<srs_repository::package_install_service::InstallPackageResult> for Pac
                     skipped_identical: k.skipped_identical,
                     conflicts: k.conflicts,
                 })
+                .collect(),
+            notes: r.notes,
+        }
+    }
+}
+
+/// `srs package upgrade` (#1152): the upgrade plan / outcome. Lists hold
+/// `{kind, id, version, name}`.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageUpgradePayload {
+    pub package_id: String,
+    pub name: String,
+    pub previous_version: String,
+    pub version: String,
+    /// The boundary version was (dry run: would be) bumped.
+    pub upgraded: bool,
+    pub dry_run: bool,
+    /// New definition UUIDs.
+    pub added: Vec<PackageUpgradeItem>,
+    /// New versions of an installed UUID, installed alongside the old ones.
+    pub new_versions: Vec<PackageUpgradeItem>,
+    /// Same UUID and version, changed upstream, local copy clean: overwritten.
+    pub updated: Vec<PackageUpgradeItem>,
+    /// Content already current (including a local edit upstream did not change).
+    pub unchanged: Vec<PackageUpgradeItem>,
+    /// Content current but its reference copy or import record was missing or wrong; rewritten.
+    pub repaired: Vec<PackageUpgradeItem>,
+    /// Not written: `local-edit`, `no-reference-copy` or `key-collision`.
+    pub conflicts: Vec<PackageUpgradeConflict>,
+    /// Installed from this package but absent from the bundle; kept, never deleted.
+    pub removed_upstream: Vec<PackageUpgradeItem>,
+    /// Unsatisfied RFC-044 requirements of the bundle; never blocking.
+    pub dependency_warnings: Vec<PackageDependencyEntry>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageUpgradeItem {
+    /// Definition kind (`field`, `type`, `relationType`, ...).
+    pub kind: String,
+    pub id: String,
+    pub version: u32,
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageUpgradeConflict {
+    #[serde(flatten)]
+    pub item: PackageUpgradeItem,
+    pub conflict_kind: String,
+}
+
+impl From<srs_repository::package_install_service::UpgradeItem> for PackageUpgradeItem {
+    fn from(i: srs_repository::package_install_service::UpgradeItem) -> Self {
+        Self {
+            kind: i.kind,
+            id: i.id,
+            version: i.version,
+            name: i.name,
+        }
+    }
+}
+
+impl From<srs_repository::package_install_service::UpgradePackageResult> for PackageUpgradePayload {
+    fn from(r: srs_repository::package_install_service::UpgradePackageResult) -> Self {
+        let items = |v: Vec<srs_repository::package_install_service::UpgradeItem>| {
+            v.into_iter().map(PackageUpgradeItem::from).collect()
+        };
+        Self {
+            package_id: r.package_id,
+            name: r.name,
+            previous_version: r.previous_version,
+            version: r.version,
+            upgraded: r.upgraded,
+            dry_run: r.dry_run,
+            added: items(r.added),
+            new_versions: items(r.new_versions),
+            updated: items(r.updated),
+            unchanged: items(r.unchanged),
+            repaired: items(r.repaired),
+            conflicts: r
+                .conflicts
+                .into_iter()
+                .map(|c| PackageUpgradeConflict {
+                    item: c.item.into(),
+                    conflict_kind: c.conflict_kind,
+                })
+                .collect(),
+            removed_upstream: items(r.removed_upstream),
+            dependency_warnings: r
+                .dependency_warnings
+                .into_iter()
+                .map(PackageDependencyEntry::from)
                 .collect(),
             notes: r.notes,
         }

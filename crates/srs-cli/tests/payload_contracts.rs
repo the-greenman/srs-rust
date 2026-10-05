@@ -558,6 +558,7 @@ fn package_dependencies() {
 #[test]
 fn package_install() {
     check::<PackageInstallPayload>("package-install");
+    check::<PackageUpgradePayload>("package-upgrade");
 }
 
 #[test]

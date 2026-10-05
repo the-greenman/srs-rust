@@ -530,6 +530,99 @@ pub(crate) fn load_boundary_definitions(
 }
 
 // ---------------------------------------------------------------------------
+// Shared analyser (install + upgrade, #1152)
+// ---------------------------------------------------------------------------
+
+/// Per-definition classification against the target repository.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Decision {
+    /// Not present anywhere: write it.
+    Install,
+    /// Same (kind, uuid, version) already present somewhere in the repo.
+    SkipIdentical,
+    /// Same logical key, different UUID: never written.
+    Conflict,
+}
+
+pub(crate) struct Analysis {
+    /// One per `bundle.definitions` entry, in order.
+    pub decisions: Vec<Decision>,
+    /// For `Install` decisions: the uuid already exists at another version.
+    pub known_uuid: Vec<bool>,
+    pub conflicts: Vec<InstallConflictDetail>,
+    pub counts: HashMap<&'static str, InstallKindCount>,
+}
+
+/// Phase 1 of install and upgrade: classify every bundle definition. No writes.
+pub(crate) fn analyse_definitions(
+    store: &dyn RepositoryStore,
+    bundle: &PackageSourceBundle,
+) -> Result<Analysis, RepositoryError> {
+    let mut existing = collect_existing(store)?;
+    let mut decisions: Vec<Decision> = Vec::with_capacity(bundle.definitions.len());
+    let mut known_uuid: Vec<bool> = Vec::with_capacity(bundle.definitions.len());
+    let mut conflicts: Vec<InstallConflictDetail> = Vec::new();
+    // Per-kind counters keyed by label, filled in INSTALL_ORDER by the caller.
+    let mut counts: HashMap<&'static str, InstallKindCount> = HashMap::new();
+
+    for def in &bundle.definitions {
+        let label = kind_label(def.kind);
+        let id = definition_id(def.kind, &def.value).ok_or_else(|| {
+            RepositoryError::InvalidRepositoryInitialization {
+                message: format!(
+                    "source {label} '{}' is missing its identity field",
+                    def.rel_path
+                ),
+            }
+        })?;
+        let key = definition_key(def.kind, &def.value);
+        let version = definition_version(def.kind, &def.value);
+
+        let entry = counts.entry(label).or_insert_with(|| InstallKindCount {
+            kind: label.to_string(),
+            installed: 0,
+            skipped_identical: 0,
+            conflicts: 0,
+        });
+
+        if existing.ids.contains(&(label, id.clone(), version)) {
+            entry.skipped_identical += 1;
+            decisions.push(Decision::SkipIdentical);
+            known_uuid.push(true);
+            continue;
+        }
+        if let Some(existing_id) = key
+            .as_ref()
+            .and_then(|k| existing.keys.get(&(label, k.clone())))
+            .cloned()
+        {
+            entry.conflicts += 1;
+            conflicts.push(InstallConflictDetail {
+                kind: label.to_string(),
+                key: key.clone().unwrap_or_default(),
+                source_id: id.clone(),
+                existing_id,
+            });
+            decisions.push(Decision::Conflict);
+            known_uuid.push(false);
+            continue;
+        }
+
+        entry.installed += 1;
+        decisions.push(Decision::Install);
+        known_uuid.push(existing.ids.iter().any(|(l, i, _)| *l == label && *i == id));
+        // Track within-run so later source entries can't duplicate earlier ones.
+        existing.insert(def.kind, id, version, key);
+    }
+    Ok(Analysis {
+        decisions,
+        known_uuid,
+        conflicts,
+        counts,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Install input / result types
 // ---------------------------------------------------------------------------
 
@@ -613,6 +706,131 @@ pub struct InstallPackageResult {
     pub notes: Vec<String>,
 }
 
+/// A bundle must carry non-empty package identity (id, namespace, name, version).
+fn validate_bundle_identity(bundle: &PackageSourceBundle) -> Result<(), RepositoryError> {
+    for (label, value) in [
+        ("id", &bundle.id),
+        ("namespace", &bundle.namespace),
+        ("name", &bundle.name),
+        ("version", &bundle.version),
+    ] {
+        if value.trim().is_empty() {
+            return Err(RepositoryError::InvalidRepositoryInitialization {
+                message: format!("source package {label} must not be empty"),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// The import record for a definition installed/refreshed from `bundle`.
+fn import_record(
+    bundle: &PackageSourceBundle,
+    def: &PackageSourceDefinition,
+    def_type: DefinitionType,
+    id: String,
+    imported_at: &str,
+) -> ImportRecord {
+    ImportRecord {
+        definition_id: id,
+        definition_type: def_type,
+        namespace: definition_namespace(def.kind, &def.value).unwrap_or_default(),
+        name: definition_name(def.kind, &def.value).unwrap_or_default(),
+        version: definition_version(def.kind, &def.value),
+        mode: ImportMode::UpstreamTracked,
+        imported_at: imported_at.to_string(),
+        source_package_id: bundle.id.clone(),
+        source_package_name: bundle.namespace.clone(),
+        source_package_version: bundle.version.clone(),
+        latest_known_upstream_version: None,
+        update_available: None,
+        update_checked_at: None,
+        conflict_state: Some(ConflictState::Clean),
+        conflict_detected_at: None,
+        local_version: None,
+        local_edited_at: None,
+    }
+}
+
+fn import_records_mut<'a>(
+    summary: &'a mut ImportSummary,
+    t: &DefinitionType,
+) -> &'a mut Vec<ImportRecord> {
+    match t {
+        DefinitionType::Field => &mut summary.fields,
+        DefinitionType::Type => &mut summary.types,
+        DefinitionType::View => &mut summary.views,
+        DefinitionType::Blueprint => &mut summary.blueprints,
+        DefinitionType::Protocol => &mut summary.protocols,
+        DefinitionType::RelationType => &mut summary.relation_types,
+    }
+}
+
+/// Write the install-time reference copy of a definition (`conflictState` baseline).
+fn write_ref_copy(
+    store: &dyn RepositoryStore,
+    boundary_path: &str,
+    rel_path: &str,
+    value: &serde_json::Value,
+) -> Result<(), RepositoryError> {
+    let refs = format!("{boundary_path}/.srs-import/refs");
+    store.ensure_instance_dir(&refs)?;
+    if let Some((dir, _)) = rel_path.rsplit_once('/') {
+        store.ensure_instance_dir(&format!("{refs}/{dir}"))?;
+    }
+    store.save_instance_json(&format!("{refs}/{rel_path}"), value)
+}
+
+/// Target path (relative to the boundary) for each bundle definition. A definition
+/// that is to be installed never lands on a file holding a different
+/// `(uuid, version)` identity, or one this run already wrote: it takes the
+/// `-v{n}` path (the one rule, [`crate::package_bundle::version_suffixed`]). Shared
+/// by install and upgrade (#1152).
+fn resolve_install_paths(
+    store: &dyn RepositoryStore,
+    boundary_path: &str,
+    bundle: &PackageSourceBundle,
+    decisions: &[Decision],
+) -> Result<Vec<String>, RepositoryError> {
+    let mut taken: HashSet<String> = HashSet::new();
+    let mut out = Vec::with_capacity(decisions.len());
+    for (def, decision) in bundle.definitions.iter().zip(decisions) {
+        if *decision != Decision::Install {
+            out.push(def.rel_path.clone());
+            continue;
+        }
+        let id = definition_id(def.kind, &def.value).unwrap_or_default();
+        let version = definition_version(def.kind, &def.value);
+        let occupied = |p: &str| {
+            taken.contains(p)
+                || store
+                    .load_instance_json(&format!("{boundary_path}/{p}"))
+                    .ok()
+                    .is_some_and(|v| {
+                        v["id"].as_str() != Some(id.as_str())
+                            || definition_version(def.kind, &v) != version
+                    })
+        };
+        let mut path = def.rel_path.clone();
+        if occupied(&path) {
+            path = crate::package_bundle::version_suffixed(&path, u64::from(version));
+            if occupied(&path) {
+                return Err(RepositoryError::InvalidRepositoryInitialization {
+                    message: format!(
+                        "cannot install {} '{}' v{version}: both '{}' and '{path}' hold another definition",
+                        kind_label(def.kind),
+                        definition_name(def.kind, &def.value).unwrap_or_default(),
+                        def.rel_path
+                    ),
+                });
+            }
+        }
+        taken.insert(path.clone());
+        out.push(path);
+    }
+    Ok(out)
+}
+
 // ---------------------------------------------------------------------------
 // Install
 // ---------------------------------------------------------------------------
@@ -653,18 +871,7 @@ pub fn install_package_bundle(
     bundle: &PackageSourceBundle,
     options: InstallBundleOptions,
 ) -> Result<InstallPackageResult, RepositoryError> {
-    for (label, value) in [
-        ("id", &bundle.id),
-        ("namespace", &bundle.namespace),
-        ("name", &bundle.name),
-        ("version", &bundle.version),
-    ] {
-        if value.trim().is_empty() {
-            return Err(RepositoryError::InvalidRepositoryInitialization {
-                message: format!("source package {label} must not be empty"),
-            });
-        }
-    }
+    validate_bundle_identity(bundle)?;
 
     let requested_path = options
         .boundary_path
@@ -678,65 +885,12 @@ pub fn install_package_bundle(
     }
 
     // ── Phase 1: analyse (no writes) ─────────────────────────────────────────
-    let mut existing = collect_existing(store)?;
-
-    enum Decision {
-        Install,
-        SkipIdentical,
-        Conflict,
-    }
-
-    let mut decisions: Vec<Decision> = Vec::with_capacity(bundle.definitions.len());
-    let mut conflicts: Vec<InstallConflictDetail> = Vec::new();
-    // Per-kind counters keyed by label, filled in INSTALL_ORDER below.
-    let mut counts: HashMap<&'static str, InstallKindCount> = HashMap::new();
-
-    for def in &bundle.definitions {
-        let label = kind_label(def.kind);
-        let id = definition_id(def.kind, &def.value).ok_or_else(|| {
-            RepositoryError::InvalidRepositoryInitialization {
-                message: format!(
-                    "source {label} '{}' is missing its identity field",
-                    def.rel_path
-                ),
-            }
-        })?;
-        let key = definition_key(def.kind, &def.value);
-        let version = definition_version(def.kind, &def.value);
-
-        let entry = counts.entry(label).or_insert_with(|| InstallKindCount {
-            kind: label.to_string(),
-            installed: 0,
-            skipped_identical: 0,
-            conflicts: 0,
-        });
-
-        if existing.ids.contains(&(label, id.clone(), version)) {
-            entry.skipped_identical += 1;
-            decisions.push(Decision::SkipIdentical);
-            continue;
-        }
-        if let Some(existing_id) = key
-            .as_ref()
-            .and_then(|k| existing.keys.get(&(label, k.clone())))
-            .cloned()
-        {
-            entry.conflicts += 1;
-            conflicts.push(InstallConflictDetail {
-                kind: label.to_string(),
-                key: key.clone().unwrap_or_default(),
-                source_id: id.clone(),
-                existing_id,
-            });
-            decisions.push(Decision::Conflict);
-            continue;
-        }
-
-        entry.installed += 1;
-        decisions.push(Decision::Install);
-        // Track within-run so later source entries can't duplicate earlier ones.
-        existing.insert(def.kind, id, version, key);
-    }
+    let Analysis {
+        decisions,
+        conflicts,
+        mut counts,
+        ..
+    } = analyse_definitions(store, bundle)?;
 
     if options.strict && !conflicts.is_empty() {
         let keys = conflicts
@@ -816,15 +970,15 @@ pub fn install_package_bundle(
     // ── Phase 3: write installs ──────────────────────────────────────────────
     let mut installed_total = 0usize;
     let mut skipped_total = 0usize;
-    for (def, decision) in bundle.definitions.iter().zip(&decisions) {
+    let paths = resolve_install_paths(store, &boundary_path, bundle, &decisions)?;
+    for ((def, decision), rel_path) in bundle.definitions.iter().zip(&decisions).zip(&paths) {
         match decision {
             Decision::Install => {
-                if let Some((dir, _)) = def.rel_path.rsplit_once('/') {
+                if let Some((dir, _)) = rel_path.rsplit_once('/') {
                     store.ensure_instance_dir(&format!("{boundary_path}/{dir}"))?;
                 }
-                store
-                    .save_instance_json(&format!("{boundary_path}/{}", def.rel_path), &def.value)?;
-                store.add_definition_to_boundary(&selector, def.kind, &def.rel_path)?;
+                store.save_instance_json(&format!("{boundary_path}/{rel_path}"), &def.value)?;
+                store.add_definition_to_boundary(&selector, def.kind, rel_path)?;
                 installed_total += 1;
             }
             Decision::SkipIdentical => skipped_total += 1,
@@ -883,59 +1037,22 @@ pub fn install_package_bundle(
             });
             summary.generated_at = installed_at.clone();
 
-            for (def, decision) in bundle.definitions.iter().zip(&decisions) {
+            for ((def, decision), rel_path) in bundle.definitions.iter().zip(&decisions).zip(&paths)
+            {
                 if !matches!(decision, Decision::Install) {
                     continue;
                 }
+                // One rule for every kind: a reference copy beside each installed definition.
+                write_ref_copy(store, &boundary_path, rel_path, &def.value)?;
                 let Some(def_type) = to_definition_type(def.kind) else {
-                    summary.skipped_definitions.push(def.rel_path.clone());
+                    summary.skipped_definitions.push(rel_path.clone());
                     continue;
                 };
                 let Some(id) = definition_id(def.kind, &def.value) else {
                     continue;
                 };
-
-                // Write reference copy alongside the installed definition.
-                if let Some((dir, _)) = def.rel_path.rsplit_once('/') {
-                    store.ensure_instance_dir(&format!("{import_prefix}/refs/{dir}"))?;
-                }
-                store.save_instance_json(
-                    &format!("{import_prefix}/refs/{}", def.rel_path),
-                    &def.value,
-                )?;
-
-                let namespace = definition_namespace(def.kind, &def.value).unwrap_or_default();
-                let name = definition_name(def.kind, &def.value).unwrap_or_default();
-                let version = definition_version(def.kind, &def.value);
-
-                let record = ImportRecord {
-                    definition_id: id,
-                    definition_type: def_type.clone(),
-                    namespace,
-                    name,
-                    version,
-                    mode: ImportMode::UpstreamTracked,
-                    imported_at: installed_at.clone(),
-                    source_package_id: bundle.id.clone(),
-                    source_package_name: bundle.namespace.clone(),
-                    source_package_version: bundle.version.clone(),
-                    latest_known_upstream_version: None,
-                    update_available: None,
-                    update_checked_at: None,
-                    conflict_state: Some(ConflictState::Clean),
-                    conflict_detected_at: None,
-                    local_version: None,
-                    local_edited_at: None,
-                };
-
-                match def_type {
-                    DefinitionType::Field => summary.fields.push(record),
-                    DefinitionType::Type => summary.types.push(record),
-                    DefinitionType::View => summary.views.push(record),
-                    DefinitionType::Blueprint => summary.blueprints.push(record),
-                    DefinitionType::Protocol => summary.protocols.push(record),
-                    DefinitionType::RelationType => summary.relation_types.push(record),
-                }
+                let record = import_record(bundle, def, def_type.clone(), id, &installed_at);
+                import_records_mut(&mut summary, &def_type).push(record);
             }
 
             let summary_path = format!("{import_prefix}/import-records.json");
@@ -982,6 +1099,461 @@ pub fn install_package_bundle_bytes(
     let read = crate::package_bundle::read_package_bundle(bytes)?;
     let mut result = install_package_bundle(store, &read.bundle, options)?;
     result.notes = read.notes;
+    Ok(result)
+}
+
+// ---------------------------------------------------------------------------
+// Upgrade (#1152)
+// ---------------------------------------------------------------------------
+
+/// Options for [`upgrade_package_bundle`]. Deserializable: it is the WASM
+/// `upgrade_package_bundle` `options_json` contract.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct UpgradeOptions {
+    /// Compute the full result without writing anything.
+    pub dry_run: bool,
+    /// The boundary to upgrade; default = the boundary installed with the bundle's `packageId`.
+    pub boundary_path: Option<String>,
+}
+
+/// One definition in an [`UpgradePackageResult`] list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpgradeItem {
+    /// Definition kind label (`field`, `type`, ...).
+    pub kind: String,
+    pub id: String,
+    pub version: u32,
+    pub name: String,
+}
+
+/// A definition the upgrade did not write.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpgradeConflict {
+    #[serde(flatten)]
+    pub item: UpgradeItem,
+    /// `local-edit` (installed file differs from its install-time reference copy; kept),
+    /// `no-reference-copy` (differs from the bundle and no reference copy proves it clean; kept)
+    /// or `key-collision` (same logical key, different UUID; not installed).
+    pub conflict_kind: String,
+}
+
+/// One unsatisfied RFC-044 requirement. The one flat JSON shape every adapter
+/// (CLI, MCP, WASM) emits for `dependencyWarnings`; `packageId` is `null` for a
+/// legacy entry and `reason` is one of RFC-044's kebab-case codes.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpgradeDependencyWarning {
+    pub package_id: Option<String>,
+    pub namespace: String,
+    pub name: String,
+    pub version: String,
+    pub satisfied: bool,
+    pub reason: Option<String>,
+    pub candidate_versions: Vec<Option<String>>,
+    pub mismatched_labels: Vec<String>,
+}
+
+impl From<crate::package_dependency_service::PackageDependencyStatus> for UpgradeDependencyWarning {
+    fn from(d: crate::package_dependency_service::PackageDependencyStatus) -> Self {
+        Self {
+            package_id: d.entry.package_id,
+            namespace: d.entry.namespace,
+            name: d.entry.name,
+            version: d.entry.version,
+            satisfied: d.satisfied,
+            reason: d.reason.map(|r| r.as_str().to_string()),
+            candidate_versions: d.candidate_versions,
+            mismatched_labels: d.mismatched_labels,
+        }
+    }
+}
+
+/// Result of [`upgrade_package_bundle`].
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpgradePackageResult {
+    pub package_id: String,
+    pub name: String,
+    pub previous_version: String,
+    pub version: String,
+    /// The boundary version was (or, on a dry run, would be) bumped.
+    pub upgraded: bool,
+    pub dry_run: bool,
+    /// New definition UUIDs.
+    pub added: Vec<UpgradeItem>,
+    /// New versions of an already-installed UUID (installed alongside, RFC-014 R6).
+    pub new_versions: Vec<UpgradeItem>,
+    /// Same UUID and version, changed upstream, local copy clean: overwritten.
+    pub updated: Vec<UpgradeItem>,
+    /// Content already current (a local edit of a definition upstream did not change is
+    /// also unchanged). A definition whose reference copy or import record had to be
+    /// rewritten is in `repaired` instead.
+    pub unchanged: Vec<UpgradeItem>,
+    /// Content current, but the reference copy or import record was missing or stale
+    /// (e.g. after a partial failure or a version bump); rewritten.
+    pub repaired: Vec<UpgradeItem>,
+    pub conflicts: Vec<UpgradeConflict>,
+    /// Installed from this package but absent from the bundle: reported, never deleted.
+    pub removed_upstream: Vec<UpgradeItem>,
+    /// RFC-044 requirement outcomes that are not satisfied; never blocking.
+    pub dependency_warnings: Vec<UpgradeDependencyWarning>,
+    pub notes: Vec<String>,
+}
+
+fn upgrade_item(def: &PackageSourceDefinition) -> UpgradeItem {
+    UpgradeItem {
+        kind: kind_label(def.kind).to_string(),
+        id: definition_id(def.kind, &def.value).unwrap_or_default(),
+        version: definition_version(def.kind, &def.value),
+        name: definition_name(def.kind, &def.value).unwrap_or_default(),
+    }
+}
+
+/// Upgrade an installed package boundary from a `.srspkg` (RFC-014 R2/R3/R6,
+/// srs-rust#1152). Reads the bundle with the one reader, then
+/// [`upgrade_package_source`].
+pub fn upgrade_package_bundle(
+    store: &dyn RepositoryStore,
+    bytes: &[u8],
+    options: UpgradeOptions,
+) -> Result<UpgradePackageResult, RepositoryError> {
+    let read = crate::package_bundle::read_package_bundle(bytes)?;
+    let mut result = upgrade_package_source(store, &read.bundle, options)?;
+    result.notes.splice(0..0, read.notes);
+    Ok(result)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Act {
+    /// New file (and boundary index entry).
+    New,
+    /// Overwrite a clean file whose upstream changed.
+    Overwrite,
+    /// Content current; rewrite the reference copy and/or import record only.
+    Repair,
+}
+
+/// The source-agnostic upgrade core: shares [`analyse_definitions`] with install.
+///
+/// Records are never touched (RFC-014 R3); nothing is ever deleted; a locally
+/// edited definition that upstream also changed is kept and reported. The plan
+/// (everything up to the dry-run return) reads and validates exactly what a real
+/// run does, so a dry run fails wherever the real run would.
+pub fn upgrade_package_source(
+    store: &dyn RepositoryStore,
+    bundle: &PackageSourceBundle,
+    options: UpgradeOptions,
+) -> Result<UpgradePackageResult, RepositoryError> {
+    use srs_core::types::package_dependency::SemVer;
+    use std::cmp::Ordering;
+
+    validate_bundle_identity(bundle)?;
+    let invalid = |message: String| RepositoryError::InvalidRepositoryInitialization { message };
+
+    // ── Target boundary ──────────────────────────────────────────────────────
+    let mut candidates: Vec<PackageBoundary> = store
+        .list_package_boundaries()?
+        .into_iter()
+        .filter(|b| {
+            b.id == bundle.id
+                && b.selector.is_some()
+                && options
+                    .boundary_path
+                    .as_ref()
+                    .is_none_or(|p| b.selector.as_ref() == Some(p))
+        })
+        .collect();
+    if candidates.len() > 1 {
+        let selectors: Vec<&str> = candidates
+            .iter()
+            .filter_map(|b| b.selector.as_deref())
+            .collect();
+        return Err(invalid(format!(
+            "package '{}' ({}) is installed at several boundaries ({}); pass --boundary",
+            bundle.name,
+            bundle.id,
+            selectors.join(", ")
+        )));
+    }
+    let boundary = candidates.pop().ok_or_else(|| {
+        invalid(format!(
+            "package '{}' ({}) is not installed{}; use install",
+            bundle.name,
+            bundle.id,
+            options
+                .boundary_path
+                .as_ref()
+                .map(|p| format!(" at '{p}'"))
+                .unwrap_or_default()
+        ))
+    })?;
+    let boundary_path = boundary.selector.clone().unwrap_or_default();
+
+    // ── Version check (SemVer) ───────────────────────────────────────────────
+    let parse = |v: &str| {
+        SemVer::parse(v).ok_or_else(|| invalid(format!("'{v}' is not a SemVer 2.0.0 version")))
+    };
+    let upgraded = match parse(&bundle.version)?.precedence(&parse(&boundary.version)?) {
+        Ordering::Less => {
+            return Err(invalid(format!(
+                "downgrade refused: bundle version {} is lower than installed {}",
+                bundle.version, boundary.version
+            )))
+        }
+        Ordering::Equal => false,
+        Ordering::Greater => true,
+    };
+
+    // ── Import records, read and parsed up front (ADR-030 addendum) ──────────
+    let summary_path = format!("{boundary_path}/.srs-import/import-records.json");
+    let loaded = match store.load_instance_json(&summary_path) {
+        Ok(v) => Some(serde_json::from_value::<ImportSummary>(v).map_err(|e| {
+            RepositoryError::Serialize {
+                path: PathBuf::from(&summary_path),
+                source: e,
+            }
+        })?),
+        Err(RepositoryError::NotFound { .. }) => None,
+        Err(RepositoryError::Io { source, .. })
+            if source.kind() == std::io::ErrorKind::NotFound =>
+        {
+            None
+        }
+        Err(e) => return Err(e),
+    };
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut summary = loaded.unwrap_or_else(|| ImportSummary {
+        generated_at: now.clone(),
+        fields: Vec::new(),
+        types: Vec::new(),
+        views: Vec::new(),
+        blueprints: Vec::new(),
+        protocols: Vec::new(),
+        relation_types: Vec::new(),
+        skipped_definitions: Vec::new(),
+    });
+
+    // ── Classify (shared analyser) ───────────────────────────────────────────
+    let analysis = analyse_definitions(store, bundle)?;
+    let paths = resolve_install_paths(store, &boundary_path, bundle, &analysis.decisions)?;
+    let boundary_defs = load_boundary_definitions(store, &boundary)?;
+    let identity = |d: &PackageSourceDefinition| {
+        (
+            kind_label(d.kind),
+            definition_id(d.kind, &d.value).unwrap_or_default(),
+            definition_version(d.kind, &d.value),
+        )
+    };
+    // For a definition whose content is current: `None` = reference copy and import
+    // record are in order; `Some(false)` = only the record's sourcePackageVersion is
+    // stale (a version bump: refreshed quietly); `Some(true)` = the reference copy
+    // or the record is missing or wrong (reported as repaired).
+    let repair_need =
+        |summary: &mut ImportSummary, def: &PackageSourceDefinition, rel: &str| -> Option<bool> {
+            let ref_ok = store
+                .load_instance_json(&format!("{boundary_path}/.srs-import/refs/{rel}"))
+                .ok()
+                .as_ref()
+                == Some(&def.value);
+            let (id, version) = (
+                definition_id(def.kind, &def.value).unwrap_or_default(),
+                definition_version(def.kind, &def.value),
+            );
+            let (present, current) = match to_definition_type(def.kind) {
+                None => (true, true),
+                Some(t) => {
+                    let list = import_records_mut(summary, &t);
+                    let mut mine = list
+                        .iter()
+                        .filter(|r| r.definition_id == id && r.version == version);
+                    let first = mine.next();
+                    (
+                        first.is_some(),
+                        first.is_some_and(|r| r.source_package_version == bundle.version),
+                    )
+                }
+            };
+            match (ref_ok && present, current) {
+                (true, true) => None,
+                (true, false) => Some(false),
+                _ => Some(true),
+            }
+        };
+
+    let mut result = UpgradePackageResult {
+        package_id: bundle.id.clone(),
+        name: bundle.name.clone(),
+        previous_version: boundary.version.clone(),
+        version: bundle.version.clone(),
+        upgraded,
+        dry_run: options.dry_run,
+        added: vec![],
+        new_versions: vec![],
+        updated: vec![],
+        unchanged: vec![],
+        repaired: vec![],
+        conflicts: vec![],
+        removed_upstream: vec![],
+        dependency_warnings: vec![],
+        notes: vec![],
+    };
+    // (bundle index, file path inside the boundary, what to write)
+    let mut acts: Vec<(usize, String, Act)> = Vec::new();
+    for (i, def) in bundle.definitions.iter().enumerate() {
+        let item = upgrade_item(def);
+        match analysis.decisions[i] {
+            Decision::Install => {
+                acts.push((i, paths[i].clone(), Act::New));
+                if analysis.known_uuid[i] {
+                    result.new_versions.push(item);
+                } else {
+                    result.added.push(item);
+                }
+            }
+            Decision::Conflict => result.conflicts.push(UpgradeConflict {
+                item,
+                conflict_kind: "key-collision".to_string(),
+            }),
+            Decision::SkipIdentical => {
+                // Present in this boundary? Otherwise it lives in core or another
+                // package, which an upgrade of this one does not own.
+                let Some(installed) = boundary_defs.iter().find(|b| identity(b) == identity(def))
+                else {
+                    result.unchanged.push(item);
+                    continue;
+                };
+                let rel = installed.rel_path.clone();
+                let reference = store
+                    .load_instance_json(&format!("{boundary_path}/.srs-import/refs/{rel}"))
+                    .ok();
+                let upstream_unchanged =
+                    installed.value == def.value || reference.as_ref() == Some(&def.value);
+                if upstream_unchanged {
+                    // Content current (a local edit upstream did not touch stays).
+                    // The reference copy is only (re)written when it is truthful:
+                    // the installed file equals the bundle, or it already does.
+                    let need = if installed.value == def.value || reference.is_some() {
+                        repair_need(&mut summary, def, &rel)
+                    } else {
+                        None
+                    };
+                    if need.is_some() {
+                        acts.push((i, rel, Act::Repair));
+                    }
+                    if need == Some(true) {
+                        result.repaired.push(item);
+                    } else {
+                        result.unchanged.push(item);
+                    }
+                } else if reference.as_ref() == Some(&installed.value) {
+                    acts.push((i, rel, Act::Overwrite));
+                    result.updated.push(item);
+                } else {
+                    result.conflicts.push(UpgradeConflict {
+                        item,
+                        conflict_kind: if reference.is_some() {
+                            "local-edit"
+                        } else {
+                            "no-reference-copy"
+                        }
+                        .to_string(),
+                    });
+                }
+            }
+        }
+    }
+    let in_bundle: HashSet<_> = bundle.definitions.iter().map(identity).collect();
+    result.removed_upstream = boundary_defs
+        .iter()
+        .filter(|b| !in_bundle.contains(&identity(b)))
+        .map(upgrade_item)
+        .collect();
+
+    // ── RFC-044 requirement check: warnings only ─────────────────────────────
+    if let Some(deps) = &bundle.package_dependencies {
+        let req: crate::package_dependency_service::BundleRequirements = serde_json::from_value(
+            serde_json::json!({"packageId": bundle.id, "packageDependencies": deps}),
+        )
+        .map_err(|e| invalid(format!("packageDependencies unreadable: {e}")))?;
+        result.dependency_warnings = crate::package_dependency_service::check_bundle(store, &req)?
+            .dependencies
+            .into_iter()
+            .filter(|d| !d.satisfied)
+            .map(UpgradeDependencyWarning::from)
+            .collect();
+    }
+
+    if options.dry_run {
+        return Ok(result);
+    }
+
+    // ── Writes ───────────────────────────────────────────────────────────────
+    let selector: PackageSelector = Some(boundary_path.clone());
+    for (i, rel_path, act) in &acts {
+        let def = &bundle.definitions[*i];
+        if *act != Act::Repair {
+            if let Some((dir, _)) = rel_path.rsplit_once('/') {
+                store.ensure_instance_dir(&format!("{boundary_path}/{dir}"))?;
+            }
+            store.save_instance_json(&format!("{boundary_path}/{rel_path}"), &def.value)?;
+            if *act == Act::New {
+                store.add_definition_to_boundary(&selector, def.kind, rel_path)?;
+            }
+        }
+        // The reference copy lives at the installed path, which may differ from the bundle's.
+        write_ref_copy(store, &boundary_path, rel_path, &def.value)?;
+
+        let Some(def_type) = to_definition_type(def.kind) else {
+            if !summary.skipped_definitions.contains(rel_path) {
+                summary.skipped_definitions.push(rel_path.clone());
+            }
+            continue;
+        };
+        let id = definition_id(def.kind, &def.value).unwrap_or_default();
+        let version = definition_version(def.kind, &def.value);
+        let list = import_records_mut(&mut summary, &def_type);
+        // Replace, never append a duplicate; keep the original import time.
+        let imported_at = list
+            .iter()
+            .find(|r| r.definition_id == id && r.version == version)
+            .map_or_else(|| now.clone(), |r| r.imported_at.clone());
+        // A repair/refresh keeps the existing record's local-edit provenance; only
+        // what is missing is filled from a fresh record.
+        let old = list
+            .iter()
+            .find(|r| r.definition_id == id && r.version == version)
+            .cloned();
+        list.retain(|r| !(r.definition_id == id && r.version == version));
+        let mut record = import_record(bundle, def, def_type, id, &imported_at);
+        if let Some(old) = old.filter(|_| *act == Act::Repair) {
+            record.conflict_state = old.conflict_state.or(record.conflict_state);
+            record.conflict_detected_at = old.conflict_detected_at;
+            record.local_version = old.local_version;
+            record.local_edited_at = old.local_edited_at;
+        }
+        list.push(record);
+    }
+    if !acts.is_empty() {
+        let value = serde_json::to_value(&summary).map_err(|e| RepositoryError::Serialize {
+            path: PathBuf::from(&summary_path),
+            source: e,
+        })?;
+        store.ensure_instance_dir(&format!("{boundary_path}/.srs-import"))?;
+        store.save_instance_json(&summary_path, &value)?;
+    }
+    if upgraded {
+        crate::package_service::update_package_metadata(
+            store,
+            selector,
+            crate::package_service::UpdatePackageMetadataInput {
+                version: Some(bundle.version.clone()),
+                ..Default::default()
+            },
+        )?;
+    }
     Ok(result)
 }
 

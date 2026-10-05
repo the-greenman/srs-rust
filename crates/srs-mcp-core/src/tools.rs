@@ -29,6 +29,7 @@ use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage};
 use srs_repository::package_dependency_service::{
     self, AddPackageDependencyInput, RemovePackageDependencyInput,
 };
+use srs_repository::package_install_service::{self, UpgradeOptions};
 use srs_repository::protocol_run_service::{
     self, AdvanceStageInput, CreateRunInput, GetRunResult, RunListFilter, RunSummary,
 };
@@ -84,6 +85,8 @@ pub const TOOL_PROTOCOL_RUN_ABANDON: &str = "protocol_run_abandon";
 pub const TOOL_PACKAGE_DEPENDENCY_LIST: &str = "package_dependency_list";
 pub const TOOL_PACKAGE_DEPENDENCY_SET: &str = "package_dependency_set";
 pub const TOOL_PACKAGE_DEPENDENCY_REMOVE: &str = "package_dependency_remove";
+// Package upgrade (srs-rust#1152) — one core service, `package_install_service`
+pub const TOOL_PACKAGE_UPGRADE: &str = "package_upgrade";
 pub const TOOL_NEIGHBOURS: &str = "neighbours";
 pub const TOOL_SIMILAR: &str = "similar";
 /// Agent-facing replies are size-capped: omitted `limit` on `neighbours`, and its ceiling.
@@ -116,6 +119,20 @@ other entries are kept verbatim. selector is the requiring package boundary path
 pub const DESC_PACKAGE_DEPENDENCY_REMOVE: &str = "Remove a package's requirement on a packageId \
 (every packageDependencies entry with that id). Refused when there is none. selector is the \
 requiring package boundary path (omit for the primary package).";
+
+pub const DESC_PACKAGE_UPGRADE: &str = "Upgrade an installed package boundary in place from a newer \
+.srspkg Package Bundle (RFC-014 R2/R3/R6). bundle is the file's JSON text. The package must already \
+be installed with the bundle's packageId (otherwise use install, which has no MCP tool); a lower \
+bundle version is refused, an equal one is a content sync, a higher one also bumps the boundary's \
+version. ALWAYS call with dryRun true first and read the plan: added (new UUIDs), newVersions (new \
+versions of an installed UUID, installed alongside the old ones), updated (same uuid+version, upstream \
+changed, local copy clean: overwritten), unchanged, repaired (content current but reference copy / \
+import record rewritten), conflicts (NOT written: local-edit = you edited a definition that upstream \
+also changed, the local file is kept; no-reference-copy; key-collision = same name, different UUID), \
+removedUpstream (installed from this package but absent from the bundle: reported, never deleted) and \
+dependencyWarnings (unsatisfied RFC-044 requirements; never blocking). Records are never touched. \
+Then repeat with dryRun false to apply, and run repo_validate. boundaryPath picks the boundary when \
+the package is installed at several.";
 
 pub const DESC_NEIGHBOURS: &str = "Bounded read of one instance's relation neighbours (Record or \
 Note). Returns total (every matching edge, before paging) and a page of edges, each with direction \
@@ -825,6 +842,19 @@ pub struct ContainerMemberMoveToolInput {
     pub shift: Option<String>,
 }
 
+/// `package_upgrade`: mirrors the WASM `upgrade_package_bundle(bundle_json, options_json)`.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PackageUpgradeToolInput {
+    /// The `.srspkg` Package Bundle file's JSON text.
+    pub bundle: String,
+    /// Compute the plan without writing anything. Default false.
+    #[serde(default)]
+    pub dry_run: bool,
+    /// The installed boundary to upgrade; default = the one installed with the bundle's packageId.
+    pub boundary_path: Option<String>,
+}
+
 /// `package_dependency_list`: the requiring boundary.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -1185,6 +1215,11 @@ pub fn list_tools() -> Value {
             input_schema::<PackageDependencyRemoveToolInput>(),
         ),
         tool(
+            TOOL_PACKAGE_UPGRADE,
+            DESC_PACKAGE_UPGRADE,
+            input_schema::<PackageUpgradeToolInput>(),
+        ),
+        tool(
             TOOL_NEIGHBOURS,
             DESC_NEIGHBOURS,
             input_schema::<NeighboursToolInput>(),
@@ -1509,6 +1544,21 @@ pub fn call_tool(
         TOOL_PACKAGE_DEPENDENCY_REMOVE => {
             let input: PackageDependencyRemoveToolInput = parse_args(arguments)?;
             match package_dependency_service::remove_package_dependency(store, input.into()) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_PACKAGE_UPGRADE => {
+            let input: PackageUpgradeToolInput = parse_args(arguments)?;
+            let options = UpgradeOptions {
+                dry_run: input.dry_run,
+                boundary_path: input.boundary_path,
+            };
+            match package_install_service::upgrade_package_bundle(
+                store,
+                input.bundle.as_bytes(),
+                options,
+            ) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
@@ -1882,6 +1932,7 @@ mod tests {
                 TOOL_PACKAGE_DEPENDENCY_LIST,
                 TOOL_PACKAGE_DEPENDENCY_SET,
                 TOOL_PACKAGE_DEPENDENCY_REMOVE,
+                TOOL_PACKAGE_UPGRADE,
                 TOOL_NEIGHBOURS,
                 TOOL_SIMILAR,
             ]
