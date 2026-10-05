@@ -503,8 +503,21 @@ fn unsatisfied_requirements_are_warnings_not_errors() {
     let r = upgrade(&store, &b, false);
     assert!(r.upgraded);
     assert_eq!(r.dependency_warnings.len(), 1);
+    let j = serde_json::to_value(&r.dependency_warnings[0]).unwrap();
+    assert_eq!(j["reason"], "missing");
+    for k in [
+        "packageId",
+        "namespace",
+        "name",
+        "version",
+        "satisfied",
+        "candidateVersions",
+        "mismatchedLabels",
+    ] {
+        assert!(j.get(k).is_some(), "{k} in {j}");
+    }
     assert_eq!(
-        r.dependency_warnings[0].entry.package_id.as_deref(),
+        r.dependency_warnings[0].package_id.as_deref(),
         Some(missing)
     );
     assert!(!r.dependency_warnings[0].satisfied);
@@ -622,4 +635,58 @@ fn boundary_option_selects_and_ambiguity_is_refused() {
         "{m}"
     );
     assert!(upgrade_package_bundle(&store, &v_new(), at("packages/upg")).is_ok());
+}
+
+#[test]
+fn repair_keeps_local_edit_provenance_in_the_import_record() {
+    // A definition whose reference copy is gone and whose record has local provenance:
+    // repaired, provenance kept.
+    let (t, store) = installed_old();
+    let rel = type_v1_path(&store).replacen("packages/upg/", "", 1);
+    let sp = t
+        .path()
+        .join("packages/upg/.srs-import/import-records.json");
+    let mut sum: Value = serde_json::from_slice(&std::fs::read(&sp).unwrap()).unwrap();
+    sum["types"][0]["conflictState"] = json!("local-ahead");
+    sum["types"][0]["localVersion"] = json!(7);
+    sum["types"][0]["localEditedAt"] = json!("2026-02-02T00:00:00Z");
+    std::fs::write(&sp, serde_json::to_vec(&sum).unwrap()).unwrap();
+    std::fs::remove_file(t.path().join("packages/upg/.srs-import/refs").join(&rel)).unwrap();
+    let r = upgrade(&store, &v_old(), false);
+    assert_eq!(names(&r.repaired), vec!["type:essay@1"]);
+    let after: Value = serde_json::from_slice(&std::fs::read(&sp).unwrap()).unwrap();
+    let rec = &after["types"][0];
+    assert_eq!(rec["localVersion"], 7);
+    assert_eq!(rec["localEditedAt"], "2026-02-02T00:00:00Z");
+    assert_eq!(rec["conflictState"], "local-ahead");
+}
+
+#[test]
+fn refresh_of_a_locally_edited_definition_keeps_its_local_provenance() {
+    let (t, store) = installed_old();
+    let rel = type_v1_path(&store).replacen("packages/upg/", "", 1);
+    let file = t.path().join("packages/upg").join(&rel);
+    let mut v: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    v["description"] = json!("Edited locally.");
+    std::fs::write(&file, serde_json::to_vec_pretty(&v).unwrap()).unwrap();
+    let sp = t
+        .path()
+        .join("packages/upg/.srs-import/import-records.json");
+    let mut sum: Value = serde_json::from_slice(&std::fs::read(&sp).unwrap()).unwrap();
+    sum["types"][0]["conflictState"] = json!("local-ahead");
+    sum["types"][0]["localVersion"] = json!(7);
+    sum["types"][0]["localEditedAt"] = json!("2026-02-02T00:00:00Z");
+    std::fs::write(&sp, serde_json::to_vec(&sum).unwrap()).unwrap();
+    // Upstream did not change this definition, but the package version moved: the
+    // record's sourcePackageVersion is refreshed and the local provenance survives.
+    let newer = bundle("1.4.0", vec![field(F, "title")], vec![ty(1, "Old.", &[F])]);
+    let r = upgrade(&store, &newer, false);
+    assert!(r.conflicts.is_empty());
+    let after: Value = serde_json::from_slice(&std::fs::read(&sp).unwrap()).unwrap();
+    let rec = &after["types"][0];
+    assert_eq!(rec["sourcePackageVersion"], "1.4.0");
+    assert_eq!(rec["localVersion"], 7);
+    assert_eq!(rec["conflictState"], "local-ahead");
+    let kept: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(kept["description"], "Edited locally.");
 }

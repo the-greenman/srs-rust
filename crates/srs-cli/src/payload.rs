@@ -2182,6 +2182,23 @@ pub struct PackageDependencyEntry {
     pub mismatched_labels: Vec<String>,
 }
 
+impl From<srs_repository::package_install_service::UpgradeDependencyWarning>
+    for PackageDependencyEntry
+{
+    fn from(d: srs_repository::package_install_service::UpgradeDependencyWarning) -> Self {
+        Self {
+            package_id: d.package_id,
+            namespace: d.namespace,
+            name: d.name,
+            version: d.version,
+            satisfied: d.satisfied,
+            reason: d.reason,
+            candidate_versions: d.candidate_versions,
+            mismatched_labels: d.mismatched_labels,
+        }
+    }
+}
+
 impl From<srs_repository::package_dependency_service::PackageDependencyStatus>
     for PackageDependencyEntry
 {

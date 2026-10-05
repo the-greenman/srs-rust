@@ -1140,6 +1140,37 @@ pub struct UpgradeConflict {
     pub conflict_kind: String,
 }
 
+/// One unsatisfied RFC-044 requirement. The one flat JSON shape every adapter
+/// (CLI, MCP, WASM) emits for `dependencyWarnings`; `packageId` is `null` for a
+/// legacy entry and `reason` is one of RFC-044's kebab-case codes.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpgradeDependencyWarning {
+    pub package_id: Option<String>,
+    pub namespace: String,
+    pub name: String,
+    pub version: String,
+    pub satisfied: bool,
+    pub reason: Option<String>,
+    pub candidate_versions: Vec<Option<String>>,
+    pub mismatched_labels: Vec<String>,
+}
+
+impl From<crate::package_dependency_service::PackageDependencyStatus> for UpgradeDependencyWarning {
+    fn from(d: crate::package_dependency_service::PackageDependencyStatus) -> Self {
+        Self {
+            package_id: d.entry.package_id,
+            namespace: d.entry.namespace,
+            name: d.entry.name,
+            version: d.entry.version,
+            satisfied: d.satisfied,
+            reason: d.reason.map(|r| r.as_str().to_string()),
+            candidate_versions: d.candidate_versions,
+            mismatched_labels: d.mismatched_labels,
+        }
+    }
+}
+
 /// Result of [`upgrade_package_bundle`].
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1168,7 +1199,7 @@ pub struct UpgradePackageResult {
     /// Installed from this package but absent from the bundle: reported, never deleted.
     pub removed_upstream: Vec<UpgradeItem>,
     /// RFC-044 requirement outcomes that are not satisfied; never blocking.
-    pub dependency_warnings: Vec<crate::package_dependency_service::PackageDependencyStatus>,
+    pub dependency_warnings: Vec<UpgradeDependencyWarning>,
     pub notes: Vec<String>,
 }
 
@@ -1451,6 +1482,7 @@ pub fn upgrade_package_source(
             .dependencies
             .into_iter()
             .filter(|d| !d.satisfied)
+            .map(UpgradeDependencyWarning::from)
             .collect();
     }
 
@@ -1488,8 +1520,21 @@ pub fn upgrade_package_source(
             .iter()
             .find(|r| r.definition_id == id && r.version == version)
             .map_or_else(|| now.clone(), |r| r.imported_at.clone());
+        // A repair/refresh keeps the existing record's local-edit provenance; only
+        // what is missing is filled from a fresh record.
+        let old = list
+            .iter()
+            .find(|r| r.definition_id == id && r.version == version)
+            .cloned();
         list.retain(|r| !(r.definition_id == id && r.version == version));
-        list.push(import_record(bundle, def, def_type, id, &imported_at));
+        let mut record = import_record(bundle, def, def_type, id, &imported_at);
+        if let Some(old) = old.filter(|_| *act == Act::Repair) {
+            record.conflict_state = old.conflict_state.or(record.conflict_state);
+            record.conflict_detected_at = old.conflict_detected_at;
+            record.local_version = old.local_version;
+            record.local_edited_at = old.local_edited_at;
+        }
+        list.push(record);
     }
     if !acts.is_empty() {
         let value = serde_json::to_value(&summary).map_err(|e| RepositoryError::Serialize {

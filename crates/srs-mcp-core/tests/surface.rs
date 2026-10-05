@@ -134,6 +134,8 @@ fn package_upgrade_tool_uses_the_core_service() {
         "9a1b0c2d-0001-4aaa-8bbb-0000000000a2",
     );
     let old = bundle("1.0.0", json!([field(f1, "one")]));
+    let needs = json!([{"packageId": "e0000007-0000-4000-a000-000000000007",
+        "namespace": "com.example.other", "name": "other", "version": "1.0.0"}]);
     let new = bundle("1.1.0", json!([field(f1, "one"), field(f2, "two")]));
 
     // Not installed: a tool error, nothing written.
@@ -156,6 +158,28 @@ fn package_upgrade_tool_uses_the_core_service() {
     assert_eq!(r["dryRun"], true, "{dry}");
     assert_eq!(r["added"][0]["name"], "two");
     assert_eq!(r["previousVersion"], "1.0.0");
+    // dependencyWarnings items are flat (the one shape every adapter emits).
+    let mut with_dep: Value = serde_json::from_str(&new).unwrap();
+    with_dep["packageDependencies"] = needs;
+    let warned = tool(
+        &mut d,
+        "package_upgrade",
+        json!({ "bundle": with_dep.to_string(), "dryRun": true }),
+    );
+    let w = &warned["result"]["structuredContent"]["dependencyWarnings"][0];
+    assert_eq!(w["reason"], "missing", "{warned}");
+    for k in [
+        "packageId",
+        "namespace",
+        "name",
+        "version",
+        "satisfied",
+        "candidateVersions",
+        "mismatchedLabels",
+    ] {
+        assert!(w.get(k).is_some(), "{k} in {w}");
+    }
+    assert!(w.get("entry").is_none());
     let real = tool(&mut d, "package_upgrade", json!({ "bundle": new }));
     let r = &real["result"]["structuredContent"];
     assert_eq!(r["dryRun"], false, "{real}");
