@@ -309,8 +309,9 @@ pub fn validate_repository(
         diagnostics.extend(slice_block_diagnostics(&manifest_value, slice));
     }
 
-    // RFC-026 Rev 9 Q4: inside a slice I-81 is expected (a content slice's identity is its own record).
-    let i81_severity = if manifest_value.get("slice").is_some() {
+    // RFC-026 Rev 9 Q4 (I-81) and Rev 10 Q5 (I-82): inside a slice these are expected (a content
+    // slice's identity is its own record, and some bundle members anchor no container).
+    let slice_expected_severity = if manifest_value.get("slice").is_some() {
         DiagnosticSeverity::Info
     } else {
         DiagnosticSeverity::Warning
@@ -379,7 +380,7 @@ pub fn validate_repository(
                     });
                 }
 
-                // I-82: every non-identity member should root a container (warning; suppressed
+                // I-82: every non-identity member should root a container (warning, info inside a slice; suppressed
                 // when the catalog's container set has no file-backed containers).
                 // RFC-013 I-80/R2 as amended by RFC-038 [R25]: membership resolves against the
                 // catalog's container set, not `manifest.containerIndex` (retired, Change K).
@@ -411,7 +412,7 @@ pub fn validate_repository(
                                 }
                                 if !section_container_roots.contains(member_id) {
                                     diagnostics.push(ValidationDiagnostic {
-                                        severity: DiagnosticSeverity::Warning,
+                                        severity: slice_expected_severity,
                                         relative_path: "manifest.json".to_string(),
                                         schema_id: None,
                                         message: format!(
@@ -436,7 +437,7 @@ pub fn validate_repository(
                 if let Some(cat_entry) = cat.instances.iter().find(|e| e.id == *identity_id) {
                     if cat_entry.tier == Some(0) {
                         diagnostics.push(ValidationDiagnostic {
-                            severity: i81_severity,
+                            severity: slice_expected_severity,
                             relative_path: "manifest.json".to_string(),
                             schema_id: None,
                             message: format!(
@@ -458,7 +459,7 @@ pub fn validate_repository(
                                     val.get("typeName").and_then(|v| v.as_str()).unwrap_or("");
                                 if !(type_ns == "com.semanticops.core" && type_name == "purpose") {
                                     diagnostics.push(ValidationDiagnostic {
-                                        severity: i81_severity,
+                                        severity: slice_expected_severity,
                                         relative_path: "manifest.json".to_string(),
                                         schema_id: None,
                                         message: format!(
@@ -484,7 +485,7 @@ pub fn validate_repository(
                         }
                     } else {
                         diagnostics.push(ValidationDiagnostic {
-                            severity: i81_severity,
+                            severity: slice_expected_severity,
                             relative_path: "manifest.json".to_string(),
                             schema_id: None,
                             message: format!(
