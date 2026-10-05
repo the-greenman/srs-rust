@@ -9,7 +9,7 @@ use srs_repository::archive::archive_to_tree;
 use srs_repository::error::RepositoryError;
 use srs_repository::slice_service::{
     export_container_slice, ExportSliceInput, SliceExport, CODE_CHILD_CONTAINER_CYCLE,
-    CODE_CHILD_CONTAINER_MISSING, CODE_ROOT_IDENTITY_INVALID,
+    CODE_CHILD_CONTAINER_MISSING, CODE_PACKAGE_OUTSIDE_REPOSITORY, CODE_ROOT_IDENTITY_INVALID,
 };
 use srs_repository::validation::{validate_repository, DiagnosticSeverity};
 use srs_repository::{open_tree, RepositoryStore};
@@ -475,4 +475,43 @@ fn package_dependencies_of_a_carried_package_are_carried() {
     assert_eq!(e.summary.package_count, 3);
     assert!(files(&e).contains_key("packages/unused/fields/note.json"));
     assert_eq!(errors(&e), Vec::<String>::new());
+}
+
+/// RFC-026 Rev 9 Q4: I-81 is info inside a slice, still a warning outside.
+#[test]
+fn i81_is_info_inside_a_slice_and_warning_outside() {
+    let mut t = rich();
+    edit(&mut t, "records/tier-2/purpose-b3b90185.json", |r| {
+        r["typeName"] = json!("other");
+    });
+    let mut f = files(&export(t, ROOT).unwrap());
+    let sev = |f: &Tree| -> Vec<DiagnosticSeverity> {
+        validate_repository(&open_tree(f.clone()).unwrap())
+            .unwrap()
+            .diagnostics
+            .into_iter()
+            .filter(|d| d.message.contains("RFC-018 I-81"))
+            .map(|d| d.severity)
+            .collect()
+    };
+    assert_eq!(sev(&f), vec![DiagnosticSeverity::Info]);
+    edit(&mut f, "manifest.json", |m| {
+        m.as_object_mut().unwrap().remove("slice");
+    });
+    assert_eq!(sev(&f), vec![DiagnosticSeverity::Warning]);
+}
+
+#[test]
+fn package_outside_the_repository_refuses_the_export() {
+    let mut t = rich();
+    edit(&mut t, "manifest.json", |m| {
+        m["packageRefs"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"mode": "local", "path": "../shared"}));
+    });
+    assert_eq!(
+        refusal(export(t, DECISIONS)),
+        CODE_PACKAGE_OUTSIDE_REPOSITORY
+    );
 }

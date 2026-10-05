@@ -75,12 +75,19 @@ export --container <id> <out.srs>`, WASM `SrsRepository::export_slice`).
    the boundary's identity entry is absent, below depth 0 or has descendants (D2: the outline
    is never rewritten); `slice-exported-at-invalid`; `slice-repository-id-reused`;
    `slice-root-level-package-unsupported` (a package rooted at the repository root);
-   `slice-child-container-missing` and `slice-child-container-cycle` (RFC-034 [R7]).
+   `slice-child-container-missing` and `slice-child-container-cycle` (RFC-034 [R7]);
+   `slice-definition-identity-conflict` (two carried packages hold different definitions under
+   one `id` and `version`; rfc-decision-cce3c00e; compared by the package export's PD3 check)
+   and `slice-package-outside-repository` (a carried local package path resolving outside the
+   repository root, which an archive cannot hold, RFC-017) (RFC-026 Rev 9 Q6, #1263).
+   Both refuse before anything is written.
 7. **Validator (Change E).** With a `slice` block: `spec.type` not `container` is an error
    ([R10]), `spec.id` not the root container is an error ([R12]), a reused `repositoryId` is an
    error ([R3]), undeclared `ext:slices` is a warning ([R4]), and one info diagnostic counts the
    cut edges (Change E 1). An absent Container named by a Composition section, and an
    unresolved Composition `rootTypeRefs` entry, drop from warning to info (Change E 2/3).
+   I-81 (root identity not a `purpose` record) is info inside a slice, still a warning outside
+   one (Rev 9 Q4, [R17], #1263).
 
 ## Consequences
 
@@ -91,9 +98,9 @@ Dogfooded over every container of a muSrs copy: 0 errors each.
 **Negative / trade-offs:** carrying whole packages ships definitions no included record uses
 (Rev 9 changes RFC-026's "what is excluded" list). The boundary becomes a repository root, so
 RFC-013/RFC-018 root rules apply to it in full ([R12]): slicing a content container whose
-identity record is not a `purpose` warns (I-81), and one with carried sub-containers can warn
+identity record is not a `purpose` is I-81 at info (Rev 9 Q4), and one with carried sub-containers can warn
 for root members that anchor no container (I-82; under the subset rule this fired 153 times on
-muSrs "The case", whose undeclared sub-containers I-151 no longer carries). These are warnings, not errors, and are left as RFC-026
+muSrs "The case", whose undeclared sub-containers I-151 no longer carries). I-82 is a warning, not an error, and is left as RFC-026
 Rev 9 input rather than relaxed here. A composition in a package the slice does not use is not
 carried even if it could render the slice's records (references are followed forward only).
 
