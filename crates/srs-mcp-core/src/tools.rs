@@ -25,7 +25,7 @@ use srs_repository::container_service::{self, ContainerCreateInput};
 use srs_repository::context_query_service::{
     list_neighbours, EdgeDirection, NeighboursPage, NeighboursQuery,
 };
-use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage};
+use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage, MatchMode};
 use srs_repository::package_dependency_service::{
     self, AddPackageDependencyInput, RemovePackageDependencyInput,
 };
@@ -160,7 +160,9 @@ pub const DESC_FIND: &str = "Deterministic discovery query (ext:discovery). All 
 optional and AND-combined: typeId, typeNamespace, typeName, containerId, tag (repeatable; \
 instance must carry ALL), lifecycleState, excludeLifecycleStates, tier, and contentMatch \
 (recall floor: matches records containing every whitespace-separated word, in any field and any \
-order, not just the title; a phrase match is always included). Hits are ranked by BM25 \
+order, not just the title; a phrase match is always included). match: \"any\" instead matches records \
+containing at least one word of 3+ characters, so a question typed as a sentence still finds what it \
+is about; keep rank on with it (BM25 puts records matching the most and rarest words first). Hits are ranked by BM25 \
 relevance (score) unless rank is false, which orders by instanceId. Types are written \
 'namespace/name'. Returns hits with instanceId, label, type, lifecycleState, snippet, and \
 matchedFields. Also returns facets: counts over the WHOLE match set, before limit/offset \
@@ -363,6 +365,10 @@ pub struct FindToolInput {
     /// Order hits by BM25 relevance (fills `score`) instead of by instanceId.
     /// Defaults to true; the set of hits is the same either way.
     pub rank: Option<bool>,
+    /// How contentMatch words combine: "all" (default) — every word must occur;
+    /// "any" — at least one word of 3+ characters (for natural-language queries; keep rank on).
+    #[serde(rename = "match")]
+    pub match_mode: Option<MatchMode>,
 }
 
 /// Input of the `similar` tool: the source `instanceId` plus find's structured filters
@@ -398,6 +404,7 @@ impl SimilarToolInput {
             limit: Some(self.limit.unwrap_or(FIND_DEFAULT_LIMIT)),
             offset: self.offset.unwrap_or(0),
             rank: true,
+            ..Default::default()
         };
         let query = DiscoveryQuery {
             type_id: self.type_id,
@@ -1385,6 +1392,7 @@ pub fn call_tool(
                 limit: Some(input.limit.unwrap_or(FIND_DEFAULT_LIMIT)),
                 offset: input.offset.unwrap_or(0),
                 rank: input.rank.unwrap_or(true),
+                match_mode: input.match_mode.unwrap_or_default(),
             };
             match discovery_service::find(store, input.into(), page) {
                 Ok(result) => tool_ok(&result),
@@ -1747,6 +1755,16 @@ mod tests {
     }
 
     #[test]
+    fn find_input_reads_match_mode_under_the_json_key_match() {
+        let any: FindToolInput =
+            serde_json::from_value(json!({"contentMatch": "x", "match": "any"})).unwrap();
+        assert_eq!(any.match_mode, Some(MatchMode::Any));
+        let absent: FindToolInput = serde_json::from_value(json!({"contentMatch": "x"})).unwrap();
+        assert_eq!(absent.match_mode, None);
+        assert!(serde_json::from_value::<FindToolInput>(json!({"match": "some"})).is_err());
+    }
+
+    #[test]
     fn tool_input_conversion_exercises_every_field() {
         // Find → DiscoveryQuery
         let find = FindToolInput {
@@ -1763,6 +1781,7 @@ mod tests {
             limit: None,
             offset: None,
             rank: None,
+            match_mode: Some(MatchMode::Any),
         };
         let q: DiscoveryQuery = find.into();
         assert_eq!(q.type_id.as_deref(), Some("tid"));

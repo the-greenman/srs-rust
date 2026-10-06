@@ -1853,6 +1853,13 @@ pub struct TreeArgs {
     pub type_filter: Option<String>,
 }
 
+/// `srs find --match`: how the words of `--text` combine (srs-rust#1284).
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum FindMatch {
+    All,
+    Any,
+}
+
 /// Flags for `srs find` — the `ext:discovery` query axes. Container scope comes from
 /// the global `--container`. Unspecified axes are wildcards.
 #[derive(Args)]
@@ -1900,6 +1907,10 @@ pub struct FindArgs {
     /// Order --text hits by BM25 relevance (fills `score`) instead of by instanceId
     #[arg(long = "rank")]
     pub rank: bool,
+    /// How --text words combine: `all` (every word must occur) or `any` (at least one word
+    /// of 3+ characters — for questions typed as sentences; use with --rank)
+    #[arg(long = "match", value_enum, default_value_t = FindMatch::All)]
+    pub match_mode: FindMatch,
     /// More like this: instances similar to this instance (Record or Note id), ranked by BM25
     /// over its top-weighted terms, excluding itself. The other filters narrow the candidates;
     /// not combinable with --text.

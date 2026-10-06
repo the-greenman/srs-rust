@@ -1,8 +1,8 @@
-use crate::commands::{parse_type_filter, with_store, CliContext, FindArgs};
+use crate::commands::{parse_type_filter, with_store, CliContext, FindArgs, FindMatch};
 use crate::output;
 use crate::payload::FindPayload;
 use anyhow::Result;
-use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage};
+use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage, MatchMode};
 
 pub fn dispatch(ctx: CliContext, args: FindArgs) -> Result<String> {
     let (type_namespace, type_name) = match args.type_filter {
@@ -38,6 +38,10 @@ pub fn dispatch(ctx: CliContext, args: FindArgs) -> Result<String> {
         limit: args.limit,
         offset: args.offset,
         rank: args.rank,
+        match_mode: match args.match_mode {
+            FindMatch::All => MatchMode::All,
+            FindMatch::Any => MatchMode::Any,
+        },
     };
     let similar = args.similar;
     match with_store(&ctx, |store| {
