@@ -2984,9 +2984,10 @@ mod tests {
             "an explicit null identityInstanceId must be distinguishable from omission"
         );
 
-        let explicit_value: ContainerPatch =
-            serde_json::from_str(r#"{"identityInstanceId":"11111111-1111-4111-8111-111111111111"}"#)
-                .unwrap();
+        let explicit_value: ContainerPatch = serde_json::from_str(
+            r#"{"identityInstanceId":"11111111-1111-4111-8111-111111111111"}"#,
+        )
+        .unwrap();
         assert_eq!(
             explicit_value.identity_instance_id,
             Some(Some("11111111-1111-4111-8111-111111111111".to_string()))
@@ -3002,7 +3003,7 @@ mod tests {
         let mut c = minimal_container(container_id, "Root");
         c.identity_instance_id = Some(identity_id.to_string());
         c.member_instance_ids = Some(srs_core::types::container::entries(vec![
-            identity_id.to_string(),
+            identity_id.to_string()
         ]));
         create_container(&store, c).unwrap();
 
