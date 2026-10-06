@@ -99,13 +99,32 @@ impl FacetCounts {
     }
 
     fn from_map(map: BTreeMap<String, usize>) -> Self {
-        let mut values: Vec<FacetCount> = map
-            .into_iter()
-            .map(|(value, count)| FacetCount { value, count })
+        Self::from_entries(
+            map.into_iter().map(|(value, count)| (value, None, count)),
+            FACET_TOP_N,
+        )
+    }
+
+    /// `(value, typeId, count)` entries; `cap` 0 keeps every value.
+    fn from_entries(
+        entries: impl Iterator<Item = (String, Option<String>, usize)>,
+        cap: usize,
+    ) -> Self {
+        let mut values: Vec<FacetCount> = entries
+            .map(|(value, type_id, count)| FacetCount {
+                value,
+                type_id,
+                count,
+            })
             .collect();
         // Stable sort over BTreeMap order: count descending, then value ascending.
         values.sort_by_key(|a| std::cmp::Reverse(a.count));
-        let other = values.split_off(values.len().min(FACET_TOP_N));
+        let keep = if cap == 0 {
+            values.len()
+        } else {
+            values.len().min(cap)
+        };
+        let other = values.split_off(keep);
         Self {
             values,
             other: other.iter().map(|c| c.count).sum(),
@@ -121,6 +140,9 @@ impl FacetCounts {
 #[serde(rename_all = "camelCase")]
 pub struct FacetCount {
     pub value: String,
+    /// The Type's id; set on `byType` values only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_id: Option<String>,
     pub count: usize,
 }
 
@@ -140,14 +162,18 @@ struct Candidate {
     selects: Vec<(String, String)>,
 }
 
-fn build_facets(candidates: &[Candidate]) -> DiscoveryFacets {
-    let mut by_type: BTreeMap<String, usize> = BTreeMap::new();
+fn build_facets(candidates: &[Candidate], by_type_limit: usize) -> DiscoveryFacets {
+    let mut by_type: BTreeMap<String, (Option<String>, usize)> = BTreeMap::new();
     let mut tags: BTreeMap<String, usize> = BTreeMap::new();
     let mut fields: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
     let mut notes = 0;
     for c in candidates {
         match (&c.hit.type_namespace, &c.hit.type_name) {
-            (Some(ns), Some(name)) => *by_type.entry(format!("{ns}/{name}")).or_default() += 1,
+            (Some(ns), Some(name)) => {
+                let e = by_type.entry(format!("{ns}/{name}")).or_default();
+                e.0 = e.0.take().or_else(|| c.hit.type_id.clone());
+                e.1 += 1;
+            }
             _ => notes += 1,
         }
         for t in c.tags.iter().collect::<HashSet<_>>() {
@@ -171,7 +197,10 @@ fn build_facets(candidates: &[Candidate]) -> DiscoveryFacets {
     fields.sort_by_key(|f| std::cmp::Reverse(f.counts.total()));
     fields.truncate(FACET_MAX_FIELDS);
     DiscoveryFacets {
-        by_type: FacetCounts::from_map(by_type),
+        by_type: FacetCounts::from_entries(
+            by_type.into_iter().map(|(v, (id, n))| (v, id, n)),
+            by_type_limit,
+        ),
         notes,
         tags: FacetCounts::from_map(tags),
         fields,
@@ -221,6 +250,9 @@ pub struct FindPage {
     /// instead of by `instanceId`. Never changes which instances match. Off by
     /// default; the MCP `find` tool turns it on. Ignored without a `contentMatch`.
     pub rank: bool,
+    /// Cap on `facets.byType` values (the rest are summed into `other`). `None` = the
+    /// default [`FACET_TOP_N`]; `Some(0)` = every type. Never affects hits or `total`.
+    pub by_type_limit: Option<usize>,
 }
 
 /// Characters of text around the first match kept in a hit snippet.
@@ -296,7 +328,7 @@ pub fn find(
     candidates.sort_by(|a, b| a.hit.instance_id.cmp(&b.hit.instance_id));
 
     // Facets count the Layer-1 match set: independent of ranking and paging.
-    let facets = build_facets(&candidates);
+    let facets = build_facets(&candidates, page.by_type_limit.unwrap_or(FACET_TOP_N));
     let mut hits: Vec<DiscoveryHit> = candidates.into_iter().map(|c| c.hit).collect();
     if page.rank && !words.is_empty() {
         rank_hits(store, &field_text_index, &words, &mut hits)?;
@@ -431,7 +463,7 @@ pub fn similar(
             .total_cmp(&a.hit.score.unwrap_or(0.0))
     });
     // Facets count the similar set, as `find`'s count its match set.
-    let facets = build_facets(&candidates);
+    let facets = build_facets(&candidates, page.by_type_limit.unwrap_or(FACET_TOP_N));
     let hits = candidates.into_iter().map(|c| c.hit).collect();
     finish_page(store, hits, facets, page, diagnostics)
 }
@@ -1114,6 +1146,61 @@ mod tests {
         assert_eq!(c.total(), FACET_TOP_N + 5 + 8);
     }
 
+    fn typed_candidate(i: usize) -> Candidate {
+        Candidate {
+            hit: DiscoveryHit {
+                instance_id: format!("i{i}"),
+                uri: String::new(),
+                label: String::new(),
+                type_id: Some(format!("tid-{}", i % 25)),
+                container_ids: vec![],
+                type_namespace: Some("ns".into()),
+                type_name: Some(format!("t{:02}", i % 25)),
+                lifecycle_state: None,
+                score: None,
+                snippet: None,
+                matched_fields: vec![],
+            },
+            tags: vec![],
+            selects: vec![],
+        }
+    }
+
+    #[test]
+    fn by_type_cap_is_a_request_option_and_other_stays_correct() {
+        let cands: Vec<Candidate> = (0..60).map(typed_candidate).collect(); // 25 types
+        let capped = build_facets(&cands, FACET_TOP_N).by_type;
+        assert_eq!(capped.values.len(), FACET_TOP_N);
+        assert_eq!(capped.total(), 60);
+        assert!(capped.other > 0);
+        let all = build_facets(&cands, 0).by_type;
+        assert_eq!((all.values.len(), all.other, all.total()), (25, 0, 60));
+        // count desc, then name; typeId rides along with its value.
+        assert_eq!(all.values[0].value, "ns/t00");
+        assert_eq!(all.values[0].type_id.as_deref(), Some("tid-0"));
+        let three = build_facets(&cands, 3).by_type;
+        assert_eq!(three.values.len(), 3);
+        assert_eq!(three.total(), 60);
+    }
+
+    #[test]
+    fn by_type_carries_type_id_and_sums_to_total() {
+        let store = faceted_store();
+        let r = find(
+            &store,
+            DiscoveryQuery::default(),
+            FindPage {
+                limit: Some(1),
+                by_type_limit: Some(0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let sum: usize = r.facets.by_type.values.iter().map(|v| v.count).sum();
+        assert_eq!(sum, r.total);
+        assert!(r.facets.by_type.values.iter().all(|v| v.type_id.is_some()));
+    }
+
     #[test]
     fn no_predicates_returns_all_records() {
         let store = store_with(fixtures());
@@ -1215,6 +1302,7 @@ mod tests {
                 limit: Some(1),
                 offset: 1,
                 rank: true,
+                by_type_limit: None,
             },
         )
         .unwrap();
@@ -1587,6 +1675,7 @@ mod tests {
                     limit: Some(limit),
                     offset,
                     rank: false,
+                    by_type_limit: None,
                 },
             )
             .unwrap()

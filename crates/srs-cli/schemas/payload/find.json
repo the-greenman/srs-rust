@@ -151,6 +151,12 @@
           "format": "uint",
           "minimum": 0.0
         },
+        "typeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "value": {
           "type": "string"
         }

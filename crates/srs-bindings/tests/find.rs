@@ -103,6 +103,23 @@ fn find_empty_query_returns_all() {
     assert_eq!(result.hits.len(), 2);
 }
 
+/// `by_type_limit: Some(0)` returns every type with its typeId; counts sum to total.
+#[test]
+fn find_by_type_uncapped_has_type_ids_summing_to_total() {
+    let store = fixture_store();
+    let page = FindPage {
+        limit: Some(1),
+        by_type_limit: Some(0),
+        ..Default::default()
+    };
+    let result = find(&store, DiscoveryQuery::default(), page).expect("find must succeed");
+    let by_type = &result.facets.by_type;
+    assert_eq!(by_type.other, 0);
+    assert!(by_type.values.iter().all(|v| v.type_id.is_some()));
+    let sum: usize = by_type.values.iter().map(|v| v.count).sum();
+    assert_eq!(sum, result.total);
+}
+
 /// Facets count the whole match set even with `limit: 0`, and serialise with the camelCase keys
 /// the JS caller reads (the binding returns the `DiscoveryResult` unchanged).
 #[test]
