@@ -70,9 +70,28 @@ fn cmd_note_create(ctx: CliContext) -> Result<String> {
     }) {
         return Ok(output::err("note create", vec![e.to_string()]));
     }
-    let note: Note = crate::input::from_str("note", &raw.to_string())?;
+    // `containerId` travels alongside the Note fields in the stdin payload
+    // (the same shape the MCP `note_create` tool accepts) — pull it off the
+    // raw value before parsing the rest as `Note`, so `Note`'s own fields
+    // keep producing JSON-path-aware errors (issue #511). Going through
+    // `CreateNoteInput`'s `#[serde(flatten)]` instead loses that path info,
+    // since `serde_path_to_error` can't see through a flattened struct.
+    let payload_container_id = match raw.as_object().and_then(|obj| obj.get("containerId")) {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(s)) => Some(s.clone()),
+        Some(other) => {
+            return Ok(output::err(
+                "note create",
+                vec![format!(
+                    "Failed to parse note JSON at containerId: expected a string, got {other}"
+                )],
+            ))
+        }
+    };
 
-    let container_id = ctx.container_id.clone();
+    let note: Note = crate::input::from_str("note", &raw.to_string())?;
+    let container_id = ctx.container_id.clone().or(payload_container_id);
+
     match with_store(&ctx, |store| {
         Ok(create_note_in_context(
             store,
