@@ -52,15 +52,24 @@ use std::collections::BTreeMap;
 /// under the original (now catalog-invisible) id and a fatal
 /// SRS038-R12-DUPLICATE-ID (srs-rust#1049, srs-rust#1060).
 const RESERVED_RECORD_ENVELOPE_KEYS: &[&str] = &[
-    "instanceId",
-    "typeId",
     "typeVersion",
-    "typeNamespace",
-    "typeName",
     "fieldValues",
     "fieldMeta",
     "lifecycleState",
     "tags",
+];
+
+/// Canonical Record fields that no Create/Update/CreateSuccessor input struct
+/// ever exposes as a real field — identity is resolved from a CLI argument
+/// (the type filter, the record id) or stamped by the repository itself, and
+/// a caller can never set these through any request body (srs-rust#1292: the
+/// shared message below used to tell a caller to "set it through the input's
+/// own field instead" for these, but no such field exists to set).
+const IDENTITY_ENVELOPE_KEYS: &[&str] = &[
+    "instanceId",
+    "typeId",
+    "typeNamespace",
+    "typeName",
     "createdAt",
     "updatedAt",
     // RFC-046: stamped from the session actor, never carried as an extra.
@@ -74,6 +83,18 @@ const RESERVED_RECORD_ENVELOPE_KEYS: &[&str] = &[
 fn reject_reserved_envelope_keys(
     extra: &BTreeMap<String, serde_json::Value>,
 ) -> Result<(), RepositoryError> {
+    if let Some(key) = extra
+        .keys()
+        .find(|k| IDENTITY_ENVELOPE_KEYS.contains(&k.as_str()))
+    {
+        return Err(RepositoryError::InvalidRepositoryInitialization {
+            message: format!(
+                "envelope key '{key}' is a canonical Record field, but this command has no \
+                 request-body field for it — it is always resolved from a CLI argument or set \
+                 by the repository itself, never by the caller"
+            ),
+        });
+    }
     if let Some(key) = extra
         .keys()
         .find(|k| RESERVED_RECORD_ENVELOPE_KEYS.contains(&k.as_str()))
@@ -4252,6 +4273,42 @@ pub(crate) mod tests {
 
         // Nothing should have been written.
         assert!(list_all_records(&store).expect("list").is_empty());
+    }
+
+    /// srs-rust#1292: `instanceId` (and the other identity/system keys) have
+    /// no corresponding field on `CreateRecordInput` at all — the caller has
+    /// no way to "set it through the input's own field instead", so the
+    /// message must say that plainly rather than pointing at a field that
+    /// does not exist.
+    #[test]
+    fn create_record_in_context_names_instance_id_as_never_settable() {
+        let store = make_store_with_package();
+        let mut extra = std::collections::BTreeMap::new();
+        extra.insert(
+            "instanceId".to_string(),
+            json!("11111111-1111-1111-1111-111111111111"),
+        );
+
+        let err = create_record_in_context(
+            &store,
+            "com.test/test-type",
+            None,
+            CreateRecordInput {
+                field_values: fvs(vec![("test-name", json!("Created"))]),
+                field_meta: None,
+                tags: None,
+                lifecycle_state: None,
+                extra,
+            },
+            None,
+            None,
+        )
+        .expect_err("reserved envelope key must be rejected");
+        assert!(
+            matches!(err, RepositoryError::InvalidRepositoryInitialization { ref message }
+                if message.contains("instanceId") && !message.contains("set it through the input's own field")),
+            "error should not claim a settable field exists for instanceId: {err:?}"
+        );
     }
 
     #[test]
