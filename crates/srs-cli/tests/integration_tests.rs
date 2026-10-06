@@ -5060,6 +5060,46 @@ fn container_scope_note_create_fails_invalid_container() {
 }
 
 #[test]
+fn note_create_accepts_container_id_in_stdin_payload() {
+    // srs-rust#1290: the MCP `note_create` tool takes `containerId` in its
+    // JSON input; the CLI must accept the same shape instead of silently
+    // dropping it when no `--container` flag is given.
+    let temp = create_temp_repo();
+    let cid = "00000000-0000-4000-8000-000000000001";
+    create_container_for_scope(&temp, cid);
+
+    let payload = serde_json::json!({
+        "instanceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+        "title": "Scoped via body",
+        "sections": [{"name":"body","content":"x"}],
+        "containerId": cid
+    })
+    .to_string();
+    let created = run_srs_stdin_in_dir(temp.path(), &["note", "create"], &payload);
+    assert_eq!(created["ok"], true, "note create should succeed: {created:?}");
+
+    let members = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
+    let arr = members["payload"]["members"].as_array().unwrap();
+    assert!(arr
+        .iter()
+        .any(|v| v["instanceId"] == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"));
+}
+
+#[test]
+fn note_create_rejects_non_string_container_id_in_stdin_payload() {
+    let temp = create_temp_repo();
+    let payload = serde_json::json!({
+        "instanceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+        "title": "Bad containerId",
+        "sections": [{"name":"body","content":"x"}],
+        "containerId": 123
+    })
+    .to_string();
+    let created = run_srs_stdin_in_dir(temp.path(), &["note", "create"], &payload);
+    assert_eq!(created["ok"], false, "got: {created:?}");
+}
+
+#[test]
 fn container_scope_note_delete_refused_if_not_member() {
     let temp = create_temp_repo();
     let cid = "00000000-0000-4000-8000-000000000001";

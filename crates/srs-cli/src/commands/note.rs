@@ -70,9 +70,23 @@ fn cmd_note_create(ctx: CliContext) -> Result<String> {
     }) {
         return Ok(output::err("note create", vec![e.to_string()]));
     }
+    // Issue #1290: `containerId` is read straight off the raw input, not through
+    // `Note`'s own deserialization — `Note` has no such field, so it would be
+    // silently dropped, and routing the parse through the flattened
+    // `CreateNoteInput` instead loses serde_path_to_error's JSON-path tracking
+    // for errors nested under `sections` (issue #511).
+    let container_id = match raw.get("containerId") {
+        None | Some(serde_json::Value::Null) => ctx.container_id.clone(),
+        Some(serde_json::Value::String(s)) => Some(s.clone()),
+        Some(_) => {
+            return Ok(output::err(
+                "note create",
+                vec!["containerId must be a string".to_string()],
+            ))
+        }
+    };
     let note: Note = crate::input::from_str("note", &raw.to_string())?;
 
-    let container_id = ctx.container_id.clone();
     match with_store(&ctx, |store| {
         Ok(create_note_in_context(
             store,
