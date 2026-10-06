@@ -12,6 +12,8 @@ const EXT_LIFECYCLE: &str = "ext:lifecycle";
 const EXT_RELATIONS: &str = "ext:relations";
 const EXT_REPOSITORY: &str = "ext:repository";
 const EXT_TYPE_INHERITANCE: &str = "ext:type-inheritance";
+const EXT_VIEWS_L1: &str = "ext:views-l1";
+const EXT_VIEWS_L2: &str = "ext:views-l2";
 
 /// Extension IDs actively implemented by this version of the SRS engine.
 /// This is the single authoritative list — do not add `ext:` literals elsewhere.
@@ -26,6 +28,8 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     EXT_RELATIONS,
     EXT_REPOSITORY,
     EXT_TYPE_INHERITANCE,
+    EXT_VIEWS_L1,
+    EXT_VIEWS_L2,
 ];
 
 /// Conformance report: declared vs supported vs content-detected extension usage.
@@ -98,6 +102,8 @@ fn detect_used_extensions(store: &dyn RepositoryStore) -> Result<Vec<String>, Re
 
     // ext:type-inheritance — any package type declares an extends base type
     // ext:field-groups is retired (RFC-039 [R15]) — no detection.
+    // ext:views-l1 — any View is defined
+    // ext:views-l2 — any Composition is defined
     match store.load_package() {
         Ok(package) => {
             let mut has_inheritance = false;
@@ -108,6 +114,12 @@ fn detect_used_extensions(store: &dyn RepositoryStore) -> Result<Vec<String>, Re
             }
             if has_inheritance {
                 used.push(EXT_TYPE_INHERITANCE.to_string());
+            }
+            if !package.views.is_empty() {
+                used.push(EXT_VIEWS_L1.to_string());
+            }
+            if !package.compositions.is_empty() {
+                used.push(EXT_VIEWS_L2.to_string());
             }
         }
         Err(RepositoryError::Io { .. } | RepositoryError::PackageLoad { .. }) => {}
@@ -1307,6 +1319,122 @@ mod tests {
         assert!(
             report.declared_but_unsupported.is_empty(),
             "ext:lifecycle is supported; should not appear in declared_but_unsupported"
+        );
+    }
+
+    #[test]
+    fn conformance_views_and_compositions_are_supported() {
+        // srs-rust#1273: a repo declaring ext:views-l1/ext:views-l2 — both actively
+        // implemented (View/Composition rendering) — must not be told they are
+        // declaredButUnsupported.
+        let store = MemoryStore::default();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.extra.insert(
+            "declaredExtensions".to_string(),
+            json!(["ext:views-l1", "ext:views-l2"]),
+        );
+        store.save_manifest(&manifest).unwrap();
+
+        let report = declared_extensions_conformance(&store).unwrap();
+        assert!(
+            report.supported.contains(&"ext:views-l1".to_string()),
+            "ext:views-l1 should be in the supported set: {:?}",
+            report.supported
+        );
+        assert!(
+            report.supported.contains(&"ext:views-l2".to_string()),
+            "ext:views-l2 should be in the supported set: {:?}",
+            report.supported
+        );
+        assert!(
+            report.declared_but_unsupported.is_empty(),
+            "ext:views-l1/ext:views-l2 are supported; should not appear in \
+             declared_but_unsupported: {:?}",
+            report.declared_but_unsupported
+        );
+    }
+
+    #[test]
+    fn conformance_view_and_composition_detected_as_used() {
+        use srs_core::types::view::{FieldView, View};
+
+        // A catalog-valid repo (declared_extensions_conformance's detection walk goes
+        // through `list_all_records` -> `store.list_instances` -> the checked catalog,
+        // which applies [R4] package-manifest.json validation to package/package.json
+        // — unlike `setup_presentation_repo`'s minimal fixture, which other tests here
+        // use only for direct manifest/view-service calls that never build a catalog).
+        let temp = TempDir::new().unwrap();
+        std::fs::write(
+            temp.path().join("manifest.json"),
+            r#"{"srsVersion":"2.0-draft","repositoryId":"test-repo","dataModelRevision":2}"#,
+        )
+        .unwrap();
+        std::fs::create_dir_all(temp.path().join("package")).unwrap();
+        std::fs::write(
+            temp.path().join("package/package.json"),
+            serde_json::to_string_pretty(&json!({
+                "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
+                "id": "bb000000-0000-4000-b000-000000000001",
+                "namespace": "com.test",
+                "name": "test-package",
+                "version": "1.0.0",
+                "title": "Test",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [],
+                "types": [],
+                "relationTypes": [],
+                "views": [],
+                "compositions": []
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let store = crate::FileStore::new(temp.path());
+
+        let view = View {
+            schema: Some("https://srs.semanticops.com/schema/2.0/view.json".to_string()),
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
+            id: String::new(),
+            namespace: "com.test".to_string(),
+            name: "a-view".to_string(),
+            version: 1,
+            description: "test view".to_string(),
+            field_views: vec![FieldView {
+                display_hint: None,
+                editor_hint_override: None,
+                label_mode: None,
+                composite_renderer: None,
+                field_id: "f1".to_string(),
+                order: 0,
+                required: None,
+                visible: None,
+                display_label: None,
+            }
+            .into()],
+            compatible_types: None,
+            protection: None,
+            export_config: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        crate::view_service::create_view(&store, view, None).unwrap();
+        make_composition(&store, "a-composition");
+
+        let report = declared_extensions_conformance(&store).unwrap();
+        assert!(
+            report.used_but_undeclared.contains(&"ext:views-l1".to_string()),
+            "a defined View should be detected as ext:views-l1 usage: {:?}",
+            report.used_but_undeclared
+        );
+        assert!(
+            report.used_but_undeclared.contains(&"ext:views-l2".to_string()),
+            "a defined Composition should be detected as ext:views-l2 usage: {:?}",
+            report.used_but_undeclared
         );
     }
 
