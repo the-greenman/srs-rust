@@ -5076,7 +5076,10 @@ fn note_create_accepts_container_id_in_stdin_payload() {
     })
     .to_string();
     let created = run_srs_stdin_in_dir(temp.path(), &["note", "create"], &payload);
-    assert_eq!(created["ok"], true, "note create should succeed: {created:?}");
+    assert_eq!(
+        created["ok"], true,
+        "note create should succeed: {created:?}"
+    );
 
     let members = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
     let arr = members["payload"]["members"].as_array().unwrap();
