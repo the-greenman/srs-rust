@@ -1427,12 +1427,16 @@ mod tests {
 
         let report = declared_extensions_conformance(&store).unwrap();
         assert!(
-            report.used_but_undeclared.contains(&"ext:views-l1".to_string()),
+            report
+                .used_but_undeclared
+                .contains(&"ext:views-l1".to_string()),
             "a defined View should be detected as ext:views-l1 usage: {:?}",
             report.used_but_undeclared
         );
         assert!(
-            report.used_but_undeclared.contains(&"ext:views-l2".to_string()),
+            report
+                .used_but_undeclared
+                .contains(&"ext:views-l2".to_string()),
             "a defined Composition should be detected as ext:views-l2 usage: {:?}",
             report.used_but_undeclared
         );
