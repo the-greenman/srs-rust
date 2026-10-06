@@ -534,7 +534,7 @@ mod tests {
             "00000000-0000-4000-8000-00000000a000",
             container_service::ContainerPatch {
                 title: Some("Example Governance".to_string()),
-                identity_instance_id: identity,
+                identity_instance_id: Some(identity),
                 member_instance_ids: Some(srs_core::types::container::entries(vec![
                     "00000000-0000-4000-8000-00000000a100".to_string(),
                     "00000000-0000-4000-8000-00000000a300".to_string(),

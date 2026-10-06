@@ -51,11 +51,26 @@ pub struct ContainerPatch {
     pub container_type: Option<String>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<serde_json::Value>,
-    pub identity_instance_id: Option<String>,
+    /// Double-option: absent (outer `None`) leaves the field untouched;
+    /// `null` (`Some(None)`) clears it; a string (`Some(Some(v))`) sets it.
+    /// Plain `Option<String>` cannot tell "omitted" from "explicit null",
+    /// so a `null` patch silently no-op'd instead of clearing (srs-rust#1293).
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub identity_instance_id: Option<Option<String>>,
     pub anchor_instance_id: Option<String>,
     /// RFC-043: the whole ordered outline (replaces the arrangement; order is data, never sorted).
     pub member_instance_ids: Option<Vec<ContainerEntry>>,
     pub child_container_ids: Option<Vec<String>>,
+}
+
+/// Distinguishes an absent field (outer `None`, left untouched by `#[serde(default)]`)
+/// from an explicit `null` (`Some(None)`) for an `Option<Option<T>>` patch field.
+fn deserialize_some<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Deserialize::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -516,8 +531,8 @@ pub fn update_container(
     if let Some(v) = patch.meta {
         container.meta = Some(v);
     }
-    if let Some(ref v) = patch.identity_instance_id {
-        container.identity_instance_id = Some(v.clone());
+    if let Some(v) = patch.identity_instance_id {
+        container.identity_instance_id = v;
     }
     if let Some(ref v) = patch.anchor_instance_id {
         container.anchor_instance_id = Some(v.clone());
@@ -2839,7 +2854,7 @@ mod tests {
         store.save_manifest(&manifest).unwrap();
 
         let patch = ContainerPatch {
-            identity_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
+            identity_instance_id: Some(Some("11111111-1111-4111-8111-111111111111".to_string())),
             ..ContainerPatch::default()
         };
         let updated = update_container(&store, container_id, patch)
@@ -2872,7 +2887,7 @@ mod tests {
 
         // Patch OTHER container's identity_instance_id — manifest should not change
         let patch = ContainerPatch {
-            identity_instance_id: Some("22222222-2222-4222-8222-222222222222".to_string()),
+            identity_instance_id: Some(Some("22222222-2222-4222-8222-222222222222".to_string())),
             ..ContainerPatch::default()
         };
         update_container(&store, other_id, patch).unwrap();
@@ -2894,7 +2909,7 @@ mod tests {
         create_container(&store, minimal_container(container_id, "Root")).unwrap();
 
         let patch = ContainerPatch {
-            identity_instance_id: Some("dddddddd-dddd-4ddd-8ddd-dddddddddddd".to_string()),
+            identity_instance_id: Some(Some("dddddddd-dddd-4ddd-8ddd-dddddddddddd".to_string())),
             ..ContainerPatch::default()
         };
         let err = update_container(&store, container_id, patch).unwrap_err();
@@ -2946,6 +2961,64 @@ mod tests {
             .container;
         assert_eq!(updated.identity_instance_id, None);
         assert_eq!(updated.title, "Renamed");
+    }
+
+    /// srs-rust#1293: a JSON patch body of `{"identityInstanceId": null}` must
+    /// clear the field, not no-op. Plain `Option<String>` cannot distinguish an
+    /// explicit `null` from an omitted key during deserialization — both land
+    /// as the Rust-level `None` — so the field must use the double-option
+    /// `deserialize_some` pattern to tell them apart.
+    #[test]
+    fn container_patch_explicit_null_identity_deserializes_as_clear() {
+        let omitted: ContainerPatch = serde_json::from_str(r#"{"title":"T"}"#).unwrap();
+        assert_eq!(
+            omitted.identity_instance_id, None,
+            "an omitted identityInstanceId key must leave the field untouched"
+        );
+
+        let explicit_null: ContainerPatch =
+            serde_json::from_str(r#"{"identityInstanceId":null}"#).unwrap();
+        assert_eq!(
+            explicit_null.identity_instance_id,
+            Some(None),
+            "an explicit null identityInstanceId must be distinguishable from omission"
+        );
+
+        let explicit_value: ContainerPatch =
+            serde_json::from_str(r#"{"identityInstanceId":"11111111-1111-4111-8111-111111111111"}"#)
+                .unwrap();
+        assert_eq!(
+            explicit_value.identity_instance_id,
+            Some(Some("11111111-1111-4111-8111-111111111111".to_string()))
+        );
+    }
+
+    #[test]
+    fn container_update_clears_identity_instance_id_when_patch_sets_it_to_null() {
+        let store = make_store();
+        let container_id = "550e8400-e29b-41d4-a716-446655440004";
+        let identity_id = "11111111-1111-4111-8111-111111111111";
+        seed_instance(&store, identity_id);
+        let mut c = minimal_container(container_id, "Root");
+        c.identity_instance_id = Some(identity_id.to_string());
+        c.member_instance_ids = Some(srs_core::types::container::entries(vec![
+            identity_id.to_string(),
+        ]));
+        create_container(&store, c).unwrap();
+
+        // The exact wire shape from the bug report: a stdin JSON body of
+        // `{"identityInstanceId": null}`.
+        let patch: ContainerPatch = serde_json::from_str(r#"{"identityInstanceId":null}"#).unwrap();
+        let updated = update_container(&store, container_id, patch)
+            .unwrap()
+            .container;
+        assert_eq!(
+            updated.identity_instance_id, None,
+            "an explicit null patch must clear identityInstanceId, not leave it unchanged"
+        );
+
+        let reloaded = get_container(&store, container_id).unwrap();
+        assert_eq!(reloaded.identity_instance_id, None);
     }
 
     #[test]
@@ -3135,7 +3208,7 @@ mod tests {
         store.save_manifest(&manifest).unwrap();
 
         let patch = ContainerPatch {
-            identity_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
+            identity_instance_id: Some(Some("11111111-1111-4111-8111-111111111111".to_string())),
             anchor_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
             member_instance_ids: Some(srs_core::types::container::entries(vec![
                 "22222222-2222-4222-8222-222222222222".to_string(),
