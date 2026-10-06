@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "srs-context": {
+      "command": "srs",
+      "args": ["mcp", "serve", "--repo", "${SRS_CONTEXT_REPO:-../srs-context/context}"]
+    }
+  }
+}
