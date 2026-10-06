@@ -2237,10 +2237,14 @@ fn resolve_section_instances(
                 &section.section_id,
                 diagnostics,
             )?;
-            let roots = filter_contains_roots(&members, relations);
+            // srs-rust#1271: no `filter_contains_roots` dedup here — this arm always
+            // narrows to the one requested `instance_id_filter` below, so there is no
+            // "whole set rendered flat AND recursed" double-render for it to prevent,
+            // and applying it could drop the very instance being requested when that
+            // instance is itself a `contains`-target of another member of the set.
             let mut records = Vec::new();
-            for id in roots {
-                if let Some(instance) = get_instance_by_id(store, &id)? {
+            for id in &members {
+                if let Some(instance) = get_instance_by_id(store, id)? {
                     records.push(instance);
                 }
             }
@@ -2284,6 +2288,40 @@ fn filter_contains_roots(members: &[String], relations: &[Relation]) -> Vec<Stri
         .collect()
 }
 
+/// srs-rust#1271: [`filter_contains_roots`]'s dedup is sound only where its premise
+/// holds — that the dropped entry "renders inside their ancestor's own content"
+/// (`render_record_at_level`/`project_record_json`'s `contains` recursion, both
+/// gated on `section.title_field_id.is_some()`, the same condition `structured`
+/// names at line ~2910). When that recursion is off, nothing else ever renders the
+/// dropped entry — RFC-043 Change C licenses no such per-entry visibility rule, and
+/// [R11] makes every undeclared-excluded entry a MUST. So `dedupe_for_recursion`
+/// must be `section.title_field_id.is_some()` at every call site: `false` returns
+/// every member untouched; `true` applies the dedup and diagnoses each entry it
+/// drops, naming where it actually renders.
+fn dedupe_contains_roots(
+    section_id: &str,
+    members: &[String],
+    relations: &[Relation],
+    dedupe_for_recursion: bool,
+    diagnostics: &mut Vec<String>,
+) -> Vec<String> {
+    if !dedupe_for_recursion {
+        return members.to_vec();
+    }
+    let roots = filter_contains_roots(members, relations);
+    if roots.len() != members.len() {
+        let root_set: HashSet<&str> = roots.iter().map(String::as_str).collect();
+        for id in members {
+            if !root_set.contains(id.as_str()) {
+                diagnostics.push(format!(
+                    "[section:{section_id}] entry {id} omitted from its declared container position; it is a `contains`-target of another entry in the same set and renders nested under that entry instead"
+                ));
+            }
+        }
+    }
+    roots
+}
+
 /// [R20]: this container's direct members (`direct(C)`), with the same-set
 /// `contains`-overlap dedup ([`filter_contains_roots`]) already applied, in
 /// final [R20] order (`ordering.fieldId`, else
@@ -2301,10 +2339,17 @@ fn ordered_direct_members(
     is_fixed_instances: bool,
     package: &Package,
     relations: &[Relation],
+    dedupe_for_recursion: bool,
     diagnostics: &mut Vec<String>,
 ) -> Result<Vec<LoadedInstance>, RepositoryError> {
     let members = list_direct_members_degraded(store, container_id, section_id, diagnostics)?;
-    let roots = filter_contains_roots(&members, relations);
+    let roots = dedupe_contains_roots(
+        section_id,
+        &members,
+        relations,
+        dedupe_for_recursion,
+        diagnostics,
+    );
     let mut records = Vec::new();
     for id in &roots {
         if let Some(instance) = get_instance_by_id(store, id)? {
@@ -2326,9 +2371,11 @@ fn ordered_direct_members(
 
 /// RFC-043 Change C: the entries of an arranged section, in container order with effective
 /// depths. Steps in order: take the entries; drop entries that are `contains`-descendants of
-/// another entry (they render inside their ancestor's own content, srs#682/#1130) and
-/// entries excluded by `typeFilter` or unresolvable, each by the promoting removal ([R7]), so
-/// effective depth is the depth after all removals; reverse every sibling list for `desc`.
+/// another entry only when `dedupe_for_recursion` says the recursion will actually render
+/// them nested under that ancestor (srs#682/#1130, narrowed by srs-rust#1271 — see
+/// [`dedupe_contains_roots`]) and entries excluded by `typeFilter` or unresolvable, each by
+/// the promoting removal ([R7]), so effective depth is the depth after all removals; reverse
+/// every sibling list for `desc`.
 #[allow(clippy::too_many_arguments)]
 fn arranged_direct_members(
     store: &dyn RepositoryStore,
@@ -2339,6 +2386,7 @@ fn arranged_direct_members(
     exclude: &[String],
     package: &Package,
     relations: &[Relation],
+    dedupe_for_recursion: bool,
     diagnostics: &mut Vec<String>,
 ) -> Result<(Vec<SectionEntry>, Option<ArrangedRank>), RepositoryError> {
     let container = match get_container(store, container_id) {
@@ -2358,7 +2406,15 @@ fn arranged_direct_members(
         .map(|(i, e)| (e.instance_id.clone(), i))
         .collect();
     let ids: Vec<String> = entries.iter().map(|e| e.instance_id.clone()).collect();
-    let roots: HashSet<String> = filter_contains_roots(&ids, relations).into_iter().collect();
+    let roots: HashSet<String> = dedupe_contains_roots(
+        section_id,
+        &ids,
+        relations,
+        dedupe_for_recursion,
+        diagnostics,
+    )
+    .into_iter()
+    .collect();
     let mut loaded: std::collections::HashMap<String, LoadedInstance> =
         std::collections::HashMap::new();
     for id in &ids {
@@ -2433,6 +2489,11 @@ fn resolve_section_entries(
             };
             let scope = container_scope.clone().unwrap_or(ContainerScope::Explicit);
             let type_filter_slice = type_filter.as_deref().filter(|f| !f.is_empty());
+            // srs-rust#1271: the `contains`-root dedup only renders a dropped entry
+            // nested under its ancestor when the section's own `contains` recursion is
+            // on (`render_record_at_level`/`project_record_json`, both gated on this
+            // same condition) — see `dedupe_contains_roots`.
+            let dedupe_for_recursion = section.title_field_id.is_some();
 
             if matches!(scope, ContainerScope::Subtree) {
                 let mut visited = HashSet::new();
@@ -2446,6 +2507,7 @@ fn resolve_section_entries(
                         relations,
                         &section.section_id,
                         0,
+                        dedupe_for_recursion,
                         &mut visited,
                         diagnostics,
                     )?,
@@ -2469,6 +2531,7 @@ fn resolve_section_entries(
                     exclude,
                     package,
                     relations,
+                    dedupe_for_recursion,
                     diagnostics,
                 );
             }
@@ -2483,6 +2546,7 @@ fn resolve_section_entries(
                 false,
                 package,
                 relations,
+                dedupe_for_recursion,
                 diagnostics,
             )?;
             return Ok((
@@ -2539,6 +2603,7 @@ fn build_container_subset_entries(
     relations: &[Relation],
     section_id: &str,
     depth: u32,
+    dedupe_for_recursion: bool,
     visited: &mut HashSet<String>,
     diagnostics: &mut Vec<String>,
 ) -> Result<Vec<SectionEntry>, RepositoryError> {
@@ -2558,6 +2623,7 @@ fn build_container_subset_entries(
         false,
         package,
         relations,
+        dedupe_for_recursion,
         diagnostics,
     )?;
 
@@ -2649,6 +2715,7 @@ fn build_container_subset_entries(
                 relations,
                 section_id,
                 depth + 1,
+                dedupe_for_recursion,
                 visited,
                 diagnostics,
             )?;
@@ -2682,6 +2749,7 @@ fn build_container_subset_entries(
             relations,
             section_id,
             depth + 1,
+            dedupe_for_recursion,
             visited,
             diagnostics,
         )?;
@@ -16827,6 +16895,204 @@ mod tests {
             "memberOrder ([b, a]) must reorder the anchor's own contains \
              children in the markdown render, overriding the precedes-chain \
              fallback (a precedes b); got: {markdown}"
+        );
+    }
+
+    /// srs-rust#1271 fixture: a two-member, flat (non-anchor) `arranged`
+    /// container-subset section with `titleFieldId` left unset — so, unlike
+    /// [`make_single_anchor_member_order_store`], nothing recurses a
+    /// `contains` child back in one level down. `rec-b` is declared as an
+    /// ordinary container entry AND is the target of a `contains` edge from
+    /// the other entry, `rec-a`.
+    fn make_arranged_flat_contains_overlap_store(
+        format: &str,
+    ) -> crate::store::memory::MemoryStore {
+        use crate::container_service;
+        use srs_core::types::container::Container;
+        use srs_core::types::view::{
+            Composition, ContainerScope, DocumentSection, SectionOrdering, SectionSource,
+        };
+
+        let rtds = vec![test_rtd("contains", "Contains", None, false)];
+        let dv = Composition {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
+            composite_renderers: None,
+            id: "dv-flat-contains-overlap-test".to_string(),
+            namespace: "com.test".to_string(),
+            name: "flat-contains-overlap-test".to_string(),
+            version: 1,
+            description: "arranged flat container-subset, no titleFieldId, contains overlap"
+                .to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![DocumentSection {
+                composite_renderers: None,
+                section_id: "s-flat".to_string(),
+                title: None,
+                description: None,
+                order: 0,
+                source: SectionSource::ContainerSubset {
+                    container_id: Some("00000000-0000-4000-8000-0000000000e9".to_string()),
+                    container_type: None,
+                    type_filter: None,
+                    container_scope: Some(ContainerScope::Explicit),
+                },
+                render_view_id: None,
+                type_dispatch: None,
+                title_field_id: None,
+                ordering: Some(SectionOrdering {
+                    field_id: None,
+                    direction: None,
+                    source: Some(srs_core::types::view::OrderingSource::Arranged),
+                }),
+                required: None,
+                empty_behavior: None,
+                relations_presentation: None,
+            }],
+            navigation_links: None,
+            export_config: Some(ExportConfig {
+                preamble: None,
+                format: Some(format.to_string()),
+                omit_empty_fields: None,
+            }),
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+
+        let manifest = crate::manifest::Manifest {
+            container: None,
+            upstream_package: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: std::path::PathBuf::from("/memory"),
+        };
+        let package = crate::package::Package {
+            id: "test-flat-contains-overlap-pkg".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            fields: vec![srs_core::types::field::Field::new(
+                "f-title",
+                "com.test",
+                "title",
+                srs_core::types::field::FieldType::string(),
+            )],
+            record_types: vec![],
+            relation_type_definitions: rtds,
+            views: vec![],
+            compositions: vec![dv],
+            themes: vec![],
+            blueprints: vec![],
+            protocols: vec![],
+            root: std::path::PathBuf::from("/memory"),
+            package_dependencies: vec![],
+            vocabularies: vec![],
+            lifecycles: vec![],
+        };
+        let store = crate::store::memory::MemoryStore::new(manifest, package);
+
+        add_rp_record(&store, "rec-a", Some(("title", "Entry A")));
+        add_rp_record(&store, "rec-b", Some(("title", "Entry B")));
+
+        let relations = [test_rel(
+            "eeeeeeee-0000-4000-8000-0000000000e1",
+            "contains",
+            "rec-a",
+            "rec-b",
+        )];
+        let coll = serde_json::json!({
+            "relations": relations.iter().map(|r| serde_json::to_value(r).unwrap()).collect::<Vec<_>>()
+        });
+        crate::store::write_relations_standalone_for_test(&store, &coll);
+
+        container_service::create_container(
+            &store,
+            Container {
+                container_id: "00000000-0000-4000-8000-0000000000e9".to_string(),
+                title: "Test Flat Container".to_string(),
+                namespace: None,
+                name: None,
+                description: None,
+                container_type: None,
+                identity_instance_id: None,
+                anchor_instance_id: None,
+                member_instance_ids: Some(srs_core::types::container::entries(vec![
+                    "rec-a".to_string(),
+                    "rec-b".to_string(),
+                ])),
+                child_container_ids: None,
+                tags: None,
+                created_at: Some("2026-01-01T00:00:00Z".to_string()),
+                updated_at: None,
+                meta: None,
+                extra: std::collections::BTreeMap::new(),
+            },
+        )
+        .unwrap();
+
+        store
+    }
+
+    /// srs-rust#1271: without `titleFieldId`, nothing ever recurses `rec-b`
+    /// back in — [R11] (RFC-043 Change C) makes it a MUST that every declared
+    /// entry `typeFilter` does not exclude renders. Before the fix, the
+    /// `contains` edge from `rec-a` silently dropped `rec-b` out of the
+    /// arranged entries with `ok: true` and empty diagnostics.
+    #[test]
+    fn arranged_flat_contains_overlap_renders_every_entry_without_title_field_id_json() {
+        let store = make_arranged_flat_contains_overlap_store("json");
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: "dv-flat-contains-overlap-test",
+            format: Some("json"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+            exclude_instance_ids: &[],
+        })
+        .unwrap();
+        let records = &result.projection.unwrap().sections[0].records;
+        let ids: Vec<&str> = records.iter().map(|r| r.instance_id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["rec-a", "rec-b"],
+            "every declared container entry must render — a `contains` edge between \
+             two of a set's own members is not membership evidence and must not drop \
+             an entry when nothing recurses it back in, got: {ids:?}"
+        );
+    }
+
+    /// Markdown-engine counterpart of the JSON test above.
+    #[test]
+    fn arranged_flat_contains_overlap_renders_every_entry_without_title_field_id_markdown() {
+        let store = make_arranged_flat_contains_overlap_store("markdown");
+        let result = render_composition(RenderCompositionOptions {
+            store: &store,
+            view_id: "dv-flat-contains-overlap-test",
+            format: Some("markdown"),
+            theme_variant: None,
+            container_id: None,
+            instance_id_filter: None,
+            exclude_instance_ids: &[],
+        })
+        .unwrap();
+        let markdown = result.rendered;
+        assert!(
+            markdown.contains("Entry A"),
+            "Entry A must appear in the rendered markdown, got:\n{markdown}"
+        );
+        assert!(
+            markdown.contains("Entry B"),
+            "Entry B must appear in the rendered markdown — a `contains` edge from \
+             Entry A must not silently drop it when no recursion renders it \
+             elsewhere, got:\n{markdown}"
         );
     }
 
