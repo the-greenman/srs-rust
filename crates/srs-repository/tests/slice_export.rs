@@ -502,6 +502,38 @@ fn i81_is_info_inside_a_slice_and_warning_outside() {
 }
 
 #[test]
+fn i82_is_info_inside_a_slice_and_warning_outside() {
+    // A declared child makes the slice's container set non-empty (I-82 is suppressed
+    // otherwise); neither it nor any container anchors the root's members.
+    let mut t = rich();
+    edit(&mut t, "containers/decisions-55555555.json", |c| {
+        c["childContainerIds"] = json!([SUB]);
+    });
+    let mut f = files(&export(t, DECISIONS).unwrap());
+    let sev = |f: &Tree| -> Vec<DiagnosticSeverity> {
+        validate_repository(&open_tree(f.clone()).unwrap())
+            .unwrap()
+            .diagnostics
+            .into_iter()
+            .filter(|d| d.message.contains("RFC-013 I-82"))
+            .map(|d| d.severity)
+            .collect()
+    };
+    let inside = sev(&f);
+    assert!(
+        !inside.is_empty(),
+        "fixture slice has a root member anchoring no container"
+    );
+    assert!(inside.iter().all(|s| *s == DiagnosticSeverity::Info));
+    edit(&mut f, "manifest.json", |m| {
+        m.as_object_mut().unwrap().remove("slice");
+    });
+    let outside = sev(&f);
+    assert_eq!(outside.len(), inside.len());
+    assert!(outside.iter().all(|s| *s == DiagnosticSeverity::Warning));
+}
+
+#[test]
 fn package_outside_the_repository_refuses_the_export() {
     let mut t = rich();
     edit(&mut t, "manifest.json", |m| {
