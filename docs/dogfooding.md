@@ -1097,7 +1097,7 @@ $SRS_BIN repo create --repo "$SCRATCH" --namespace com.example.dogfood
 $SRS_BIN repo extensions conformance --repo "$SCRATCH" --pretty
 ```
 
-`payload.declared`, `payload.usedButUndeclared`, and `payload.declaredButUnsupported` are all empty. `payload.supported` lists all 6 implemented extension IDs.
+`payload.declared`, `payload.usedButUndeclared`, and `payload.declaredButUnsupported` are all empty. `payload.supported` lists all 8 implemented extension IDs (srs-rust#1273 added `ext:views-l1`/`ext:views-l2`, which were implemented but missing from the constant).
 
 **Scenario — declare a supported extension, confirm it is no longer a gap.**
 
@@ -1126,7 +1126,7 @@ $SRS_BIN repo validate --repo "$SCRATCH" --pretty
 `ok: true`, `diagnostics: []` — conformance mismatches are informational, not validation errors.
 
 **Done when.**
-- Empty repo: `declared: []`, `usedButUndeclared: []`, `declaredButUnsupported: []`, `supported` has 6 entries.
+- Empty repo: `declared: []`, `usedButUndeclared: []`, `declaredButUnsupported: []`, `supported` has 8 entries.
 - After `extensions enable ext:lifecycle`: `declared` contains `"ext:lifecycle"`, `declaredButUnsupported` empty.
 - After `extensions enable ext:federation`: `declaredButUnsupported` contains `"ext:federation"`.
 - `repo validate` returns `ok: true` throughout.
