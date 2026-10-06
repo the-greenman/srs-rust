@@ -831,13 +831,23 @@ impl From<FacetCounts> for FacetCountsPayload {
 #[serde(rename_all = "camelCase")]
 pub struct FacetCountPayload {
     pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_id: Option<String>,
     pub count: usize,
 }
 
 impl From<FacetCount> for FacetCountPayload {
     fn from(c: FacetCount) -> Self {
-        let FacetCount { value, count } = c;
-        Self { value, count }
+        let FacetCount {
+            value,
+            type_id,
+            count,
+        } = c;
+        Self {
+            value,
+            type_id,
+            count,
+        }
     }
 }
 

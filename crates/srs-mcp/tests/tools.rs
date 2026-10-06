@@ -519,6 +519,7 @@ async fn tool_note_create_and_find_roundtrip() {
         // MCP ranks by default (srs-rust#1228).
         FindPage {
             rank: true,
+            by_type_limit: None,
             ..Default::default()
         },
     )
@@ -612,6 +613,15 @@ async fn tool_find_defaults_to_25_hits_with_full_total() {
     // limit 0 is the map call: no hits, but facets still count the whole match set.
     let map = call(&client, "find", q(serde_json::json!({ "limit": 0 }))).await;
     assert_eq!(map.structured_content.unwrap()["facets"]["notes"], 27);
+    // byTypeLimit is accepted (0 = every type) and facets still count the whole set.
+    let all = call(
+        &client,
+        "find",
+        q(serde_json::json!({ "limit": 0, "byTypeLimit": 0 })),
+    )
+    .await;
+    assert_eq!(all.is_error, Some(false), "{all:?}");
+    assert_eq!(all.structured_content.unwrap()["facets"]["notes"], 27);
     client.cancel().await.unwrap();
 }
 
@@ -1752,6 +1762,7 @@ async fn tool_similar_matches_service_and_excludes_source() {
         FindPage {
             limit: Some(25),
             rank: true,
+            by_type_limit: None,
             ..Default::default()
         },
     )
