@@ -78,6 +78,9 @@ fn neighbours_both_directions_match() {
         label: full.then(|| "L".into()),
         type_namespace: full.then(|| "ns".into()),
         type_name: full.then(|| "t".into()),
+        // Set only by a context card projection (#1285), never by `relation neighbours`.
+        lifecycle_state: None,
+        summary: None,
     };
     let r = NeighboursResult {
         instance_id: "i".into(),

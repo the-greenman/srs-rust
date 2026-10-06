@@ -29,7 +29,43 @@ pub struct RecordContextQuery {
     /// no filtering (default). Edges whose type has no installed definition are kept.
     #[serde(default)]
     pub exclude_relation_categories: Vec<RelationTypeCategory>,
+    /// How much of each neighbour to inline (#1285). Default `full`.
+    #[serde(default)]
+    pub projection: ContextProjection,
 }
+
+/// How much of each relation neighbour [`get_record_context`] inlines (#1285). The context
+/// record itself is always returned in full; only the instances at the other end shrink.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ContextProjection {
+    /// Every neighbour as the whole Record/Note, plus each edge's endpoint labels and provenance.
+    #[default]
+    Full,
+    /// Each neighbour as a [`NeighbourSummary`] card: id, uri, label, type, lifecycle state and
+    /// one summary field. Edges drop their endpoint labels and provenance (the card carries the
+    /// label; `full` keeps the provenance). Enough to decide which neighbour to read next.
+    Card,
+    /// As `card`, without the summary: identity and label only.
+    Label,
+}
+
+impl std::str::FromStr for ContextProjection {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "full" => Ok(ContextProjection::Full),
+            "card" => Ok(ContextProjection::Card),
+            "label" => Ok(ContextProjection::Label),
+            other => Err(format!(
+                "invalid projection '{other}' (expected full|card|label)"
+            )),
+        }
+    }
+}
+
+/// Characters of the summary field kept on a `card` neighbour.
+pub const CARD_SUMMARY_CHARS: usize = 160;
 
 /// Which end of the edge the context record sits on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,6 +103,8 @@ impl std::str::FromStr for EdgeDirection {
 pub enum ContextInstance {
     Record(srs_core::types::record::Record),
     Note(srs_core::types::note::Note),
+    /// A `card`/`label` projection of a Record or Note (#1285).
+    Card(NeighbourSummary),
 }
 
 /// One edge touching the context record: the relation, which way it points, and the
@@ -192,11 +230,26 @@ pub fn get_record_context(
             }
         })?;
 
-    // Only load the package when filtering: the default path stays as it was.
-    let package = if query.exclude_relation_categories.is_empty() {
+    let compact = query.projection != ContextProjection::Full;
+    // Only load the package when filtering or projecting: the default path stays as it was.
+    let package = if query.exclude_relation_categories.is_empty() && !compact {
         None
     } else {
         Some(store.load_package()?)
+    };
+    let card_ctx = match (&package, compact) {
+        (Some(p), true) => {
+            let manifest = store.load_manifest()?;
+            Some(CardContext {
+                package: p,
+                labels: crate::record_label::build_label_indexes_from_package(p),
+                repo_id: crate::resource_uri::repository_id(&manifest)
+                    .unwrap_or_default()
+                    .to_string(),
+                with_summary: query.projection == ContextProjection::Card,
+            })
+        }
+        _ => None,
     };
     // ponytail: two full relation scans and a neighbour load per edge; add a per-id cache /
     // single pass if hub records measure slow. A self-relation appears once as out, once as in.
@@ -235,11 +288,19 @@ pub fn get_record_context(
                 .as_ref()
                 .and_then(|n| n.created_at())
                 .map(str::to_string);
-            let neighbour = neighbour.map(|n| match n {
-                record_store::LoadedInstance::Record(r) => ContextInstance::Record(r),
-                record_store::LoadedInstance::Note(n) => ContextInstance::Note(n),
+            let neighbour = neighbour.map(|n| match (&card_ctx, n) {
+                (Some(c), n) => ContextInstance::Card(c.card(other, n)),
+                (None, record_store::LoadedInstance::Record(r)) => ContextInstance::Record(r),
+                (None, record_store::LoadedInstance::Note(n)) => ContextInstance::Note(n),
             });
-            let own = store.load_relation(&relation.relation_id).ok();
+            let mut relation = relation;
+            let own = if compact {
+                relation.source_label = None;
+                relation.target_label = None;
+                None
+            } else {
+                store.load_relation(&relation.relation_id).ok()
+            };
             relations.push((
                 created,
                 ContextRelation {
@@ -302,6 +363,194 @@ pub fn get_record_context(
     })
 }
 
+/// [`get_record_context`] rendered as compact markdown for an agent (#1285): the record's
+/// fields, then one line per edge grouped by relation type and direction, each carrying the
+/// neighbour's label, type, lifecycle state and instance id, with the `card` summary beneath.
+/// `query.projection` is forced to `card` unless it is `label` (no summaries); a `full`
+/// read has no compact form. Deterministic: the service's edge order.
+pub fn render_record_context_markdown(
+    store: &dyn RepositoryStore,
+    mut query: RecordContextQuery,
+) -> Result<String, RepositoryError> {
+    if query.projection == ContextProjection::Full {
+        query.projection = ContextProjection::Card;
+    }
+    let ctx = get_record_context(store, query)?;
+    Ok(context_markdown(&ctx))
+}
+
+fn context_markdown(ctx: &RecordContextResult) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    let _ = writeln!(out, "# {}", ctx.display_label);
+    let _ = writeln!(
+        out,
+        "`{}` · {}/{}\n",
+        ctx.record_id, ctx.type_namespace, ctx.type_name
+    );
+    for (name, value) in ctx.field_values.iter() {
+        let text = match value {
+            serde_json::Value::String(s) => s.trim().to_string(),
+            serde_json::Value::Null => continue,
+            other => other.to_string(),
+        };
+        if text.is_empty() || text == ctx.display_label {
+            continue;
+        }
+        if text.contains('\n') {
+            let _ = writeln!(out, "**{name}**:\n{text}\n");
+        } else {
+            let _ = writeln!(out, "**{name}**: {text}");
+        }
+    }
+    if let (Some(cid), Some(subtree)) = (&ctx.container_id, &ctx.subtree) {
+        let _ = writeln!(
+            out,
+            "\nIn container `{cid}`; {} descendant(s){}",
+            subtree.len(),
+            subtree
+                .iter()
+                .map(|e| format!("\n- `{}`", e.instance_id))
+                .collect::<String>()
+        );
+    }
+    let mut group: Option<(&str, EdgeDirection)> = None;
+    if !ctx.relations.is_empty() {
+        let _ = writeln!(out, "\n## Relations ({})", ctx.relations.len());
+    }
+    for rel in &ctx.relations {
+        let key = (rel.relation.relation_type.as_str(), rel.direction);
+        if group != Some(key) {
+            let arrow = match rel.direction {
+                EdgeDirection::Out => "→",
+                EdgeDirection::In => "←",
+            };
+            let _ = writeln!(out, "\n### {arrow} {}", rel.relation.relation_type);
+            group = Some(key);
+        }
+        let other = match rel.direction {
+            EdgeDirection::Out => &rel.relation.target_id,
+            EdgeDirection::In => &rel.relation.source_id,
+        };
+        match &rel.neighbour {
+            Some(ContextInstance::Card(c)) => {
+                let kind = c.type_name.as_deref().unwrap_or("note");
+                let state = c
+                    .lifecycle_state
+                    .as_deref()
+                    .map(|s| format!(" · {s}"))
+                    .unwrap_or_default();
+                let label = c.label.as_deref().unwrap_or(other);
+                let _ = writeln!(out, "- {label} ({kind}{state}) `{other}`");
+                if let Some(summary) = &c.summary {
+                    let _ = writeln!(out, "  {}", summary.replace('\n', " "));
+                }
+            }
+            // `full` neighbours never reach here (the projection is forced); a dangling
+            // edge has no neighbour.
+            _ => {
+                let _ = writeln!(out, "- (unresolved) `{other}`");
+            }
+        }
+    }
+    if !ctx.protocol_run_history.is_empty() {
+        let _ = writeln!(
+            out,
+            "\n{} protocol run(s) target this record.",
+            ctx.protocol_run_history.len()
+        );
+    }
+    out
+}
+
+/// What a `card`/`label` projection needs, loaded once per [`get_record_context`] call.
+struct CardContext<'a> {
+    package: &'a crate::package::Package,
+    labels: (
+        crate::record_label::FieldNameIndex,
+        crate::record_label::IdentityFieldIndex,
+    ),
+    repo_id: String,
+    with_summary: bool,
+}
+
+impl CardContext<'_> {
+    fn card(&self, id: &str, instance: record_store::LoadedInstance) -> NeighbourSummary {
+        let (fni, ifi) = &self.labels;
+        let (label, type_namespace, type_name, lifecycle_state, summary) = match instance {
+            record_store::LoadedInstance::Record(rec) => {
+                let label = crate::record_label::record_display_label(&rec, ifi, fni);
+                let summary = self
+                    .with_summary
+                    .then(|| record_summary(&rec, self.package, &label))
+                    .flatten();
+                (
+                    label,
+                    Some(rec.type_namespace),
+                    Some(rec.type_name),
+                    rec.lifecycle_state,
+                    summary,
+                )
+            }
+            record_store::LoadedInstance::Note(n) => {
+                let summary = self
+                    .with_summary
+                    .then(|| {
+                        n.sections
+                            .iter()
+                            .map(|s| s.content.as_str())
+                            .find(|c| !c.trim().is_empty())
+                            .map(truncate_summary)
+                    })
+                    .flatten();
+                (
+                    n.title.unwrap_or_else(|| n.instance_id.clone()),
+                    None,
+                    None,
+                    None,
+                    summary,
+                )
+            }
+        };
+        NeighbourSummary {
+            instance_id: id.to_string(),
+            uri: crate::resource_uri::record_uri(&self.repo_id, id),
+            label: Some(label),
+            type_namespace,
+            type_name,
+            lifecycle_state,
+            summary,
+        }
+    }
+}
+
+/// The first non-empty string field, in the Type's field order, that is not the label: the
+/// one line a card shows beside the label. `None` when the Type does not resolve.
+fn record_summary(
+    rec: &srs_core::types::record::Record,
+    package: &crate::package::Package,
+    label: &str,
+) -> Option<String> {
+    let rt = package.resolve_type(&rec.type_id, rec.type_version)?;
+    let mut fields: Vec<_> = rt.fields.iter().collect();
+    fields.sort_by_key(|f| f.order);
+    fields.iter().find_map(|fa| {
+        let name = &package.resolve_field(&fa.field_id)?.name;
+        let text = rec.value(name)?.as_str()?.trim();
+        (!text.is_empty() && text != label).then(|| truncate_summary(text))
+    })
+}
+
+/// At most [`CARD_SUMMARY_CHARS`] chars, cut on a char boundary and marked with `…`.
+fn truncate_summary(text: &str) -> String {
+    let text = text.trim();
+    if text.chars().count() <= CARD_SUMMARY_CHARS {
+        return text.to_string();
+    }
+    let cut: String = text.chars().take(CARD_SUMMARY_CHARS).collect();
+    format!("{}…", cut.trim_end())
+}
+
 /// Which edges of `instance_id` to list (srs-rust#1229). `direction: None` = both.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -336,6 +585,13 @@ pub struct NeighbourSummary {
     pub type_namespace: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub type_name: Option<String>,
+    /// Set by a context `card`/`label` projection (#1285); never by `list_neighbours`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub lifecycle_state: Option<String>,
+    /// A context `card` projection's one-line summary (#1285): the first non-label string
+    /// field, at most [`CARD_SUMMARY_CHARS`] chars. Never set by `list_neighbours`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -437,6 +693,8 @@ pub fn list_neighbours(
                     label,
                     type_namespace,
                     type_name,
+                    lifecycle_state: None,
+                    summary: None,
                 },
             }
         })
@@ -490,6 +748,13 @@ mod tests {
             provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
+        // Optional second text field: what a `card` projection shows as the summary (#1285).
+        let summary_field = Field {
+            id: "field-summary-001".to_string(),
+            name: "test-summary".to_string(),
+            description: "Summary field".to_string(),
+            ..name_field.clone()
+        };
         let test_type = RecordType {
             schema: None,
             ai_guidance: None,
@@ -499,13 +764,22 @@ mod tests {
             name: "test-type".to_string(),
             version: 1,
             description: "Test type".to_string(),
-            fields: vec![FieldAssignment {
-                field_id: "field-name-001".to_string(),
-                order: 0,
-                required: true,
-                display_label: Some("Name".to_string()),
-                description: None,
-            }],
+            fields: vec![
+                FieldAssignment {
+                    field_id: "field-name-001".to_string(),
+                    order: 0,
+                    required: true,
+                    display_label: Some("Name".to_string()),
+                    description: None,
+                },
+                FieldAssignment {
+                    field_id: "field-summary-001".to_string(),
+                    order: 1,
+                    required: false,
+                    display_label: Some("Summary".to_string()),
+                    description: None,
+                },
+            ],
             extends_type_id: None,
             extends_type_version: None,
             field_order: None,
@@ -530,7 +804,7 @@ mod tests {
             namespace: "com.test".to_string(),
             name: "test-package".to_string(),
             version: "1.0.0".to_string(),
-            fields: vec![name_field],
+            fields: vec![name_field, summary_field],
             record_types: vec![test_type],
             relation_type_definitions,
             views: vec![],
@@ -594,6 +868,13 @@ mod tests {
             provenance: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
+        // Optional second text field: what a `card` projection shows as the summary (#1285).
+        let summary_field = Field {
+            id: "field-summary-001".to_string(),
+            name: "test-summary".to_string(),
+            description: "Summary field".to_string(),
+            ..name_field.clone()
+        };
         let test_type = RecordType {
             schema: None,
             ai_guidance: None,
@@ -638,7 +919,7 @@ mod tests {
             namespace: "com.test".to_string(),
             name: "test-package".to_string(),
             version: "1.0.0".to_string(),
-            fields: vec![name_field],
+            fields: vec![name_field, summary_field],
             record_types: vec![test_type],
             relation_type_definitions: vec![],
             views: vec![],
@@ -718,6 +999,7 @@ mod tests {
                 record_id: rec.instance_id.clone(),
                 container_id: None,
                 exclude_relation_categories: vec![],
+                projection: Default::default(),
             },
         )
         .unwrap();
@@ -813,6 +1095,7 @@ mod tests {
                 record_id: src.instance_id.clone(),
                 container_id: None,
                 exclude_relation_categories: vec![],
+                projection: Default::default(),
             },
         )
         .unwrap();
@@ -839,6 +1122,208 @@ mod tests {
             matches!(&inn.neighbour, Some(ContextInstance::Record(r)) if r.instance_id == unrelated.instance_id)
         );
         assert!(result.entry.is_none() && result.subtree.is_none());
+    }
+
+    fn depends_on_defs() -> [srs_core::types::relation_type_definition::RelationTypeDefinition; 1] {
+        [
+            srs_core::types::relation_type_definition::RelationTypeDefinition {
+                schema: None,
+                id: "rtd-depends-on".to_string(),
+                version: 1,
+                key: "depends-on".to_string(),
+                namespace: "com.test".to_string(),
+                label: "depends-on".to_string(),
+                description: "Dependency relation".to_string(),
+                category: RelationTypeCategory::Dependency,
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+                canonical_direction: None,
+                inverse_type: None,
+                irreflexive: None,
+                require_same_type: None,
+                status: None,
+                updated_at: None,
+                meta: None,
+            },
+        ]
+    }
+
+    #[test]
+    fn record_context_card_and_label_projections_shrink_neighbours_only() {
+        use crate::relation_service::create_relation;
+        use srs_core::types::relation::Relation;
+        let store = make_store();
+        let defs = depends_on_defs();
+        let mut fv = make_field_values("test-name", json!("Hub"));
+        fv.insert("test-summary".to_string(), json!("hub summary"));
+        let hub = record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
+        // The summary is the first string field (Type order) that is not the label.
+        let long = "x".repeat(CARD_SUMMARY_CHARS + 50);
+        let mut fv = make_field_values("test-name", json!(long));
+        fv.insert("test-summary".to_string(), json!("second field"));
+        let spoke =
+            record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
+        let bare = record_store::create_record(
+            &store,
+            "type-test-001",
+            1,
+            make_field_values("test-name", json!("Bare")),
+            None,
+            None,
+        )
+        .unwrap();
+        for target in [&spoke.instance_id, &bare.instance_id] {
+            create_relation(
+                &store,
+                Relation {
+                    created_by: None,
+                    relation_id: String::new(),
+                    relation_type: "depends-on".to_string(),
+                    source_instance_id: hub.instance_id.clone(),
+                    target_instance_id: target.clone(),
+                    created_at: None,
+                    notes: None,
+                    source_refs: None,
+                    meta: None,
+                },
+                &defs,
+            )
+            .unwrap();
+        }
+        let ctx = |projection| {
+            get_record_context(
+                &store,
+                RecordContextQuery {
+                    record_id: hub.instance_id.clone(),
+                    container_id: None,
+                    exclude_relation_categories: vec![],
+                    projection,
+                },
+            )
+            .unwrap()
+        };
+        let card_of = |r: &RecordContextResult, id: &str| -> NeighbourSummary {
+            let rel = r
+                .relations
+                .iter()
+                .find(|e| e.relation.target_id == id)
+                .expect("edge");
+            assert!(rel.relation.source_label.is_none() && rel.relation.target_label.is_none());
+            match rel.neighbour.clone().expect("neighbour") {
+                ContextInstance::Card(c) => c,
+                other => panic!("expected a card, got {other:?}"),
+            }
+        };
+
+        // full: unchanged — whole records inline, endpoint labels present.
+        let full = ctx(ContextProjection::Full);
+        assert!(full
+            .relations
+            .iter()
+            .all(|e| matches!(e.neighbour, Some(ContextInstance::Record(_)))
+                && e.relation.target_label.is_some()));
+
+        // card: label, type and a truncated summary; the subject itself stays whole.
+        let card = ctx(ContextProjection::Card);
+        assert_eq!(card.field_values, full.field_values);
+        // The card's label is the same display label `full` reports for that endpoint.
+        let full_label = |id: &str| {
+            full.relations
+                .iter()
+                .find(|e| e.relation.target_id == id)
+                .and_then(|e| e.relation.target_label.clone())
+        };
+        let c = card_of(&card, &spoke.instance_id);
+        assert_eq!(c.label, full_label(&spoke.instance_id));
+        assert_eq!(c.type_name.as_deref(), Some("test-type"));
+        assert!(c.uri.ends_with(&spoke.instance_id));
+        let summary = c.summary.expect("summary");
+        assert_eq!(summary.chars().count(), CARD_SUMMARY_CHARS + 1);
+        assert!(summary.ends_with('…'));
+        assert_eq!(
+            card_of(&card, &bare.instance_id).summary.as_deref(),
+            Some("Bare")
+        );
+
+        // label: identity only.
+        let label = ctx(ContextProjection::Label);
+        let l = card_of(&label, &spoke.instance_id);
+        assert_eq!(l.label, full_label(&spoke.instance_id));
+        assert!(l.summary.is_none());
+
+        // Smaller on the wire, same edges.
+        let size = |r: &RecordContextResult| serde_json::to_string(r).unwrap().len();
+        assert_eq!(card.relations.len(), full.relations.len());
+        assert!(size(&label) < size(&card) && size(&card) < size(&full));
+    }
+
+    #[test]
+    fn record_context_markdown_lists_each_edge_with_label_type_and_id() {
+        use crate::relation_service::create_relation;
+        use srs_core::types::relation::Relation;
+        let store = make_store();
+        let hub = record_store::create_record(
+            &store,
+            "type-test-001",
+            1,
+            make_field_values("test-name", json!("Hub")),
+            None,
+            None,
+        )
+        .unwrap();
+        let mut fv = make_field_values("test-name", json!("Spoke"));
+        fv.insert("test-summary".to_string(), json!("line one\nline two"));
+        let spoke =
+            record_store::create_record(&store, "type-test-001", 1, fv, None, None).unwrap();
+        create_relation(
+            &store,
+            Relation {
+                created_by: None,
+                relation_id: String::new(),
+                relation_type: "depends-on".to_string(),
+                source_instance_id: spoke.instance_id.clone(),
+                target_instance_id: hub.instance_id.clone(),
+                created_at: None,
+                notes: None,
+                source_refs: None,
+                meta: None,
+            },
+            &depends_on_defs(),
+        )
+        .unwrap();
+        let q = |projection| RecordContextQuery {
+            record_id: hub.instance_id.clone(),
+            container_id: None,
+            exclude_relation_categories: vec![],
+            projection,
+        };
+        // `full` renders as `card`.
+        let md = render_record_context_markdown(&store, q(ContextProjection::Full)).unwrap();
+        assert_eq!(
+            md,
+            render_record_context_markdown(&store, q(ContextProjection::Card)).unwrap()
+        );
+        assert!(md.contains(&format!("`{}`", hub.instance_id)));
+        assert!(md.contains("## Relations (1)"));
+        assert!(md.contains("### ← depends-on"));
+        assert!(md.contains(&format!("(test-type) `{}`", spoke.instance_id)));
+        // The summary is one line under its edge.
+        assert!(md.contains("  Spoke"));
+        let label = render_record_context_markdown(&store, q(ContextProjection::Label)).unwrap();
+        assert!(label.contains(&format!("`{}`", spoke.instance_id)));
+        assert!(!label.contains("  Spoke"));
+    }
+
+    #[test]
+    fn context_projection_parses_wire_spellings() {
+        assert_eq!("card".parse(), Ok(ContextProjection::Card));
+        assert_eq!("label".parse(), Ok(ContextProjection::Label));
+        assert_eq!("full".parse(), Ok(ContextProjection::Full));
+        assert!("compact".parse::<ContextProjection>().is_err());
+        let q: RecordContextQuery =
+            serde_json::from_str(r#"{"recordId":"r","projection":"card"}"#).unwrap();
+        assert_eq!(q.projection, ContextProjection::Card);
+        let d: RecordContextQuery = serde_json::from_str(r#"{"recordId":"r"}"#).unwrap();
+        assert_eq!(d.projection, ContextProjection::Full);
     }
 
     #[test]
@@ -909,6 +1394,7 @@ mod tests {
                     record_id: a.clone(),
                     container_id: None,
                     exclude_relation_categories: ex,
+                    projection: Default::default(),
                 },
             )
             .unwrap()
@@ -982,6 +1468,7 @@ mod tests {
                 record_id: para.instance_id.clone(),
                 container_id: None,
                 exclude_relation_categories: vec![],
+                projection: Default::default(),
             },
         )
         .unwrap();
@@ -1058,6 +1545,7 @@ mod tests {
                     record_id: id.clone(),
                     container_id: Some(cid.clone()),
                     exclude_relation_categories: vec![],
+                    projection: Default::default(),
                 },
             )
             .unwrap()
@@ -1084,6 +1572,7 @@ mod tests {
                 record_id: outsider,
                 container_id: Some(cid.clone()),
                 exclude_relation_categories: vec![],
+                projection: Default::default(),
             },
         )
         .unwrap_err();
@@ -1111,6 +1600,7 @@ mod tests {
                 record_id: rec.instance_id,
                 container_id: Some("no-such-container".into()),
                 exclude_relation_categories: vec![],
+                projection: Default::default(),
             },
         );
         assert!(err.is_err());
@@ -1143,6 +1633,7 @@ mod tests {
                 record_id: rec.instance_id.clone(),
                 container_id: None,
                 exclude_relation_categories: vec![],
+                projection: Default::default(),
             },
         )
         .unwrap();

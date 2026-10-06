@@ -226,7 +226,7 @@ async fn list_resources_enumerates_containers_and_views() {
     ));
     assert!(tmpl_uris.contains(
         &format!(
-            "srs://{}/context/{{containerId}}/{{instanceId}}{{?excludeRelationCategories}}",
+            "srs://{}/context/{{containerId}}/{{instanceId}}{{?excludeRelationCategories,projection,format}}",
             fx.repo_id
         )
         .as_str()
@@ -340,6 +340,7 @@ async fn read_context_exclude_categories_matches_service_and_rejects_unknown() {
             record_id: fx.identity_id.clone(),
             container_id: None,
             exclude_relation_categories: vec![Composition, Sequence],
+            projection: Default::default(),
         },
     )
     .unwrap();
@@ -348,6 +349,55 @@ async fn read_context_exclude_categories_matches_service_and_rejects_unknown() {
     let err = client
         .read_resource(ReadResourceRequestParams::new(format!(
             "srs://{}/context/{}?excludeRelationCategories=nope",
+            fx.repo_id, fx.identity_id
+        )))
+        .await;
+    assert!(err.is_err());
+
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn read_context_projection_and_markdown_match_service() {
+    use srs_repository::context_query_service::{
+        get_record_context, render_record_context_markdown, ContextProjection, RecordContextQuery,
+    };
+    let fx = make_fixture();
+    let client = connect(&fx).await;
+    let q = |projection| RecordContextQuery {
+        record_id: fx.identity_id.clone(),
+        container_id: None,
+        exclude_relation_categories: vec![],
+        projection,
+    };
+
+    let (mime, text) = read_text(
+        &client,
+        format!(
+            "srs://{}/context/{}?projection=card",
+            fx.repo_id, fx.identity_id
+        ),
+    )
+    .await;
+    assert_eq!(mime.as_deref(), Some("application/json"));
+    let expected = get_record_context(&store_for(&fx), q(ContextProjection::Card)).unwrap();
+    assert_eq!(text, serde_json::to_string_pretty(&expected).unwrap());
+
+    let (mime, md) = read_text(
+        &client,
+        format!(
+            "srs://{}/context/{}?format=markdown",
+            fx.repo_id, fx.identity_id
+        ),
+    )
+    .await;
+    assert_eq!(mime.as_deref(), Some("text/markdown"));
+    let expected = render_record_context_markdown(&store_for(&fx), q(ContextProjection::Full));
+    assert_eq!(md, expected.unwrap());
+
+    let err = client
+        .read_resource(ReadResourceRequestParams::new(format!(
+            "srs://{}/context/{}?projection=compact",
             fx.repo_id, fx.identity_id
         )))
         .await;

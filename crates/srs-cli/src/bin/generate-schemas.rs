@@ -263,6 +263,7 @@ fn main() {
     // Context query payloads (ext:addressability)
     write_schema!("context-field", ContextFieldPayload);
     write_schema!("context-record", ContextRecordPayload);
+    write_schema!("context-record-markdown", ContextRecordMarkdownPayload);
 
     // Archive payloads (ADR-033, ADR-036)
     write_schema!("archive-pack", ArchivePackPayload);

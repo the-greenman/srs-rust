@@ -819,6 +819,7 @@ mod write_guard {
                 record_id: a.clone(),
                 container_id: None,
                 exclude_relation_categories: vec![],
+                projection: Default::default(),
             },
         )
         .unwrap();

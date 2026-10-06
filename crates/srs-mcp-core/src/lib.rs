@@ -99,7 +99,9 @@ pub mod srs_resources {
     use srs_repository::container_view_service::{
         resolve_container_view, ResolveContainerViewInput,
     };
-    use srs_repository::context_query_service::{get_record_context, RecordContextQuery};
+    use srs_repository::context_query_service::{
+        get_record_context, render_record_context_markdown, RecordContextQuery,
+    };
     use srs_repository::error::RepositoryError;
     use srs_repository::package_service::{
         list_relation_types_filtered, list_types_filtered, RelationTypeListFilter, TypeListFilter,
@@ -266,22 +268,34 @@ pub mod srs_resources {
                 container_id,
                 instance_id,
                 exclude_relation_categories,
-            } => json_contents(
-                &get_record_context(
-                    store,
-                    RecordContextQuery {
-                        record_id: instance_id,
-                        container_id,
-                        exclude_relation_categories: exclude_relation_categories
-                            .iter()
-                            .map(|c| c.parse())
-                            .collect::<Result<_, String>>()
-                            .map_err(McpApplicationError::invalid_params)?,
-                    },
-                )
-                .map_err(service_err)?,
-                raw_uri,
-            ),
+                projection,
+                markdown,
+            } => {
+                let query = RecordContextQuery {
+                    record_id: instance_id,
+                    container_id,
+                    exclude_relation_categories: exclude_relation_categories
+                        .iter()
+                        .map(|c| c.parse())
+                        .collect::<Result<_, String>>()
+                        .map_err(McpApplicationError::invalid_params)?,
+                    projection: projection
+                        .as_deref()
+                        .map(str::parse)
+                        .transpose()
+                        .map_err(McpApplicationError::invalid_params)?
+                        .unwrap_or_default(),
+                };
+                if markdown {
+                    let text = render_record_context_markdown(store, query).map_err(service_err)?;
+                    Ok(contents(raw_uri, MIME_MARKDOWN, text))
+                } else {
+                    json_contents(
+                        &get_record_context(store, query).map_err(service_err)?,
+                        raw_uri,
+                    )
+                }
+            }
             // `Ok(None)` is not a service error, so the not-found text is adapter-authored.
             // Any tier: a Tier-0 note is a legal record target (#1227).
             uri::SrsUri::Record(id) => match get_instance_by_id(store, &id).map_err(service_err)? {
