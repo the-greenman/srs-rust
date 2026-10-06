@@ -80,11 +80,11 @@ The context template becomes `context/{containerId}/{instanceId}{?excludeRelatio
 - `NeighbourSummary` is the existing `neighbours` shape, gaining two optional fields that `relation neighbours` never sets. One shape, not a second.
 
 **`?format=markdown`** returns `text/markdown` from `context_query_service::render_record_context_markdown`:
-- The record's fields come first.
+- The record's fields come first, as `render_service`'s baseline rows (`render_record_rows`: the same order, labels, value rendering and row primitive as a composition's baseline path, so there is no second field renderer).
 - Then one line per edge, grouped by relation type and direction: label, type, lifecycle state, instance id, and the card summary beneath.
 - The projection is forced to `card` unless it is `label`.
 - The same renderer backs the CLI `srs context record --markdown` (payload `ContextRecordMarkdownPayload {recordId, rendered}`, golden `context-record-markdown.json`) and the WASM `context_record_markdown`.
-- `format` accepts only `json|markdown`. Any other value, or an unknown projection, is a URI error.
+- `format` accepts only `json|markdown`; `json` is the default form and formats back without the key. Any other value, an unknown projection, or a duplicated key is a URI error, as on tree URIs.
 
 Measured on srs-context's `srs-repository` component (25 edges): full read ~9.1k tokens via the CLI (~12.5k via MCP), `card` JSON ~4.6k, `label` JSON ~3.6k, card markdown ~1.8k (~0.35k of it the record's own fields), label markdown ~0.9k. No spec change: these are read-time projections of an implementation resource, not a spec construct.
 

@@ -382,7 +382,7 @@ pub mod srs_resources {
                 "uriTemplate": uri::context_template(repository_id),
                 "name": "context",
                 "title": "Record context in a container",
-                "description": "Everything about one record in one read: field values, every relation in both directions with the other endpoint inline (comments, notes, sources), and its arrangement subtree in the container. Drop the containerId segment (srs://<repositoryId>/context/{instanceId}) for the record and its relations only. Append ?excludeRelationCategories=composition,sequence to drop edges by relation-type category (e.g. structural contains/precedes).",
+                "description": "Everything about one record in one read: field values, every relation in both directions with the other endpoint inline (comments, notes, sources), and its arrangement subtree in the container. Drop the containerId segment (srs://<repositoryId>/context/{instanceId}) for the record and its relations only. Append ?excludeRelationCategories=composition,sequence to drop edges by relation-type category (e.g. structural contains/precedes). ?projection=card inlines each neighbour as a compact card (id, label, type, lifecycle state, one summary line) instead of the whole record; ?projection=label drops the summary. ?format=markdown returns the same context as compact text/markdown (fields, then one line per edge with label, type and instance id), the cheapest way to read a well-connected record.",
                 "mimeType": MIME_JSON
             },
             {

@@ -166,17 +166,25 @@ pub fn parse(uri: &str, repository_id: &str) -> Result<SrsUri, UriError> {
         let (ids, query) = ids.split_once('?').unwrap_or((ids, ""));
         let mut exclude_relation_categories = vec![];
         let mut projection = None;
-        let mut markdown = false;
+        let mut format = None;
+        let mut seen = std::collections::HashSet::new();
         for pair in query.split('&').filter(|p| !p.is_empty()) {
+            // A duplicated key is an error, as on tree URIs (#1229), never last-wins.
+            if let Some((key, _)) = pair.split_once('=') {
+                if !seen.insert(key) {
+                    return Err(UriError(format!("duplicate query key '{key}' in '{uri}'")));
+                }
+            }
             match pair.split_once('=') {
                 Some(("excludeRelationCategories", v)) => exclude_relation_categories
                     .extend(v.split(',').filter(|c| !c.is_empty()).map(str::to_string)),
                 Some(("projection", v)) if !v.is_empty() => projection = Some(v.to_string()),
-                Some(("format", "markdown")) => markdown = true,
-                Some(("format", "json")) => markdown = false,
+                // `json` is the default form; `format` only round-trips `markdown`.
+                Some(("format", v @ ("markdown" | "json"))) => format = Some(v),
                 _ => return Err(UriError(format!("unsupported query in '{uri}'"))),
             }
         }
+        let markdown = format == Some("markdown");
         return match ids.split('/').collect::<Vec<_>>().as_slice() {
             [iid] if !iid.is_empty() => Ok(SrsUri::Context {
                 container_id: None,
@@ -352,6 +360,19 @@ mod tests {
         assert!(matches!(parsed, SrsUri::Context { markdown: true, .. }));
         assert_eq!(format(&parsed, REPO), md);
         assert!(parse(&format!("srs://{REPO}/context/i?format=html"), REPO).is_err());
+        // `format=json` is the default form: accepted, and formats back without the key.
+        let json = parse(&format!("srs://{REPO}/context/i?format=json"), REPO).unwrap();
+        assert_eq!(format(&json, REPO), format!("srs://{REPO}/context/i"));
+        // Duplicated keys are rejected, never last-wins.
+        for dup in [
+            "projection=card&projection=label",
+            "format=json&format=markdown",
+        ] {
+            assert!(
+                parse(&format!("srs://{REPO}/context/i?{dup}"), REPO).is_err(),
+                "{dup}"
+            );
+        }
         assert!(parse(&format!("srs://{REPO}/context/i?projection="), REPO).is_err());
         assert!(parse(&format!("srs://{REPO}/context/i?bogus=1"), REPO).is_err());
         assert!(parse(
