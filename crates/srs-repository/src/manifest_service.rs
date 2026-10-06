@@ -12,6 +12,8 @@ const EXT_LIFECYCLE: &str = "ext:lifecycle";
 const EXT_RELATIONS: &str = "ext:relations";
 const EXT_REPOSITORY: &str = "ext:repository";
 const EXT_TYPE_INHERITANCE: &str = "ext:type-inheritance";
+const EXT_VIEWS_L1: &str = "ext:views-l1";
+const EXT_VIEWS_L2: &str = "ext:views-l2";
 
 /// Extension IDs actively implemented by this version of the SRS engine.
 /// This is the single authoritative list — do not add `ext:` literals elsewhere.
@@ -19,6 +21,13 @@ const EXT_TYPE_INHERITANCE: &str = "ext:type-inheritance";
 /// `ext:federation` removed per srs decision 4f1e12e5 + owner disposition
 /// srs-rust#878 (2026-09-01); return is committed — see the spec roadmap's
 /// federation entry.
+///
+/// `ext:views-l1`/`ext:views-l2` added per srs-rust#1273: View/Composition CRUD
+/// and rendering (`srs render document-view`) were implemented without updating
+/// this constant, so a repository correctly declaring them was reported
+/// nonconformant. `ext:themes-l1`, `ext:protocol` and `ext:blueprint` need the
+/// same per-extension implemented-or-not check (srs-rust#1273 notes) but are
+/// out of scope here until each is verified.
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     EXT_ADDRESSABILITY,
     EXT_DISCOVERY,
@@ -26,6 +35,8 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     EXT_RELATIONS,
     EXT_REPOSITORY,
     EXT_TYPE_INHERITANCE,
+    EXT_VIEWS_L1,
+    EXT_VIEWS_L2,
 ];
 
 /// Conformance report: declared vs supported vs content-detected extension usage.
@@ -98,6 +109,8 @@ fn detect_used_extensions(store: &dyn RepositoryStore) -> Result<Vec<String>, Re
 
     // ext:type-inheritance — any package type declares an extends base type
     // ext:field-groups is retired (RFC-039 [R15]) — no detection.
+    // ext:views-l1 — any View is defined
+    // ext:views-l2 — any Composition is defined
     match store.load_package() {
         Ok(package) => {
             let mut has_inheritance = false;
@@ -108,6 +121,12 @@ fn detect_used_extensions(store: &dyn RepositoryStore) -> Result<Vec<String>, Re
             }
             if has_inheritance {
                 used.push(EXT_TYPE_INHERITANCE.to_string());
+            }
+            if !package.views.is_empty() {
+                used.push(EXT_VIEWS_L1.to_string());
+            }
+            if !package.compositions.is_empty() {
+                used.push(EXT_VIEWS_L2.to_string());
             }
         }
         Err(RepositoryError::Io { .. } | RepositoryError::PackageLoad { .. }) => {}
@@ -1307,6 +1326,189 @@ mod tests {
         assert!(
             report.declared_but_unsupported.is_empty(),
             "ext:lifecycle is supported; should not appear in declared_but_unsupported"
+        );
+    }
+
+    #[test]
+    fn conformance_views_and_compositions_extensions_not_flagged_unsupported() {
+        // Regression for srs-rust#1273: the binary implements View/Composition
+        // CRUD and rendering, so declaring ext:views-l1/ext:views-l2 must be
+        // conformant, not reported as declaredButUnsupported.
+        let store = MemoryStore::default();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.extra.insert(
+            "declaredExtensions".to_string(),
+            json!(["ext:views-l1", "ext:views-l2"]),
+        );
+        store.save_manifest(&manifest).unwrap();
+
+        let report = declared_extensions_conformance(&store).unwrap();
+        assert!(
+            report.supported.contains(&"ext:views-l1".to_string()),
+            "ext:views-l1 should be in supported: {:?}",
+            report.supported
+        );
+        assert!(
+            report.supported.contains(&"ext:views-l2".to_string()),
+            "ext:views-l2 should be in supported: {:?}",
+            report.supported
+        );
+        assert!(
+            report.declared_but_unsupported.is_empty(),
+            "ext:views-l1/ext:views-l2 are supported; should not appear in declared_but_unsupported: {:?}",
+            report.declared_but_unsupported
+        );
+    }
+
+    #[test]
+    fn conformance_view_defined_detected_as_used() {
+        use crate::manifest::Manifest;
+        use crate::store::memory::MemoryStore;
+        use srs_core::types::view::View;
+        use std::path::PathBuf;
+
+        let manifest = Manifest {
+            container: None,
+            upstream_package: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: PathBuf::from("/memory"),
+        };
+        let view = View {
+            schema: None,
+            id: "11111111-0000-4000-8000-000000000001".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test_view".to_string(),
+            version: 1,
+            description: "test view".to_string(),
+            field_views: vec![],
+            compatible_types: None,
+            protection: None,
+            export_config: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+        };
+        let store = MemoryStore::new(
+            manifest,
+            crate::package::Package {
+                id: "test-pkg".to_string(),
+                namespace: "com.test".to_string(),
+                name: "test".to_string(),
+                version: "1.0.0".to_string(),
+                fields: vec![],
+                record_types: vec![],
+                relation_type_definitions: vec![],
+                views: vec![view],
+                compositions: vec![],
+                themes: vec![],
+                blueprints: vec![],
+                protocols: vec![],
+                root: PathBuf::from("/memory"),
+                package_dependencies: vec![],
+                vocabularies: vec![],
+                lifecycles: vec![],
+            },
+        );
+
+        let report = declared_extensions_conformance(&store).unwrap();
+        assert!(
+            report
+                .used_but_undeclared
+                .contains(&"ext:views-l1".to_string()),
+            "ext:views-l1 should be detected as used: {:?}",
+            report.used_but_undeclared
+        );
+    }
+
+    #[test]
+    fn conformance_composition_defined_detected_as_used() {
+        use crate::manifest::Manifest;
+        use crate::store::memory::MemoryStore;
+        use srs_core::types::view::{Composition, DocumentSection, SectionSource};
+        use std::path::PathBuf;
+
+        let manifest = Manifest {
+            container: None,
+            upstream_package: None,
+            extra: std::collections::BTreeMap::new(),
+            source_documents_path: None,
+            root: PathBuf::from("/memory"),
+        };
+        let composition = Composition {
+            schema: None,
+            ai_guidance: None,
+            lineage: None,
+            provenance: None,
+            updated_at: None,
+            composite_renderers: None,
+            id: "22222222-0000-4000-8000-000000000002".to_string(),
+            namespace: "com.test".to_string(),
+            name: "test_composition".to_string(),
+            version: 1,
+            description: "test composition".to_string(),
+            container_type: None,
+            root_type_refs: None,
+            sections: vec![DocumentSection {
+                composite_renderers: None,
+                section_id: "s1".to_string(),
+                title: None,
+                description: None,
+                order: 0,
+                source: SectionSource::ContainerSubset {
+                    container_id: Some("00000000-0000-4000-8000-000000000c01".to_string()),
+                    container_type: None,
+                    type_filter: None,
+                    container_scope: None,
+                },
+                render_view_id: None,
+                type_dispatch: None,
+                title_field_id: None,
+                ordering: None,
+                required: None,
+                empty_behavior: None,
+                relations_presentation: None,
+            }],
+            navigation_links: None,
+            export_config: None,
+            depth_offset: None,
+            theme_ref: None,
+            theme_variants: None,
+            tags: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let store = MemoryStore::new(
+            manifest,
+            crate::package::Package {
+                id: "test-pkg".to_string(),
+                namespace: "com.test".to_string(),
+                name: "test".to_string(),
+                version: "1.0.0".to_string(),
+                fields: vec![],
+                record_types: vec![],
+                relation_type_definitions: vec![],
+                views: vec![],
+                compositions: vec![composition],
+                themes: vec![],
+                blueprints: vec![],
+                protocols: vec![],
+                root: PathBuf::from("/memory"),
+                package_dependencies: vec![],
+                vocabularies: vec![],
+                lifecycles: vec![],
+            },
+        );
+
+        let report = declared_extensions_conformance(&store).unwrap();
+        assert!(
+            report
+                .used_but_undeclared
+                .contains(&"ext:views-l2".to_string()),
+            "ext:views-l2 should be detected as used: {:?}",
+            report.used_but_undeclared
         );
     }
 
