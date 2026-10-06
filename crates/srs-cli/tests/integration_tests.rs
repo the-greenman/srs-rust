@@ -2020,6 +2020,80 @@ fn repo_validate_tier_schema_mismatch_returns_ok_false() {
     );
 }
 
+/// Regression test for srs-rust#1283: `repo validate` on an invalid repository
+/// must still return `payload.diagnostics` (structured objects) and
+/// `payload.summary`, not drop them in favor of a flat string-only
+/// top-level `diagnostics` array.
+#[test]
+fn repo_validate_invalid_repo_still_returns_structured_payload() {
+    let temp = TempDir::new().unwrap();
+    let instance_id = "00000000-0000-4000-8000-000000000004";
+
+    let manifest = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/manifest.json",
+        "srsVersion": "2.0",
+        "dataModelRevision": 2,
+        "repositoryId": "00000000-0000-4000-8000-000000000099",
+        "title": "Test Repo",
+        "container": {
+            "containerId": "00000000-0000-4000-8000-000000000099",
+            "title": "Test Repo"
+        },
+        "createdAt": "2026-01-01T00:00:00Z"
+    });
+
+    // A record whose typeId resolves to nothing — the dangling-type-reference
+    // repro from the issue (exact diagnostic code depends on whether a core
+    // package is installed; what matters here is that it is a structured
+    // `error`-severity diagnostic on the record file).
+    let record = serde_json::json!({
+        "$schema": "https://srs.semanticops.com/schema/2.0/record.json",
+        "instanceId": instance_id,
+        "typeId": "00000000-0000-4000-8000-000000000000",
+        "typeVersion": 1,
+        "typeNamespace": "com.example.t",
+        "typeName": "nonexistent",
+        "fieldValues": {}
+    });
+
+    let records_dir = temp.path().join("records/tier-2");
+    std::fs::create_dir_all(&records_dir).unwrap();
+    std::fs::write(
+        temp.path().join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    write_json(&records_dir.join("bad.json"), record);
+
+    let repo_str = temp.path().to_str().unwrap().to_string();
+    let result = run_srs_in_dir(temp.path(), &["repo", "validate", "--repo", &repo_str]);
+
+    assert_eq!(result["ok"], false, "expected ok false: {:?}", result);
+
+    // The structured payload must survive the error branch.
+    let payload_diags = result["payload"]["diagnostics"]
+        .as_array()
+        .expect("payload.diagnostics should be present on ok:false, got: {result:?}");
+    assert!(
+        payload_diags.iter().any(|d| {
+            d["severity"] == "error"
+                && d["path"] == "records/tier-2/bad.json"
+                && d["message"].is_string()
+        }),
+        "expected a structured error diagnostic on the bad record: {:?}",
+        payload_diags
+    );
+    assert!(
+        result["payload"]["summary"]["errors"].as_u64().unwrap() >= 1,
+        "expected payload.summary.errors >= 1: {:?}",
+        result
+    );
+
+    // The legacy top-level `diagnostics` (flat strings) stays for backward compat.
+    let top_diags = result["diagnostics"].as_array().unwrap();
+    assert!(top_diags.iter().all(|d| d.is_string()));
+}
+
 #[test]
 fn repeatable_fields_fixture_validates_ok() {
     let temp =
