@@ -350,8 +350,8 @@ impl SrsRepository {
     /// `limit` (default: all matches) and `offset` (default 0) page the hits after the
     /// deterministic sort; `total` is the full match count. `rank` (default false) orders
     /// content-match hits by BM25 relevance and fills `score`. `match_mode` is `"all"`
-    /// (default: every content word must occur) or `"any"` (at least one word of 3+ characters,
-    /// for natural-language queries; pair with `rank`) — srs-rust#1284.
+    /// (default: every content word must occur) or `"any"` (any significant word, as a whole
+    /// token, for natural-language queries; always ranked) — srs-rust#1284.
     /// Returns a `DiscoveryResult` as a JS value.
     pub fn find(
         &self,
@@ -365,8 +365,7 @@ impl SrsRepository {
             serde_json::from_str(query_json).map_err(|e| js_err(format!("invalid query: {e}")))?;
         let match_mode: MatchMode = match match_mode {
             None => MatchMode::default(),
-            Some(m) => serde_json::from_value(serde_json::Value::String(m))
-                .map_err(|e| js_err(format!("invalid match mode: {e}")))?,
+            Some(m) => m.parse().map_err(js_err)?,
         };
         let page = FindPage {
             limit,

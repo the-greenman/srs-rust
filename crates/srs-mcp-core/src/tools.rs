@@ -161,8 +161,9 @@ optional and AND-combined: typeId, typeNamespace, typeName, containerId, tag (re
 instance must carry ALL), lifecycleState, excludeLifecycleStates, tier, and contentMatch \
 (recall floor: matches records containing every whitespace-separated word, in any field and any \
 order, not just the title; a phrase match is always included). match: \"any\" instead matches records \
-containing at least one word of 3+ characters, so a question typed as a sentence still finds what it \
-is about; keep rank on with it (BM25 puts records matching the most and rarest words first). Hits are ranked by BM25 \
+containing any significant query word as a whole word (words found in most records, like \"the\" or \
+\"what\", are ignored), so a question typed as a sentence still finds what it is about; any-mode is \
+always ranked (BM25 puts records matching the most and rarest words first). Hits are ranked by BM25 \
 relevance (score) unless rank is false, which orders by instanceId. Types are written \
 'namespace/name'. Returns hits with instanceId, label, type, lifecycleState, snippet, and \
 matchedFields. Also returns facets: counts over the WHOLE match set, before limit/offset \
@@ -366,7 +367,7 @@ pub struct FindToolInput {
     /// Defaults to true; the set of hits is the same either way.
     pub rank: Option<bool>,
     /// How contentMatch words combine: "all" (default) — every word must occur;
-    /// "any" — at least one word of 3+ characters (for natural-language queries; keep rank on).
+    /// "any" — any significant word, as a whole word (for natural-language queries; always ranked).
     #[serde(rename = "match")]
     pub match_mode: Option<MatchMode>,
 }

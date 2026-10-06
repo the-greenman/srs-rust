@@ -36,6 +36,10 @@ pub trait DiscoveryIndex: Debug {
     /// The `limit` terms most characteristic of instance `id`, best first (srs-rust#1230,
     /// "more like this"); `None` if the index does not know `id`. Same determinism contract.
     fn top_terms(&self, id: &str, limit: usize) -> Option<Vec<String>>;
+
+    /// Share of indexed instances (0.0–1.0) containing `term` as a whole token
+    /// ([`tokens`]); 0.0 for an unknown term or an empty index (srs-rust#1284).
+    fn token_document_fraction(&self, term: &str) -> f64;
 }
 
 const K1: f64 = 1.2;
@@ -70,9 +74,11 @@ pub struct Bm25Index {
 }
 
 /// Shortest token that can be a similarity term (drops "of", "a", "the"-sized noise).
-const MIN_TERM_CHARS: usize = 3;
+pub(crate) const MIN_TERM_CHARS: usize = 3;
 
-fn tokens(text: &str) -> impl Iterator<Item = &str> {
+/// The index's tokens of already-normalized `text`: alphanumeric runs of at least
+/// [`MIN_TERM_CHARS`] chars. Shared with any-term matching (srs-rust#1284).
+pub(crate) fn tokens(text: &str) -> impl Iterator<Item = &str> {
     text.split(|c: char| !c.is_alphanumeric())
         .filter(|t| t.chars().count() >= MIN_TERM_CHARS)
 }
@@ -177,6 +183,13 @@ impl DiscoveryIndex for Bm25Index {
                 ((raw * 1e4).round() / 1e4) as f32
             })
             .collect()
+    }
+
+    fn token_document_fraction(&self, term: &str) -> f64 {
+        if self.docs.is_empty() {
+            return 0.0;
+        }
+        self.token_df.get(term).copied().unwrap_or(0) as f64 / self.docs.len() as f64
     }
 
     fn top_terms(&self, id: &str, limit: usize) -> Option<Vec<String>> {
