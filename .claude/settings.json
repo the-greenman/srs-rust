@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x \"$CLAUDE_PROJECT_DIR/../srs-context/hooks/session-start.sh\" ] && \"$CLAUDE_PROJECT_DIR/../srs-context/hooks/session-start.sh\" || true"
+          }
+        ]
+      }
+    ]
+  }
+}
