@@ -12,6 +12,8 @@ const EXT_LIFECYCLE: &str = "ext:lifecycle";
 const EXT_RELATIONS: &str = "ext:relations";
 const EXT_REPOSITORY: &str = "ext:repository";
 const EXT_TYPE_INHERITANCE: &str = "ext:type-inheritance";
+const EXT_VIEWS_L1: &str = "ext:views-l1";
+const EXT_VIEWS_L2: &str = "ext:views-l2";
 
 /// Extension IDs actively implemented by this version of the SRS engine.
 /// This is the single authoritative list — do not add `ext:` literals elsewhere.
@@ -19,6 +21,14 @@ const EXT_TYPE_INHERITANCE: &str = "ext:type-inheritance";
 /// `ext:federation` removed per srs decision 4f1e12e5 + owner disposition
 /// srs-rust#878 (2026-09-01); return is committed — see the spec roadmap's
 /// federation entry.
+///
+/// `ext:views-l1`/`ext:views-l2` added per srs-rust#1273: RFC-036's composite
+/// rendering dispatch (`FieldView.compositeRenderer`) and RFC-043's
+/// Composition/Container document assembly are both implemented in
+/// `render_service.rs` and `view_service.rs` — the constant had never been
+/// extended to match. `ext:themes-l1`, `ext:protocol` and `ext:blueprint`
+/// need the same per-extension check before they are added; left out here
+/// pending that audit.
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     EXT_ADDRESSABILITY,
     EXT_DISCOVERY,
@@ -26,6 +36,8 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     EXT_RELATIONS,
     EXT_REPOSITORY,
     EXT_TYPE_INHERITANCE,
+    EXT_VIEWS_L1,
+    EXT_VIEWS_L2,
 ];
 
 /// Conformance report: declared vs supported vs content-detected extension usage.
@@ -1307,6 +1319,35 @@ mod tests {
         assert!(
             report.declared_but_unsupported.is_empty(),
             "ext:lifecycle is supported; should not appear in declared_but_unsupported"
+        );
+    }
+
+    #[test]
+    fn conformance_views_extensions_are_supported_not_flagged() {
+        // Regression for srs-rust#1273: ext:views-l1/ext:views-l2 are implemented
+        // (composite rendering dispatch + Composition/Container document assembly)
+        // but SUPPORTED_EXTENSIONS had never been extended to include them.
+        let store = MemoryStore::default();
+        let mut manifest = store.load_manifest().unwrap();
+        manifest.extra.insert(
+            "declaredExtensions".to_string(),
+            json!(["ext:views-l1", "ext:views-l2"]),
+        );
+        store.save_manifest(&manifest).unwrap();
+
+        let report = declared_extensions_conformance(&store).unwrap();
+        assert!(
+            report.supported.contains(&"ext:views-l1".to_string()),
+            "ext:views-l1 must be in supported"
+        );
+        assert!(
+            report.supported.contains(&"ext:views-l2".to_string()),
+            "ext:views-l2 must be in supported"
+        );
+        assert!(
+            report.declared_but_unsupported.is_empty(),
+            "ext:views-l1/ext:views-l2 are implemented; must not be declaredButUnsupported, got {:?}",
+            report.declared_but_unsupported
         );
     }
 
