@@ -39,15 +39,16 @@
       "description": "Mirrors `discovery_service::DiscoveryHit`.",
       "type": "object",
       "required": [
-        "containerIds",
         "instanceId",
         "label",
-        "matchedFields",
         "uri"
       ],
       "properties": {
         "containerIds": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "string"
           }
@@ -65,7 +66,10 @@
           ]
         },
         "matchedFields": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "string"
           }
@@ -111,7 +115,6 @@
       "type": "object",
       "required": [
         "diagnostics",
-        "facets",
         "hits",
         "total"
       ],
@@ -123,7 +126,14 @@
           }
         },
         "facets": {
-          "$ref": "#/definitions/DiscoveryFacetsPayload"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DiscoveryFacetsPayload"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "hits": {
           "type": "array",
