@@ -240,7 +240,8 @@ pub struct DiscoveryHit {
 
 /// Result shaping for [`find`] (srs-rust#1217). Deliberately not part of
 /// [`DiscoveryQuery`], which mirrors the spec schema: paging selects which of the
-/// matches are returned, never which instances match.
+/// matches are returned; only [`FindPage::match_mode`] widens which instances match,
+/// and always to a superset of the RFC-012 recall floor (I-114).
 /// `limit: None` means every match; any default cap is the adapter's choice.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FindPage {
@@ -250,9 +251,105 @@ pub struct FindPage {
     /// instead of by `instanceId`. Never changes which instances match. Off by
     /// default; the MCP `find` tool turns it on. Ignored without a `contentMatch`.
     pub rank: bool,
+    /// How the words of a `contentMatch` combine (srs-rust#1284). Ignored without one.
+    pub match_mode: MatchMode,
     /// Cap on `facets.byType` values (the rest are summed into `other`). `None` = the
     /// default [`FACET_TOP_N`]; `Some(0)` = every type. Never affects hits or `total`.
     pub by_type_limit: Option<usize>,
+}
+
+/// How the words of a `contentMatch` combine. Both modes return a superset of the
+/// contiguous-phrase recall floor (RFC-012 I-114 permits extra recall; I-117 keeps the
+/// structured predicates conjunctive either way), so the choice is retrieval policy,
+/// not a spec predicate — which is why it lives on [`FindPage`], not [`DiscoveryQuery`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "mcp-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum MatchMode {
+    /// Every word must occur, in any field and any order (srs-rust#1218).
+    #[default]
+    All,
+    /// For questions typed as sentences: an instance matches when it contains at least one
+    /// *significant* query word as a whole token, or every query word (the all-words set,
+    /// so the phrase recall floor holds). A significant word has at least
+    /// [`MIN_SIGNIFICANT_CHARS`] chars and occurs as a token in at most
+    /// [`MAX_COMMON_FRACTION`] of instances, so "the", "what", "how" never match on their
+    /// own, in any language, without a stopword list. Always ranked (BM25 over the
+    /// significant words): the set is wide by design. A query with no significant word
+    /// behaves as [`MatchMode::All`].
+    Any,
+}
+
+impl std::str::FromStr for MatchMode {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "all" => Ok(MatchMode::All),
+            "any" => Ok(MatchMode::Any),
+            other => Err(format!("invalid match mode '{other}' (expected all|any)")),
+        }
+    }
+}
+
+/// Shortest word that counts in [`MatchMode::Any`]: shorter words ("a", "in", "of") are
+/// noise. The BM25 index's own term threshold, so the two agree on what a term is.
+pub const MIN_SIGNIFICANT_CHARS: usize = crate::discovery_index::MIN_TERM_CHARS;
+
+/// A word occurring as a token in more than this share of instances is too common to
+/// select anything in [`MatchMode::Any`] (corpus-derived, so language-neutral).
+pub const MAX_COMMON_FRACTION: f64 = 0.5;
+
+/// The content predicate of one query, built by [`content_needle`].
+struct ContentNeedle {
+    /// Every normalized query word: the all-words (substring) match.
+    words: Vec<String>,
+    /// [`MatchMode::Any`]: the significant words, matched as whole tokens. `None` = all-words.
+    any: Option<Vec<String>>,
+}
+
+impl ContentNeedle {
+    /// The words BM25 ranks by: the significant ones in any-mode, all of them otherwise.
+    fn rank_words(&self) -> &[String] {
+        self.any.as_deref().unwrap_or(&self.words)
+    }
+}
+
+fn content_needle(
+    store: &dyn RepositoryStore,
+    field_text_index: &FieldTextIndex,
+    content_match: Option<&str>,
+    mode: MatchMode,
+) -> Result<Option<ContentNeedle>, RepositoryError> {
+    let words: Vec<String> = content_match
+        .map(|q| {
+            text_projection::normalize(q)
+                .split_whitespace()
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if words.is_empty() {
+        return Ok(None);
+    }
+    let mut any = None;
+    if mode == MatchMode::Any {
+        let index = discovery_index(store, field_text_index)?;
+        let mut significant: Vec<String> = Vec::new();
+        for w in &words {
+            // The index's own tokenisation, so a word like "co-op" yields its parts.
+            for t in crate::discovery_index::tokens(w) {
+                if index.token_document_fraction(t) <= MAX_COMMON_FRACTION
+                    && !significant.iter().any(|s| s == t)
+                {
+                    significant.push(t.to_string());
+                }
+            }
+        }
+        if !significant.is_empty() {
+            any = Some(significant);
+        }
+    }
+    Ok(Some(ContentNeedle { words, any }))
 }
 
 /// Characters of text around the first match kept in a hit snippet.
@@ -308,19 +405,18 @@ pub fn find(
     // that Tier-2 hit-label resolution needs, so we avoid a second `list_fields` scan.
     let field_text_index = text_projection::build_field_text_index(store)?;
 
-    // All-words match (srs-rust#1218): a superset of the phrase match, so the
-    // RFC-012 recall floor holds.
-    let words: Vec<String> = query
-        .content_match
-        .as_deref()
-        .map(|q| {
-            text_projection::normalize(q)
-                .split_whitespace()
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    let needle = (!words.is_empty()).then_some(words.as_slice());
+    // All-words (srs-rust#1218) or any-significant-word (srs-rust#1284) match: both a
+    // superset of the phrase match, so the RFC-012 recall floor holds.
+    let content = content_needle(
+        store,
+        &field_text_index,
+        query.content_match.as_deref(),
+        page.match_mode,
+    )?;
+    let needle = content.as_ref().map(|c| Needle {
+        words: &c.words,
+        any: c.any.as_deref(),
+    });
 
     let mut candidates = collect_candidates(store, &query, &field_text_index, needle)?;
 
@@ -330,8 +426,11 @@ pub fn find(
     // Facets count the Layer-1 match set: independent of ranking and paging.
     let facets = build_facets(&candidates, page.by_type_limit.unwrap_or(FACET_TOP_N));
     let mut hits: Vec<DiscoveryHit> = candidates.into_iter().map(|c| c.hit).collect();
-    if page.rank && !words.is_empty() {
-        rank_hits(store, &field_text_index, &words, &mut hits)?;
+    if let Some(c) = &content {
+        // Any-mode is always ranked: its match set is wide by design (srs-rust#1284).
+        if page.rank || c.any.is_some() {
+            rank_hits(store, &field_text_index, c.rank_words(), &mut hits)?;
+        }
     }
 
     finish_page(store, hits, facets, page, diagnostics)
@@ -473,7 +572,7 @@ fn collect_candidates(
     store: &dyn RepositoryStore,
     query: &DiscoveryQuery,
     field_text_index: &FieldTextIndex,
-    needle: Option<&[String]>,
+    needle: Option<Needle>,
 ) -> Result<Vec<Candidate>, RepositoryError> {
     let mut hits = Vec::new();
 
@@ -579,17 +678,45 @@ pub(crate) fn record_matches_structured_predicates(
     true
 }
 
+/// The content predicate of one query, borrowed from a [`ContentNeedle`].
+#[derive(Clone, Copy)]
+struct Needle<'a> {
+    /// Every query word, matched as a substring: the all-words match.
+    words: &'a [String],
+    /// [`MatchMode::Any`]: significant words, any one of which suffices as a whole token.
+    any: Option<&'a [String]>,
+}
+
+/// Matched fields and snippet collected while scanning segments.
+#[derive(Default)]
+struct SegmentHits {
+    fields: Vec<String>,
+    seen: HashSet<String>,
+    snippet: Option<String>,
+}
+
+impl SegmentHits {
+    fn add(&mut self, seg: &TextSegment, word: &str) {
+        if self.snippet.is_none() {
+            self.snippet = Some(snippet_window(&seg.text, word));
+        }
+        if self.seen.insert(seg.field_name.clone()) {
+            self.fields.push(seg.field_name.clone());
+        }
+    }
+}
+
 /// Run the content-match recall floor over a projected segment stream. A record
-/// matches when every word of `words` occurs in some segment (any field, any order).
-/// The first segment containing a word supplies the snippet (windowed on that word);
-/// every field with a matching segment becomes `matched_fields` (first-seen order).
-/// Empty result means no match.
-fn match_content(segments: Vec<TextSegment>, words: &[String]) -> (Vec<String>, Option<String>) {
-    let mut matched_fields = Vec::new();
-    let mut seen_fields = HashSet::new();
+/// matches when every word of `needle.words` occurs in some segment (any field, any
+/// order), or, with `needle.any`, when one of those significant words occurs as a whole
+/// token. The first matching segment supplies the snippet (windowed on that word); every
+/// field with a matching segment becomes `matched_fields` (first-seen order). When both
+/// hold, the token match decides the fields and snippet. Empty result means no match.
+fn match_content(segments: Vec<TextSegment>, needle: Needle) -> (Vec<String>, Option<String>) {
+    let words = needle.words;
     let mut found = vec![false; words.len()];
-    let mut snippet = None;
-    for seg in segments {
+    let (mut substring, mut token) = (SegmentHits::default(), SegmentHits::default());
+    for seg in &segments {
         let norm = text_projection::normalize(&seg.text);
         let mut first_hit = None;
         for (i, w) in words.iter().enumerate() {
@@ -599,16 +726,19 @@ fn match_content(segments: Vec<TextSegment>, words: &[String]) -> (Vec<String>, 
             }
         }
         if let Some(w) = first_hit {
-            if snippet.is_none() {
-                snippet = Some(snippet_window(&seg.text, w));
-            }
-            if seen_fields.insert(seg.field_name.clone()) {
-                matched_fields.push(seg.field_name);
+            substring.add(seg, w);
+        }
+        if let Some(significant) = needle.any {
+            let toks: HashSet<&str> = crate::discovery_index::tokens(&norm).collect();
+            if let Some(w) = significant.iter().find(|w| toks.contains(w.as_str())) {
+                token.add(seg, w);
             }
         }
     }
-    if found.iter().all(|f| *f) {
-        (matched_fields, snippet)
+    if !token.fields.is_empty() {
+        (token.fields, token.snippet)
+    } else if found.iter().all(|f| *f) {
+        (substring.fields, substring.snippet)
     } else {
         (Vec::new(), None)
     }
@@ -684,7 +814,7 @@ fn find_tier2(
     store: &dyn RepositoryStore,
     query: &DiscoveryQuery,
     field_text_index: &FieldTextIndex,
-    needle: Option<&[String]>,
+    needle: Option<Needle>,
 ) -> Result<Vec<Candidate>, RepositoryError> {
     // Push type ns/name, container, and the first tag into the store query; the
     // remaining predicates are applied in-service below.
@@ -761,7 +891,7 @@ fn find_tier2(
 fn find_tier0(
     store: &dyn RepositoryStore,
     query: &DiscoveryQuery,
-    needle: Option<&[String]>,
+    needle: Option<Needle>,
 ) -> Result<Vec<Candidate>, RepositoryError> {
     let members = member_set(store, &query.container_id)?;
     let cat = store.catalog()?;
@@ -1264,6 +1394,109 @@ mod tests {
     }
 
     #[test]
+    fn match_any_needs_one_significant_word_and_keeps_the_recall_floor() {
+        let store = store_with(fixtures());
+        let q = |m: &str| DiscoveryQuery {
+            content_match: Some(m.to_string()),
+            ..Default::default()
+        };
+        let any = FindPage {
+            match_mode: MatchMode::Any,
+            ..Default::default()
+        };
+        // A sentence: "zzz" and the other words are absent, "consent" is enough.
+        let sentence = find(&store, q("how is consent zzz handled"), any).unwrap();
+        assert_eq!(ids(&sentence), vec![ID1]);
+        // The same query under the default all-words mode finds nothing.
+        let all = find(&store, q("how is consent zzz handled"), FindPage::default()).unwrap();
+        assert_eq!(all.total, 0);
+        // Recall floor: every all-words (hence every phrase) match is an any-word match.
+        for m in ["consent process", "adopt changes", "consent"] {
+            let all = find(&store, q(m), FindPage::default()).unwrap();
+            let any = find(&store, q(m), any).unwrap();
+            assert!(ids(&all).iter().all(|id| ids(&any).contains(id)), "{m}");
+        }
+        // Words shorter than MIN_SIGNIFICANT_CHARS never match on their own...
+        let short = find(&store, q("zzz of a"), any).unwrap();
+        assert_eq!(short.total, 0);
+        // ...unless the query has no significant word: then every word must occur (all-words).
+        let only_short = find(&store, q("of"), any).unwrap();
+        let only_short_all = find(&store, q("of"), FindPage::default()).unwrap();
+        assert_eq!(ids(&only_short), ids(&only_short_all));
+    }
+
+    /// A corpus where "consent" is in 2 of 6 records (significant) and "the" in 5 of 6 (common).
+    fn any_mode_corpus() -> MemoryStore {
+        const ID4: &str = "44444444-4444-4444-8444-444444444444";
+        const ID5: &str = "55555555-5555-4555-8555-555555555555";
+        const ID6: &str = "66666666-6666-4666-8666-666666666666";
+        store_with(vec![
+            record(ID1, "Consent", "the short statement", "draft", &[]),
+            record(
+                ID2,
+                "Consent process",
+                "adopt the changes by consent",
+                "draft",
+                &[],
+            ),
+            record(ID3, "Aaa", "the other unrelated", "draft", &[]),
+            record(ID4, "Bbb", "the minutes", "draft", &[]),
+            record(ID5, "Ccc", "the roles", "draft", &[]),
+            record(ID6, "Ddd", "another thing", "draft", &[]),
+        ])
+    }
+
+    #[test]
+    fn match_any_ranks_records_matching_more_words_first() {
+        let store = any_mode_corpus();
+        let q = DiscoveryQuery {
+            content_match: Some("what is the consent process".to_string()),
+            ..Default::default()
+        };
+        let page = FindPage {
+            rank: true,
+            match_mode: MatchMode::Any,
+            ..Default::default()
+        };
+        let ranked = find(&store, q, page).unwrap();
+        // "the" is in 5 of 6 records: too common to select anything on its own.
+        assert_eq!(ids(&ranked), vec![ID2, ID1]);
+        assert!(ranked.hits.iter().all(|h| h.score.is_some()));
+    }
+
+    #[test]
+    fn match_any_matches_whole_tokens_not_substrings_and_is_always_ranked() {
+        let store = any_mode_corpus();
+        let q = |m: &str| DiscoveryQuery {
+            content_match: Some(m.to_string()),
+            ..Default::default()
+        };
+        let any = FindPage {
+            match_mode: MatchMode::Any,
+            ..Default::default()
+        };
+        // "her" is a substring of "other" (ID3) but not a token anywhere: no match.
+        assert_eq!(find(&store, q("her zzz"), any).unwrap().total, 0);
+        // "other" is a token of ID3 only — and not a substring hit on "another" (ID6).
+        assert_eq!(ids(&find(&store, q("other zzz"), any).unwrap()), vec![ID3]);
+        // Ranked even though `rank` is false: scores filled, best first.
+        let ranked = find(&store, q("consent process"), any).unwrap();
+        assert_eq!(ids(&ranked), vec![ID2, ID1]);
+        assert!(ranked.hits.iter().all(|h| h.score.is_some()));
+        // A query of only common words behaves as all-words.
+        let common = find(&store, q("the"), any).unwrap();
+        let all = find(&store, q("the"), FindPage::default()).unwrap();
+        assert_eq!(common.total, all.total);
+    }
+
+    #[test]
+    fn match_mode_parses_wire_spellings() {
+        assert_eq!("all".parse(), Ok(MatchMode::All));
+        assert_eq!("any".parse(), Ok(MatchMode::Any));
+        assert!("some".parse::<MatchMode>().is_err());
+    }
+
+    #[test]
     fn rank_orders_by_score_with_title_above_body_and_keeps_the_hit_set() {
         let long_body = format!("{} consent", "filler ".repeat(300));
         let store = store_with(vec![
@@ -1302,7 +1535,7 @@ mod tests {
                 limit: Some(1),
                 offset: 1,
                 rank: true,
-                by_type_limit: None,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1675,7 +1908,7 @@ mod tests {
                     limit: Some(limit),
                     offset,
                     rank: false,
-                    by_type_limit: None,
+                    ..Default::default()
                 },
             )
             .unwrap()

@@ -6122,6 +6122,9 @@ mod tests {
             fn top_terms(&self, _: &str, _: usize) -> Option<Vec<String>> {
                 None
             }
+            fn token_document_fraction(&self, _: &str) -> f64 {
+                0.0
+            }
         }
         let temp = tempfile::TempDir::new().unwrap();
         write_catalog_ready_file_repo(&temp);

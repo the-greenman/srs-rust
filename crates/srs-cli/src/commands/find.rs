@@ -38,6 +38,7 @@ pub fn dispatch(ctx: CliContext, args: FindArgs) -> Result<String> {
         limit: args.limit,
         offset: args.offset,
         rank: args.rank,
+        match_mode: args.match_mode,
         by_type_limit: args.by_type_limit,
     };
     let similar = args.similar;

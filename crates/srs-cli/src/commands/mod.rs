@@ -1900,6 +1900,10 @@ pub struct FindArgs {
     /// Order --text hits by BM25 relevance (fills `score`) instead of by instanceId
     #[arg(long = "rank")]
     pub rank: bool,
+    /// How --text words combine: `all` (every word must occur) or `any` (any significant
+    /// word, as a whole token; for questions typed as sentences; always ranked)
+    #[arg(long = "match", value_name = "MODE", default_value = "all")]
+    pub match_mode: srs_repository::discovery_service::MatchMode,
     /// Cap on `facets.byType` values (default 20; the rest are summed into `other`). 0 = every type
     #[arg(long = "by-type-limit")]
     pub by_type_limit: Option<usize>,

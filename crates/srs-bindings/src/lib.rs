@@ -13,7 +13,7 @@ use srs_repository::container_view_service::{self, ResolveContainerViewInput};
 use srs_repository::context_query_service::{
     self, EdgeDirection, FieldContextQuery, NeighboursPage, NeighboursQuery, RecordContextQuery,
 };
-use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage};
+use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage, MatchMode};
 use srs_repository::doctor_service::{self, DoctorInput};
 use srs_repository::governance_scaffold_service::{self, CreateGovernanceRepositoryInput};
 use srs_repository::manifest_service;
@@ -350,8 +350,10 @@ impl SrsRepository {
     /// `limit` (default: all matches) and `offset` (default 0) page the hits after the
     /// deterministic sort; `total` is the full match count. `rank` (default false) orders
     /// content-match hits by BM25 relevance and fills `score`. `by_type_limit` caps
-    /// `facets.byType` values (default 20; 0 = every type); trailing and optional, so
-    /// existing callers are unchanged.
+    /// `facets.byType` values (default 20; 0 = every type). `match_mode` is `"all"`
+    /// (default: every content word must occur) or `"any"` (any significant word, as a whole
+    /// token, for natural-language queries; always ranked) — srs-rust#1284. Both are
+    /// trailing and optional, so existing callers are unchanged.
     /// Returns a `DiscoveryResult` as a JS value.
     pub fn find(
         &self,
@@ -360,13 +362,19 @@ impl SrsRepository {
         offset: Option<usize>,
         rank: Option<bool>,
         by_type_limit: Option<usize>,
+        match_mode: Option<String>,
     ) -> Result<JsValue, JsValue> {
         let query: DiscoveryQuery =
             serde_json::from_str(query_json).map_err(|e| js_err(format!("invalid query: {e}")))?;
+        let match_mode: MatchMode = match match_mode {
+            None => MatchMode::default(),
+            Some(m) => m.parse().map_err(js_err)?,
+        };
         let page = FindPage {
             limit,
             offset: offset.unwrap_or(0),
             rank: rank.unwrap_or(false),
+            match_mode,
             by_type_limit,
         };
         let result = discovery_service::find(&self.store, query, page).map_err(js_err)?;
@@ -389,7 +397,7 @@ impl SrsRepository {
             limit,
             offset: offset.unwrap_or(0),
             rank: true,
-            by_type_limit: None,
+            ..Default::default()
         };
         let result =
             discovery_service::similar(&self.store, instance_id, query, page).map_err(js_err)?;
