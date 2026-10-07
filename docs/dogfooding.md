@@ -3247,7 +3247,7 @@ srs --repo $REPO repo validate                                   # 0 errors
 
 **CLI surface.** `srs find --limit 0` (and the MCP `find {limit: 0}` / bindings `find`): `payload.result.facets` = `byType`, `notes`, `tags`, `fields[]` (closed string fields keyed by `Field.name`), each `{values:[{value,count}], other?}` (`byType` values also carry `typeId`), counted over the whole match set before paging. `byType` keeps the top 20 types by default; `--by-type-limit N` (CLI), `byTypeLimit` (MCP) or the trailing `by_type_limit` argument (bindings `find`) changes that, and 0 returns every type.
 
-**Steps.** `srs find --repo ../../muDemocracy.org/muSrs --limit 0 --pretty`; then `--type com.mudemocracy.argument/problem --limit 0`; then `--text democracy --limit 3` and compare `total` with the sum of `facets.byType`. Negative: `--container <unknown uuid> --limit 0` returns `facets: {}` with the containerId warning.
+**Steps.** `srs find --repo ../../muDemocracy.org/muSrs --limit 0 --pretty`; then `--type com.mudemocracy.argument/problem --limit 0`; then `--text democracy --limit 3 --facets` and compare `total` with the sum of `facets.byType` (since #1286 a search carries facets only when asked). Negative: `--container <unknown uuid> --limit 0` returns `facets: {}` with the containerId warning.
 
 **Done when.** `hits` is empty and `total` is 886; `byType` totals 861 plus `notes` 25 equal `srs repo map`'s 886; the problem-type call lists `kind` (condition 55, consequence 33, shift 24, ...), `persona` and `scale`; open string fields never appear; the reply is under 128 KB.
 
@@ -3288,6 +3288,18 @@ $SRS repo validate --repo $R                                         # 0 errors
 **Negative case.** A lower bundle version is refused (`downgrade refused`). A package that is not installed is refused (`not installed; use install`). Edit the installed type file by hand and upgrade with a bundle that changes it again: the result lists it under `conflicts` with `conflictKind: "local-edit"` and the file keeps your edit. A definition dropped from the bundle is listed in `removedUpstream` and its file stays. Delete one reference copy under `<boundary>/.srs-import/refs/` and re-run: the definition is listed in `repaired`, and the next run is a no-op. A local edit of a definition the new release did not change is `unchanged`, not a conflict.
 
 **Verified 2026-10-05 (#1152):** all of the above run on the branch binary; the real run returned `added` field `extra`, `newVersions` type `essay@2`, `updated` type `essay@1`, `unchanged` field `title`; re-run 4 unchanged; imports all clean; validate 0 errors; downgrade and not-installed refused; local edit reported as a conflict and kept.
+
+### S55 — An agent scans search results cheaply before reading (`find --projection`, opt-in facets, #1286)
+
+**Intention.** An agent searching a large repository wants to see which records matched, and pick one to read, without paying for every hit's container list, matched fields and the facet counts it did not ask for.
+
+**CLI surface.** `srs find --projection full|card|label` (MCP `find`/`similar` `projection`, bindings trailing `projection`); `--facets [BOOL]` (MCP/bindings `facets`). `card` keeps `instanceId`, `uri`, `label`, type, `lifecycleState`, `score`, `snippet`; `label` also drops `score` and `snippet`. Facets appear only with `--limit 0` or `--facets`.
+
+**Steps.** On the spec repository: `srs find --text container --limit 10`, then the same with `--facets`, `--projection card`, `--projection label`; then `--limit 0` and `--limit 0 --facets false`.
+
+**Done when.** All four searches report the same `total` and the same hit order; only the `--facets` call carries `facets`; `card` hits have no `typeId`/`containerIds`/`matchedFields`; `label` hits have neither `score` nor `snippet`; `--limit 0` carries facets and `--limit 0 --facets false` is just `{hits: [], total, diagnostics}`.
+
+**Verified 2026-10-07 (#1286), spec repository (704 instances):** `--text container --limit 10`, total 134 every time: full 6,004 bytes, with `--facets` 8,285, card 4,610, label 2,872; `--limit 0` 3,017 bytes with facets, 40 bytes with `--facets false`. srs-context, `--match any` question, 10 hits: full with facets 9.8 KB pretty-printed, card 5.0 KB.
 
 ## S46 — Hand off one container as a standalone slice (`srs slice export`, RFC-026, #631)
 
@@ -3415,6 +3427,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `srs-gov export-decision` (governance operator exports shareable bundle, #289) | S38 (#289); exercises record lookup → view discovery → `render export-bundle` chain; `--explain` pre-stages all 3 underlying srs calls; default output filename (`<id8>.zip`). |
 | `find` facets over the match set, `limit: 0` repository map (#1219) | S52 |
 | `find` hit `uri`/`typeId`/`containerIds`, neighbour `uri`, agent-index `entryPoints` (#1227) | S51 |
+| `find --projection full\|card\|label`, opt-in `--facets` (#1286) | S55 |
 | `find --similar` / MCP `similar` / WASM `findSimilar` (more-like-this over the BM25 index, #1230) | S53 |
 | `mcp serve` (MCP stdio server: resources map/navigation/record/container/view/**type** + all 13 tools: `repo_validate`/`find`/`type_schema`/`record_create`/`relation_create`/`note_create`/`record_update`/`record_transition`/`record_allowed_transitions`/`record_successor`/`note_graduate`/`container_member_add`/`container_member_remove` + **prompts** `prompts/list`/`prompts/get`, ADR-037 + #692 amendment + #682 prompts + **#680 second-wave write tools**) | S42 (incl. the #692 discover-then-author step, #682 prompts step 10b, and #680 second-wave step 10c); 32 crate tests in `crates/srs-mcp/` (13 unit + 13 duplex-transport integration + 6 second-wave integration) + 2 binary-level handshake tests in `crates/srs-cli/tests/mcp_serve.rs` + 4 unit tests in `crates/srs-mcp/src/prompts.rs` |
 

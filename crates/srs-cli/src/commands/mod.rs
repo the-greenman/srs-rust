@@ -1907,6 +1907,14 @@ pub struct FindArgs {
     /// Cap on `facets.byType` values (default 20; the rest are summed into `other`). 0 = every type
     #[arg(long = "by-type-limit")]
     pub by_type_limit: Option<usize>,
+    /// Include `facets` (counts over the whole match set). Default: only with `--limit 0`,
+    /// the repository map. `--facets false` drops them there too
+    #[arg(long = "facets", value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub facets: Option<bool>,
+    /// How much of each hit to return: `full` (default), `card` (id, uri, label, type, state,
+    /// score, snippet) or `label` (id, uri, label, type, state)
+    #[arg(long = "projection", value_name = "PROJECTION", default_value = "full")]
+    pub projection: srs_repository::projection::Projection,
     /// More like this: instances similar to this instance (Record or Note id), ranked by BM25
     /// over its top-weighted terms, excluding itself. The other filters narrow the candidates;
     /// not combinable with --text.
