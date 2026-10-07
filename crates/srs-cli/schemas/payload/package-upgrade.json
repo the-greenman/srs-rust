@@ -37,7 +37,7 @@
       }
     },
     "conflicts": {
-      "description": "Not written: `local-edit`, `no-reference-copy` or `key-collision`.",
+      "description": "Not written: `local-edit`, `no-reference-copy` or `key-collision`. Adoptable via `--adopt` exactly when `conflictKind == \"no-reference-copy\"`.",
       "type": "array",
       "items": {
         "$ref": "#/definitions/PackageUpgradeConflict"

@@ -223,14 +223,6 @@ fn package_upgrade_tool_uses_the_core_service() {
     assert_eq!(r["dryRun"], false, "{real}");
     assert_eq!(r["added"][0]["name"], "two");
     assert_eq!(r["upgraded"], true);
-    // priorBundles / adopt are accepted inputs (proof and consent, #1325).
-    let ok = tool(
-        &mut d,
-        "package_upgrade",
-        json!({ "bundle": new, "dryRun": true, "priorBundles": [old], "adopt": [f1] }),
-    );
-    assert_eq!(ok["result"]["isError"], false, "{ok}");
-    assert!(ok["result"]["structuredContent"]["adopted"].is_array());
     let again = tool(&mut d, "package_upgrade", json!({ "bundle": new }));
     assert_eq!(
         again["result"]["structuredContent"]["added"]
@@ -1189,4 +1181,59 @@ mod read_tool {
             assert_eq!(sc["text"], via["content"][0]["text"]);
         }
     }
+}
+
+/// `package_upgrade` priorBundles / adopt (#1325): a real no-reference-copy conflict is adopted.
+#[test]
+fn package_upgrade_tool_adopts_a_no_reference_copy_conflict() {
+    let (dir, mut d) = setup();
+    let f1 = "9a1b0c2d-0001-4aaa-8bbb-0000000000b1";
+    let bundle = |version: &str, desc: &str| {
+        json!({
+            "schemaVersion": "2.0-draft", "packageId": "9a1b0c2d-2222-4aaa-8bbb-00000000000a",
+            "packageNamespace": "com.example.ad", "packageName": "ad", "packageVersion": version,
+            "dataModelRevision": 9, "publishedAt": "2026-10-03T00:00:00Z", "mode": "bundled",
+            "fields": [{"id": f1, "namespace": "com.example.ad", "name": "one", "version": 1,
+                "description": desc, "fieldType": {"datatype": "string"},
+                "aiGuidance": {"purpose": "p."}, "createdAt": "2026-01-01T00:00:00Z"}],
+            "types": [], "relationTypes": [], "views": [],
+            "dependencyRefs": [], "packageDependencies": []
+        })
+        .to_string()
+    };
+    let (old, new) = (bundle("1.0.0", "d."), bundle("1.1.0", "Changed."));
+    srs_repository::package_install_service::install_package_bundle_bytes(
+        &FileStore::new(dir.path()),
+        old.as_bytes(),
+        Default::default(),
+    )
+    .unwrap();
+    std::fs::remove_dir_all(dir.path().join("packages/ad/.srs-import/refs")).unwrap();
+    let bare = tool(
+        &mut d,
+        "package_upgrade",
+        json!({ "bundle": new, "dryRun": true }),
+    );
+    let r = &bare["result"]["structuredContent"];
+    assert_eq!(
+        r["conflicts"][0]["conflictKind"], "no-reference-copy",
+        "{bare}"
+    );
+    let proven = tool(
+        &mut d,
+        "package_upgrade",
+        json!({ "bundle": new, "dryRun": true, "priorBundles": [old] }),
+    );
+    assert_eq!(
+        proven["result"]["structuredContent"]["updated"][0]["provenBy"], "1.0.0",
+        "{proven}"
+    );
+    let adopted = tool(
+        &mut d,
+        "package_upgrade",
+        json!({ "bundle": new, "adopt": [f1] }),
+    );
+    let r = &adopted["result"]["structuredContent"];
+    assert_eq!(r["adopted"][0]["id"], f1, "{adopted}");
+    assert_eq!(r["conflicts"].as_array().unwrap().len(), 0);
 }

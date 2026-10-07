@@ -222,7 +222,11 @@ import record rewritten), conflicts (NOT written: local-edit = you edited a defi
 also changed, the local file is kept; no-reference-copy; key-collision = same name, different UUID), \
 removedUpstream (installed from this package but absent from the bundle: reported, never deleted) and \
 dependencyWarnings (unsatisfied RFC-044 requirements; never blocking). Records are never touched. \
-priorBundles (JSON texts of earlier published bundles of the same package) are proof only. A local-edit \
+priorBundles (JSON texts of earlier published bundles of the same package) are proof only: they must \
+be published artifacts you verified (e.g. by sha256), never a bundle exported from the user's own \
+edited boundary, which would prove edits clean; one not older than the new bundle or newer than the \
+installed version is refused. adopt matches by id and covers every version of that id; a conflict is \
+adoptable exactly when its conflictKind is no-reference-copy. A local-edit \
 or key-collision is never adoptable (a note says so). Then repeat with dryRun false to apply, and run \
 repo_validate. boundaryPath picks the boundary when \
 the package is installed at several.";

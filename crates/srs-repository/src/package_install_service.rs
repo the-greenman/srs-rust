@@ -1116,13 +1116,18 @@ pub struct UpgradeOptions {
     /// The boundary to upgrade; default = the boundary installed with the bundle's `packageId`.
     pub boundary_path: Option<String>,
     /// Earlier published `.srspkg` texts of the same package (`packageId`), used only as
-    /// proof (RFC-014 Change E (b), ADR-051): a no-reference-copy definition whose
+    /// proof (RFC-014 Change E (b), ADR-052): a no-reference-copy definition whose
     /// installed content equals a prior bundle's definition of the same (kind, id,
     /// version) is clean and is overwritten (reported in `updated` with `provenBy`).
+    /// Trust: these must be published artifacts the caller verified (e.g. by sha256); a
+    /// bundle exported from the user's own edited boundary would "prove" edits clean. A
+    /// prior whose version is >= the new bundle's or > the installed version is refused.
     pub prior_bundles: Vec<String>,
     /// Definition ids the caller consents to replace although nothing proves them clean
     /// (`no-reference-copy` only; reported in `adopted`). A `local-edit` or
-    /// `key-collision` is never adoptable: it stays a conflict and a note says so.
+    /// `key-collision` is never adoptable: it stays a conflict and a note says so. A conflict
+    /// is adoptable exactly when its `conflictKind` is `no-reference-copy`. An id matches
+    /// every version of that id in the bundle.
     pub adopt: Vec<String>,
 }
 
@@ -1241,7 +1246,7 @@ pub fn upgrade_package_bundle(
     for text in &options.prior_bundles {
         let prior = crate::package_bundle::read_package_bundle(text.as_bytes())?.bundle;
         if prior.id != read.bundle.id {
-            return Err(RepositoryError::InvalidRepositoryInitialization {
+            return Err(RepositoryError::InvalidInput {
                 message: format!(
                     "prior bundle '{}' {} has packageId {}, not {}",
                     prior.name, prior.version, prior.id, read.bundle.id
@@ -1345,6 +1350,27 @@ fn upgrade_with_priors(
         Ordering::Equal => false,
         Ordering::Greater => true,
     };
+
+    // Prior bundles are proof, so they must predate the new bundle and not exceed what is installed.
+    for p in priors {
+        let pv = parse(&p.version)?;
+        if pv.precedence(&parse(&bundle.version)?) != Ordering::Less {
+            return Err(RepositoryError::InvalidInput {
+                message: format!(
+                    "prior bundle {} is not older than the new bundle {}",
+                    p.version, bundle.version
+                ),
+            });
+        }
+        if pv.precedence(&parse(&boundary.version)?) == Ordering::Greater {
+            return Err(RepositoryError::InvalidInput {
+                message: format!(
+                    "prior bundle {} is newer than the installed version {}",
+                    p.version, boundary.version
+                ),
+            });
+        }
+    }
 
     // ── Import records, read and parsed up front (ADR-030 addendum) ──────────
     let summary_path = format!("{boundary_path}/.srs-import/import-records.json");
@@ -1456,8 +1482,8 @@ fn upgrade_with_priors(
             Decision::Conflict => {
                 if options.adopt.contains(&item.id) {
                     result.notes.push(format!(
-                        "not adoptable: {} '{}' is a key-collision",
-                        item.kind, item.name
+                        "not adoptable: {} '{}' ({}) is a key-collision",
+                        item.kind, item.name, item.id
                     ));
                 }
                 result.conflicts.push(UpgradeConflict {
@@ -1523,8 +1549,8 @@ fn upgrade_with_priors(
                         }
                     } else if adopt {
                         result.notes.push(format!(
-                            "not adoptable: {} '{}' is a local-edit",
-                            item.kind, item.name
+                            "not adoptable: {} '{}' ({}) is a local-edit",
+                            item.kind, item.name, item.id
                         ));
                     }
                     result.conflicts.push(UpgradeConflict {
@@ -1538,6 +1564,16 @@ fn upgrade_with_priors(
                     });
                 }
             }
+        }
+    }
+    for id in &options.adopt {
+        let handled = result.adopted.iter().any(|i| &i.id == id)
+            || result
+                .notes
+                .iter()
+                .any(|n| n.starts_with("not adoptable") && n.contains(id.as_str()));
+        if !handled {
+            result.notes.push(format!("adopt {id}: nothing to adopt"));
         }
     }
     let in_bundle: HashSet<_> = bundle.definitions.iter().map(identity).collect();

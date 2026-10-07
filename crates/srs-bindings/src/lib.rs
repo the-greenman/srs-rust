@@ -1471,7 +1471,9 @@ impl SrsRepository {
     /// Upgrade an installed package from a newer .srspkg (same service as `srs package upgrade`).
     /// bundle_json is the file's text; options_json: {"dryRun"?: bool, "boundaryPath"?: string,
     /// "priorBundles"?: string[] (earlier published bundles' file texts of the same package, proof
-    /// only), "adopt"?: string[] (definition ids to replace although unproven; never a local-edit)}
+    /// only), "adopt"?: string[] (definition ids to replace although unproven; never a local-edit; matches every version of an id; a conflict is adoptable exactly when its
+    /// conflictKind is "no-reference-copy"). Prior bundles must be published artifacts the caller
+    /// verified, older than the new bundle and not newer than the installed version.}
     /// ("{}" for defaults). Returns UpgradePackageResult (same fields as the CLI payload:
     /// packageId, name, previousVersion, version, upgraded, dryRun, added, newVersions, updated
     /// (items may carry provenBy), adopted, unchanged, repaired, conflicts, removedUpstream,

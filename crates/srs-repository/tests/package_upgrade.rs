@@ -698,7 +698,7 @@ fn refresh_of_a_locally_edited_definition_keeps_its_local_provenance() {
 
 fn synced() -> Vec<u8> {
     bundle(
-        "1.3.0",
+        "1.4.0",
         vec![field(F, "title")],
         vec![ty(1, "Synced.", &[F])],
     )
@@ -826,4 +826,96 @@ fn prior_bundle_of_another_package_is_refused() {
     )
     .unwrap_err();
     assert!(err.to_string().contains("prior bundle"), "{err}");
+}
+
+fn record_versions(t: &tempfile::TempDir) -> Vec<String> {
+    let v: Value = serde_json::from_slice(
+        &std::fs::read(
+            t.path()
+                .join("packages/upg/.srs-import/import-records.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    v["types"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["sourcePackageVersion"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[test]
+fn proof_and_adopt_refresh_import_records_and_adopt_converges() {
+    let newer = bundle(
+        "1.4.0",
+        vec![field(F, "title")],
+        vec![ty(1, "Synced.", &[F])],
+    );
+    for adopt in [false, true] {
+        let (t, store) = installed_old();
+        no_ref_copy(&t, &store);
+        let (prior, ids): (Vec<Vec<u8>>, &[&str]) = if adopt {
+            (vec![], &[A])
+        } else {
+            (vec![v_old()], &[])
+        };
+        with_opts(&store, &newer, &prior, ids, false);
+        assert_eq!(record_versions(&t), vec!["1.4.0"], "adopt={adopt}");
+        let again = with_opts(&store, &newer, &prior, ids, false);
+        assert!(again.conflicts.is_empty() && again.adopted.is_empty() && again.updated.is_empty());
+        assert!(again.notes.iter().any(|n| n.contains("nothing to adopt")) == adopt);
+    }
+}
+
+#[test]
+fn adopt_is_refused_for_a_key_collision() {
+    let (_t, store) = installed_old();
+    let other = "9a1b0c2d-0001-4aaa-8bbb-00000000f0ff";
+    let b = bundle(
+        "1.4.0",
+        vec![field(F, "title"), field(other, "title")],
+        vec![ty(1, "Old.", &[F])],
+    );
+    let r = with_opts(&store, &b, &[], &[other], false);
+    assert_eq!(r.conflicts[0].conflict_kind, "key-collision");
+    assert!(r.adopted.is_empty());
+    assert!(
+        r.notes.iter().any(|n| n.contains("not adoptable")),
+        "{:?}",
+        r.notes
+    );
+}
+
+#[test]
+fn prior_with_a_different_definition_version_is_not_proof() {
+    let (t, store) = installed_old();
+    no_ref_copy(&t, &store);
+    // Prior holds type v2 only; installed is v1.
+    let prior = bundle("1.2.0", vec![field(F, "title")], vec![ty(2, "Old.", &[F])]);
+    let r = with_opts(&store, &synced(), &[prior], &[], false);
+    assert_eq!(r.conflicts[0].conflict_kind, "no-reference-copy");
+}
+
+#[test]
+fn prior_version_sanity_checks() {
+    let (_t, store) = installed_old(); // 1.3.0
+    let run = |prior: Vec<u8>, new: &[u8]| {
+        upgrade_package_bundle(
+            &store,
+            new,
+            UpgradeOptions {
+                dry_run: true,
+                prior_bundles: vec![String::from_utf8(prior).unwrap()],
+                ..Default::default()
+            },
+        )
+    };
+    // Not older than the new bundle.
+    let e = run(v_old(), &v_old()).unwrap_err();
+    assert!(e.to_string().contains("not older"), "{e}");
+    // Newer than the installed version.
+    let newer_prior = bundle("1.4.0", vec![field(F, "title")], vec![ty(1, "Old.", &[F])]);
+    let e = run(newer_prior, &v_new()).unwrap_err();
+    assert!(e.to_string().contains("newer than the installed"), "{e}");
 }

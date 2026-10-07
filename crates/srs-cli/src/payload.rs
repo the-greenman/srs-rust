@@ -2351,7 +2351,8 @@ pub struct PackageUpgradePayload {
     pub unchanged: Vec<PackageUpgradeItem>,
     /// Content current but its reference copy or import record was missing or wrong; rewritten.
     pub repaired: Vec<PackageUpgradeItem>,
-    /// Not written: `local-edit`, `no-reference-copy` or `key-collision`.
+    /// Not written: `local-edit`, `no-reference-copy` or `key-collision`. Adoptable via
+    /// `--adopt` exactly when `conflictKind == "no-reference-copy"`.
     pub conflicts: Vec<PackageUpgradeConflict>,
     /// Installed from this package but absent from the bundle; kept, never deleted.
     pub removed_upstream: Vec<PackageUpgradeItem>,

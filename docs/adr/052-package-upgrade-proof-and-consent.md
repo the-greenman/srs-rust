@@ -32,12 +32,22 @@ source) and `rfc-decision-e5828aa8` (a local edit is protected).
    unproven after step 1 and named in `adopt` is overwritten (reference copy written) and listed
    in the new `adopted` list. Consent is per definition, never a global flag, because adoption
    discards content nothing can show to be unmodified.
+   Adopting a `no-reference-copy` conflict deliberately overwrites any unknown local edit: that
+   is the consent trade-off. `adopt` matches by id and covers every version of that id in the
+   bundle. An id that matched nothing adoptable gets a note `adopt <id>: nothing to adopt`.
 3. **Never adoptable.** A `local-edit` (a reference copy proves the file was edited) and a
    `key-collision` stay conflicts even if named in `adopt`; a `notes` entry says
    `not adoptable: ...`. That is the rfc-decision-e5828aa8 protection: consent cannot be given
    for something the system knows is the user's work.
+   **Trust assumption:** prior bundles must be published artifacts the caller verified (e.g. by
+   sha256). A bundle exported from the user's own edited boundary would "prove" edits clean.
+   The engine only refuses a prior whose version is not older than the new bundle's or is newer
+   than the installed version (`InvalidInput`), as does a different `packageId`.
 4. A dry run classifies identically and writes nothing. A re-run converges (reference copies now
    exist).
+
+A conflict is adoptable exactly when `conflictKind == "no-reference-copy"`; clients key on that,
+never on note text.
 
 Result shape: `updated` items gain optional `provenBy`; `adopted` is a new list of the same item
 shape; `conflicts` is unchanged (`conflictKind` stays `local-edit | no-reference-copy |
