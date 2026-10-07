@@ -1,10 +1,12 @@
 use crate::commands::{with_store, CliContext};
 use crate::output;
-use crate::payload::{ContextFieldPayload, ContextRecordPayload};
+use crate::payload::{ContextFieldPayload, ContextRecordMarkdownPayload, ContextRecordPayload};
 use anyhow::Result;
 use clap::Subcommand;
 use srs_core::types::relation_type_definition::RelationTypeCategory;
-use srs_repository::context_query_service::{self, FieldContextQuery, RecordContextQuery};
+use srs_repository::context_query_service::{
+    self, ContextProjection, FieldContextQuery, RecordContextQuery,
+};
 
 #[derive(Subcommand)]
 pub enum ContextCommand {
@@ -24,6 +26,14 @@ pub enum ContextCommand {
         /// `--exclude-category composition --exclude-category sequence` drops structural edges
         #[arg(long = "exclude-category", value_name = "CATEGORY", value_parser = clap::value_parser!(RelationTypeCategory))]
         exclude_category: Vec<RelationTypeCategory>,
+        /// How much of each neighbour to inline: `full` (whole record, default), `card`
+        /// (id, label, type, lifecycle state, one summary line) or `label` (id and label)
+        #[arg(long = "projection", value_name = "PROJECTION", default_value = "full")]
+        projection: ContextProjection,
+        /// Return the context as compact markdown in `rendered` (card projection unless
+        /// `--projection label`): one line per edge with label, type and instance id
+        #[arg(long = "markdown")]
+        markdown: bool,
     },
 }
 
@@ -36,7 +46,15 @@ pub fn dispatch(ctx: CliContext, cmd: ContextCommand) -> Result<String> {
         ContextCommand::Record {
             record_id,
             exclude_category,
-        } => cmd_context_record(ctx, record_id, exclude_category),
+            projection,
+            markdown: true,
+        } => cmd_context_record_markdown(ctx, record_id, exclude_category, projection),
+        ContextCommand::Record {
+            record_id,
+            exclude_category,
+            projection,
+            markdown: false,
+        } => cmd_context_record(ctx, record_id, exclude_category, projection),
     }
 }
 
@@ -71,6 +89,7 @@ fn cmd_context_record(
     ctx: CliContext,
     record_id: String,
     exclude_relation_categories: Vec<RelationTypeCategory>,
+    projection: ContextProjection,
 ) -> Result<String> {
     with_store(
         &ctx,
@@ -80,6 +99,7 @@ fn cmd_context_record(
                 record_id: record_id.clone(),
                 container_id: ctx.container_id.clone(),
                 exclude_relation_categories,
+                projection,
             },
         ) {
             Ok(result) => output::serialize(
@@ -97,6 +117,35 @@ fn cmd_context_record(
                     subtree: result.subtree,
                     tagged_chunks: result.tagged_chunks,
                     protocol_run_history: result.protocol_run_history,
+                },
+            ),
+            Err(e) => Ok(output::err("context record", vec![e.to_string()])),
+        },
+    )
+}
+
+fn cmd_context_record_markdown(
+    ctx: CliContext,
+    record_id: String,
+    exclude_relation_categories: Vec<RelationTypeCategory>,
+    projection: ContextProjection,
+) -> Result<String> {
+    with_store(
+        &ctx,
+        |store| match context_query_service::render_record_context_markdown(
+            store,
+            RecordContextQuery {
+                record_id: record_id.clone(),
+                container_id: ctx.container_id.clone(),
+                exclude_relation_categories,
+                projection,
+            },
+        ) {
+            Ok(rendered) => output::serialize(
+                "context record",
+                ContextRecordMarkdownPayload {
+                    record_id: record_id.clone(),
+                    rendered,
                 },
             ),
             Err(e) => Ok(output::err("context record", vec![e.to_string()])),

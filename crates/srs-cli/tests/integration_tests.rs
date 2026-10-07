@@ -1967,6 +1967,22 @@ fn repo_validate_invalid_note_returns_ok_false() {
         "expected sections error in diagnostics: {:?}",
         diags
     );
+    // srs-rust#1283: the ok:false branch must still carry the structured
+    // payload (object diagnostics + summary), not just the string digest.
+    assert!(
+        result["payload"]["summary"]["errors"].as_u64().unwrap() >= 1,
+        "expected payload.summary on ok:false: {:?}",
+        result
+    );
+    let payload_diags = result["payload"]["diagnostics"].as_array().unwrap();
+    assert!(
+        payload_diags.iter().any(|d| d["message"]
+            .as_str()
+            .map(|s| s.contains("sections"))
+            .unwrap_or(false)),
+        "expected structured sections error in payload.diagnostics: {:?}",
+        payload_diags
+    );
 }
 
 #[test]
@@ -2017,6 +2033,12 @@ fn repo_validate_tier_schema_mismatch_returns_ok_false() {
         }),
         "expected a declared-schema validation diagnostic: {:?}",
         diags
+    );
+    // srs-rust#1283: payload must be present on ok:false too.
+    assert!(
+        result["payload"]["summary"]["errors"].as_u64().unwrap() >= 1,
+        "expected payload.summary on ok:false: {:?}",
+        result
     );
 }
 
@@ -4625,6 +4647,43 @@ fn container_update_patches_anchor_instance_id() {
         got["payload"]["container"]["anchorInstanceId"],
         "11111111-1111-4111-8111-111111111111"
     );
+}
+
+#[test]
+fn container_update_null_identity_instance_id_clears_field() {
+    // srs-rust#1293: `echo '{"identityInstanceId":null}' | srs container update <id>` used to
+    // return ok:true while leaving the stored identityInstanceId untouched.
+    let temp = make_container_test_repo();
+    let payload = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000001",
+        "title":"Root",
+        "identityInstanceId": "11111111-1111-4111-8111-111111111111"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+
+    let patch = serde_json::json!({"identityInstanceId": null}).to_string();
+    let updated = run_srs_stdin_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "update",
+            "00000000-0000-4000-8000-000000000001",
+        ],
+        &patch,
+    );
+    assert_eq!(updated["ok"], true);
+    assert!(updated["payload"]["container"]
+        .get("identityInstanceId")
+        .is_none());
+
+    let got = run_srs_in_dir(
+        temp.path(),
+        &["container", "get", "00000000-0000-4000-8000-000000000001"],
+    );
+    assert!(got["payload"]["container"]
+        .get("identityInstanceId")
+        .is_none());
 }
 
 #[test]
