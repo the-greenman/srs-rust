@@ -117,3 +117,8 @@ Golden schemas: `find`, `repo agent-index` and `relation neighbours` embed the s
 ## Amendment (2026-10-04, #1219) — `find` facets and `limit: 0`
 
 The MCP `find` reply carries `facets` (see ADR-019's #1219 amendment): the adapter serialises the service result unchanged and adds no counting. The default `limit` stays 25; an explicit `limit: 0` passes through and returns no hits with full facets, which is the cheap repository map for a resource-blind client (about 14 KB on the 886-instance muSrs; a default-limit call about 15 KB). The facets shape is not pinned by the `find` golden schema, which embeds `DiscoveryResult` opaquely; the service, MCP and bindings tests pin it. No spec change.
+
+## Amendment (2026-10-07, #1319) — compact JSON text
+
+The `text` of every JSON tool result (`tool_ok`) and JSON resource read (`json_contents`) is serialized compactly through one helper, `srs_mcp_core::json_text`, instead of `to_string_pretty`. The reader is a model paying per token for indentation (about 30% of a `find` page); the value, keys and `structuredContent` are unchanged, and a client can re-format. Markdown resources and the CLI's `--pretty` are untouched. No spec change.
+
