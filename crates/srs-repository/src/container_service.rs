@@ -2970,8 +2970,7 @@ mod tests {
         let store = make_store();
         let container_id = "550e8400-e29b-41d4-a716-446655440004";
         let mut container = minimal_container(container_id, "Root");
-        container.identity_instance_id =
-            Some("11111111-1111-4111-8111-111111111111".to_string());
+        container.identity_instance_id = Some("11111111-1111-4111-8111-111111111111".to_string());
         create_container(&store, container).unwrap();
 
         let patch: ContainerPatch =
@@ -2989,8 +2988,7 @@ mod tests {
         let store = make_store();
         let container_id = "550e8400-e29b-41d4-a716-446655440005";
         let mut container = minimal_container(container_id, "Root");
-        container.identity_instance_id =
-            Some("11111111-1111-4111-8111-111111111111".to_string());
+        container.identity_instance_id = Some("11111111-1111-4111-8111-111111111111".to_string());
         create_container(&store, container).unwrap();
 
         let patch: ContainerPatch = serde_json::from_str(r#"{"title": "Renamed"}"#).unwrap();
