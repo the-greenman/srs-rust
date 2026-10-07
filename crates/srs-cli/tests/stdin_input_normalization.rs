@@ -40,6 +40,7 @@ fn create_temp_repo() -> TempDir {
 fn run_srs_stdin(dir: &std::path::Path, args: &[&str], stdin: &str) -> (Value, bool) {
     let exe = env!("CARGO_BIN_EXE_srs");
     let mut child = Command::new(exe)
+        .env_remove("SRS_ACTOR")
         .args(args)
         .current_dir(dir)
         .stdin(std::process::Stdio::piped())

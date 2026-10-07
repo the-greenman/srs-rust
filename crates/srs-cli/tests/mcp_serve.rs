@@ -51,6 +51,7 @@ fn mcp_serve_binary_initialize_handshake() {
     make_repo(dir.path());
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_srs"))
+        .env_remove("SRS_ACTOR")
         .args(["mcp", "serve", "--repo"])
         .arg(dir.path())
         .stdin(Stdio::piped())
@@ -116,6 +117,7 @@ fn mcp_serve_without_repo_errors_on_stderr() {
     let dir = tempfile::tempdir().unwrap(); // empty: not an SRS repository
 
     let output = Command::new(env!("CARGO_BIN_EXE_srs"))
+        .env_remove("SRS_ACTOR")
         .args(["mcp", "serve", "--repo"])
         .arg(dir.path().join("nope"))
         .stdin(Stdio::null())
@@ -143,6 +145,7 @@ fn mcp_serve_binary_read_profile_hides_and_refuses_writes() {
     make_repo(dir.path());
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_srs"))
+        .env_remove("SRS_ACTOR")
         .args(["mcp", "serve", "--profile", "read", "--repo"])
         .arg(dir.path())
         .stdin(Stdio::piped())
@@ -195,6 +198,7 @@ fn mcp_serve_binary_rejects_an_unknown_profile() {
     let dir = tempfile::tempdir().unwrap();
     make_repo(dir.path());
     let out = Command::new(env!("CARGO_BIN_EXE_srs"))
+        .env_remove("SRS_ACTOR")
         .args(["mcp", "serve", "--profile", "everything", "--repo"])
         .arg(dir.path())
         .stdin(Stdio::null())

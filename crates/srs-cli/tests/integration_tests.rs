@@ -230,6 +230,7 @@ fn create_navigation_repo() -> TempDir {
 fn run_srs_in_dir(dir: &std::path::Path, args: &[&str]) -> Value {
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
+        .env_remove("SRS_ACTOR")
         .args(args)
         .current_dir(dir)
         .output()
@@ -366,6 +367,7 @@ fn repo_navigation_resolves_section_members_of_every_remaining_tier() {
 fn run_srs_stdin_in_dir(dir: &std::path::Path, args: &[&str], stdin: &str) -> Value {
     let exe = env!("CARGO_BIN_EXE_srs");
     let mut child = Command::new(exe)
+        .env_remove("SRS_ACTOR")
         .args(args)
         .current_dir(dir)
         .stdin(std::process::Stdio::piped())
@@ -403,6 +405,7 @@ fn run_srs_stdin_in_dir(dir: &std::path::Path, args: &[&str], stdin: &str) -> Va
 fn run_srs_any_status_in_dir(dir: &std::path::Path, args: &[&str]) -> (bool, Value) {
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
+        .env_remove("SRS_ACTOR")
         .args(args)
         .current_dir(dir)
         .output()
@@ -419,6 +422,7 @@ fn run_srs_stdin_any_status_in_dir(
 ) -> (bool, Value) {
     let exe = env!("CARGO_BIN_EXE_srs");
     let mut child = Command::new(exe)
+        .env_remove("SRS_ACTOR")
         .args(args)
         .current_dir(dir)
         .stdin(std::process::Stdio::piped())
@@ -518,6 +522,7 @@ fn run_srs(args: &[&str]) -> Value {
 fn run_srs_raw(dir: &std::path::Path, args: &[&str]) -> (bool, String) {
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
+        .env_remove("SRS_ACTOR")
         .args(args)
         .current_dir(dir)
         .output()
@@ -1292,6 +1297,7 @@ fn note_get_returns_note_with_sections() {
 fn note_get_unknown_id_returns_ok_false() {
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
+        .env_remove("SRS_ACTOR")
         .args(["note", "get", "nonexistent-id-12345"])
         .current_dir(srs_spec_repo_dir())
         .output()
@@ -1767,6 +1773,7 @@ fn relation_type_get_finds_contains() {
 fn relation_type_get_not_found() {
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
+        .env_remove("SRS_ACTOR")
         .args([
             "relation-type",
             "get",
@@ -1787,6 +1794,7 @@ fn relation_type_get_not_found() {
 fn repo_validate_migrated_relations_use_only_canonical_types() {
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
+        .env_remove("SRS_ACTOR")
         .args(["repo", "validate"])
         .current_dir(srs_spec_repo_dir())
         .output()
@@ -2087,6 +2095,7 @@ fn global_repo_option_resolves_repo() {
     let repo_path = srs_spec_repo_dir();
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
+        .env_remove("SRS_ACTOR")
         .arg("--repo")
         .arg(&repo_path)
         .args(["repo", "map"])
@@ -2137,6 +2146,7 @@ fn pretty_outputs_multiline_json() {
 
     // Run with --pretty
     let output = Command::new(exe)
+        .env_remove("SRS_ACTOR")
         .arg("--repo")
         .arg(&repo_path)
         .args(["--pretty", "repo", "map"])
@@ -2163,6 +2173,7 @@ fn format_text_returns_planned_diagnostic_until_renderer_exists() {
 
     // --format text must not panic; it returns a planned diagnostic message
     let output = Command::new(exe)
+        .env_remove("SRS_ACTOR")
         .arg("--repo")
         .arg(&repo_path)
         .args(["--format", "text", "repo", "map"])
@@ -2489,6 +2500,7 @@ fn old_note_tag_positional_form_fails_with_parse_error() {
     // should now fail with a parse error, not silently do the wrong thing
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
+        .env_remove("SRS_ACTOR")
         .args(["note", "tag", "some-id", "some-tag"])
         .current_dir(temp.path())
         .output()

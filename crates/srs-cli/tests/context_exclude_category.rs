@@ -5,6 +5,7 @@ use std::process::Command;
 
 fn run(dir: &std::path::Path, args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_srs"))
+        .env_remove("SRS_ACTOR")
         .args(args)
         .current_dir(dir)
         .output()
