@@ -12,6 +12,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 srs-core = { workspace = true }
 indexmap = { workspace = true }
+base64 = { workspace = true }
 # schemars 1.x for MCP tool input schemas only (ADR-011: library crates stay schemars-free; this one
 # owns the tool catalogue). Pure Rust, wasm32-safe.
 schemars = "1"

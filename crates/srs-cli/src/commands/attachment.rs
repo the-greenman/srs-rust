@@ -81,6 +81,7 @@ fn cmd_attachment_add(
     let content = std::fs::read(&source)
         .with_context(|| format!("failed to read source file: {}", source.display()))?;
     let input = AddAttachmentInput {
+        enforce_policy: false,
         file_name,
         content,
         subdir,
