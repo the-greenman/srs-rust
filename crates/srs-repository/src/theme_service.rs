@@ -13,7 +13,7 @@
 
 use crate::error::RepositoryError;
 use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
-use crate::store::RepositoryStore;
+use crate::store::{inject_definition_schema, RepositoryStore};
 use crate::validation::validate_definition_write_schema;
 use crate::writer::new_instance_id;
 use srs_core::types::theme::Theme;
@@ -185,10 +185,11 @@ pub fn create_theme(
     if theme.id.is_empty() {
         theme.id = new_instance_id();
     }
-    let raw = serde_json::to_value(&theme).map_err(|e| RepositoryError::Serialize {
+    let mut raw = serde_json::to_value(&theme).map_err(|e| RepositoryError::Serialize {
         path: std::path::PathBuf::from(format!("{boundary_path}/themes")),
         source: e,
     })?;
+    inject_definition_schema(&mut raw, THEME_SCHEMA_ID);
     validate_definition_write_schema(
         THEME_SCHEMA_ID,
         &raw,
@@ -213,10 +214,11 @@ pub fn update_theme(
     theme_id: &str,
     theme: Theme,
 ) -> Result<UpdateThemeResult, RepositoryError> {
-    let raw = serde_json::to_value(&theme).map_err(|e| RepositoryError::Serialize {
+    let mut raw = serde_json::to_value(&theme).map_err(|e| RepositoryError::Serialize {
         path: std::path::PathBuf::from("package/themes"),
         source: e,
     })?;
+    inject_definition_schema(&mut raw, THEME_SCHEMA_ID);
     validate_definition_write_schema(
         THEME_SCHEMA_ID,
         &raw,
@@ -465,6 +467,20 @@ mod tests {
                 .any(|v| v.as_str().unwrap_or("").contains("my-theme")),
             "theme path should be registered in package.json"
         );
+    }
+
+    /// srs-rust#1294: same gap as `view_service`'s `create_view_succeeds_without_explicit_schema`,
+    /// for `theme.json`'s own `$schema` requirement.
+    #[test]
+    fn create_theme_succeeds_without_explicit_schema() {
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let store = FileStore::new(temp.path());
+
+        let mut t = minimal_theme("no-schema-theme");
+        t.schema = None;
+        let result = create_theme(&store, t, None).unwrap();
+        assert!(!result.theme.id.is_empty());
     }
 
     #[test]
