@@ -1748,6 +1748,30 @@ mod tests {
     }
 
     #[test]
+    fn similar_honours_projection_and_facets() {
+        let store = store_with(fixtures());
+        let full = similar(&store, ID1, DiscoveryQuery::default(), FindPage::default()).unwrap();
+        assert!(full.facets.is_none(), "facets are opt-in on similar too");
+        assert!(full.hits[0].container_ids.is_some() && full.hits[0].type_id.is_some());
+        let card = similar(
+            &store,
+            ID1,
+            DiscoveryQuery::default(),
+            FindPage {
+                projection: Projection::Card,
+                facets: Some(true),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(ids(&card), ids(&full));
+        let hit = &card.hits[0];
+        assert!(hit.score.is_some() && hit.type_id.is_none() && hit.container_ids.is_none());
+        let facets = card.facets.expect("facets asked for");
+        assert_eq!(facets.by_type.total(), card.total);
+    }
+
+    #[test]
     fn similar_is_deterministic() {
         let store = store_with_note();
         let run = || similar(&store, ID1, DiscoveryQuery::default(), FindPage::default()).unwrap();

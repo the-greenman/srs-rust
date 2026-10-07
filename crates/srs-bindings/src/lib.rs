@@ -396,8 +396,8 @@ impl SrsRepository {
 
     /// "More like this": instances similar to `instance_id`, ranked by BM25 over its top-weighted
     /// terms, excluding itself. `query_json` carries the structured `DiscoveryQuery` filters (no
-    /// `contentMatch`); `limit`/`offset` page the hits; `projection` is as in [`Self::find`].
-    /// Returns a `DiscoveryResult` as a JS value.
+    /// `contentMatch`); `limit`/`offset` page the hits; `projection` and `facets` are as in
+    /// [`Self::find`]. Returns a `DiscoveryResult` as a JS value.
     pub fn find_similar(
         &self,
         instance_id: &str,
@@ -405,6 +405,7 @@ impl SrsRepository {
         limit: Option<usize>,
         offset: Option<usize>,
         projection: Option<String>,
+        facets: Option<bool>,
     ) -> Result<JsValue, JsValue> {
         let query: DiscoveryQuery =
             serde_json::from_str(query_json).map_err(|e| js_err(format!("invalid query: {e}")))?;
@@ -413,6 +414,7 @@ impl SrsRepository {
             offset: offset.unwrap_or(0),
             rank: true,
             projection: parse_projection(projection)?,
+            facets,
             ..Default::default()
         };
         let result =

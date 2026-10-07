@@ -153,7 +153,7 @@ pub const DESC_SIMILAR: &str = "More like this: instances whose text overlaps th
 characteristic terms of one instance (instanceId), ranked by the same BM25 index as find. Use it \
 after find to ask what else in the repository is about a record, including content that uses \
 different wording from a query you would have guessed. Returns find-shaped hits (instanceId, uri, \
-label, type, score; projection as in find), best first, never the source itself. The structured filters of find (typeId, \
+label, type, score; projection and facets as in find), best first, never the source itself. The structured filters of find (typeId, \
 typeNamespace, typeName, containerId, tag, lifecycleState, tier, ...) narrow the candidates; \
 there is no contentMatch. Deterministic and lexical: no embeddings. limit defaults to 25.";
 
@@ -166,8 +166,8 @@ containing any significant query word as a whole word (words found in most recor
 \"what\", are ignored), so a question typed as a sentence still finds what it is about; any-mode is \
 always ranked (BM25 puts records matching the most and rarest words first). Hits are ranked by BM25 \
 relevance (score) unless rank is false, which orders by instanceId. Types are written \
-'namespace/name'. Returns hits with instanceId, uri, label, type, lifecycleState, snippet, and \
-matchedFields; projection \"card\" keeps instanceId, uri, label, type, lifecycleState, score and \
+'namespace/name'. Returns hits (projection \"full\", the default) with instanceId, uri, label, \
+typeId, typeNamespace/typeName, containerIds, lifecycleState, score, snippet and matchedFields; projection \"card\" keeps instanceId, uri, label, type, lifecycleState, score and \
 snippet, and \"label\" drops score and snippet too: use them to scan before you read. facets: true \
 adds counts over the WHOLE match set, before limit/offset (byType, tags, notes, and one entry per \
 closed string field (at most 25), each the top 20 values plus an other count). find with limit 0 \
@@ -410,6 +410,8 @@ pub struct SimilarToolInput {
     pub offset: Option<usize>,
     /// How much of each hit: "full" (default), "card" or "label", as in find.
     pub projection: Option<Projection>,
+    /// Include facets over the similar set, as in find (default: only when limit is 0).
+    pub facets: Option<bool>,
 }
 
 impl SimilarToolInput {
@@ -419,6 +421,7 @@ impl SimilarToolInput {
             offset: self.offset.unwrap_or(0),
             rank: true,
             projection: self.projection.unwrap_or_default(),
+            facets: self.facets,
             ..Default::default()
         };
         let query = DiscoveryQuery {
@@ -1791,7 +1794,8 @@ mod tests {
         assert!(serde_json::from_value::<FindToolInput>(json!({"projection": "tiny"})).is_err());
         let similar: SimilarToolInput =
             serde_json::from_value(json!({"instanceId": "i", "projection": "card"})).unwrap();
-        assert_eq!(similar.into_parts().2.projection, Projection::Card);
+        let page = similar.into_parts().2;
+        assert_eq!((page.projection, page.facets), (Projection::Card, None));
     }
 
     #[test]

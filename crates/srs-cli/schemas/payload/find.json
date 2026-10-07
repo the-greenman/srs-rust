@@ -45,10 +45,8 @@
       ],
       "properties": {
         "containerIds": {
-          "type": [
-            "array",
-            "null"
-          ],
+          "description": "`full` projection only (#1286); absent, never `null`, otherwise.",
+          "type": "array",
           "items": {
             "type": "string"
           }
@@ -66,10 +64,8 @@
           ]
         },
         "matchedFields": {
-          "type": [
-            "array",
-            "null"
-          ],
+          "description": "`full` projection only (#1286); absent, never `null`, otherwise.",
+          "type": "array",
           "items": {
             "type": "string"
           }
@@ -126,12 +122,10 @@
           }
         },
         "facets": {
-          "anyOf": [
+          "description": "Absent unless asked for (#1286); never `null`.",
+          "allOf": [
             {
               "$ref": "#/definitions/DiscoveryFacetsPayload"
-            },
-            {
-              "type": "null"
             }
           ]
         },
