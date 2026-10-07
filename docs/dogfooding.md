@@ -1733,7 +1733,7 @@ with open('/tmp/dogfood-s31/manifest.json') as f:
     m = json.load(f)
 m['sourceDocumentIndex'] = [{
     'documentId': 'aaaabbbb-cccc-dddd-eeee-ffffffffffff',
-    'sidecarPath': 'brief.meta.json',
+    'sidecarPath': 'brief.pdf.meta.json',
     'contentPath': 'brief.pdf',
     'title': 'Project Brief Q3',
     'contentChecksum': 'sha256:abc123',
@@ -1742,11 +1742,11 @@ m['sourceDocumentIndex'] = [{
 with open('/tmp/dogfood-s31/manifest.json', 'w') as f:
     json.dump(m, f, indent=2)
 EOF
-echo '{"documentId":"aaaabbbb-cccc-dddd-eeee-ffffffffffff"}' > /tmp/dogfood-s31/source-documents/brief.meta.json
+echo '{"documentId":"aaaabbbb-cccc-dddd-eeee-ffffffffffff"}' > /tmp/dogfood-s31/source-documents/brief.pdf.meta.json
 
 srs attachment list --repo /tmp/dogfood-s31 --pretty
 ```
-`brief.pdf` entry now carries `documentId`, `title`, `contentChecksum`, `sidecarChecksum`, and `sizeBytes`. `brief.meta.json` is absent from the listing (sidecar excluded). `annexes/annex-a.pdf` and `report.docx` remain without metadata but still carry `sizeBytes`.
+`brief.pdf` entry now carries `documentId`, `title`, `contentChecksum`, `sidecarChecksum`, and `sizeBytes`. `brief.pdf.meta.json` is absent from the listing (sidecar excluded). `annexes/annex-a.pdf` and `report.docx` remain without metadata but still carry `sizeBytes`.
 
 **Negative case — repository not found.**
 ```bash
@@ -1789,11 +1789,11 @@ open('/tmp/brief.pdf', 'wb').write(data)
 ```bash
 $SRS attachment add /tmp/brief.pdf --repo /tmp/dogfood-s32 --title "Project Brief" --pretty
 ```
-Returns `ok: true` with `payload` containing `documentId` (UUID), `contentPath` (`"brief.pdf"`), `sidecarPath` (`"brief.meta.json"`), `sourceDocumentsPath` (`"source-documents"`), `contentChecksum` (`"sha256:..."`), `sidecarChecksum` (`"sha256:..."`).
+Returns `ok: true` with `payload` containing `documentId` (UUID), `contentPath` (`"brief.pdf"`), `sidecarPath` (`"brief.pdf.meta.json"`), `sourceDocumentsPath` (`"source-documents"`), `contentChecksum` (`"sha256:..."`), `sidecarChecksum` (`"sha256:..."`).
 
 Files created in `source-documents/`:
 - `brief.pdf` — the raw binary content
-- `brief.meta.json` — JSON sidecar: `{"documentId":"...","contentPath":"brief.pdf","contentType":"application/pdf","encoding":"binary","checksum":"sha256:..."}`
+- `brief.pdf.meta.json` — JSON sidecar: `{"documentId":"...","contentPath":"brief.pdf","contentType":"application/pdf","encoding":"binary","checksum":"sha256:..."}`
 
 `manifest.json → sourceDocumentIndex` gains one entry with all six fields: `documentId`, `contentPath`, `sidecarPath`, `title`, `contentChecksum`, `sidecarChecksum`.
 
@@ -1808,7 +1808,7 @@ Returns one entry with `path: "brief.pdf"`, `documentId`, `title: "Project Brief
 echo "annex content" > /tmp/annex-a.txt
 $SRS attachment add /tmp/annex-a.txt --repo /tmp/dogfood-s32 --subdir annexes --title "Annex A" --pretty
 ```
-Returns `contentPath: "annexes/annex-a.txt"`, `sidecarPath: "annexes/annex-a.meta.json"`. Both files land under `source-documents/annexes/`.
+Returns `contentPath: "annexes/annex-a.txt"`, `sidecarPath: "annexes/annex-a.txt.meta.json"`. Both files land under `source-documents/annexes/`.
 
 **Negative case — duplicate rejection.**
 ```bash
@@ -1833,6 +1833,13 @@ $SRS repo validate --repo /tmp/dogfood-s32 --pretty
 **Verified 2026-07-17 (#280).** Happy path confirmed: PDF stored, sidecar written with correct `contentType: "application/pdf"`, manifest entry populated, `attachment list` returned the entry with all fields. Subdir (`annexes/`) confirmed: `contentPath: "annexes/annex-a.txt"`. Duplicate rejection confirmed: `ok: false` with the expected diagnostic. Missing-file case confirmed: `ok: false` with read-error diagnostic. `repo validate`: 0 diagnostics throughout.
 
 **Re-verified 2026-07-20 (#647).** `attachment list` immediately after `attachment add` on a freshly-created directory-format repo confirmed: one entry with `path`, `documentId`, `contentChecksum`, `sizeBytes`, and `title` all populated. `repo validate` stays at 0 errors. (Regression tests `add_then_list_attachments_memory_store` and `add_then_list_attachments_json_store` added in `attachment_service.rs` to guard the in-memory store path.)
+
+**Re-verified 2026-10-07 (srs-rust#1329) — sidecar naming fixed to the full filename.** Prior runs above correctly observed `attachment add`'s actual `brief.meta.json`/`brief.pdf.meta.json` output but this doc's own text had drifted inconsistent (now fixed, see edits above). The real bug #1329 fixed: `add_attachment` derived the sidecar name from the content file's *stem*, not its full name, so two attachments sharing a stem with different extensions collided on one sidecar. Dogfooded against a fresh `repo create` + built `srs` binary from this branch:
+```bash
+srs attachment add /tmp/brief.md --repo /tmp/dogfood-1329 --title "Brief (Markdown)" --pretty
+srs attachment add /tmp/brief.txt --repo /tmp/dogfood-1329 --title "Brief (Text)" --pretty
+```
+Both succeed (no spurious duplicate rejection) with distinct `sidecarPath`s: `brief.md.meta.json` and `brief.txt.meta.json`. `attachment list` shows both entries separately, each with its own `documentId`/`title`. `repo validate`: 0 errors/warnings throughout. Negative case re-confirmed: re-adding `brief.md` is still correctly rejected as a duplicate (`ok: false`, exit 1). New regression test `add_attachment_distinct_extensions_same_stem_no_collision` added in `attachment_service.rs`.
 
 ---
 
