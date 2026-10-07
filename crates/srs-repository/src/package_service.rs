@@ -25,7 +25,7 @@ use crate::package_types::{
     validate_package_selector, DefinitionKind, PackageBoundary, PackageSelector,
 };
 use crate::relation_service;
-use crate::store::RepositoryStore;
+use crate::store::{inject_definition_schema, RepositoryStore};
 use crate::validation::validate_definition_write_schema;
 use crate::writer::new_instance_id;
 use serde::{Deserialize, Serialize};
@@ -35,7 +35,8 @@ use srs_core::extensions::import_tracking::{
 use srs_core::types::field::{Field, FieldType};
 use srs_core::types::record_type::RecordType;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
-use srs_schema::{SchemaRegistry, FIELD_SCHEMA_ID, TYPE_SCHEMA_ID};
+use srs_core::validation::relation_type_definition::validate_relation_type_definition;
+use srs_schema::{SchemaRegistry, FIELD_SCHEMA_ID, RELATION_TYPE_SCHEMA_ID, TYPE_SCHEMA_ID};
 
 /// Summary for field list operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -866,6 +867,23 @@ pub fn create_relation_type(
     let rel_filename = definition_rel_path(DefinitionKind::RelationType, &def.key, &def.id);
     let full_path = format!("{boundary_path}/{rel_filename}");
 
+    let mut raw = serde_json::to_value(&def).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from(&full_path),
+        source: e,
+    })?;
+    inject_definition_schema(&mut raw, RELATION_TYPE_SCHEMA_ID);
+    validate_definition_write_schema(
+        RELATION_TYPE_SCHEMA_ID,
+        &raw,
+        std::path::Path::new(&full_path),
+    )?;
+    validate_relation_type_definition(&def).map_err(|source| {
+        RepositoryError::RelationTypeDefinitionValidation {
+            path: std::path::PathBuf::from(&full_path),
+            source,
+        }
+    })?;
+
     store.ensure_relation_types_dir(&format!("{boundary_path}/relation-types"))?;
     store.save_relation_type_definition(&full_path, &def)?;
     store.add_definition_to_boundary(&selector, DefinitionKind::RelationType, &rel_filename)?;
@@ -883,6 +901,24 @@ pub fn update_relation_type(
 ) -> Result<UpdateRelationTypeResult, RepositoryError> {
     let (relative_path, _owner) = find_relation_type_path(store, &def.id)?
         .ok_or_else(|| RepositoryError::DefinitionNotFound { id: def.id.clone() })?;
+
+    let mut raw = serde_json::to_value(&def).map_err(|e| RepositoryError::Serialize {
+        path: std::path::PathBuf::from(&relative_path),
+        source: e,
+    })?;
+    inject_definition_schema(&mut raw, RELATION_TYPE_SCHEMA_ID);
+    validate_definition_write_schema(
+        RELATION_TYPE_SCHEMA_ID,
+        &raw,
+        std::path::Path::new(&relative_path),
+    )?;
+    validate_relation_type_definition(&def).map_err(|source| {
+        RepositoryError::RelationTypeDefinitionValidation {
+            path: std::path::PathBuf::from(&relative_path),
+            source,
+        }
+    })?;
+
     store.save_relation_type_definition(&relative_path, &def)?;
     Ok(UpdateRelationTypeResult {
         relation_type_definition: def,
@@ -2643,6 +2679,81 @@ mod tests {
                 .any(|v| v.as_str().unwrap_or("").starts_with("relation-types/")),
             "relation type should be registered in the boundary's package.json"
         );
+    }
+
+    /// srs-rust#1294: `relation-type.json` has `$schema` in its `required` list
+    /// (like `view.json`/`composition.json`/`theme.json`), but — unlike those three —
+    /// `create_relation_type` never called `validate_definition_write_schema` at all, so
+    /// a definition with `schema: None` wrote successfully with no schema validation,
+    /// while `view`/`composition`/`theme` creation rejected the same omission outright.
+    /// This proves the symmetric fix: `$schema` is now defaulted and schema validation
+    /// actually runs for relation types too.
+    #[test]
+    fn create_relation_type_succeeds_without_explicit_schema() {
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+
+        let store = MemoryStore::default();
+
+        let def = RelationTypeDefinition {
+            schema: None,
+            id: String::new(),
+            version: 1,
+            key: "no-schema-rel".to_string(),
+            namespace: "com.test".to_string(),
+            label: "No Schema Rel".to_string(),
+            description: "a relation type with no explicit $schema".to_string(),
+            category: RelationTypeCategory::Association,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            status: None,
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: None,
+            require_same_type: None,
+            updated_at: None,
+            meta: None,
+        };
+        let result = create_relation_type(&store, def, None).unwrap();
+        assert!(!result.relation_type_definition.id.is_empty());
+    }
+
+    /// srs-rust#1294: companion to the test above — now that `create_relation_type`
+    /// actually validates against `relation-type.json`, a value legal at the Rust-struct
+    /// level but illegal per the schema (`version` must be >= 1) is rejected instead of
+    /// being written to disk unchecked.
+    #[test]
+    fn create_relation_type_rejects_schema_violation() {
+        use srs_core::types::relation_type_definition::{
+            RelationTypeCategory, RelationTypeDefinition,
+        };
+
+        let store = MemoryStore::default();
+
+        let def = RelationTypeDefinition {
+            schema: Some(RELATION_TYPE_SCHEMA_ID.to_string()),
+            id: String::new(),
+            version: 0,
+            key: "bad-version-rel".to_string(),
+            namespace: "com.test".to_string(),
+            label: "Bad Version Rel".to_string(),
+            description: "a relation type with an out-of-range version".to_string(),
+            category: RelationTypeCategory::Association,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            status: None,
+            canonical_direction: None,
+            inverse_type: None,
+            irreflexive: None,
+            require_same_type: None,
+            updated_at: None,
+            meta: None,
+        };
+        match create_relation_type(&store, def, None) {
+            Err(RepositoryError::SchemaValidation { .. }) => {}
+            other => panic!(
+                "expected SchemaValidation (version must be >= 1 per relation-type.json), got: {other:?}"
+            ),
+        }
     }
 
     #[test]
