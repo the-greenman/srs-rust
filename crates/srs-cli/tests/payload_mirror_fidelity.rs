@@ -16,6 +16,7 @@ fn counts(n: usize, other: usize) -> FacetCounts {
         values: (0..n)
             .map(|i| FacetCount {
                 value: format!("v{i}"),
+                type_id: (i % 2 == 0).then(|| format!("t{i}")),
                 count: i + 1,
             })
             .collect(),

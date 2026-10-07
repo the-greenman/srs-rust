@@ -2994,6 +2994,21 @@ fn find_type_flag_is_alias_for_type_namespace_and_type_name() {
         via_alias["payload"]["result"]
     );
 
+    // `--by-type-limit 0` (every type) with `--limit 0`: byType carries typeId and sums to total.
+    let facets = run_srs_in_dir(
+        temp.path(),
+        &["find", "--limit", "0", "--by-type-limit", "0"],
+    );
+    let r = &facets["payload"]["result"];
+    let vals = r["facets"]["byType"]["values"].as_array().unwrap();
+    assert_eq!(vals[0]["value"], "com.test/test-item");
+    assert_eq!(vals[0]["typeId"], "type-test-001");
+    let sum: u64 = vals.iter().map(|v| v["count"].as_u64().unwrap()).sum();
+    assert_eq!(sum, r["total"].as_u64().unwrap());
+    // typeId resolves through `type list`.
+    let types = run_srs_in_dir(temp.path(), &["type", "list"]);
+    assert!(types["payload"].to_string().contains("type-test-001"));
+
     // An invalid (non `namespace/name`) filter is rejected, mirroring `record list`.
     let invalid = run_srs_in_dir(temp.path(), &["find", "--type", "not-a-valid-filter"]);
     assert_eq!(invalid["ok"], false);
