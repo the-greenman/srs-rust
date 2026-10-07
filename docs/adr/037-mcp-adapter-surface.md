@@ -118,6 +118,10 @@ Golden schemas: `find`, `repo agent-index` and `relation neighbours` embed the s
 
 The MCP `find` reply carries `facets` (see ADR-019's #1219 amendment): the adapter serialises the service result unchanged and adds no counting. The default `limit` stays 25; an explicit `limit: 0` passes through and returns no hits with full facets, which is the cheap repository map for a resource-blind client (about 14 KB on the 886-instance muSrs; a default-limit call about 15 KB). The facets shape is not pinned by the `find` golden schema, which embeds `DiscoveryResult` opaquely; the service, MCP and bindings tests pin it. No spec change.
 
+## Amendment (2026-10-07, #1286) — `find` facets opt-in, `projection`
+
+Supersedes the first sentence of the #1219 amendment: the MCP `find` reply carries `facets` only for `limit: 0` or `facets: true` (ADR-019's #1286 amendment), and `find`/`similar` accept `projection` (`full|card|label`). The adapter still adds no counting and no trimming: both inputs map one-to-one onto `FindPage`. The MCP default projection stays `full` (as on the CLI and WASM), so existing clients see the same hits; agents ask for `card`. Since #1286 the `find` golden schema pins the facets shape (optional, never `null`) rather than embedding it opaquely. No spec change.
+
 ## Amendment (2026-10-07, #1287) — tool profiles
 
 `tools/list` is paid for in context on every session: 33 tools with full input schemas are about 44 KB (about 11k tokens), while an agent keeping project memory uses about ten of them. `srs-mcp-core::tools::ToolProfile` defines three fixed tool sets, once, for every transport:

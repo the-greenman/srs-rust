@@ -26,6 +26,7 @@ use srs_repository::package_service::{
     self, FieldListFilter, GetFieldResult, GetTypeResult, ListPackageImportsFilter,
     RelationTypeListFilter, TypeListFilter,
 };
+use srs_repository::projection::Projection;
 use srs_repository::protocol_run_service::{
     self as run_service, AdvanceStageInput as RunAdvanceInput, CreateRunInput as RunCreateInput,
     GetRunResult, RunListFilter,
@@ -67,6 +68,11 @@ fn to_js<T: serde::Serialize>(value: &T) -> Result<JsValue, JsValue> {
 #[wasm_bindgen(start)]
 pub fn init() {
     console_error_panic_hook::set_once();
+}
+
+/// A trailing optional `projection` argument (srs-rust#1286): `full` when absent.
+fn parse_projection(p: Option<String>) -> Result<Projection, JsValue> {
+    p.map_or(Ok(Projection::default()), |p| p.parse().map_err(js_err))
 }
 
 fn js_err(e: impl std::fmt::Display) -> JsValue {
@@ -361,9 +367,12 @@ impl SrsRepository {
     /// content-match hits by BM25 relevance and fills `score`. `by_type_limit` caps
     /// `facets.byType` values (default 20; 0 = every type). `match_mode` is `"all"`
     /// (default: every content word must occur) or `"any"` (any significant word, as a whole
-    /// token, for natural-language queries; always ranked) — srs-rust#1284. Both are
-    /// trailing and optional, so existing callers are unchanged.
+    /// token, for natural-language queries; always ranked) — srs-rust#1284. `facets` returns
+    /// the facets (default: only when `limit` is 0); `projection` is `"full"` (default),
+    /// `"card"` or `"label"` — srs-rust#1286. All are trailing and optional, so existing
+    /// callers are unchanged.
     /// Returns a `DiscoveryResult` as a JS value.
+    #[allow(clippy::too_many_arguments)]
     pub fn find(
         &self,
         query_json: &str,
@@ -372,6 +381,8 @@ impl SrsRepository {
         rank: Option<bool>,
         by_type_limit: Option<usize>,
         match_mode: Option<String>,
+        facets: Option<bool>,
+        projection: Option<String>,
     ) -> Result<JsValue, JsValue> {
         let query: DiscoveryQuery =
             serde_json::from_str(query_json).map_err(|e| js_err(format!("invalid query: {e}")))?;
@@ -385,6 +396,8 @@ impl SrsRepository {
             rank: rank.unwrap_or(false),
             match_mode,
             by_type_limit,
+            facets,
+            projection: parse_projection(projection)?,
         };
         let result = discovery_service::find(&self.store, query, page).map_err(js_err)?;
         to_js(&result)
@@ -392,13 +405,16 @@ impl SrsRepository {
 
     /// "More like this": instances similar to `instance_id`, ranked by BM25 over its top-weighted
     /// terms, excluding itself. `query_json` carries the structured `DiscoveryQuery` filters (no
-    /// `contentMatch`); `limit`/`offset` page the hits. Returns a `DiscoveryResult` as a JS value.
+    /// `contentMatch`); `limit`/`offset` page the hits; `projection` and `facets` are as in
+    /// [`Self::find`]. Returns a `DiscoveryResult` as a JS value.
     pub fn find_similar(
         &self,
         instance_id: &str,
         query_json: &str,
         limit: Option<usize>,
         offset: Option<usize>,
+        projection: Option<String>,
+        facets: Option<bool>,
     ) -> Result<JsValue, JsValue> {
         let query: DiscoveryQuery =
             serde_json::from_str(query_json).map_err(|e| js_err(format!("invalid query: {e}")))?;
@@ -406,6 +422,8 @@ impl SrsRepository {
             limit,
             offset: offset.unwrap_or(0),
             rank: true,
+            projection: parse_projection(projection)?,
+            facets,
             ..Default::default()
         };
         let result =

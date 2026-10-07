@@ -44,6 +44,7 @@ pub mod package_dependency_service;
 pub mod package_install_service;
 pub mod package_service;
 pub mod package_types;
+pub mod projection;
 pub mod protocol_run_service;
 pub mod protocol_service;
 pub mod record_label;

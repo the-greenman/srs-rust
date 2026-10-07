@@ -31,13 +31,13 @@ fn hit(full: bool) -> DiscoveryHit {
         uri: "srs://r/record/i".into(),
         label: "L".into(),
         type_id: s("t"),
-        container_ids: if full { vec!["c".into()] } else { vec![] },
+        container_ids: full.then(|| vec!["c".into()]),
         type_namespace: s("ns"),
         type_name: s("n"),
         lifecycle_state: s("draft"),
         score: full.then_some(1.5),
         snippet: s("…snip…"),
-        matched_fields: if full { vec!["f".into()] } else { vec![] },
+        matched_fields: full.then(|| vec!["f".into()]),
     }
 }
 
@@ -52,7 +52,7 @@ fn find_full_and_empty_facets_match() {
     find_roundtrip(DiscoveryResult {
         hits: vec![hit(true), hit(false)],
         total: 2,
-        facets: DiscoveryFacets {
+        facets: Some(DiscoveryFacets {
             by_type: counts(2, 3),
             notes: 4,
             tags: counts(1, 0),
@@ -60,13 +60,20 @@ fn find_full_and_empty_facets_match() {
                 field: "status".into(),
                 counts: counts(2, 1),
             }],
-        },
+        }),
         diagnostics: vec!["d".into()],
     });
     find_roundtrip(DiscoveryResult {
         hits: vec![],
         total: 0,
-        facets: DiscoveryFacets::default(),
+        facets: Some(DiscoveryFacets::default()),
+        diagnostics: vec![],
+    });
+    // Facets not asked for (srs-rust#1286): the key is absent on both sides.
+    find_roundtrip(DiscoveryResult {
+        hits: vec![hit(false)],
+        total: 1,
+        facets: None,
         diagnostics: vec![],
     });
 }
