@@ -954,12 +954,16 @@ pub struct NeighbourSummaryPayload {
 
 impl From<NeighbourSummary> for NeighbourSummaryPayload {
     fn from(n: NeighbourSummary) -> Self {
+        // `lifecycle_state`/`summary` are set only by a context card projection (#1285),
+        // never by `relation neighbours`, so this payload does not carry them.
         let NeighbourSummary {
             instance_id,
             uri,
             label,
             type_namespace,
             type_name,
+            lifecycle_state: _,
+            summary: _,
         } = n;
         Self {
             instance_id,
@@ -2921,6 +2925,14 @@ pub struct ContextFieldPayload {
     pub tagged_chunks: Vec<serde_json::Value>,
 }
 
+/// Payload for `context record --markdown` (#1285): the record's context as compact markdown.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextRecordMarkdownPayload {
+    pub record_id: String,
+    pub rendered: String,
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextRecordPayload {
@@ -2935,6 +2947,9 @@ pub struct ContextRecordPayload {
     /// BEHAVIOUR CHANGE (#1134): formerly outbound only. Consumers that assumed
     /// `sourceId == recordId` must check `direction`. Both directions; each entry is a RelationSummary plus `direction` (out|in), the
     /// other endpoint inline as `neighbour`, and the relation's own optional `createdAt` / `createdBy` (#1246).
+    /// With `--projection card|label` (#1285) each `neighbour` is a `{kind: "card", instanceId, uri, label,
+    /// typeNamespace?, typeName?, lifecycleState?, summary?}` card (no `summary` for `label`) and the edge
+    /// drops its endpoint labels and provenance.
     #[schemars(with = "Vec<serde_json::Value>")]
     pub relations: Vec<srs_repository::context_query_service::ContextRelation>,
     /// Present with the global `--container`: the container the arrangement was read from.

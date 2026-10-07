@@ -1636,7 +1636,8 @@ impl SrsRepository {
     /// Assemble context for a record: field values and every relation touching it (both
     /// directions, neighbour inline).
     ///
-    /// `input_json` is `{"recordId": "<id>", "containerId"?: "<id>", "excludeRelationCategories"?: ["composition","sequence"]}`;
+    /// `input_json` is `{"recordId": "<id>", "containerId"?: "<id>", "excludeRelationCategories"?: ["composition","sequence"], "projection"?: "full"|"card"|"label"}`
+    /// (`projection`, #1285: `card`/`label` inline each neighbour as a compact card instead of the whole instance);
     /// the latter drops edges by `RelationTypeDefinition.category` (#1188); with `containerId` the
     /// result also carries `entry` and `subtree` (the record's arrangement there).
     /// Returns a `RecordContextResult` with `recordId`, `typeId`, `typeName`,
@@ -1648,6 +1649,14 @@ impl SrsRepository {
         let result =
             context_query_service::get_record_context(&self.store, input).map_err(js_err)?;
         to_js(&result)
+    }
+
+    /// [`Self::context_record`] as compact markdown (#1285): same `input_json`; the
+    /// projection is `card` unless `"label"` is given. Returns the markdown string.
+    pub fn context_record_markdown(&self, input_json: &str) -> Result<String, JsValue> {
+        let input: RecordContextQuery =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        context_query_service::render_record_context_markdown(&self.store, input).map_err(js_err)
     }
 
     // ── Protocol runs (ext:protocol execution) ────────────────────────────────

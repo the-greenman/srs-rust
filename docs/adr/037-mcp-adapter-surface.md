@@ -69,6 +69,25 @@ The URI enumeration in §6 gains `srs://<repositoryId>/context/<instanceId>` and
 
 The context template becomes the RFC 6570 form `context/{containerId}/{instanceId}{?excludeRelationCategories}`; `srs_mcp_core::uri` parses `?excludeRelationCategories=<category>[,<category>...]` (comma list, `&`-separable, unknown keys are a URI error, unknown category values are `invalid_params`) and `format` round-trips it. The value maps to `RecordContextQuery.exclude_relation_categories`: the service drops any edge whose relation type's installed `RelationTypeDefinition.category` is listed, never by relation name; edges whose type has no installed definition are kept; empty (the default) leaves the read unchanged and does not load the package. The same field is the CLI `srs context record --exclude-category <cat>` (repeatable) and the WASM `context_record` key `excludeRelationCategories`. Output shape is unchanged (no payload or golden-schema change). Category spellings parse once, in `FromStr for RelationTypeCategory` (srs-core). No spec change.
 
+## Amendment (2026-10-06, #1285) — compact context: `projection` and `format=markdown`
+
+The context template becomes `context/{containerId}/{instanceId}{?excludeRelationCategories,projection,format}`. Both parameters are optional; omitting them leaves the read byte-identical.
+
+**`?projection=full|card|label`** maps to `RecordContextQuery.projection`, the same field as the CLI `srs context record --projection` and the WASM `context_record` key `projection`.
+- `card` replaces each inlined neighbour with a `{kind: "card"}` `NeighbourSummary`: instanceId, uri, label, type, lifecycleState, and `summary`. `summary` is the first non-label string field in Type order, at most 160 chars.
+- `label` is the same card without `summary`.
+- Both drop each edge's endpoint labels and provenance. The context record itself stays whole.
+- `NeighbourSummary` is the existing `neighbours` shape, gaining two optional fields that `relation neighbours` never sets. One shape, not a second.
+
+**`?format=markdown`** returns `text/markdown` from `context_query_service::render_record_context_markdown`:
+- The record's fields come first, as `render_service`'s baseline rows (`render_record_rows`: the same order, labels, value rendering and row primitive as a composition's baseline path, so there is no second field renderer).
+- Then one line per edge, grouped by relation type and direction: label, type, lifecycle state, instance id, and the card summary beneath.
+- The projection is forced to `card` unless it is `label`.
+- The same renderer backs the CLI `srs context record --markdown` (payload `ContextRecordMarkdownPayload {recordId, rendered}`, golden `context-record-markdown.json`) and the WASM `context_record_markdown`.
+- `format` accepts only `json|markdown`; `json` is the default form and formats back without the key. Any other value, an unknown projection, or a duplicated key is a URI error, as on tree URIs.
+
+Measured on srs-context's `srs-repository` component (25 edges): full read ~9.1k tokens via the CLI (~12.5k via MCP), `card` JSON ~4.6k, `label` JSON ~3.6k, card markdown ~1.8k (~0.35k of it the record's own fields), label markdown ~0.9k. No spec change: these are read-time projections of an implementation resource, not a spec construct.
+
 ## Amendment (2026-10-04, #1229) — bounded `neighbours` tool, tree query parameters
 
 The tool catalogue gains `neighbours {instanceId, relationType?, direction?, limit?, offset?}`: one `context_query_service::list_neighbours` call, the same read as `srs relation neighbours` and the WASM `neighbours` binding. It returns `total` (every matching edge) and a page of edges (`direction`, `relationId`, `relationType`, and the neighbour's `instanceId`, `label`, `typeNamespace`/`typeName`; never the record), sorted `(relationType, relation createdAt none-last, relationId)`. Only the returned page loads its neighbours, so a 782-edge hub costs one page. The service pages with `limit: None` = all (like `FindPage`); the MCP adapter defaults `limit` to 25 and clamps it to 100. `NeighboursToolInput` is a shadow input with an `into_parts` conversion and a unit test exercising every field. The neighbour `uri` field is added by #1227 (see its amendment). The `tree` and `tree/{instanceId}` resources gain `?maxDepth=&relationType=&typeFilter=` (template `tree/{instanceId}{?maxDepth,relationType,typeFilter}`), parsed in `srs_mcp_core::uri` into `TreeQuery` and passed to `TreeOptions`; a non-integer `maxDepth`, a duplicated key, an unknown key, or any query on a non-tree, non-context URI is a URI error (`invalid_params`). Values are taken verbatim (no percent-decoding; `namespace/name` and relation keys need none). Tree controls are URI parameters, not a second tree tool (one way per goal). No spec change.
