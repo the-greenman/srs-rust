@@ -3150,7 +3150,7 @@ mod tests {
         let result = AddAttachmentResult {
             document_id: "doc-002".to_string(),
             content_path: "brief.pdf".to_string(),
-            sidecar_path: "brief.meta.json".to_string(),
+            sidecar_path: "brief.pdf.meta.json".to_string(),
             source_documents_path: "source-documents".to_string(),
             content_checksum: "sha256:aaa".to_string(),
             sidecar_checksum: "sha256:bbb".to_string(),
@@ -3158,7 +3158,7 @@ mod tests {
         let json = serde_json::to_value(&result).expect("AddAttachmentResult must serialize");
         assert_eq!(json["documentId"].as_str(), Some("doc-002"));
         assert_eq!(json["contentPath"].as_str(), Some("brief.pdf"));
-        assert_eq!(json["sidecarPath"].as_str(), Some("brief.meta.json"));
+        assert_eq!(json["sidecarPath"].as_str(), Some("brief.pdf.meta.json"));
         assert_eq!(
             json["sourceDocumentsPath"].as_str(),
             Some("source-documents")
