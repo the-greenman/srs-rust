@@ -128,6 +128,8 @@ pub fn read_attachment_policy(
     })
 }
 
+/// The write-time I-107 comparison (twin of the validate-time checks in `validation.rs`;
+/// unification tracked in #1332). Fails open when the policy record is unreadable, like validate.
 /// The one I-107 comparison: why `(content_type, size)` violates `policy`, given the bytes
 /// already stored (`existing_total`). Mirrors `validation.rs`: sizes compare with `>`,
 /// MIME matching is exact and case-sensitive.

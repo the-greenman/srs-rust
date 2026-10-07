@@ -138,7 +138,7 @@ cargo test -p srs-bindings
 
 #### Tasks
 
-- [ ] ADR-037 dated amendment; `srs-usage.md` MCP tool list (in the `srs` repo, separate branch); the MCP server instructions text in `crates/srs-mcp-core/src/lib.rs` if it enumerates tools; `docs/dogfooding.md` scenario.
+- [x] ADR-037 dated amendment; dogfooding S57; srs-usage.md in the srs repo (separate PR).
 
 #### Acceptance Criteria
 
