@@ -133,3 +133,15 @@ fn tree_session_upgrade_advances_write_epoch_only_when_not_dry_run() {
     assert!(store.write_epoch() > e0);
     assert_eq!(real.version, "99.0.0");
 }
+
+/// The WASM options JSON carries `priorBundles` (bundle texts) and `adopt` (definition ids).
+#[test]
+fn upgrade_options_json_accepts_prior_bundles_and_adopt() {
+    let o: UpgradeOptions =
+        serde_json::from_value(serde_json::json!({"priorBundles": ["{}"], "adopt": ["id-1"]}))
+            .unwrap();
+    assert_eq!(
+        (o.prior_bundles.len(), o.adopt),
+        (1, vec!["id-1".to_string()])
+    );
+}

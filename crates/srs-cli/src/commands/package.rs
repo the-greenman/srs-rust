@@ -45,7 +45,9 @@ pub fn dispatch(ctx: CliContext, cmd: PackageCommand) -> Result<String> {
             bundle,
             dry_run,
             boundary,
-        } => cmd_package_upgrade(ctx, bundle, dry_run, boundary),
+            prior_bundle,
+            adopt,
+        } => cmd_package_upgrade(ctx, bundle, dry_run, boundary, prior_bundle, adopt),
         PackageCommand::Export {
             selector,
             output,
@@ -190,11 +192,19 @@ fn cmd_package_upgrade(
     bundle: PathBuf,
     dry_run: bool,
     boundary_path: Option<String>,
+    prior_bundles: Vec<PathBuf>,
+    adopt: Vec<String>,
 ) -> Result<String> {
     let bytes = read_bundle_file(&bundle)?;
+    let prior_bundles = prior_bundles
+        .iter()
+        .map(|p| Ok(String::from_utf8(read_bundle_file(p)?)?))
+        .collect::<Result<Vec<_>>>()?;
     let opts = UpgradeOptions {
         dry_run,
         boundary_path,
+        prior_bundles,
+        adopt,
     };
     let result = with_store(&ctx, |s| {
         Ok(upgrade_package_bundle(s, &bytes, opts.clone())?)

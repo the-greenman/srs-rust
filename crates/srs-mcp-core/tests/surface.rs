@@ -223,6 +223,14 @@ fn package_upgrade_tool_uses_the_core_service() {
     assert_eq!(r["dryRun"], false, "{real}");
     assert_eq!(r["added"][0]["name"], "two");
     assert_eq!(r["upgraded"], true);
+    // priorBundles / adopt are accepted inputs (proof and consent, #1325).
+    let ok = tool(
+        &mut d,
+        "package_upgrade",
+        json!({ "bundle": new, "dryRun": true, "priorBundles": [old], "adopt": [f1] }),
+    );
+    assert_eq!(ok["result"]["isError"], false, "{ok}");
+    assert!(ok["result"]["structuredContent"]["adopted"].is_array());
     let again = tool(&mut d, "package_upgrade", json!({ "bundle": new }));
     assert_eq!(
         again["result"]["structuredContent"]["added"]

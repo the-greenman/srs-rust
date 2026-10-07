@@ -214,12 +214,17 @@ be installed with the bundle's packageId (otherwise use install, which has no MC
 bundle version is refused, an equal one is a content sync, a higher one also bumps the boundary's \
 version. ALWAYS call with dryRun true first and read the plan: added (new UUIDs), newVersions (new \
 versions of an installed UUID, installed alongside the old ones), updated (same uuid+version, upstream \
-changed, local copy clean: overwritten), unchanged, repaired (content current but reference copy / \
+changed, local copy clean: overwritten; provenBy = the priorBundles version that proved an \
+installed definition with no reference copy unedited), adopted (unproven no-reference-copy definitions \
+overwritten because you listed their ids in adopt: ANY LOCAL CHANGE TO THEM IS LOST; list an id only \
+after the user consents per definition), unchanged, repaired (content current but reference copy / \
 import record rewritten), conflicts (NOT written: local-edit = you edited a definition that upstream \
 also changed, the local file is kept; no-reference-copy; key-collision = same name, different UUID), \
 removedUpstream (installed from this package but absent from the bundle: reported, never deleted) and \
 dependencyWarnings (unsatisfied RFC-044 requirements; never blocking). Records are never touched. \
-Then repeat with dryRun false to apply, and run repo_validate. boundaryPath picks the boundary when \
+priorBundles (JSON texts of earlier published bundles of the same package) are proof only. A local-edit \
+or key-collision is never adoptable (a note says so). Then repeat with dryRun false to apply, and run \
+repo_validate. boundaryPath picks the boundary when \
 the package is installed at several.";
 
 pub const DESC_NEIGHBOURS: &str = "Bounded read of one instance's relation neighbours (Record or \
@@ -965,6 +970,13 @@ pub struct PackageUpgradeToolInput {
     pub dry_run: bool,
     /// The installed boundary to upgrade; default = the one installed with the bundle's packageId.
     pub boundary_path: Option<String>,
+    /// Earlier published `.srspkg` JSON texts of the same package (same packageId), used only to
+    /// prove an installed definition without a reference copy unedited.
+    #[serde(default)]
+    pub prior_bundles: Vec<String>,
+    /// Definition ids to replace although nothing proves them clean (no-reference-copy only).
+    #[serde(default)]
+    pub adopt: Vec<String>,
 }
 
 /// `package_dependency_list`: the requiring boundary.
@@ -1683,6 +1695,8 @@ pub fn call_tool(
             let options = UpgradeOptions {
                 dry_run: input.dry_run,
                 boundary_path: input.boundary_path,
+                prior_bundles: input.prior_bundles,
+                adopt: input.adopt,
             };
             match package_install_service::upgrade_package_bundle(
                 store,

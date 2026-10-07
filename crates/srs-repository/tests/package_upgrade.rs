@@ -107,6 +107,7 @@ fn upgrade(store: &FileStore, bytes: &[u8], dry_run: bool) -> UpgradePackageResu
         UpgradeOptions {
             dry_run,
             boundary_path: None,
+            ..Default::default()
         },
     )
     .unwrap()
@@ -591,6 +592,7 @@ fn dry_run_fails_on_a_corrupt_import_summary_like_a_real_run() {
         let opts = UpgradeOptions {
             dry_run,
             boundary_path: None,
+            ..Default::default()
         };
         assert!(upgrade_package_bundle(&store, &v_new(), opts).is_err());
     }
@@ -602,6 +604,7 @@ fn boundary_option_selects_and_ambiguity_is_refused() {
     let at = |p: &str| UpgradeOptions {
         dry_run: true,
         boundary_path: Some(p.to_string()),
+        ..Default::default()
     };
     assert!(upgrade_package_bundle(&store, &v_new(), at("packages/upg")).is_ok());
     let err = upgrade_package_bundle(&store, &v_new(), at("packages/elsewhere")).unwrap_err();
@@ -689,4 +692,138 @@ fn refresh_of_a_locally_edited_definition_keeps_its_local_provenance() {
     assert_eq!(rec["conflictState"], "local-ahead");
     let kept: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
     assert_eq!(kept["description"], "Edited locally.");
+}
+
+// ── #1325: proof by prior bundle, per-definition consent ────────────────────
+
+fn synced() -> Vec<u8> {
+    bundle(
+        "1.3.0",
+        vec![field(F, "title")],
+        vec![ty(1, "Synced.", &[F])],
+    )
+}
+
+fn no_ref_copy(t: &tempfile::TempDir, store: &FileStore) {
+    let rel = type_v1_path(store).replacen("packages/upg/", "", 1);
+    std::fs::remove_file(t.path().join("packages/upg/.srs-import/refs").join(&rel)).unwrap();
+}
+
+fn with_opts(
+    store: &FileStore,
+    new: &[u8],
+    prior: &[Vec<u8>],
+    adopt: &[&str],
+    dry: bool,
+) -> UpgradePackageResult {
+    upgrade_package_bundle(
+        store,
+        new,
+        UpgradeOptions {
+            dry_run: dry,
+            prior_bundles: prior
+                .iter()
+                .map(|b| String::from_utf8(b.clone()).unwrap())
+                .collect(),
+            adopt: adopt.iter().map(|s| (*s).to_string()).collect(),
+            ..Default::default()
+        },
+    )
+    .unwrap()
+}
+
+#[test]
+fn prior_bundle_proves_a_missing_reference_copy_clean() {
+    let (t, store) = installed_old();
+    no_ref_copy(&t, &store);
+    let before = snapshot(t.path());
+    let dry = with_opts(&store, &synced(), &[v_old()], &[], true);
+    assert_eq!(snapshot(t.path()), before, "dry run wrote");
+    assert!(dry.conflicts.is_empty(), "{:?}", dry.conflicts);
+    assert_eq!(dry.updated.len(), 1);
+    assert_eq!(dry.updated[0].proven_by.as_deref(), Some("1.3.0"));
+
+    let r = with_opts(&store, &synced(), &[v_old()], &[], false);
+    assert_eq!(r.updated.len(), 1);
+    assert_eq!(r.updated[0].proven_by.as_deref(), Some("1.3.0"));
+    let rel = type_v1_path(&store).replacen("packages/upg/", "", 1);
+    let refc: Value = serde_json::from_slice(
+        &std::fs::read(t.path().join("packages/upg/.srs-import/refs").join(&rel)).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(refc["description"], "Synced.");
+    assert_valid(&store);
+    // Converges: the next run has nothing to do.
+    let again = with_opts(&store, &synced(), &[v_old()], &[], false);
+    assert!(again.conflicts.is_empty() && again.updated.is_empty() && again.adopted.is_empty());
+}
+
+#[test]
+fn prior_bundle_does_not_prove_an_edited_definition() {
+    let (t, store) = installed_old();
+    no_ref_copy(&t, &store);
+    let file = t.path().join(type_v1_path(&store));
+    let mut v: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    v["description"] = json!("Edited locally.");
+    std::fs::write(&file, serde_json::to_vec_pretty(&v).unwrap()).unwrap();
+    let r = with_opts(&store, &synced(), &[v_old()], &[], false);
+    assert_eq!(r.conflicts.len(), 1);
+    assert_eq!(r.conflicts[0].conflict_kind, "no-reference-copy");
+    assert!(r.updated.is_empty());
+}
+
+#[test]
+fn adopt_overwrites_a_no_reference_copy_conflict() {
+    let (t, store) = installed_old();
+    no_ref_copy(&t, &store);
+    let dry = with_opts(&store, &synced(), &[], &[A], true);
+    assert_eq!(dry.adopted.len(), 1);
+    assert!(dry.conflicts.is_empty());
+    let r = with_opts(&store, &synced(), &[], &[A], false);
+    assert_eq!(r.adopted.len(), 1);
+    assert!(r.updated.is_empty());
+    let pkg = store.load_package().unwrap();
+    assert_eq!(pkg.resolve_type(A, 1).unwrap().description, "Synced.");
+    assert_valid(&store);
+}
+
+#[test]
+fn adopt_is_refused_for_a_local_edit() {
+    let (t, store) = installed_old();
+    let file = t.path().join(type_v1_path(&store));
+    let mut v: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    v["description"] = json!("Edited locally.");
+    std::fs::write(&file, serde_json::to_vec_pretty(&v).unwrap()).unwrap();
+    let r = with_opts(&store, &synced(), &[], &[A], false);
+    assert_eq!(r.conflicts.len(), 1);
+    assert_eq!(r.conflicts[0].conflict_kind, "local-edit");
+    assert!(r.adopted.is_empty());
+    assert!(
+        r.notes.iter().any(|n| n.contains("not adoptable")),
+        "{:?}",
+        r.notes
+    );
+    let kept: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(kept["description"], "Edited locally.");
+}
+
+#[test]
+fn prior_bundle_of_another_package_is_refused() {
+    let (_t, store) = installed_old();
+    let other = bundle_with(
+        "1.0.0",
+        vec![field(F, "title")],
+        vec![ty(1, "Old.", &[F])],
+        json!({"packageId": "9a1b0c2d-2222-4aaa-8bbb-0000000000ff"}),
+    );
+    let err = upgrade_package_bundle(
+        &store,
+        &synced(),
+        UpgradeOptions {
+            prior_bundles: vec![String::from_utf8(other).unwrap()],
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("prior bundle"), "{err}");
 }

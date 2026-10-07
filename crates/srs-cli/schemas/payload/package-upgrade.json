@@ -5,6 +5,7 @@
   "type": "object",
   "required": [
     "added",
+    "adopted",
     "conflicts",
     "dependencyWarnings",
     "dryRun",
@@ -23,6 +24,13 @@
   "properties": {
     "added": {
       "description": "New definition UUIDs.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageUpgradeItem"
+      }
+    },
+    "adopted": {
+      "description": "Unproven (`no-reference-copy`) definitions overwritten because `--adopt` named them.",
       "type": "array",
       "items": {
         "$ref": "#/definitions/PackageUpgradeItem"
@@ -186,6 +194,13 @@
         "name": {
           "type": "string"
         },
+        "provenBy": {
+          "description": "`updated` only: the prior bundle version that proved the installed content clean.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "version": {
           "type": "integer",
           "format": "uint32",
@@ -211,6 +226,13 @@
         },
         "name": {
           "type": "string"
+        },
+        "provenBy": {
+          "description": "`updated` only: the prior bundle version that proved the installed content clean.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "version": {
           "type": "integer",

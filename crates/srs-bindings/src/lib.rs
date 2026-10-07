@@ -1469,10 +1469,13 @@ impl SrsRepository {
     }
 
     /// Upgrade an installed package from a newer .srspkg (same service as `srs package upgrade`).
-    /// bundle_json is the file's text; options_json: {"dryRun"?: bool, "boundaryPath"?: string}
+    /// bundle_json is the file's text; options_json: {"dryRun"?: bool, "boundaryPath"?: string,
+    /// "priorBundles"?: string[] (earlier published bundles' file texts of the same package, proof
+    /// only), "adopt"?: string[] (definition ids to replace although unproven; never a local-edit)}
     /// ("{}" for defaults). Returns UpgradePackageResult (same fields as the CLI payload:
-    /// packageId, name, previousVersion, version, upgraded, dryRun, added, newVersions, updated,
-    /// unchanged, conflicts, removedUpstream, dependencyWarnings, notes). A downgrade or a package
+    /// packageId, name, previousVersion, version, upgraded, dryRun, added, newVersions, updated
+    /// (items may carry provenBy), adopted, unchanged, repaired, conflicts, removedUpstream,
+    /// dependencyWarnings, notes). A downgrade or a package
     /// that is not installed is an error. Advances write_epoch unless dryRun (a dry run writes
     /// nothing); the session is dirty after a real run.
     pub fn upgrade_package_bundle(
