@@ -89,18 +89,18 @@ the same directory both succeed and produce distinct sidecars
 
 #### Tasks
 
-- [ ] In `attachment_service.rs::add_attachment`, change the `sidecar_name` block
+- [x] In `attachment_service.rs::add_attachment`, change the `sidecar_name` block
   (lines ~288-294) to use `file_name` directly instead of its stem:
   `format!("{file_name}.meta.json")`.
-- [ ] Update the doc comment above `add_attachment` (line ~236-238) if it references
-  the old naming shape.
-- [ ] Add a new test (near the existing `add_attachment` tests, e.g. after the test
+- [x] Update the doc comment above `add_attachment` (line ~236-238) if it references
+  the old naming shape. (No update needed — already generic, per plan review.)
+- [x] Add a new test (near the existing `add_attachment` tests, e.g. after the test
   covering `"brief.pdf"` → `"brief.meta.json"`) proving the collision is fixed:
   create `brief.md` then `brief.txt` in the same (or no) subdir and assert both
   `add_attachment` calls succeed with `sidecar_path` values `"brief.md.meta.json"`
   and `"brief.txt.meta.json"` respectively, and that both sidecar files exist with
   distinct content.
-- [ ] Update every existing assertion in `attachment_service.rs` (and any other test
+- [x] Update every existing assertion in `attachment_service.rs` (and any other test
   file under `crates/srs-repository` / `crates/srs-bindings`) that currently expects
   a stem-form sidecar path produced *by `add_attachment` itself* (not fixture data
   pre-seeded with a filename already in full-filename form) to the new full-filename
@@ -108,11 +108,11 @@ the same directory both succeed and produce distinct sidecars
 
 #### Acceptance Criteria
 
-- [ ] `add_attachment` for `brief.pdf` now returns `sidecar_path: "brief.pdf.meta.json"`.
-- [ ] `add_attachment("brief.md", ...)` followed by `add_attachment("brief.txt", ...)`
+- [x] `add_attachment` for `brief.pdf` now returns `sidecar_path: "brief.pdf.meta.json"`.
+- [x] `add_attachment("brief.md", ...)` followed by `add_attachment("brief.txt", ...)`
   in the same subdir both succeed (no spurious "file already exists" collision) and
   produce two distinct sidecar files.
-- [ ] No existing test regresses silently — any assertion on `add_attachment`'s
+- [x] No existing test regresses silently — any assertion on `add_attachment`'s
   returned/written sidecar path reflects the new naming.
 
 #### Testing
@@ -130,11 +130,13 @@ Specific tests to write or verify:
 
 #### Milestone gate
 
-1. Verify acceptance criteria above.
+1. Verify acceptance criteria above. Done.
 2. Confirm the new test exists and passes, and no other test was left asserting the
-   stale stem-form path.
-3. `cargo test -p srs-repository && cargo test -p srs-bindings && cargo clippy -- -D warnings`
-4. Mark checkboxes `[x]`, commit.
+   stale stem-form path. Done — 45/45 `srs-repository` attachment tests pass, 30/30
+   `srs-bindings` tests pass, `cargo test --workspace` green (with `SRS_SPEC_DIR`
+   pointed at a fresh `origin/master` clone — the local sibling trap, not this fix).
+3. `cargo test -p srs-repository && cargo test -p srs-bindings && cargo clippy -- -D warnings` — all green.
+4. Mark checkboxes `[x]`, commit. Done.
 
 ---
 
