@@ -183,6 +183,9 @@ pub struct AddAttachmentInput {
     pub title: Option<String>,
     /// MIME type (e.g. `"application/pdf"`). Auto-detected from file extension if `None`.
     pub content_type: Option<String>,
+    /// Reject content that violates the RFC-017 `attachment_policy` (I-107 permits hard
+    /// rejection). `false` keeps the validate-time-warning behaviour (srs-rust#1332).
+    pub enforce_policy: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -319,6 +322,14 @@ pub fn add_attachment(
         .as_deref()
         .map(|s| s.to_string())
         .unwrap_or_else(|| infer_content_type(&file_name).to_string());
+
+    if input.enforce_policy {
+        crate::attachment_policy_service::check_attachment(
+            store,
+            &content_type,
+            input.content.len() as u64,
+        )?;
+    }
 
     let document_id = uuid::Uuid::new_v4().to_string();
     let mut sidecar_value = serde_json::json!({
@@ -986,6 +997,7 @@ mod tests {
         let result = add_attachment(
             &store,
             AddAttachmentInput {
+                enforce_policy: false,
                 file_name: "report.pdf".to_string(),
                 content: b"PDF content".to_vec(),
                 subdir: None,
@@ -1011,6 +1023,7 @@ mod tests {
         let result = add_attachment(
             &store,
             AddAttachmentInput {
+                enforce_policy: false,
                 file_name: "brief.pdf".to_string(),
                 content: b"bytes".to_vec(),
                 subdir: None,
@@ -1038,6 +1051,7 @@ mod tests {
         let result = add_attachment(
             &store,
             AddAttachmentInput {
+                enforce_policy: false,
                 file_name: "annex.pdf".to_string(),
                 content: b"annex bytes".to_vec(),
                 subdir: Some("annexes".to_string()),
@@ -1062,6 +1076,7 @@ mod tests {
     fn add_attachment_duplicate_rejected() {
         let store = empty_store();
         let input = || AddAttachmentInput {
+            enforce_policy: false,
             file_name: "doc.pdf".to_string(),
             content: b"data".to_vec(),
             subdir: None,
@@ -1085,6 +1100,7 @@ mod tests {
         let md_result = add_attachment(
             &store,
             AddAttachmentInput {
+                enforce_policy: false,
                 file_name: "brief.md".to_string(),
                 content: b"markdown body".to_vec(),
                 subdir: None,
@@ -1096,6 +1112,7 @@ mod tests {
         let txt_result = add_attachment(
             &store,
             AddAttachmentInput {
+                enforce_policy: false,
                 file_name: "brief.txt".to_string(),
                 content: b"plain text body".to_vec(),
                 subdir: None,
@@ -1143,6 +1160,7 @@ mod tests {
         add_attachment(
             &store,
             AddAttachmentInput {
+                enforce_policy: false,
                 file_name: "doc.pdf".to_string(),
                 content: b"pdf".to_vec(),
                 subdir: None,
@@ -1170,6 +1188,7 @@ mod tests {
         add_attachment(
             &store,
             AddAttachmentInput {
+                enforce_policy: false,
                 file_name: "data.bin".to_string(),
                 content: b"raw".to_vec(),
                 subdir: None,
@@ -1200,6 +1219,7 @@ mod tests {
         let add_result = add_attachment(
             &store,
             AddAttachmentInput {
+                enforce_policy: false,
                 file_name: "report.pdf".to_string(),
                 content: b"PDF bytes".to_vec(),
                 subdir: None,
@@ -1256,6 +1276,7 @@ mod tests {
         let add_result = add_attachment(
             &store,
             AddAttachmentInput {
+                enforce_policy: false,
                 file_name: "brief.pdf".to_string(),
                 content: b"brief bytes".to_vec(),
                 subdir: None,
@@ -1624,6 +1645,7 @@ mod tests {
         let result = add_attachment(
             &store,
             AddAttachmentInput {
+                enforce_policy: false,
                 file_name: "evidence.pdf".to_string(),
                 content: b"evidence content".to_vec(),
                 subdir: Some("decisions".to_string()),

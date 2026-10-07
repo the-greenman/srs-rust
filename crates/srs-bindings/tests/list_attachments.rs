@@ -118,6 +118,7 @@ fn binding_list_attachments_size_bytes_from_binary_content() {
     add_attachment(
         &store,
         AddAttachmentInput {
+            enforce_policy: false,
             file_name: "brief.pdf".to_string(),
             content: b"PDF bytes".to_vec(),
             subdir: None,

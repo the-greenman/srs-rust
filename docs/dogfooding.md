@@ -3366,6 +3366,24 @@ $SRS repo validate --repo $R                                         # 0 errors
 - Declared children are now carried with their entries; the subset rule had dropped them (Guides, Problem grid).
 - Every remaining warning is the corpus-level revision-8 notice (also on the source) or I-81 (identity record not a `purpose`).
 
+### S57 — An agent attaches a source document to a record over MCP (`attachment_add` / `attachment_link`, #1327)
+
+**Intention.** An agent working a decision stores the meeting minutes it was given and attaches them to the decision record, without a human running the CLI.
+
+**CLI surface.** MCP tools `attachment_add` and `attachment_link` over `srs mcp serve` (and the browser `McpSession`); same services as `srs attachment add|link`.
+
+**Steps** (scratch repo `/tmp/dogfood-1327`; one stdio session per `$SRS mcp serve --repo $REPO`, newline-delimited JSON-RPC after `initialize` + `notifications/initialized`).
+
+1. `tools/call attachment_add {"fileName":"minutes.txt","content":"hello","title":"Minutes"}` → `documentId`, `contentPath: minutes.txt`; `source-documents/minutes.txt` and its `.meta.json` exist.
+2. Negative: `attachment_add {"fileName":"x.txt","content":"a","contentBase64":"YQ=="}` → JSON-RPC `-32602` "give exactly one of content or contentBase64"; nothing written.
+3. `record_create` a record, then `attachment_link {"instanceId":<record>,"documentId":<documentId>}` → `sourceRefsCount: 1`.
+4. Negative: repeat step 3 → tool error (`isError: true`) "already linked".
+5. `srs repo validate --repo $REPO` → 0 errors.
+
+**Done when.** The document is stored and linked purely over MCP, both negatives are refused without partial writes, and validate is clean. With an `attachment_policy` record (`max_per_file_bytes` etc.) an over-limit `attachment_add` returns `isError: true` naming the limit and writes nothing (pinned by `surface.rs::attachment_add_rejected_by_policy_writes_nothing`; not run by hand because it needs the `com.semanticops.base` package). A Tier-0 note cannot be linked (records only), as with the CLI.
+
+**Verified 2026-10-07 (#1327):** steps 1-5 run against a debug build over stdio.
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -3449,6 +3467,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `find --projection full\|card\|label`, opt-in `--facets` (#1286) | S55 |
 | `find --similar` / MCP `similar` / WASM `findSimilar` (more-like-this over the BM25 index, #1230) | S53 |
 | `mcp serve --profile full\|context\|read` (tool profiles, #1287) | S56 |
+| MCP `attachment_add` / `attachment_link` (policy-enforcing add, #1327) | S57 |
 | `mcp serve` (MCP stdio server: resources map/navigation/record/container/view/**type** + all 13 tools: `repo_validate`/`find`/`type_schema`/`record_create`/`relation_create`/`note_create`/`record_update`/`record_transition`/`record_allowed_transitions`/`record_successor`/`note_graduate`/`container_member_add`/`container_member_remove` + **prompts** `prompts/list`/`prompts/get`, ADR-037 + #692 amendment + #682 prompts + **#680 second-wave write tools**) | S42 (incl. the #692 discover-then-author step, #682 prompts step 10b, and #680 second-wave step 10c); 32 crate tests in `crates/srs-mcp/` (13 unit + 13 duplex-transport integration + 6 second-wave integration) + 2 binary-level handshake tests in `crates/srs-cli/tests/mcp_serve.rs` + 4 unit tests in `crates/srs-mcp/src/prompts.rs` |
 
 | RFC-039 revision-2 carrier (`record create`/`update` object `fieldValues` + `fieldMeta`, [R9] rejection, composite values, `type schema` range expansion, `repo apply-migration --id rfc039-carrier`) | S46 (#806); migration service unit tests in `rfc039_carrier_migration_service.rs`; carrier round-trip + order tests in `srs-core` `record.rs`; value-grammar tests in `srs-core` `validation/value_shape.rs` |

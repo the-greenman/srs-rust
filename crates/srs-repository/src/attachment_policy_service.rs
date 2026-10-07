@@ -128,6 +128,69 @@ pub fn read_attachment_policy(
     })
 }
 
+/// The write-time I-107 comparison (twin of the validate-time checks in `validation.rs`;
+/// unification tracked in #1332). Fails open when the policy record is unreadable, like validate.
+/// The one I-107 comparison: why `(content_type, size)` violates `policy`, given the bytes
+/// already stored (`existing_total`). Mirrors `validation.rs`: sizes compare with `>`,
+/// MIME matching is exact and case-sensitive.
+pub fn policy_violation(
+    policy: &AttachmentPolicy,
+    content_type: &str,
+    size: u64,
+    existing_total: u64,
+) -> Option<String> {
+    if let Some(limit) = policy.max_per_file_bytes.filter(|l| size > *l) {
+        return Some(format!(
+            "attachment_policy: {size} bytes exceeds max_per_file_bytes limit of {limit} bytes"
+        ));
+    }
+    if let Some(limit) = policy.max_doc_bytes.filter(|l| size > *l) {
+        return Some(format!(
+            "attachment_policy: {size} bytes exceeds max_doc_bytes limit of {limit} bytes"
+        ));
+    }
+    if let Some(allowed) = &policy.allowed_mime_types {
+        if !allowed.iter().any(|m| m == content_type) {
+            return Some(format!(
+                "attachment_policy: content type '{content_type}' is not in allowed_mime_types {allowed:?}"
+            ));
+        }
+    }
+    if let Some(limit) = policy.max_total_bytes {
+        if existing_total.saturating_add(size) > limit {
+            return Some(format!(
+                "attachment_policy: adding {size} bytes to {existing_total} stored exceeds max_total_bytes limit of {limit} bytes"
+            ));
+        }
+    }
+    None
+}
+
+/// Reject an attachment the repository's policy forbids. No policy record = no limits.
+pub fn check_attachment(
+    store: &dyn RepositoryStore,
+    content_type: &str,
+    size: u64,
+) -> Result<(), RepositoryError> {
+    let policy = read_attachment_policy(store)?.policy;
+    let existing_total = if policy.max_total_bytes.is_some() {
+        crate::attachment_service::list_attachments(
+            store,
+            crate::attachment_service::ListAttachmentsFilter::default(),
+        )?
+        .entries
+        .iter()
+        .map(|e| e.size_bytes.unwrap_or(0))
+        .sum()
+    } else {
+        0
+    };
+    match policy_violation(&policy, content_type, size, existing_total) {
+        Some(message) => Err(RepositoryError::InvalidInput { message }),
+        None => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -531,5 +594,67 @@ mod tests {
         assert_eq!(result.policy.max_doc_bytes, Some(10485760));
         assert!(result.policy.max_total_bytes.is_none());
         assert!(result.policy.allowed_mime_types.is_none());
+    }
+
+    // ── write-time enforcement (srs-rust#1327) ────────────────────────────────
+
+    fn policy_store(field_values: serde_json::Value) -> MemoryStore {
+        MemoryStore::new(manifest_with_policy_entry(), make_base_package())
+            .with_data("records/policy.json", policy_record_json(field_values))
+    }
+
+    fn add(
+        store: &MemoryStore,
+        name: &str,
+        bytes: &[u8],
+        content_type: &str,
+        enforce_policy: bool,
+    ) -> Result<crate::attachment_service::AddAttachmentResult, RepositoryError> {
+        crate::attachment_service::add_attachment(
+            store,
+            crate::attachment_service::AddAttachmentInput {
+                file_name: name.to_string(),
+                content: bytes.to_vec(),
+                subdir: None,
+                title: None,
+                content_type: Some(content_type.to_string()),
+                enforce_policy,
+            },
+        )
+    }
+
+    #[test]
+    fn add_attachment_enforced_rejects_per_file_mime_and_total() {
+        let store = policy_store(json!({
+            "max_per_file_bytes": 10,
+            "allowed_mime_types": ["text/plain"],
+            "max_total_bytes": 12
+        }));
+        assert!(add(&store, "big.txt", &[b'x'; 11], "text/plain", true)
+            .unwrap_err()
+            .to_string()
+            .contains("max_per_file_bytes"));
+        assert!(add(&store, "a.png", b"x", "image/png", true)
+            .unwrap_err()
+            .to_string()
+            .contains("allowed_mime_types"));
+        add(&store, "ok1.txt", &[b'x'; 8], "text/plain", true).unwrap();
+        assert!(add(&store, "ok2.txt", &[b'x'; 8], "text/plain", true)
+            .unwrap_err()
+            .to_string()
+            .contains("max_total_bytes"));
+        // Rejections wrote nothing: only the accepted file is stored.
+        let listed = crate::attachment_service::list_attachments(
+            &store,
+            crate::attachment_service::ListAttachmentsFilter::default(),
+        )
+        .unwrap();
+        assert_eq!(listed.entries.len(), 1);
+    }
+
+    #[test]
+    fn add_attachment_unenforced_ignores_policy() {
+        let store = policy_store(json!({ "max_per_file_bytes": 1 }));
+        add(&store, "big.txt", &[b'x'; 50], "text/plain", false).unwrap();
     }
 }

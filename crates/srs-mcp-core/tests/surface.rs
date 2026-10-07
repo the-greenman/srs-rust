@@ -63,11 +63,11 @@ fn application_reads_repository_id_from_manifest() {
 }
 
 #[test]
-fn tool_catalogue_has_all_thirty_three_tools_and_core_owns_the_schemas() {
+fn tool_catalogue_has_all_thirty_five_tools_and_core_owns_the_schemas() {
     let (_dir, mut d) = setup();
     let listed = rpc(&mut d, "tools/list", json!({}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 33);
+    assert_eq!(tools.len(), 35);
     assert!(tools
         .iter()
         .all(|t| t["description"].is_string() && t["inputSchema"]["type"] == "object"));
@@ -89,6 +89,7 @@ fn tool_profile_filters_the_catalogue_and_refuses_the_rest() {
     assert!(names.contains(&"repo_validate"));
     assert!(names.contains(&"find") && names.contains(&"read") && names.contains(&"note_create"));
     assert!(!names.contains(&"container_copy"));
+    assert!(!names.contains(&"attachment_add") && !names.contains(&"attachment_link"));
     // Advertised tools still work, including `read` (routed outside call_tool).
     let found = tool(&mut d, "find", json!({ "limit": 0 }));
     assert_eq!(found["result"]["isError"], false);
@@ -108,6 +109,12 @@ fn tool_profile_filters_the_catalogue_and_refuses_the_rest() {
     // Read profile: no write tool is callable.
     d.application_mut().set_tool_profile(ToolProfile::Read);
     let refused = tool(&mut d, "note_create", json!({ "sections": [] }));
+    assert_eq!(refused["error"]["code"], -32602);
+    let refused = tool(
+        &mut d,
+        "attachment_add",
+        json!({ "fileName": "a", "content": "x" }),
+    );
     assert_eq!(refused["error"]["code"], -32602);
 }
 
@@ -540,6 +547,110 @@ mod write_guard {
     fn assert_ok(d: &mut D, name: &str, args: Value) {
         let r = tool(d, name, args);
         assert_eq!(r["result"]["isError"], false, "{r}");
+    }
+
+    #[test]
+    fn attachment_add_rejected_by_policy_writes_nothing() {
+        let (dir, mut d) = guarded();
+        // Install the base repo_settings policy shape through the same service writes.
+        let s = d.application().store();
+        let mut f = field("max_per_file_bytes");
+        f.namespace = "com.semanticops.base".into();
+        f.field_type = srs_core::types::field::FieldType::number();
+        package_service::create_field(s, f).unwrap();
+        let mut t = paragraph_type(&["max_per_file_bytes"]);
+        t.id = "guard-type-policy".into();
+        t.namespace = "com.semanticops.base".into();
+        t.name = "repo_settings".into();
+        t.fields[0].field_id = "guard-field-max_per_file_bytes".into();
+        package_service::create_type(s, t).unwrap();
+        create(
+            &mut d,
+            "com.semanticops.base/repo_settings",
+            json!({ "max_per_file_bytes": 3 }),
+            None,
+        );
+        let r = tool(
+            &mut d,
+            "attachment_add",
+            json!({ "fileName": "big.txt", "content": "hello" }),
+        );
+        assert_eq!(r["result"]["isError"], true, "{r}");
+        assert!(r["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("max_per_file_bytes"));
+        assert!(!dir.path().join("source-documents/big.txt").exists());
+        assert_ok(
+            &mut d,
+            "attachment_add",
+            json!({ "fileName": "ok.txt", "content": "hi" }),
+        );
+    }
+
+    #[test]
+    fn attachment_add_and_link_round_trip_and_guard() {
+        let (dir, mut d) = guarded();
+        let id = create(
+            &mut d,
+            "com.example.surface/para1",
+            json!({ "body": "t" }),
+            None,
+        );
+        // Text and base64 store identical bytes.
+        let a = tool(
+            &mut d,
+            "attachment_add",
+            json!({ "fileName": "a.txt", "content": "hello", "title": "A" }),
+        );
+        assert_eq!(a["result"]["isError"], false, "{a}");
+        let b = tool(
+            &mut d,
+            "attachment_add",
+            json!({ "fileName": "b.txt", "contentBase64": "aGVsbG8=" }),
+        );
+        assert_eq!(b["result"]["isError"], false, "{b}");
+        let docs = dir.path().join("source-documents");
+        assert_eq!(std::fs::read(docs.join("a.txt")).unwrap(), b"hello");
+        assert_eq!(std::fs::read(docs.join("b.txt")).unwrap(), b"hello");
+        // Exactly one content source; bad base64 is an invalid-params protocol error.
+        for bad in [
+            json!({ "fileName": "c.txt" }),
+            json!({ "fileName": "c.txt", "content": "x", "contentBase64": "eA==" }),
+            json!({ "fileName": "c.txt", "contentBase64": "!!" }),
+        ] {
+            assert!(tool(&mut d, "attachment_add", bad).get("error").is_some());
+        }
+        assert!(!docs.join("c.txt").exists());
+        // Link, then a duplicate and an unknown document are tool errors.
+        let doc = a["result"]["structuredContent"]["documentId"]
+            .as_str()
+            .unwrap();
+        let link = json!({ "instanceId": id, "documentId": doc });
+        assert_ok(&mut d, "attachment_link", link.clone());
+        let dup = tool(&mut d, "attachment_link", link.clone());
+        assert_eq!(dup["result"]["isError"], true, "{dup}");
+        let unknown = tool(
+            &mut d,
+            "attachment_link",
+            json!({ "instanceId": id, "documentId": "nope" }),
+        );
+        assert_eq!(unknown["result"]["isError"], true, "{unknown}");
+        // A guarded record rejects linking; adding a document is still allowed.
+        guard(&mut d, json!({ "instanceIds": [id] }));
+        let other = b["result"]["structuredContent"]["documentId"]
+            .as_str()
+            .unwrap();
+        assert_rejected(
+            &mut d,
+            "attachment_link",
+            json!({ "instanceId": id, "documentId": other }),
+        );
+        assert_ok(
+            &mut d,
+            "attachment_add",
+            json!({ "fileName": "d.txt", "content": "x" }),
+        );
     }
 
     #[test]
