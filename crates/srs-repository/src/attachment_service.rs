@@ -420,8 +420,10 @@ pub fn link_attachment(
     }
 
     // 2. Append the new SourceReference (path-encapsulated via record_store).
-    // NotFound if record absent; duplicate check (same source_type + source_id + source_role)
-    // is handled atomically inside append_source_ref to avoid TOCTOU (ADR-034).
+    // InstanceNotFound if neither a record nor a note exists with this id; duplicate
+    // check (same source_type + source_id + source_role) is handled atomically inside
+    // append_source_ref to avoid TOCTOU (ADR-034). Tier-0 notes carry a typed
+    // `sourceRefs` field already (ADR-034), so linking works the same for both tiers.
     let new_ref = SourceReference {
         source_type: SourceType::RepositoryDocument,
         source_id: input.document_id.clone(),
@@ -431,14 +433,8 @@ pub fn link_attachment(
         confidence: None,
         note: None,
     };
-    let updated = record_store::append_source_ref(store, &input.instance_id, new_ref, true)?;
-
-    let source_refs_count = updated
-        .extra
-        .get("sourceRefs")
-        .and_then(|v| v.as_array())
-        .map(|a| a.len())
-        .unwrap_or(0);
+    let source_refs_count =
+        record_store::append_source_ref(store, &input.instance_id, new_ref, true)?;
 
     Ok(LinkAttachmentResult {
         instance_id: input.instance_id,
@@ -1454,8 +1450,96 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            matches!(err, RepositoryError::NotFound { .. }),
-            "expected NotFound for unknown record, got: {err:?}"
+            matches!(err, RepositoryError::InstanceNotFound { .. }),
+            "expected InstanceNotFound for unknown record, got: {err:?}"
+        );
+    }
+
+    /// Build a MemoryStore that contains one source document (sidecar-discovered,
+    /// RFC-038 [R25]) and one Tier-0 note at "records/notes/test-note-<id8>.json".
+    fn store_with_doc_and_note(doc_id: &str, note_id: &str) -> MemoryStore {
+        let store = empty_store();
+        write_doc_fixtures(
+            &store,
+            None,
+            &[DocFixture {
+                document_id: doc_id,
+                content_path: "brief.pdf",
+                sidecar_path: "brief.meta.json",
+                title: None,
+            }],
+        );
+        let note_path = format!("records/notes/test-note-{}.json", &note_id[..8]);
+        store
+            .save_instance_json(
+                &note_path,
+                &serde_json::json!({
+                    "$schema": "https://srs.semanticops.com/schema/2.0/note.json",
+                    "instanceId": note_id,
+                    "sections": []
+                }),
+            )
+            .unwrap();
+        store
+    }
+
+    #[test]
+    fn link_attachment_on_note_succeeds() {
+        // Reproduces srs-rust#1334: linking an attachment to a Tier-0 note must
+        // succeed (Note already carries a typed sourceRefs field, ADR-034) rather
+        // than failing with the opaque Tier-2-only `not found: "records"` error.
+        let doc_id = "doc-note-111";
+        let note_id = "eeeeffff-0000-4000-8000-000000000005";
+        let store = store_with_doc_and_note(doc_id, note_id);
+
+        let result = link_attachment(
+            &store,
+            LinkAttachmentInput {
+                instance_id: note_id.to_string(),
+                document_id: doc_id.to_string(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.instance_id, note_id);
+        assert_eq!(result.document_id, doc_id);
+        assert_eq!(result.source_refs_count, 1);
+
+        let note_path = format!("records/notes/test-note-{}.json", &note_id[..8]);
+        let val = store.load_instance_json(&note_path).unwrap();
+        assert_eq!(
+            val["sourceRefs"][0]["sourceRole"],
+            serde_json::json!("attaches")
+        );
+        assert_eq!(val["sourceRefs"][0]["sourceId"], serde_json::json!(doc_id));
+    }
+
+    #[test]
+    fn link_attachment_on_note_duplicate_rejected() {
+        let doc_id = "doc-note-222";
+        let note_id = "eeeeffff-0000-4000-8000-000000000006";
+        let store = store_with_doc_and_note(doc_id, note_id);
+
+        link_attachment(
+            &store,
+            LinkAttachmentInput {
+                instance_id: note_id.to_string(),
+                document_id: doc_id.to_string(),
+            },
+        )
+        .unwrap();
+
+        let err = link_attachment(
+            &store,
+            LinkAttachmentInput {
+                instance_id: note_id.to_string(),
+                document_id: doc_id.to_string(),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, RepositoryError::InvalidInput { .. }),
+            "expected InvalidInput for duplicate, got: {err:?}"
         );
     }
 
