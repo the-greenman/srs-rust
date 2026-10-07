@@ -2111,43 +2111,14 @@ pub(crate) fn write_new_record(
     Ok(relative_path)
 }
 
-/// Append a SourceReference to a tier-2 record by instance ID.
-///
-/// Path lookup is encapsulated here so service callers never handle storage paths
-/// (ADR-010 storage-boundary rule). `sourceRefs` on `Record` is persisted via
-/// `record.extra["sourceRefs"]`; see ADR-034 for why a typed field is not used.
-///
-/// When `check_duplicate` is `true`, returns `InvalidInput` if an existing ref with the
-/// same `(source_type, source_id, source_role)` triple is already present. The check
-/// runs on the same record load used for the write, eliminating the TOCTOU that would
-/// arise if callers loaded the record separately to perform the check.
-///
-/// Returns the updated record (with the appended ref in extra["sourceRefs"]).
-pub(crate) fn append_source_ref(
-    store: &dyn RepositoryStore,
-    instance_id: &str,
+/// Push `source_ref` onto `refs`, rejecting a duplicate (same type + id + role)
+/// when `check_duplicate` is set. Returns the new length on success.
+fn push_source_ref(
+    refs: &mut Vec<SourceReference>,
     source_ref: SourceReference,
     check_duplicate: bool,
-) -> Result<Record, RepositoryError> {
-    match store.find_instance(instance_id)? {
-        Some(r) if r.tier == 2 => {}
-        _ => {
-            return Err(RepositoryError::NotFound {
-                path: std::path::PathBuf::from("records"),
-            })
-        }
-    }
-
-    let mut record = store.load_record_by_id(instance_id)?;
-
-    let mut refs: Vec<SourceReference> = match record.extra.get("sourceRefs") {
-        None => Vec::new(),
-        Some(v) => serde_json::from_value(v.clone()).map_err(|e| RepositoryError::Serialize {
-            path: std::path::PathBuf::from(instance_id),
-            source: e,
-        })?,
-    };
-
+    instance_id: &str,
+) -> Result<usize, RepositoryError> {
     if check_duplicate
         && refs.iter().any(|r| {
             r.source_type == source_ref.source_type
@@ -2162,18 +2133,62 @@ pub(crate) fn append_source_ref(
             ),
         });
     }
-
     refs.push(source_ref);
-    record.extra.insert(
-        "sourceRefs".to_string(),
-        serde_json::to_value(&refs).map_err(|e| RepositoryError::Serialize {
-            path: std::path::PathBuf::from(instance_id),
-            source: e,
-        })?,
-    );
+    Ok(refs.len())
+}
 
-    store.save_record(&record)?;
-    Ok(record)
+/// Append `source_ref` to an instance's `sourceRefs[]`, whether it is a Tier-2
+/// `Record` (stored in `record.extra["sourceRefs"]`; see ADR-034 for why a typed
+/// field is not used there) or a Tier-0 `Note` (which already carries a typed
+/// `source_refs` field). Path/tier lookup is encapsulated here so service callers
+/// never handle storage paths (ADR-010 storage-boundary rule).
+///
+/// When `check_duplicate` is `true`, returns `InvalidInput` if an existing ref with the
+/// same `(source_type, source_id, source_role)` triple is already present. The check
+/// runs on the same load used for the write, eliminating the TOCTOU that would arise
+/// if callers loaded the instance separately to perform the check.
+///
+/// Returns the resulting `sourceRefs` count. `InstanceNotFound` if no instance with
+/// `instance_id` exists.
+pub(crate) fn append_source_ref(
+    store: &dyn RepositoryStore,
+    instance_id: &str,
+    source_ref: SourceReference,
+    check_duplicate: bool,
+) -> Result<usize, RepositoryError> {
+    match get_instance_by_id(store, instance_id)? {
+        Some(LoadedInstance::Record(mut record)) => {
+            let mut refs: Vec<SourceReference> = match record.extra.get("sourceRefs") {
+                None => Vec::new(),
+                Some(v) => {
+                    serde_json::from_value(v.clone()).map_err(|e| RepositoryError::Serialize {
+                        path: std::path::PathBuf::from(instance_id),
+                        source: e,
+                    })?
+                }
+            };
+            let count = push_source_ref(&mut refs, source_ref, check_duplicate, instance_id)?;
+            record.extra.insert(
+                "sourceRefs".to_string(),
+                serde_json::to_value(&refs).map_err(|e| RepositoryError::Serialize {
+                    path: std::path::PathBuf::from(instance_id),
+                    source: e,
+                })?,
+            );
+            store.save_record(&record)?;
+            Ok(count)
+        }
+        Some(LoadedInstance::Note(mut note)) => {
+            let mut refs = note.source_refs.take().unwrap_or_default();
+            let count = push_source_ref(&mut refs, source_ref, check_duplicate, instance_id)?;
+            note.source_refs = Some(refs);
+            store.save_note(&note)?;
+            Ok(count)
+        }
+        None => Err(RepositoryError::InstanceNotFound {
+            id: instance_id.to_string(),
+        }),
+    }
 }
 
 #[cfg(test)]
