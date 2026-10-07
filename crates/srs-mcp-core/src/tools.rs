@@ -25,11 +25,12 @@ use srs_repository::container_service::{self, ContainerCreateInput};
 use srs_repository::context_query_service::{
     list_neighbours, EdgeDirection, NeighboursPage, NeighboursQuery,
 };
-use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage};
+use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage, MatchMode};
 use srs_repository::package_dependency_service::{
     self, AddPackageDependencyInput, RemovePackageDependencyInput,
 };
 use srs_repository::package_install_service::{self, UpgradeOptions};
+use srs_repository::projection::Projection;
 use srs_repository::protocol_run_service::{
     self, AdvanceStageInput, CreateRunInput, GetRunResult, RunListFilter, RunSummary,
 };
@@ -93,6 +94,93 @@ pub const TOOL_SIMILAR: &str = "similar";
 const NEIGHBOURS_DEFAULT_LIMIT: usize = 25;
 const NEIGHBOURS_MAX_LIMIT: usize = 100;
 
+// ── Tool profiles (srs-rust#1287) ─────────────────────────────────────────────
+
+/// Which tools a session advertises and accepts. `tools/list` is paid for in context on every
+/// session, so a client that needs a few tools should not carry all of them. `full` is the
+/// default and the whole catalogue; the others are fixed subsets defined here, once, for every
+/// transport. A tool outside the profile is refused exactly like an unknown tool.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ToolProfile {
+    #[default]
+    Full,
+    /// Agent memory: discover, read, validate, and the writes that capture knowledge (create,
+    /// update, transition, supersede, note, relate, file into a container).
+    Context,
+    /// Read-only: discovery, reads, outlines, validation; no tool that writes.
+    Read,
+}
+
+const CONTEXT_TOOLS: &[&str] = &[
+    TOOL_REPO_VALIDATE,
+    TOOL_FIND,
+    TOOL_READ,
+    TOOL_TYPE_SCHEMA,
+    TOOL_RECORD_CREATE,
+    TOOL_RECORD_UPDATE,
+    TOOL_RECORD_ALLOWED_TRANSITIONS,
+    TOOL_RECORD_TRANSITION,
+    TOOL_RECORD_SUCCESSOR,
+    TOOL_NOTE_CREATE,
+    TOOL_RELATION_CREATE,
+    TOOL_CONTAINER_MEMBER_ADD,
+];
+
+const READ_TOOLS: &[&str] = &[
+    TOOL_FIND,
+    TOOL_READ,
+    TOOL_SIMILAR,
+    TOOL_NEIGHBOURS,
+    TOOL_TYPE_SCHEMA,
+    TOOL_CONTAINER_OUTLINE,
+    TOOL_RECORD_ALLOWED_TRANSITIONS,
+    TOOL_PROTOCOL_RUN_GET,
+    TOOL_PROTOCOL_RUN_LIST,
+    TOOL_PACKAGE_DEPENDENCY_LIST,
+    TOOL_REPO_VALIDATE,
+];
+
+impl ToolProfile {
+    /// Whether this profile advertises and accepts the tool `name`.
+    pub fn allows(self, name: &str) -> bool {
+        match self {
+            ToolProfile::Full => true,
+            _ => self.tool_names().is_some_and(|names| names.contains(&name)),
+        }
+    }
+
+    /// The tool names this profile allows, in catalogue order; `None` for `full` (every tool).
+    pub fn tool_names(self) -> Option<&'static [&'static str]> {
+        match self {
+            ToolProfile::Full => None,
+            ToolProfile::Context => Some(CONTEXT_TOOLS),
+            ToolProfile::Read => Some(READ_TOOLS),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ToolProfile::Full => "full",
+            ToolProfile::Context => "context",
+            ToolProfile::Read => "read",
+        }
+    }
+}
+
+impl std::str::FromStr for ToolProfile {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "full" => Ok(ToolProfile::Full),
+            "context" => Ok(ToolProfile::Context),
+            "read" => Ok(ToolProfile::Read),
+            other => Err(format!(
+                "invalid tool profile '{other}' (expected full|context|read)"
+            )),
+        }
+    }
+}
+
 // ── Tool descriptions — single source (srs-usage.md MCP section mirrors these) ─
 
 pub const DESC_REPO_VALIDATE: &str = "Validate the whole repository and return the diagnostics \
@@ -126,12 +214,21 @@ be installed with the bundle's packageId (otherwise use install, which has no MC
 bundle version is refused, an equal one is a content sync, a higher one also bumps the boundary's \
 version. ALWAYS call with dryRun true first and read the plan: added (new UUIDs), newVersions (new \
 versions of an installed UUID, installed alongside the old ones), updated (same uuid+version, upstream \
-changed, local copy clean: overwritten), unchanged, repaired (content current but reference copy / \
+changed, local copy clean: overwritten; provenBy = the priorBundles version that proved an \
+installed definition with no reference copy unedited), adopted (unproven no-reference-copy definitions \
+overwritten because you listed their ids in adopt: ANY LOCAL CHANGE TO THEM IS LOST; list an id only \
+after the user consents per definition), unchanged, repaired (content current but reference copy / \
 import record rewritten), conflicts (NOT written: local-edit = you edited a definition that upstream \
 also changed, the local file is kept; no-reference-copy; key-collision = same name, different UUID), \
 removedUpstream (installed from this package but absent from the bundle: reported, never deleted) and \
 dependencyWarnings (unsatisfied RFC-044 requirements; never blocking). Records are never touched. \
-Then repeat with dryRun false to apply, and run repo_validate. boundaryPath picks the boundary when \
+priorBundles (JSON texts of earlier published bundles of the same package) are proof only: they must \
+be published artifacts you verified (e.g. by sha256), never a bundle exported from the user's own \
+edited boundary, which would prove edits clean; one not older than the new bundle or newer than the \
+installed version is refused. adopt matches by id and covers every version of that id; a conflict is \
+adoptable exactly when its conflictKind is no-reference-copy. A local-edit \
+or key-collision is never adoptable (a note says so). Then repeat with dryRun false to apply, and run \
+repo_validate. boundaryPath picks the boundary when \
 the package is installed at several.";
 
 pub const DESC_NEIGHBOURS: &str = "Bounded read of one instance's relation neighbours (Record or \
@@ -152,7 +249,7 @@ pub const DESC_SIMILAR: &str = "More like this: instances whose text overlaps th
 characteristic terms of one instance (instanceId), ranked by the same BM25 index as find. Use it \
 after find to ask what else in the repository is about a record, including content that uses \
 different wording from a query you would have guessed. Returns find-shaped hits (instanceId, uri, \
-label, type, score), best first, never the source itself. The structured filters of find (typeId, \
+label, type, score; projection and facets as in find), best first, never the source itself. The structured filters of find (typeId, \
 typeNamespace, typeName, containerId, tag, lifecycleState, tier, ...) narrow the candidates; \
 there is no contentMatch. Deterministic and lexical: no embeddings. limit defaults to 25.";
 
@@ -160,13 +257,18 @@ pub const DESC_FIND: &str = "Deterministic discovery query (ext:discovery). All 
 optional and AND-combined: typeId, typeNamespace, typeName, containerId, tag (repeatable; \
 instance must carry ALL), lifecycleState, excludeLifecycleStates, tier, and contentMatch \
 (recall floor: matches records containing every whitespace-separated word, in any field and any \
-order, not just the title; a phrase match is always included). Hits are ranked by BM25 \
+order, not just the title; a phrase match is always included). match: \"any\" instead matches records \
+containing any significant query word as a whole word (words found in most records, like \"the\" or \
+\"what\", are ignored), so a question typed as a sentence still finds what it is about; any-mode is \
+always ranked (BM25 puts records matching the most and rarest words first). Hits are ranked by BM25 \
 relevance (score) unless rank is false, which orders by instanceId. Types are written \
-'namespace/name'. Returns hits with instanceId, label, type, lifecycleState, snippet, and \
-matchedFields. Also returns facets: counts over the WHOLE match set, before limit/offset \
-(byType, tags, notes, and one entry per closed string field (at most 25), each the top 20 values plus \
-an other count). find with limit 0 and no filters returns no hits and is the cheap map of the \
-repository; add a type filter for that type's keyword map. Serves Tier 2 (Records) and Tier 0 \
+'namespace/name'. Returns hits (projection \"full\", the default) with instanceId, uri, label, \
+typeId, typeNamespace/typeName, containerIds, lifecycleState, score, snippet and matchedFields; projection \"card\" keeps instanceId, uri, label, type, lifecycleState, score and \
+snippet, and \"label\" drops score and snippet too: use them to scan before you read. facets: true \
+adds counts over the WHOLE match set, before limit/offset (byType, tags, notes, and one entry per \
+closed string field (at most 25), each the top 20 values plus an other count). find with limit 0 \
+returns facets by default and no hits: with no filters it is the cheap map of the repository; add a \
+type filter for that type's keyword map. Serves Tier 2 (Records) and Tier 0 \
 (Notes; type and lifecycle filters exclude them). A typeId, type, or containerId that names nothing returns zero hits with a warning \
 diagnostic.";
 
@@ -363,9 +465,18 @@ pub struct FindToolInput {
     /// Order hits by BM25 relevance (fills `score`) instead of by instanceId.
     /// Defaults to true; the set of hits is the same either way.
     pub rank: Option<bool>,
+    /// How contentMatch words combine: "all" (default) — every word must occur;
+    /// "any" — any significant word, as a whole word (for natural-language queries; always ranked).
+    #[serde(rename = "match")]
+    pub match_mode: Option<MatchMode>,
     /// Cap on `facets.byType` values (default 20; the rest are summed into `other`).
     /// 0 returns every type, each with its `typeId`.
     pub by_type_limit: Option<usize>,
+    /// Include facets. Default: only when limit is 0 (the repository map).
+    pub facets: Option<bool>,
+    /// How much of each hit: "full" (default), "card" (instanceId, uri, label, type,
+    /// lifecycleState, score, snippet) or "label" (as card, without score and snippet).
+    pub projection: Option<Projection>,
 }
 
 /// Input of the `similar` tool: the source `instanceId` plus find's structured filters
@@ -393,6 +504,10 @@ pub struct SimilarToolInput {
     pub limit: Option<usize>,
     /// Number of hits to skip (default 0).
     pub offset: Option<usize>,
+    /// How much of each hit: "full" (default), "card" or "label", as in find.
+    pub projection: Option<Projection>,
+    /// Include facets over the similar set, as in find (default: only when limit is 0).
+    pub facets: Option<bool>,
 }
 
 impl SimilarToolInput {
@@ -401,7 +516,9 @@ impl SimilarToolInput {
             limit: Some(self.limit.unwrap_or(FIND_DEFAULT_LIMIT)),
             offset: self.offset.unwrap_or(0),
             rank: true,
-            by_type_limit: None,
+            projection: self.projection.unwrap_or_default(),
+            facets: self.facets,
+            ..Default::default()
         };
         let query = DiscoveryQuery {
             type_id: self.type_id,
@@ -857,6 +974,13 @@ pub struct PackageUpgradeToolInput {
     pub dry_run: bool,
     /// The installed boundary to upgrade; default = the one installed with the bundle's packageId.
     pub boundary_path: Option<String>,
+    /// Earlier published `.srspkg` JSON texts of the same package (same packageId), used only to
+    /// prove an installed definition without a reference copy unedited.
+    #[serde(default)]
+    pub prior_bundles: Vec<String>,
+    /// Definition ids to replace although nothing proves them clean (no-reference-copy only).
+    #[serde(default)]
+    pub adopt: Vec<String>,
 }
 
 /// `package_dependency_list`: the requiring boundary.
@@ -1070,9 +1194,20 @@ fn tool(name: &str, description: &str, input_schema: Value) -> Value {
     json!({ "name": name, "description": description, "inputSchema": input_schema })
 }
 
-/// The `tools/list` result.
+/// The `tools/list` result for the whole catalogue.
 pub fn list_tools() -> Value {
-    json!({ "tools": [
+    list_tools_for(ToolProfile::Full)
+}
+
+/// The `tools/list` result for one [`ToolProfile`]: the catalogue, filtered.
+pub fn list_tools_for(profile: ToolProfile) -> Value {
+    let mut tools = all_tools();
+    tools.retain(|t| t["name"].as_str().is_some_and(|n| profile.allows(n)));
+    json!({ "tools": tools })
+}
+
+fn all_tools() -> Vec<Value> {
+    vec![
         tool(
             TOOL_REPO_VALIDATE,
             DESC_REPO_VALIDATE,
@@ -1228,8 +1363,12 @@ pub fn list_tools() -> Value {
             DESC_NEIGHBOURS,
             input_schema::<NeighboursToolInput>(),
         ),
-        tool(TOOL_SIMILAR, DESC_SIMILAR, input_schema::<SimilarToolInput>()),
-    ] })
+        tool(
+            TOOL_SIMILAR,
+            DESC_SIMILAR,
+            input_schema::<SimilarToolInput>(),
+        ),
+    ]
 }
 
 // ── Tool dispatch ─────────────────────────────────────────────────────────────
@@ -1263,8 +1402,7 @@ fn relative_move(
 fn tool_ok<T: serde::Serialize>(value: &T) -> Result<Value, McpApplicationError> {
     let structured =
         serde_json::to_value(value).map_err(|e| McpApplicationError::internal(e.to_string()))?;
-    let text = serde_json::to_string_pretty(&structured)
-        .map_err(|e| McpApplicationError::internal(e.to_string()))?;
+    let text = crate::json_text(&structured)?;
     Ok(json!({
         "content": [{ "type": "text", "text": text }],
         "structuredContent": structured,
@@ -1389,7 +1527,10 @@ pub fn call_tool(
                 limit: Some(input.limit.unwrap_or(FIND_DEFAULT_LIMIT)),
                 offset: input.offset.unwrap_or(0),
                 rank: input.rank.unwrap_or(true),
+                match_mode: input.match_mode.unwrap_or_default(),
                 by_type_limit: input.by_type_limit,
+                facets: input.facets,
+                projection: input.projection.unwrap_or_default(),
             };
             match discovery_service::find(store, input.into(), page) {
                 Ok(result) => tool_ok(&result),
@@ -1558,6 +1699,8 @@ pub fn call_tool(
             let options = UpgradeOptions {
                 dry_run: input.dry_run,
                 boundary_path: input.boundary_path,
+                prior_bundles: input.prior_bundles,
+                adopt: input.adopt,
             };
             match package_install_service::upgrade_package_bundle(
                 store,
@@ -1752,6 +1895,29 @@ mod tests {
     }
 
     #[test]
+    fn find_input_reads_match_mode_under_the_json_key_match() {
+        let any: FindToolInput =
+            serde_json::from_value(json!({"contentMatch": "x", "match": "any"})).unwrap();
+        assert_eq!(any.match_mode, Some(MatchMode::Any));
+        let absent: FindToolInput = serde_json::from_value(json!({"contentMatch": "x"})).unwrap();
+        assert_eq!(absent.match_mode, None);
+        assert!(serde_json::from_value::<FindToolInput>(json!({"match": "some"})).is_err());
+    }
+
+    #[test]
+    fn find_input_parses_projection_and_facets() {
+        let input: FindToolInput =
+            serde_json::from_value(json!({"projection": "label", "facets": false})).unwrap();
+        assert_eq!(input.projection, Some(Projection::Label));
+        assert_eq!(input.facets, Some(false));
+        assert!(serde_json::from_value::<FindToolInput>(json!({"projection": "tiny"})).is_err());
+        let similar: SimilarToolInput =
+            serde_json::from_value(json!({"instanceId": "i", "projection": "card"})).unwrap();
+        let page = similar.into_parts().2;
+        assert_eq!((page.projection, page.facets), (Projection::Card, None));
+    }
+
+    #[test]
     fn tool_input_conversion_exercises_every_field() {
         // Find → DiscoveryQuery
         let find = FindToolInput {
@@ -1769,6 +1935,9 @@ mod tests {
             by_type_limit: None,
             offset: None,
             rank: None,
+            match_mode: Some(MatchMode::Any),
+            facets: Some(true),
+            projection: Some(Projection::Card),
         };
         let q: DiscoveryQuery = find.into();
         assert_eq!(q.type_id.as_deref(), Some("tid"));
@@ -1899,6 +2068,68 @@ mod tests {
         let cuts: Vec<usize> = (0..=s.len()).map(|n| utf8_floor(s, n)).collect();
         assert_eq!(cuts, vec![0, 1, 1, 3, 3, 3, 6, 6, 6, 6, 10]);
         assert_eq!(utf8_floor(s, 99), 10);
+    }
+
+    #[test]
+    fn tool_ok_text_is_compact_json_equal_to_structured_content() {
+        let r = tool_ok(&json!({"hits": [{"id": "a", "tags": ["x", "y"]}], "total": 1})).unwrap();
+        let text = r["content"][0]["text"].as_str().unwrap();
+        assert!(!text.contains('\n') && !text.contains(": "), "{text}");
+        let parsed: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(parsed, r["structuredContent"]);
+    }
+
+    #[test]
+    fn tool_profiles_are_subsets_of_the_catalogue() {
+        let names = |p: ToolProfile| -> Vec<String> {
+            list_tools_for(p)["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|t| t["name"].as_str().unwrap().to_string())
+                .collect()
+        };
+        let full = names(ToolProfile::Full);
+        assert_eq!(full.len(), all_tools().len());
+        // Every profile entry names a real tool (a typo would silently drop it).
+        for listed in [CONTEXT_TOOLS, READ_TOOLS] {
+            for n in listed {
+                assert!(full.iter().any(|f| f == n), "{n} is not a tool");
+            }
+        }
+        assert_eq!(names(ToolProfile::Context).len(), CONTEXT_TOOLS.len());
+        assert_eq!(names(ToolProfile::Read).len(), READ_TOOLS.len());
+        // The read profile carries nothing that writes.
+        const WRITE_VERBS: &[&str] = &[
+            "create",
+            "update",
+            "delete",
+            "add",
+            "remove",
+            "move",
+            "repair",
+            "copy",
+            "fork",
+            "transition",
+            "successor",
+            "graduate",
+            "advance",
+            "complete",
+            "abandon",
+            "set",
+            "upgrade",
+        ];
+        for n in READ_TOOLS {
+            assert!(
+                *n == TOOL_RECORD_ALLOWED_TRANSITIONS
+                    || !WRITE_VERBS.iter().any(|v| n.ends_with(v)),
+                "{n} looks like a write"
+            );
+        }
+        for p in ["full", "context", "read"] {
+            assert_eq!(p.parse::<ToolProfile>().unwrap().as_str(), p);
+        }
+        assert!("all".parse::<ToolProfile>().is_err());
     }
 
     #[test]

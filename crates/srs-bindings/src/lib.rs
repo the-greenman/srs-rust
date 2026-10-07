@@ -13,7 +13,7 @@ use srs_repository::container_view_service::{self, ResolveContainerViewInput};
 use srs_repository::context_query_service::{
     self, EdgeDirection, FieldContextQuery, NeighboursPage, NeighboursQuery, RecordContextQuery,
 };
-use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage};
+use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage, MatchMode};
 use srs_repository::doctor_service::{self, DoctorInput};
 use srs_repository::governance_scaffold_service::{self, CreateGovernanceRepositoryInput};
 use srs_repository::manifest_service;
@@ -26,6 +26,7 @@ use srs_repository::package_service::{
     self, FieldListFilter, GetFieldResult, GetTypeResult, ListPackageImportsFilter,
     RelationTypeListFilter, TypeListFilter,
 };
+use srs_repository::projection::Projection;
 use srs_repository::protocol_run_service::{
     self as run_service, AdvanceStageInput as RunAdvanceInput, CreateRunInput as RunCreateInput,
     GetRunResult, RunListFilter,
@@ -67,6 +68,11 @@ fn to_js<T: serde::Serialize>(value: &T) -> Result<JsValue, JsValue> {
 #[wasm_bindgen(start)]
 pub fn init() {
     console_error_panic_hook::set_once();
+}
+
+/// A trailing optional `projection` argument (srs-rust#1286): `full` when absent.
+fn parse_projection(p: Option<String>) -> Result<Projection, JsValue> {
+    p.map_or(Ok(Projection::default()), |p| p.parse().map_err(js_err))
 }
 
 fn js_err(e: impl std::fmt::Display) -> JsValue {
@@ -163,6 +169,15 @@ impl McpSession {
     /// Clear the session actor: subsequent creations are unattributed.
     pub fn clear_actor(&mut self) {
         self.dispatcher.application_mut().set_session_actor(None);
+    }
+
+    /// Restrict the tools this session advertises and accepts (srs-rust#1287): `"full"`
+    /// (default), `"context"` or `"read"`, the same profiles as `srs mcp serve --profile`.
+    /// A tool outside the profile is refused as an unknown tool.
+    pub fn set_tool_profile(&mut self, profile: &str) -> Result<(), JsValue> {
+        let profile: srs_mcp_core::tools::ToolProfile = profile.parse().map_err(js_err)?;
+        self.dispatcher.application_mut().set_tool_profile(profile);
+        Ok(())
     }
 
     /// Remove the session's write guard.
@@ -350,9 +365,14 @@ impl SrsRepository {
     /// `limit` (default: all matches) and `offset` (default 0) page the hits after the
     /// deterministic sort; `total` is the full match count. `rank` (default false) orders
     /// content-match hits by BM25 relevance and fills `score`. `by_type_limit` caps
-    /// `facets.byType` values (default 20; 0 = every type); trailing and optional, so
-    /// existing callers are unchanged.
+    /// `facets.byType` values (default 20; 0 = every type). `match_mode` is `"all"`
+    /// (default: every content word must occur) or `"any"` (any significant word, as a whole
+    /// token, for natural-language queries; always ranked) — srs-rust#1284. `facets` returns
+    /// the facets (default: only when `limit` is 0); `projection` is `"full"` (default),
+    /// `"card"` or `"label"` — srs-rust#1286. All are trailing and optional, so existing
+    /// callers are unchanged.
     /// Returns a `DiscoveryResult` as a JS value.
+    #[allow(clippy::too_many_arguments)]
     pub fn find(
         &self,
         query_json: &str,
@@ -360,14 +380,24 @@ impl SrsRepository {
         offset: Option<usize>,
         rank: Option<bool>,
         by_type_limit: Option<usize>,
+        match_mode: Option<String>,
+        facets: Option<bool>,
+        projection: Option<String>,
     ) -> Result<JsValue, JsValue> {
         let query: DiscoveryQuery =
             serde_json::from_str(query_json).map_err(|e| js_err(format!("invalid query: {e}")))?;
+        let match_mode: MatchMode = match match_mode {
+            None => MatchMode::default(),
+            Some(m) => m.parse().map_err(js_err)?,
+        };
         let page = FindPage {
             limit,
             offset: offset.unwrap_or(0),
             rank: rank.unwrap_or(false),
+            match_mode,
             by_type_limit,
+            facets,
+            projection: parse_projection(projection)?,
         };
         let result = discovery_service::find(&self.store, query, page).map_err(js_err)?;
         to_js(&result)
@@ -375,13 +405,16 @@ impl SrsRepository {
 
     /// "More like this": instances similar to `instance_id`, ranked by BM25 over its top-weighted
     /// terms, excluding itself. `query_json` carries the structured `DiscoveryQuery` filters (no
-    /// `contentMatch`); `limit`/`offset` page the hits. Returns a `DiscoveryResult` as a JS value.
+    /// `contentMatch`); `limit`/`offset` page the hits; `projection` and `facets` are as in
+    /// [`Self::find`]. Returns a `DiscoveryResult` as a JS value.
     pub fn find_similar(
         &self,
         instance_id: &str,
         query_json: &str,
         limit: Option<usize>,
         offset: Option<usize>,
+        projection: Option<String>,
+        facets: Option<bool>,
     ) -> Result<JsValue, JsValue> {
         let query: DiscoveryQuery =
             serde_json::from_str(query_json).map_err(|e| js_err(format!("invalid query: {e}")))?;
@@ -389,7 +422,9 @@ impl SrsRepository {
             limit,
             offset: offset.unwrap_or(0),
             rank: true,
-            by_type_limit: None,
+            projection: parse_projection(projection)?,
+            facets,
+            ..Default::default()
         };
         let result =
             discovery_service::similar(&self.store, instance_id, query, page).map_err(js_err)?;
@@ -1434,10 +1469,15 @@ impl SrsRepository {
     }
 
     /// Upgrade an installed package from a newer .srspkg (same service as `srs package upgrade`).
-    /// bundle_json is the file's text; options_json: {"dryRun"?: bool, "boundaryPath"?: string}
+    /// bundle_json is the file's text; options_json: {"dryRun"?: bool, "boundaryPath"?: string,
+    /// "priorBundles"?: string[] (earlier published bundles' file texts of the same package, proof
+    /// only), "adopt"?: string[] (definition ids to replace although unproven; never a local-edit; matches every version of an id; a conflict is adoptable exactly when its
+    /// conflictKind is "no-reference-copy"). Prior bundles must be published artifacts the caller
+    /// verified, older than the new bundle and not newer than the installed version.}
     /// ("{}" for defaults). Returns UpgradePackageResult (same fields as the CLI payload:
-    /// packageId, name, previousVersion, version, upgraded, dryRun, added, newVersions, updated,
-    /// unchanged, conflicts, removedUpstream, dependencyWarnings, notes). A downgrade or a package
+    /// packageId, name, previousVersion, version, upgraded, dryRun, added, newVersions, updated
+    /// (items may carry provenBy), adopted, unchanged, repaired, conflicts, removedUpstream,
+    /// dependencyWarnings, notes). A downgrade or a package
     /// that is not installed is an error. Advances write_epoch unless dryRun (a dry run writes
     /// nothing); the session is dirty after a real run.
     pub fn upgrade_package_bundle(
@@ -3110,7 +3150,7 @@ mod tests {
         let result = AddAttachmentResult {
             document_id: "doc-002".to_string(),
             content_path: "brief.pdf".to_string(),
-            sidecar_path: "brief.meta.json".to_string(),
+            sidecar_path: "brief.pdf.meta.json".to_string(),
             source_documents_path: "source-documents".to_string(),
             content_checksum: "sha256:aaa".to_string(),
             sidecar_checksum: "sha256:bbb".to_string(),
@@ -3118,7 +3158,7 @@ mod tests {
         let json = serde_json::to_value(&result).expect("AddAttachmentResult must serialize");
         assert_eq!(json["documentId"].as_str(), Some("doc-002"));
         assert_eq!(json["contentPath"].as_str(), Some("brief.pdf"));
-        assert_eq!(json["sidecarPath"].as_str(), Some("brief.meta.json"));
+        assert_eq!(json["sidecarPath"].as_str(), Some("brief.pdf.meta.json"));
         assert_eq!(
             json["sourceDocumentsPath"].as_str(),
             Some("source-documents")

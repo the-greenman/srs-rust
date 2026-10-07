@@ -34,6 +34,13 @@ existing SRS identifier (see ADR-037 §6).
 workflows plus discovery. The protocol run tools mirror the CLI's `srs
 protocol run` verbs (#977 — follow-up to #955's read-only protocol
 resources).
+**Tool profiles** (#1287): `srs mcp serve --profile context|read` advertises
+and accepts a fixed subset of the tools, defined once in
+`srs_mcp_core::tools::ToolProfile` — `context` for agent memory (discovery,
+`read`, `repo_validate`, and the capture writes), `read` for no writes. The
+default `full` is everything. A hidden tool is refused as unknown, and the
+`initialize` instructions name the session's tools.
+
 Read a type's schema (`type_schema` or the `type/{typeId}` resource) before
 authoring: each property's `x-srs-field-id` is the UUID `record_create`
 needs. Rejected writes return

@@ -74,6 +74,44 @@ fn tool_catalogue_has_all_thirty_three_tools_and_core_owns_the_schemas() {
 }
 
 #[test]
+fn tool_profile_filters_the_catalogue_and_refuses_the_rest() {
+    use srs_mcp_core::tools::ToolProfile;
+    let (_dir, mut d) = setup();
+    d.application_mut().set_tool_profile(ToolProfile::Context);
+    let listed = rpc(&mut d, "tools/list", json!({}));
+    let names: Vec<&str> = listed["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names.len(), 12);
+    assert!(names.contains(&"repo_validate"));
+    assert!(names.contains(&"find") && names.contains(&"read") && names.contains(&"note_create"));
+    assert!(!names.contains(&"container_copy"));
+    // Advertised tools still work, including `read` (routed outside call_tool).
+    let found = tool(&mut d, "find", json!({ "limit": 0 }));
+    assert_eq!(found["result"]["isError"], false);
+    let read = tool(
+        &mut d,
+        "read",
+        json!({ "uri": format!("srs://{REPO_ID}/map") }),
+    );
+    assert_eq!(read["result"]["isError"], false, "{read}");
+    // A tool outside the profile is refused like an unknown tool, and writes nothing.
+    let refused = tool(&mut d, "container_copy", json!({}));
+    assert_eq!(refused["error"]["code"], -32602, "{refused}");
+    assert!(refused["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("'context' tool profile"));
+    // Read profile: no write tool is callable.
+    d.application_mut().set_tool_profile(ToolProfile::Read);
+    let refused = tool(&mut d, "note_create", json!({ "sections": [] }));
+    assert_eq!(refused["error"]["code"], -32602);
+}
+
+#[test]
 fn package_dependency_tools_use_the_core_service() {
     let (_dir, mut d) = setup();
     // The core package is always installed (RFC-044 Change D item 4).
@@ -1143,4 +1181,59 @@ mod read_tool {
             assert_eq!(sc["text"], via["content"][0]["text"]);
         }
     }
+}
+
+/// `package_upgrade` priorBundles / adopt (#1325): a real no-reference-copy conflict is adopted.
+#[test]
+fn package_upgrade_tool_adopts_a_no_reference_copy_conflict() {
+    let (dir, mut d) = setup();
+    let f1 = "9a1b0c2d-0001-4aaa-8bbb-0000000000b1";
+    let bundle = |version: &str, desc: &str| {
+        json!({
+            "schemaVersion": "2.0-draft", "packageId": "9a1b0c2d-2222-4aaa-8bbb-00000000000a",
+            "packageNamespace": "com.example.ad", "packageName": "ad", "packageVersion": version,
+            "dataModelRevision": 9, "publishedAt": "2026-10-03T00:00:00Z", "mode": "bundled",
+            "fields": [{"id": f1, "namespace": "com.example.ad", "name": "one", "version": 1,
+                "description": desc, "fieldType": {"datatype": "string"},
+                "aiGuidance": {"purpose": "p."}, "createdAt": "2026-01-01T00:00:00Z"}],
+            "types": [], "relationTypes": [], "views": [],
+            "dependencyRefs": [], "packageDependencies": []
+        })
+        .to_string()
+    };
+    let (old, new) = (bundle("1.0.0", "d."), bundle("1.1.0", "Changed."));
+    srs_repository::package_install_service::install_package_bundle_bytes(
+        &FileStore::new(dir.path()),
+        old.as_bytes(),
+        Default::default(),
+    )
+    .unwrap();
+    std::fs::remove_dir_all(dir.path().join("packages/ad/.srs-import/refs")).unwrap();
+    let bare = tool(
+        &mut d,
+        "package_upgrade",
+        json!({ "bundle": new, "dryRun": true }),
+    );
+    let r = &bare["result"]["structuredContent"];
+    assert_eq!(
+        r["conflicts"][0]["conflictKind"], "no-reference-copy",
+        "{bare}"
+    );
+    let proven = tool(
+        &mut d,
+        "package_upgrade",
+        json!({ "bundle": new, "dryRun": true, "priorBundles": [old] }),
+    );
+    assert_eq!(
+        proven["result"]["structuredContent"]["updated"][0]["provenBy"], "1.0.0",
+        "{proven}"
+    );
+    let adopted = tool(
+        &mut d,
+        "package_upgrade",
+        json!({ "bundle": new, "adopt": [f1] }),
+    );
+    let r = &adopted["result"]["structuredContent"];
+    assert_eq!(r["adopted"][0]["id"], f1, "{adopted}");
+    assert_eq!(r["conflicts"].as_array().unwrap().len(), 0);
 }

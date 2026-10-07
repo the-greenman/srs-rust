@@ -37,6 +37,7 @@ fn create_temp_repo_with_themes() -> TempDir {
 fn run_srs(dir: &std::path::Path, args: &[&str]) -> Value {
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
+        .env_remove("SRS_ACTOR")
         .args(args)
         .current_dir(dir)
         .output()
@@ -58,6 +59,7 @@ fn run_srs(dir: &std::path::Path, args: &[&str]) -> Value {
 fn run_srs_stdin(dir: &std::path::Path, args: &[&str], stdin: &str) -> Value {
     let exe = env!("CARGO_BIN_EXE_srs");
     let mut child = Command::new(exe)
+        .env_remove("SRS_ACTOR")
         .args(args)
         .current_dir(dir)
         .stdin(std::process::Stdio::piped())
@@ -310,6 +312,7 @@ fn theme_delete_blocked_when_composition_references_it() {
     // Now try to delete the theme — should fail
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
+        .env_remove("SRS_ACTOR")
         .args(["theme", "delete", &theme_id])
         .current_dir(temp.path())
         .output()

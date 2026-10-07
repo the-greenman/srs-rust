@@ -176,6 +176,16 @@ Decision 5's reserved extension point now exists: `discovery_index::DiscoveryInd
 
 `DiscoveryResult` is now `{ hits, total, facets, diagnostics }` (the `Neutral` note above that defers pagination predates `FindPage`, #1217). `facets` are counts over the whole Layer-1 match set, before paging, computed in the same pass as `total`: `byType` (`namespace/name`), `notes` (Tier 0, which has no type), `tags`, and `fields` (one entry per closed string field, keyed by `Field.name`, counted only when no package field of that name is open). Each facet keeps the top 20 values by count (ties by value) plus an `other` occurrence count; at most 25 field facets are kept, so a reply stays far below the 128 KB relay limit. `find` with `limit: 0` is the repository map. A Layer-2 index may rank hits but must leave facets unchanged. Result shaping only: `discovery.json` is untouched, no spec change. `byType` keys on the record's `typeNamespace`/`typeName` (the same hints every hit carries; a stale hint is a validate error, not a facet concern). Counts are of values as stored (no case folding). Field facets beyond the 25 largest are dropped without a marker; the cap is a relay-size guard, and a name that is closed-string in one field and anything else in another is never a facet.
 
+## Amendment (2026-10-07, #1286) — opt-in facets and hit projection
+
+Agents found `find` pages expensive (about 2.4k tokens for 10 hits), so the #1219 shape is revised. This reverses `plans/1219-find-facets.md` D1 ("always present, not opt-in"); D9 (no adapter-side omission) still holds, because the omission is decided in the service, not by an adapter.
+
+- **Facets are opt-in.** `FindPage.facets: Option<bool>`; `None` means facets only for `limit: 0`, a request that asks for no hits and is therefore asking for the map (`FindPage::wants_facets`). `DiscoveryResult.facets` is `Option` and absent (never `null`) when not asked for; the counting pass is skipped. `find --limit 0` and MCP `find {limit: 0}` are unchanged. A plain `find` (any limit above 0) no longer carries facets unless `facets: true`: a reply-shape change for callers that read them from a search, accepted pre-1.0.
+- **Hit projection.** `FindPage.projection` uses the shared `projection::Projection` (`full|card|label`, the vocabulary `context record` introduced in #1285). `card` drops `typeId`, `containerIds` and `matchedFields`; `label` also drops `score` and `snippet`. `uri`, label, type and lifecycle state are always kept, so every hit stays readable. Projection is applied after paging and never changes the match set, order, `total` or facets. `DiscoveryHit.containerIds`/`matchedFields` are therefore `Option` (always present under `full`).
+- `similar` takes the same two options.
+
+Measured on the 704-instance spec repository, `--text container --limit 10`: full 6.0 KB (8.3 KB with facets), card 4.6 KB, label 2.9 KB. Result shaping only; no spec change.
+
 ## Amendment (srs-rust#1230): `similar`, more-like-this
 
 `discovery_service::similar(store, instanceId, query, page)` asks "what else is about this?".

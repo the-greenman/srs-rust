@@ -1734,6 +1734,15 @@ pub enum PackageCommand {
         /// The installed boundary to upgrade (default: the one installed with the bundle's packageId)
         #[arg(long)]
         boundary: Option<String>,
+        /// An earlier published `.srspkg` of the same package, as proof that an installed
+        /// definition with no reference copy is unedited (repeatable)
+        #[arg(long = "prior-bundle")]
+        prior_bundle: Vec<PathBuf>,
+        /// Definition id to replace although nothing proves it clean (repeatable); matches
+        /// every version of that id; only a no-reference-copy conflict is adoptable (any
+        /// unknown local edit is overwritten), never a local-edit or key-collision
+        #[arg(long)]
+        adopt: Vec<String>,
     },
     /// Export a package boundary as a deterministic `.srspkg` Package Bundle
     /// (ADR-050). The reported sha256 is `sha256:<64 lowercase hex>` of the file;
@@ -1900,9 +1909,21 @@ pub struct FindArgs {
     /// Order --text hits by BM25 relevance (fills `score`) instead of by instanceId
     #[arg(long = "rank")]
     pub rank: bool,
+    /// How --text words combine: `all` (every word must occur) or `any` (any significant
+    /// word, as a whole token; for questions typed as sentences; always ranked)
+    #[arg(long = "match", value_name = "MODE", default_value = "all")]
+    pub match_mode: srs_repository::discovery_service::MatchMode,
     /// Cap on `facets.byType` values (default 20; the rest are summed into `other`). 0 = every type
     #[arg(long = "by-type-limit")]
     pub by_type_limit: Option<usize>,
+    /// Include `facets` (counts over the whole match set). Default: only with `--limit 0`,
+    /// the repository map. `--facets false` drops them there too
+    #[arg(long = "facets", value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub facets: Option<bool>,
+    /// How much of each hit to return: `full` (default), `card` (id, uri, label, type, state,
+    /// score, snippet) or `label` (id, uri, label, type, state)
+    #[arg(long = "projection", value_name = "PROJECTION", default_value = "full")]
+    pub projection: srs_repository::projection::Projection,
     /// More like this: instances similar to this instance (Record or Note id), ranked by BM25
     /// over its top-weighted terms, excluding itself. The other filters narrow the candidates;
     /// not combinable with --text.

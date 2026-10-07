@@ -8,6 +8,7 @@ use tempfile::TempDir;
 fn run_srs(dir: &Path, args: &[&str]) -> Value {
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
+        .env_remove("SRS_ACTOR")
         .args(args)
         .current_dir(dir)
         .output()
@@ -207,6 +208,7 @@ fn package_install_cli_boundary_override() {
 /// Raw runner: exit status plus the parsed stdout envelope (if any).
 fn run_raw(dir: &Path, args: &[&str]) -> (bool, Option<Value>) {
     let output = Command::new(env!("CARGO_BIN_EXE_srs"))
+        .env_remove("SRS_ACTOR")
         .args(args)
         .current_dir(dir)
         .output()
@@ -556,4 +558,57 @@ fn package_upgrade_cli_dry_run_then_real_run() {
         .as_str()
         .unwrap()
         .contains("downgrade refused"));
+}
+
+#[test]
+fn package_upgrade_cli_prior_bundle_proves_and_adopt_consents() {
+    let (ws, a, b) = two_repos();
+    let out = ws.path().join("p.srspkg").to_string_lossy().into_owned();
+    export(ws.path(), &a, &out);
+    run_srs(
+        ws.path(),
+        &["--repo", &b, "package", "install", "--bundle", &out],
+    );
+    // Simulate an old install: no reference copies.
+    let refs = std::path::Path::new(&b)
+        .join(SELECTOR)
+        .join(".srs-import/refs");
+    std::fs::remove_dir_all(&refs).unwrap();
+    let mut bundle: Value = serde_json::from_slice(&std::fs::read(&out).unwrap()).unwrap();
+    bundle["packageVersion"] = Value::from("1.1.0");
+    bundle["types"][0]["description"] = Value::from("Changed upstream.");
+    let newer = ws
+        .path()
+        .join("newer.srspkg")
+        .to_string_lossy()
+        .into_owned();
+    std::fs::write(&newer, serde_json::to_vec(&bundle).unwrap()).unwrap();
+    let up = |extra: &[&str]| {
+        let mut args = vec!["--repo", &b, "package", "upgrade", "--bundle", &newer];
+        args.extend_from_slice(extra);
+        run_srs(ws.path(), &args)
+    };
+
+    let bare = up(&["--dry-run"]);
+    assert_eq!(
+        bare["payload"]["conflicts"][0]["conflictKind"],
+        "no-reference-copy"
+    );
+    let id = bare["payload"]["conflicts"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let adopt = up(&["--dry-run", "--adopt", &id]);
+    assert_eq!(adopt["payload"]["adopted"][0]["id"], id.as_str());
+    let proven = up(&["--dry-run", "--prior-bundle", &out]);
+    assert_eq!(
+        proven["payload"]["conflicts"].as_array().unwrap().len(),
+        0,
+        "{proven}"
+    );
+    assert_eq!(proven["payload"]["updated"][0]["provenBy"], "1.0.0");
+    let real = up(&["--prior-bundle", &out]);
+    assert_eq!(real["payload"]["updated"][0]["provenBy"], "1.0.0");
+    let validate = run_srs(ws.path(), &["--repo", &b, "repo", "validate"]);
+    assert_eq!(validate["payload"]["summary"]["errors"], 0, "{validate}");
 }

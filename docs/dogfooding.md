@@ -1733,7 +1733,7 @@ with open('/tmp/dogfood-s31/manifest.json') as f:
     m = json.load(f)
 m['sourceDocumentIndex'] = [{
     'documentId': 'aaaabbbb-cccc-dddd-eeee-ffffffffffff',
-    'sidecarPath': 'brief.meta.json',
+    'sidecarPath': 'brief.pdf.meta.json',
     'contentPath': 'brief.pdf',
     'title': 'Project Brief Q3',
     'contentChecksum': 'sha256:abc123',
@@ -1742,11 +1742,11 @@ m['sourceDocumentIndex'] = [{
 with open('/tmp/dogfood-s31/manifest.json', 'w') as f:
     json.dump(m, f, indent=2)
 EOF
-echo '{"documentId":"aaaabbbb-cccc-dddd-eeee-ffffffffffff"}' > /tmp/dogfood-s31/source-documents/brief.meta.json
+echo '{"documentId":"aaaabbbb-cccc-dddd-eeee-ffffffffffff"}' > /tmp/dogfood-s31/source-documents/brief.pdf.meta.json
 
 srs attachment list --repo /tmp/dogfood-s31 --pretty
 ```
-`brief.pdf` entry now carries `documentId`, `title`, `contentChecksum`, `sidecarChecksum`, and `sizeBytes`. `brief.meta.json` is absent from the listing (sidecar excluded). `annexes/annex-a.pdf` and `report.docx` remain without metadata but still carry `sizeBytes`.
+`brief.pdf` entry now carries `documentId`, `title`, `contentChecksum`, `sidecarChecksum`, and `sizeBytes`. `brief.pdf.meta.json` is absent from the listing (sidecar excluded). `annexes/annex-a.pdf` and `report.docx` remain without metadata but still carry `sizeBytes`.
 
 **Negative case — repository not found.**
 ```bash
@@ -1789,11 +1789,11 @@ open('/tmp/brief.pdf', 'wb').write(data)
 ```bash
 $SRS attachment add /tmp/brief.pdf --repo /tmp/dogfood-s32 --title "Project Brief" --pretty
 ```
-Returns `ok: true` with `payload` containing `documentId` (UUID), `contentPath` (`"brief.pdf"`), `sidecarPath` (`"brief.meta.json"`), `sourceDocumentsPath` (`"source-documents"`), `contentChecksum` (`"sha256:..."`), `sidecarChecksum` (`"sha256:..."`).
+Returns `ok: true` with `payload` containing `documentId` (UUID), `contentPath` (`"brief.pdf"`), `sidecarPath` (`"brief.pdf.meta.json"`), `sourceDocumentsPath` (`"source-documents"`), `contentChecksum` (`"sha256:..."`), `sidecarChecksum` (`"sha256:..."`).
 
 Files created in `source-documents/`:
 - `brief.pdf` — the raw binary content
-- `brief.meta.json` — JSON sidecar: `{"documentId":"...","contentPath":"brief.pdf","contentType":"application/pdf","encoding":"binary","checksum":"sha256:..."}`
+- `brief.pdf.meta.json` — JSON sidecar: `{"documentId":"...","contentPath":"brief.pdf","contentType":"application/pdf","encoding":"binary","checksum":"sha256:..."}`
 
 `manifest.json → sourceDocumentIndex` gains one entry with all six fields: `documentId`, `contentPath`, `sidecarPath`, `title`, `contentChecksum`, `sidecarChecksum`.
 
@@ -1808,7 +1808,7 @@ Returns one entry with `path: "brief.pdf"`, `documentId`, `title: "Project Brief
 echo "annex content" > /tmp/annex-a.txt
 $SRS attachment add /tmp/annex-a.txt --repo /tmp/dogfood-s32 --subdir annexes --title "Annex A" --pretty
 ```
-Returns `contentPath: "annexes/annex-a.txt"`, `sidecarPath: "annexes/annex-a.meta.json"`. Both files land under `source-documents/annexes/`.
+Returns `contentPath: "annexes/annex-a.txt"`, `sidecarPath: "annexes/annex-a.txt.meta.json"`. Both files land under `source-documents/annexes/`.
 
 **Negative case — duplicate rejection.**
 ```bash
@@ -1833,6 +1833,13 @@ $SRS repo validate --repo /tmp/dogfood-s32 --pretty
 **Verified 2026-07-17 (#280).** Happy path confirmed: PDF stored, sidecar written with correct `contentType: "application/pdf"`, manifest entry populated, `attachment list` returned the entry with all fields. Subdir (`annexes/`) confirmed: `contentPath: "annexes/annex-a.txt"`. Duplicate rejection confirmed: `ok: false` with the expected diagnostic. Missing-file case confirmed: `ok: false` with read-error diagnostic. `repo validate`: 0 diagnostics throughout.
 
 **Re-verified 2026-07-20 (#647).** `attachment list` immediately after `attachment add` on a freshly-created directory-format repo confirmed: one entry with `path`, `documentId`, `contentChecksum`, `sizeBytes`, and `title` all populated. `repo validate` stays at 0 errors. (Regression tests `add_then_list_attachments_memory_store` and `add_then_list_attachments_json_store` added in `attachment_service.rs` to guard the in-memory store path.)
+
+**Re-verified 2026-10-07 (srs-rust#1329) — sidecar naming fixed to the full filename.** Prior runs above correctly observed `attachment add`'s actual `brief.meta.json`/`brief.pdf.meta.json` output but this doc's own text had drifted inconsistent (now fixed, see edits above). The real bug #1329 fixed: `add_attachment` derived the sidecar name from the content file's *stem*, not its full name, so two attachments sharing a stem with different extensions collided on one sidecar. Dogfooded against a fresh `repo create` + built `srs` binary from this branch:
+```bash
+srs attachment add /tmp/brief.md --repo /tmp/dogfood-1329 --title "Brief (Markdown)" --pretty
+srs attachment add /tmp/brief.txt --repo /tmp/dogfood-1329 --title "Brief (Text)" --pretty
+```
+Both succeed (no spurious duplicate rejection) with distinct `sidecarPath`s: `brief.md.meta.json` and `brief.txt.meta.json`. `attachment list` shows both entries separately, each with its own `documentId`/`title`. `repo validate`: 0 errors/warnings throughout. Negative case re-confirmed: re-adding `brief.md` is still correctly rejected as a duplicate (`ok: false`, exit 1). New regression test `add_attachment_distinct_extensions_same_stem_no_collision` added in `attachment_service.rs`.
 
 ---
 
@@ -3247,7 +3254,7 @@ srs --repo $REPO repo validate                                   # 0 errors
 
 **CLI surface.** `srs find --limit 0` (and the MCP `find {limit: 0}` / bindings `find`): `payload.result.facets` = `byType`, `notes`, `tags`, `fields[]` (closed string fields keyed by `Field.name`), each `{values:[{value,count}], other?}` (`byType` values also carry `typeId`), counted over the whole match set before paging. `byType` keeps the top 20 types by default; `--by-type-limit N` (CLI), `byTypeLimit` (MCP) or the trailing `by_type_limit` argument (bindings `find`) changes that, and 0 returns every type.
 
-**Steps.** `srs find --repo ../../muDemocracy.org/muSrs --limit 0 --pretty`; then `--type com.mudemocracy.argument/problem --limit 0`; then `--text democracy --limit 3` and compare `total` with the sum of `facets.byType`. Negative: `--container <unknown uuid> --limit 0` returns `facets: {}` with the containerId warning.
+**Steps.** `srs find --repo ../../muDemocracy.org/muSrs --limit 0 --pretty`; then `--type com.mudemocracy.argument/problem --limit 0`; then `--text democracy --limit 3 --facets` and compare `total` with the sum of `facets.byType` (since #1286 a search carries facets only when asked). Negative: `--container <unknown uuid> --limit 0` returns `facets: {}` with the containerId warning.
 
 **Done when.** `hits` is empty and `total` is 886; `byType` totals 861 plus `notes` 25 equal `srs repo map`'s 886; the problem-type call lists `kind` (condition 55, consequence 33, shift 24, ...), `persona` and `scale`; open string fields never appear; the reply is under 128 KB.
 
@@ -3288,6 +3295,30 @@ $SRS repo validate --repo $R                                         # 0 errors
 **Negative case.** A lower bundle version is refused (`downgrade refused`). A package that is not installed is refused (`not installed; use install`). Edit the installed type file by hand and upgrade with a bundle that changes it again: the result lists it under `conflicts` with `conflictKind: "local-edit"` and the file keeps your edit. A definition dropped from the bundle is listed in `removedUpstream` and its file stays. Delete one reference copy under `<boundary>/.srs-import/refs/` and re-run: the definition is listed in `repaired`, and the next run is a no-op. A local edit of a definition the new release did not change is `unchanged`, not a conflict.
 
 **Verified 2026-10-05 (#1152):** all of the above run on the branch binary; the real run returned `added` field `extra`, `newVersions` type `essay@2`, `updated` type `essay@1`, `unchanged` field `title`; re-run 4 unchanged; imports all clean; validate 0 errors; downgrade and not-installed refused; local edit reported as a conflict and kept.
+
+### S55 — An agent scans search results cheaply before reading (`find --projection`, opt-in facets, #1286)
+
+**Intention.** An agent searching a large repository wants to see which records matched, and pick one to read, without paying for every hit's container list, matched fields and the facet counts it did not ask for.
+
+**CLI surface.** `srs find --projection full|card|label` (MCP `find`/`similar` `projection`, bindings trailing `projection`); `--facets [BOOL]` (MCP/bindings `facets`). `card` keeps `instanceId`, `uri`, `label`, type, `lifecycleState`, `score`, `snippet`; `label` also drops `score` and `snippet`. Facets appear only with `--limit 0` or `--facets`.
+
+**Steps.** On the spec repository: `srs find --text container --limit 10`, then the same with `--facets`, `--projection card`, `--projection label`; then `--limit 0` and `--limit 0 --facets false`.
+
+**Done when.** All four searches report the same `total` and the same hit order; only the `--facets` call carries `facets`; `card` hits have no `typeId`/`containerIds`/`matchedFields`; `label` hits have neither `score` nor `snippet`; `--limit 0` carries facets and `--limit 0 --facets false` is just `{hits: [], total, diagnostics}`.
+
+**Verified 2026-10-07 (#1286), spec repository (704 instances):** `--text container --limit 10`, total 134 every time: full 6,004 bytes, with `--facets` 8,285, card 4,610, label 2,872; `--limit 0` 3,017 bytes with facets, 40 bytes with `--facets false`. srs-context, `--match any` question, 10 hits: full with facets 9.8 KB pretty-printed, card 5.0 KB.
+
+### S56 — An agent session carries only the tools it needs (`srs mcp serve --profile`, #1287)
+
+**Intention.** An agent that keeps project memory in an SRS repository mounts it over MCP without paying for 33 tool definitions it never calls; a reviewer mounts a repository it must not change.
+
+**CLI surface.** `srs mcp serve --profile full|context|read` (default `full`); `SrsMcpServer::with_tool_profile`; WASM `McpSession.set_tool_profile`. The sets live in `srs_mcp_core::tools::ToolProfile`.
+
+**Steps.** Serve srs-context with each profile; send `initialize` and `tools/list`; with `--profile read`, call `note_create`.
+
+**Done when.** `context` lists 12 tools and `read` 11; the `initialize` instructions end by naming the session's tools; `note_create` under `read` returns `-32602` and writes nothing; `--profile everything` exits non-zero naming `full|context|read`.
+
+**Verified 2026-10-07 (#1287), srs-context over stdio:** `tools/list` full 33 tools 44,142 bytes (about 11k tokens), context 12 tools 20,376 bytes (about 5.1k), read 11 tools 14,703 bytes (about 3.7k). Binary tests: `mcp_serve_binary_read_profile_hides_and_refuses_writes`, `mcp_serve_binary_rejects_an_unknown_profile`.
 
 ## S46 — Hand off one container as a standalone slice (`srs slice export`, RFC-026, #631)
 
@@ -3415,7 +3446,9 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `srs-gov export-decision` (governance operator exports shareable bundle, #289) | S38 (#289); exercises record lookup → view discovery → `render export-bundle` chain; `--explain` pre-stages all 3 underlying srs calls; default output filename (`<id8>.zip`). |
 | `find` facets over the match set, `limit: 0` repository map (#1219) | S52 |
 | `find` hit `uri`/`typeId`/`containerIds`, neighbour `uri`, agent-index `entryPoints` (#1227) | S51 |
+| `find --projection full\|card\|label`, opt-in `--facets` (#1286) | S55 |
 | `find --similar` / MCP `similar` / WASM `findSimilar` (more-like-this over the BM25 index, #1230) | S53 |
+| `mcp serve --profile full\|context\|read` (tool profiles, #1287) | S56 |
 | `mcp serve` (MCP stdio server: resources map/navigation/record/container/view/**type** + all 13 tools: `repo_validate`/`find`/`type_schema`/`record_create`/`relation_create`/`note_create`/`record_update`/`record_transition`/`record_allowed_transitions`/`record_successor`/`note_graduate`/`container_member_add`/`container_member_remove` + **prompts** `prompts/list`/`prompts/get`, ADR-037 + #692 amendment + #682 prompts + **#680 second-wave write tools**) | S42 (incl. the #692 discover-then-author step, #682 prompts step 10b, and #680 second-wave step 10c); 32 crate tests in `crates/srs-mcp/` (13 unit + 13 duplex-transport integration + 6 second-wave integration) + 2 binary-level handshake tests in `crates/srs-cli/tests/mcp_serve.rs` + 4 unit tests in `crates/srs-mcp/src/prompts.rs` |
 
 | RFC-039 revision-2 carrier (`record create`/`update` object `fieldValues` + `fieldMeta`, [R9] rejection, composite values, `type schema` range expansion, `repo apply-migration --id rfc039-carrier`) | S46 (#806); migration service unit tests in `rfc039_carrier_migration_service.rs`; carrier round-trip + order tests in `srs-core` `record.rs`; value-grammar tests in `srs-core` `validation/value_shape.rs` |

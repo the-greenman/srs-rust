@@ -28,7 +28,7 @@
 //!   that stemming, synonyms or an embedding layer would have to fix.
 
 use serde::Deserialize;
-use srs_repository::discovery_service::{find, similar, DiscoveryQuery, FindPage};
+use srs_repository::discovery_service::{find, similar, DiscoveryQuery, FindPage, MatchMode};
 use srs_repository::text_projection::{
     build_field_text_index, normalize, project_note_text, project_text,
 };
@@ -70,17 +70,28 @@ fn methods() -> Vec<(&'static str, Method)> {
         ("substring (phrase, unranked: id order)", phrase),
         ("all-words (Layer 1, unranked: id order)", all_words),
         ("BM25 (all-words candidates, ranked)", bm25),
+        ("BM25 (any-word candidates, ranked; #1284)", bm25_any),
         ("BM25 top-5, then similar to its top hit", bm25_then_similar),
     ]
 }
 
 fn find_ids(store: &dyn RepositoryStore, query: &str, rank: bool) -> Vec<String> {
+    find_ids_mode(store, query, rank, MatchMode::All)
+}
+
+fn find_ids_mode(
+    store: &dyn RepositoryStore,
+    query: &str,
+    rank: bool,
+    match_mode: MatchMode,
+) -> Vec<String> {
     let q = DiscoveryQuery {
         content_match: Some(query.to_string()),
         ..Default::default()
     };
     let page = FindPage {
         rank,
+        match_mode,
         ..Default::default()
     };
     find(store, q, page)
@@ -97,6 +108,11 @@ fn all_words(store: &dyn RepositoryStore, query: &str) -> Vec<String> {
 
 fn bm25(store: &dyn RepositoryStore, query: &str) -> Vec<String> {
     find_ids(store, query, true)
+}
+
+/// Any significant word (srs-rust#1284), ranked: the mode for questions typed as sentences.
+fn bm25_any(store: &dyn RepositoryStore, query: &str) -> Vec<String> {
+    find_ids_mode(store, query, true, MatchMode::Any)
 }
 
 /// `similar` (srs-rust#1230) as a follow-up to a search: keep BM25's top 5, then append the

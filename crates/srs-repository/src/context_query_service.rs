@@ -34,35 +34,12 @@ pub struct RecordContextQuery {
     pub projection: ContextProjection,
 }
 
-/// How much of each relation neighbour [`get_record_context`] inlines (#1285). The context
-/// record itself is always returned in full; only the instances at the other end shrink.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ContextProjection {
-    /// Every neighbour as the whole Record/Note, plus each edge's endpoint labels and provenance.
-    #[default]
-    Full,
-    /// Each neighbour as a [`NeighbourSummary`] card: id, uri, label, type, lifecycle state and
-    /// one summary field. Edges drop their endpoint labels and provenance (the card carries the
-    /// label; `full` keeps the provenance). Enough to decide which neighbour to read next.
-    Card,
-    /// As `card`, without the summary: identity and label only.
-    Label,
-}
-
-impl std::str::FromStr for ContextProjection {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, String> {
-        match s {
-            "full" => Ok(ContextProjection::Full),
-            "card" => Ok(ContextProjection::Card),
-            "label" => Ok(ContextProjection::Label),
-            other => Err(format!(
-                "invalid projection '{other}' (expected full|card|label)"
-            )),
-        }
-    }
-}
+/// How much of each relation neighbour [`get_record_context`] inlines (#1285): the shared
+/// [`Projection`](crate::projection::Projection). The context record itself is always returned
+/// in full; only the instances at the other end shrink. A `card` neighbour is a
+/// [`NeighbourSummary`] with one summary field; edges then drop their endpoint labels and
+/// provenance (the card carries the label; `full` keeps the provenance).
+pub type ContextProjection = crate::projection::Projection;
 
 /// Characters of the summary field kept on a `card` neighbour.
 pub const CARD_SUMMARY_CHARS: usize = 160;
