@@ -285,13 +285,7 @@ pub fn add_attachment(
         None => file_name.clone(),
     };
 
-    let sidecar_name = {
-        let stem = file_name
-            .rsplit_once('.')
-            .map(|(s, _)| s)
-            .unwrap_or(&file_name);
-        format!("{stem}.meta.json")
-    };
+    let sidecar_name = format!("{file_name}.meta.json");
     let rel_sidecar_path = match &input.subdir {
         Some(sub) => {
             let sub = sub.trim().trim_matches('/');
@@ -1003,7 +997,7 @@ mod tests {
 
         assert!(!result.document_id.is_empty());
         assert_eq!(result.content_path, "report.pdf");
-        assert_eq!(result.sidecar_path, "report.meta.json");
+        assert_eq!(result.sidecar_path, "report.pdf.meta.json");
         assert_eq!(result.source_documents_path, "source-documents");
         assert!(result.content_checksum.starts_with("sha256:"));
         assert!(result.sidecar_checksum.starts_with("sha256:"));
@@ -1031,7 +1025,7 @@ mod tests {
         let entry = &cat.source_documents[0];
         assert_eq!(entry.id, result.document_id);
         let sidecar_str = store
-            .load_text_file("source-documents/brief.meta.json")
+            .load_text_file("source-documents/brief.pdf.meta.json")
             .unwrap();
         let sidecar: serde_json::Value = serde_json::from_str(&sidecar_str).unwrap();
         assert_eq!(sidecar["contentPath"], "brief.pdf");
@@ -1054,11 +1048,11 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.content_path, "annexes/annex.pdf");
-        assert_eq!(result.sidecar_path, "annexes/annex.meta.json");
+        assert_eq!(result.sidecar_path, "annexes/annex.pdf.meta.json");
 
         // Confirm the sidecar carries the correct contentPath (RFC-038 [R25]: no manifest index).
         let sidecar_str = store
-            .load_text_file("source-documents/annexes/annex.meta.json")
+            .load_text_file("source-documents/annexes/annex.pdf.meta.json")
             .unwrap();
         let sidecar: serde_json::Value = serde_json::from_str(&sidecar_str).unwrap();
         assert_eq!(sidecar["contentPath"], "annexes/annex.pdf");
@@ -1083,6 +1077,67 @@ mod tests {
     }
 
     #[test]
+    fn add_attachment_distinct_extensions_same_stem_no_collision() {
+        // Regression for srs-rust#1329: the sidecar name must be derived from the
+        // full file name, not its stem — otherwise "brief.md" and "brief.txt"
+        // would both resolve to "brief.meta.json", colliding.
+        let store = empty_store();
+        let md_result = add_attachment(
+            &store,
+            AddAttachmentInput {
+                file_name: "brief.md".to_string(),
+                content: b"markdown body".to_vec(),
+                subdir: None,
+                title: Some("Brief (Markdown)".to_string()),
+                content_type: None,
+            },
+        )
+        .unwrap();
+        let txt_result = add_attachment(
+            &store,
+            AddAttachmentInput {
+                file_name: "brief.txt".to_string(),
+                content: b"plain text body".to_vec(),
+                subdir: None,
+                title: Some("Brief (Text)".to_string()),
+                content_type: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(md_result.sidecar_path, "brief.md.meta.json");
+        assert_eq!(txt_result.sidecar_path, "brief.txt.meta.json");
+        assert_ne!(
+            md_result.sidecar_path, txt_result.sidecar_path,
+            "distinct extensions sharing a stem must get distinct sidecars"
+        );
+        assert_ne!(md_result.document_id, txt_result.document_id);
+
+        // Both sidecars exist on disk with their own content, not clobbered.
+        let md_sidecar: serde_json::Value = serde_json::from_str(
+            &store
+                .load_text_file("source-documents/brief.md.meta.json")
+                .unwrap(),
+        )
+        .unwrap();
+        let txt_sidecar: serde_json::Value = serde_json::from_str(
+            &store
+                .load_text_file("source-documents/brief.txt.meta.json")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(md_sidecar["contentPath"], "brief.md");
+        assert_eq!(txt_sidecar["contentPath"], "brief.txt");
+        assert_eq!(md_sidecar["title"], "Brief (Markdown)");
+        assert_eq!(txt_sidecar["title"], "Brief (Text)");
+
+        // Both content files land separately — neither attempt was rejected as a
+        // duplicate, confirming the collision is fixed, not merely rejected.
+        let cat = store.catalog().unwrap();
+        assert_eq!(cat.source_documents.len(), 2);
+    }
+
+    #[test]
     fn add_attachment_infers_content_type_pdf() {
         let store = empty_store();
         add_attachment(
@@ -1099,7 +1154,7 @@ mod tests {
 
         // Check the sidecar contains the correct contentType.
         let sidecar_str = store
-            .load_text_file("source-documents/doc.meta.json")
+            .load_text_file("source-documents/doc.pdf.meta.json")
             .unwrap();
         let sidecar: serde_json::Value = serde_json::from_str(&sidecar_str).unwrap();
         assert_eq!(
@@ -1125,7 +1180,7 @@ mod tests {
         .unwrap();
 
         let sidecar_str = store
-            .load_text_file("source-documents/data.meta.json")
+            .load_text_file("source-documents/data.bin.meta.json")
             .unwrap();
         let sidecar: serde_json::Value = serde_json::from_str(&sidecar_str).unwrap();
         assert_eq!(
@@ -1579,16 +1634,17 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.content_path, "decisions/evidence.pdf");
-        assert_eq!(result.sidecar_path, "decisions/evidence.meta.json");
+        assert_eq!(result.sidecar_path, "decisions/evidence.pdf.meta.json");
 
         // Content file is on disk.
         let on_disk = std::fs::read(root.join("source-documents/decisions/evidence.pdf")).unwrap();
         assert_eq!(on_disk, b"evidence content");
 
         // Sidecar is on disk and parseable.
-        let sidecar_str =
-            std::fs::read_to_string(root.join("source-documents/decisions/evidence.meta.json"))
-                .unwrap();
+        let sidecar_str = std::fs::read_to_string(
+            root.join("source-documents/decisions/evidence.pdf.meta.json"),
+        )
+        .unwrap();
         let sidecar: serde_json::Value = serde_json::from_str(&sidecar_str).unwrap();
         assert_eq!(sidecar["contentType"].as_str(), Some("application/pdf"));
         assert_eq!(sidecar["encoding"].as_str(), Some("binary"));
@@ -1925,7 +1981,7 @@ mod tests {
 
     fn store_with_binary_attachment(doc_id: &str, content_path: &str, bytes: &[u8]) -> MemoryStore {
         let store = empty_store();
-        let sidecar_path = format!("{}.meta.json", content_path.trim_end_matches(".pdf"));
+        let sidecar_path = format!("{content_path}.meta.json");
         write_doc_fixtures(
             &store,
             None,

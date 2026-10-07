@@ -7,8 +7,12 @@
 `add_attachment` (`crates/srs-repository/src/attachment_service.rs:288-294`) derives
 the sidecar file name from the content file's **stem** (`rsplit_once('.')` dropping
 everything after the last `.`), producing `<stem>.meta.json` — e.g. `brief.pdf` →
-`brief.meta.json`. The spec's `source-document-meta.json` schema (RFC-017 [R10]) and
-every other sidecar-producing/consuming path in this codebase (`source_document_service.rs`,
+`brief.meta.json`. The spec's `source-document-meta.json` schema's own description
+states the convention directly: "The sidecar file has the same base name as the
+source file with .meta.json appended" (`docs/schema/2.0/source-document-meta.json`
+— correcting an earlier mis-citation of RFC-017 [R10], which governs sidecar
+co-location, not the filename-derivation scheme). Every other sidecar-producing/
+consuming path in this codebase (`source_document_service.rs`,
 `catalog.rs`, `validation.rs`, the spec corpus fixture
 `source-documents/ai-sessions/chatgpt-origin.md.meta.json`) use the **full file name**
 form, `<file>.meta.json` — e.g. `chatgpt-origin.md.meta.json`. The stem form also

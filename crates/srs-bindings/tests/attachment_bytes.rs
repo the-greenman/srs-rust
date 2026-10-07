@@ -124,7 +124,7 @@ fn get_attachment_bytes_srsj_tombstone() {
         "data": {
             // RFC-038 [R15]: the sidecar file IS the tombstone marker — the
             // retired sourceDocumentIndex no longer registers documents.
-            "source-documents/tombstone.meta.json": {
+            "source-documents/tombstone.pdf.meta.json": {
                 "documentId": "tomb-doc",
                 "contentPath": "tombstone.pdf",
                 "contentType": "application/pdf",
