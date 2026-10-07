@@ -36,10 +36,10 @@ fn call<T: DeserializeOwned>(
 }
 
 /// The stdio server's `initialize` result: the one definition lives in
-/// `srs_metadata::initialize_result()` (shared with the browser dispatcher), parsed here.
-pub(crate) fn server_info() -> ServerInfo {
-    serde_json::from_value(srs_metadata::initialize_result())
-        .expect("srs_metadata::initialize_result() is a valid rmcp InitializeResult")
+/// `srs_metadata::initialize_result_for()` (shared with the browser dispatcher), parsed here.
+pub(crate) fn server_info(profile: srs_mcp_core::tools::ToolProfile) -> ServerInfo {
+    serde_json::from_value(srs_metadata::initialize_result_for(profile))
+        .expect("srs_metadata::initialize_result_for() is a valid rmcp InitializeResult")
 }
 
 pub(crate) fn list_resources(app: &mut App) -> Result<ListResourcesResult, McpError> {

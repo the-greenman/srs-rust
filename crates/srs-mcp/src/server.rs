@@ -100,7 +100,7 @@ impl SrsMcpServer {
 
 impl ServerHandler for SrsMcpServer {
     fn get_info(&self) -> ServerInfo {
-        application::server_info()
+        application::server_info(self.tool_profile)
     }
 
     // Handlers are synchronous service calls wrapped in ready futures: the

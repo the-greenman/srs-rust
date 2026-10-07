@@ -85,7 +85,8 @@ fn tool_profile_filters_the_catalogue_and_refuses_the_rest() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names.len(), 10);
+    assert_eq!(names.len(), 12);
+    assert!(names.contains(&"repo_validate"));
     assert!(names.contains(&"find") && names.contains(&"read") && names.contains(&"note_create"));
     assert!(!names.contains(&"container_copy"));
     // Advertised tools still work, including `read` (routed outside call_tool).

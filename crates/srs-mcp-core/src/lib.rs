@@ -64,6 +64,22 @@ full brief as rendered markdown — AI guidance, required types, structure, and 
 
     /// The JSON result returned from the MCP `initialize` request.
     pub fn initialize_result() -> Value {
+        initialize_result_for(crate::tools::ToolProfile::Full)
+    }
+
+    /// [`initialize_result`] for a session restricted to `profile` (srs-rust#1287): the
+    /// instructions end by naming the tools this session has, so guidance that mentions a
+    /// hidden tool is not followed into an unknown-tool error.
+    pub fn initialize_result_for(profile: crate::tools::ToolProfile) -> Value {
+        let instructions = match profile.tool_names() {
+            None => INSTRUCTIONS.to_string(),
+            Some(names) => format!(
+                "{INSTRUCTIONS} This session uses the '{}' tool profile: its only tools are {}. \
+Any other tool named above is unavailable here.",
+                profile.as_str(),
+                names.join(", ")
+            ),
+        };
         json!({
             "protocolVersion": super::MCP_PROTOCOL_VERSION,
             "capabilities": {
@@ -76,7 +92,7 @@ full brief as rendered markdown — AI guidance, required types, structure, and 
                 "version": release_version(),
                 "description": release_generation_description()
             },
-            "instructions": INSTRUCTIONS
+            "instructions": instructions
         })
     }
 }
@@ -605,7 +621,7 @@ fn arguments(
 impl<S: srs_repository::store::RepositoryStore> McpApplication for SrsMcpApplication<S> {
     fn initialize(&mut self, params: &Value) -> Result<Value, McpApplicationError> {
         self.apply_client_handle(params);
-        Ok(srs_metadata::initialize_result())
+        Ok(srs_metadata::initialize_result_for(self.tool_profile))
     }
 
     fn call(&mut self, method: &str, params: Option<&Value>) -> Result<Value, McpApplicationError> {
@@ -639,13 +655,13 @@ impl<S: srs_repository::store::RepositoryStore> McpApplication for SrsMcpApplica
                     .remove("name")
                     .and_then(|v| v.as_str().map(ToString::to_string))
                     .ok_or_else(|| McpApplicationError::invalid_params("name must be a string"))?;
-                let arguments = arguments(&mut fields)?;
                 if !self.tool_profile.allows(&name) {
                     return Err(McpApplicationError::invalid_params(format!(
                         "unknown tool '{name}' (not in the '{}' tool profile)",
                         self.tool_profile.as_str()
                     )));
                 }
+                let arguments = arguments(&mut fields)?;
                 if name == tools::TOOL_READ {
                     return tools::read_tool(store, &self.repository_id, arguments);
                 }

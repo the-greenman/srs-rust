@@ -103,19 +103,21 @@ const NEIGHBOURS_MAX_LIMIT: usize = 100;
 pub enum ToolProfile {
     #[default]
     Full,
-    /// Agent memory: discover, read, and the writes that capture knowledge (create, update,
-    /// transition, supersede, note, relate, file into a container).
+    /// Agent memory: discover, read, validate, and the writes that capture knowledge (create,
+    /// update, transition, supersede, note, relate, file into a container).
     Context,
     /// Read-only: discovery, reads, outlines, validation; no tool that writes.
     Read,
 }
 
 const CONTEXT_TOOLS: &[&str] = &[
+    TOOL_REPO_VALIDATE,
     TOOL_FIND,
     TOOL_READ,
     TOOL_TYPE_SCHEMA,
     TOOL_RECORD_CREATE,
     TOOL_RECORD_UPDATE,
+    TOOL_RECORD_ALLOWED_TRANSITIONS,
     TOOL_RECORD_TRANSITION,
     TOOL_RECORD_SUCCESSOR,
     TOOL_NOTE_CREATE,
@@ -142,8 +144,16 @@ impl ToolProfile {
     pub fn allows(self, name: &str) -> bool {
         match self {
             ToolProfile::Full => true,
-            ToolProfile::Context => CONTEXT_TOOLS.contains(&name),
-            ToolProfile::Read => READ_TOOLS.contains(&name),
+            _ => self.tool_names().is_some_and(|names| names.contains(&name)),
+        }
+    }
+
+    /// The tool names this profile allows, in catalogue order; `None` for `full` (every tool).
+    pub fn tool_names(self) -> Option<&'static [&'static str]> {
+        match self {
+            ToolProfile::Full => None,
+            ToolProfile::Context => Some(CONTEXT_TOOLS),
+            ToolProfile::Read => Some(READ_TOOLS),
         }
     }
 
