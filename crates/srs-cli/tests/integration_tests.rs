@@ -1967,6 +1967,22 @@ fn repo_validate_invalid_note_returns_ok_false() {
         "expected sections error in diagnostics: {:?}",
         diags
     );
+    // srs-rust#1283: the ok:false branch must still carry the structured
+    // payload (object diagnostics + summary), not just the string digest.
+    assert!(
+        result["payload"]["summary"]["errors"].as_u64().unwrap() >= 1,
+        "expected payload.summary on ok:false: {:?}",
+        result
+    );
+    let payload_diags = result["payload"]["diagnostics"].as_array().unwrap();
+    assert!(
+        payload_diags.iter().any(|d| d["message"]
+            .as_str()
+            .map(|s| s.contains("sections"))
+            .unwrap_or(false)),
+        "expected structured sections error in payload.diagnostics: {:?}",
+        payload_diags
+    );
 }
 
 #[test]
@@ -2017,6 +2033,12 @@ fn repo_validate_tier_schema_mismatch_returns_ok_false() {
         }),
         "expected a declared-schema validation diagnostic: {:?}",
         diags
+    );
+    // srs-rust#1283: payload must be present on ok:false too.
+    assert!(
+        result["payload"]["summary"]["errors"].as_u64().unwrap() >= 1,
+        "expected payload.summary on ok:false: {:?}",
+        result
     );
 }
 
