@@ -8,6 +8,7 @@ use tempfile::TempDir;
 fn run_srs(dir: &Path, args: &[&str]) -> Value {
     let exe = env!("CARGO_BIN_EXE_srs");
     let output = Command::new(exe)
+        .env_remove("SRS_ACTOR")
         .args(args)
         .current_dir(dir)
         .output()
@@ -207,6 +208,7 @@ fn package_install_cli_boundary_override() {
 /// Raw runner: exit status plus the parsed stdout envelope (if any).
 fn run_raw(dir: &Path, args: &[&str]) -> (bool, Option<Value>) {
     let output = Command::new(env!("CARGO_BIN_EXE_srs"))
+        .env_remove("SRS_ACTOR")
         .args(args)
         .current_dir(dir)
         .output()
