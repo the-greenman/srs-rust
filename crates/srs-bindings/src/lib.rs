@@ -1804,6 +1804,7 @@ impl SrsRepository {
         let result = attachment_service::add_attachment(
             &self.store,
             AddAttachmentInput {
+                enforce_policy: false,
                 file_name: input.file_name,
                 content: file_bytes.to_vec(),
                 subdir: input.subdir,

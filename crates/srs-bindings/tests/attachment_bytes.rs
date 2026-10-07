@@ -47,6 +47,7 @@ fn get_attachment_bytes_roundtrip_via_archive() {
     let added = add_attachment(
         &store,
         AddAttachmentInput {
+            enforce_policy: false,
             file_name: "brief.pdf".to_string(),
             content: BYTES.to_vec(),
             subdir: None,
