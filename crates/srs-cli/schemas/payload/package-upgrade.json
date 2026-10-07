@@ -5,6 +5,7 @@
   "type": "object",
   "required": [
     "added",
+    "adopted",
     "conflicts",
     "dependencyWarnings",
     "dryRun",
@@ -28,8 +29,15 @@
         "$ref": "#/definitions/PackageUpgradeItem"
       }
     },
+    "adopted": {
+      "description": "Unproven (`no-reference-copy`) definitions overwritten because `--adopt` named them.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PackageUpgradeItem"
+      }
+    },
     "conflicts": {
-      "description": "Not written: `local-edit`, `no-reference-copy` or `key-collision`.",
+      "description": "Not written: `local-edit`, `no-reference-copy` or `key-collision`. Adoptable via `--adopt` exactly when `conflictKind == \"no-reference-copy\"`.",
       "type": "array",
       "items": {
         "$ref": "#/definitions/PackageUpgradeConflict"
@@ -186,6 +194,13 @@
         "name": {
           "type": "string"
         },
+        "provenBy": {
+          "description": "`updated` only: the prior bundle version that proved the installed content clean.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "version": {
           "type": "integer",
           "format": "uint32",
@@ -211,6 +226,13 @@
         },
         "name": {
           "type": "string"
+        },
+        "provenBy": {
+          "description": "`updated` only: the prior bundle version that proved the installed content clean.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "version": {
           "type": "integer",

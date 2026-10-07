@@ -1734,6 +1734,15 @@ pub enum PackageCommand {
         /// The installed boundary to upgrade (default: the one installed with the bundle's packageId)
         #[arg(long)]
         boundary: Option<String>,
+        /// An earlier published `.srspkg` of the same package, as proof that an installed
+        /// definition with no reference copy is unedited (repeatable)
+        #[arg(long = "prior-bundle")]
+        prior_bundle: Vec<PathBuf>,
+        /// Definition id to replace although nothing proves it clean (repeatable); matches
+        /// every version of that id; only a no-reference-copy conflict is adoptable (any
+        /// unknown local edit is overwritten), never a local-edit or key-collision
+        #[arg(long)]
+        adopt: Vec<String>,
     },
     /// Export a package boundary as a deterministic `.srspkg` Package Bundle
     /// (ADR-050). The reported sha256 is `sha256:<64 lowercase hex>` of the file;

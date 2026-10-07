@@ -2345,11 +2345,14 @@ pub struct PackageUpgradePayload {
     pub new_versions: Vec<PackageUpgradeItem>,
     /// Same UUID and version, changed upstream, local copy clean: overwritten.
     pub updated: Vec<PackageUpgradeItem>,
+    /// Unproven (`no-reference-copy`) definitions overwritten because `--adopt` named them.
+    pub adopted: Vec<PackageUpgradeItem>,
     /// Content already current (including a local edit upstream did not change).
     pub unchanged: Vec<PackageUpgradeItem>,
     /// Content current but its reference copy or import record was missing or wrong; rewritten.
     pub repaired: Vec<PackageUpgradeItem>,
-    /// Not written: `local-edit`, `no-reference-copy` or `key-collision`.
+    /// Not written: `local-edit`, `no-reference-copy` or `key-collision`. Adoptable via
+    /// `--adopt` exactly when `conflictKind == "no-reference-copy"`.
     pub conflicts: Vec<PackageUpgradeConflict>,
     /// Installed from this package but absent from the bundle; kept, never deleted.
     pub removed_upstream: Vec<PackageUpgradeItem>,
@@ -2366,6 +2369,9 @@ pub struct PackageUpgradeItem {
     pub id: String,
     pub version: u32,
     pub name: String,
+    /// `updated` only: the prior bundle version that proved the installed content clean.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proven_by: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -2383,6 +2389,7 @@ impl From<srs_repository::package_install_service::UpgradeItem> for PackageUpgra
             id: i.id,
             version: i.version,
             name: i.name,
+            proven_by: i.proven_by,
         }
     }
 }
@@ -2402,6 +2409,7 @@ impl From<srs_repository::package_install_service::UpgradePackageResult> for Pac
             added: items(r.added),
             new_versions: items(r.new_versions),
             updated: items(r.updated),
+            adopted: items(r.adopted),
             unchanged: items(r.unchanged),
             repaired: items(r.repaired),
             conflicts: r
