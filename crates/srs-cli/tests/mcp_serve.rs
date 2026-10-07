@@ -134,3 +134,72 @@ fn mcp_serve_without_repo_errors_on_stderr() {
         "stderr should explain the failure: {stderr}"
     );
 }
+
+/// `--profile read` (srs-rust#1287): the stdio server lists only the read tools, names them in
+/// its instructions, and refuses a write tool as unknown.
+#[test]
+fn mcp_serve_binary_read_profile_hides_and_refuses_writes() {
+    let dir = tempfile::tempdir().unwrap();
+    make_repo(dir.path());
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_srs"))
+        .args(["mcp", "serve", "--profile", "read", "--repo"])
+        .arg(dir.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut reader = BufReader::new(child.stdout.take().unwrap());
+
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2025-06-18","capabilities":{{}},"clientInfo":{{"name":"test-client","version":"0.0.0"}}}}}}"#
+    )
+    .unwrap();
+    let init = read_until_id(&mut reader, 1);
+    assert!(init["result"]["instructions"]
+        .as_str()
+        .unwrap()
+        .contains("'read' tool profile"));
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","method":"notifications/initialized"}}"#
+    )
+    .unwrap();
+    writeln!(stdin, r#"{{"jsonrpc":"2.0","id":2,"method":"tools/list"}}"#).unwrap();
+    let tools = read_until_id(&mut reader, 2);
+    let names: Vec<&str> = tools["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"find") && names.contains(&"read"));
+    assert!(!names.contains(&"note_create"));
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"note_create","arguments":{{"sections":[]}}}}}}"#
+    )
+    .unwrap();
+    let refused = read_until_id(&mut reader, 3);
+    assert_eq!(refused["error"]["code"], -32602, "{refused}");
+
+    drop(stdin);
+    let _ = child.wait();
+}
+
+#[test]
+fn mcp_serve_binary_rejects_an_unknown_profile() {
+    let dir = tempfile::tempdir().unwrap();
+    make_repo(dir.path());
+    let out = Command::new(env!("CARGO_BIN_EXE_srs"))
+        .args(["mcp", "serve", "--profile", "everything", "--repo"])
+        .arg(dir.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("full|context|read"));
+}

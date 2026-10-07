@@ -171,6 +171,15 @@ impl McpSession {
         self.dispatcher.application_mut().set_session_actor(None);
     }
 
+    /// Restrict the tools this session advertises and accepts (srs-rust#1287): `"full"`
+    /// (default), `"context"` or `"read"`, the same profiles as `srs mcp serve --profile`.
+    /// A tool outside the profile is refused as an unknown tool.
+    pub fn set_tool_profile(&mut self, profile: &str) -> Result<(), JsValue> {
+        let profile: srs_mcp_core::tools::ToolProfile = profile.parse().map_err(js_err)?;
+        self.dispatcher.application_mut().set_tool_profile(profile);
+        Ok(())
+    }
+
     /// Remove the session's write guard.
     pub fn clear_write_guard(&mut self) {
         self.dispatcher.application_mut().set_write_guard(None);

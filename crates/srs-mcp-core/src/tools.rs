@@ -94,6 +94,93 @@ pub const TOOL_SIMILAR: &str = "similar";
 const NEIGHBOURS_DEFAULT_LIMIT: usize = 25;
 const NEIGHBOURS_MAX_LIMIT: usize = 100;
 
+// ── Tool profiles (srs-rust#1287) ─────────────────────────────────────────────
+
+/// Which tools a session advertises and accepts. `tools/list` is paid for in context on every
+/// session, so a client that needs a few tools should not carry all of them. `full` is the
+/// default and the whole catalogue; the others are fixed subsets defined here, once, for every
+/// transport. A tool outside the profile is refused exactly like an unknown tool.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ToolProfile {
+    #[default]
+    Full,
+    /// Agent memory: discover, read, validate, and the writes that capture knowledge (create,
+    /// update, transition, supersede, note, relate, file into a container).
+    Context,
+    /// Read-only: discovery, reads, outlines, validation; no tool that writes.
+    Read,
+}
+
+const CONTEXT_TOOLS: &[&str] = &[
+    TOOL_REPO_VALIDATE,
+    TOOL_FIND,
+    TOOL_READ,
+    TOOL_TYPE_SCHEMA,
+    TOOL_RECORD_CREATE,
+    TOOL_RECORD_UPDATE,
+    TOOL_RECORD_ALLOWED_TRANSITIONS,
+    TOOL_RECORD_TRANSITION,
+    TOOL_RECORD_SUCCESSOR,
+    TOOL_NOTE_CREATE,
+    TOOL_RELATION_CREATE,
+    TOOL_CONTAINER_MEMBER_ADD,
+];
+
+const READ_TOOLS: &[&str] = &[
+    TOOL_FIND,
+    TOOL_READ,
+    TOOL_SIMILAR,
+    TOOL_NEIGHBOURS,
+    TOOL_TYPE_SCHEMA,
+    TOOL_CONTAINER_OUTLINE,
+    TOOL_RECORD_ALLOWED_TRANSITIONS,
+    TOOL_PROTOCOL_RUN_GET,
+    TOOL_PROTOCOL_RUN_LIST,
+    TOOL_PACKAGE_DEPENDENCY_LIST,
+    TOOL_REPO_VALIDATE,
+];
+
+impl ToolProfile {
+    /// Whether this profile advertises and accepts the tool `name`.
+    pub fn allows(self, name: &str) -> bool {
+        match self {
+            ToolProfile::Full => true,
+            _ => self.tool_names().is_some_and(|names| names.contains(&name)),
+        }
+    }
+
+    /// The tool names this profile allows, in catalogue order; `None` for `full` (every tool).
+    pub fn tool_names(self) -> Option<&'static [&'static str]> {
+        match self {
+            ToolProfile::Full => None,
+            ToolProfile::Context => Some(CONTEXT_TOOLS),
+            ToolProfile::Read => Some(READ_TOOLS),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ToolProfile::Full => "full",
+            ToolProfile::Context => "context",
+            ToolProfile::Read => "read",
+        }
+    }
+}
+
+impl std::str::FromStr for ToolProfile {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "full" => Ok(ToolProfile::Full),
+            "context" => Ok(ToolProfile::Context),
+            "read" => Ok(ToolProfile::Read),
+            other => Err(format!(
+                "invalid tool profile '{other}' (expected full|context|read)"
+            )),
+        }
+    }
+}
+
 // ── Tool descriptions — single source (srs-usage.md MCP section mirrors these) ─
 
 pub const DESC_REPO_VALIDATE: &str = "Validate the whole repository and return the diagnostics \
@@ -1091,9 +1178,20 @@ fn tool(name: &str, description: &str, input_schema: Value) -> Value {
     json!({ "name": name, "description": description, "inputSchema": input_schema })
 }
 
-/// The `tools/list` result.
+/// The `tools/list` result for the whole catalogue.
 pub fn list_tools() -> Value {
-    json!({ "tools": [
+    list_tools_for(ToolProfile::Full)
+}
+
+/// The `tools/list` result for one [`ToolProfile`]: the catalogue, filtered.
+pub fn list_tools_for(profile: ToolProfile) -> Value {
+    let mut tools = all_tools();
+    tools.retain(|t| t["name"].as_str().is_some_and(|n| profile.allows(n)));
+    json!({ "tools": tools })
+}
+
+fn all_tools() -> Vec<Value> {
+    vec![
         tool(
             TOOL_REPO_VALIDATE,
             DESC_REPO_VALIDATE,
@@ -1249,8 +1347,12 @@ pub fn list_tools() -> Value {
             DESC_NEIGHBOURS,
             input_schema::<NeighboursToolInput>(),
         ),
-        tool(TOOL_SIMILAR, DESC_SIMILAR, input_schema::<SimilarToolInput>()),
-    ] })
+        tool(
+            TOOL_SIMILAR,
+            DESC_SIMILAR,
+            input_schema::<SimilarToolInput>(),
+        ),
+    ]
 }
 
 // ── Tool dispatch ─────────────────────────────────────────────────────────────
@@ -1949,6 +2051,59 @@ mod tests {
         let cuts: Vec<usize> = (0..=s.len()).map(|n| utf8_floor(s, n)).collect();
         assert_eq!(cuts, vec![0, 1, 1, 3, 3, 3, 6, 6, 6, 6, 10]);
         assert_eq!(utf8_floor(s, 99), 10);
+    }
+
+    #[test]
+    fn tool_profiles_are_subsets_of_the_catalogue() {
+        let names = |p: ToolProfile| -> Vec<String> {
+            list_tools_for(p)["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|t| t["name"].as_str().unwrap().to_string())
+                .collect()
+        };
+        let full = names(ToolProfile::Full);
+        assert_eq!(full.len(), all_tools().len());
+        // Every profile entry names a real tool (a typo would silently drop it).
+        for listed in [CONTEXT_TOOLS, READ_TOOLS] {
+            for n in listed {
+                assert!(full.iter().any(|f| f == n), "{n} is not a tool");
+            }
+        }
+        assert_eq!(names(ToolProfile::Context).len(), CONTEXT_TOOLS.len());
+        assert_eq!(names(ToolProfile::Read).len(), READ_TOOLS.len());
+        // The read profile carries nothing that writes.
+        const WRITE_VERBS: &[&str] = &[
+            "create",
+            "update",
+            "delete",
+            "add",
+            "remove",
+            "move",
+            "repair",
+            "copy",
+            "fork",
+            "transition",
+            "successor",
+            "graduate",
+            "advance",
+            "complete",
+            "abandon",
+            "set",
+            "upgrade",
+        ];
+        for n in READ_TOOLS {
+            assert!(
+                *n == TOOL_RECORD_ALLOWED_TRANSITIONS
+                    || !WRITE_VERBS.iter().any(|v| n.ends_with(v)),
+                "{n} looks like a write"
+            );
+        }
+        for p in ["full", "context", "read"] {
+            assert_eq!(p.parse::<ToolProfile>().unwrap().as_str(), p);
+        }
+        assert!("all".parse::<ToolProfile>().is_err());
     }
 
     #[test]
