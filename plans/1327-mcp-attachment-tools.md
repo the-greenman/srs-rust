@@ -102,10 +102,10 @@ cargo test -p srs-repository attachment
 
 #### Tasks
 
-- [ ] `tools.rs`: `TOOL_ATTACHMENT_ADD`, `TOOL_ATTACHMENT_LINK`, `DESC_*`, `AttachmentAddToolInput` (`TryFrom` -> `AddAttachmentInput` with `enforce_policy: true`), `AttachmentLinkToolInput` (`From`), `all_tools` entries, `call_tool` arms (`tool_err` on service error).
-- [ ] `guard.rs`: `attachment_link` handled like `record_transition` (record guarded -> deny).
-- [ ] `Cargo.toml`: `base64 = { workspace = true }`.
-- [ ] Extend `tool_input_conversion_second_wave_exercises_every_field` and `list_tools_advertises_every_tool_with_schemas` in `crates/srs-mcp-core/src/tools.rs`, and the profile test `tool_profile_filters_the_catalogue_and_refuses_the_rest` in `crates/srs-mcp-core/tests/surface.rs`.
+- [x] `tools.rs`: `TOOL_ATTACHMENT_ADD`, `TOOL_ATTACHMENT_LINK`, `DESC_*`, `AttachmentAddToolInput` (`TryFrom` -> `AddAttachmentInput` with `enforce_policy: true`), `AttachmentLinkToolInput` (`From`), `all_tools` entries, `call_tool` arms (`tool_err` on service error).
+- [x] `guard.rs`: `attachment_link` handled like `record_transition` (record guarded -> deny).
+- [x] `Cargo.toml`: `base64 = { workspace = true }`.
+- [x] Extend `tool_input_conversion_second_wave_exercises_every_field` and `list_tools_advertises_every_tool_with_schemas` in `crates/srs-mcp-core/src/tools.rs`, and the profile test `tool_profile_filters_the_catalogue_and_refuses_the_rest` in `crates/srs-mcp-core/tests/surface.rs`.
 
 #### Acceptance Criteria
 

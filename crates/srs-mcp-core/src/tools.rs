@@ -21,6 +21,7 @@ use srs_core::arrangement::RelativeMove;
 use srs_core::types::note::{Note, NoteSection};
 use srs_core::types::record::{FieldMeta, FieldValues};
 use srs_core::types::relation::Relation;
+use srs_repository::attachment_service::{self, AddAttachmentInput, LinkAttachmentInput};
 use srs_repository::container_service::{self, ContainerCreateInput};
 use srs_repository::context_query_service::{
     list_neighbours, EdgeDirection, NeighboursPage, NeighboursQuery,
@@ -90,6 +91,8 @@ pub const TOOL_PACKAGE_DEPENDENCY_REMOVE: &str = "package_dependency_remove";
 pub const TOOL_PACKAGE_UPGRADE: &str = "package_upgrade";
 pub const TOOL_NEIGHBOURS: &str = "neighbours";
 pub const TOOL_SIMILAR: &str = "similar";
+pub const TOOL_ATTACHMENT_ADD: &str = "attachment_add";
+pub const TOOL_ATTACHMENT_LINK: &str = "attachment_link";
 /// Agent-facing replies are size-capped: omitted `limit` on `neighbours`, and its ceiling.
 const NEIGHBOURS_DEFAULT_LIMIT: usize = 25;
 const NEIGHBOURS_MAX_LIMIT: usize = 100;
@@ -231,6 +234,14 @@ or key-collision is never adoptable (a note says so). Then repeat with dryRun fa
 repo_validate. boundaryPath picks the boundary when \
 the package is installed at several.";
 
+pub const DESC_ATTACHMENT_ADD: &str = "Store a file as a source-document attachment (content file + \
+    .meta.json sidecar) and return its documentId. Give `content` (UTF-8 text) or `contentBase64` \
+    (binary), not both. The repository's attachment_policy (size / MIME / total limits) is enforced: \
+    a violating file is rejected and nothing is written. Follow with attachment_link to attach it \
+    to a record.";
+pub const DESC_ATTACHMENT_LINK: &str = "Attach a stored source document to a record (appends a \
+    sourceRef with sourceRole 'attaches'). The document must already exist (attachment_add); \
+    linking the same pair twice is an error.";
 pub const DESC_NEIGHBOURS: &str = "Bounded read of one instance's relation neighbours (Record or \
 Note). Returns total (every matching edge, before paging) and a page of edges, each with direction \
 (out = the instance is the source, in = it is the target), relationId, relationType and the \
@@ -1368,7 +1379,80 @@ fn all_tools() -> Vec<Value> {
             DESC_SIMILAR,
             input_schema::<SimilarToolInput>(),
         ),
+        tool(
+            TOOL_ATTACHMENT_ADD,
+            DESC_ATTACHMENT_ADD,
+            input_schema::<AttachmentAddToolInput>(),
+        ),
+        tool(
+            TOOL_ATTACHMENT_LINK,
+            DESC_ATTACHMENT_LINK,
+            input_schema::<AttachmentLinkToolInput>(),
+        ),
     ]
+}
+
+// ── Attachment tools (srs-rust#1327) ──────────────────────────────────────────
+
+/// Mirrors `attachment_service::AddAttachmentInput`; exactly one of `content` /
+/// `content_base64` carries the bytes. Always policy-enforcing for agents.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttachmentAddToolInput {
+    /// File name without path separators, e.g. "brief.pdf".
+    pub file_name: String,
+    /// UTF-8 text content. Mutually exclusive with `contentBase64`.
+    pub content: Option<String>,
+    /// Base64 (standard alphabet) content for binary files. Mutually exclusive with `content`.
+    pub content_base64: Option<String>,
+    pub title: Option<String>,
+    /// Subdirectory under the source-documents directory.
+    pub subdir: Option<String>,
+    /// MIME type; inferred from the file extension when omitted.
+    pub content_type: Option<String>,
+}
+
+impl TryFrom<AttachmentAddToolInput> for AddAttachmentInput {
+    type Error = McpApplicationError;
+    fn try_from(input: AttachmentAddToolInput) -> Result<Self, Self::Error> {
+        use base64::Engine as _;
+        let content = match (input.content, input.content_base64) {
+            (Some(text), None) => text.into_bytes(),
+            (None, Some(b64)) => base64::engine::general_purpose::STANDARD
+                .decode(b64.trim())
+                .map_err(|e| McpApplicationError::invalid_params(format!("contentBase64: {e}")))?,
+            _ => {
+                return Err(McpApplicationError::invalid_params(
+                    "give exactly one of content or contentBase64".to_string(),
+                ))
+            }
+        };
+        Ok(AddAttachmentInput {
+            file_name: input.file_name,
+            content,
+            subdir: input.subdir,
+            title: input.title,
+            content_type: input.content_type,
+            enforce_policy: true,
+        })
+    }
+}
+
+/// Mirrors `attachment_service::LinkAttachmentInput`.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttachmentLinkToolInput {
+    pub instance_id: String,
+    pub document_id: String,
+}
+
+impl From<AttachmentLinkToolInput> for LinkAttachmentInput {
+    fn from(input: AttachmentLinkToolInput) -> Self {
+        LinkAttachmentInput {
+            instance_id: input.instance_id,
+            document_id: input.document_id,
+        }
+    }
 }
 
 // ── Tool dispatch ─────────────────────────────────────────────────────────────
@@ -1533,6 +1617,21 @@ pub fn call_tool(
                 projection: input.projection.unwrap_or_default(),
             };
             match discovery_service::find(store, input.into(), page) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_ATTACHMENT_ADD => {
+            let input: AddAttachmentInput =
+                parse_args::<AttachmentAddToolInput>(arguments)?.try_into()?;
+            match attachment_service::add_attachment(store, input) {
+                Ok(result) => tool_ok(&result),
+                Err(e) => Ok(tool_err(e.to_string())),
+            }
+        }
+        TOOL_ATTACHMENT_LINK => {
+            let input: AttachmentLinkToolInput = parse_args(arguments)?;
+            match attachment_service::link_attachment(store, input.into()) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.to_string())),
             }
@@ -2063,6 +2162,29 @@ mod tests {
     }
 
     #[test]
+    fn attachment_tool_inputs_convert_every_field() {
+        let add: AttachmentAddToolInput = serde_json::from_value(json!({
+            "fileName": "f.bin", "contentBase64": "AAEC", "title": "T",
+            "subdir": "s", "contentType": "application/x-test"
+        }))
+        .unwrap();
+        let add = AddAttachmentInput::try_from(add).unwrap();
+        assert_eq!(add.file_name, "f.bin");
+        assert_eq!(add.content, vec![0, 1, 2]);
+        assert_eq!(add.title.as_deref(), Some("T"));
+        assert_eq!(add.subdir.as_deref(), Some("s"));
+        assert_eq!(add.content_type.as_deref(), Some("application/x-test"));
+        assert!(add.enforce_policy, "agent writes always enforce the policy");
+        let link: AttachmentLinkToolInput =
+            serde_json::from_value(json!({ "instanceId": "i", "documentId": "d" })).unwrap();
+        let link = LinkAttachmentInput::from(link);
+        assert_eq!(
+            (link.instance_id.as_str(), link.document_id.as_str()),
+            ("i", "d")
+        );
+    }
+
+    #[test]
     fn utf8_floor_never_splits_a_char() {
         let s = "aé€😀"; // 1 + 2 + 3 + 4 bytes
         let cuts: Vec<usize> = (0..=s.len()).map(|n| utf8_floor(s, n)).collect();
@@ -2172,6 +2294,8 @@ mod tests {
                 TOOL_PACKAGE_UPGRADE,
                 TOOL_NEIGHBOURS,
                 TOOL_SIMILAR,
+                TOOL_ATTACHMENT_ADD,
+                TOOL_ATTACHMENT_LINK,
             ]
         );
         for tool in &tools {

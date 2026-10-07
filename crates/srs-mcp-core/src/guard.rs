@@ -160,6 +160,9 @@ impl WriteGuard {
             tools::TOOL_RECORD_SUCCESSOR => {
                 parse::<RecordSuccessorToolInput>(args).map(|i| i.predecessor_id)
             }
+            tools::TOOL_ATTACHMENT_LINK => {
+                parse::<tools::AttachmentLinkToolInput>(args).map(|i| i.instance_id)
+            }
             _ => None,
         };
         let Some(id) = record else { return Ok(()) };

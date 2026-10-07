@@ -63,11 +63,11 @@ fn application_reads_repository_id_from_manifest() {
 }
 
 #[test]
-fn tool_catalogue_has_all_thirty_three_tools_and_core_owns_the_schemas() {
+fn tool_catalogue_has_all_thirty_five_tools_and_core_owns_the_schemas() {
     let (_dir, mut d) = setup();
     let listed = rpc(&mut d, "tools/list", json!({}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 33);
+    assert_eq!(tools.len(), 35);
     assert!(tools
         .iter()
         .all(|t| t["description"].is_string() && t["inputSchema"]["type"] == "object"));
@@ -540,6 +540,71 @@ mod write_guard {
     fn assert_ok(d: &mut D, name: &str, args: Value) {
         let r = tool(d, name, args);
         assert_eq!(r["result"]["isError"], false, "{r}");
+    }
+
+    #[test]
+    fn attachment_add_and_link_round_trip_and_guard() {
+        let (dir, mut d) = guarded();
+        let id = create(
+            &mut d,
+            "com.example.surface/para1",
+            json!({ "body": "t" }),
+            None,
+        );
+        // Text and base64 store identical bytes.
+        let a = tool(
+            &mut d,
+            "attachment_add",
+            json!({ "fileName": "a.txt", "content": "hello", "title": "A" }),
+        );
+        assert_eq!(a["result"]["isError"], false, "{a}");
+        let b = tool(
+            &mut d,
+            "attachment_add",
+            json!({ "fileName": "b.txt", "contentBase64": "aGVsbG8=" }),
+        );
+        assert_eq!(b["result"]["isError"], false, "{b}");
+        let docs = dir.path().join("source-documents");
+        assert_eq!(std::fs::read(docs.join("a.txt")).unwrap(), b"hello");
+        assert_eq!(std::fs::read(docs.join("b.txt")).unwrap(), b"hello");
+        // Exactly one content source; bad base64 is an invalid-params protocol error.
+        for bad in [
+            json!({ "fileName": "c.txt" }),
+            json!({ "fileName": "c.txt", "content": "x", "contentBase64": "eA==" }),
+            json!({ "fileName": "c.txt", "contentBase64": "!!" }),
+        ] {
+            assert!(tool(&mut d, "attachment_add", bad).get("error").is_some());
+        }
+        assert!(!docs.join("c.txt").exists());
+        // Link, then a duplicate and an unknown document are tool errors.
+        let doc = a["result"]["structuredContent"]["documentId"]
+            .as_str()
+            .unwrap();
+        let link = json!({ "instanceId": id, "documentId": doc });
+        assert_ok(&mut d, "attachment_link", link.clone());
+        let dup = tool(&mut d, "attachment_link", link.clone());
+        assert_eq!(dup["result"]["isError"], true, "{dup}");
+        let unknown = tool(
+            &mut d,
+            "attachment_link",
+            json!({ "instanceId": id, "documentId": "nope" }),
+        );
+        assert_eq!(unknown["result"]["isError"], true, "{unknown}");
+        // A guarded record rejects linking; adding a document is still allowed.
+        guard(&mut d, json!({ "instanceIds": [id] }));
+        let other = b["result"]["structuredContent"]["documentId"]
+            .as_str()
+            .unwrap();
+        assert_rejected(
+            &mut d,
+            "attachment_link",
+            json!({ "instanceId": id, "documentId": other }),
+        );
+        assert_ok(
+            &mut d,
+            "attachment_add",
+            json!({ "fileName": "d.txt", "content": "x" }),
+        );
     }
 
     #[test]
