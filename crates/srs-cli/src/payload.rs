@@ -691,7 +691,10 @@ pub struct NeighboursPayload {
 pub struct DiscoveryResultPayload {
     pub hits: Vec<DiscoveryHitPayload>,
     pub total: usize,
-    pub facets: DiscoveryFacetsPayload,
+    /// Absent unless asked for (#1286); never `null`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(default, with = "DiscoveryFacetsPayload")]
+    pub facets: Option<DiscoveryFacetsPayload>,
     pub diagnostics: Vec<String>,
 }
 
@@ -706,7 +709,7 @@ impl From<DiscoveryResult> for DiscoveryResultPayload {
         Self {
             hits: hits.into_iter().map(Into::into).collect(),
             total,
-            facets: facets.into(),
+            facets: facets.map(Into::into),
             diagnostics,
         }
     }
@@ -721,7 +724,10 @@ pub struct DiscoveryHitPayload {
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub type_id: Option<String>,
-    pub container_ids: Vec<String>,
+    /// `full` projection only (#1286); absent, never `null`, otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(default, with = "Vec<String>")]
+    pub container_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub type_namespace: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -732,7 +738,10 @@ pub struct DiscoveryHitPayload {
     pub score: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub snippet: Option<String>,
-    pub matched_fields: Vec<String>,
+    /// `full` projection only (#1286); absent, never `null`, otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(default, with = "Vec<String>")]
+    pub matched_fields: Option<Vec<String>>,
 }
 
 impl From<DiscoveryHit> for DiscoveryHitPayload {

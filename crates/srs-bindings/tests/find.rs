@@ -110,10 +110,11 @@ fn find_by_type_uncapped_has_type_ids_summing_to_total() {
     let page = FindPage {
         limit: Some(1),
         by_type_limit: Some(0),
+        facets: Some(true),
         ..Default::default()
     };
     let result = find(&store, DiscoveryQuery::default(), page).expect("find must succeed");
-    let by_type = &result.facets.by_type;
+    let by_type = &result.facets.as_ref().expect("facets asked for").by_type;
     assert_eq!(by_type.other, 0);
     assert!(by_type.values.iter().all(|v| v.type_id.is_some()));
     let sum: usize = by_type.values.iter().map(|v| v.count).sum();

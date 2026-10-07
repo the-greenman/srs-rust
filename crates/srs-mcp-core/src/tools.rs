@@ -30,6 +30,7 @@ use srs_repository::package_dependency_service::{
     self, AddPackageDependencyInput, RemovePackageDependencyInput,
 };
 use srs_repository::package_install_service::{self, UpgradeOptions};
+use srs_repository::projection::Projection;
 use srs_repository::protocol_run_service::{
     self, AdvanceStageInput, CreateRunInput, GetRunResult, RunListFilter, RunSummary,
 };
@@ -152,7 +153,7 @@ pub const DESC_SIMILAR: &str = "More like this: instances whose text overlaps th
 characteristic terms of one instance (instanceId), ranked by the same BM25 index as find. Use it \
 after find to ask what else in the repository is about a record, including content that uses \
 different wording from a query you would have guessed. Returns find-shaped hits (instanceId, uri, \
-label, type, score), best first, never the source itself. The structured filters of find (typeId, \
+label, type, score; projection and facets as in find), best first, never the source itself. The structured filters of find (typeId, \
 typeNamespace, typeName, containerId, tag, lifecycleState, tier, ...) narrow the candidates; \
 there is no contentMatch. Deterministic and lexical: no embeddings. limit defaults to 25.";
 
@@ -165,11 +166,13 @@ containing any significant query word as a whole word (words found in most recor
 \"what\", are ignored), so a question typed as a sentence still finds what it is about; any-mode is \
 always ranked (BM25 puts records matching the most and rarest words first). Hits are ranked by BM25 \
 relevance (score) unless rank is false, which orders by instanceId. Types are written \
-'namespace/name'. Returns hits with instanceId, label, type, lifecycleState, snippet, and \
-matchedFields. Also returns facets: counts over the WHOLE match set, before limit/offset \
-(byType, tags, notes, and one entry per closed string field (at most 25), each the top 20 values plus \
-an other count). find with limit 0 and no filters returns no hits and is the cheap map of the \
-repository; add a type filter for that type's keyword map. Serves Tier 2 (Records) and Tier 0 \
+'namespace/name'. Returns hits (projection \"full\", the default) with instanceId, uri, label, \
+typeId, typeNamespace/typeName, containerIds, lifecycleState, score, snippet and matchedFields; projection \"card\" keeps instanceId, uri, label, type, lifecycleState, score and \
+snippet, and \"label\" drops score and snippet too: use them to scan before you read. facets: true \
+adds counts over the WHOLE match set, before limit/offset (byType, tags, notes, and one entry per \
+closed string field (at most 25), each the top 20 values plus an other count). find with limit 0 \
+returns facets by default and no hits: with no filters it is the cheap map of the repository; add a \
+type filter for that type's keyword map. Serves Tier 2 (Records) and Tier 0 \
 (Notes; type and lifecycle filters exclude them). A typeId, type, or containerId that names nothing returns zero hits with a warning \
 diagnostic.";
 
@@ -373,6 +376,11 @@ pub struct FindToolInput {
     /// Cap on `facets.byType` values (default 20; the rest are summed into `other`).
     /// 0 returns every type, each with its `typeId`.
     pub by_type_limit: Option<usize>,
+    /// Include facets. Default: only when limit is 0 (the repository map).
+    pub facets: Option<bool>,
+    /// How much of each hit: "full" (default), "card" (instanceId, uri, label, type,
+    /// lifecycleState, score, snippet) or "label" (as card, without score and snippet).
+    pub projection: Option<Projection>,
 }
 
 /// Input of the `similar` tool: the source `instanceId` plus find's structured filters
@@ -400,6 +408,10 @@ pub struct SimilarToolInput {
     pub limit: Option<usize>,
     /// Number of hits to skip (default 0).
     pub offset: Option<usize>,
+    /// How much of each hit: "full" (default), "card" or "label", as in find.
+    pub projection: Option<Projection>,
+    /// Include facets over the similar set, as in find (default: only when limit is 0).
+    pub facets: Option<bool>,
 }
 
 impl SimilarToolInput {
@@ -408,6 +420,8 @@ impl SimilarToolInput {
             limit: Some(self.limit.unwrap_or(FIND_DEFAULT_LIMIT)),
             offset: self.offset.unwrap_or(0),
             rank: true,
+            projection: self.projection.unwrap_or_default(),
+            facets: self.facets,
             ..Default::default()
         };
         let query = DiscoveryQuery {
@@ -1398,6 +1412,8 @@ pub fn call_tool(
                 rank: input.rank.unwrap_or(true),
                 match_mode: input.match_mode.unwrap_or_default(),
                 by_type_limit: input.by_type_limit,
+                facets: input.facets,
+                projection: input.projection.unwrap_or_default(),
             };
             match discovery_service::find(store, input.into(), page) {
                 Ok(result) => tool_ok(&result),
@@ -1770,6 +1786,19 @@ mod tests {
     }
 
     #[test]
+    fn find_input_parses_projection_and_facets() {
+        let input: FindToolInput =
+            serde_json::from_value(json!({"projection": "label", "facets": false})).unwrap();
+        assert_eq!(input.projection, Some(Projection::Label));
+        assert_eq!(input.facets, Some(false));
+        assert!(serde_json::from_value::<FindToolInput>(json!({"projection": "tiny"})).is_err());
+        let similar: SimilarToolInput =
+            serde_json::from_value(json!({"instanceId": "i", "projection": "card"})).unwrap();
+        let page = similar.into_parts().2;
+        assert_eq!((page.projection, page.facets), (Projection::Card, None));
+    }
+
+    #[test]
     fn tool_input_conversion_exercises_every_field() {
         // Find → DiscoveryQuery
         let find = FindToolInput {
@@ -1788,6 +1817,8 @@ mod tests {
             offset: None,
             rank: None,
             match_mode: Some(MatchMode::Any),
+            facets: Some(true),
+            projection: Some(Projection::Card),
         };
         let q: DiscoveryQuery = find.into();
         assert_eq!(q.type_id.as_deref(), Some("tid"));
