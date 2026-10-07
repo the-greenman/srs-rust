@@ -76,6 +76,8 @@ cargo run --bin srs -- <group> --help
 { "mcpServers": { "my-srs-repo": { "command": "srs", "args": ["mcp", "serve", "--repo", "/absolute/path/to/repo"] } } }
 ```
 
+`--profile context` (agent memory: discovery, reads and the capture writes) or `--profile read` (no writes) advertises a fixed subset of the tools, so a session pays for fewer tool definitions in its context; the default is `full`.
+
 The tool and resource catalogue, and its limits, are in [`crates/srs-mcp/README.md`](crates/srs-mcp/README.md); the design is [ADR-037](docs/adr/037-mcp-adapter-surface.md). The tool and resource semantics live once in `srs-mcp-core`, which the WASM bindings reuse for a browser-side MCP session.
 
 ## WASM bindings

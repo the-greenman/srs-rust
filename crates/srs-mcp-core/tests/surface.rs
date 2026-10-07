@@ -74,6 +74,43 @@ fn tool_catalogue_has_all_thirty_three_tools_and_core_owns_the_schemas() {
 }
 
 #[test]
+fn tool_profile_filters_the_catalogue_and_refuses_the_rest() {
+    use srs_mcp_core::tools::ToolProfile;
+    let (_dir, mut d) = setup();
+    d.application_mut().set_tool_profile(ToolProfile::Context);
+    let listed = rpc(&mut d, "tools/list", json!({}));
+    let names: Vec<&str> = listed["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names.len(), 10);
+    assert!(names.contains(&"find") && names.contains(&"read") && names.contains(&"note_create"));
+    assert!(!names.contains(&"container_copy"));
+    // Advertised tools still work, including `read` (routed outside call_tool).
+    let found = tool(&mut d, "find", json!({ "limit": 0 }));
+    assert_eq!(found["result"]["isError"], false);
+    let read = tool(
+        &mut d,
+        "read",
+        json!({ "uri": format!("srs://{REPO_ID}/map") }),
+    );
+    assert_eq!(read["result"]["isError"], false, "{read}");
+    // A tool outside the profile is refused like an unknown tool, and writes nothing.
+    let refused = tool(&mut d, "container_copy", json!({}));
+    assert_eq!(refused["error"]["code"], -32602, "{refused}");
+    assert!(refused["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("'context' tool profile"));
+    // Read profile: no write tool is callable.
+    d.application_mut().set_tool_profile(ToolProfile::Read);
+    let refused = tool(&mut d, "note_create", json!({ "sections": [] }));
+    assert_eq!(refused["error"]["code"], -32602);
+}
+
+#[test]
 fn package_dependency_tools_use_the_core_service() {
     let (_dir, mut d) = setup();
     // The core package is always installed (RFC-044 Change D item 4).

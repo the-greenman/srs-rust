@@ -117,3 +117,19 @@ Golden schemas: `find`, `repo agent-index` and `relation neighbours` embed the s
 ## Amendment (2026-10-04, #1219) — `find` facets and `limit: 0`
 
 The MCP `find` reply carries `facets` (see ADR-019's #1219 amendment): the adapter serialises the service result unchanged and adds no counting. The default `limit` stays 25; an explicit `limit: 0` passes through and returns no hits with full facets, which is the cheap repository map for a resource-blind client (about 14 KB on the 886-instance muSrs; a default-limit call about 15 KB). The facets shape is not pinned by the `find` golden schema, which embeds `DiscoveryResult` opaquely; the service, MCP and bindings tests pin it. No spec change.
+
+## Amendment (2026-10-07, #1287) — tool profiles
+
+`tools/list` is paid for in context on every session: 33 tools with full input schemas are about 44 KB (about 11k tokens), while an agent keeping project memory uses about ten of them. `srs-mcp-core::tools::ToolProfile` defines three fixed tool sets, once, for every transport:
+
+- `full` (default): the whole catalogue, unchanged.
+- `context`: `find`, `read`, `type_schema`, `record_create`, `record_update`, `record_transition`, `record_successor`, `note_create`, `relation_create`, `container_member_add` (about 19 KB). `neighbours` and `similar` are left out: the `context/{id}` resource (via `read`) carries a record's edges, and `find` covers lookup.
+- `read`: discovery, reads, outlines, validation and the read-only protocol/package/lifecycle queries; no tool that writes (about 15 KB).
+
+Decisions:
+
+- **Host-chosen, enforced, not advisory.** The profile is set by the host (`srs mcp serve --profile`, `SrsMcpServer::with_tool_profile`, WASM `McpSession.set_tool_profile`), never by a client request. `SrsMcpApplication` filters `tools/list` and refuses a call to a tool outside the profile with the unknown-tool error (`-32602`), before the write guard and before any store access, so a `read` session cannot write by naming a hidden tool. `read` is in every profile.
+- **Sets live in core, as tool-name constants.** One list per profile in `tools.rs`, next to the catalogue; a unit test proves every entry names a real tool and that `read` carries no write verb. Adapters only parse the profile name (one `FromStr`).
+- **Descriptions unchanged.** The issue's alternative (shorter descriptions pointing at a docs resource) was not needed to reach the `context` target and would have moved guidance out of the one place a model reliably reads it.
+
+Implementation charter (ADR-048): spec-first — none needed (MCP surface, §6); layer — `srs-mcp-core` owns the sets, adapters map a flag; one way per goal — one filter for list and call; decision mode — complicated.

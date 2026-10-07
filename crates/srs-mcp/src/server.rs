@@ -30,6 +30,8 @@ pub struct SrsMcpServer {
     repository_id: String,
     /// RFC-046 host-supplied session actor, applied to every per-request store.
     session_actor: Option<serde_json::Value>,
+    /// The tools advertised and accepted (srs-rust#1287); `full` by default.
+    tool_profile: srs_mcp_core::tools::ToolProfile,
 }
 
 impl SrsMcpServer {
@@ -64,12 +66,19 @@ impl SrsMcpServer {
             repo_path,
             repository_id,
             session_actor: None,
+            tool_profile: Default::default(),
         })
     }
 
     /// Set the RFC-046 session actor stamped on everything this server creates.
     pub fn with_session_actor(mut self, actor: Option<serde_json::Value>) -> Self {
         self.session_actor = actor;
+        self
+    }
+
+    /// Restrict the tools this server advertises and accepts (srs-rust#1287).
+    pub fn with_tool_profile(mut self, profile: srs_mcp_core::tools::ToolProfile) -> Self {
+        self.tool_profile = profile;
         self
     }
 
@@ -81,9 +90,10 @@ impl SrsMcpServer {
     /// A fresh application (and `FileStore`) for one request — per-invocation
     /// semantics, like the CLI.
     pub(crate) fn open_app(&self) -> application::App {
-        let app =
+        let mut app =
             SrsMcpApplication::new(FileStore::new(&self.repo_path), self.repository_id.clone());
         app.set_session_actor(self.session_actor.clone());
+        app.set_tool_profile(self.tool_profile);
         app
     }
 }
@@ -180,6 +190,7 @@ mod tests {
             repo_path: PathBuf::from("/nonexistent"),
             repository_id: "test".into(),
             session_actor: None,
+            tool_profile: Default::default(),
         }
         .get_info();
         assert_eq!(info.server_info.name, "srs-mcp");
@@ -199,6 +210,7 @@ mod tests {
             repo_path: PathBuf::from("/nonexistent"),
             repository_id: "test".into(),
             session_actor: None,
+            tool_profile: Default::default(),
         }
         .get_info();
         assert_eq!(
