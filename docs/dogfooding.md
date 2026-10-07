@@ -3301,6 +3301,18 @@ $SRS repo validate --repo $R                                         # 0 errors
 
 **Verified 2026-10-07 (#1286), spec repository (704 instances):** `--text container --limit 10`, total 134 every time: full 6,004 bytes, with `--facets` 8,285, card 4,610, label 2,872; `--limit 0` 3,017 bytes with facets, 40 bytes with `--facets false`. srs-context, `--match any` question, 10 hits: full with facets 9.8 KB pretty-printed, card 5.0 KB.
 
+### S56 — An agent session carries only the tools it needs (`srs mcp serve --profile`, #1287)
+
+**Intention.** An agent that keeps project memory in an SRS repository mounts it over MCP without paying for 33 tool definitions it never calls; a reviewer mounts a repository it must not change.
+
+**CLI surface.** `srs mcp serve --profile full|context|read` (default `full`); `SrsMcpServer::with_tool_profile`; WASM `McpSession.set_tool_profile`. The sets live in `srs_mcp_core::tools::ToolProfile`.
+
+**Steps.** Serve srs-context with each profile; send `initialize` and `tools/list`; with `--profile read`, call `note_create`.
+
+**Done when.** `context` lists 12 tools and `read` 11; the `initialize` instructions end by naming the session's tools; `note_create` under `read` returns `-32602` and writes nothing; `--profile everything` exits non-zero naming `full|context|read`.
+
+**Verified 2026-10-07 (#1287), srs-context over stdio:** `tools/list` full 33 tools 44,142 bytes (about 11k tokens), context 12 tools 20,376 bytes (about 5.1k), read 11 tools 14,703 bytes (about 3.7k). Binary tests: `mcp_serve_binary_read_profile_hides_and_refuses_writes`, `mcp_serve_binary_rejects_an_unknown_profile`.
+
 ## S46 — Hand off one container as a standalone slice (`srs slice export`, RFC-026, #631)
 
 **Intention:** I want to give someone one part of a repository, such as an essay, a guide or a tension set, as a `.srs` that opens and validates on its own. The slice should carry the packages it needs unchanged and say exactly which relations were cut.
@@ -3429,6 +3441,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `find` hit `uri`/`typeId`/`containerIds`, neighbour `uri`, agent-index `entryPoints` (#1227) | S51 |
 | `find --projection full\|card\|label`, opt-in `--facets` (#1286) | S55 |
 | `find --similar` / MCP `similar` / WASM `findSimilar` (more-like-this over the BM25 index, #1230) | S53 |
+| `mcp serve --profile full\|context\|read` (tool profiles, #1287) | S56 |
 | `mcp serve` (MCP stdio server: resources map/navigation/record/container/view/**type** + all 13 tools: `repo_validate`/`find`/`type_schema`/`record_create`/`relation_create`/`note_create`/`record_update`/`record_transition`/`record_allowed_transitions`/`record_successor`/`note_graduate`/`container_member_add`/`container_member_remove` + **prompts** `prompts/list`/`prompts/get`, ADR-037 + #692 amendment + #682 prompts + **#680 second-wave write tools**) | S42 (incl. the #692 discover-then-author step, #682 prompts step 10b, and #680 second-wave step 10c); 32 crate tests in `crates/srs-mcp/` (13 unit + 13 duplex-transport integration + 6 second-wave integration) + 2 binary-level handshake tests in `crates/srs-cli/tests/mcp_serve.rs` + 4 unit tests in `crates/srs-mcp/src/prompts.rs` |
 
 | RFC-039 revision-2 carrier (`record create`/`update` object `fieldValues` + `fieldMeta`, [R9] rejection, composite values, `type schema` range expansion, `repo apply-migration --id rfc039-carrier`) | S46 (#806); migration service unit tests in `rfc039_carrier_migration_service.rs`; carrier round-trip + order tests in `srs-core` `record.rs`; value-grammar tests in `srs-core` `validation/value_shape.rs` |

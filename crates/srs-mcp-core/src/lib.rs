@@ -64,6 +64,22 @@ full brief as rendered markdown — AI guidance, required types, structure, and 
 
     /// The JSON result returned from the MCP `initialize` request.
     pub fn initialize_result() -> Value {
+        initialize_result_for(crate::tools::ToolProfile::Full)
+    }
+
+    /// [`initialize_result`] for a session restricted to `profile` (srs-rust#1287): the
+    /// instructions end by naming the tools this session has, so guidance that mentions a
+    /// hidden tool is not followed into an unknown-tool error.
+    pub fn initialize_result_for(profile: crate::tools::ToolProfile) -> Value {
+        let instructions = match profile.tool_names() {
+            None => INSTRUCTIONS.to_string(),
+            Some(names) => format!(
+                "{INSTRUCTIONS} This session uses the '{}' tool profile: its only tools are {}. \
+Any other tool named above is unavailable here.",
+                profile.as_str(),
+                names.join(", ")
+            ),
+        };
         json!({
             "protocolVersion": super::MCP_PROTOCOL_VERSION,
             "capabilities": {
@@ -76,7 +92,7 @@ full brief as rendered markdown — AI guidance, required types, structure, and 
                 "version": release_version(),
                 "description": release_generation_description()
             },
-            "instructions": INSTRUCTIONS
+            "instructions": instructions
         })
     }
 }
@@ -494,6 +510,8 @@ pub struct SrsMcpApplication<S> {
     last_summary: Option<WriteSummary>,
     /// The client handle this application last stamped (so a repeat `initialize` can replace it).
     applied_handle: Option<String>,
+    /// Which tools this session advertises and accepts (srs-rust#1287).
+    tool_profile: tools::ToolProfile,
 }
 
 impl<S: srs_repository::store::RepositoryStore> SrsMcpApplication<S> {
@@ -505,7 +523,14 @@ impl<S: srs_repository::store::RepositoryStore> SrsMcpApplication<S> {
             write_guard: None,
             last_summary: None,
             applied_handle: None,
+            tool_profile: tools::ToolProfile::Full,
         }
+    }
+
+    /// Restrict the tools this session advertises and accepts (srs-rust#1287). Host-chosen;
+    /// a tool outside the profile is refused as an unknown tool.
+    pub fn set_tool_profile(&mut self, profile: tools::ToolProfile) {
+        self.tool_profile = profile;
     }
 
     /// The last request's write summary, once (ADR-049): `None` if it wrote
@@ -603,7 +628,7 @@ fn arguments(
 impl<S: srs_repository::store::RepositoryStore> McpApplication for SrsMcpApplication<S> {
     fn initialize(&mut self, params: &Value) -> Result<Value, McpApplicationError> {
         self.apply_client_handle(params);
-        Ok(srs_metadata::initialize_result())
+        Ok(srs_metadata::initialize_result_for(self.tool_profile))
     }
 
     fn call(&mut self, method: &str, params: Option<&Value>) -> Result<Value, McpApplicationError> {
@@ -631,12 +656,18 @@ impl<S: srs_repository::store::RepositoryStore> McpApplication for SrsMcpApplica
                     .ok_or_else(|| McpApplicationError::invalid_params("uri must be a string"))?;
                 srs_resources::read_resource(store, &self.repository_id, uri)
             }
-            "tools/list" => Ok(tools::list_tools()),
+            "tools/list" => Ok(tools::list_tools_for(self.tool_profile)),
             "tools/call" => {
                 let name = fields
                     .remove("name")
                     .and_then(|v| v.as_str().map(ToString::to_string))
                     .ok_or_else(|| McpApplicationError::invalid_params("name must be a string"))?;
+                if !self.tool_profile.allows(&name) {
+                    return Err(McpApplicationError::invalid_params(format!(
+                        "unknown tool '{name}' (not in the '{}' tool profile)",
+                        self.tool_profile.as_str()
+                    )));
+                }
                 let arguments = arguments(&mut fields)?;
                 if name == tools::TOOL_READ {
                     return tools::read_tool(store, &self.repository_id, arguments);

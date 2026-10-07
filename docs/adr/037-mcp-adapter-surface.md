@@ -122,6 +122,23 @@ The MCP `find` reply carries `facets` (see ADR-019's #1219 amendment): the adapt
 
 Supersedes the first sentence of the #1219 amendment: the MCP `find` reply carries `facets` only for `limit: 0` or `facets: true` (ADR-019's #1286 amendment), and `find`/`similar` accept `projection` (`full|card|label`). The adapter still adds no counting and no trimming: both inputs map one-to-one onto `FindPage`. The MCP default projection stays `full` (as on the CLI and WASM), so existing clients see the same hits; agents ask for `card`. Since #1286 the `find` golden schema pins the facets shape (optional, never `null`) rather than embedding it opaquely. No spec change.
 
+## Amendment (2026-10-07, #1287) — tool profiles
+
+`tools/list` is paid for in context on every session: 33 tools with full input schemas are about 44 KB (about 11k tokens), while an agent keeping project memory uses about ten of them. `srs-mcp-core::tools::ToolProfile` defines three fixed tool sets, once, for every transport:
+
+- `full` (default): the whole catalogue, unchanged.
+- `context`: `repo_validate`, `find`, `read`, `type_schema`, `record_create`, `record_update`, `record_allowed_transitions`, `record_transition`, `record_successor`, `note_create`, `relation_create`, `container_member_add` (about 20 KB, about 5.1k tokens). `repo_validate` and `record_allowed_transitions` are in because the server's own guidance tells the agent to call them after writes and before transitions. `neighbours` and `similar` are left out: the `context/{id}` resource (via `read`, `?projection=card`) carries a record's edges, and `find` with `match: "any"` covers lookup before create.
+- `read`: discovery, reads, outlines, validation and the read-only protocol/package/lifecycle queries; no tool that writes (about 15 KB).
+
+Decisions:
+
+- **The instructions name the session's tools.** `srs_metadata::initialize_result_for(profile)` appends one sentence listing the profile's tools and saying any other tool named in the guidance is unavailable, so a model does not follow the general instructions into an unknown-tool error. `full` keeps the instructions unchanged.
+- **Host-chosen, enforced, not advisory.** The profile is set by the host (`srs mcp serve --profile`, `SrsMcpServer::with_tool_profile`, WASM `McpSession.set_tool_profile`), never by a client request. `SrsMcpApplication` filters `tools/list` and refuses a call to a tool outside the profile with the unknown-tool error (`-32602`), before argument parsing, the write guard and any store access, so a `read` session cannot write by naming a hidden tool. `read` is in every profile.
+- **Sets live in core, as tool-name constants.** One list per profile in `tools.rs`, next to the catalogue; a unit test proves every entry names a real tool and that `read` carries no write verb. Adapters only parse the profile name (one `FromStr`).
+- **Descriptions unchanged.** The issue's alternative (shorter descriptions pointing at a docs resource) was not needed to reach the `context` target and would have moved guidance out of the one place a model reliably reads it.
+
+Implementation charter (ADR-048): spec-first — none needed (MCP surface, §6); layer — `srs-mcp-core` owns the sets, adapters map a flag; one way per goal — one filter for list and call; decision mode — complicated.
+
 ## Amendment (2026-10-07, #1319) — compact JSON text
 
 The `text` of every JSON tool result (`tool_ok`) and JSON resource read (`json_contents`) is serialized compactly through one helper, `srs_mcp_core::json_text`, instead of `to_string_pretty`. The reader is a model paying per token for indentation (about 30% of a `find` page); the value, keys and `structuredContent` are unchanged, and a client can re-format. Markdown resources and the CLI's `--pretty` are untouched. No spec change.
