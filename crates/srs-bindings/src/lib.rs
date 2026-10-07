@@ -349,9 +349,11 @@ impl SrsRepository {
     /// all optional — omit or pass `"{}"` for "return all").
     /// `limit` (default: all matches) and `offset` (default 0) page the hits after the
     /// deterministic sort; `total` is the full match count. `rank` (default false) orders
-    /// content-match hits by BM25 relevance and fills `score`. `match_mode` is `"all"`
+    /// content-match hits by BM25 relevance and fills `score`. `by_type_limit` caps
+    /// `facets.byType` values (default 20; 0 = every type). `match_mode` is `"all"`
     /// (default: every content word must occur) or `"any"` (any significant word, as a whole
-    /// token, for natural-language queries; always ranked) — srs-rust#1284.
+    /// token, for natural-language queries; always ranked) — srs-rust#1284. Both are
+    /// trailing and optional, so existing callers are unchanged.
     /// Returns a `DiscoveryResult` as a JS value.
     pub fn find(
         &self,
@@ -359,6 +361,7 @@ impl SrsRepository {
         limit: Option<usize>,
         offset: Option<usize>,
         rank: Option<bool>,
+        by_type_limit: Option<usize>,
         match_mode: Option<String>,
     ) -> Result<JsValue, JsValue> {
         let query: DiscoveryQuery =
@@ -372,6 +375,7 @@ impl SrsRepository {
             offset: offset.unwrap_or(0),
             rank: rank.unwrap_or(false),
             match_mode,
+            by_type_limit,
         };
         let result = discovery_service::find(&self.store, query, page).map_err(js_err)?;
         to_js(&result)
@@ -1001,7 +1005,9 @@ impl SrsRepository {
     /// Patch a container (srs-rust#1199; same service as `srs container update`). `patch_json` is
     /// the CLI's `ContainerPatch`: any of `{ title, namespace, name, description, containerType,
     /// tags, meta, identityInstanceId, anchorInstanceId, memberInstanceIds, childContainerIds }`;
-    /// omitted keys are untouched, unknown keys are rejected. Returns `{ container, diagnostics }`.
+    /// omitted keys are untouched, unknown keys are rejected. `identityInstanceId: null` clears it
+    /// (srs-rust#1293) — the one key here that distinguishes omitted from explicit `null`.
+    /// Returns `{ container, diagnostics }`.
     pub fn update_container(
         &self,
         container_id: &str,
@@ -1638,7 +1644,8 @@ impl SrsRepository {
     /// Assemble context for a record: field values and every relation touching it (both
     /// directions, neighbour inline).
     ///
-    /// `input_json` is `{"recordId": "<id>", "containerId"?: "<id>", "excludeRelationCategories"?: ["composition","sequence"]}`;
+    /// `input_json` is `{"recordId": "<id>", "containerId"?: "<id>", "excludeRelationCategories"?: ["composition","sequence"], "projection"?: "full"|"card"|"label"}`
+    /// (`projection`, #1285: `card`/`label` inline each neighbour as a compact card instead of the whole instance);
     /// the latter drops edges by `RelationTypeDefinition.category` (#1188); with `containerId` the
     /// result also carries `entry` and `subtree` (the record's arrangement there).
     /// Returns a `RecordContextResult` with `recordId`, `typeId`, `typeName`,
@@ -1650,6 +1657,14 @@ impl SrsRepository {
         let result =
             context_query_service::get_record_context(&self.store, input).map_err(js_err)?;
         to_js(&result)
+    }
+
+    /// [`Self::context_record`] as compact markdown (#1285): same `input_json`; the
+    /// projection is `card` unless `"label"` is given. Returns the markdown string.
+    pub fn context_record_markdown(&self, input_json: &str) -> Result<String, JsValue> {
+        let input: RecordContextQuery =
+            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        context_query_service::render_record_context_markdown(&self.store, input).map_err(js_err)
     }
 
     // ── Protocol runs (ext:protocol execution) ────────────────────────────────

@@ -164,6 +164,7 @@ fn context_record_returns_type_and_fields() {
             record_id: RECORD_ID.to_string(),
             container_id: None,
             exclude_relation_categories: vec![],
+            projection: Default::default(),
         },
     )
     .expect("get_record_context must succeed");

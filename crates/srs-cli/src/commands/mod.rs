@@ -1904,6 +1904,9 @@ pub struct FindArgs {
     /// word, as a whole token; for questions typed as sentences; always ranked)
     #[arg(long = "match", value_name = "MODE", default_value = "all")]
     pub match_mode: srs_repository::discovery_service::MatchMode,
+    /// Cap on `facets.byType` values (default 20; the rest are summed into `other`). 0 = every type
+    #[arg(long = "by-type-limit")]
+    pub by_type_limit: Option<usize>,
     /// More like this: instances similar to this instance (Record or Note id), ranked by BM25
     /// over its top-weighted terms, excluding itself. The other filters narrow the candidates;
     /// not combinable with --text.

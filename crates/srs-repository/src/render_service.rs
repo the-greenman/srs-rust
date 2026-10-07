@@ -3362,6 +3362,110 @@ fn render_record_at_level(
     Ok(out)
 }
 
+/// The baseline field rows of one record, outside any Composition: the same row
+/// selection (Type order via inheritance-aware `effective_fields`, else the record's
+/// own keys), label (`FieldAssignment.displayLabel`, else `Field.name`), value rendering
+/// (`render_field_value`; inline composites through the composite baseline) and row
+/// primitive (`format_field_row` + `row_separator`) the baseline record path uses —
+/// so a caller rendering one record (the context markdown, srs-rust#1285) emits rows
+/// identical to a composition's, with no second field renderer. No View, Theme,
+/// heading or relations block: those belong to a section. A field whose string value
+/// equals `skip_value` (e.g. the label the caller already shows as a heading) is
+/// omitted, as is any absent field (`[FR-037-10]`). `package: None` (a package that
+/// does not load) renders the record's keys with untyped values.
+pub(crate) fn render_record_rows(
+    package: Option<&Package>,
+    record: &Record,
+    format: &str,
+    skip_value: Option<&str>,
+    diagnostics: &mut Vec<String>,
+) -> String {
+    let rows: Vec<(String, String, Option<String>)> = match package.and_then(|p| {
+        p.resolve_type(&record.type_id, record.type_version)
+            .map(|t| (p, t))
+    }) {
+        Some((p, rt)) => match p.effective_fields(rt) {
+            Ok(assignments) => assignments
+                .into_iter()
+                .filter_map(|fa| {
+                    let name = p.resolve_field(&fa.field_id)?.name.clone();
+                    Some((fa.field_id, name, fa.display_label))
+                })
+                .collect(),
+            Err(e) => {
+                diagnostics.push(format!("ext:type-inheritance: {e}"));
+                Vec::new()
+            }
+        },
+        None => record
+            .field_values
+            .iter()
+            .map(|(name, _)| (String::new(), name.clone(), None))
+            .collect(),
+    };
+    let ctx = package.map(|package| RenderContext {
+        package,
+        container_title: String::new(),
+        depth_offset: 0,
+        format,
+        status_field_name: None,
+        active_theme: None,
+        doc_composite_renderers: None,
+    });
+    let mut out = String::new();
+    for (field_id, name, display_label) in rows {
+        let Some(value) = record.value(&name) else {
+            continue;
+        };
+        if skip_value.is_some() && value.as_str().map(str::trim) == skip_value {
+            continue;
+        }
+        let field_type = package
+            .and_then(|p| {
+                if field_id.is_empty() {
+                    p.find_field_by_name(&name)
+                } else {
+                    p.resolve_field(&field_id)
+                }
+            })
+            .map(|f| &f.field_type);
+        if let (Some(ctx), Some(ft)) = (&ctx, field_type) {
+            if ft.datatype == Datatype::Ref
+                && ft.effective_mode() == srs_core::types::field_type::RefMode::Inline
+            {
+                let field = ResolvedFieldRender {
+                    field_id,
+                    name,
+                    required: false,
+                };
+                out.push_str(&render_composite_field(
+                    ctx,
+                    record,
+                    &field,
+                    ft,
+                    value,
+                    None,
+                    diagnostics,
+                ));
+                continue;
+            }
+        }
+        let Some(row_value) = render_field_value(value, field_type, format) else {
+            continue;
+        };
+        let label = display_label.unwrap_or_else(|| name.clone());
+        out.push_str(&format_field_row(
+            format,
+            RowIdentity::FieldName(&name),
+            &label,
+            &row_value,
+            LabelMode::Inline,
+        ));
+        out.push_str(row_separator(format));
+    }
+    out
+}
+
 pub(crate) fn humanize_relation_key(key: &str) -> String {
     let segment = key.rsplit('/').next().unwrap_or(key);
     let spaced: String = segment

@@ -370,6 +370,9 @@ pub struct FindToolInput {
     /// "any" — any significant word, as a whole word (for natural-language queries; always ranked).
     #[serde(rename = "match")]
     pub match_mode: Option<MatchMode>,
+    /// Cap on `facets.byType` values (default 20; the rest are summed into `other`).
+    /// 0 returns every type, each with its `typeId`.
+    pub by_type_limit: Option<usize>,
 }
 
 /// Input of the `similar` tool: the source `instanceId` plus find's structured filters
@@ -1394,6 +1397,7 @@ pub fn call_tool(
                 offset: input.offset.unwrap_or(0),
                 rank: input.rank.unwrap_or(true),
                 match_mode: input.match_mode.unwrap_or_default(),
+                by_type_limit: input.by_type_limit,
             };
             match discovery_service::find(store, input.into(), page) {
                 Ok(result) => tool_ok(&result),
@@ -1780,6 +1784,7 @@ mod tests {
             tier: Some(2),
             content_match: Some("text".into()),
             limit: None,
+            by_type_limit: None,
             offset: None,
             rank: None,
             match_mode: Some(MatchMode::Any),

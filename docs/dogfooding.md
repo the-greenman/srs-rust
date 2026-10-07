@@ -3245,7 +3245,7 @@ srs --repo $REPO repo validate                                   # 0 errors
 
 **Intention.** A remote agent that has never seen a repository asks one cheap question, "what is in here?", and uses the answer to write a precise query instead of guessing keywords.
 
-**CLI surface.** `srs find --limit 0` (and the MCP `find {limit: 0}` / bindings `find`): `payload.result.facets` = `byType`, `notes`, `tags`, `fields[]` (closed string fields keyed by `Field.name`), each `{values:[{value,count}], other?}`, counted over the whole match set before paging.
+**CLI surface.** `srs find --limit 0` (and the MCP `find {limit: 0}` / bindings `find`): `payload.result.facets` = `byType`, `notes`, `tags`, `fields[]` (closed string fields keyed by `Field.name`), each `{values:[{value,count}], other?}` (`byType` values also carry `typeId`), counted over the whole match set before paging. `byType` keeps the top 20 types by default; `--by-type-limit N` (CLI), `byTypeLimit` (MCP) or the trailing `by_type_limit` argument (bindings `find`) changes that, and 0 returns every type.
 
 **Steps.** `srs find --repo ../../muDemocracy.org/muSrs --limit 0 --pretty`; then `--type com.mudemocracy.argument/problem --limit 0`; then `--text democracy --limit 3` and compare `total` with the sum of `facets.byType`. Negative: `--container <unknown uuid> --limit 0` returns `facets: {}` with the containerId warning.
 

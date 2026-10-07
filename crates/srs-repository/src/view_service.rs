@@ -25,7 +25,7 @@
 use crate::container_service;
 use crate::error::RepositoryError;
 use crate::package_types::{validate_package_selector, DefinitionKind, PackageSelector};
-use crate::store::RepositoryStore;
+use crate::store::{inject_definition_schema, RepositoryStore};
 use crate::validation::validate_definition_write_schema;
 use crate::writer::new_instance_id;
 use srs_core::types::view::{Composition, ExactTypeRef, View};
@@ -473,10 +473,11 @@ pub fn create_view(
     if view.id.is_empty() {
         view.id = new_instance_id();
     }
-    let raw = serde_json::to_value(&view).map_err(|e| RepositoryError::Serialize {
+    let mut raw = serde_json::to_value(&view).map_err(|e| RepositoryError::Serialize {
         path: std::path::PathBuf::from(format!("{boundary_path}/views")),
         source: e,
     })?;
+    inject_definition_schema(&mut raw, VIEW_SCHEMA_ID);
     validate_definition_write_schema(
         VIEW_SCHEMA_ID,
         &raw,
@@ -501,10 +502,11 @@ pub fn update_view(
     view_id: &str,
     view: View,
 ) -> Result<UpdateViewResult, RepositoryError> {
-    let raw = serde_json::to_value(&view).map_err(|e| RepositoryError::Serialize {
+    let mut raw = serde_json::to_value(&view).map_err(|e| RepositoryError::Serialize {
         path: std::path::PathBuf::from("package/views"),
         source: e,
     })?;
+    inject_definition_schema(&mut raw, VIEW_SCHEMA_ID);
     validate_definition_write_schema(VIEW_SCHEMA_ID, &raw, std::path::Path::new("package/views"))?;
     validate_view(&view).map_err(|e| RepositoryError::ViewValidation {
         path: std::path::PathBuf::from("package/views"),
@@ -597,10 +599,11 @@ pub fn create_composition(
     if composition.id.is_empty() {
         composition.id = new_instance_id();
     }
-    let raw = serde_json::to_value(&composition).map_err(|e| RepositoryError::Serialize {
+    let mut raw = serde_json::to_value(&composition).map_err(|e| RepositoryError::Serialize {
         path: std::path::PathBuf::from(format!("{boundary_path}/compositions")),
         source: e,
     })?;
+    inject_definition_schema(&mut raw, COMPOSITION_SCHEMA_ID);
     validate_definition_write_schema(
         COMPOSITION_SCHEMA_ID,
         &raw,
@@ -631,10 +634,11 @@ pub fn update_composition(
     mut composition: Composition,
 ) -> Result<UpdateCompositionResult, RepositoryError> {
     composition.id = composition_id.to_string();
-    let raw = serde_json::to_value(&composition).map_err(|e| RepositoryError::Serialize {
+    let mut raw = serde_json::to_value(&composition).map_err(|e| RepositoryError::Serialize {
         path: std::path::PathBuf::from("package/compositions"),
         source: e,
     })?;
+    inject_definition_schema(&mut raw, COMPOSITION_SCHEMA_ID);
     validate_definition_write_schema(
         COMPOSITION_SCHEMA_ID,
         &raw,
@@ -802,6 +806,24 @@ mod tests {
                 .any(|v| v.as_str().unwrap_or("").contains("my-view")),
             "view path should be registered in package.json"
         );
+    }
+
+    /// srs-rust#1294: `view.json` has `$schema` in its `required` list, but the
+    /// `View` struct serializes it as `skip_serializing_if = "Option::is_none"` — a
+    /// caller (e.g. `srs view create` fed a stdin body with no `$schema`) produces a
+    /// `view.schema == None` and tripped the write-path schema check before
+    /// `inject_definition_schema` was added to `create_view`. Every other fixture
+    /// in this file sets `schema` explicitly, which is why this gap went untested.
+    #[test]
+    fn create_view_succeeds_without_explicit_schema() {
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let store = FileStore::new(temp.path());
+
+        let mut v = minimal_view("no-schema-view");
+        v.schema = None;
+        let result = create_view(&store, v, None).unwrap();
+        assert!(!result.view.id.is_empty());
     }
 
     #[test]
@@ -1045,6 +1067,20 @@ mod tests {
                 .any(|v| v.as_str().unwrap_or("").contains("my-doc-view")),
             "document view path should be registered in package.json"
         );
+    }
+
+    /// srs-rust#1294: same gap as `create_view_succeeds_without_explicit_schema`,
+    /// for `composition.json`'s own `$schema` requirement.
+    #[test]
+    fn create_composition_succeeds_without_explicit_schema() {
+        let temp = tempfile::TempDir::new().unwrap();
+        setup_minimal_repo(temp.path());
+        let store = FileStore::new(temp.path());
+
+        let mut dv = minimal_composition("no-schema-composition");
+        dv.schema = None;
+        let result = create_composition(&store, dv, None).unwrap();
+        assert!(!result.composition.id.is_empty());
     }
 
     #[test]

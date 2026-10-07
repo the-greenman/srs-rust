@@ -16,6 +16,7 @@ fn counts(n: usize, other: usize) -> FacetCounts {
         values: (0..n)
             .map(|i| FacetCount {
                 value: format!("v{i}"),
+                type_id: (i % 2 == 0).then(|| format!("t{i}")),
                 count: i + 1,
             })
             .collect(),
@@ -78,6 +79,9 @@ fn neighbours_both_directions_match() {
         label: full.then(|| "L".into()),
         type_namespace: full.then(|| "ns".into()),
         type_name: full.then(|| "t".into()),
+        // Set only by a context card projection (#1285), never by `relation neighbours`.
+        lifecycle_state: None,
+        summary: None,
     };
     let r = NeighboursResult {
         instance_id: "i".into(),

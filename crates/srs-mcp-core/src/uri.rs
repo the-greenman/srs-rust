@@ -28,6 +28,10 @@ pub enum SrsUri {
         instance_id: String,
         /// `?excludeRelationCategories=composition,sequence` (#1188); wire spellings, parsed by the adapter.
         exclude_relation_categories: Vec<String>,
+        /// `?projection=full|card|label` (#1285); wire spelling, parsed by the adapter.
+        projection: Option<String>,
+        /// `?format=markdown` (#1285): the compact markdown rendering instead of JSON.
+        markdown: bool,
     },
 }
 
@@ -161,23 +165,40 @@ pub fn parse(uri: &str, repository_id: &str) -> Result<SrsUri, UriError> {
     if let Some(ids) = path.strip_prefix("context/") {
         let (ids, query) = ids.split_once('?').unwrap_or((ids, ""));
         let mut exclude_relation_categories = vec![];
+        let mut projection = None;
+        let mut format = None;
+        let mut seen = std::collections::HashSet::new();
         for pair in query.split('&').filter(|p| !p.is_empty()) {
+            // A duplicated key is an error, as on tree URIs (#1229), never last-wins.
+            if let Some((key, _)) = pair.split_once('=') {
+                if !seen.insert(key) {
+                    return Err(UriError(format!("duplicate query key '{key}' in '{uri}'")));
+                }
+            }
             match pair.split_once('=') {
                 Some(("excludeRelationCategories", v)) => exclude_relation_categories
                     .extend(v.split(',').filter(|c| !c.is_empty()).map(str::to_string)),
+                Some(("projection", v)) if !v.is_empty() => projection = Some(v.to_string()),
+                // `json` is the default form; `format` only round-trips `markdown`.
+                Some(("format", v @ ("markdown" | "json"))) => format = Some(v),
                 _ => return Err(UriError(format!("unsupported query in '{uri}'"))),
             }
         }
+        let markdown = format == Some("markdown");
         return match ids.split('/').collect::<Vec<_>>().as_slice() {
             [iid] if !iid.is_empty() => Ok(SrsUri::Context {
                 container_id: None,
                 instance_id: iid.to_string(),
                 exclude_relation_categories,
+                projection,
+                markdown,
             }),
             [cid, iid] if !cid.is_empty() && !iid.is_empty() => Ok(SrsUri::Context {
                 container_id: Some(cid.to_string()),
                 instance_id: iid.to_string(),
                 exclude_relation_categories,
+                projection,
+                markdown,
             }),
             _ => Err(UriError(format!("malformed resource path in '{uri}'"))),
         };
@@ -239,18 +260,30 @@ pub fn format(kind: &SrsUri, repository_id: &str) -> String {
             container_id,
             instance_id,
             exclude_relation_categories,
+            projection,
+            markdown,
         } => {
             let ids = match container_id {
                 None => instance_id.clone(),
                 Some(cid) => format!("{cid}/{instance_id}"),
             };
-            let query = if exclude_relation_categories.is_empty() {
+            let mut params = vec![];
+            if !exclude_relation_categories.is_empty() {
+                params.push(format!(
+                    "excludeRelationCategories={}",
+                    exclude_relation_categories.join(",")
+                ));
+            }
+            if let Some(p) = projection {
+                params.push(format!("projection={p}"));
+            }
+            if *markdown {
+                params.push("format=markdown".to_string());
+            }
+            let query = if params.is_empty() {
                 String::new()
             } else {
-                format!(
-                    "?excludeRelationCategories={}",
-                    exclude_relation_categories.join(",")
-                )
+                format!("?{}", params.join("&"))
             };
             format!("{SCHEME}{repository_id}/context/{ids}{query}")
         }
@@ -266,7 +299,7 @@ pub fn tree_template(repository_id: &str) -> String {
 }
 
 pub fn context_template(repository_id: &str) -> String {
-    format!("{SCHEME}{repository_id}/context/{{containerId}}/{{instanceId}}{{?excludeRelationCategories}}")
+    format!("{SCHEME}{repository_id}/context/{{containerId}}/{{instanceId}}{{?excludeRelationCategories,projection,format}}")
 }
 
 pub fn type_template(repository_id: &str) -> String {
@@ -302,8 +335,45 @@ mod tests {
                 container_id: Some("c".into()),
                 instance_id: "i".into(),
                 exclude_relation_categories: vec!["composition".into(), "sequence".into()],
+                projection: None,
+                markdown: false,
             })
         );
+        // `projection` (#1285) parses alongside the category filter and round-trips.
+        let u =
+            format!("srs://{REPO}/context/i?excludeRelationCategories=composition&projection=card");
+        let parsed = parse(&u, REPO).unwrap();
+        assert_eq!(
+            parsed,
+            SrsUri::Context {
+                container_id: None,
+                instance_id: "i".into(),
+                exclude_relation_categories: vec!["composition".into()],
+                projection: Some("card".into()),
+                markdown: false,
+            }
+        );
+        assert_eq!(format(&parsed, REPO), u);
+        // `format=markdown` (#1285) parses, round-trips, and only markdown|json are accepted.
+        let md = format!("srs://{REPO}/context/i?projection=label&format=markdown");
+        let parsed = parse(&md, REPO).unwrap();
+        assert!(matches!(parsed, SrsUri::Context { markdown: true, .. }));
+        assert_eq!(format(&parsed, REPO), md);
+        assert!(parse(&format!("srs://{REPO}/context/i?format=html"), REPO).is_err());
+        // `format=json` is the default form: accepted, and formats back without the key.
+        let json = parse(&format!("srs://{REPO}/context/i?format=json"), REPO).unwrap();
+        assert_eq!(format(&json, REPO), format!("srs://{REPO}/context/i"));
+        // Duplicated keys are rejected, never last-wins.
+        for dup in [
+            "projection=card&projection=label",
+            "format=json&format=markdown",
+        ] {
+            assert!(
+                parse(&format!("srs://{REPO}/context/i?{dup}"), REPO).is_err(),
+                "{dup}"
+            );
+        }
+        assert!(parse(&format!("srs://{REPO}/context/i?projection="), REPO).is_err());
         assert!(parse(&format!("srs://{REPO}/context/i?bogus=1"), REPO).is_err());
         assert!(parse(
             &format!("srs://{REPO}/context/i?excludeRelationCategories=sequence&foo=1"),
@@ -398,16 +468,22 @@ mod tests {
                 container_id: None,
                 instance_id: "i".into(),
                 exclude_relation_categories: vec![],
+                projection: None,
+                markdown: false,
             },
             SrsUri::Context {
                 container_id: Some("c".into()),
                 instance_id: "i".into(),
                 exclude_relation_categories: vec![],
+                projection: Some("label".into()),
+                markdown: false,
             },
             SrsUri::Context {
                 container_id: None,
                 instance_id: "i".into(),
                 exclude_relation_categories: vec!["composition".into(), "sequence".into()],
+                projection: Some("card".into()),
+                markdown: false,
             },
         ];
         for kind in kinds {
