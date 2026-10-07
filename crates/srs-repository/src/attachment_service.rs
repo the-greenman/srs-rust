@@ -1641,10 +1641,9 @@ mod tests {
         assert_eq!(on_disk, b"evidence content");
 
         // Sidecar is on disk and parseable.
-        let sidecar_str = std::fs::read_to_string(
-            root.join("source-documents/decisions/evidence.pdf.meta.json"),
-        )
-        .unwrap();
+        let sidecar_str =
+            std::fs::read_to_string(root.join("source-documents/decisions/evidence.pdf.meta.json"))
+                .unwrap();
         let sidecar: serde_json::Value = serde_json::from_str(&sidecar_str).unwrap();
         assert_eq!(sidecar["contentType"].as_str(), Some("application/pdf"));
         assert_eq!(sidecar["encoding"].as_str(), Some("binary"));
