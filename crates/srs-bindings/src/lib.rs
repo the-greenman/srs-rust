@@ -349,7 +349,9 @@ impl SrsRepository {
     /// all optional — omit or pass `"{}"` for "return all").
     /// `limit` (default: all matches) and `offset` (default 0) page the hits after the
     /// deterministic sort; `total` is the full match count. `rank` (default false) orders
-    /// content-match hits by BM25 relevance and fills `score`.
+    /// content-match hits by BM25 relevance and fills `score`. `by_type_limit` caps
+    /// `facets.byType` values (default 20; 0 = every type); trailing and optional, so
+    /// existing callers are unchanged.
     /// Returns a `DiscoveryResult` as a JS value.
     pub fn find(
         &self,
@@ -357,6 +359,7 @@ impl SrsRepository {
         limit: Option<usize>,
         offset: Option<usize>,
         rank: Option<bool>,
+        by_type_limit: Option<usize>,
     ) -> Result<JsValue, JsValue> {
         let query: DiscoveryQuery =
             serde_json::from_str(query_json).map_err(|e| js_err(format!("invalid query: {e}")))?;
@@ -364,6 +367,7 @@ impl SrsRepository {
             limit,
             offset: offset.unwrap_or(0),
             rank: rank.unwrap_or(false),
+            by_type_limit,
         };
         let result = discovery_service::find(&self.store, query, page).map_err(js_err)?;
         to_js(&result)
@@ -385,6 +389,7 @@ impl SrsRepository {
             limit,
             offset: offset.unwrap_or(0),
             rank: true,
+            by_type_limit: None,
         };
         let result =
             discovery_service::similar(&self.store, instance_id, query, page).map_err(js_err)?;
@@ -992,7 +997,9 @@ impl SrsRepository {
     /// Patch a container (srs-rust#1199; same service as `srs container update`). `patch_json` is
     /// the CLI's `ContainerPatch`: any of `{ title, namespace, name, description, containerType,
     /// tags, meta, identityInstanceId, anchorInstanceId, memberInstanceIds, childContainerIds }`;
-    /// omitted keys are untouched, unknown keys are rejected. Returns `{ container, diagnostics }`.
+    /// omitted keys are untouched, unknown keys are rejected. `identityInstanceId: null` clears it
+    /// (srs-rust#1293) — the one key here that distinguishes omitted from explicit `null`.
+    /// Returns `{ container, diagnostics }`.
     pub fn update_container(
         &self,
         container_id: &str,

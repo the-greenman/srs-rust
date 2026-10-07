@@ -1967,6 +1967,22 @@ fn repo_validate_invalid_note_returns_ok_false() {
         "expected sections error in diagnostics: {:?}",
         diags
     );
+    // srs-rust#1283: the ok:false branch must still carry the structured
+    // payload (object diagnostics + summary), not just the string digest.
+    assert!(
+        result["payload"]["summary"]["errors"].as_u64().unwrap() >= 1,
+        "expected payload.summary on ok:false: {:?}",
+        result
+    );
+    let payload_diags = result["payload"]["diagnostics"].as_array().unwrap();
+    assert!(
+        payload_diags.iter().any(|d| d["message"]
+            .as_str()
+            .map(|s| s.contains("sections"))
+            .unwrap_or(false)),
+        "expected structured sections error in payload.diagnostics: {:?}",
+        payload_diags
+    );
 }
 
 #[test]
@@ -2017,6 +2033,12 @@ fn repo_validate_tier_schema_mismatch_returns_ok_false() {
         }),
         "expected a declared-schema validation diagnostic: {:?}",
         diags
+    );
+    // srs-rust#1283: payload must be present on ok:false too.
+    assert!(
+        result["payload"]["summary"]["errors"].as_u64().unwrap() >= 1,
+        "expected payload.summary on ok:false: {:?}",
+        result
     );
 }
 
@@ -2919,6 +2941,21 @@ fn find_type_flag_is_alias_for_type_namespace_and_type_name() {
         via_split["payload"]["result"],
         via_alias["payload"]["result"]
     );
+
+    // `--by-type-limit 0` (every type) with `--limit 0`: byType carries typeId and sums to total.
+    let facets = run_srs_in_dir(
+        temp.path(),
+        &["find", "--limit", "0", "--by-type-limit", "0"],
+    );
+    let r = &facets["payload"]["result"];
+    let vals = r["facets"]["byType"]["values"].as_array().unwrap();
+    assert_eq!(vals[0]["value"], "com.test/test-item");
+    assert_eq!(vals[0]["typeId"], "type-test-001");
+    let sum: u64 = vals.iter().map(|v| v["count"].as_u64().unwrap()).sum();
+    assert_eq!(sum, r["total"].as_u64().unwrap());
+    // typeId resolves through `type list`.
+    let types = run_srs_in_dir(temp.path(), &["type", "list"]);
+    assert!(types["payload"].to_string().contains("type-test-001"));
 
     // An invalid (non `namespace/name`) filter is rejected, mirroring `record list`.
     let invalid = run_srs_in_dir(temp.path(), &["find", "--type", "not-a-valid-filter"]);
@@ -4539,6 +4576,43 @@ fn container_update_patches_anchor_instance_id() {
 }
 
 #[test]
+fn container_update_null_identity_instance_id_clears_field() {
+    // srs-rust#1293: `echo '{"identityInstanceId":null}' | srs container update <id>` used to
+    // return ok:true while leaving the stored identityInstanceId untouched.
+    let temp = make_container_test_repo();
+    let payload = serde_json::json!({
+        "containerId":"00000000-0000-4000-8000-000000000001",
+        "title":"Root",
+        "identityInstanceId": "11111111-1111-4111-8111-111111111111"
+    })
+    .to_string();
+    run_srs_stdin_in_dir(temp.path(), &["container", "create"], &payload);
+
+    let patch = serde_json::json!({"identityInstanceId": null}).to_string();
+    let updated = run_srs_stdin_in_dir(
+        temp.path(),
+        &[
+            "container",
+            "update",
+            "00000000-0000-4000-8000-000000000001",
+        ],
+        &patch,
+    );
+    assert_eq!(updated["ok"], true);
+    assert!(updated["payload"]["container"]
+        .get("identityInstanceId")
+        .is_none());
+
+    let got = run_srs_in_dir(
+        temp.path(),
+        &["container", "get", "00000000-0000-4000-8000-000000000001"],
+    );
+    assert!(got["payload"]["container"]
+        .get("identityInstanceId")
+        .is_none());
+}
+
+#[test]
 fn container_update_patches_member_instance_ids() {
     let temp = make_container_test_repo();
     let payload = serde_json::json!({
@@ -5057,6 +5131,69 @@ fn container_scope_note_create_fails_invalid_container() {
 
     let listed = run_srs_in_dir(temp.path(), &["note", "list"]);
     assert_eq!(listed["payload"]["notes"], serde_json::json!([]));
+}
+
+#[test]
+fn note_create_accepts_container_id_in_stdin_payload() {
+    // srs-rust#1290: `containerId` in the stdin payload (the same key the MCP
+    // `note_create` tool accepts) must land the note in the container even
+    // without the global `--container` flag.
+    let temp = create_temp_repo();
+    let cid = "00000000-0000-4000-8000-000000000001";
+    create_container_for_scope(&temp, cid);
+
+    let payload = serde_json::json!({
+        "instanceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+        "title": "Scoped via stdin",
+        "sections": [{"name":"body","content":"x"}],
+        "containerId": cid
+    })
+    .to_string();
+    let created = run_srs_stdin_in_dir(temp.path(), &["note", "create"], &payload);
+    assert_eq!(created["ok"], true);
+
+    let members = run_srs_in_dir(temp.path(), &["container", "members", "list", cid]);
+    let arr = members["payload"]["members"].as_array().unwrap();
+    assert!(arr
+        .iter()
+        .any(|v| v["instanceId"] == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"));
+}
+
+#[test]
+fn note_create_container_flag_overrides_stdin_container_id() {
+    // The global `--container` flag stays authoritative when both are given.
+    let temp = create_temp_repo();
+    let flag_cid = "00000000-0000-4000-8000-000000000001";
+    let payload_cid = "00000000-0000-4000-8000-000000000002";
+    create_container_for_scope(&temp, flag_cid);
+    create_container_for_scope(&temp, payload_cid);
+
+    let payload = serde_json::json!({
+        "instanceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+        "title": "Flag wins",
+        "sections": [{"name":"body","content":"x"}],
+        "containerId": payload_cid
+    })
+    .to_string();
+    let created = run_srs_stdin_in_dir(
+        temp.path(),
+        &["--container", flag_cid, "note", "create"],
+        &payload,
+    );
+    assert_eq!(created["ok"], true);
+
+    let flag_members = run_srs_in_dir(temp.path(), &["container", "members", "list", flag_cid]);
+    let arr = flag_members["payload"]["members"].as_array().unwrap();
+    assert!(arr
+        .iter()
+        .any(|v| v["instanceId"] == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"));
+
+    let payload_members =
+        run_srs_in_dir(temp.path(), &["container", "members", "list", payload_cid]);
+    let arr = payload_members["payload"]["members"].as_array().unwrap();
+    assert!(!arr
+        .iter()
+        .any(|v| v["instanceId"] == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"));
 }
 
 #[test]

@@ -363,6 +363,9 @@ pub struct FindToolInput {
     /// Order hits by BM25 relevance (fills `score`) instead of by instanceId.
     /// Defaults to true; the set of hits is the same either way.
     pub rank: Option<bool>,
+    /// Cap on `facets.byType` values (default 20; the rest are summed into `other`).
+    /// 0 returns every type, each with its `typeId`.
+    pub by_type_limit: Option<usize>,
 }
 
 /// Input of the `similar` tool: the source `instanceId` plus find's structured filters
@@ -398,6 +401,7 @@ impl SimilarToolInput {
             limit: Some(self.limit.unwrap_or(FIND_DEFAULT_LIMIT)),
             offset: self.offset.unwrap_or(0),
             rank: true,
+            by_type_limit: None,
         };
         let query = DiscoveryQuery {
             type_id: self.type_id,
@@ -1385,6 +1389,7 @@ pub fn call_tool(
                 limit: Some(input.limit.unwrap_or(FIND_DEFAULT_LIMIT)),
                 offset: input.offset.unwrap_or(0),
                 rank: input.rank.unwrap_or(true),
+                by_type_limit: input.by_type_limit,
             };
             match discovery_service::find(store, input.into(), page) {
                 Ok(result) => tool_ok(&result),
@@ -1761,6 +1766,7 @@ mod tests {
             tier: Some(2),
             content_match: Some("text".into()),
             limit: None,
+            by_type_limit: None,
             offset: None,
             rank: None,
         };
