@@ -314,7 +314,7 @@ async fn read_record_matches_service_output() {
     let record = get_record_by_id(&store_for(&fx), &fx.identity_id)
         .unwrap()
         .expect("identity record exists");
-    assert_eq!(text, serde_json::to_string_pretty(&record).unwrap());
+    assert_eq!(text, serde_json::to_string(&record).unwrap());
 
     client.cancel().await.unwrap();
 }
@@ -344,7 +344,7 @@ async fn read_context_exclude_categories_matches_service_and_rejects_unknown() {
         },
     )
     .unwrap();
-    assert_eq!(text, serde_json::to_string_pretty(&expected).unwrap());
+    assert_eq!(text, serde_json::to_string(&expected).unwrap());
 
     let err = client
         .read_resource(ReadResourceRequestParams::new(format!(
@@ -381,7 +381,7 @@ async fn read_context_projection_and_markdown_match_service() {
     .await;
     assert_eq!(mime.as_deref(), Some("application/json"));
     let expected = get_record_context(&store_for(&fx), q(ContextProjection::Card)).unwrap();
-    assert_eq!(text, serde_json::to_string_pretty(&expected).unwrap());
+    assert_eq!(text, serde_json::to_string(&expected).unwrap());
 
     let (mime, md) = read_text(
         &client,
@@ -416,13 +416,13 @@ async fn read_map_navigation_container_match_service_output() {
     assert_eq!(mime.as_deref(), Some("application/json"));
     assert_eq!(
         text,
-        serde_json::to_string_pretty(&build_repo_map(&store).unwrap()).unwrap()
+        serde_json::to_string(&build_repo_map(&store).unwrap()).unwrap()
     );
 
     let (_, nav_text) = read_text(&client, format!("srs://{}/navigation", fx.repo_id)).await;
     assert_eq!(
         nav_text,
-        serde_json::to_string_pretty(&repository_navigation(&store).unwrap()).unwrap()
+        serde_json::to_string(&repository_navigation(&store).unwrap()).unwrap()
     );
 
     let (_, container_text) = read_text(
@@ -438,10 +438,7 @@ async fn read_map_navigation_container_match_service_output() {
         },
     )
     .unwrap();
-    assert_eq!(
-        container_text,
-        serde_json::to_string_pretty(&expected).unwrap()
-    );
+    assert_eq!(container_text, serde_json::to_string(&expected).unwrap());
 
     client.cancel().await.unwrap();
 }
@@ -538,7 +535,7 @@ async fn read_type_schema_matches_service_output() {
     )
     .unwrap();
     // Pretty-printed byte-equality with the service result — not compact.
-    assert_eq!(text, serde_json::to_string_pretty(&expected).unwrap());
+    assert_eq!(text, serde_json::to_string(&expected).unwrap());
     // RFC-039: schema keys are Field.name; x-srs-field-id is retired.
     assert!(
         !text.contains("x-srs-field-id"),
@@ -654,7 +651,7 @@ async fn read_tree_agent_index_and_descent_hook() {
     let (mime, text) = read_text(&client, format!("srs://{}/tree", fx.repo_id)).await;
     assert_eq!(mime.as_deref(), Some("application/json"));
     let expected = build_tree(&store, TreeOptions::default()).unwrap();
-    assert_eq!(text, serde_json::to_string_pretty(&expected).unwrap());
+    assert_eq!(text, serde_json::to_string(&expected).unwrap());
     assert!(text.contains("\"cyclePruned\""), "camelCase keys: {text}");
 
     let (_, sub_text) = read_text(
@@ -670,7 +667,7 @@ async fn read_tree_agent_index_and_descent_hook() {
         },
     )
     .unwrap();
-    assert_eq!(sub_text, serde_json::to_string_pretty(&expected).unwrap());
+    assert_eq!(sub_text, serde_json::to_string(&expected).unwrap());
     let parsed: serde_json::Value = serde_json::from_str(&sub_text).unwrap();
     assert_eq!(parsed["roots"][0]["instanceId"], fx.identity_id);
 
@@ -692,7 +689,7 @@ async fn read_tree_agent_index_and_descent_hook() {
         },
     )
     .unwrap();
-    assert_eq!(bounded, serde_json::to_string_pretty(&expected).unwrap());
+    assert_eq!(bounded, serde_json::to_string(&expected).unwrap());
     assert!(client
         .read_resource(rmcp::model::ReadResourceRequestParams::new(format!(
             "srs://{}/tree?maxDepth=x",
@@ -704,7 +701,7 @@ async fn read_tree_agent_index_and_descent_hook() {
     let (_, idx_text) = read_text(&client, format!("srs://{}/agent-index", fx.repo_id)).await;
     assert_eq!(
         idx_text,
-        serde_json::to_string_pretty(&build_agent_index(&store).unwrap()).unwrap()
+        serde_json::to_string(&build_agent_index(&store).unwrap()).unwrap()
     );
 
     let (_, container_text) = read_text(

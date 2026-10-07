@@ -97,6 +97,15 @@ Any other tool named above is unavailable here.",
     }
 }
 
+/// The text of every JSON tool result and JSON resource read (srs-rust#1319): compact, because
+/// the reader is a model that pays per token for indentation. Clients wanting it laid out can
+/// re-format the JSON; `structuredContent` carries the same value.
+pub(crate) fn json_text<T: serde::Serialize + ?Sized>(
+    value: &T,
+) -> Result<String, McpApplicationError> {
+    serde_json::to_string(value).map_err(|e| McpApplicationError::internal(e.to_string()))
+}
+
 pub mod guard;
 pub mod tools;
 pub mod uri;
@@ -241,9 +250,7 @@ pub mod srs_resources {
         value: &T,
         uri: &str,
     ) -> Result<Value, McpApplicationError> {
-        let text = serde_json::to_string_pretty(value)
-            .map_err(|e| McpApplicationError::internal(e.to_string()))?;
-        Ok(contents(uri, MIME_JSON, text))
+        Ok(contents(uri, MIME_JSON, crate::json_text(value)?))
     }
 
     /// The `resources/read` result. Each arm is one repository-service call

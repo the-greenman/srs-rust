@@ -138,3 +138,8 @@ Decisions:
 - **Descriptions unchanged.** The issue's alternative (shorter descriptions pointing at a docs resource) was not needed to reach the `context` target and would have moved guidance out of the one place a model reliably reads it.
 
 Implementation charter (ADR-048): spec-first — none needed (MCP surface, §6); layer — `srs-mcp-core` owns the sets, adapters map a flag; one way per goal — one filter for list and call; decision mode — complicated.
+
+## Amendment (2026-10-07, #1319) — compact JSON text
+
+The `text` of every JSON tool result (`tool_ok`) and JSON resource read (`json_contents`) is serialized compactly through one helper, `srs_mcp_core::json_text`, instead of `to_string_pretty`. The reader is a model paying per token for indentation (about 30% of a `find` page); the value, keys and `structuredContent` are unchanged, and a client can re-format. Markdown resources and the CLI's `--pretty` are untouched. No spec change.
+

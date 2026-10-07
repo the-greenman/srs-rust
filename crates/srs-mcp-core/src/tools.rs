@@ -1386,8 +1386,7 @@ fn relative_move(
 fn tool_ok<T: serde::Serialize>(value: &T) -> Result<Value, McpApplicationError> {
     let structured =
         serde_json::to_value(value).map_err(|e| McpApplicationError::internal(e.to_string()))?;
-    let text = serde_json::to_string_pretty(&structured)
-        .map_err(|e| McpApplicationError::internal(e.to_string()))?;
+    let text = crate::json_text(&structured)?;
     Ok(json!({
         "content": [{ "type": "text", "text": text }],
         "structuredContent": structured,
@@ -2051,6 +2050,15 @@ mod tests {
         let cuts: Vec<usize> = (0..=s.len()).map(|n| utf8_floor(s, n)).collect();
         assert_eq!(cuts, vec![0, 1, 1, 3, 3, 3, 6, 6, 6, 6, 10]);
         assert_eq!(utf8_floor(s, 99), 10);
+    }
+
+    #[test]
+    fn tool_ok_text_is_compact_json_equal_to_structured_content() {
+        let r = tool_ok(&json!({"hits": [{"id": "a", "tags": ["x", "y"]}], "total": 1})).unwrap();
+        let text = r["content"][0]["text"].as_str().unwrap();
+        assert!(!text.contains('\n') && !text.contains(": "), "{text}");
+        let parsed: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(parsed, r["structuredContent"]);
     }
 
     #[test]
