@@ -25,7 +25,7 @@
 use crate::error::RepositoryError;
 use crate::store::RepositoryStore;
 use crate::writer::{new_instance_id, write_manifest};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use srs_core::arrangement;
 use srs_core::types::container::{Container, ContainerEntry};
 use srs_core::validation::container::validate_container;
@@ -51,11 +51,25 @@ pub struct ContainerPatch {
     pub container_type: Option<String>,
     pub tags: Option<Vec<String>>,
     pub meta: Option<serde_json::Value>,
-    pub identity_instance_id: Option<String>,
+    /// Double-`Option` (srs-rust#1293): `None` means the key was omitted — leave the field
+    /// untouched; `Some(None)` means the key was sent as JSON `null` — clear the field.
+    /// A single `Option<String>` cannot distinguish those two cases.
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub identity_instance_id: Option<Option<String>>,
     pub anchor_instance_id: Option<String>,
     /// RFC-043: the whole ordered outline (replaces the arrangement; order is data, never sorted).
     pub member_instance_ids: Option<Vec<ContainerEntry>>,
     pub child_container_ids: Option<Vec<String>>,
+}
+
+/// Deserializes a present field (including JSON `null`) as `Some(_)`, so the caller can tell
+/// "key omitted" (`None`, via `#[serde(default)]`) apart from "key sent as `null`" (`Some(None)`).
+fn deserialize_some<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    Deserialize::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -516,8 +530,8 @@ pub fn update_container(
     if let Some(v) = patch.meta {
         container.meta = Some(v);
     }
-    if let Some(ref v) = patch.identity_instance_id {
-        container.identity_instance_id = Some(v.clone());
+    if let Some(v) = patch.identity_instance_id {
+        container.identity_instance_id = v;
     }
     if let Some(ref v) = patch.anchor_instance_id {
         container.anchor_instance_id = Some(v.clone());
@@ -2839,7 +2853,7 @@ mod tests {
         store.save_manifest(&manifest).unwrap();
 
         let patch = ContainerPatch {
-            identity_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
+            identity_instance_id: Some(Some("11111111-1111-4111-8111-111111111111".to_string())),
             ..ContainerPatch::default()
         };
         let updated = update_container(&store, container_id, patch)
@@ -2872,7 +2886,7 @@ mod tests {
 
         // Patch OTHER container's identity_instance_id — manifest should not change
         let patch = ContainerPatch {
-            identity_instance_id: Some("22222222-2222-4222-8222-222222222222".to_string()),
+            identity_instance_id: Some(Some("22222222-2222-4222-8222-222222222222".to_string())),
             ..ContainerPatch::default()
         };
         update_container(&store, other_id, patch).unwrap();
@@ -2894,7 +2908,7 @@ mod tests {
         create_container(&store, minimal_container(container_id, "Root")).unwrap();
 
         let patch = ContainerPatch {
-            identity_instance_id: Some("dddddddd-dddd-4ddd-8ddd-dddddddddddd".to_string()),
+            identity_instance_id: Some(Some("dddddddd-dddd-4ddd-8ddd-dddddddddddd".to_string())),
             ..ContainerPatch::default()
         };
         let err = update_container(&store, container_id, patch).unwrap_err();
@@ -2945,6 +2959,48 @@ mod tests {
             .unwrap()
             .container;
         assert_eq!(updated.identity_instance_id, None);
+        assert_eq!(updated.title, "Renamed");
+    }
+
+    /// srs-rust#1293: `{"identityInstanceId": null}` must clear the field, not no-op. Goes
+    /// through `serde_json::from_str` (not a Rust struct literal) because the bug was in how
+    /// JSON `null` round-trips through `ContainerPatch`'s deserialization, not in the service.
+    #[test]
+    fn update_container_null_identity_instance_id_clears_field() {
+        let store = make_store();
+        let container_id = "550e8400-e29b-41d4-a716-446655440004";
+        let mut container = minimal_container(container_id, "Root");
+        container.identity_instance_id =
+            Some("11111111-1111-4111-8111-111111111111".to_string());
+        create_container(&store, container).unwrap();
+
+        let patch: ContainerPatch =
+            serde_json::from_str(r#"{"identityInstanceId": null}"#).unwrap();
+        let updated = update_container(&store, container_id, patch)
+            .unwrap()
+            .container;
+        assert_eq!(updated.identity_instance_id, None);
+    }
+
+    /// Sibling case: omitting the key entirely must still leave the field untouched — the two
+    /// JSON shapes (`null` vs. absent) must deserialize to different `ContainerPatch` values.
+    #[test]
+    fn update_container_omitted_identity_instance_id_leaves_untouched() {
+        let store = make_store();
+        let container_id = "550e8400-e29b-41d4-a716-446655440005";
+        let mut container = minimal_container(container_id, "Root");
+        container.identity_instance_id =
+            Some("11111111-1111-4111-8111-111111111111".to_string());
+        create_container(&store, container).unwrap();
+
+        let patch: ContainerPatch = serde_json::from_str(r#"{"title": "Renamed"}"#).unwrap();
+        let updated = update_container(&store, container_id, patch)
+            .unwrap()
+            .container;
+        assert_eq!(
+            updated.identity_instance_id,
+            Some("11111111-1111-4111-8111-111111111111".to_string())
+        );
         assert_eq!(updated.title, "Renamed");
     }
 
@@ -3135,7 +3191,7 @@ mod tests {
         store.save_manifest(&manifest).unwrap();
 
         let patch = ContainerPatch {
-            identity_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
+            identity_instance_id: Some(Some("11111111-1111-4111-8111-111111111111".to_string())),
             anchor_instance_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
             member_instance_ids: Some(srs_core::types::container::entries(vec![
                 "22222222-2222-4222-8222-222222222222".to_string(),
