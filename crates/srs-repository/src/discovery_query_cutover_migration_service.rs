@@ -450,6 +450,7 @@ mod tests {
         store.save_manifest(&manifest).unwrap();
 
         let err = migrate_discovery_query_cutover(&store).unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(err.to_string().contains("composition-cutover"));
         assert_eq!(
             crate::field_type_migration_service::data_model_revision(&store).unwrap(),

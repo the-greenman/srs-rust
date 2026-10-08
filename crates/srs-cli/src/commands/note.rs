@@ -9,6 +9,7 @@ use srs_core::types::note::Note;
 use srs_repository::analysis::{
     audit_note_tags, audit_note_tags_for_note, collect_foundation_notes,
 };
+use srs_repository::error::RepositoryError;
 use srs_repository::record_store::CreateRecordInput;
 use srs_repository::services::{
     add_note_tag, create_note_in_context, delete_note_in_context, get_note_by_id, graduate_note,
@@ -47,9 +48,9 @@ fn cmd_note_list(ctx: CliContext, tag: Option<String>) -> Result<String> {
 fn cmd_note_get(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(get_note_by_id(store, &id)?))? {
         GetNoteResult::Found(note) => output::serialize("note get", NotePayload { note: *note }),
-        GetNoteResult::NotFound => Ok(output::err(
+        GetNoteResult::NotFound => Ok(output::repo_err(
             "note get",
-            vec![format!("Note with id '{}' not found", id)],
+            &RepositoryError::InstanceNotFound { id: id.clone() },
         )),
         GetNoteResult::NotANote { tier: _ } => Ok(output::err(
             "note get",
@@ -68,7 +69,7 @@ fn cmd_note_create(ctx: CliContext) -> Result<String> {
         }
         Ok(())
     }) {
-        return Ok(output::err("note create", vec![e.to_string()]));
+        return Ok(output::any_err("note create", &e));
     }
     // `containerId` travels alongside the Note fields in the stdin payload
     // (the same shape the MCP `note_create` tool accepts) — pull it off the
@@ -80,11 +81,13 @@ fn cmd_note_create(ctx: CliContext) -> Result<String> {
         None | Some(serde_json::Value::Null) => None,
         Some(serde_json::Value::String(s)) => Some(s.clone()),
         Some(other) => {
-            return Ok(output::err(
+            return Ok(output::repo_err(
                 "note create",
-                vec![format!(
-                    "Failed to parse note JSON at containerId: expected a string, got {other}"
-                )],
+                &RepositoryError::InvalidInput {
+                    message: format!(
+                        "Failed to parse note JSON at containerId: expected a string, got {other}"
+                    ),
+                },
             ))
         }
     };
@@ -99,7 +102,7 @@ fn cmd_note_create(ctx: CliContext) -> Result<String> {
         )?)
     }) {
         Ok(result) => output::serialize("note create", NotePayload { note: result.note }),
-        Err(e) => Ok(output::err("note create", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("note create", &e)),
     }
 }
 
@@ -117,9 +120,9 @@ fn cmd_note_tag_add(ctx: CliContext, id: String, tag: String) -> Result<String> 
         AddTagResult::Added { note, .. } | AddTagResult::AlreadyPresent { note, .. } => {
             output::serialize("note tag add", NoteTagAddPayload { note, tag })
         }
-        AddTagResult::NotFound => Ok(output::err(
+        AddTagResult::NotFound => Ok(output::repo_err(
             "note tag add",
-            vec![format!("Note with id '{}' not found", id)],
+            &RepositoryError::InstanceNotFound { id: id.clone() },
         )),
     }
 }
@@ -142,9 +145,9 @@ fn cmd_note_tag_remove(ctx: CliContext, id: String, tag: String) -> Result<Strin
                 removed: false,
             },
         ),
-        RemoveTagResult::NotFound => Ok(output::err(
+        RemoveTagResult::NotFound => Ok(output::repo_err(
             "note tag remove",
-            vec![format!("Note with id '{}' not found", id)],
+            &RepositoryError::InstanceNotFound { id: id.clone() },
         )),
     }
 }
@@ -154,7 +157,7 @@ fn cmd_note_update(ctx: CliContext, id: String) -> Result<String> {
 
     match with_store(&ctx, |store| Ok(update_note_validated(store, &id, note)?)) {
         Ok(result) => output::serialize("note update", NotePayload { note: result.note }),
-        Err(e) => Ok(output::err("note update", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("note update", &e)),
     }
 }
 
@@ -169,7 +172,7 @@ fn cmd_note_delete(ctx: CliContext, id: String) -> Result<String> {
         Ok(DeleteNoteResult { instance_id }) => {
             output::serialize("note delete", DeletedPayload { instance_id })
         }
-        Err(e) => Ok(output::err("note delete", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("note delete", &e)),
     }
 }
 
@@ -230,6 +233,6 @@ fn cmd_note_graduate(
                 record: result.record,
             },
         ),
-        Err(e) => Ok(output::err("note graduate", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("note graduate", &e)),
     }
 }

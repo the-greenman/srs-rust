@@ -186,7 +186,10 @@ fn package_upgrade_tool_uses_the_core_service() {
     // Not installed: a tool error, nothing written.
     let refused = tool(&mut d, "package_upgrade", json!({ "bundle": new }));
     assert_eq!(refused["result"]["isError"], true, "{refused}");
-    assert!(refused.to_string().contains("not installed"));
+    assert_eq!(
+        refused["result"]["structuredContent"]["code"], "invalid-repository-initialization",
+        "{refused}"
+    );
 
     srs_repository::package_install_service::install_package_bundle_bytes(
         &FileStore::new(dir.path()),
@@ -539,8 +542,10 @@ mod write_guard {
             "must not be a protocol error: {r}"
         );
         assert_eq!(r["result"]["isError"], true, "{r}");
-        let text = r["result"]["content"][0]["text"].as_str().unwrap();
-        assert!(text.contains("write guard"), "{text}");
+        assert_eq!(
+            r["result"]["structuredContent"]["code"], "write-guard-rejected",
+            "{r}"
+        );
         assert_eq!(epoch(d), before, "rejection must not advance write_epoch");
     }
 
@@ -650,6 +655,32 @@ mod write_guard {
             &mut d,
             "attachment_add",
             json!({ "fileName": "d.txt", "content": "x" }),
+        );
+    }
+
+    #[test]
+    fn guard_rejection_is_coded() {
+        let (_dir, mut d) = guarded();
+        let id = create(
+            &mut d,
+            "com.example.surface/para2",
+            json!({ "body": "text" }),
+            None,
+        );
+        guard(&mut d, json!({ "instanceIds": [id] }));
+        let r = tool(
+            &mut d,
+            "record_update",
+            json!({ "instanceId": id, "fieldValues": { "body": "x" } }),
+        );
+        assert_eq!(r["result"]["isError"], true, "{r}");
+        assert_eq!(
+            r["result"]["structuredContent"]["code"],
+            "write-guard-rejected"
+        );
+        assert_eq!(
+            r["result"]["content"][0]["text"],
+            r["result"]["structuredContent"]["message"]
         );
     }
 
@@ -1255,6 +1286,17 @@ mod read_tool {
         assert_eq!(via["error"], direct["error"]);
         let wrong = tool(&mut d, "read", json!({ "uri": "srs://other/map" }));
         assert_eq!(wrong["error"]["code"], -32602);
+    }
+
+    #[test]
+    fn service_failure_keeps_error_report_in_data() {
+        // ADR-053: a resource/read service failure is -32603 carrying the ErrorReport.
+        let e = srs_mcp_core::McpApplicationError::from_report(
+            srs_repository::error::RepositoryError::InstanceNotFound { id: "x".into() }.report(),
+        );
+        assert_eq!(e.code, -32603);
+        assert_eq!(e.data.as_ref().unwrap()["code"], "instance-not-found");
+        assert_eq!(e.data.as_ref().unwrap()["details"]["id"], "x");
     }
 
     #[test]

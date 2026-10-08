@@ -3,6 +3,7 @@ use crate::output;
 use crate::payload::{RelationTypeDeletePayload, RelationTypeListPayload, RelationTypePayload};
 use anyhow::Result;
 use srs_core::types::relation_type_definition::RelationTypeDefinition;
+use srs_repository::error::RepositoryError;
 use srs_repository::package_service::{
     create_relation_type_normalized, delete_relation_type, list_relation_types_filtered,
     update_relation_type, RelationTypeListFilter,
@@ -45,9 +46,9 @@ fn cmd_relation_type_get(ctx: CliContext, id: String) -> Result<String> {
                 relation_type_definition: relation_type_definition.clone(),
             },
         ),
-        None => Ok(output::err(
+        None => Ok(output::repo_err(
             "relation-type get",
-            vec![format!("relation type definition not found: {}", id)],
+            &RepositoryError::DefinitionNotFound { id: id.clone() },
         )),
     }
 }

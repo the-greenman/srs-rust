@@ -684,6 +684,8 @@ fn a_declared_package_with_missing_definitions_still_fails_loudly() {
 
     let err = srs_repository::archive_to_vec(&FileStore::new(src_tmp.path()))
         .expect_err("a declared package's missing definition must fail the pack");
+    assert_eq!(err.code(), "invalid-archive", "{err}");
+    // `invalid-archive` is shared by several refusals; the message token is the only discriminator.
     assert!(
         err.to_string().contains("package/fields/title.json"),
         "{err}"

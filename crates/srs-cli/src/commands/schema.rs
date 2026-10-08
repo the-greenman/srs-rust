@@ -34,6 +34,6 @@ fn cmd_schema_generate(ctx: CliContext, entities: Vec<String>) -> Result<String>
                 result.inexpressible,
             )
         }
-        Err(e) => Ok(output::err("schema generate", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("schema generate", &e)),
     }
 }

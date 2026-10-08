@@ -371,6 +371,7 @@ mod tests {
 
         assert!(migration_needed(&store));
         let err = migrate_graduated_at(&store).unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(
             err.to_string().contains(NOTE_ID) && err.to_string().contains("cannot fully apply"),
             "error must name the unresolved note, got: {err}"
@@ -408,6 +409,7 @@ mod tests {
         inject_legacy_graduated_at(&store, OTHER_NOTE_PATH, "2026-02-02T00:00:00Z");
 
         let err = migrate_graduated_at(&store).unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(err.to_string().contains(NOTE_ID));
 
         // The resolvable note (OTHER_NOTE_ID) must be fixed even though the
@@ -420,6 +422,7 @@ mod tests {
         // Second run: idempotent — same outcome, no double work, no panic
         // from re-visiting the already-fixed note.
         let err2 = migrate_graduated_at(&store).unwrap_err();
+        assert_eq!(err2.code(), "invalid-snapshot-data"); // generic bucket code: the message checks below are the discriminator
         assert!(err2.to_string().contains(NOTE_ID));
         assert!(!err2.to_string().contains(OTHER_NOTE_ID));
     }

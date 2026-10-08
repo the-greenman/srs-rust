@@ -1243,6 +1243,7 @@ mod tests {
             .unwrap();
 
         let err = apply_migration(&store, "tier1-removal").unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(
             err.to_string().contains("1 instance(s)")
                 && err

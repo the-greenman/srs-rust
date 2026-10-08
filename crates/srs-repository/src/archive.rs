@@ -1617,6 +1617,8 @@ mod tests {
 
         let mut buf = Vec::new();
         let err = archive_pack(&store, Cursor::new(&mut buf)).unwrap_err();
+        assert_eq!(err.code(), "invalid-archive");
+        // generic bucket code: the message names the missing path.
         let msg = err.to_string();
         assert!(
             msg.contains("package/fields/ghost.json"),

@@ -691,3 +691,25 @@ fn attachment_resolve_view_attachments() {
 fn slice_export() {
     check::<SliceExportPayload>("slice-export");
 }
+
+// ── Error envelope ────────────────────────────────────────────────────────────
+
+#[test]
+fn error_report_schema() {
+    check::<ErrorReportPayload>("error-report");
+}
+
+#[test]
+fn error_report_mirror_roundtrip() {
+    let report = srs_repository::error::ErrorReport {
+        code: "cannot-delete-in-use".into(),
+        message: "cannot delete".into(),
+        details: Some(serde_json::json!({"usedBy": ["a"]})),
+    };
+    let v = serde_json::to_value(&report).unwrap();
+    let mirror: ErrorReportPayload = serde_json::from_value(v.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&mirror).unwrap(), v);
+    let back: srs_repository::error::ErrorReport =
+        serde_json::from_value(serde_json::to_value(&mirror).unwrap()).unwrap();
+    assert_eq!(back, report);
+}

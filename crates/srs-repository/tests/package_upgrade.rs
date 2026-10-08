@@ -243,6 +243,8 @@ fn downgrade_is_refused() {
     upgrade(&store, &v_new(), false);
     let before = snapshot(t.path());
     let err = upgrade_package_bundle(&store, &v_old(), UpgradeOptions::default()).unwrap_err();
+    assert_eq!(err.code(), "invalid-repository-initialization", "{err}");
+    // `invalid-repository-initialization` is shared by several refusals; the message token is the only discriminator.
     assert!(err.to_string().contains("downgrade refused"), "{err}");
     assert_eq!(snapshot(t.path()), before);
 }
@@ -311,6 +313,8 @@ fn dry_run_writes_nothing_and_returns_the_same_plan() {
 fn not_installed_is_an_error() {
     let (_t, store) = repo();
     let err = upgrade_package_bundle(&store, &v_new(), UpgradeOptions::default()).unwrap_err();
+    assert_eq!(err.code(), "invalid-repository-initialization", "{err}");
+    // `invalid-repository-initialization` is shared by several refusals; the message token is the only discriminator.
     assert!(
         err.to_string().contains("not installed; use install"),
         "{err}"
@@ -825,6 +829,8 @@ fn prior_bundle_of_another_package_is_refused() {
         },
     )
     .unwrap_err();
+    assert_eq!(err.code(), "invalid-input", "{err}");
+    // `invalid-input` is shared by several refusals; the message token is the only discriminator.
     assert!(err.to_string().contains("prior bundle"), "{err}");
 }
 
@@ -913,9 +919,13 @@ fn prior_version_sanity_checks() {
     };
     // Not older than the new bundle.
     let e = run(v_old(), &v_old()).unwrap_err();
+    assert_eq!(e.code(), "invalid-input", "{e}");
+    // `invalid-input` is shared by several refusals; the message token is the only discriminator.
     assert!(e.to_string().contains("not older"), "{e}");
     // Newer than the installed version.
     let newer_prior = bundle("1.4.0", vec![field(F, "title")], vec![ty(1, "Old.", &[F])]);
     let e = run(newer_prior, &v_new()).unwrap_err();
+    assert_eq!(e.code(), "invalid-input", "{e}");
+    // `invalid-input` is shared by several refusals; the message token is the only discriminator.
     assert!(e.to_string().contains("newer than the installed"), "{e}");
 }

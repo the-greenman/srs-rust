@@ -6,6 +6,7 @@ use crate::payload::{
 };
 use anyhow::Result;
 use srs_core::types::view::Composition;
+use srs_repository::error::RepositoryError;
 use srs_repository::view_service::{
     compositions_for_container_summary, create_composition_normalized, delete_composition,
     get_composition_by_id, list_compositions_summary, update_composition, CompositionListFilter,
@@ -47,7 +48,7 @@ fn cmd_composition_list(
         Ok(compositions) => {
             output::serialize("composition list", CompositionListPayload { compositions })
         }
-        Err(e) => Ok(output::err("composition list", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("composition list", &e)),
     }
 }
 
@@ -56,9 +57,11 @@ fn cmd_composition_get(ctx: CliContext, id: String) -> Result<String> {
         GetCompositionResult::Found(dv) => {
             output::serialize("composition get", CompositionPayload { composition: *dv })
         }
-        GetCompositionResult::NotFound => Ok(output::err(
+        GetCompositionResult::NotFound => Ok(output::repo_err(
             "composition get",
-            vec![format!("composition not found: {id}")],
+            &RepositoryError::CompositionNotFound {
+                view_id: id.clone(),
+            },
         )),
     }
 }
@@ -71,7 +74,7 @@ fn cmd_composition_create(ctx: CliContext, package: Option<String>) -> Result<St
         Ok(CreateCompositionResult { composition }) => {
             output::serialize("composition create", CompositionPayload { composition })
         }
-        Err(e) => Ok(output::err("composition create", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("composition create", &e)),
     }
 }
 
@@ -84,7 +87,7 @@ fn cmd_composition_update(ctx: CliContext, id: String) -> Result<String> {
                 composition: result.composition,
             },
         ),
-        Err(e) => Ok(output::err("composition update", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("composition update", &e)),
     }
 }
 
@@ -93,7 +96,7 @@ fn cmd_composition_delete(ctx: CliContext, id: String) -> Result<String> {
         Ok(DeleteCompositionResult { id }) => {
             output::serialize("composition delete", CompositionDeletePayload { id })
         }
-        Err(e) => Ok(output::err("composition delete", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("composition delete", &e)),
     }
 }
 
@@ -108,9 +111,6 @@ fn cmd_composition_list_for_container(ctx: CliContext, container_id: String) -> 
                 compositions,
             },
         ),
-        Err(e) => Ok(output::err(
-            "composition list-for-container",
-            vec![e.to_string()],
-        )),
+        Err(e) => Ok(output::any_err("composition list-for-container", &e)),
     }
 }

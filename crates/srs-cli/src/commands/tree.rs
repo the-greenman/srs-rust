@@ -28,7 +28,7 @@ pub fn dispatch(ctx: CliContext, args: TreeArgs) -> Result<String> {
                 },
             )
         }
-        Err(e) => Ok(output::err("tree", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("tree", &e)),
     }
 }
 
