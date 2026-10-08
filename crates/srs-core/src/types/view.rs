@@ -362,7 +362,7 @@ pub enum SortDirection {
 pub enum EmptyBehavior {
     Hide,
     // Schema spelling is `show-placeholder` (composition.json); the camelCase
-    // form is a read-compat alias for builds <= 408 (srs-rust#1118).
+    // form is a read-compat alias for the former camelCase spelling (srs-rust#1118).
     #[serde(alias = "showPlaceholder")]
     ShowPlaceholder,
 }
