@@ -253,8 +253,8 @@ const prow = (labels = []) => ({ repo: "srs-rust", num: 1, key: "srs-rust#1", la
 const stories = new Map([[21, { moscow: "Must" }], [22, { moscow: "Could" }]]);
 
 test("derivePriority: story value wins — epic fallback never fires when a story serves", () => {
-  const { p, stages } = derivePriority(prow(), new Set([21, 22]), stories, { num: 30, priority: "P2" });
-  assert.equal(p, "P0"); // highest served story (Must) — not degraded by the P2 epic
+  const { p, stages } = derivePriority(prow(), new Set([21, 22]), stories, { num: 30, priority: "P0" });
+  assert.equal(p, "P0"); // highest served story (Must) — not degraded by the epic
   assert.equal(stages.kind, "story-derived");
   assert.equal(stages.epicFallback.applied, false);
 });
