@@ -85,6 +85,7 @@ pub mod vocabulary_service;
 pub mod writer;
 
 pub use archive::{archive_pack, archive_to_tree, archive_to_vec, archive_unpack};
+pub use error::ErrorReport;
 pub use export_service::{export_record_bundle, ExportBundleInput, ExportBundleMetadata};
 pub use okf_export_service::{export_okf_bundle, OkfBundle, OkfEntry, OkfExportInput};
 pub use package::EffectiveLifecycle;

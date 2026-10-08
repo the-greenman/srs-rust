@@ -84,7 +84,7 @@ fn supplied_invalid_and_too_old_are_refused_with_their_codes() {
         None,
         r#"{"title":"T","sections":[{"name":"i","content":"x"}],"createdBy":{"kind":"human","id":"u"}}"#,
     );
-    assert!(refusal(&supplied).contains("actor-supplied"));
+    assert!(refusal(&supplied).contains("may not carry createdBy"));
 
     let invalid = srs(
         repo.path(),
@@ -92,14 +92,14 @@ fn supplied_invalid_and_too_old_are_refused_with_their_codes() {
         None,
         NOTE,
     );
-    assert!(refusal(&invalid).contains("actor-invalid"));
+    assert!(refusal(&invalid).contains("not a valid Actor"));
     let not_json = srs(
         repo.path(),
         &["--actor", "alice", "note", "create"],
         None,
         NOTE,
     );
-    assert!(refusal(&not_json).contains("actor-invalid"));
+    assert!(refusal(&not_json).contains("not a valid Actor"));
 
     // Pre-9 corpus: actor session refused, unattributed session fine.
     let manifest_path = repo.path().join("manifest.json");
@@ -112,7 +112,7 @@ fn supplied_invalid_and_too_old_are_refused_with_their_codes() {
         None,
         NOTE,
     );
-    assert!(refusal(&old).contains("revision-too-old"));
+    assert!(refusal(&old).contains("the session has an actor"));
     assert_eq!(
         srs(repo.path(), &["note", "create"], None, NOTE)["ok"],
         true
@@ -126,13 +126,16 @@ fn malformed_created_by_is_actor_supplied_and_precedence_holds() {
     let rel = r#"{"relationType":"evidences","sourceInstanceId":"a","targetInstanceId":"b","createdBy":"x"}"#;
     for (cmd, body) in [("note", note), ("relation", rel)] {
         let r = srs(repo.path(), &["--actor", AGENT, cmd, "create"], None, body);
-        assert!(refusal(&r).contains("actor-supplied"), "{cmd}: {r}");
+        assert!(
+            refusal(&r).contains("may not carry createdBy"),
+            "{cmd}: {r}"
+        );
         let r = srs(repo.path(), &[cmd, "create"], None, body);
         assert!(
-            refusal(&r).contains("actor-supplied"),
+            refusal(&r).contains("may not carry createdBy"),
             "{cmd} (no actor): {r}"
         );
         let r = srs(repo.path(), &["--actor", "bad", cmd, "create"], None, body);
-        assert!(refusal(&r).contains("actor-invalid"), "{cmd}: {r}");
+        assert!(refusal(&r).contains("not a valid Actor"), "{cmd}: {r}");
     }
 }

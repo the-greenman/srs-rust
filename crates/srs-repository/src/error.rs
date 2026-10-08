@@ -2,7 +2,8 @@ use crate::relation_service::RelationSummary;
 use std::path::PathBuf;
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, serde::Serialize)]
+#[serde(untagged, rename_all_fields = "camelCase")]
 pub enum RepositoryError {
     #[error("not found: {path:?}")]
     NotFound { path: PathBuf },
@@ -16,6 +17,7 @@ pub enum RepositoryError {
     #[error("failed to load package at {path:?}: {source}")]
     PackageLoad {
         path: PathBuf,
+        #[serde(skip)]
         source: serde_json::Error,
     },
 
@@ -40,18 +42,21 @@ pub enum RepositoryError {
     #[error("failed to load record at {path:?}: {source}")]
     RecordLoad {
         path: PathBuf,
+        #[serde(skip)]
         source: serde_json::Error,
     },
 
     #[error("failed to write record at {path:?}: {source}")]
     RecordWrite {
         path: PathBuf,
+        #[serde(skip)]
         source: std::io::Error,
     },
 
     #[error("record validation failed at {path:?}: {source}")]
     RecordValidation {
         path: PathBuf,
+        #[serde(skip)]
         source: srs_core::error::CoreError,
     },
 
@@ -61,7 +66,7 @@ pub enum RepositoryError {
     /// edge) had its provenance silently severed. Refusal is the default;
     /// `--cascade` (`cascade_inbound: true` at the service layer) opts in.
     #[error(
-        "RECORD_HAS_INBOUND_RELATIONS: record '{instance_id}' is the target of {count} inbound relation(s); deleting it would silently drop them. Pass --cascade to delete the record and its incident relations, or resolve the relations first: {relations:?}"
+        "record '{instance_id}' is the target of {count} inbound relation(s); deleting it would silently drop them. Pass --cascade to delete the record and its incident relations, or resolve the relations first: {relations:?}"
     )]
     RecordHasInboundRelations {
         instance_id: String,
@@ -73,6 +78,7 @@ pub enum RepositoryError {
     ManifestParse {
         path: PathBuf,
         #[source]
+        #[serde(skip)]
         source: serde_json::Error,
     },
 
@@ -80,6 +86,7 @@ pub enum RepositoryError {
     NoteLoad {
         path: PathBuf,
         #[source]
+        #[serde(skip)]
         source: serde_json::Error,
     },
 
@@ -87,6 +94,7 @@ pub enum RepositoryError {
     NoteValidation {
         path: PathBuf,
         #[source]
+        #[serde(skip)]
         source: srs_core::error::CoreError,
     },
 
@@ -94,6 +102,7 @@ pub enum RepositoryError {
     NoteWrite {
         path: PathBuf,
         #[source]
+        #[serde(skip)]
         source: std::io::Error,
     },
 
@@ -104,6 +113,7 @@ pub enum RepositoryError {
     Io {
         path: PathBuf,
         #[source]
+        #[serde(skip)]
         source: std::io::Error,
     },
 
@@ -111,6 +121,7 @@ pub enum RepositoryError {
     Serialize {
         path: PathBuf,
         #[source]
+        #[serde(skip)]
         source: serde_json::Error,
     },
 
@@ -119,12 +130,14 @@ pub enum RepositoryError {
         instance_id: String,
         path: PathBuf,
         #[source]
+        #[serde(skip)]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
 
     #[error("relation type definition validation failed at {path:?}: {source}")]
     RelationTypeDefinitionValidation {
         path: PathBuf,
+        #[serde(skip)]
         source: srs_core::error::CoreError,
     },
 
@@ -198,7 +211,10 @@ pub enum RepositoryError {
     ContainerIsRepositoryRoot { container_id: String },
 
     #[error("container validation failed: {source}")]
-    ContainerValidation { source: srs_core::error::CoreError },
+    ContainerValidation {
+        #[serde(skip)]
+        source: srs_core::error::CoreError,
+    },
 
     #[error("invalid valueType '{value_type}' in field definition at {path:?}")]
     InvalidValueType { path: PathBuf, value_type: String },
@@ -206,42 +222,49 @@ pub enum RepositoryError {
     #[error("failed to load view at {path:?}: {source}")]
     ViewLoad {
         path: PathBuf,
+        #[serde(skip)]
         source: serde_json::Error,
     },
 
     #[error("view validation failed at {path:?}: {source}")]
     ViewValidation {
         path: PathBuf,
+        #[serde(skip)]
         source: srs_core::error::CoreError,
     },
 
     #[error("failed to load document view at {path:?}: {source}")]
     CompositionLoad {
         path: PathBuf,
+        #[serde(skip)]
         source: serde_json::Error,
     },
 
     #[error("document view validation failed at {path:?}: {source}")]
     CompositionValidation {
         path: PathBuf,
+        #[serde(skip)]
         source: srs_core::error::CoreError,
     },
 
     #[error("failed to load theme at {path:?}: {source}")]
     ThemeLoad {
         path: PathBuf,
+        #[serde(skip)]
         source: serde_json::Error,
     },
 
     #[error("failed to load source document metadata at {path:?}: {source}")]
     SourceDocumentMetaLoad {
         path: PathBuf,
+        #[serde(skip)]
         source: serde_json::Error,
     },
 
     #[error("theme validation failed at {path:?}: {source}")]
     ThemeValidation {
         path: PathBuf,
+        #[serde(skip)]
         source: srs_core::error::CoreError,
     },
 
@@ -260,6 +283,7 @@ pub enum RepositoryError {
     #[error("blueprint validation failed at {path:?}: {source}")]
     BlueprintValidation {
         path: PathBuf,
+        #[serde(skip)]
         source: srs_core::error::CoreError,
     },
 
@@ -369,7 +393,7 @@ pub enum RepositoryError {
 
     // ── RFC-022 relational lifecycle states ──────────────────────────────────
     #[error(
-        "LIFECYCLE_RELATION_REQUIRED: state '{state}' requires a satisfying '{direction}' relation of type {relation_types:?}; supply fulfillment.newRecord or fulfillment.existingInstanceId, or assert the relation first",
+        "state '{state}' requires a satisfying '{direction}' relation of type {relation_types:?}; supply fulfillment.newRecord or fulfillment.existingInstanceId, or assert the relation first",
     )]
     LifecycleRelationRequired {
         state: String,
@@ -377,23 +401,22 @@ pub enum RepositoryError {
         direction: String,
     },
 
-    #[error(
-        "SUCCESSOR_RELATION_TYPE_UNDETERMINED: {}",
-        successor_undetermined_detail(candidates)
-    )]
+    #[error("{}", successor_undetermined_detail(candidates))]
     SuccessorRelationTypeUndetermined { candidates: Vec<String> },
 
-    #[error("LIFECYCLE_FULFILLMENT_NOT_APPLICABLE: target state '{state}' declares no requiresRelation — fulfillment must be omitted")]
+    #[error("target state '{state}' declares no requiresRelation — fulfillment must be omitted")]
     LifecycleFulfillmentNotApplicable { state: String },
 
-    #[error("LIFECYCLE_FULFILLMENT_RELATION_TYPE_MISMATCH: fulfillment.relationType '{relation_type}' is not among the declared types {declared:?} for state '{state}'")]
+    #[error("fulfillment.relationType '{relation_type}' is not among the declared types {declared:?} for state '{state}'")]
     LifecycleFulfillmentRelationTypeMismatch {
         state: String,
         relation_type: String,
         declared: Vec<String>,
     },
 
-    #[error("LIFECYCLE_STATE_UNREACHABLE: state '{state}' is not reachable from initial state '{initial}' via declared transitions")]
+    #[error(
+        "state '{state}' is not reachable from initial state '{initial}' via declared transitions"
+    )]
     LifecycleStateUnreachable { state: String, initial: String },
 
     #[error("type version {version} not found for type '{type_id}'")]
@@ -426,12 +449,14 @@ pub enum RepositoryError {
     RegistryLoad {
         path: PathBuf,
         #[source]
+        #[serde(skip)]
         source: serde_json::Error,
     },
 
     #[error("registry parse error: {source}")]
     RegistryParse {
         #[source]
+        #[serde(skip)]
         source: serde_json::Error,
     },
 
@@ -475,8 +500,12 @@ pub enum RepositoryError {
     /// RFC-046 actor-provenance refusal. `code` is one of `actor-invalid`,
     /// `actor-supplied`, `actor-changed`, `revision-too-old` ([R4]/[R5]/[R11]-[R13]);
     /// nothing was written.
-    #[error("{code}: {message}")]
-    ActorProvenance { code: &'static str, message: String },
+    #[error("{message}")]
+    ActorProvenance {
+        #[serde(skip)]
+        code: &'static str,
+        message: String,
+    },
 
     /// A `.srspkg` Package Bundle was refused (ADR-050). `code` is one of
     /// `bundle-not-json`, `bundle-readme-unsupported`, `bundle-revision-too-new`,
@@ -484,15 +513,23 @@ pub enum RepositoryError {
     /// (reader); `bundle-published-at-invalid`, `bundle-boundary-unreadable`,
     /// `bundle-schema-invalid` (writer); coded like `ActorProvenance` so clients
     /// can branch on the reason.
-    #[error("{code}: {message}")]
-    InvalidPackageBundle { code: &'static str, message: String },
+    #[error("{message}")]
+    InvalidPackageBundle {
+        #[serde(skip)]
+        code: &'static str,
+        message: String,
+    },
 
     /// An RFC-026 container slice export was refused (ADR-051). `code` is one of
     /// `slice-root-identity-invalid` (the boundary's identity entry is not a
     /// depth-0 entry without descendants), `slice-exported-at-invalid`,
     /// `slice-repository-id-reused`.
-    #[error("{code}: {message}")]
-    SliceRefused { code: &'static str, message: String },
+    #[error("{message}")]
+    SliceRefused {
+        #[serde(skip)]
+        code: &'static str,
+        message: String,
+    },
 
     /// RFC-038 [R21]: a repository below storage generation 2 is not
     /// supported. Feature-inactive until the Phase-6 flip; fired only under
@@ -1023,11 +1060,583 @@ impl RepositoryError {
     }
 }
 
+/// Code carried by failures with no more specific classification (ADR-053).
+pub const UNCLASSIFIED: &str = "unclassified";
+
+/// A failure as clients consume it: stable `code`, human `message`, optional
+/// open `details` (ADR-053). Adapters carry it unchanged.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ErrorReport {
+    pub code: String,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
+}
+
+impl ErrorReport {
+    pub fn unclassified(message: impl Into<String>) -> Self {
+        Self {
+            code: UNCLASSIFIED.to_string(),
+            message: message.into(),
+            details: None,
+        }
+    }
+}
+
+impl RepositoryError {
+    /// Stable kebab-case code. Explicit and exhaustive: never derived from the
+    /// Rust variant name, so renaming a variant cannot change the wire (ADR-053).
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::NotFound { .. } => "not-found",
+            Self::InstanceNotFound { .. } => "instance-not-found",
+            Self::ManifestMissing { .. } => "manifest-missing",
+            Self::PackageLoad { .. } => "package-load",
+            Self::TypeNotFound { .. } => "type-not-found",
+            Self::FieldNotFound { .. } => "field-not-found",
+            Self::LifecycleNotFound { .. } => "lifecycle-not-found",
+            Self::LifecycleIdMismatch { .. } => "lifecycle-id-mismatch",
+            Self::LifecycleValidation { .. } => "lifecycle-validation",
+            Self::RecordLoad { .. } => "record-load",
+            Self::RecordWrite { .. } => "record-write",
+            Self::RecordValidation { .. } => "record-validation",
+            Self::RecordHasInboundRelations { .. } => "record-has-inbound-relations",
+            Self::ManifestParse { .. } => "manifest-parse",
+            Self::NoteLoad { .. } => "note-load",
+            Self::NoteValidation { .. } => "note-validation",
+            Self::NoteWrite { .. } => "note-write",
+            Self::NoteNotFound { .. } => "note-not-found",
+            Self::Io { .. } => "io",
+            Self::Serialize { .. } => "serialize",
+            Self::InstanceLoad { .. } => "instance-load",
+            Self::RelationTypeDefinitionValidation { .. } => "relation-type-definition-validation",
+            Self::SchemaValidation { .. } => "schema-validation",
+            Self::RelationTypeDefinitionConflict { .. } => "relation-type-definition-conflict",
+            Self::RelationValidation { .. } => "relation-validation",
+            Self::RelationNotFound { .. } => "relation-not-found",
+            Self::InvalidRelationId { .. } => "invalid-relation-id",
+            Self::InvalidInstanceId { .. } => "invalid-instance-id",
+            Self::RelationFilenameMismatch { .. } => "relation-filename-mismatch",
+            Self::DuplicateRelationId { .. } => "duplicate-relation-id",
+            Self::ContainerNotFound { .. } => "container-not-found",
+            Self::ContainerAlreadyExists { .. } => "container-already-exists",
+            Self::ContainerIsRepositoryRoot { .. } => "container-is-repository-root",
+            Self::ContainerValidation { .. } => "container-validation",
+            Self::InvalidValueType { .. } => "invalid-value-type",
+            Self::ViewLoad { .. } => "view-load",
+            Self::ViewValidation { .. } => "view-validation",
+            Self::CompositionLoad { .. } => "composition-load",
+            Self::CompositionValidation { .. } => "composition-validation",
+            Self::ThemeLoad { .. } => "theme-load",
+            Self::SourceDocumentMetaLoad { .. } => "source-document-meta-load",
+            Self::ThemeValidation { .. } => "theme-validation",
+            Self::CompositionNotFound { .. } => "composition-not-found",
+            Self::ViewNotFound { .. } => "view-not-found",
+            Self::ThemeNotFound { .. } => "theme-not-found",
+            Self::BlueprintNotFound { .. } => "blueprint-not-found",
+            Self::BlueprintValidation { .. } => "blueprint-validation",
+            Self::InvalidPackageSelector { .. } => "invalid-package-selector",
+            Self::CompositionNotFoundById { .. } => "composition-not-found-by-id",
+            Self::PackageRefOutsideRepo { .. } => "package-ref-outside-repo",
+            Self::PackageRefMissing { .. } => "package-ref-missing",
+            Self::PackageRefConflict { .. } => "package-ref-conflict",
+            Self::RepositoryAlreadyExists { .. } => "repository-already-exists",
+            Self::InvalidRepositoryInitialization { .. } => "invalid-repository-initialization",
+            Self::RepositoryNotEmpty { .. } => "repository-not-empty",
+            Self::InvalidSnapshotData { .. } => "invalid-snapshot-data",
+            Self::BatchSeamUnsupported { .. } => "batch-seam-unsupported",
+            Self::InvalidArchive { .. } => "invalid-archive",
+            Self::InvalidExportBundle { .. } => "invalid-export-bundle",
+            Self::PackageNotFound { .. } => "package-not-found",
+            Self::PackageAlreadyRegistered { .. } => "package-already-registered",
+            Self::PackageInstallConflicts { .. } => "package-install-conflicts",
+            Self::DefinitionNotFound { .. } => "definition-not-found",
+            Self::CannotDeleteInUse { .. } => "cannot-delete-in-use",
+            Self::TypeInheritanceCycle { .. } => "type-inheritance-cycle",
+            Self::InheritedFieldDuplicate { .. } => "inherited-field-duplicate",
+            Self::FieldOrderMismatch { .. } => "field-order-mismatch",
+            Self::OverrideTargetsOwnField { .. } => "override-targets-own-field",
+            Self::OverrideRelaxesRequired { .. } => "override-relaxes-required",
+            Self::LifecycleNotDefined { .. } => "lifecycle-not-defined",
+            Self::LifecycleTransitionNotAllowed { .. } => "lifecycle-transition-not-allowed",
+            Self::LifecycleStateNotDefined { .. } => "lifecycle-state-not-defined",
+            Self::LifecycleRelationRequired { .. } => "lifecycle-relation-required",
+            Self::SuccessorRelationTypeUndetermined { .. } => {
+                "successor-relation-type-undetermined"
+            }
+            Self::LifecycleFulfillmentNotApplicable { .. } => {
+                "lifecycle-fulfillment-not-applicable"
+            }
+            Self::LifecycleFulfillmentRelationTypeMismatch { .. } => {
+                "lifecycle-fulfillment-relation-type-mismatch"
+            }
+            Self::LifecycleStateUnreachable { .. } => "lifecycle-state-unreachable",
+            Self::TypeVersionNotFound { .. } => "type-version-not-found",
+            Self::VocabularyPromotionBlocked { .. } => "vocabulary-promotion-blocked",
+            Self::InvalidInput { .. } => "invalid-input",
+            Self::CorePackageConflict { .. } => "core-package-conflict",
+            Self::RegistryLoad { .. } => "registry-load",
+            Self::RegistryParse { .. } => "registry-parse",
+            Self::RegistryEntryNotFound { .. } => "registry-entry-not-found",
+            Self::RegistryIo { .. } => "registry-io",
+            Self::RunInvalidState { .. } => "run-invalid-state",
+            Self::CatalogLoad { .. } => "catalog-load",
+            Self::CatalogUnsupported { .. } => "catalog-unsupported",
+            Self::RetiredManifestProperty { .. } => "retired-manifest-property",
+            Self::Rfc043MigrationNeeded { .. } => "rfc043-migration-needed",
+            Self::ActorProvenance { code, .. } => code,
+            Self::InvalidPackageBundle { code, .. } => code,
+            Self::SliceRefused { code, .. } => code,
+            Self::StorageGenerationUnsupported { .. } => "storage-generation-unsupported",
+        }
+    }
+
+    pub fn report(&self) -> ErrorReport {
+        let details = serde_json::to_value(self)
+            .ok()
+            .filter(|v| v.as_object().is_some_and(|o| !o.is_empty()));
+        ErrorReport {
+            code: self.code().to_string(),
+            message: self.to_string(),
+            details,
+        }
+    }
+}
+
 /// Message tail for `SuccessorRelationTypeUndetermined` (srs-rust#1238).
 fn successor_undetermined_detail(candidates: &[String]) -> String {
     if candidates.is_empty() {
         "the predecessor's lifecycle declares no hard incoming requiresRelation; pass relationType explicitly".to_string()
     } else {
         format!("the predecessor's lifecycle declares several candidate relation types {candidates:?}; pass relationType explicitly")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn je() -> serde_json::Error {
+        serde_json::from_str::<u8>("x").unwrap_err()
+    }
+    fn ioe() -> std::io::Error {
+        std::io::Error::other("e")
+    }
+    fn ce() -> srs_core::error::CoreError {
+        srs_core::error::CoreError::EmptyTag
+    }
+
+    /// One value of every variant. Keep in step with the exhaustive match in
+    /// `RepositoryError::code`; `codes_are_kebab_case` fails if the counts drift.
+    fn all_variants() -> Vec<RepositoryError> {
+        use RepositoryError as R;
+        vec![
+            R::NotFound {
+                path: PathBuf::new(),
+            },
+            R::InstanceNotFound { id: "x".into() },
+            R::ManifestMissing {
+                path: PathBuf::new(),
+            },
+            R::PackageLoad {
+                path: PathBuf::new(),
+                source: je(),
+            },
+            R::TypeNotFound {
+                type_id: "x".into(),
+                version: 1,
+            },
+            R::FieldNotFound {
+                field_id: "x".into(),
+            },
+            R::LifecycleNotFound { id: "x".into() },
+            R::LifecycleIdMismatch {
+                argument_id: "x".into(),
+                body_id: "x".into(),
+            },
+            R::LifecycleValidation { violations: vec![] },
+            R::RecordLoad {
+                path: PathBuf::new(),
+                source: je(),
+            },
+            R::RecordWrite {
+                path: PathBuf::new(),
+                source: ioe(),
+            },
+            R::RecordValidation {
+                path: PathBuf::new(),
+                source: ce(),
+            },
+            R::RecordHasInboundRelations {
+                instance_id: "x".into(),
+                count: 1,
+                relations: vec![],
+            },
+            R::ManifestParse {
+                path: PathBuf::new(),
+                source: je(),
+            },
+            R::NoteLoad {
+                path: PathBuf::new(),
+                source: je(),
+            },
+            R::NoteValidation {
+                path: PathBuf::new(),
+                source: ce(),
+            },
+            R::NoteWrite {
+                path: PathBuf::new(),
+                source: ioe(),
+            },
+            R::NoteNotFound {
+                path: PathBuf::new(),
+                id: "x".into(),
+            },
+            R::Io {
+                path: PathBuf::new(),
+                source: ioe(),
+            },
+            R::Serialize {
+                path: PathBuf::new(),
+                source: je(),
+            },
+            R::InstanceLoad {
+                instance_id: "x".into(),
+                path: PathBuf::new(),
+                source: Box::new(ioe()),
+            },
+            R::RelationTypeDefinitionValidation {
+                path: PathBuf::new(),
+                source: ce(),
+            },
+            R::SchemaValidation {
+                path: PathBuf::new(),
+                message: "x".into(),
+            },
+            R::RelationTypeDefinitionConflict {
+                relation_type: "x".into(),
+                path_a: PathBuf::new(),
+                path_b: PathBuf::new(),
+            },
+            R::RelationValidation {
+                relation_id: "x".into(),
+                message: "x".into(),
+            },
+            R::RelationNotFound {
+                relation_id: "x".into(),
+            },
+            R::InvalidRelationId {
+                relation_id: "x".into(),
+            },
+            R::InvalidInstanceId {
+                instance_id: "x".into(),
+            },
+            R::RelationFilenameMismatch {
+                path: PathBuf::new(),
+                file_relation_id: "x".into(),
+            },
+            R::DuplicateRelationId {
+                relation_id: "x".into(),
+                locators: vec![],
+            },
+            R::ContainerNotFound {
+                container_id: "x".into(),
+            },
+            R::ContainerAlreadyExists {
+                container_id: "x".into(),
+            },
+            R::ContainerIsRepositoryRoot {
+                container_id: "x".into(),
+            },
+            R::ContainerValidation { source: ce() },
+            R::InvalidValueType {
+                path: PathBuf::new(),
+                value_type: "x".into(),
+            },
+            R::ViewLoad {
+                path: PathBuf::new(),
+                source: je(),
+            },
+            R::ViewValidation {
+                path: PathBuf::new(),
+                source: ce(),
+            },
+            R::CompositionLoad {
+                path: PathBuf::new(),
+                source: je(),
+            },
+            R::CompositionValidation {
+                path: PathBuf::new(),
+                source: ce(),
+            },
+            R::ThemeLoad {
+                path: PathBuf::new(),
+                source: je(),
+            },
+            R::SourceDocumentMetaLoad {
+                path: PathBuf::new(),
+                source: je(),
+            },
+            R::ThemeValidation {
+                path: PathBuf::new(),
+                source: ce(),
+            },
+            R::CompositionNotFound {
+                view_id: "x".into(),
+            },
+            R::ViewNotFound {
+                view_id: "x".into(),
+            },
+            R::ThemeNotFound {
+                theme_id: "x".into(),
+            },
+            R::BlueprintNotFound {
+                blueprint_id: "x".into(),
+            },
+            R::BlueprintValidation {
+                path: PathBuf::new(),
+                source: ce(),
+            },
+            R::InvalidPackageSelector {
+                message: "x".into(),
+            },
+            R::CompositionNotFoundById {
+                composition_id: "x".into(),
+            },
+            R::PackageRefOutsideRepo { path: "x".into() },
+            R::PackageRefMissing { path: "x".into() },
+            R::PackageRefConflict {
+                path: "x".into(),
+                kind: "x".into(),
+                id: "x".into(),
+                first_path: PathBuf::new(),
+                second_path: PathBuf::new(),
+            },
+            R::RepositoryAlreadyExists {
+                path: PathBuf::new(),
+            },
+            R::InvalidRepositoryInitialization {
+                message: "x".into(),
+            },
+            R::RepositoryNotEmpty {
+                path: PathBuf::new(),
+            },
+            R::InvalidSnapshotData {
+                message: "x".into(),
+            },
+            R::BatchSeamUnsupported { store: "x".into() },
+            R::InvalidArchive {
+                message: "x".into(),
+            },
+            R::InvalidExportBundle {
+                message: "x".into(),
+            },
+            R::PackageNotFound { selector: None },
+            R::PackageAlreadyRegistered { id: "x".into() },
+            R::PackageInstallConflicts {
+                count: 1,
+                keys: "x".into(),
+            },
+            R::DefinitionNotFound { id: "x".into() },
+            R::CannotDeleteInUse {
+                entity_type: "x".into(),
+                id: "x".into(),
+                used_by: vec![],
+            },
+            R::TypeInheritanceCycle {
+                type_id: "x".into(),
+            },
+            R::InheritedFieldDuplicate {
+                type_id: "x".into(),
+                base_type_id: "x".into(),
+                field_id: "x".into(),
+            },
+            R::FieldOrderMismatch {
+                type_id: "x".into(),
+                field_id: "x".into(),
+            },
+            R::OverrideTargetsOwnField {
+                type_id: "x".into(),
+                field_id: "x".into(),
+            },
+            R::OverrideRelaxesRequired {
+                type_id: "x".into(),
+                field_id: "x".into(),
+            },
+            R::LifecycleNotDefined { id: "x".into() },
+            R::LifecycleTransitionNotAllowed {
+                from: "x".into(),
+                to: "x".into(),
+            },
+            R::LifecycleStateNotDefined { state: "x".into() },
+            R::LifecycleRelationRequired {
+                state: "x".into(),
+                relation_types: vec![],
+                direction: "x".into(),
+            },
+            R::SuccessorRelationTypeUndetermined { candidates: vec![] },
+            R::LifecycleFulfillmentNotApplicable { state: "x".into() },
+            R::LifecycleFulfillmentRelationTypeMismatch {
+                state: "x".into(),
+                relation_type: "x".into(),
+                declared: vec![],
+            },
+            R::LifecycleStateUnreachable {
+                state: "x".into(),
+                initial: "x".into(),
+            },
+            R::TypeVersionNotFound {
+                type_id: "x".into(),
+                version: 1,
+            },
+            R::VocabularyPromotionBlocked {
+                vocabulary_id: "x".into(),
+                unresolvable_keys: vec![],
+            },
+            R::InvalidInput {
+                message: "x".into(),
+            },
+            R::CorePackageConflict {
+                kind: "x".into(),
+                id: "x".into(),
+                qualified_name: "x".into(),
+            },
+            R::RegistryLoad {
+                path: PathBuf::new(),
+                source: je(),
+            },
+            R::RegistryParse { source: je() },
+            R::RegistryEntryNotFound {
+                package_name: "x".into(),
+            },
+            R::RegistryIo {
+                path: PathBuf::new(),
+                message: "x".into(),
+            },
+            R::RunInvalidState {
+                run_id: "x".into(),
+                message: "x".into(),
+            },
+            R::CatalogLoad {
+                fatal: 1,
+                first: "x".into(),
+                diagnostics: vec![],
+            },
+            R::CatalogUnsupported,
+            R::RetiredManifestProperty {
+                property: "x".into(),
+            },
+            R::Rfc043MigrationNeeded,
+            R::ActorProvenance {
+                code: "actor-x",
+                message: "x".into(),
+            },
+            R::InvalidPackageBundle {
+                code: "bundle-x",
+                message: "x".into(),
+            },
+            R::SliceRefused {
+                code: "slice-y",
+                message: "x".into(),
+            },
+            R::StorageGenerationUnsupported { declared: 1 },
+        ]
+    }
+
+    #[test]
+    fn codes_are_kebab_case() {
+        let all = all_variants();
+        assert_eq!(all.len(), 94, "all_variants() is out of step with the enum");
+        let mut seen = std::collections::HashSet::new();
+        for e in &all {
+            let c = e.code();
+            assert!(
+                !c.is_empty()
+                    && c.split('-').all(|p| {
+                        !p.is_empty()
+                            && p.bytes()
+                                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+                    }),
+                "not kebab-case: {c}"
+            );
+            assert!(seen.insert(c), "duplicate code {c}");
+        }
+    }
+
+    #[test]
+    fn report_carries_details() {
+        let r = RepositoryError::CannotDeleteInUse {
+            entity_type: "type".into(),
+            id: "x".into(),
+            used_by: vec!["a".into(), "b".into()],
+        }
+        .report();
+        assert_eq!(r.code, "cannot-delete-in-use");
+        assert_eq!(r.details.unwrap()["usedBy"], serde_json::json!(["a", "b"]));
+
+        let r = RepositoryError::SuccessorRelationTypeUndetermined {
+            candidates: vec!["supersedes".into()],
+        }
+        .report();
+        assert_eq!(
+            r.details.unwrap()["candidates"],
+            serde_json::json!(["supersedes"])
+        );
+
+        let r = RepositoryError::ActorProvenance {
+            code: "actor-supplied",
+            message: "m".into(),
+        }
+        .report();
+        assert_eq!(r.code, "actor-supplied");
+        assert_eq!(r.message, "m");
+        assert!(r.details.is_none_or(|d| d.get("code").is_none()));
+
+        assert!(RepositoryError::CatalogUnsupported
+            .report()
+            .details
+            .is_none());
+    }
+
+    #[test]
+    fn display_has_no_code_prefix() {
+        use RepositoryError as R;
+        let msgs = [
+            R::RecordHasInboundRelations {
+                instance_id: "x".into(),
+                count: 1,
+                relations: vec![],
+            },
+            R::LifecycleRelationRequired {
+                state: "s".into(),
+                relation_types: vec![],
+                direction: "d".into(),
+            },
+            R::SuccessorRelationTypeUndetermined { candidates: vec![] },
+            R::LifecycleFulfillmentNotApplicable { state: "s".into() },
+            R::LifecycleFulfillmentRelationTypeMismatch {
+                state: "s".into(),
+                relation_type: "r".into(),
+                declared: vec![],
+            },
+            R::LifecycleStateUnreachable {
+                state: "s".into(),
+                initial: "i".into(),
+            },
+        ]
+        .map(|e| e.to_string());
+        for m in msgs {
+            let head = m.split(':').next().unwrap();
+            assert!(
+                !head.chars().all(|c| c.is_ascii_uppercase() || c == '_'),
+                "{m}"
+            );
+        }
+        let m = RepositoryError::SliceRefused {
+            code: "slice-x",
+            message: "msg".into(),
+        }
+        .to_string();
+        assert_eq!(m, "msg");
     }
 }

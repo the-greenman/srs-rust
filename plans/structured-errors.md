@@ -102,18 +102,18 @@ No. No `srs/docs/schema/2.0/` change. The CLI envelope and adapter error shapes 
 
 #### Tasks
 
-- [ ] `crates/srs-repository/src/error.rs`: add `#[derive(serde::Serialize)]` and `#[serde(untagged, rename_all_fields = "camelCase")]` to `RepositoryError`. Mark every non-`Serialize` field `#[serde(skip)]` (`serde_json::Error`, `std::io::Error`, `Box<dyn Error>`, and `CoreError` if not Serialize), and also the inner `code` of `ActorProvenance` / `InvalidPackageBundle` / `SliceRefused`.
-- [ ] Add `pub fn code(&self) -> &'static str`: an explicit match, one arm per variant, kebab-case. Use the variant name in kebab case unless an RFC/ADR names it (the three sub-coded variants return their inner `code`). Notable codes: `record-has-inbound-relations`, `lifecycle-relation-required`, `successor-relation-type-undetermined`, `lifecycle-fulfillment-not-applicable`, `lifecycle-fulfillment-relation-type-mismatch`, `lifecycle-state-unreachable`, `lifecycle-not-defined`, `cannot-delete-in-use`, `invalid-input`, `instance-not-found`, `rfc043-migration-needed`. Rule for acronyms/digits: kebab-case the variant name treating a digit run as part of the preceding word (`Rfc043MigrationNeeded` → `rfc043-migration-needed`).
-- [ ] Remove the `SCREAMING_SNAKE: ` prefixes from the `#[error]` strings (variants `RecordHasInboundRelations`, `LifecycleRelationRequired`, `SuccessorRelationTypeUndetermined`, `LifecycleFulfillmentNotApplicable`, `LifecycleFulfillmentRelationTypeMismatch`, `LifecycleStateUnreachable` — find them with `grep -n '"[A-Z_]\{6,\}: ' error.rs`) and change `"{code}: {message}"` to `"{message}"` for the three sub-coded variants.
-- [ ] Add `pub struct ErrorReport { pub code: String, pub message: String, #[serde(skip_serializing_if = "Option::is_none")] pub details: Option<serde_json::Value> }` (Serialize + Deserialize, Debug, Clone, PartialEq) and `pub const UNCLASSIFIED: &str = "unclassified"`.
-- [ ] Add `impl RepositoryError { pub fn report(&self) -> ErrorReport }`. `details` = `serde_json::to_value(self)` when it is a non-empty object, else `None`. Add `ErrorReport::unclassified(message: impl Into<String>)`. Re-export `ErrorReport` from the crate root.
-- [ ] Fix any in-crate code that parsed the removed prefixes (grep `"LIFECYCLE_`, `"SUCCESSOR_`, `"RECORD_HAS_`, `"actor-`, `"bundle-`, `"slice-` in `starts_with`/`contains` outside tests).
+- [x] `crates/srs-repository/src/error.rs`: add `#[derive(serde::Serialize)]` and `#[serde(untagged, rename_all_fields = "camelCase")]` to `RepositoryError`. Mark every non-`Serialize` field `#[serde(skip)]` (`serde_json::Error`, `std::io::Error`, `Box<dyn Error>`, and `CoreError` if not Serialize), and also the inner `code` of `ActorProvenance` / `InvalidPackageBundle` / `SliceRefused`.
+- [x] Add `pub fn code(&self) -> &'static str`: an explicit match, one arm per variant, kebab-case. Use the variant name in kebab case unless an RFC/ADR names it (the three sub-coded variants return their inner `code`). Notable codes: `record-has-inbound-relations`, `lifecycle-relation-required`, `successor-relation-type-undetermined`, `lifecycle-fulfillment-not-applicable`, `lifecycle-fulfillment-relation-type-mismatch`, `lifecycle-state-unreachable`, `lifecycle-not-defined`, `cannot-delete-in-use`, `invalid-input`, `instance-not-found`, `rfc043-migration-needed`. Rule for acronyms/digits: kebab-case the variant name treating a digit run as part of the preceding word (`Rfc043MigrationNeeded` → `rfc043-migration-needed`).
+- [x] Remove the `SCREAMING_SNAKE: ` prefixes from the `#[error]` strings (variants `RecordHasInboundRelations`, `LifecycleRelationRequired`, `SuccessorRelationTypeUndetermined`, `LifecycleFulfillmentNotApplicable`, `LifecycleFulfillmentRelationTypeMismatch`, `LifecycleStateUnreachable` — find them with `grep -n '"[A-Z_]\{6,\}: ' error.rs`) and change `"{code}: {message}"` to `"{message}"` for the three sub-coded variants.
+- [x] Add `pub struct ErrorReport { pub code: String, pub message: String, #[serde(skip_serializing_if = "Option::is_none")] pub details: Option<serde_json::Value> }` (Serialize + Deserialize, Debug, Clone, PartialEq) and `pub const UNCLASSIFIED: &str = "unclassified"`.
+- [x] Add `impl RepositoryError { pub fn report(&self) -> ErrorReport }`. `details` = `serde_json::to_value(self)` when it is a non-empty object, else `None`. Add `ErrorReport::unclassified(message: impl Into<String>)`. Re-export `ErrorReport` from the crate root.
+- [x] Fix any in-crate code that parsed the removed prefixes (grep `"LIFECYCLE_`, `"SUCCESSOR_`, `"RECORD_HAS_`, `"actor-`, `"bundle-`, `"slice-` in `starts_with`/`contains` outside tests).
 
 #### Acceptance Criteria
 
-- [ ] `code()` covers every variant (the compiler enforces an exhaustive match with no `_` arm).
-- [ ] No `#[error(...)]` string starts with a code or SCREAMING_SNAKE token (`error::tests::display_has_no_code_prefix`).
-- [ ] `report()` of `CannotDeleteInUse` yields `details.usedBy`; of `SuccessorRelationTypeUndetermined` yields `details.candidates` (#1247).
+- [x] `code()` covers every variant (the compiler enforces an exhaustive match with no `_` arm).
+- [x] No `#[error(...)]` string starts with a code or SCREAMING_SNAKE token (`error::tests::display_has_no_code_prefix`).
+- [x] `report()` of `CannotDeleteInUse` yields `details.usedBy`; of `SuccessorRelationTypeUndetermined` yields `details.candidates` (#1247).
 
 #### Testing
 

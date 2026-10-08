@@ -85,25 +85,25 @@ fn host_set_actor_is_stamped_and_tool_args_cannot_forge_one() {
     forged["createdBy"] = json!({"kind":"human","id":"someone-else"});
     let r = tool(&mut d, "note_create", forged);
     assert_eq!(r["isError"], true);
-    assert!(text(&r).starts_with("actor-supplied"), "{}", text(&r));
+    assert!(text(&r).contains("may not carry createdBy"), "{}", text(&r));
     let r = tool(
         &mut d,
         "relation_create",
         json!({"relationType":"evidences","sourceInstanceId":"a","targetInstanceId":"b",
                "createdBy":{"kind":"human","id":"x"}}),
     );
-    assert!(text(&r).starts_with("actor-supplied"), "{}", text(&r));
+    assert!(text(&r).contains("may not carry createdBy"), "{}", text(&r));
     let r = tool(
         &mut d,
         "record_create",
         json!({"type":"com.semanticops.core/purpose","fieldValues":{"statement":"s"},
                "createdBy":{"kind":"human","id":"x"}}),
     );
-    assert!(text(&r).starts_with("actor-supplied"), "{}", text(&r));
+    assert!(text(&r).contains("may not carry createdBy"), "{}", text(&r));
     // A malformed (non-object) createdBy is still actor-supplied, not a parse error.
     let mut malformed = NOTE();
     malformed["createdBy"] = json!("x");
-    assert!(text(&tool(&mut d, "note_create", malformed)).starts_with("actor-supplied"));
+    assert!(text(&tool(&mut d, "note_create", malformed)).contains("may not carry createdBy"));
     // Update with a createdBy that is not the stored value: actor-changed.
     let r = tool(
         &mut d,
@@ -120,7 +120,7 @@ fn clearing_or_invalidating_the_host_actor_changes_the_outcome() {
     d.application_mut()
         .set_session_actor(Some(json!({"kind":"ai","id":""})));
     let r = tool(&mut d, "note_create", NOTE());
-    assert!(text(&r).starts_with("actor-invalid"), "{}", text(&r));
+    assert!(text(&r).contains("not a valid Actor"), "{}", text(&r));
     d.application_mut().set_session_actor(None);
     let r = tool(&mut d, "note_create", NOTE());
     assert_eq!(r["isError"], false);

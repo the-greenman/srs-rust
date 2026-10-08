@@ -1003,8 +1003,8 @@ async fn tool_record_successor_omitted_relation_type_is_core_error() {
     .await;
     assert_eq!(r.is_error, Some(true), "expected core error: {r:?}");
     assert!(
-        format!("{r:?}").contains("SUCCESSOR_RELATION_TYPE_UNDETERMINED"),
-        "expected the structured code, got: {r:?}"
+        format!("{r:?}").contains("pass relationType explicitly"),
+        "expected the undetermined message, got: {r:?}"
     );
     client.cancel().await.unwrap();
 }
