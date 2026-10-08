@@ -39,6 +39,9 @@ code into the prose instead (`SCREAMING_SNAKE:` prefixes, `"{code}: {message}"`)
      stringified error cannot silently lose its code.
    - **MCP:** `tool_err` returns `structuredContent: ErrorReport`. Write-guard rejections are
      `write-guard-rejected`.
+     Resource reads and prompts, and the `read` tool, which forwards `resources/read` errors
+     verbatim (#1220), fail as JSON-RPC `-32603` with the `ErrorReport` in `error.data`. MCP's
+     own `-32002` resource-not-found is a protocol identifier and stays as it is.
 6. **Non-repository failures** route through an existing variant where one fits (`invalid-input`,
    `*-not-found`). Otherwise they carry `unclassified`, an honest marker to drive to zero rather
    than an invented label.

@@ -181,7 +181,7 @@ pub mod srs_resources {
     pub fn list_resources(
         store: &dyn RepositoryStore,
         repository_id: &str,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, McpApplicationError> {
         let mut resources = vec![
             resource(uri::format(&uri::SrsUri::Map, repository_id), "map".into(), Some("Repository map".into()), Some("Counts, package info, relation summary and description for this repository — read this first to orient.".into()), MIME_JSON),
             resource(uri::format(&uri::SrsUri::Navigation, repository_id), "navigation".into(), Some("Repository navigation".into()), Some("The repository's identity record and ordered navigation sections (root container structure).".into()), MIME_JSON),
@@ -189,9 +189,7 @@ pub mod srs_resources {
             resource(uri::format(&uri::SrsUri::AgentIndex, repository_id), "agent-index".into(), Some("Agent index".into()), Some("AI orientation index: repository identity, counts, installed types, top-level sections and suggested entry points — same as `srs repo agent-index`.".into()), MIME_JSON),
             resource(uri::format(&uri::SrsUri::RelationTypes, repository_id), "relation-types".into(), Some("Installed relation types".into()), Some("Every installed RelationTypeDefinition in the effective package set, used or not: key (`namespace/name` or canonical short name), label, category, description, direction and constraints. Use these keys as relationType in relation_create — same as `srs relation-type list`.".into()), MIME_JSON),
         ];
-        for c in
-            list_containers(store, &ContainerListFilter::default()).map_err(|e| e.to_string())?
-        {
+        for c in list_containers(store, &ContainerListFilter::default()).map_err(service_err)? {
             resources.push(resource(
                 uri::format(&uri::SrsUri::Container(c.container_id), repository_id),
                 c.title.clone(),
@@ -201,7 +199,7 @@ pub mod srs_resources {
             ));
         }
         for v in list_compositions_summary(store, &CompositionListFilter::default())
-            .map_err(|e| e.to_string())?
+            .map_err(service_err)?
         {
             resources.push(resource(
                 uri::format(
@@ -215,7 +213,7 @@ pub mod srs_resources {
             ));
         }
         resources.push(resource(uri::format(&uri::SrsUri::ProtocolList, repository_id), "protocol".into(), Some("Installed protocols".into()), Some("Every installed Protocol definition: id, namespace/name@version, targetType, stageCount. Read one via srs://<repositoryId>/protocol/{protocolId}.".into()), MIME_JSON));
-        for p in list_protocols(store).map_err(|e| e.to_string())? {
+        for p in list_protocols(store).map_err(service_err)? {
             resources.push(resource(
                 uri::format(&uri::SrsUri::Protocol(p.protocol_id), repository_id),
                 format!("{}/{}", p.protocol_namespace, p.protocol_name),
@@ -224,7 +222,7 @@ pub mod srs_resources {
                 MIME_JSON,
             ));
         }
-        for t in list_types_filtered(store, TypeListFilter::default()).map_err(|e| e.to_string())? {
+        for t in list_types_filtered(store, TypeListFilter::default()).map_err(service_err)? {
             resources.push(resource(
                 uri::format(&uri::SrsUri::Type(t.id), repository_id),
                 format!("{}/{}", t.namespace, t.name),
@@ -239,7 +237,7 @@ pub mod srs_resources {
     }
 
     fn service_err(e: RepositoryError) -> McpApplicationError {
-        McpApplicationError::internal(e.to_string())
+        McpApplicationError::from_report(e.report())
     }
 
     fn contents(uri: &str, mime_type: &str, text: String) -> Value {
@@ -433,7 +431,7 @@ pub mod srs_prompts {
     use crate::McpApplicationError;
 
     fn service_err(e: RepositoryError) -> McpApplicationError {
-        McpApplicationError::internal(e.to_string())
+        McpApplicationError::from_report(e.report())
     }
 
     /// The `prompts/list` result. Non-fatal blueprint diagnostics are not
@@ -594,7 +592,7 @@ impl<S: srs_repository::store::RepositoryStore> SrsMcpApplication<S> {
     pub fn open(store: S) -> Result<Self, McpApplicationError> {
         let manifest = store
             .load_manifest()
-            .map_err(|e| McpApplicationError::internal(e.to_string()))?;
+            .map_err(|e| McpApplicationError::from_report(e.report()))?;
         let repository_id = manifest
             .extra
             .get("repositoryId")
@@ -644,8 +642,7 @@ impl<S: srs_repository::store::RepositoryStore> McpApplication for SrsMcpApplica
         self.last_summary = None;
         let store: &dyn srs_repository::store::RepositoryStore = &self.store;
         match method {
-            "resources/list" => srs_resources::list_resources(store, &self.repository_id)
-                .map_err(McpApplicationError::internal),
+            "resources/list" => srs_resources::list_resources(store, &self.repository_id),
             "resources/templates/list" => {
                 Ok(srs_resources::list_resource_templates(&self.repository_id))
             }
@@ -759,6 +756,16 @@ impl McpApplicationError {
             code: -32603,
             message: message.into(),
             data: None,
+        }
+    }
+
+    /// `-32603` carrying the [`ErrorReport`] as `data` (ADR-053), so a resource read's
+    /// failure keeps its code. The `read` tool forwards it unchanged (#1220).
+    pub fn from_report(report: srs_repository::ErrorReport) -> Self {
+        Self {
+            code: -32603,
+            message: report.message.clone(),
+            data: serde_json::to_value(report).ok(),
         }
     }
 }

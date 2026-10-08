@@ -249,8 +249,13 @@ impl SrsRepository {
     /// Open an MCP session over this repository (resources, prompts, and the
     /// validated tool surface — the same application `srs mcp serve` runs).
     pub fn open_mcp_session(&self) -> Result<McpSession, JsValue> {
-        let application = srs_mcp_core::SrsMcpApplication::open(self.store.clone())
-            .map_err(|e| js_unclassified(e.message))?;
+        let application =
+            srs_mcp_core::SrsMcpApplication::open(self.store.clone()).map_err(|e| {
+                match e.data.and_then(|d| serde_json::from_value(d).ok()) {
+                    Some(report) => report_to_js(report),
+                    None => js_unclassified(e.message),
+                }
+            })?;
         Ok(McpSession {
             store: self.store.clone(),
             dispatcher: srs_mcp_core::McpDispatcher::new(application),

@@ -1289,6 +1289,17 @@ mod read_tool {
     }
 
     #[test]
+    fn service_failure_keeps_error_report_in_data() {
+        // ADR-053: a resource/read service failure is -32603 carrying the ErrorReport.
+        let e = srs_mcp_core::McpApplicationError::from_report(
+            srs_repository::error::RepositoryError::InstanceNotFound { id: "x".into() }.report(),
+        );
+        assert_eq!(e.code, -32603);
+        assert_eq!(e.data.as_ref().unwrap()["code"], "instance-not-found");
+        assert_eq!(e.data.as_ref().unwrap()["details"]["id"], "x");
+    }
+
+    #[test]
     fn read_is_not_blocked_by_the_write_guard() {
         let (_dir, mut d) = setup();
         d.application_mut()
