@@ -41,7 +41,11 @@ pub fn dispatch(ctx: CliContext, cmd: RecordCommand) -> Result<String> {
         } => cmd_record_delete(ctx, id, cascade),
         RecordCommand::Transition { id } => cmd_record_transition(ctx, id),
         RecordCommand::Successor { id } => cmd_record_successor(ctx, id),
-        RecordCommand::Fork { id } => cmd_record_fork(ctx, id),
+        RecordCommand::Fork {
+            id,
+            into,
+            carry_relations,
+        } => cmd_record_fork(ctx, id, into, &carry_relations),
         RecordCommand::AllowedTransitions { id } => cmd_record_allowed_transitions(ctx, id),
         RecordCommand::Attachments { id } => cmd_record_attachments(ctx, id),
         RecordCommand::Tag(tag_cmd) => dispatch_tag(ctx, tag_cmd),
@@ -257,19 +261,39 @@ fn cmd_record_successor(ctx: CliContext, id: String) -> Result<String> {
     }
 }
 
-fn cmd_record_fork(ctx: CliContext, id: String) -> Result<String> {
-    let Some(container) = ctx.container_id.clone() else {
-        return Ok(output::repo_err(
-            "record fork",
-            &RepositoryError::InvalidInput {
-                message: "--container <ID> is required: the container the fork is swapped into"
-                    .into(),
-            },
-        ));
+fn cmd_record_fork(
+    ctx: CliContext,
+    id: String,
+    into: Option<String>,
+    carry_relations: &str,
+) -> Result<String> {
+    use srs_repository::fork_service::{CarryRelations, ForkOptions};
+    // `--into` and the global `--container` name the same thing; both given must agree.
+    let container = match (into.clone(), ctx.container_id.clone()) {
+        (Some(i), Some(c)) if i != c => {
+            return Ok(output::repo_err(
+                "record fork",
+                &RepositoryError::InvalidInput {
+                    message: format!("--into {i} conflicts with --container {c}; give one"),
+                },
+            ));
+        }
+        (i, c) => i.or(c),
+    };
+    let opts = ForkOptions {
+        target_container: into,
+        carry_relations: match carry_relations {
+            "outgoing" => CarryRelations::Outgoing,
+            "all" => CarryRelations::All,
+            _ => CarryRelations::None,
+        },
     };
     match with_store(&ctx, |store| {
         Ok(srs_repository::fork_service::fork_subtree(
-            store, &container, &id,
+            store,
+            container.as_deref(),
+            &id,
+            &opts,
         )?)
     }) {
         Ok(r) => output::serialize(
@@ -278,6 +302,7 @@ fn cmd_record_fork(ctx: CliContext, id: String) -> Result<String> {
                 container_id: r.container_id,
                 forks: r.forks,
                 relations: r.relations,
+                carried_relations: r.carried_relations,
             },
         ),
         Err(e) => Ok(output::any_err("record fork", &e)),

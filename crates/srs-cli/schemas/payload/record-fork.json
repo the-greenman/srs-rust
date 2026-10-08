@@ -9,6 +9,9 @@
     "relations"
   ],
   "properties": {
+    "carriedRelations": {
+      "description": "Relations carried onto the forks by `--carry-relations` (omitted when none); each fork lists its own ids in `forks[].carriedRelationIds`."
+    },
     "containerId": {
       "type": "string"
     },

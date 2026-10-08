@@ -93,9 +93,8 @@ impl WriteGuard {
             tools::TOOL_CONTAINER_MEMBER_MOVE => {
                 parse::<ContainerMemberMoveToolInput>(args).map(|i| i.container_id)
             }
-            tools::TOOL_RECORD_FORK => {
-                parse::<tools::RecordForkToolInput>(args).map(|i| i.container_id)
-            }
+            tools::TOOL_RECORD_FORK => parse::<tools::RecordForkToolInput>(args)
+                .and_then(|i| i.target_container_id.or(i.container_id)),
             tools::TOOL_CONTAINER_MEMBER_REPAIR => {
                 parse::<ContainerIdToolInput>(args).map(|i| i.container_id)
             }

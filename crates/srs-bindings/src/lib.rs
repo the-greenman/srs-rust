@@ -1099,10 +1099,38 @@ impl SrsRepository {
 
     /// Fork `instance_id` and its nested children inside `container_id` (srs-rust#1136; same
     /// service as `srs record fork` and the MCP `record_fork` tool). Returns
-    /// `{ containerId, forks: [{originalId, forkId}], relations }`.
-    pub fn fork_record(&self, container_id: &str, instance_id: &str) -> Result<JsValue, JsValue> {
+    /// `{ containerId, forks: [{originalId, forkId, carriedRelationIds?}], relations, carriedRelations? }`.
+    /// Optional `options` (srs-rust#1354): `{ targetContainer?: string, carryRelations?:
+    /// "none"|"outgoing"|"all" }`. `targetContainer` forks into that container (appending the
+    /// record first if absent) and wins over `container_id`, which may then be `""`.
+    pub fn fork_record(
+        &self,
+        container_id: &str,
+        instance_id: &str,
+        options: Option<String>,
+    ) -> Result<JsValue, JsValue> {
+        #[derive(serde::Deserialize, Default)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Opts {
+            target_container: Option<String>,
+            #[serde(default)]
+            carry_relations: srs_repository::fork_service::CarryRelations,
+        }
+        let o: Opts = match options.as_deref() {
+            None | Some("") => Opts::default(),
+            Some(j) => serde_json::from_str(j).map_err(|e| {
+                js_err(&RepositoryError::InvalidInput {
+                    message: format!("invalid fork options: {e}"),
+                })
+            })?,
+        };
+        let opts = srs_repository::fork_service::ForkOptions {
+            target_container: o.target_container,
+            carry_relations: o.carry_relations,
+        };
+        let cid = (!container_id.is_empty()).then_some(container_id);
         let result =
-            srs_repository::fork_service::fork_subtree(&self.store, container_id, instance_id)
+            srs_repository::fork_service::fork_subtree(&self.store, cid, instance_id, &opts)
                 .map_err(|e| js_err(&e))?;
         to_js(&result)
     }

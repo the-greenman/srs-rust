@@ -1350,11 +1350,18 @@ pub enum RecordCommand {
         id: String,
     },
     /// Fork a record and its nested children into ONE container (derived-from the originals).
-    /// The global `--container <ID>` is REQUIRED: the forks are swapped into that container
-    /// only; every other container keeps the originals.
+    /// The forks are swapped into ONE container (`--into <ID>`, or the global `--container <ID>`;
+    /// giving both is fine only when they are the same container); every other container keeps
+    /// the originals. `--into` appends the record to that container first when it is not a member.
     Fork {
         /// Record instance ID at the root of the arrangement subtree to fork
         id: String,
+        /// Container to fork into (added there first if the record is not a member)
+        #[arg(long)]
+        into: Option<String>,
+        /// Re-create the original's relations on the fork (never `derived-from`)
+        #[arg(long, value_parser = ["none", "outgoing", "all"], default_value = "none")]
+        carry_relations: String,
     },
     /// Query allowed lifecycle transitions for a record (ext:lifecycle)
     AllowedTransitions {
