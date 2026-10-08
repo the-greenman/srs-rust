@@ -594,6 +594,11 @@ pub struct RecordForkPayload {
     pub forks: Vec<srs_repository::fork_service::ForkPair>,
     #[schemars(with = "serde_json::Value")]
     pub relations: Vec<Relation>,
+    /// Relations carried onto the forks by `--carry-relations` (omitted when none);
+    /// each fork lists its own ids in `forks[].carriedRelationIds`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[schemars(with = "Option<serde_json::Value>")]
+    pub carried_relations: Vec<Relation>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

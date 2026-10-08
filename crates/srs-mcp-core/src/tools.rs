@@ -412,8 +412,11 @@ pub const DESC_RECORD_FORK: &str =
 children (its outline subtree in `containerId`) into new records linked `derived-from` the \
 originals, swapped into THAT container only, in place (same order and depth). Every other \
 container keeps the originals. Same type and field values; the forks are attributed to the \
-session actor; only fieldValues carry over (not tags/meta). The container's anchor/identity entries cannot be forked. Returns \
-`{containerId, forks: [{originalId, forkId}], relations}`.";
+session actor; only fieldValues carry over (not tags/meta). The container's anchor/identity entries cannot be forked. \
+`targetContainerId` forks into that container instead (the record is appended to its outline first if not a member; \
+`containerId` may then be omitted). `carryRelations` (`none` default | `outgoing` | `all`) re-creates the original's \
+relations on the fork (never `derived-from`; the original's are untouched; attributed to the session actor). Returns \
+`{containerId, forks: [{originalId, forkId, carriedRelationIds?}], relations, carriedRelations?}`.";
 
 // Protocol run execution tool descriptions (#977 — follow-up to #955)
 
@@ -1132,8 +1135,15 @@ pub struct ContainerCopyToolInput {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RecordForkToolInput {
-    pub container_id: String,
+    /// Container the fork is swapped into. Optional when `targetContainerId` is given.
+    pub container_id: Option<String>,
     pub instance_id: String,
+    /// Fork into this container, appending the record to its outline first when it is not a
+    /// member. Wins over `containerId`.
+    pub target_container_id: Option<String>,
+    /// `none` (default) | `outgoing` | `all`: re-create the original's relations on the fork.
+    #[serde(default)]
+    pub carry_relations: srs_repository::fork_service::CarryRelations,
 }
 
 // ── Protocol run shadow input structs (#977) ──────────────────────────────────
@@ -1919,10 +1929,15 @@ pub fn call_tool(
         }
         TOOL_RECORD_FORK => {
             let input: RecordForkToolInput = parse_args(arguments)?;
+            let opts = srs_repository::fork_service::ForkOptions {
+                target_container: input.target_container_id.clone(),
+                carry_relations: input.carry_relations,
+            };
             match srs_repository::fork_service::fork_subtree(
                 store,
-                &input.container_id,
+                input.container_id.as_deref(),
                 &input.instance_id,
+                &opts,
             ) {
                 Ok(result) => tool_ok(&result),
                 Err(e) => Ok(tool_err(e.report())),
