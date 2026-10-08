@@ -76,8 +76,8 @@ test("labelCreateArgs is idempotent (--force) and repo-scoped", () => {
 });
 
 test("MIRROR_REPOS covers the routine-touched ecosystem repos", () => {
-  for (const r of ["srs", "srs-rust", "srs-web", "srs-vscode"]) assert.ok(MIRROR_REPOS.includes(r), `missing repo: ${r}`);
-  assert.ok(MIRROR_REPOS.some((r) => r.toLowerCase() === "mudemocracy.org"), "missing story repo");
+  for (const r of ["srs", "srs-rust", "srs-web", "srs-vscode", "srs-context", "srs-programme"]) assert.ok(MIRROR_REPOS.includes(r), `missing repo: ${r}`);
+  assert.ok(MIRROR_REPOS.some((r) => r.toLowerCase() === "semanticops.com"), "missing story repo");
 });
 
 test("Status→label mirror maps the two routine-relevant statuses to defined labels", () => {

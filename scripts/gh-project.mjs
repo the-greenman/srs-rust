@@ -77,8 +77,8 @@ import { pathToFileURL } from "node:url";
 // Configuration (overridable via env)
 // ---------------------------------------------------------------------------
 const OWNER = process.env.GHP_OWNER || "the-greenman";
-const PROJECT_NUMBER = Number(process.env.GHP_PROJECT || 5);
-const STORY_REPO = process.env.GHP_STORY_REPO || "muDemocracy.org";
+const PROJECT_NUMBER = Number(process.env.GHP_PROJECT || 6);
+const STORY_REPO = process.env.GHP_STORY_REPO || "semanticops.com";
 const STORY_LABEL = "user-story";
 
 const MOSCOW_TO_P = { Must: "P0", Should: "P1", Could: "P2", "Won't": null };
@@ -127,7 +127,7 @@ const MIRROR_LABELS = [
   { name: NEEDS_INPUT_LABEL, color: "D876E3", description: "Stopped at a human gate — question is in the comments; answer and REMOVE this label to re-feed" },
 ];
 // Repos whose merges/routines depend on the mirror set existing. Overridable for tests/forks.
-const MIRROR_REPOS = (process.env.GHP_MIRROR_REPOS || `srs,srs-rust,srs-web,srs-vscode,${STORY_REPO}`)
+const MIRROR_REPOS = (process.env.GHP_MIRROR_REPOS || `srs,srs-rust,srs-web,srs-vscode,srs-context,srs-programme,${STORY_REPO}`)
   .split(",").map((s) => s.trim()).filter(Boolean);
 
 // Board Status → plain-label mirror. The routines can't read Projects v2 Status through the
@@ -2107,7 +2107,7 @@ function cmdSync(argv) {
 }
 
 function help() {
-  console.log(`gh-project — story-driven priority for SRS Project #${PROJECT_NUMBER} (${OWNER})
+  console.log(`gh-project — story-driven priority for SemanticOps Project #${PROJECT_NUMBER} (${OWNER})
 
   fields                          dump project field/option/iteration IDs
   ensure-fields [--dry-run]       create the MoSCoW field if missing
