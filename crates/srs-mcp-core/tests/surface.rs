@@ -539,8 +539,10 @@ mod write_guard {
             "must not be a protocol error: {r}"
         );
         assert_eq!(r["result"]["isError"], true, "{r}");
-        let text = r["result"]["content"][0]["text"].as_str().unwrap();
-        assert!(text.contains("write guard"), "{text}");
+        assert_eq!(
+            r["result"]["structuredContent"]["code"], "write-guard-rejected",
+            "{r}"
+        );
         assert_eq!(epoch(d), before, "rejection must not advance write_epoch");
     }
 
@@ -650,6 +652,32 @@ mod write_guard {
             &mut d,
             "attachment_add",
             json!({ "fileName": "d.txt", "content": "x" }),
+        );
+    }
+
+    #[test]
+    fn guard_rejection_is_coded() {
+        let (_dir, mut d) = guarded();
+        let id = create(
+            &mut d,
+            "com.example.surface/para2",
+            json!({ "body": "text" }),
+            None,
+        );
+        guard(&mut d, json!({ "instanceIds": [id] }));
+        let r = tool(
+            &mut d,
+            "record_update",
+            json!({ "instanceId": id, "fieldValues": { "body": "x" } }),
+        );
+        assert_eq!(r["result"]["isError"], true, "{r}");
+        assert_eq!(
+            r["result"]["structuredContent"]["code"],
+            "write-guard-rejected"
+        );
+        assert_eq!(
+            r["result"]["content"][0]["text"],
+            r["result"]["structuredContent"]["message"]
         );
     }
 

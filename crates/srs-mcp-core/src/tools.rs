@@ -1495,8 +1495,8 @@ fn tool_ok<T: serde::Serialize>(value: &T) -> Result<Value, McpApplicationError>
 }
 
 /// Service rejection → tool-level error the model can read (not a protocol error).
-pub(crate) fn tool_err(message: String) -> Value {
-    json!({ "content": [{ "type": "text", "text": message }], "isError": true })
+pub(crate) fn tool_err(report: srs_repository::ErrorReport) -> Value {
+    json!({ "content": [{ "type": "text", "text": report.message }], "structuredContent": report, "isError": true })
 }
 
 /// `read` result cap: under the ~128 KB browser-relay limit, with headroom for JSON framing.
@@ -1586,7 +1586,7 @@ pub fn call_tool(
                 if let Err(e) =
                     srs_repository::actor_service::reject_supplied_created_by(store, args)
                 {
-                    return Ok(tool_err(e.to_string()));
+                    return Ok(tool_err(e.report()));
                 }
             }
         }
@@ -1602,7 +1602,7 @@ pub fn call_tool(
             let _: EmptyToolInput = parse_args(arguments)?;
             match validate_repository(store) {
                 Ok(report) => tool_ok(&report),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_FIND => {
@@ -1618,7 +1618,7 @@ pub fn call_tool(
             };
             match discovery_service::find(store, input.into(), page) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_ATTACHMENT_ADD => {
@@ -1626,21 +1626,21 @@ pub fn call_tool(
                 parse_args::<AttachmentAddToolInput>(arguments)?.try_into()?;
             match attachment_service::add_attachment(store, input) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_ATTACHMENT_LINK => {
             let input: AttachmentLinkToolInput = parse_args(arguments)?;
             match attachment_service::link_attachment(store, input.into()) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_SIMILAR => {
             let (id, query, page) = parse_args::<SimilarToolInput>(arguments)?.into_parts();
             match discovery_service::similar(store, &id, query, page) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_RECORD_CREATE => {
@@ -1657,28 +1657,28 @@ pub fn call_tool(
                 None,
             ) {
                 Ok(result) => tool_ok(&result.record),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_RELATION_CREATE => {
             let input: RelationCreateToolInput = parse_args(arguments)?;
             match relation_service::create_relation_auto(store, input.into()) {
                 Ok(result) => tool_ok(&result.relation),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_RELATION_DELETE => {
             let input: RelationDeleteToolInput = parse_args(arguments)?;
             match relation_service::delete_relation(store, &input.relation_id) {
                 Ok(r) => tool_ok(&json!({ "relationId": r.relation_id, "path": r.path })),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_NOTE_CREATE => {
             let input: NoteCreateToolInput = parse_args(arguments)?;
             match services::create_note_in_context(store, input.into()) {
                 Ok(result) => tool_ok(&result.note),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         // `read` is routed by `SrsMcpApplication` (it needs the repository id): see `read_tool`.
@@ -1686,7 +1686,7 @@ pub fn call_tool(
             let input: TypeSchemaToolInput = parse_args(arguments)?;
             match type_schema_service::type_schema(store, input.into()) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         // Second-wave write tools (#680)
@@ -1701,7 +1701,7 @@ pub fn call_tool(
             }
             match record_store::update_record(store, &instance_id, update) {
                 Ok(record) => tool_ok(&record),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_RECORD_TRANSITION => {
@@ -1709,14 +1709,14 @@ pub fn call_tool(
             let instance_id = input.instance_id.clone();
             match record_store::transition_record_lifecycle(store, &instance_id, input.into()) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_RECORD_ALLOWED_TRANSITIONS => {
             let input: RecordAllowedTransitionsToolInput = parse_args(arguments)?;
             match record_store::get_allowed_lifecycle_transitions(store, &input.instance_id) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_RECORD_SUCCESSOR => {
@@ -1724,21 +1724,21 @@ pub fn call_tool(
             let predecessor_id = input.predecessor_id.clone();
             match record_store::create_record_successor(store, &predecessor_id, input.into()) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_NOTE_GRADUATE => {
             let input: NoteGraduateToolInput = parse_args(arguments)?;
             match services::graduate_note(store, input.into()) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_CONTAINER_CREATE => {
             let input: ContainerCreateInput = parse_args(arguments)?;
             match container_service::create_container(store, input.into()) {
                 Ok(container) => tool_ok(&container),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_CONTAINER_MEMBER_ADD => {
@@ -1769,28 +1769,28 @@ pub fn call_tool(
             };
             match result {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_PACKAGE_DEPENDENCY_LIST => {
             let input: PackageDependencyListToolInput = parse_args(arguments)?;
             match package_dependency_service::list_package_dependencies(store, input.selector) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_PACKAGE_DEPENDENCY_SET => {
             let input: PackageDependencySetToolInput = parse_args(arguments)?;
             match package_dependency_service::add_package_dependency(store, input.into()) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_PACKAGE_DEPENDENCY_REMOVE => {
             let input: PackageDependencyRemoveToolInput = parse_args(arguments)?;
             match package_dependency_service::remove_package_dependency(store, input.into()) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_PACKAGE_UPGRADE => {
@@ -1807,21 +1807,21 @@ pub fn call_tool(
                 options,
             ) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_NEIGHBOURS => {
             let (query, page) = parse_args::<NeighboursToolInput>(arguments)?.into_parts();
             match list_neighbours(store, query, page) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_CONTAINER_MEMBER_REMOVE => {
             let input: ContainerMemberToolInput = parse_args(arguments)?;
             match container_service::remove_member(store, &input.container_id, &input.instance_id) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_CONTAINER_MEMBER_MOVE => {
@@ -1849,21 +1849,21 @@ pub fn call_tool(
             };
             match result {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_CONTAINER_MEMBER_REPAIR => {
             let input: ContainerIdToolInput = parse_args(arguments)?;
             match container_service::repair_members(store, &input.container_id) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_CONTAINER_OUTLINE => {
             let input: ContainerIdToolInput = parse_args(arguments)?;
             match container_service::get_outline(store, &input.container_id) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_CONTAINER_COPY => {
@@ -1874,7 +1874,7 @@ pub fn call_tool(
             };
             match container_service::copy_container(store, &input.source_container_id, copy) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_RECORD_FORK => {
@@ -1885,7 +1885,7 @@ pub fn call_tool(
                 &input.instance_id,
             ) {
                 Ok(result) => tool_ok(&result),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         // Protocol run execution tools (#977)
@@ -1893,46 +1893,47 @@ pub fn call_tool(
             let input: ProtocolRunCreateToolInput = parse_args(arguments)?;
             match protocol_run_service::create_run(store, input.into()) {
                 Ok(result) => tool_ok(&result.run),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_PROTOCOL_RUN_ADVANCE => {
             let input: ProtocolRunAdvanceToolInput = parse_args(arguments)?;
             match protocol_run_service::advance_stage(store, input.into()) {
                 Ok(result) => tool_ok(&result.run),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_PROTOCOL_RUN_GET => {
             let input: ProtocolRunIdToolInput = parse_args(arguments)?;
             match protocol_run_service::get_run(store, &input.run_id) {
                 Ok(GetRunResult::Found(run)) => tool_ok(&*run),
-                Ok(GetRunResult::NotFound) => Ok(tool_err(format!(
-                    "Protocol run '{}' not found",
-                    input.run_id
-                ))),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Ok(GetRunResult::NotFound) => {
+                    Ok(tool_err(srs_repository::ErrorReport::unclassified(
+                        format!("Protocol run '{}' not found", input.run_id),
+                    )))
+                }
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_PROTOCOL_RUN_LIST => {
             let input: ProtocolRunListToolInput = parse_args(arguments)?;
             match protocol_run_service::list_runs(store, input.into()) {
                 Ok(runs) => tool_ok(&ProtocolRunListToolResult { runs }),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_PROTOCOL_RUN_COMPLETE => {
             let input: ProtocolRunIdToolInput = parse_args(arguments)?;
             match protocol_run_service::complete_run(store, &input.run_id) {
                 Ok(result) => tool_ok(&result.run),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         TOOL_PROTOCOL_RUN_ABANDON => {
             let input: ProtocolRunIdToolInput = parse_args(arguments)?;
             match protocol_run_service::abandon_run(store, &input.run_id) {
                 Ok(result) => tool_ok(&result.run),
-                Err(e) => Ok(tool_err(e.to_string())),
+                Err(e) => Ok(tool_err(e.report())),
             }
         }
         other => Err(McpApplicationError::invalid_params(format!(

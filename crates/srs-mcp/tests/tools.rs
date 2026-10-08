@@ -1382,6 +1382,37 @@ async fn tool_protocol_run_create_then_get() {
     client.cancel().await.unwrap();
 }
 
+/// ADR-053: a tool error carries the stable `code` in `structuredContent`, through rmcp.
+#[tokio::test]
+async fn tool_error_carries_structured_code() {
+    let fx = make_lifecycle_fixture();
+    let client = connect(&fx.base).await;
+    let create = call(
+        &client,
+        "record_create",
+        serde_json::json!({
+            "type": format!("{NS}/decision"),
+            "fieldValues": { "title": "No lifecycle" }
+        }),
+    )
+    .await;
+    let id = create.structured_content.as_ref().unwrap()["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let r = call(
+        &client,
+        "record_transition",
+        serde_json::json!({ "instanceId": id, "byTransition": "close" }),
+    )
+    .await;
+    assert_eq!(r.is_error, Some(true), "{r:?}");
+    let sc = r.structured_content.as_ref().unwrap();
+    assert_eq!(sc["code"], "lifecycle-not-defined", "{sc}");
+    assert_eq!(sc["message"].as_str().unwrap(), text_of(&r));
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn tool_protocol_run_get_unknown_id_is_tool_error() {
     let fx = make_lifecycle_fixture();

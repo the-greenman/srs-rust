@@ -15,6 +15,7 @@ use srs_repository::context_query_service::{
 };
 use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage, MatchMode};
 use srs_repository::doctor_service::{self, DoctorInput};
+use srs_repository::error::RepositoryError;
 use srs_repository::governance_scaffold_service::{self, CreateGovernanceRepositoryInput};
 use srs_repository::manifest_service;
 use srs_repository::migrate_identity_service;
@@ -53,6 +54,7 @@ use srs_repository::tag_service;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation;
 use srs_repository::view_service::{self, CompositionListFilter, GetViewResult};
+use srs_repository::ErrorReport;
 use srs_repository::FileStore;
 use wasm_bindgen::prelude::*;
 
@@ -61,8 +63,8 @@ use wasm_bindgen::prelude::*;
 /// native JSON.parse. This is more reliable than serde_wasm_bindgen::to_value for structs
 /// that use #[serde(flatten)] or complex serde transformations.
 fn to_js<T: serde::Serialize>(value: &T) -> Result<JsValue, JsValue> {
-    let json = serde_json::to_string(value).map_err(|e| js_err(e.to_string()))?;
-    js_sys::JSON::parse(&json).map_err(|e| js_err(format!("{e:?}")))
+    let json = serde_json::to_string(value).map_err(|e| js_unclassified(e.to_string()))?;
+    js_sys::JSON::parse(&json).map_err(|e| js_unclassified(format!("{e:?}")))
 }
 
 #[wasm_bindgen(start)]
@@ -72,11 +74,38 @@ pub fn init() {
 
 /// A trailing optional `projection` argument (srs-rust#1286): `full` when absent.
 fn parse_projection(p: Option<String>) -> Result<Projection, JsValue> {
-    p.map_or(Ok(Projection::default()), |p| p.parse().map_err(js_err))
+    p.map_or(Ok(Projection::default()), |p| {
+        p.parse().map_err(js_invalid_input)
+    })
 }
 
-fn js_err(e: impl std::fmt::Display) -> JsValue {
-    JsValue::from_str(&e.to_string())
+/// Throwable `Error` carrying the stable `code` and optional `details` (ADR-053).
+fn report_to_js(report: ErrorReport) -> JsValue {
+    let err = js_sys::Error::new(&report.message);
+    let _ = js_sys::Reflect::set(&err, &"code".into(), &report.code.as_str().into());
+    if let Some(d) = report.details {
+        if let Ok(v) = js_sys::JSON::parse(&d.to_string()) {
+            let _ = js_sys::Reflect::set(&err, &"details".into(), &v);
+        }
+    }
+    err.into()
+}
+
+fn js_err(e: &RepositoryError) -> JsValue {
+    report_to_js(e.report())
+}
+
+/// Code `invalid-input` with the message verbatim (the variant's Display adds a prefix).
+fn js_invalid_input(message: impl Into<String>) -> JsValue {
+    let message = message.into();
+    report_to_js(ErrorReport {
+        message: message.clone(),
+        ..RepositoryError::InvalidInput { message }.report()
+    })
+}
+
+fn js_unclassified(message: impl Into<String>) -> JsValue {
+    report_to_js(ErrorReport::unclassified(message))
 }
 
 /// The JS-facing shape of an RFC-035 projection: the structured schema, the
@@ -140,7 +169,7 @@ impl McpSession {
     /// writes through `SrsRepository` are unaffected.
     pub fn set_write_guard(&mut self, json: &str) -> Result<(), JsValue> {
         let guard: srs_mcp_core::guard::WriteGuard =
-            serde_json::from_str(json).map_err(|e| js_err(e.to_string()))?;
+            serde_json::from_str(json).map_err(|e| js_invalid_input(e.to_string()))?;
         self.dispatcher
             .application_mut()
             .set_write_guard(Some(guard));
@@ -159,7 +188,7 @@ impl McpSession {
     /// and an actor on a corpus below dataModelRevision 9 with `revision-too-old` (R11).
     pub fn set_actor(&mut self, json: &str) -> Result<(), JsValue> {
         let actor: serde_json::Value =
-            serde_json::from_str(json).map_err(|e| js_err(e.to_string()))?;
+            serde_json::from_str(json).map_err(|e| js_invalid_input(e.to_string()))?;
         self.dispatcher
             .application_mut()
             .set_session_actor(Some(actor));
@@ -175,7 +204,8 @@ impl McpSession {
     /// (default), `"context"` or `"read"`, the same profiles as `srs mcp serve --profile`.
     /// A tool outside the profile is refused as an unknown tool.
     pub fn set_tool_profile(&mut self, profile: &str) -> Result<(), JsValue> {
-        let profile: srs_mcp_core::tools::ToolProfile = profile.parse().map_err(js_err)?;
+        let profile: srs_mcp_core::tools::ToolProfile =
+            profile.parse().map_err(js_invalid_input)?;
         self.dispatcher.application_mut().set_tool_profile(profile);
         Ok(())
     }
@@ -206,7 +236,7 @@ impl SrsRepository {
     /// `McpSession::set_actor`).
     pub fn set_actor(&self, json: &str) -> Result<(), JsValue> {
         let actor: serde_json::Value =
-            serde_json::from_str(json).map_err(|e| js_err(e.to_string()))?;
+            serde_json::from_str(json).map_err(|e| js_invalid_input(e.to_string()))?;
         self.store.set_session_actor(Some(actor));
         Ok(())
     }
@@ -220,7 +250,7 @@ impl SrsRepository {
     /// validated tool surface — the same application `srs mcp serve` runs).
     pub fn open_mcp_session(&self) -> Result<McpSession, JsValue> {
         let application = srs_mcp_core::SrsMcpApplication::open(self.store.clone())
-            .map_err(|e| js_err(e.message))?;
+            .map_err(|e| js_unclassified(e.message))?;
         Ok(McpSession {
             store: self.store.clone(),
             dispatcher: srs_mcp_core::McpDispatcher::new(application),
@@ -234,7 +264,7 @@ impl SrsRepository {
     /// CLI runs on disk. Only `srsj: "2"` is accepted — an unrecognised
     /// version is refused rather than coerced ([R20]/[R21]).
     pub fn load(srsj: &str) -> Result<SrsRepository, JsValue> {
-        let store = srs_repository::srsj::open_srsj(srsj).map_err(js_err)?;
+        let store = srs_repository::srsj::open_srsj(srsj).map_err(|e| js_err(&e))?;
         Ok(SrsRepository { store })
     }
 
@@ -248,7 +278,7 @@ impl SrsRepository {
     /// other caller uses [`SrsRepository::load`].
     pub fn load_for_migration(srsj: &str) -> Result<SrsRepository, JsValue> {
         let store = srs_repository::srsj::open_srsj(srsj)
-            .map_err(js_err)?
+            .map_err(|e| js_err(&e))?
             .with_rfc038_exemption();
         Ok(SrsRepository { store })
     }
@@ -259,7 +289,8 @@ impl SrsRepository {
     /// archives take the migration ramp and are re-saved in the new format on
     /// the next export.
     pub fn load_archive(bytes: &[u8]) -> Result<SrsRepository, JsValue> {
-        let store = srs_repository::archive_to_tree(std::io::Cursor::new(bytes)).map_err(js_err)?;
+        let store =
+            srs_repository::archive_to_tree(std::io::Cursor::new(bytes)).map_err(|e| js_err(&e))?;
         Ok(SrsRepository { store })
     }
 
@@ -273,7 +304,7 @@ impl SrsRepository {
     /// `export_srsj()` / `export_tree()` / `export_archive()`.
     pub fn create(input_json: &str) -> Result<SrsRepository, JsValue> {
         Ok(SrsRepository {
-            store: create_blank_from_json(input_json).map_err(js_err)?,
+            store: create_blank_from_json(input_json).map_err(js_invalid_input)?,
         })
     }
 
@@ -286,19 +317,20 @@ impl SrsRepository {
     pub fn load_tree(files: JsValue) -> Result<SrsRepository, JsValue> {
         let obj: js_sys::Object = files
             .dyn_into()
-            .map_err(|_| js_err("load_tree expects an object of { path: Uint8Array }"))?;
+            .map_err(|_| js_invalid_input("load_tree expects an object of { path: Uint8Array }"))?;
         let mut map = std::collections::BTreeMap::new();
         for key in js_sys::Object::keys(&obj).iter() {
             let path = key
                 .as_string()
-                .ok_or_else(|| js_err("load_tree keys must be strings"))?;
-            let value = js_sys::Reflect::get(&obj, &key).map_err(|_| js_err("bad tree entry"))?;
-            let bytes: js_sys::Uint8Array = value
-                .dyn_into()
-                .map_err(|_| js_err(format!("load_tree entry '{path}' must be a Uint8Array")))?;
+                .ok_or_else(|| js_invalid_input("load_tree keys must be strings"))?;
+            let value =
+                js_sys::Reflect::get(&obj, &key).map_err(|_| js_invalid_input("bad tree entry"))?;
+            let bytes: js_sys::Uint8Array = value.dyn_into().map_err(|_| {
+                js_invalid_input(format!("load_tree entry '{path}' must be a Uint8Array"))
+            })?;
             map.insert(path, bytes.to_vec());
         }
-        let store = srs_repository::open_tree(map).map_err(js_err)?;
+        let store = srs_repository::open_tree(map).map_err(|e| js_err(&e))?;
         Ok(SrsRepository { store })
     }
 
@@ -317,7 +349,7 @@ impl SrsRepository {
     ///
     /// Callers should filter `diagnostics` by `severity` to distinguish errors from warnings.
     pub fn validate(&self) -> Result<JsValue, JsValue> {
-        let report = validation::validate_repository(&self.store).map_err(js_err)?;
+        let report = validation::validate_repository(&self.store).map_err(|e| js_err(&e))?;
         to_js(&report)
     }
 
@@ -332,7 +364,8 @@ impl SrsRepository {
     /// `remaining`. `class` and `outcome` are kebab-case strings, e.g.
     /// `"duplicate-instance-id"` / `"repaired"`.
     pub fn doctor(&self, fix: bool) -> Result<JsValue, JsValue> {
-        let report = doctor_service::doctor(&self.store, DoctorInput { fix }).map_err(js_err)?;
+        let report =
+            doctor_service::doctor(&self.store, DoctorInput { fix }).map_err(|e| js_err(&e))?;
         to_js(&report)
     }
 
@@ -341,8 +374,8 @@ impl SrsRepository {
     /// Returns a `DeclaredExtensionsReport` as a JS value with four camelCase keys:
     /// `declared`, `supported`, `declaredButUnsupported`, `usedButUndeclared`.
     pub fn declared_extensions_conformance(&self) -> Result<JsValue, JsValue> {
-        let report =
-            manifest_service::declared_extensions_conformance(&self.store).map_err(js_err)?;
+        let report = manifest_service::declared_extensions_conformance(&self.store)
+            .map_err(|e| js_err(&e))?;
         to_js(&report)
     }
 
@@ -354,8 +387,9 @@ impl SrsRepository {
     /// re-derive titles from `fieldValues`.
     pub fn list_records(&self, filter_json: &str) -> Result<JsValue, JsValue> {
         let filter: RecordListFilter = serde_json::from_str(filter_json)
-            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
-        let summaries = record_store::list_record_summaries(&self.store, filter).map_err(js_err)?;
+            .map_err(|e| js_invalid_input(format!("invalid filter: {e}")))?;
+        let summaries =
+            record_store::list_record_summaries(&self.store, filter).map_err(|e| js_err(&e))?;
         to_js(&summaries)
     }
 
@@ -384,11 +418,11 @@ impl SrsRepository {
         facets: Option<bool>,
         projection: Option<String>,
     ) -> Result<JsValue, JsValue> {
-        let query: DiscoveryQuery =
-            serde_json::from_str(query_json).map_err(|e| js_err(format!("invalid query: {e}")))?;
+        let query: DiscoveryQuery = serde_json::from_str(query_json)
+            .map_err(|e| js_invalid_input(format!("invalid query: {e}")))?;
         let match_mode: MatchMode = match match_mode {
             None => MatchMode::default(),
-            Some(m) => m.parse().map_err(js_err)?,
+            Some(m) => m.parse().map_err(js_invalid_input)?,
         };
         let page = FindPage {
             limit,
@@ -399,7 +433,7 @@ impl SrsRepository {
             facets,
             projection: parse_projection(projection)?,
         };
-        let result = discovery_service::find(&self.store, query, page).map_err(js_err)?;
+        let result = discovery_service::find(&self.store, query, page).map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -416,8 +450,8 @@ impl SrsRepository {
         projection: Option<String>,
         facets: Option<bool>,
     ) -> Result<JsValue, JsValue> {
-        let query: DiscoveryQuery =
-            serde_json::from_str(query_json).map_err(|e| js_err(format!("invalid query: {e}")))?;
+        let query: DiscoveryQuery = serde_json::from_str(query_json)
+            .map_err(|e| js_invalid_input(format!("invalid query: {e}")))?;
         let page = FindPage {
             limit,
             offset: offset.unwrap_or(0),
@@ -426,15 +460,15 @@ impl SrsRepository {
             facets,
             ..Default::default()
         };
-        let result =
-            discovery_service::similar(&self.store, instance_id, query, page).map_err(js_err)?;
+        let result = discovery_service::similar(&self.store, instance_id, query, page)
+            .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
     /// Get a single record by instance ID. Returns a `RecordSummary` (`{ instanceId, displayLabel, record }`)
     /// as a JS value, or `null` if not found.
     pub fn get_record(&self, id: &str) -> Result<JsValue, JsValue> {
-        match record_store::get_record_summary_by_id(&self.store, id).map_err(js_err)? {
+        match record_store::get_record_summary_by_id(&self.store, id).map_err(|e| js_err(&e))? {
             Some(summary) => to_js(&summary),
             None => Ok(JsValue::NULL),
         }
@@ -442,8 +476,8 @@ impl SrsRepository {
 
     /// List notes. Returns a `ListNotesResult` as a JS value.
     pub fn list_notes(&self) -> Result<JsValue, JsValue> {
-        let result =
-            services::list_notes(&self.store, ListNotesFilter::default()).map_err(js_err)?;
+        let result = services::list_notes(&self.store, ListNotesFilter::default())
+            .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -465,8 +499,8 @@ impl SrsRepository {
         container_id: Option<String>,
         input_json: &str,
     ) -> Result<JsValue, JsValue> {
-        let record_input: CreateRecordInput =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let record_input: CreateRecordInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
         let result = graduate_note_service(
             &self.store,
             GraduateNoteInput {
@@ -477,7 +511,7 @@ impl SrsRepository {
                 container_id,
             },
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -490,14 +524,14 @@ impl SrsRepository {
     /// [`SrsRepository::export_archive`] for those — `.srs` carries them.
     #[wasm_bindgen]
     pub fn export_srsj(&self) -> Result<String, JsValue> {
-        srs_repository::srsj::to_srsj_string(&self.store).map_err(js_err)
+        srs_repository::srsj::to_srsj_string(&self.store).map_err(|e| js_err(&e))
     }
 
     /// Export the session as an exploded file tree (ADR-038): a JS object of
     /// `{ path: Uint8Array }`. Untouched files are byte-identical to what was
     /// loaded — the clean-git-diff guarantee.
     pub fn export_tree(&self) -> Result<JsValue, JsValue> {
-        let map = srs_repository::export_tree(&self.store).map_err(js_err)?;
+        let map = srs_repository::export_tree(&self.store).map_err(|e| js_err(&e))?;
         let obj = js_sys::Object::new();
         for (path, bytes) in &map {
             js_sys::Reflect::set(
@@ -505,14 +539,14 @@ impl SrsRepository {
                 &JsValue::from_str(path),
                 &js_sys::Uint8Array::from(bytes.as_slice()).into(),
             )
-            .map_err(|_| js_err("failed to build export_tree object"))?;
+            .map_err(|_| js_unclassified("failed to build export_tree object"))?;
         }
         Ok(obj.into())
     }
 
     /// Export the current repository state as a `.srs` binary archive (ZIP bytes).
     pub fn export_archive(&self) -> Result<js_sys::Uint8Array, JsValue> {
-        let bytes = srs_repository::archive_to_vec(&self.store).map_err(js_err)?;
+        let bytes = srs_repository::archive_to_vec(&self.store).map_err(|e| js_err(&e))?;
         Ok(js_sys::Uint8Array::from(bytes.as_slice()))
     }
 
@@ -528,7 +562,7 @@ impl SrsRepository {
                 ..Default::default()
             },
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         Ok(js_sys::Uint8Array::from(export.bytes.as_slice()))
     }
 
@@ -548,7 +582,7 @@ impl SrsRepository {
                 document_id: document_id.to_string(),
             },
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         Ok(js_sys::Uint8Array::from(result.bytes.as_slice()))
     }
 
@@ -563,15 +597,15 @@ impl SrsRepository {
         type_version: u32,
         input_json: &str,
     ) -> Result<JsValue, JsValue> {
-        let input: CreateRecordBindingInput =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let input: CreateRecordBindingInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
         srs_repository::actor_service::creation_actor(
             &self.store,
             input
                 .extra
                 .contains_key(srs_repository::actor_service::CREATED_BY_KEY),
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         let record = record_store::create_record(
             &self.store,
             type_id,
@@ -580,7 +614,7 @@ impl SrsRepository {
             input.field_meta,
             input.tags,
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&record)
     }
 
@@ -601,8 +635,8 @@ impl SrsRepository {
         type_version: u32,
         input_json: &str,
     ) -> Result<JsValue, JsValue> {
-        let input: CreateRecordBindingInput =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let input: CreateRecordBindingInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
         let result = record_store::create_record_in_container(
             &self.store,
             record_store::CreateRecordInContainerInput {
@@ -615,7 +649,7 @@ impl SrsRepository {
                 extra: input.extra,
             },
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&result.record)
     }
 
@@ -625,10 +659,10 @@ impl SrsRepository {
     /// `typeVersion` (optional u32 — omit to keep the stored version).
     /// Returns the updated `Record` as a JS value.
     pub fn update_record(&self, instance_id: &str, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: record_store::UpdateRecordInput =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let input: record_store::UpdateRecordInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
         let record =
-            record_store::update_record(&self.store, instance_id, input).map_err(js_err)?;
+            record_store::update_record(&self.store, instance_id, input).map_err(|e| js_err(&e))?;
         to_js(&record)
     }
 
@@ -646,8 +680,8 @@ impl SrsRepository {
             instance_id: String,
             cascaded_relations: Vec<relation_service::RelationSummary>,
         }
-        let result =
-            record_store::delete_record(&self.store, instance_id, cascade).map_err(js_err)?;
+        let result = record_store::delete_record(&self.store, instance_id, cascade)
+            .map_err(|e| js_err(&e))?;
         to_js(&DeleteRecordOutput {
             instance_id: result.instance_id,
             cascaded_relations: result.cascaded_relations,
@@ -668,14 +702,15 @@ impl SrsRepository {
             container_id: Option<String>,
         }
         let input: FilterInput = serde_json::from_str(filter_json)
-            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+            .map_err(|e| js_invalid_input(format!("invalid filter: {e}")))?;
         let filter = ListRelationsFilter {
             source: input.source,
             target: input.target,
             relation_type: input.relation_type,
             container_id: input.container_id,
         };
-        let summaries = relation_service::list_relations(&self.store, filter).map_err(js_err)?;
+        let summaries =
+            relation_service::list_relations(&self.store, filter).map_err(|e| js_err(&e))?;
         to_js(&summaries)
     }
 
@@ -695,7 +730,7 @@ impl SrsRepository {
         let direction = direction
             .map(|d| d.parse::<EdgeDirection>())
             .transpose()
-            .map_err(js_err)?;
+            .map_err(js_invalid_input)?;
         let result = context_query_service::list_neighbours(
             &self.store,
             NeighboursQuery {
@@ -708,7 +743,7 @@ impl SrsRepository {
                 offset: offset.unwrap_or(0),
             },
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -720,20 +755,20 @@ impl SrsRepository {
     /// Returns the created `Relation` as a JS value.
     pub fn create_relation(&self, input_json: &str) -> Result<JsValue, JsValue> {
         let raw: serde_json::Value = serde_json::from_str(input_json)
-            .map_err(|e| js_err(format!("invalid relation input: {e}")))?;
+            .map_err(|e| js_invalid_input(format!("invalid relation input: {e}")))?;
         if let Some(obj) = raw.as_object() {
             srs_repository::actor_service::reject_supplied_created_by(&self.store, obj)
-                .map_err(js_err)?;
+                .map_err(|e| js_err(&e))?;
         }
-        let relation = relation_service::parse_relation_input(raw).map_err(js_err)?;
-        let result =
-            relation_service::create_relation_auto(&self.store, relation).map_err(js_err)?;
+        let relation = relation_service::parse_relation_input(raw).map_err(|e| js_err(&e))?;
+        let result = relation_service::create_relation_auto(&self.store, relation)
+            .map_err(|e| js_err(&e))?;
         to_js(&result.relation)
     }
 
     /// Delete a relation by its `relation_id`. Returns `undefined` on success.
     pub fn delete_relation(&self, relation_id: &str) -> Result<(), JsValue> {
-        relation_service::delete_relation(&self.store, relation_id).map_err(js_err)?;
+        relation_service::delete_relation(&self.store, relation_id).map_err(|e| js_err(&e))?;
         Ok(())
     }
 
@@ -749,15 +784,15 @@ impl SrsRepository {
         struct Input {
             instance_ids: Vec<String>,
         }
-        let parsed: Input =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let parsed: Input = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
         let result = relation_service::order_by_precedes(
             &self.store,
             OrderByPrecedesInput {
                 instance_ids: parsed.instance_ids,
             },
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -776,8 +811,8 @@ impl SrsRepository {
             instance_ids: Vec<String>,
             clear_ids: Vec<String>,
         }
-        let parsed: Input =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let parsed: Input = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
         let result = relation_service::rebuild_precedes_chain(
             &self.store,
             RebuildPrecedesChainInput {
@@ -785,7 +820,7 @@ impl SrsRepository {
                 clear_ids: parsed.clear_ids,
             },
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -800,10 +835,10 @@ impl SrsRepository {
     /// Returns `{ "created": [<RelationSummary>, ...], "removed": [<RelationSummary>, ...] }`.
     /// Errors if `instanceId` already has `precedes` edges.
     pub fn insert_into_precedes_chain(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: InsertIntoPrecedesChainInput =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
-        let result =
-            relation_service::insert_into_precedes_chain(&self.store, input).map_err(js_err)?;
+        let input: InsertIntoPrecedesChainInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
+        let result = relation_service::insert_into_precedes_chain(&self.store, input)
+            .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -814,10 +849,10 @@ impl SrsRepository {
     /// `input_json` is `{ "instanceId": "uuid" }`.
     /// Returns `{ "created": [<RelationSummary>, ...], "removed": [<RelationSummary>, ...] }`.
     pub fn remove_from_precedes_chain(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: RemoveFromPrecedesChainInput =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
-        let result =
-            relation_service::remove_from_precedes_chain(&self.store, input).map_err(js_err)?;
+        let input: RemoveFromPrecedesChainInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
+        let result = relation_service::remove_from_precedes_chain(&self.store, input)
+            .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -830,10 +865,10 @@ impl SrsRepository {
     /// `{ "instanceId": "uuid", "beforeId": "uuid" }`.
     /// Returns `{ "created": [<RelationSummary>, ...], "removed": [<RelationSummary>, ...] }`.
     pub fn move_in_precedes_chain(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: MoveInPrecedesChainInput =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let input: MoveInPrecedesChainInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
         let result =
-            relation_service::move_in_precedes_chain(&self.store, input).map_err(js_err)?;
+            relation_service::move_in_precedes_chain(&self.store, input).map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -851,7 +886,7 @@ impl SrsRepository {
             fulfillment: None,
         };
         let result = record_store::transition_record_lifecycle(&self.store, instance_id, input)
-            .map_err(js_err)?;
+            .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -868,9 +903,9 @@ impl SrsRepository {
         input_json: &str,
     ) -> Result<JsValue, JsValue> {
         let input: TransitionLifecycleInput = serde_json::from_str(input_json)
-            .map_err(|e| js_err(format!("invalid transition input: {e}")))?;
+            .map_err(|e| js_invalid_input(format!("invalid transition input: {e}")))?;
         let result = record_store::transition_record_lifecycle(&self.store, instance_id, input)
-            .map_err(js_err)?;
+            .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -882,7 +917,7 @@ impl SrsRepository {
     /// successor-flow UX from it instead of string-matching state names.
     pub fn get_allowed_lifecycle_transitions(&self, instance_id: &str) -> Result<JsValue, JsValue> {
         let result = record_store::get_allowed_lifecycle_transitions(&self.store, instance_id)
-            .map_err(js_err)?;
+            .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -899,10 +934,10 @@ impl SrsRepository {
         predecessor_id: &str,
         input_json: &str,
     ) -> Result<JsValue, JsValue> {
-        let input: record_store::CreateRecordSuccessorInput =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let input: record_store::CreateRecordSuccessorInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
         let result = record_store::create_record_successor(&self.store, predecessor_id, input)
-            .map_err(js_err)?;
+            .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -917,7 +952,7 @@ impl SrsRepository {
                 blueprint_id: blueprint_id.to_string(),
             },
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -972,7 +1007,7 @@ impl SrsRepository {
             instance_id_filter: instance_id_filter.as_deref(),
             exclude_instance_ids: &exclude,
         })
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -983,15 +1018,15 @@ impl SrsRepository {
     /// `{ id, namespace, name, version, description, containerType?, rootTypeRefs?, sourcePackage? }`.
     pub fn list_compositions(&self, filter_json: &str) -> Result<JsValue, JsValue> {
         let parsed: CompositionListBindingFilter = serde_json::from_str(filter_json)
-            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+            .map_err(|e| js_invalid_input(format!("invalid filter: {e}")))?;
         let filter = CompositionListFilter {
             namespace: parsed.namespace,
             name: parsed.name,
             container_type: parsed.container_type,
             root_type_id: parsed.root_type_id,
         };
-        let summaries =
-            view_service::list_compositions_summary(&self.store, &filter).map_err(js_err)?;
+        let summaries = view_service::list_compositions_summary(&self.store, &filter)
+            .map_err(|e| js_err(&e))?;
         to_js(&summaries)
     }
 
@@ -1001,13 +1036,14 @@ impl SrsRepository {
     /// pass `"{}"` for all containers. Returns a JS array of `ContainerSummary` objects.
     pub fn list_containers(&self, filter_json: &str) -> Result<JsValue, JsValue> {
         let parsed: ContainerListBindingFilter = serde_json::from_str(filter_json)
-            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+            .map_err(|e| js_invalid_input(format!("invalid filter: {e}")))?;
         let filter = ContainerListFilter {
             container_type: parsed.container_type,
             member_instance_id: parsed.member_instance_id,
             anchor_instance_id: parsed.anchor_instance_id,
         };
-        let summaries = container_service::list_containers(&self.store, &filter).map_err(js_err)?;
+        let summaries =
+            container_service::list_containers(&self.store, &filter).map_err(|e| js_err(&e))?;
         to_js(&summaries)
     }
 
@@ -1015,7 +1051,7 @@ impl SrsRepository {
     /// Returns the `Container` as a JS value.
     pub fn get_container(&self, container_id: &str) -> Result<JsValue, JsValue> {
         let container =
-            container_service::get_container(&self.store, container_id).map_err(js_err)?;
+            container_service::get_container(&self.store, container_id).map_err(|e| js_err(&e))?;
         to_js(&container)
     }
 
@@ -1025,7 +1061,8 @@ impl SrsRepository {
     /// "anchorInstanceId"?, "identityInstanceId"?, "memberInstanceIds"?: [{instanceId, depth?}],
     /// "tags"? }`. Returns the created `Container`; a JS error carries the validation message.
     pub fn create_container(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let container = create_container_from_json(&self.store, input_json).map_err(js_err)?;
+        let container =
+            create_container_from_json(&self.store, input_json).map_err(js_unclassified)?;
         to_js(&container)
     }
 
@@ -1040,8 +1077,8 @@ impl SrsRepository {
         container_id: &str,
         patch_json: &str,
     ) -> Result<JsValue, JsValue> {
-        let result =
-            update_container_from_json(&self.store, container_id, patch_json).map_err(js_err)?;
+        let result = update_container_from_json(&self.store, container_id, patch_json)
+            .map_err(js_unclassified)?;
         to_js(&result)
     }
 
@@ -1050,8 +1087,8 @@ impl SrsRepository {
     /// `input_json` is `{ "title"?: string, "containerId"?: uuid }` (may be empty/`{}`).
     /// Returns `{ container, forks: [{originalId, forkId}], relations }`.
     pub fn copy_container(&self, source_id: &str, input_json: &str) -> Result<JsValue, JsValue> {
-        let result =
-            copy_container_from_json(&self.store, source_id, input_json).map_err(js_err)?;
+        let result = copy_container_from_json(&self.store, source_id, input_json)
+            .map_err(js_unclassified)?;
         to_js(&result)
     }
 
@@ -1061,7 +1098,7 @@ impl SrsRepository {
     pub fn fork_record(&self, container_id: &str, instance_id: &str) -> Result<JsValue, JsValue> {
         let result =
             srs_repository::fork_service::fork_subtree(&self.store, container_id, instance_id)
-                .map_err(js_err)?;
+                .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1082,7 +1119,7 @@ impl SrsRepository {
             position.map(|p| p as usize),
             depth,
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1094,7 +1131,7 @@ impl SrsRepository {
         instance_id: &str,
     ) -> Result<JsValue, JsValue> {
         let result = container_service::remove_member(&self.store, container_id, instance_id)
-            .map_err(js_err)?;
+            .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1113,7 +1150,7 @@ impl SrsRepository {
             position.map(|p| p as usize),
             depth,
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1138,7 +1175,7 @@ impl SrsRepository {
         .ok_or_else(|| JsValue::from_str("give relativeTo with placement, or shift"))?;
         let result =
             container_service::move_member_relative(&self.store, container_id, instance_id, &mv)
-                .map_err(js_err)?;
+                .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1163,7 +1200,7 @@ impl SrsRepository {
             &target,
             placement,
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1171,21 +1208,22 @@ impl SrsRepository {
     /// where each entry is `{ instanceId, depth, parentInstanceId, hasChildren, runSize, runEnd }`
     /// and `body` excludes the anchor and identity entries (the renderer's rule).
     pub fn get_container_outline(&self, container_id: &str) -> Result<JsValue, JsValue> {
-        let outline = container_service::get_outline(&self.store, container_id).map_err(js_err)?;
+        let outline =
+            container_service::get_outline(&self.store, container_id).map_err(|e| js_err(&e))?;
         to_js(&outline)
     }
 
     /// Remove every entry that no longer resolves to an instance (RFC-043 repair).
     pub fn repair_container_members(&self, container_id: &str) -> Result<JsValue, JsValue> {
         let result =
-            container_service::repair_members(&self.store, container_id).map_err(js_err)?;
+            container_service::repair_members(&self.store, container_id).map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
     /// The container's arrangement: its entries with `depth`, in order (RFC-043 [R15]).
     pub fn get_container_arrangement(&self, container_id: &str) -> Result<JsValue, JsValue> {
-        let entries =
-            container_service::get_arrangement(&self.store, container_id).map_err(js_err)?;
+        let entries = container_service::get_arrangement(&self.store, container_id)
+            .map_err(|e| js_err(&e))?;
         to_js(&entries)
     }
 
@@ -1194,8 +1232,8 @@ impl SrsRepository {
     /// `list_containers`). Equivalent to `list_containers('{"memberInstanceId": instance_id}')`,
     /// exposed by name for the web client (issue #181).
     pub fn containers_for_instance(&self, instance_id: &str) -> Result<JsValue, JsValue> {
-        let summaries =
-            container_service::containers_for_instance(&self.store, instance_id).map_err(js_err)?;
+        let summaries = container_service::containers_for_instance(&self.store, instance_id)
+            .map_err(|e| js_err(&e))?;
         to_js(&summaries)
     }
 
@@ -1217,7 +1255,7 @@ impl SrsRepository {
                 type_version,
             },
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1244,7 +1282,7 @@ impl SrsRepository {
                 type_version,
             },
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         let canonical_json = srs_projection::json_schema::to_canonical_json(&result.schema)
             .map_err(|e| JsValue::from_str(&format!("failed to serialize canonical JSON: {e}")))?;
         to_js(&JsonSchemaBindingResult {
@@ -1268,7 +1306,7 @@ impl SrsRepository {
             &self.store,
             srs_projection::SchemaBundleInput { entities },
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         let canonical_json = srs_projection::json_schema::to_canonical_json(&result.bundle)
             .map_err(|e| JsValue::from_str(&format!("failed to serialize canonical JSON: {e}")))?;
         to_js(&JsonSchemaBindingResult {
@@ -1282,7 +1320,8 @@ impl SrsRepository {
     /// Returns a JS value matching `BlueprintListResult`; WARN-level
     /// provenance issues (missing files, duplicate IDs) surface in `diagnostics`.
     pub fn list_blueprints(&self) -> Result<JsValue, JsValue> {
-        let result = blueprint_service::list_blueprints_summary(&self.store).map_err(js_err)?;
+        let result =
+            blueprint_service::list_blueprints_summary(&self.store).map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1294,7 +1333,7 @@ impl SrsRepository {
     /// cardinality?, required? }` objects.
     pub fn list_blueprint_structure(&self, blueprint_id: &str) -> Result<JsValue, JsValue> {
         let result = blueprint_service::list_blueprint_structure(&self.store, blueprint_id)
-            .map_err(js_err)?;
+            .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1302,14 +1341,14 @@ impl SrsRepository {
     /// Returns a JS array of `{ protocolId, protocolNamespace, protocolName, protocolVersion,
     /// stageCount, sourcePackage? }` objects.
     pub fn list_protocols(&self) -> Result<JsValue, JsValue> {
-        let summaries = protocol_service::list_protocols(&self.store).map_err(js_err)?;
+        let summaries = protocol_service::list_protocols(&self.store).map_err(|e| js_err(&e))?;
         to_js(&summaries)
     }
 
     /// Get a protocol's stored definition JSON by its `id`.
     /// Returns the full protocol definition as a JS value, or `null` if not found.
     pub fn get_protocol_by_id(&self, id: &str) -> Result<JsValue, JsValue> {
-        match protocol_service::get_protocol_by_id(&self.store, id).map_err(js_err)? {
+        match protocol_service::get_protocol_by_id(&self.store, id).map_err(|e| js_err(&e))? {
             GetProtocolResult::Found(val) => to_js(&val),
             GetProtocolResult::NotFound => Ok(JsValue::NULL),
         }
@@ -1320,7 +1359,7 @@ impl SrsRepository {
     /// or `null` if no protocol targets that type.
     pub fn find_protocol_by_target_type(&self, target_type_id: &str) -> Result<JsValue, JsValue> {
         match protocol_service::find_protocol_by_target_type(&self.store, target_type_id)
-            .map_err(js_err)?
+            .map_err(|e| js_err(&e))?
         {
             Some(result) => to_js(&result),
             None => Ok(JsValue::NULL),
@@ -1334,7 +1373,7 @@ impl SrsRepository {
     /// Returns a JS array of `FieldSummary` objects.
     pub fn list_fields(&self, filter_json: &str) -> Result<JsValue, JsValue> {
         let filter: FieldListBindingFilter = serde_json::from_str(filter_json)
-            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+            .map_err(|e| js_invalid_input(format!("invalid filter: {e}")))?;
         let fields = package_service::list_fields_filtered(
             &self.store,
             FieldListFilter {
@@ -1342,13 +1381,13 @@ impl SrsRepository {
                 package: filter.package.map(Some),
             },
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&fields)
     }
 
     /// Get a field definition by its id. Returns the full `Field` object, or `null` if not found.
     pub fn get_field(&self, id: &str) -> Result<JsValue, JsValue> {
-        match package_service::get_field_by_id(&self.store, id).map_err(js_err)? {
+        match package_service::get_field_by_id(&self.store, id).map_err(|e| js_err(&e))? {
             GetFieldResult::Found(field) => to_js(&*field), // GetFieldResult wraps Box<Field>
             GetFieldResult::NotFound => Ok(JsValue::NULL),
         }
@@ -1359,7 +1398,7 @@ impl SrsRepository {
     /// Returns a JS array of `TypeSummary` objects.
     pub fn list_types(&self, filter_json: &str) -> Result<JsValue, JsValue> {
         let filter: TypeListBindingFilter = serde_json::from_str(filter_json)
-            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+            .map_err(|e| js_invalid_input(format!("invalid filter: {e}")))?;
         let types = package_service::list_types_filtered(
             &self.store,
             TypeListFilter {
@@ -1367,7 +1406,7 @@ impl SrsRepository {
                 package: filter.package.map(Some),
             },
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&types)
     }
 
@@ -1376,21 +1415,21 @@ impl SrsRepository {
     /// Returns a JS array of `RelationTypeDefinition` objects.
     pub fn list_relation_types(&self, filter_json: &str) -> Result<JsValue, JsValue> {
         let filter: RelationTypeListBindingFilter = serde_json::from_str(filter_json)
-            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
+            .map_err(|e| js_invalid_input(format!("invalid filter: {e}")))?;
         let relation_types = package_service::list_relation_types_filtered(
             &self.store,
             RelationTypeListFilter {
                 status: filter.status,
             },
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&relation_types)
     }
 
     /// Get a type definition by its id (latest version). Returns the full `RecordType` object,
     /// or `null` if not found.
     pub fn get_type(&self, id: &str) -> Result<JsValue, JsValue> {
-        match package_service::get_type_by_id_latest(&self.store, id).map_err(js_err)? {
+        match package_service::get_type_by_id_latest(&self.store, id).map_err(|e| js_err(&e))? {
             GetTypeResult::Found(record_type) => to_js(&record_type),
             GetTypeResult::NotFound => Ok(JsValue::NULL),
         }
@@ -1399,13 +1438,13 @@ impl SrsRepository {
     /// List L1 view definitions from the compiled package. Returns a JS array of `ViewSummary`
     /// objects (`{id, namespace, name, version, description, compatibleTypes?, sourcePackage?}`).
     pub fn list_views(&self) -> Result<JsValue, JsValue> {
-        let views = view_service::list_views_summary(&self.store).map_err(js_err)?;
+        let views = view_service::list_views_summary(&self.store).map_err(|e| js_err(&e))?;
         to_js(&views)
     }
 
     /// Get an L1 view definition by its id. Returns the full `View` object, or `null` if not found.
     pub fn get_view(&self, id: &str) -> Result<JsValue, JsValue> {
-        match view_service::get_view_by_id(&self.store, id).map_err(js_err)? {
+        match view_service::get_view_by_id(&self.store, id).map_err(|e| js_err(&e))? {
             GetViewResult::Found(view) => to_js(&*view),
             GetViewResult::NotFound => Ok(JsValue::NULL),
         }
@@ -1416,7 +1455,7 @@ impl SrsRepository {
     /// boundaryPath: string | null, fieldCount, typeCount}`.
     /// `boundaryPath` is `null` for the primary package and the boundary path string for sub-packages.
     pub fn list_packages(&self) -> Result<JsValue, JsValue> {
-        let packages = package_service::list_packages(&self.store).map_err(js_err)?;
+        let packages = package_service::list_packages(&self.store).map_err(|e| js_err(&e))?;
         to_js(&packages)
     }
 
@@ -1429,9 +1468,9 @@ impl SrsRepository {
     /// codes. Clients present the outcome; they never compare versions themselves.
     pub fn check_package_requirements(&self, input_json: &str) -> Result<JsValue, JsValue> {
         let input: package_dependency_service::BundleRequirements =
-            serde_json::from_str(input_json).map_err(js_err)?;
-        let result =
-            package_dependency_service::check_bundle(&self.store, &input).map_err(js_err)?;
+            serde_json::from_str(input_json).map_err(|e| js_invalid_input(e.to_string()))?;
+        let result = package_dependency_service::check_bundle(&self.store, &input)
+            .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1441,8 +1480,9 @@ impl SrsRepository {
     /// (PackageBundleExport; summary.sha256 is "sha256:<hex>"). Read-only: write_epoch does not move.
     pub fn export_package_bundle(&self, input_json: &str) -> Result<JsValue, JsValue> {
         let input: package_bundle::ExportPackageInput =
-            serde_json::from_str(input_json).map_err(js_err)?;
-        let result = package_bundle::export_package_bundle(&self.store, input).map_err(js_err)?;
+            serde_json::from_str(input_json).map_err(|e| js_invalid_input(e.to_string()))?;
+        let result =
+            package_bundle::export_package_bundle(&self.store, input).map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1458,13 +1498,13 @@ impl SrsRepository {
         options_json: &str,
     ) -> Result<JsValue, JsValue> {
         let options: package_install_service::InstallBundleOptions =
-            serde_json::from_str(options_json).map_err(js_err)?;
+            serde_json::from_str(options_json).map_err(|e| js_invalid_input(e.to_string()))?;
         let result = package_install_service::install_package_bundle_bytes(
             &self.store,
             bundle_json.as_bytes(),
             options,
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1486,13 +1526,13 @@ impl SrsRepository {
         options_json: &str,
     ) -> Result<JsValue, JsValue> {
         let options: package_install_service::UpgradeOptions =
-            serde_json::from_str(options_json).map_err(js_err)?;
+            serde_json::from_str(options_json).map_err(|e| js_invalid_input(e.to_string()))?;
         let result = package_install_service::upgrade_package_bundle(
             &self.store,
             bundle_json.as_bytes(),
             options,
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1504,7 +1544,7 @@ impl SrsRepository {
     pub fn list_package_imports_json(&self) -> Result<JsValue, JsValue> {
         let summary =
             package_service::list_package_imports(&self.store, ListPackageImportsFilter::default())
-                .map_err(js_err)?;
+                .map_err(|e| js_err(&e))?;
         to_js(&summary)
     }
 
@@ -1516,8 +1556,8 @@ impl SrsRepository {
     /// `sections`) — not the lighter summaries that `list_compositions` returns — because the
     /// caller needs the section definitions to render the view.
     pub fn compositions_for_container(&self, container_id: &str) -> Result<JsValue, JsValue> {
-        let views =
-            view_service::compositions_for_container(&self.store, container_id).map_err(js_err)?;
+        let views = view_service::compositions_for_container(&self.store, container_id)
+            .map_err(|e| js_err(&e))?;
         to_js(&views)
     }
 
@@ -1538,7 +1578,7 @@ impl SrsRepository {
                 view_id,
             },
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1554,8 +1594,8 @@ impl SrsRepository {
     ///   member id fails to resolve; in that case `rootContainerId` is `""`, `identity` has
     ///   all-empty-string/zero fields (it is a present object, not `null`), and `sections` is `[]`.
     pub fn repository_navigation(&self) -> Result<JsValue, JsValue> {
-        let result =
-            repository_navigation_service::repository_navigation(&self.store).map_err(js_err)?;
+        let result = repository_navigation_service::repository_navigation(&self.store)
+            .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1563,7 +1603,7 @@ impl SrsRepository {
     /// Returns a JS array of `Term` objects — the same terms returned by `srs term list`.
     /// srs-web uses this to populate the tag picker / tag cloud.
     pub fn list_terms(&self) -> Result<JsValue, JsValue> {
-        let terms = tag_service::list_terms(&self.store).map_err(js_err)?;
+        let terms = tag_service::list_terms(&self.store).map_err(|e| js_err(&e))?;
         to_js(&terms)
     }
 
@@ -1581,10 +1621,10 @@ impl SrsRepository {
     /// + root record, and root container — all in one call. After this returns, call
     /// `export_srsj()` to get the final bundle for download.
     pub fn scaffold_new_repository(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: CreateGovernanceRepositoryInput =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let input: CreateGovernanceRepositoryInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
         let result = governance_scaffold_service::create_governance_repository(&self.store, input)
-            .map_err(js_err)?;
+            .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1596,10 +1636,10 @@ impl SrsRepository {
     /// for legacy seeds. Returns an
     /// `InitNewRepositoryResult` as a JS value.
     pub fn init_new_repository(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: InitNewRepositoryInput =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
-        let result =
-            repository_lifecycle::init_new_repository(&self.store, input).map_err(js_err)?;
+        let input: InitNewRepositoryInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
+        let result = repository_lifecycle::init_new_repository(&self.store, input)
+            .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1610,7 +1650,8 @@ impl SrsRepository {
     /// is already a purpose record or the container has no title/description to derive a
     /// statement from. After this returns, call `export_srsj()` to get the updated bundle.
     pub fn migrate_identity(&self) -> Result<JsValue, JsValue> {
-        let result = migrate_identity_service::migrate_identity(&self.store).map_err(js_err)?;
+        let result =
+            migrate_identity_service::migrate_identity(&self.store).map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1619,7 +1660,8 @@ impl SrsRepository {
     /// Returns a JSON array of `{ id, title, description, status }` objects where
     /// `status` is a string: `needed`, `alreadyApplied` or `notApplicable`.
     pub fn available_migrations(&self) -> Result<JsValue, JsValue> {
-        let result = migration_registry_service::list_migrations(&self.store).map_err(js_err)?;
+        let result =
+            migration_registry_service::list_migrations(&self.store).map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1629,7 +1671,7 @@ impl SrsRepository {
     /// migration-specific. Returns an error if the ID is unknown.
     pub fn apply_migration(&self, id: &str) -> Result<JsValue, JsValue> {
         let result =
-            migration_registry_service::apply_migration(&self.store, id).map_err(js_err)?;
+            migration_registry_service::apply_migration(&self.store, id).map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1653,7 +1695,7 @@ impl SrsRepository {
                 field_name: field_name.to_string(),
             },
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         match result.value {
             Some(v) => to_js(&v),
             None => Ok(JsValue::NULL),
@@ -1666,10 +1708,10 @@ impl SrsRepository {
     /// Returns a `FieldContextResult` with `recordId`, `fieldId`, `fieldName`,
     /// `fieldNamespace`, `aiGuidance`, `currentValue`, and `taggedChunks`.
     pub fn context_field(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: FieldContextQuery =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let input: FieldContextQuery = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
         let result =
-            context_query_service::get_field_context(&self.store, input).map_err(js_err)?;
+            context_query_service::get_field_context(&self.store, input).map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1684,19 +1726,20 @@ impl SrsRepository {
     /// `typeNamespace`, `displayLabel`, `fieldValues`, `relations`, optional
     /// `containerId`/`entry`/`subtree`, `taggedChunks`, and `protocolRunHistory`.
     pub fn context_record(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: RecordContextQuery =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
-        let result =
-            context_query_service::get_record_context(&self.store, input).map_err(js_err)?;
+        let input: RecordContextQuery = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
+        let result = context_query_service::get_record_context(&self.store, input)
+            .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
     /// [`Self::context_record`] as compact markdown (#1285): same `input_json`; the
     /// projection is `card` unless `"label"` is given. Returns the markdown string.
     pub fn context_record_markdown(&self, input_json: &str) -> Result<String, JsValue> {
-        let input: RecordContextQuery =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
-        context_query_service::render_record_context_markdown(&self.store, input).map_err(js_err)
+        let input: RecordContextQuery = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
+        context_query_service::render_record_context_markdown(&self.store, input)
+            .map_err(|e| js_err(&e))
     }
 
     // ── Protocol runs (ext:protocol execution) ────────────────────────────────
@@ -1706,9 +1749,9 @@ impl SrsRepository {
     /// `input_json` is `{"protocolId","protocolVersion","containerId","targetRecordId?","initialStageId?"}`.
     /// Returns the created `ProtocolRun` as a JS value.
     pub fn protocol_run_create(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: RunCreateInput =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
-        let result = run_service::create_run(&self.store, input).map_err(js_err)?;
+        let input: RunCreateInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
+        let result = run_service::create_run(&self.store, input).map_err(|e| js_err(&e))?;
         to_js(&result.run)
     }
 
@@ -1717,15 +1760,15 @@ impl SrsRepository {
     /// `input_json` is `{"runId","stageId","completeCurrent"}`.
     /// Returns the updated `ProtocolRun`.
     pub fn protocol_run_advance(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: RunAdvanceInput =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
-        let result = run_service::advance_stage(&self.store, input).map_err(js_err)?;
+        let input: RunAdvanceInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
+        let result = run_service::advance_stage(&self.store, input).map_err(|e| js_err(&e))?;
         to_js(&result.run)
     }
 
     /// Get a protocol run by its `runId`. Returns the `ProtocolRun`, or `null` if not found.
     pub fn protocol_run_get(&self, run_id: &str) -> Result<JsValue, JsValue> {
-        match run_service::get_run(&self.store, run_id).map_err(js_err)? {
+        match run_service::get_run(&self.store, run_id).map_err(|e| js_err(&e))? {
             GetRunResult::Found(run) => to_js(&*run),
             GetRunResult::NotFound => Ok(JsValue::NULL),
         }
@@ -1735,22 +1778,22 @@ impl SrsRepository {
     /// Returns a JS array of `RunSummary` objects.
     pub fn protocol_run_list(&self, filter_json: &str) -> Result<JsValue, JsValue> {
         let filter: RunListFilter = serde_json::from_str(filter_json)
-            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
-        let summaries = run_service::list_runs(&self.store, filter).map_err(js_err)?;
+            .map_err(|e| js_invalid_input(format!("invalid filter: {e}")))?;
+        let summaries = run_service::list_runs(&self.store, filter).map_err(|e| js_err(&e))?;
         to_js(&summaries)
     }
 
     /// Mark a protocol run as Completed. Returns the updated `ProtocolRun`,
     /// or a JS error string if the run is not found.
     pub fn protocol_run_complete(&self, run_id: &str) -> Result<JsValue, JsValue> {
-        let result = run_service::complete_run(&self.store, run_id).map_err(js_err)?;
+        let result = run_service::complete_run(&self.store, run_id).map_err(|e| js_err(&e))?;
         to_js(&result.run)
     }
 
     /// Mark a protocol run as Abandoned. Returns the updated `ProtocolRun`,
     /// or a JS error string if the run is not found.
     pub fn protocol_run_abandon(&self, run_id: &str) -> Result<JsValue, JsValue> {
-        let result = run_service::abandon_run(&self.store, run_id).map_err(js_err)?;
+        let result = run_service::abandon_run(&self.store, run_id).map_err(|e| js_err(&e))?;
         to_js(&result.run)
     }
 
@@ -1760,10 +1803,10 @@ impl SrsRepository {
     /// Returns `{sourceDocumentsPath, records: [{instanceId, attachments: [{documentId,
     /// contentPath, sidecarPath, title?, contentChecksum?, sidecarChecksum?, sizeBytes?}]}]}`.
     pub fn resolve_composition_attachments(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: ResolveCompositionAttachmentsInput =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let input: ResolveCompositionAttachmentsInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
         let result = attachment_service::resolve_composition_attachments(&self.store, input)
-            .map_err(js_err)?;
+            .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1774,10 +1817,10 @@ impl SrsRepository {
     /// `{instanceId, sourceDocumentsPath, attachments: [{documentId, contentPath?,
     /// sidecarPath?, title?, contentChecksum?, sidecarChecksum?, sizeBytes?}]}` as a JS value.
     pub fn get_record_attachments(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: GetRecordAttachmentsInput =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
-        let result =
-            attachment_service::get_record_attachments(&self.store, input).map_err(js_err)?;
+        let input: GetRecordAttachmentsInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
+        let result = attachment_service::get_record_attachments(&self.store, input)
+            .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1787,8 +1830,9 @@ impl SrsRepository {
     /// Returns `{"sourceDocumentsPath": "...", "entries": [{...}]}` as a JS value.
     pub fn list_attachments(&self, filter_json: &str) -> Result<JsValue, JsValue> {
         let filter: ListAttachmentsFilter = serde_json::from_str(filter_json)
-            .map_err(|e| js_err(format!("invalid filter: {e}")))?;
-        let result = attachment_service::list_attachments(&self.store, filter).map_err(js_err)?;
+            .map_err(|e| js_invalid_input(format!("invalid filter: {e}")))?;
+        let result =
+            attachment_service::list_attachments(&self.store, filter).map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1799,8 +1843,8 @@ impl SrsRepository {
     /// Returns `{"documentId","contentPath","sidecarPath","sourceDocumentsPath",
     ///           "contentChecksum","sidecarChecksum"}` as a JS value.
     pub fn add_attachment(&self, input_json: &str, file_bytes: &[u8]) -> Result<JsValue, JsValue> {
-        let input: AddAttachmentBindingInput =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let input: AddAttachmentBindingInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
         let result = attachment_service::add_attachment(
             &self.store,
             AddAttachmentInput {
@@ -1812,7 +1856,7 @@ impl SrsRepository {
                 content_type: input.content_type,
             },
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 
@@ -1821,8 +1865,8 @@ impl SrsRepository {
     /// `input_json` is `{"instanceId":"<uuid>","documentId":"<uuid>"}`.
     /// Returns `{"instanceId","documentId","sourceRefsCount"}` as a JS value.
     pub fn link_attachment(&self, input_json: &str) -> Result<JsValue, JsValue> {
-        let input: LinkAttachmentBindingInput =
-            serde_json::from_str(input_json).map_err(|e| js_err(format!("invalid input: {e}")))?;
+        let input: LinkAttachmentBindingInput = serde_json::from_str(input_json)
+            .map_err(|e| js_invalid_input(format!("invalid input: {e}")))?;
         let result = attachment_service::link_attachment(
             &self.store,
             LinkAttachmentInput {
@@ -1830,7 +1874,7 @@ impl SrsRepository {
                 document_id: input.document_id,
             },
         )
-        .map_err(js_err)?;
+        .map_err(|e| js_err(&e))?;
         to_js(&result)
     }
 }
@@ -1855,7 +1899,7 @@ pub fn render_markdown(md: &str) -> String {
 /// require a loaded SRS repository and operates on a caller-supplied payload.
 #[wasm_bindgen]
 pub fn parse_registry(catalog_json: &str) -> Result<JsValue, JsValue> {
-    let registry = parse_registry_json(catalog_json).map_err(js_err)?;
+    let registry = parse_registry_json(catalog_json).map_err(|e| js_err(&e))?;
     to_js(&registry)
 }
 
@@ -1874,9 +1918,9 @@ pub fn parse_registry(catalog_json: &str) -> Result<JsValue, JsValue> {
 /// This is a repo-independent free function (ADR-013 addendum).
 #[wasm_bindgen]
 pub fn list_registry_entries(catalog_json: &str, filter_json: &str) -> Result<JsValue, JsValue> {
-    let registry = parse_registry_json(catalog_json).map_err(js_err)?;
-    let filter: RegistryListFilter =
-        serde_json::from_str(filter_json).map_err(|e| js_err(format!("invalid filter: {e}")))?;
+    let registry = parse_registry_json(catalog_json).map_err(|e| js_err(&e))?;
+    let filter: RegistryListFilter = serde_json::from_str(filter_json)
+        .map_err(|e| js_invalid_input(format!("invalid filter: {e}")))?;
     let filtered = filter_registry_entries(registry, &filter);
     to_js(&filtered)
 }
@@ -2025,6 +2069,17 @@ struct LinkAttachmentBindingInput {
 mod tests {
     use super::SrsRepository;
     use srs_repository::RepositoryStore;
+
+    /// Native coverage of the non-JS half of `js_invalid_input`; the `Error`
+    /// construction itself is covered by the wasm32 build only.
+    #[test]
+    fn invalid_input_report_is_coded() {
+        let r = srs_repository::error::RepositoryError::InvalidInput {
+            message: "bad".into(),
+        }
+        .report();
+        assert_eq!(r.code, "invalid-input");
+    }
 
     #[test]
     fn mcp_session_write_guard_rejects_then_clears() {

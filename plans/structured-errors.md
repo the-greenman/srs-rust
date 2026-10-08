@@ -169,16 +169,16 @@ Commit `feat(cli): structured errors[] in the ok:false envelope (#1338)`.
 
 #### Tasks
 
-- [ ] `crates/srs-bindings/src/lib.rs`: one private `fn report_to_js(report: ErrorReport) -> JsValue` builds `js_sys::Error::new(&report.message)` and sets `code` (string) and `details` (when present) with `js_sys::Reflect::set`. `js_err(e: &RepositoryError)` → `report_to_js(e.report())` — sites write `js_err(&e)`, **never `js_err(e.to_string())`**. `js_invalid_input(msg)` → `RepositoryError::InvalidInput { message }` (variant exists at error.rs `InvalidInput { message: String }`) for the input/query/options parse sites. `js_unclassified(msg)` for everything else (e.g. output serialization in `to_js`). **No** blanket `From<String>`/`From<serde_json::Error>` — each site chooses. Keep every message string unchanged. Acceptance grep: `grep -n 'js_err(.*to_string\|js_err(format' crates/srs-bindings/src` is empty.
-- [ ] `crates/srs-mcp-core/src/tools.rs`: change `tool_err` to `tool_err(report: ErrorReport) -> Value`, returning `{content:[{type:"text",text:report.message}], structuredContent: report, isError:true}`. Convert callers: `tool_err(e.report())` for RepositoryError, `ErrorReport::unclassified(...)` otherwise, `GetRunResult::NotFound` → a matching variant if one exists, else unclassified.
-- [ ] Write guard: `WriteGuard::check` (`crates/srs-mcp-core/src/guard.rs`) keeps returning `Err(String)`; at its single call site in `SrsMcpApplication` `tools/call` (`crates/srs-mcp-core/src/lib.rs`, `guard.check(store, &name, …)`) wrap it as `ErrorReport { code: "write-guard-rejected".into(), message, details: None }` before `tool_err`.
-- [ ] `crates/srs-mcp`: rmcp 2.2 `CallToolResult.structured_content` round-trips through JSON (verified at plan review), so no change; the test below asserts it end to end.
+- [x] `crates/srs-bindings/src/lib.rs`: one private `fn report_to_js(report: ErrorReport) -> JsValue` builds `js_sys::Error::new(&report.message)` and sets `code` (string) and `details` (when present) with `js_sys::Reflect::set`. `js_err(e: &RepositoryError)` → `report_to_js(e.report())` — sites write `js_err(&e)`, **never `js_err(e.to_string())`**. `js_invalid_input(msg)` → `RepositoryError::InvalidInput { message }` (variant exists at error.rs `InvalidInput { message: String }`) for the input/query/options parse sites. `js_unclassified(msg)` for everything else (e.g. output serialization in `to_js`). **No** blanket `From<String>`/`From<serde_json::Error>` — each site chooses. Keep every message string unchanged. Acceptance grep: `grep -n 'js_err(.*to_string\|js_err(format' crates/srs-bindings/src` is empty.
+- [x] `crates/srs-mcp-core/src/tools.rs`: change `tool_err` to `tool_err(report: ErrorReport) -> Value`, returning `{content:[{type:"text",text:report.message}], structuredContent: report, isError:true}`. Convert callers: `tool_err(e.report())` for RepositoryError, `ErrorReport::unclassified(...)` otherwise, `GetRunResult::NotFound` → a matching variant if one exists, else unclassified.
+- [x] Write guard: `WriteGuard::check` (`crates/srs-mcp-core/src/guard.rs`) keeps returning `Err(String)`; at its single call site in `SrsMcpApplication` `tools/call` (`crates/srs-mcp-core/src/lib.rs`, `guard.check(store, &name, …)`) wrap it as `ErrorReport { code: "write-guard-rejected".into(), message, details: None }` before `tool_err`.
+- [x] `crates/srs-mcp`: rmcp 2.2 `CallToolResult.structured_content` round-trips through JSON (verified at plan review), so no change; the test below asserts it end to end.
 
 #### Acceptance Criteria
 
-- [ ] `cargo build --target wasm32-unknown-unknown -p srs-bindings` succeeds.
-- [ ] An MCP `record_transition` on a no-lifecycle record → `structuredContent.code == "lifecycle-not-defined"`.
-- [ ] A guard rejection → `structuredContent.code == "write-guard-rejected"`.
+- [x] `cargo build --target wasm32-unknown-unknown -p srs-bindings` succeeds.
+- [x] An MCP `record_transition` on a no-lifecycle record → `structuredContent.code == "lifecycle-not-defined"`.
+- [x] A guard rejection → `structuredContent.code == "write-guard-rejected"`.
 
 #### Testing
 

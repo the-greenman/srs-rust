@@ -58,6 +58,10 @@ fn tool(d: &mut McpDispatcher<SrsMcpApplication<FileStore>>, name: &str, args: V
         .clone()
 }
 
+fn code(r: &Value) -> &str {
+    r["structuredContent"]["code"].as_str().unwrap_or_default()
+}
+
 fn text(r: &Value) -> String {
     r["content"][0]["text"]
         .as_str()
@@ -85,25 +89,28 @@ fn host_set_actor_is_stamped_and_tool_args_cannot_forge_one() {
     forged["createdBy"] = json!({"kind":"human","id":"someone-else"});
     let r = tool(&mut d, "note_create", forged);
     assert_eq!(r["isError"], true);
-    assert!(text(&r).contains("may not carry createdBy"), "{}", text(&r));
+    assert_eq!(code(&r), "actor-supplied", "{}", text(&r));
     let r = tool(
         &mut d,
         "relation_create",
         json!({"relationType":"evidences","sourceInstanceId":"a","targetInstanceId":"b",
                "createdBy":{"kind":"human","id":"x"}}),
     );
-    assert!(text(&r).contains("may not carry createdBy"), "{}", text(&r));
+    assert_eq!(code(&r), "actor-supplied", "{}", text(&r));
     let r = tool(
         &mut d,
         "record_create",
         json!({"type":"com.semanticops.core/purpose","fieldValues":{"statement":"s"},
                "createdBy":{"kind":"human","id":"x"}}),
     );
-    assert!(text(&r).contains("may not carry createdBy"), "{}", text(&r));
+    assert_eq!(code(&r), "actor-supplied", "{}", text(&r));
     // A malformed (non-object) createdBy is still actor-supplied, not a parse error.
     let mut malformed = NOTE();
     malformed["createdBy"] = json!("x");
-    assert!(text(&tool(&mut d, "note_create", malformed)).contains("may not carry createdBy"));
+    assert_eq!(
+        code(&tool(&mut d, "note_create", malformed)),
+        "actor-supplied"
+    );
     // Update with a createdBy that is not the stored value: actor-changed.
     let r = tool(
         &mut d,
@@ -120,7 +127,7 @@ fn clearing_or_invalidating_the_host_actor_changes_the_outcome() {
     d.application_mut()
         .set_session_actor(Some(json!({"kind":"ai","id":""})));
     let r = tool(&mut d, "note_create", NOTE());
-    assert!(text(&r).contains("not a valid Actor"), "{}", text(&r));
+    assert_eq!(code(&r), "actor-invalid", "{}", text(&r));
     d.application_mut().set_session_actor(None);
     let r = tool(&mut d, "note_create", NOTE());
     assert_eq!(r["isError"], false);

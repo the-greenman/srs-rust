@@ -674,7 +674,11 @@ impl<S: srs_repository::store::RepositoryStore> McpApplication for SrsMcpApplica
                 }
                 if let Some(guard) = &self.write_guard {
                     if let Err(message) = guard.check(store, &name, arguments.as_ref()) {
-                        return Ok(tools::tool_err(message));
+                        return Ok(tools::tool_err(srs_repository::ErrorReport {
+                            code: "write-guard-rejected".into(),
+                            message,
+                            details: None,
+                        }));
                     }
                 }
                 // Writes made through other handles since the last call (the UI)
