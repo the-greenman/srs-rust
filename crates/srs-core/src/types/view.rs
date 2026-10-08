@@ -205,14 +205,6 @@ pub struct ExportConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum ViewProtection {
-    None,
-    ReadOnly,
-    FillIn,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct View {
     /// The `$schema` pointer the file may carry — declared by the schema itself,
@@ -228,8 +220,6 @@ pub struct View {
     pub field_views: Vec<ViewRow>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compatible_types: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub protection: Option<ViewProtection>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub export_config: Option<ExportConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -260,8 +250,6 @@ pub enum ContainerScope {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum SectionSource {
-    #[serde(rename_all = "camelCase")]
-    FixedInstances { instance_ids: Vec<String> },
     /// RFC-012/RFC-011 collapse (srs#525, srs-rust#924): a section names its
     /// selection via the one structured query mechanism
     /// ([`crate::types::discovery::DiscoveryQuery`], ext:discovery) and adds
@@ -286,13 +274,6 @@ pub enum SectionSource {
         /// and non-traversing).
         #[serde(skip_serializing_if = "Option::is_none")]
         container_scope: Option<ContainerScope>,
-    },
-    #[serde(rename_all = "camelCase")]
-    RelationQuery {
-        from_instance_id: String,
-        relation_type: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        direction: Option<RelationDirection>,
     },
     #[serde(rename_all = "camelCase")]
     ContainerSubset {
@@ -845,30 +826,19 @@ mod tests {
         );
     }
 
+    /// rfc-decision-4f1e12e5: `fixed-instances` and `relation-query` were removed from
+    /// the spec; serde rejects them the way the schema does (unknown `type` tag).
     #[test]
-    fn section_source_fixed_instances_deserialises() {
-        let json = r#"{"type":"fixed-instances","instanceIds":["a","b"]}"#;
-        let parsed: SectionSource = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            parsed,
-            SectionSource::FixedInstances {
-                instance_ids: vec!["a".to_string(), "b".to_string()]
-            }
-        );
-    }
-
-    #[test]
-    fn section_source_relation_query_defaults_forward() {
-        let json = r#"{"type":"relation-query","fromInstanceId":"r1","relationType":"precedes"}"#;
-        let parsed: SectionSource = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            parsed,
-            SectionSource::RelationQuery {
-                from_instance_id: "r1".to_string(),
-                relation_type: "precedes".to_string(),
-                direction: None
-            }
-        );
+    fn section_source_retired_variants_are_rejected() {
+        for json in [
+            r#"{"type":"fixed-instances","instanceIds":["a","b"]}"#,
+            r#"{"type":"relation-query","fromInstanceId":"r1","relationType":"precedes"}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<SectionSource>(json).is_err(),
+                "retired section source must be rejected: {json}"
+            );
+        }
     }
 
     #[test]
@@ -950,8 +920,11 @@ mod tests {
             title: None,
             description: None,
             order: 0,
-            source: SectionSource::FixedInstances {
-                instance_ids: vec![],
+            source: SectionSource::ContainerSubset {
+                container_id: Some("c1".to_string()),
+                container_type: None,
+                type_filter: None,
+                container_scope: None,
             },
             render_view_id: None,
             type_dispatch: None,
@@ -1009,8 +982,11 @@ mod tests {
             title: None,
             description: None,
             order: 0,
-            source: SectionSource::FixedInstances {
-                instance_ids: vec![],
+            source: SectionSource::ContainerSubset {
+                container_id: Some("c1".to_string()),
+                container_type: None,
+                type_filter: None,
+                container_scope: None,
             },
             render_view_id: None,
             type_dispatch: None,
@@ -1040,8 +1016,11 @@ mod tests {
             title: None,
             description: None,
             order: 0,
-            source: SectionSource::FixedInstances {
-                instance_ids: vec![],
+            source: SectionSource::ContainerSubset {
+                container_id: Some("c1".to_string()),
+                container_type: None,
+                type_filter: None,
+                container_scope: None,
             },
             render_view_id: None,
             type_dispatch: Some(dispatch.clone()),

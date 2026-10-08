@@ -735,7 +735,6 @@ mod tests {
             }
             .into()],
             compatible_types: None,
-            protection: None,
             export_config: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
@@ -837,31 +836,14 @@ mod tests {
         assert!(create_view(&store, v, None).is_err());
     }
 
-    /// srs-rust#1098 / srs#832: `View.protection` still exists as a Rust struct field (it
-    /// round-trips through serde), but the view-root `protection` enum was deliberately
-    /// removed from `view.json` (rfc-decision-4f1e12e5 entry 5, srs#444) — zero use, and a
-    /// hint without an enforcement contract. `view.json` declares `additionalProperties:
-    /// false` and no `protection` property, so a View with `protection` set is
-    /// Rust-struct-valid but schema-invalid — exactly the shape class this fix catches at
-    /// create time instead of at the next `repo validate`.
+    /// rfc-decision-4f1e12e5 entry 5 (srs#444, srs-rust#1361): the view-root `protection`
+    /// enum was removed from `view.json`; `View` is `deny_unknown_fields`, so a definition
+    /// carrying it no longer deserialises.
     #[test]
-    fn create_view_rejects_schema_violation() {
-        use srs_core::types::view::ViewProtection;
-
-        let temp = tempfile::TempDir::new().unwrap();
-        setup_minimal_repo(temp.path());
-        let store = FileStore::new(temp.path());
-
-        let mut v = minimal_view("retired-protection-field");
-        v.protection = Some(ViewProtection::ReadOnly);
-
-        match create_view(&store, v, None) {
-            Err(RepositoryError::SchemaValidation { .. }) => {}
-            other => panic!(
-                "expected SchemaValidation (protection is not a property of view.json), got: {:?}",
-                other.map(|r| r.view.id)
-            ),
-        }
+    fn view_with_retired_protection_field_is_rejected() {
+        let mut json = serde_json::to_value(minimal_view("retired-protection-field")).unwrap();
+        json["protection"] = serde_json::json!("read-only");
+        assert!(serde_json::from_value::<srs_core::types::view::View>(json).is_err());
     }
 
     /// RFC-041 [R7]: a duplicate `order` across the mixed FieldView/RecordPropertyView
@@ -1094,44 +1076,17 @@ mod tests {
         assert!(create_composition(&store, dv, None).is_err());
     }
 
-    /// srs-rust#1098 / srs#832: `SectionSource::FixedInstances` still exists as a Rust enum
-    /// variant (it round-trips through serde and several internal render/relation-graph code
-    /// paths still handle it defensively), but it was deliberately removed from
-    /// `composition.json`'s `SectionSource` oneOf (rfc-decision-4f1e12e5, srs#444) — 0 of 13
-    /// real sections used it. Before this fix, `create_composition` happily wrote a
-    /// `fixed-instances` section to disk (the Rust type accepts it) and the file would only
-    /// fail at the next `repo validate`/catalog load, bricking the whole repository. It must
-    /// now be refused at create time instead.
+    /// rfc-decision-4f1e12e5 (srs#444, srs-rust#1361): `fixed-instances` was removed from
+    /// `SectionSource`; a composition section carrying it no longer deserialises.
     #[test]
-    fn create_composition_rejects_fixed_instances_section_source() {
-        let temp = tempfile::TempDir::new().unwrap();
-        setup_minimal_repo(temp.path());
-        let store = FileStore::new(temp.path());
-
-        let mut dv = minimal_composition("fixed-instances-section");
-        dv.sections[0].source = SectionSource::FixedInstances {
-            instance_ids: vec!["00000000-0000-4000-8000-000000000001".to_string()],
-        };
-
-        match create_composition(&store, dv, None) {
-            Err(RepositoryError::SchemaValidation { message, .. }) => {
-                assert!(
-                    message.contains("fixed-instances") || message.contains("oneOf"),
-                    "expected the schema diagnostic to name the rejected shape, got: {message}"
-                );
-            }
-            other => panic!(
-                "expected SchemaValidation (fixed-instances is not in composition.json's SectionSource oneOf), got: {:?}",
-                other.map(|r| r.composition.id)
-            ),
-        }
-
-        // Nothing was written: the compositions directory never gets created, and the
-        // boundary's package.json compositions[] index stays empty.
-        assert!(
-            list_compositions(&store).unwrap().is_empty(),
-            "a schema-invalid composition must not be registered in the boundary"
-        );
+    fn composition_with_fixed_instances_section_source_is_rejected() {
+        let mut json =
+            serde_json::to_value(minimal_composition("fixed-instances-section")).unwrap();
+        json["sections"][0]["source"] = serde_json::json!({
+            "type": "fixed-instances",
+            "instanceIds": ["00000000-0000-4000-8000-000000000001"],
+        });
+        assert!(serde_json::from_value::<srs_core::types::view::Composition>(json).is_err());
     }
 
     /// RFC-042 Revision 5 [R21]: `containerScope: "repository"` on a
@@ -1544,8 +1499,11 @@ mod tests {
                 title: None,
                 description: None,
                 order: 0,
-                source: srs_core::types::view::SectionSource::FixedInstances {
-                    instance_ids: vec![],
+                source: srs_core::types::view::SectionSource::ContainerSubset {
+                    container_id: Some("c1".to_string()),
+                    container_type: None,
+                    type_filter: None,
+                    container_scope: None,
                 },
                 render_view_id: None,
                 type_dispatch: None,
@@ -1838,8 +1796,11 @@ mod tests {
                 title: None,
                 description: None,
                 order: 0,
-                source: srs_core::types::view::SectionSource::FixedInstances {
-                    instance_ids: vec![],
+                source: srs_core::types::view::SectionSource::ContainerSubset {
+                    container_id: Some("c1".to_string()),
+                    container_type: None,
+                    type_filter: None,
+                    container_scope: None,
                 },
                 render_view_id: None,
                 type_dispatch: None,
