@@ -1176,8 +1176,8 @@ impl SrsRepository {
             placement.as_deref(),
             shift.as_deref(),
         )
-        .map_err(|e| JsValue::from_str(&e))?
-        .ok_or_else(|| JsValue::from_str("give relativeTo with placement, or shift"))?;
+        .map_err(js_invalid_input)?
+        .ok_or_else(|| js_invalid_input("give relativeTo with placement, or shift"))?;
         let result =
             container_service::move_member_relative(&self.store, container_id, instance_id, &mv)
                 .map_err(|e| js_err(&e))?;
@@ -1194,9 +1194,9 @@ impl SrsRepository {
     ) -> Result<JsValue, JsValue> {
         let Some(RelativeMove::Place { target, placement }) =
             RelativeMove::parse(Some(relative_to), Some(placement), None)
-                .map_err(|e| JsValue::from_str(&e))?
+                .map_err(js_invalid_input)?
         else {
-            return Err(JsValue::from_str("relativeTo and placement are required"));
+            return Err(js_invalid_input("relativeTo and placement are required"));
         };
         let result = container_service::add_member_relative(
             &self.store,
@@ -1289,7 +1289,7 @@ impl SrsRepository {
         )
         .map_err(|e| js_err(&e))?;
         let canonical_json = srs_projection::json_schema::to_canonical_json(&result.schema)
-            .map_err(|e| JsValue::from_str(&format!("failed to serialize canonical JSON: {e}")))?;
+            .map_err(|e| js_unclassified(format!("failed to serialize canonical JSON: {e}")))?;
         to_js(&JsonSchemaBindingResult {
             schema: serde_json::to_value(&result.schema).unwrap_or(serde_json::Value::Null),
             canonical_json,
@@ -1313,7 +1313,7 @@ impl SrsRepository {
         )
         .map_err(|e| js_err(&e))?;
         let canonical_json = srs_projection::json_schema::to_canonical_json(&result.bundle)
-            .map_err(|e| JsValue::from_str(&format!("failed to serialize canonical JSON: {e}")))?;
+            .map_err(|e| js_unclassified(format!("failed to serialize canonical JSON: {e}")))?;
         to_js(&JsonSchemaBindingResult {
             schema: serde_json::to_value(&result.bundle).unwrap_or(serde_json::Value::Null),
             canonical_json,
