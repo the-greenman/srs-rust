@@ -22,6 +22,7 @@ cargo test test_name
 cargo clippy -- -D warnings
 cargo run --bin srs -- <args>
 cargo run --bin generate-schemas          # regenerate payload JSON Schema golden files after changing payload.rs
+scripts/bench-scale.sh                    # x1/x10 scaling benchmark (docs/benchmarking.md)
 ```
 
 ## Crate Authority — what lives where
