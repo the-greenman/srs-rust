@@ -9,9 +9,9 @@
 // ── THE MODEL (read this before changing anything) ───────────────────────────
 //
 // Entities — all native GitHub issues, linked by native sub-issues:
-//   epic  (label `epic`, in muDemocracy.org)       an epic IS a release (1:1); hand-set
-//                                                  board Priority; "Epic NN:" title = roadmap seq
-//   story (label `user-story`, in muDemocracy.org) the human value layer; hand-set MoSCoW
+//   epic  (label `epic`, in STORY_REPO)             an epic IS a release (1:1); board Priority is
+//                                                  derived by srs-programme (roadmap.mjs --apply); "Epic NN:" title = roadmap seq
+//   story (label `user-story`, in STORY_REPO)      the human value layer; hand-set MoSCoW
 //   work item (any other open issue, any repo)     everything derived, nothing hand-set
 //
 // Priority derivation (pure: derivePriority; walk one issue via `explain <repo> <#>`):
@@ -58,7 +58,7 @@
 //   - Every subprocess call carries a timeout: a hung network call fails loudly and the
 //     next hourly run retries; it never wedges the pipeline.
 //
-// Release model (#720): an epic (label `epic`, in muDemocracy.org) IS a release — the
+// Release model (#720): an epic (label `epic`, in STORY_REPO) IS a release — the
 // epic ISSUE is the release's identity, its TITLE's "Epic NN:" prefix is the roadmap
 // sequence, and membership is the native sub-issue graph. There is NO Release board
 // field and NO release label: single-select options are hand-maintained UI state that
@@ -77,12 +77,9 @@ import { pathToFileURL } from "node:url";
 // Configuration (overridable via env)
 // ---------------------------------------------------------------------------
 const OWNER = process.env.GHP_OWNER || "the-greenman";
-const PROJECT_NUMBER = Number(process.env.GHP_PROJECT || 5);
-const STORY_REPO = process.env.GHP_STORY_REPO || "muDemocracy.org";
+const PROJECT_NUMBER = Number(process.env.GHP_PROJECT || 6);
+const STORY_REPO = process.env.GHP_STORY_REPO || "semanticops.com";
 const STORY_LABEL = "user-story";
-const SCRIPT_DIR = dirname(new URL(import.meta.url).pathname);
-const STRATEGY_MODEL_PATH = resolve(SCRIPT_DIR, "../docs/strategy/roadmap.json");
-const STRATEGY_MARKDOWN_PATH = resolve(SCRIPT_DIR, "../docs/strategy/roadmap.md");
 
 const MOSCOW_TO_P = { Must: "P0", Should: "P1", Could: "P2", "Won't": null };
 // Blank-means-Could (#664): an unset MoSCoW (story) / Priority (epic) is a value nobody
@@ -130,7 +127,7 @@ const MIRROR_LABELS = [
   { name: NEEDS_INPUT_LABEL, color: "D876E3", description: "Stopped at a human gate — question is in the comments; answer and REMOVE this label to re-feed" },
 ];
 // Repos whose merges/routines depend on the mirror set existing. Overridable for tests/forks.
-const MIRROR_REPOS = (process.env.GHP_MIRROR_REPOS || `srs,srs-rust,srs-web,srs-vscode,${STORY_REPO}`)
+const MIRROR_REPOS = (process.env.GHP_MIRROR_REPOS || `srs,srs-rust,srs-web,srs-vscode,srs-context,srs-programme,${STORY_REPO}`)
   .split(",").map((s) => s.trim()).filter(Boolean);
 
 // Board Status → plain-label mirror. The routines can't read Projects v2 Status through the
@@ -148,7 +145,7 @@ const GH_AVAILABLE = (() => {
 })();
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
 if (!GH_AVAILABLE) {
-  // Keep purely local commands (notably `strategy --write/--check`) usable without
+  // Keep purely local commands usable without
   // credentials. Commands that actually reach GitHub fail at their first API call.
   if (GITHUB_TOKEN) {
     // Node 22+ native fetch must be told to honour the egress proxy; curl already does.
@@ -977,7 +974,13 @@ function derivePriority(row, served, storiesByNum, epicInfo = null) {
   // Won't-excluded: it serves stories, and every one is an explicit Won't. This is the
   // one deliberate "do not feed this" signal — neither the epic fallback nor the
   // default floor may resurrect it. (The bug floor still applies: bugs are never lost.)
-  const wontExcluded = storyValues.length > 0 && base === null;
+  // A `parked` epic excludes its descendants the same way (#1347).
+  const parked = !!epicInfo?.parked;
+  // Story-derived P is capped at the claiming epic's P (a Must story under a P2 epic → P2).
+  const epicCap = epicInfo ? (epicInfo.priority ?? EPIC_PRIORITY_DEFAULT) : null;
+  if (base && epicCap && P_ORDER.indexOf(base) < P_ORDER.indexOf(epicCap)) base = epicCap;
+  const wontExcluded = parked || (storyValues.length > 0 && base === null);
+  if (parked) base = null;
 
   // Stage 4: epic fallback — no story, but the issue is reachable from an epic:
   // inherit the epic's roadmap Priority one tier down (P0→P1, P1→P2, P2→P2).
@@ -1048,7 +1051,7 @@ function computeRollup() {
     // repo (site bugs, chores) are real work and must derive a priority too. (#664)
     if (row.labels.includes(STORY_LABEL) || row.labels.includes("epic") || row.labels.includes("plan")) continue;
     const claiming = epicDesc.get(row.key);
-    const epicInfo = claiming != null ? { num: claiming, priority: epicByNum.get(claiming)?.priority ?? null } : null;
+    const epicInfo = claiming != null ? { num: claiming, priority: epicByNum.get(claiming)?.priority ?? null, parked: !!epicByNum.get(claiming)?.parked } : null;
     const { p, stages } = derivePriority(row, descendants.get(row.key), storiesByNum, epicInfo);
     if (stages.kind === "story-derived")
       derived.push({ row, p, stages, basis: `stories ${stages.served.map((n) => "#" + n).join(",")}` });
@@ -1080,7 +1083,7 @@ function applyPriority(entry, dryRun) {
 }
 
 // ---------------------------------------------------------------------------
-// Epics as releases (#720) — an epic (label `epic`, in muDemocracy.org) IS a release.
+// Epics as releases (#720) — an epic (label `epic`, in STORY_REPO) IS a release.
 // The epic ISSUE is the release's identity, its TITLE's "Epic NN:" prefix is the
 // roadmap sequence, its board Priority is the urgency tier, and membership is the
 // native sub-issue graph. There is NO Release board field and NO release label —
@@ -1140,13 +1143,13 @@ function openEpics() {
   const rows = (ghJson([
     "issue", "list", "--repo", `${OWNER}/${STORY_REPO}`,
     "--label", EPIC_LABEL, "--state", "open", "--limit", "100",
-    "--json", "number,title",
-  ]) || []).map((e) => ({ num: e.number, title: e.title }));
+    "--json", "number,title,labels",
+  ]) || []).map((e) => ({ num: e.number, title: e.title, parked: (e.labels || []).some((l) => l.name === "parked") }));
   const b = board();
   return rows.map((e) => {
     const row = b.get(`${STORY_REPO}#${e.num}`);
     return {
-      num: e.num, title: e.title, key: `${STORY_REPO}#${e.num}`,
+      num: e.num, title: e.title, key: `${STORY_REPO}#${e.num}`, parked: e.parked,
       priority: row?.priority ?? null, onBoard: !!row,
     };
   });
@@ -2103,249 +2106,8 @@ function cmdSync(argv) {
   step("reconcile", () => cmdReconcile(flags));
 }
 
-// ---------------------------------------------------------------------------
-// Owner strategic map — committed structure + REST-only live overlay
-// ---------------------------------------------------------------------------
-// The map is deliberately not another execution board. roadmap.json records the
-// durable owner judgement; roadmap.md is a deterministic, reviewable projection;
-// `strategy --status` overlays live issue state without committing volatile data.
-
-const STRATEGY_RELEASE_FIELDS = [
-  "actor", "promise", "durableArtifact", "entryCriteria", "includedCapabilities",
-  "rootIssues", "exclusions", "walkthrough", "compatibilityPromise", "stableAfter",
-];
-
-function strategyRef(ref) {
-  const m = /^([^#\s]+)#(\d+)$/.exec(ref || "");
-  if (!m) throw new Error(`invalid issue reference "${ref}" (expected repo#number)`);
-  return { ref, repo: m[1], num: Number(m[2]), key: m[1] + "#" + m[2] };
-}
-
-function strategyIssueUrl(ref) {
-  const { repo, num } = strategyRef(ref);
-  return `https://github.com/${OWNER}/${repo}/issues/${num}`;
-}
-
-function strategyIssueLink(ref) { return `[#${strategyRef(ref).num}](${strategyIssueUrl(ref)})`; }
-
-function strategyModel(path = STRATEGY_MODEL_PATH) {
-  return JSON.parse(readFileSync(path, "utf8"));
-}
-
-function strategyCell(v) {
-  return String(v).replaceAll("|", "\\|").replaceAll("\n", " ");
-}
-
-function strategyId(s) { return String(s).replace(/[^A-Za-z0-9_]/g, "_"); }
-
-// Mermaid's bare node text grammar is deliberately narrow. Quote every label so
-// issue references (#), punctuation, and future human-authored titles cannot turn a
-// generated map into invalid diagram syntax.
-function strategyMermaidLabel(v) {
-  return String(v)
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("[", "(")
-    .replaceAll("]", ")")
-    .replace(/\r?\n/g, "<br/>");
-}
-
-function validateStrategy(model) {
-  const errors = [];
-  const warnings = [];
-  const capabilities = new Set(model.capabilities || []);
-  if (!model.version) errors.push("missing version");
-  if (!Array.isArray(model.capabilities) || !model.capabilities.length) errors.push("missing capabilities");
-  if (!Array.isArray(model.boundaries) || !model.boundaries.length) errors.push("missing boundaries");
-  const boundaryIds = new Set();
-  const roots = new Map();
-  for (const b of model.boundaries || []) {
-    if (!b.id || boundaryIds.has(b.id)) errors.push(`duplicate boundary id: ${b.id || "(blank)"}`);
-    boundaryIds.add(b.id);
-    for (const f of STRATEGY_RELEASE_FIELDS) {
-      const v = b[f];
-      if (v == null || v === "" || (Array.isArray(v) && !v.length)) errors.push(`${b.id || "boundary"}: missing ${f}`);
-    }
-    for (const cap of b.includedCapabilities || []) if (!capabilities.has(cap)) errors.push(`${b.id}: unknown capability ${cap}`);
-    for (const ref of b.rootIssues || []) {
-      try { strategyRef(ref); } catch (e) { errors.push(`${b.id}: ${e.message}`); continue; }
-      if (roots.has(ref)) errors.push(`duplicate boundary root ownership: ${ref} in ${roots.get(ref)} and ${b.id}`);
-      roots.set(ref, b.id);
-    }
-  }
-  for (const b of model.boundaries || []) for (const need of b.requires || []) {
-    if (!boundaryIds.has(need)) errors.push(`${b.id}: requires unknown boundary ${need}`);
-  }
-  const visiting = new Set(), visited = new Set();
-  const byId = new Map((model.boundaries || []).map((b) => [b.id, b]));
-  const visit = (id) => {
-    if (visiting.has(id)) { errors.push(`boundary dependency cycle at ${id}`); return; }
-    if (visited.has(id)) return;
-    visiting.add(id);
-    for (const need of byId.get(id)?.requires || []) visit(need);
-    visiting.delete(id); visited.add(id);
-  };
-  for (const id of boundaryIds) visit(id);
-
-  const known = new Set(model.knownEpicRefs || []);
-  const mapped = new Set();
-  for (const e of model.epics || []) {
-    try { strategyRef(e.ref); } catch (err) { errors.push(`epic: ${err.message}`); continue; }
-    if (mapped.has(e.ref)) errors.push(`duplicate epic ownership: ${e.ref}`);
-    mapped.add(e.ref);
-    if (!known.has(e.ref)) warnings.push(`mapped epic not present in knownEpicRefs: ${e.ref}`);
-    for (const cap of e.capabilities || []) if (!capabilities.has(cap)) errors.push(`${e.ref}: unknown capability ${cap}`);
-    if (!e.disposition) errors.push(`${e.ref}: missing disposition`);
-    if (!e.role) errors.push(`${e.ref}: missing role`);
-  }
-  for (const ref of known) if (!mapped.has(ref)) errors.push(`unmapped epic: ${ref}`);
-  for (const ref of mapped) if (!known.has(ref)) warnings.push(`unrecognised mapped epic: ${ref}`);
-  return { errors, warnings };
-}
-
-function renderStrategy(model) {
-  const check = validateStrategy(model);
-  if (check.errors.length) throw new Error(`strategy model invalid:\n- ${check.errors.join("\n- ")}`);
-  const lines = [
-    "# SRS owner strategic map", "",
-    "> Generated from `roadmap.json` by `node scripts/gh-project.mjs strategy --write`. Do not edit this file directly.", "",
-    model.purpose, "",
-    "This is the owner operating view above the execution board. It names durable capability branches and release promises; it does not change GitHub hierarchy, labels, priorities or release fields.", "",
-    "## Capability map", "",
-    "```mermaid", "flowchart LR", "  S[\"Semantic sovereignty\"]",
-  ];
-  for (const cap of model.capabilities) lines.push(`  S --> C_${strategyId(cap)}[\"${strategyMermaidLabel(cap)}\"]`);
-  for (const epic of model.epics) {
-    const id = `E_${strategyId(epic.ref)}`;
-    lines.push(`  ${id}[\"${strategyMermaidLabel(`${epic.ref}: ${epic.name}`)}\"]`);
-    for (const cap of epic.capabilities) lines.push(`  C_${strategyId(cap)} -.-> ${id}`);
-  }
-  lines.push("```", "", `Delivery surfaces across all branches: ${model.deliverySurfaces.join(", ")}.`, "");
-  lines.push("| Capability | Primary epics / workstreams |", "| --- | --- |");
-  for (const cap of model.capabilities) {
-    const epics = model.epics.filter((e) => e.capabilities.includes(cap)).map((e) => `${strategyIssueLink(e.ref)} ${e.name}`).join("<br>");
-    lines.push(`| ${cap} | ${epics || "—"} |`);
-  }
-  lines.push("", "## Release staircase", "", "```mermaid", "flowchart LR");
-  for (const b of model.boundaries) lines.push(`  ${b.id}[\"${strategyMermaidLabel(`${b.id}: ${b.name}`)}\"]`);
-  for (const b of model.boundaries) for (const need of b.requires || []) lines.push(`  ${need} --> ${b.id}`);
-  lines.push("```", "");
-  for (const b of model.boundaries) {
-    lines.push(`### ${b.id} — ${b.name}`, "", `**Actor:** ${b.actor}`, "", `**Promise:** ${b.promise}`, "", `**Durable artifact:** ${b.durableArtifact}`, "", `**Entry criteria:** ${b.entryCriteria.join("; ")}`, "", `**Included capabilities:** ${b.includedCapabilities.join(", ")}`, "", `**Root issues:** ${b.rootIssues.map(strategyIssueLink).join(", ")}`, "", `**Explicit exclusions:** ${b.exclusions.join("; ")}`, "", `**End-to-end walkthrough:** ${b.walkthrough}`, "", `**Compatibility promise:** ${b.compatibilityPromise}`, "", `**What becomes stable:** ${b.stableAfter}`, "");
-  }
-  lines.push("## Critical path", "", "Only release-gate `requires` edges appear here. Native `blocked-by` edges are intentionally live-only and are shown by `strategy --status`; conceptual relationships never enter the scheduler graph.", "", "```mermaid", "flowchart LR");
-  for (const b of model.boundaries) lines.push(`  ${b.id}[\"${strategyMermaidLabel(`${b.id}: ${b.name}`)}\"]`);
-  for (const b of model.boundaries) for (const need of b.requires || []) lines.push(`  ${need} -->|requires| ${b.id}`);
-  lines.push("```", "", "## Epic disposition (proposal only)", "", "No GitHub hierarchy, label, priority or release-field change is implied by this table.", "", "| Epic | Proposed disposition | Proposed role | Rationale |", "| --- | --- | --- | --- |");
-  for (const e of model.epics) lines.push(`| ${strategyIssueLink(e.ref)} ${strategyCell(e.name)} | ${e.disposition} | ${strategyCell(e.role)} | ${strategyCell(e.notes)} |`);
-  lines.push("", "## Use", "", "- Regenerate after changing the curated model: `node scripts/gh-project.mjs strategy --write`.", "- Verify committed output: `node scripts/gh-project.mjs strategy --check`.", "- Overlay live GitHub state without changing committed files: `node scripts/gh-project.mjs strategy --status`.", "");
-  return lines.join("\n");
-}
-
-function strategyRestClient() {
-  const issueCache = new Map(), childrenCache = new Map(), blockersCache = new Map();
-  const get = (path) => ghJson(["api", "--paginate", path]);
-  return {
-    issue(ref) {
-      const { repo, num, key } = strategyRef(ref);
-      if (!issueCache.has(key)) issueCache.set(key, get(`repos/${OWNER}/${repo}/issues/${num}`));
-      return issueCache.get(key);
-    },
-    children(ref) {
-      const { repo, num, key } = strategyRef(ref);
-      if (!childrenCache.has(key)) childrenCache.set(key, get(`repos/${OWNER}/${repo}/issues/${num}/sub_issues`) || []);
-      return childrenCache.get(key);
-    },
-    blockers(ref) {
-      const { repo, num, key } = strategyRef(ref);
-      if (!blockersCache.has(key)) blockersCache.set(key, get(`repos/${OWNER}/${repo}/issues/${num}/dependencies/blocked_by`) || []);
-      return blockersCache.get(key);
-    },
-  };
-}
-
-function strategyChildRef(child, fallbackRepo) {
-  const repo = child.repository?.name || /\/repos\/[^/]+\/([^/]+)$/.exec(child.repository_url || "")?.[1] || fallbackRepo;
-  return `${repo}#${child.number}`;
-}
-
-function collectStrategyStatus(model, client) {
-  const roots = [...new Set([...(model.epics || []).map((e) => e.ref), ...(model.boundaries || []).flatMap((b) => b.rootIssues)])];
-  const rows = new Map(), edges = [];
-  const walk = (ref) => {
-    if (rows.has(ref)) return;
-    const issue = client.issue(ref);
-    if (!issue) throw new Error(`GitHub returned no issue for ${ref}`);
-    rows.set(ref, { ref, state: issue.state, title: issue.title, labels: (issue.labels || []).map((x) => x.name || x), blockers: [] });
-    const { repo } = strategyRef(ref);
-    for (const child of client.children(ref)) {
-      const childRef = strategyChildRef(child, repo);
-      edges.push([ref, childRef]); walk(childRef);
-    }
-    for (const blocker of client.blockers(ref)) {
-      const blockerRef = strategyChildRef(blocker, repo);
-      rows.get(ref).blockers.push({ ref: blockerRef, state: blocker.state });
-    }
-  };
-  for (const root of roots) walk(root);
-  return { rows, edges };
-}
-
-function renderStrategyStatus(model, live) {
-  const children = new Map();
-  for (const [parent, child] of live.edges) {
-    if (!children.has(parent)) children.set(parent, []);
-    children.get(parent).push(child);
-  }
-  const descendantsOf = (roots) => {
-    const seen = new Set(), stack = [...roots];
-    while (stack.length) for (const child of children.get(stack.pop()) || []) {
-      if (seen.has(child)) continue;
-      seen.add(child); stack.push(child);
-    }
-    return [...seen].map((ref) => live.rows.get(ref)).filter(Boolean);
-  };
-  const lines = ["SRS owner strategic map — live overlay", ""];
-  for (const b of model.boundaries) {
-    const roots = b.rootIssues.map((ref) => live.rows.get(ref)).filter(Boolean);
-    const descendants = descendantsOf(b.rootIssues);
-    const closed = roots.filter((r) => r.state === "closed" || r.state === "CLOSED").length;
-    const childrenClosed = descendants.filter((r) => r.state === "closed" || r.state === "CLOSED").length;
-    const blockers = roots.flatMap((r) => r.blockers.filter((x) => x.state === "open" || x.state === "OPEN"));
-    const priorities = roots.map((r) => r.labels.find((x) => x.startsWith("priority: ")) || "unprioritised");
-    lines.push(`${b.id} ${b.name}: ${closed}/${roots.length} root issues closed · ${childrenClosed}/${descendants.length} transitive children closed · ${priorities.join(", ")}${blockers.length ? ` · ${blockers.length} open native blocker(s)` : ""}`);
-  }
-  const open = [...live.rows.values()].filter((r) => r.state === "open" || r.state === "OPEN");
-  const native = [...live.rows.values()].flatMap((r) => r.blockers.filter((b) => b.state === "open" || b.state === "OPEN").map((b) => `${r.ref} blocked by ${b.ref}`));
-  lines.push("", `Fetched ${live.rows.size} mapped issue(s), ${live.edges.length} native sub-issue edge(s), ${open.length} open.`);
-  if (native.length) lines.push("Open native blockers:", ...native.map((x) => `- ${x}`));
-  const check = validateStrategy(model);
-  if (check.warnings.length) lines.push("Warnings:", ...check.warnings.map((x) => `- ${x}`));
-  return lines.join("\n");
-}
-
-function cmdStrategy(argv) {
-  const modes = ["--write", "--check", "--status"].filter((x) => argv.includes(x));
-  if (modes.length !== 1) die("usage: strategy --write | --check | --status");
-  const model = strategyModel();
-  const check = validateStrategy(model);
-  if (check.errors.length) die(`strategy model invalid:\n- ${check.errors.join("\n- ")}`);
-  if (modes[0] === "--write") {
-    writeFileSync(STRATEGY_MARKDOWN_PATH, renderStrategy(model));
-    console.log(`wrote ${STRATEGY_MARKDOWN_PATH}`);
-  } else if (modes[0] === "--check") {
-    const expected = renderStrategy(model);
-    const actual = existsSync(STRATEGY_MARKDOWN_PATH) ? readFileSync(STRATEGY_MARKDOWN_PATH, "utf8") : "";
-    if (actual !== expected) die(`strategy output is stale; run: node scripts/gh-project.mjs strategy --write`);
-    console.log("strategy map is current");
-  } else {
-    try { console.log(renderStrategyStatus(model, collectStrategyStatus(model, strategyRestClient()))); }
-    catch (e) { die(`strategy status could not be read from GitHub REST: ${e.stderr ? String(e.stderr).trim() : e.message}`); }
-  }
-}
-
 function help() {
-  console.log(`gh-project — story-driven priority for SRS Project #${PROJECT_NUMBER} (${OWNER})
+  console.log(`gh-project — story-driven priority for SemanticOps Project #${PROJECT_NUMBER} (${OWNER})
 
   fields                          dump project field/option/iteration IDs
   ensure-fields [--dry-run]       create the MoSCoW field if missing
@@ -2394,9 +2156,6 @@ function help() {
                                   comments/commits/PR mentions refresh a claim) — resets Status to
                                   Ready + comments; \`needs-input\` issues are never reclaimed
                                   (paused on a human; answer + remove the label to re-feed)
-  strategy --write|--check|--status
-                                  owner strategic map: regenerate/check committed Markdown, or overlay
-                                  live REST issue state (no Projects v2 / read:project required)
 
 Priority stages: served stories → MoSCoW→P (blank⇒Could) → base(max) → epic fallback(−1 tier, blank⇒P2)
 → bug floor(P1) → default floor(P2, orphans) → bump(+1) → final. Explicit Won't on every served story ⇒ excluded.
@@ -2408,7 +2167,7 @@ Auth: requires an authenticated \`gh\` CLI, or GITHUB_TOKEN/GH_TOKEN env var (cu
 // Dispatch
 // ---------------------------------------------------------------------------
 // Pure helpers exported for unit tests. Importing the module must NOT run the CLI.
-export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, NEEDS_INPUT_LABEL, epicRank, epicFeedRank, epicRoadmapSeq, startedEpics, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, planStaleClaims, STALE_CLAIM_HOURS_DEFAULT, planTopup, TOPUP_TARGET_DEFAULT, isWorkItem, isConsumableReady, countConsumableReady, MOSCOW_DEFAULT, EPIC_PRIORITY_DEFAULT, hasOpenBlockers, isBlocked, blockedLabelWant, validateStrategy, renderStrategy, collectStrategyStatus, renderStrategyStatus, strategyRef, STRATEGY_MODEL_PATH, STRATEGY_MARKDOWN_PATH };
+export { MIRROR_LABELS, MIRROR_REPOS, labelCreateArgs, STATUS_LABEL_MAP, STATUS_MIRROR_LABELS, statusMirrorWant, planPromotions, PROMOTE_INTENT_LABEL, NEEDS_INPUT_LABEL, epicRank, epicFeedRank, epicRoadmapSeq, startedEpics, bandTargets, SIZE_WEIGHT, derivePriority, parseIssueRef, planStaleClaims, STALE_CLAIM_HOURS_DEFAULT, planTopup, TOPUP_TARGET_DEFAULT, isWorkItem, isConsumableReady, countConsumableReady, MOSCOW_DEFAULT, EPIC_PRIORITY_DEFAULT, hasOpenBlockers, isBlocked, blockedLabelWant };
 
 // Only dispatch when run directly (`node gh-project.mjs ...`), not when imported.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -2445,7 +2204,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       case "bands": cmdBands(rest); break;
       case "reconcile": cmdReconcile(rest); break;
       case "stale-claims": cmdStaleClaims(rest); break;
-      case "strategy": cmdStrategy(rest); break;
       case "help": case "--help": case "-h": case undefined: help(); break;
       default: die(`unknown command "${cmd}" (try \`help\`)`);
     }
