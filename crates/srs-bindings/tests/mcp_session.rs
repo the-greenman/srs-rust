@@ -85,6 +85,57 @@ fn mcp_write_is_visible_to_export_without_any_implicit_save() {
 }
 
 #[test]
+fn note_update_replaces_authoring_fields() {
+    let repo = open_repo();
+    let mut session = repo.open_mcp_session().ok().unwrap();
+    send(
+        &mut session,
+        1,
+        "initialize",
+        json!({ "protocolVersion": "2025-06-18" }),
+    );
+    session.handle(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#);
+
+    let created = send(
+        &mut session,
+        2,
+        "tools/call",
+        json!({ "name": "note_create", "arguments": {
+            "title": "Before", "sections": [{ "name": "body", "content": "one" }]
+        }}),
+    );
+    let text = created["result"]["content"][0]["text"].as_str().unwrap();
+    let id = serde_json::from_str::<serde_json::Value>(text).unwrap()["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let updated = send(
+        &mut session,
+        3,
+        "tools/call",
+        json!({ "name": "note_update", "arguments": {
+            "instanceId": id, "title": "After",
+            "sections": [{ "name": "body", "content": "two" }]
+        }}),
+    );
+    assert_eq!(updated["result"]["isError"], false, "{updated}");
+    let after = repo.export_srsj().ok().unwrap();
+    assert!(after.contains("After") && after.contains("two"));
+    assert!(!after.contains("Before"));
+
+    let missing = send(
+        &mut session,
+        4,
+        "tools/call",
+        json!({ "name": "note_update", "arguments": {
+            "instanceId": "00000000-0000-4000-8000-000000000000", "sections": []
+        }}),
+    );
+    assert_eq!(missing["result"]["isError"], true, "{missing}");
+}
+
+#[test]
 fn write_epoch_tracks_mutation_only() {
     let repo = open_repo();
     let mut session = repo.open_mcp_session().ok().unwrap();

@@ -40,7 +40,7 @@ use srs_repository::record_store::{
     TransitionFulfillmentInput, TransitionLifecycleInput, UpdateRecordInput,
 };
 use srs_repository::relation_service;
-use srs_repository::services::{self, CreateNoteInput, GraduateNoteInput};
+use srs_repository::services::{self, CreateNoteInput, GraduateNoteInput, UpdateNoteContentInput};
 use srs_repository::store::RepositoryStore;
 use srs_repository::type_schema_service::{self, TypeSchemaInput};
 use srs_repository::validation::validate_repository;
@@ -55,6 +55,7 @@ pub const TOOL_RECORD_CREATE: &str = "record_create";
 pub const TOOL_RELATION_CREATE: &str = "relation_create";
 pub const TOOL_RELATION_DELETE: &str = "relation_delete";
 pub const TOOL_NOTE_CREATE: &str = "note_create";
+pub const TOOL_NOTE_UPDATE: &str = "note_update";
 pub const TOOL_TYPE_SCHEMA: &str = "type_schema";
 // Issue #1220: resources for clients that only call tools (claude.ai relay)
 pub const TOOL_READ: &str = "read";
@@ -125,6 +126,7 @@ const CONTEXT_TOOLS: &[&str] = &[
     TOOL_RECORD_TRANSITION,
     TOOL_RECORD_SUCCESSOR,
     TOOL_NOTE_CREATE,
+    TOOL_NOTE_UPDATE,
     TOOL_RELATION_CREATE,
     TOOL_CONTAINER_MEMBER_ADD,
 ];
@@ -308,6 +310,11 @@ pub const DESC_NOTE_CREATE: &str = "Create a Tier-0 Note (free-text sections, no
 binding). Each section has a name, content, and optional label. Optional containerId adds the \
 note to a container atomically. Notes are the capture tier — graduate one to a typed Record \
 later when its structure stabilises.";
+
+pub const DESC_NOTE_UPDATE: &str = "Update a Tier-0 Note by instanceId. Whole-object over the \
+authoring fields: title, tags and sections are replaced by what you send (omit title/tags to \
+clear them); createdBy, createdAt and other provenance are preserved. To read a note first, use \
+find or the read tool on its record URI.";
 
 pub const DESC_TYPE_SCHEMA: &str = "Get the authoring schema for a type by its UUID \
 (typeVersion optional; latest when omitted). The result is a JSON Schema whose properties \
@@ -736,6 +743,26 @@ impl From<NoteCreateToolInput> for CreateNoteInput {
                 meta: None,
             },
             container_id: input.container_id,
+        }
+    }
+}
+
+/// Mirrors `services::UpdateNoteContentInput` (plus `instanceId`).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NoteUpdateToolInput {
+    pub instance_id: String,
+    pub title: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub sections: Vec<NoteSectionInput>,
+}
+
+impl From<NoteUpdateToolInput> for UpdateNoteContentInput {
+    fn from(input: NoteUpdateToolInput) -> Self {
+        UpdateNoteContentInput {
+            title: input.title,
+            tags: input.tags,
+            sections: input.sections.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -1246,6 +1273,11 @@ fn all_tools() -> Vec<Value> {
             input_schema::<NoteCreateToolInput>(),
         ),
         tool(
+            TOOL_NOTE_UPDATE,
+            DESC_NOTE_UPDATE,
+            input_schema::<NoteUpdateToolInput>(),
+        ),
+        tool(
             TOOL_TYPE_SCHEMA,
             DESC_TYPE_SCHEMA,
             input_schema::<TypeSchemaToolInput>(),
@@ -1677,6 +1709,14 @@ pub fn call_tool(
         TOOL_NOTE_CREATE => {
             let input: NoteCreateToolInput = parse_args(arguments)?;
             match services::create_note_in_context(store, input.into()) {
+                Ok(result) => tool_ok(&result.note),
+                Err(e) => Ok(tool_err(e.report())),
+            }
+        }
+        TOOL_NOTE_UPDATE => {
+            let input: NoteUpdateToolInput = parse_args(arguments)?;
+            let id = input.instance_id.clone();
+            match services::update_note_content(store, &id, input.into()) {
                 Ok(result) => tool_ok(&result.note),
                 Err(e) => Ok(tool_err(e.report())),
             }
@@ -2269,6 +2309,7 @@ mod tests {
                 TOOL_RELATION_CREATE,
                 TOOL_RELATION_DELETE,
                 TOOL_NOTE_CREATE,
+                TOOL_NOTE_UPDATE,
                 TOOL_TYPE_SCHEMA,
                 TOOL_READ,
                 TOOL_RECORD_UPDATE,
