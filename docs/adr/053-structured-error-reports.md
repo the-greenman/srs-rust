@@ -18,6 +18,8 @@ code into the prose instead (`SCREAMING_SNAKE:` prefixes, `"{code}: {message}"`)
 
 1. **One core shape.** `srs-repository` owns `ErrorReport { code, message, details? }`.
    `RepositoryError::report()` builds it; adapters carry it unchanged and never compute a code.
+   srs-cli keeps a schemars mirror (`ErrorReportPayload`) only to emit the payload golden
+   (schemars stays out of the library crates, ADR-011); a round-trip test pins the two together.
 2. **Codes are an explicit contract.** `RepositoryError::code()` is an exhaustive match with one
    kebab-case code per variant. It is not derived from the Rust variant name, so renaming a variant
    never changes the wire. RFC/ADR-named codes pass through verbatim: RFC-046 `actor-*`, ADR-050
@@ -32,7 +34,9 @@ code into the prose instead (`SCREAMING_SNAKE:` prefixes, `"{code}: {message}"`)
    - **CLI:** `ok:false` envelopes gain `errors: [ErrorReport]` aligned 1:1 with `diagnostics`,
      which stays unchanged for string consumers. `main.rs` finds the `RepositoryError` in the
      anyhow chain.
-   - **WASM:** throws a JS `Error` whose `.code` and `.details` are set.
+   - **WASM:** throws a JS `Error` whose `.code` and `.details` are set. No blanket `From<String>`:
+     each site passes the `RepositoryError` or names `invalid-input` / `unclassified` explicitly, so a
+     stringified error cannot silently lose its code.
    - **MCP:** `tool_err` returns `structuredContent: ErrorReport`. Write-guard rejections are
      `write-guard-rejected`.
 6. **Non-repository failures** route through an existing variant where one fits (`invalid-input`,
