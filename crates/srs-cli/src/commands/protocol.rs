@@ -80,9 +80,9 @@ fn cmd_protocol_get(ctx: CliContext, id: String) -> Result<String> {
         GetProtocolResult::Found(protocol) => {
             output::serialize("protocol get", ProtocolPayload { protocol })
         }
-        GetProtocolResult::NotFound => Ok(output::err(
+        GetProtocolResult::NotFound => Ok(output::repo_err(
             "protocol get",
-            vec![format!("Protocol '{}' not found", id)],
+            &RepositoryError::DefinitionNotFound { id },
         )),
     }
 }
@@ -91,7 +91,7 @@ fn cmd_protocol_stages(ctx: CliContext, id: String) -> Result<String> {
     let stages = match with_store(&ctx, |store| Ok(list_protocol_stages(store, &id)?)) {
         Ok(stages) => stages,
         Err(e) => {
-            if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
+            if let Some(RepositoryError::NotFound { .. }) = RepositoryError::find_in(&e) {
                 return Ok(output::any_err("protocol stages", &e));
             }
             return Err(e);
@@ -128,7 +128,7 @@ fn cmd_protocol_validate(ctx: CliContext, id: String) -> Result<String> {
     let result = match with_store(&ctx, |store| Ok(validate_protocol_definition(store, &id)?)) {
         Ok(result) => result,
         Err(e) => {
-            if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
+            if let Some(RepositoryError::NotFound { .. }) = RepositoryError::find_in(&e) {
                 return Ok(output::any_err("protocol validate", &e));
             }
             return Err(e);
@@ -150,9 +150,9 @@ fn cmd_protocol_export(ctx: CliContext, id: String) -> Result<String> {
         GetProtocolResult::Found(protocol) => {
             output::serialize("protocol export", ProtocolPayload { protocol })
         }
-        GetProtocolResult::NotFound => Ok(output::err(
+        GetProtocolResult::NotFound => Ok(output::repo_err(
             "protocol export",
-            vec![format!("Protocol '{}' not found", id)],
+            &RepositoryError::DefinitionNotFound { id },
         )),
     }
 }
@@ -194,7 +194,7 @@ fn cmd_protocol_update(ctx: CliContext, id: String) -> Result<String> {
     }) {
         Ok(r) => r,
         Err(e) => {
-            if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
+            if let Some(RepositoryError::NotFound { .. }) = RepositoryError::find_in(&e) {
                 return Ok(output::any_err("protocol update", &e));
             }
             return Err(e);
@@ -218,7 +218,7 @@ fn cmd_protocol_delete(ctx: CliContext, id: String) -> Result<String> {
             },
         ),
         Err(e) => {
-            if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
+            if let Some(RepositoryError::NotFound { .. }) = RepositoryError::find_in(&e) {
                 return Ok(output::any_err("protocol delete", &e));
             }
             Err(e)
@@ -288,12 +288,10 @@ fn cmd_run_advance(ctx: CliContext) -> Result<String> {
             output::serialize("protocol run advance", ProtocolRunPayload { run })
         }
         Err(e) => {
-            if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
+            if let Some(RepositoryError::NotFound { .. }) = RepositoryError::find_in(&e) {
                 return Ok(output::any_err("protocol run advance", &e));
             }
-            if let Some(RepositoryError::RunInvalidState { .. }) =
-                e.downcast_ref::<RepositoryError>()
-            {
+            if let Some(RepositoryError::RunInvalidState { .. }) = RepositoryError::find_in(&e) {
                 return Ok(output::any_err("protocol run advance", &e));
             }
             Err(e)
@@ -307,9 +305,9 @@ fn cmd_run_get(ctx: CliContext, run_id: String) -> Result<String> {
             let run = serde_json::to_value(&*run)?;
             output::serialize("protocol run get", ProtocolRunPayload { run })
         }
-        GetRunResult::NotFound => Ok(output::err(
+        GetRunResult::NotFound => Ok(output::repo_err(
             "protocol run get",
-            vec![format!("Protocol run '{}' not found", run_id)],
+            &RepositoryError::RunNotFound { run_id },
         )),
     }
 }
@@ -339,12 +337,10 @@ fn cmd_run_complete(ctx: CliContext, run_id: String) -> Result<String> {
             output::serialize("protocol run complete", ProtocolRunPayload { run })
         }
         Err(e) => {
-            if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
+            if let Some(RepositoryError::NotFound { .. }) = RepositoryError::find_in(&e) {
                 return Ok(output::any_err("protocol run complete", &e));
             }
-            if let Some(RepositoryError::RunInvalidState { .. }) =
-                e.downcast_ref::<RepositoryError>()
-            {
+            if let Some(RepositoryError::RunInvalidState { .. }) = RepositoryError::find_in(&e) {
                 return Ok(output::any_err("protocol run complete", &e));
             }
             Err(e)
@@ -359,12 +355,10 @@ fn cmd_run_abandon(ctx: CliContext, run_id: String) -> Result<String> {
             output::serialize("protocol run abandon", ProtocolRunPayload { run })
         }
         Err(e) => {
-            if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
+            if let Some(RepositoryError::NotFound { .. }) = RepositoryError::find_in(&e) {
                 return Ok(output::any_err("protocol run abandon", &e));
             }
-            if let Some(RepositoryError::RunInvalidState { .. }) =
-                e.downcast_ref::<RepositoryError>()
-            {
+            if let Some(RepositoryError::RunInvalidState { .. }) = RepositoryError::find_in(&e) {
                 return Ok(output::any_err("protocol run abandon", &e));
             }
             Err(e)

@@ -345,6 +345,9 @@ pub enum RepositoryError {
     #[error("definition not found: {id}")]
     DefinitionNotFound { id: String },
 
+    #[error("protocol run not found: {run_id}")]
+    RunNotFound { run_id: String },
+
     #[error("cannot delete {entity_type} '{id}': still referenced by [{used_by}]",
             used_by = used_by.join(", "))]
     CannotDeleteInUse {
@@ -504,6 +507,7 @@ pub enum RepositoryError {
     ActorProvenance {
         #[serde(skip)]
         code: &'static str,
+        #[serde(skip)]
         message: String,
     },
 
@@ -517,6 +521,7 @@ pub enum RepositoryError {
     InvalidPackageBundle {
         #[serde(skip)]
         code: &'static str,
+        #[serde(skip)]
         message: String,
     },
 
@@ -528,6 +533,7 @@ pub enum RepositoryError {
     SliceRefused {
         #[serde(skip)]
         code: &'static str,
+        #[serde(skip)]
         message: String,
     },
 
@@ -536,6 +542,13 @@ pub enum RepositoryError {
     /// the crate-internal test activation until then.
     #[error("manifest.json declares dataModelRevision {declared}; this build requires storage generation >= 2 (RFC-038 [R21]) — run the rfc038-storage migration")]
     StorageGenerationUnsupported { declared: u64 },
+}
+
+impl RepositoryError {
+    /// The `RepositoryError` anywhere in an `anyhow` chain, if any.
+    pub fn find_in(e: &anyhow::Error) -> Option<&RepositoryError> {
+        e.chain().find_map(|c| c.downcast_ref::<RepositoryError>())
+    }
 }
 
 impl From<zip::result::ZipError> for RepositoryError {
@@ -869,6 +882,10 @@ impl PartialEq for RepositoryError {
                 RepositoryError::DefinitionNotFound { id: b },
             ) => a == b,
             (
+                RepositoryError::RunNotFound { run_id: a },
+                RepositoryError::RunNotFound { run_id: b },
+            ) => a == b,
+            (
                 RepositoryError::CannotDeleteInUse {
                     entity_type: eta,
                     id: ia,
@@ -1151,6 +1168,7 @@ impl RepositoryError {
             Self::PackageAlreadyRegistered { .. } => "package-already-registered",
             Self::PackageInstallConflicts { .. } => "package-install-conflicts",
             Self::DefinitionNotFound { .. } => "definition-not-found",
+            Self::RunNotFound { .. } => "run-not-found",
             Self::CannotDeleteInUse { .. } => "cannot-delete-in-use",
             Self::TypeInheritanceCycle { .. } => "type-inheritance-cycle",
             Self::InheritedFieldDuplicate { .. } => "inherited-field-duplicate",
@@ -1438,6 +1456,7 @@ mod tests {
                 keys: "x".into(),
             },
             R::DefinitionNotFound { id: "x".into() },
+            R::RunNotFound { run_id: "x".into() },
             R::CannotDeleteInUse {
                 entity_type: "x".into(),
                 id: "x".into(),
@@ -1546,7 +1565,7 @@ mod tests {
     #[test]
     fn codes_are_kebab_case() {
         let all = all_variants();
-        assert_eq!(all.len(), 94, "all_variants() is out of step with the enum");
+        assert_eq!(all.len(), 95, "all_variants() is out of step with the enum");
         let mut seen = std::collections::HashSet::new();
         for e in &all {
             let c = e.code();
@@ -1590,7 +1609,7 @@ mod tests {
         .report();
         assert_eq!(r.code, "actor-supplied");
         assert_eq!(r.message, "m");
-        assert!(r.details.is_none_or(|d| d.get("code").is_none()));
+        assert!(r.details.is_none());
 
         assert!(RepositoryError::CatalogUnsupported
             .report()

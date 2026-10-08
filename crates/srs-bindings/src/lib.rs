@@ -304,7 +304,7 @@ impl SrsRepository {
     /// `export_srsj()` / `export_tree()` / `export_archive()`.
     pub fn create(input_json: &str) -> Result<SrsRepository, JsValue> {
         Ok(SrsRepository {
-            store: create_blank_from_json(input_json).map_err(js_invalid_input)?,
+            store: create_blank_from_json(input_json).map_err(js_helper_err)?,
         })
     }
 
@@ -1062,7 +1062,7 @@ impl SrsRepository {
     /// "tags"? }`. Returns the created `Container`; a JS error carries the validation message.
     pub fn create_container(&self, input_json: &str) -> Result<JsValue, JsValue> {
         let container =
-            create_container_from_json(&self.store, input_json).map_err(js_unclassified)?;
+            create_container_from_json(&self.store, input_json).map_err(js_helper_err)?;
         to_js(&container)
     }
 
@@ -1078,7 +1078,7 @@ impl SrsRepository {
         patch_json: &str,
     ) -> Result<JsValue, JsValue> {
         let result = update_container_from_json(&self.store, container_id, patch_json)
-            .map_err(js_unclassified)?;
+            .map_err(js_helper_err)?;
         to_js(&result)
     }
 
@@ -1087,8 +1087,8 @@ impl SrsRepository {
     /// `input_json` is `{ "title"?: string, "containerId"?: uuid }` (may be empty/`{}`).
     /// Returns `{ container, forks: [{originalId, forkId}], relations }`.
     pub fn copy_container(&self, source_id: &str, input_json: &str) -> Result<JsValue, JsValue> {
-        let result = copy_container_from_json(&self.store, source_id, input_json)
-            .map_err(js_unclassified)?;
+        let result =
+            copy_container_from_json(&self.store, source_id, input_json).map_err(js_helper_err)?;
         to_js(&result)
     }
 
@@ -1939,12 +1939,36 @@ struct CompositionListBindingFilter {
     root_type_id: Option<String>,
 }
 
+/// Typed error of the `*_from_json` helpers: a service error keeps its stable code,
+/// a parse error is `invalid-input`.
+#[derive(Debug)]
+enum HelperError {
+    Repo(RepositoryError),
+    Input(String),
+}
+
+impl From<RepositoryError> for HelperError {
+    fn from(e: RepositoryError) -> Self {
+        Self::Repo(e)
+    }
+}
+
+fn js_helper_err(e: HelperError) -> JsValue {
+    match e {
+        HelperError::Repo(e) => js_err(&e),
+        HelperError::Input(m) => js_invalid_input(m),
+    }
+}
+
+fn parse_input<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, HelperError> {
+    serde_json::from_str(json).map_err(|e| HelperError::Input(format!("invalid input: {e}")))
+}
+
 /// `create` core. Free function so native tests exercise it.
-fn create_blank_from_json(input_json: &str) -> Result<srs_repository::FileStore, String> {
-    let input: repository_lifecycle::CreateBlankRepositoryInput =
-        serde_json::from_str(input_json).map_err(|e| format!("invalid input: {e}"))?;
+fn create_blank_from_json(input_json: &str) -> Result<srs_repository::FileStore, HelperError> {
+    let input: repository_lifecycle::CreateBlankRepositoryInput = parse_input(input_json)?;
     let store = srs_repository::new_tree_session();
-    repository_lifecycle::create_blank_repository(&store, input).map_err(|e| e.to_string())?;
+    repository_lifecycle::create_blank_repository(&store, input)?;
     Ok(store)
 }
 
@@ -1953,10 +1977,9 @@ fn create_blank_from_json(input_json: &str) -> Result<srs_repository::FileStore,
 fn create_container_from_json(
     store: &srs_repository::FileStore,
     input_json: &str,
-) -> Result<srs_core::types::container::Container, String> {
-    let input: container_service::ContainerCreateInput =
-        serde_json::from_str(input_json).map_err(|e| format!("invalid input: {e}"))?;
-    container_service::create_container(store, input.into()).map_err(|e| e.to_string())
+) -> Result<srs_core::types::container::Container, HelperError> {
+    let input: container_service::ContainerCreateInput = parse_input(input_json)?;
+    Ok(container_service::create_container(store, input.into())?)
 }
 
 /// `update_container` core: parse the patch and call the one core service.
@@ -1964,11 +1987,9 @@ fn update_container_from_json(
     store: &srs_repository::FileStore,
     container_id: &str,
     patch_json: &str,
-) -> Result<serde_json::Value, String> {
-    let patch: container_service::ContainerPatch =
-        serde_json::from_str(patch_json).map_err(|e| format!("invalid input: {e}"))?;
-    let r = container_service::update_container(store, container_id, patch)
-        .map_err(|e| e.to_string())?;
+) -> Result<serde_json::Value, HelperError> {
+    let patch: container_service::ContainerPatch = parse_input(patch_json)?;
+    let r = container_service::update_container(store, container_id, patch)?;
     Ok(serde_json::json!({ "container": r.container, "diagnostics": r.diagnostics }))
 }
 
@@ -1977,13 +1998,13 @@ fn copy_container_from_json(
     store: &srs_repository::FileStore,
     source_id: &str,
     input_json: &str,
-) -> Result<container_service::ContainerCopyResult, String> {
+) -> Result<container_service::ContainerCopyResult, HelperError> {
     let input: container_service::ContainerCopyInput = if input_json.trim().is_empty() {
         Default::default()
     } else {
-        serde_json::from_str(input_json).map_err(|e| format!("invalid input: {e}"))?
+        parse_input(input_json)?
     };
-    container_service::copy_container(store, source_id, input).map_err(|e| e.to_string())
+    Ok(container_service::copy_container(store, source_id, input)?)
 }
 
 /// Input shape for `list_containers` — parsed from caller-supplied JSON.
@@ -2207,6 +2228,26 @@ mod tests {
         assert_eq!(session.write_epoch(), repo.write_epoch());
         super::create_container_from_json(&repo.store, r#"{"title":"D"}"#).unwrap();
         assert_eq!(session.write_epoch(), repo.write_epoch());
+    }
+
+    #[test]
+    fn update_container_missing_keeps_repository_error_code() {
+        let store =
+            super::create_blank_from_json(r#"{"title":"T","namespace":"com.t.x"}"#).unwrap();
+        let e = super::update_container_from_json(
+            &store,
+            "00000000-0000-4000-8000-000000000000",
+            r#"{"title":"N"}"#,
+        )
+        .unwrap_err();
+        match e {
+            super::HelperError::Repo(re) => assert_eq!(re.code(), "container-not-found"),
+            other => panic!("expected Repo error, got {other:?}"),
+        }
+        assert!(matches!(
+            super::update_container_from_json(&store, "x", "{bogus"),
+            Err(super::HelperError::Input(_))
+        ));
     }
 
     #[test]

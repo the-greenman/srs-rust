@@ -684,6 +684,7 @@ fn cmd_repo_validate(ctx: CliContext) -> Result<String> {
             .filter(|d| d.severity == srs_repository::validation::DiagnosticSeverity::Error)
             .map(|d| format!("[{}] {}", d.relative_path, d.message))
             .collect();
+        // unclassified until validation diagnostics carry codes (#1264)
         Ok(output::err_with_payload(
             output::OutputDTO::err("repo validate", diagnostics),
             RepoValidatePayload::from(report),

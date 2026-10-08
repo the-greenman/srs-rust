@@ -106,6 +106,22 @@ impl OutputDTO {
         };
         diag
     }
+
+    /// Error DTO from an anyhow chain: a `RepositoryError` anywhere in the chain
+    /// supplies the code/details; the message keeps the whole chain (`{e:#}`).
+    pub fn from_anyhow(command: &str, e: &anyhow::Error) -> Self {
+        let message = format!("{e:#}");
+        match RepositoryError::find_in(e) {
+            Some(re) => Self::from_reports(
+                command,
+                vec![ErrorReport {
+                    message,
+                    ..re.report()
+                }],
+            ),
+            None => Self::err(command, vec![message]),
+        }
+    }
 }
 
 /// Serialize a typed payload struct and return a compact JSON ok response.
@@ -155,24 +171,6 @@ pub fn err(command: &str, diagnostics: Vec<String>) -> String {
 /// Emit an `ok: false` envelope carrying the structured report of a `RepositoryError`.
 pub fn repo_err(command: &str, e: &RepositoryError) -> String {
     OutputDTO::from_reports(command, vec![e.report()]).render(OutputFormat::Json, false)
-}
-
-impl OutputDTO {
-    /// Error DTO from an anyhow chain: a `RepositoryError` anywhere in the chain
-    /// supplies the code/details; the message keeps the whole chain (`{e:#}`).
-    pub fn from_anyhow(command: &str, e: &anyhow::Error) -> Self {
-        let message = format!("{e:#}");
-        match e.chain().find_map(|c| c.downcast_ref::<RepositoryError>()) {
-            Some(re) => Self::from_reports(
-                command,
-                vec![ErrorReport {
-                    message,
-                    ..re.report()
-                }],
-            ),
-            None => Self::err(command, vec![message]),
-        }
-    }
 }
 
 /// `repo_err` for handlers whose error is an `anyhow::Error` (e.g. from `with_store`).

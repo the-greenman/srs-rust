@@ -95,9 +95,7 @@ fn cmd_blueprint_update(ctx: CliContext, id: String) -> Result<String> {
     let result = match with_store(&ctx, |store| Ok(update_blueprint(store, &id, blueprint)?)) {
         Ok(r) => r,
         Err(e) => {
-            if let Some(RepositoryError::BlueprintNotFound { .. }) =
-                e.downcast_ref::<RepositoryError>()
-            {
+            if let Some(RepositoryError::BlueprintNotFound { .. }) = RepositoryError::find_in(&e) {
                 return Ok(output::repo_err(
                     "blueprint update",
                     &RepositoryError::BlueprintNotFound {
@@ -120,9 +118,7 @@ fn cmd_blueprint_delete(ctx: CliContext, id: String) -> Result<String> {
             output::serialize("blueprint delete", BlueprintDeletePayload { id: result.id })
         }
         Err(e) => {
-            if let Some(RepositoryError::BlueprintNotFound { .. }) =
-                e.downcast_ref::<RepositoryError>()
-            {
+            if let Some(RepositoryError::BlueprintNotFound { .. }) = RepositoryError::find_in(&e) {
                 return Ok(output::repo_err(
                     "blueprint delete",
                     &RepositoryError::BlueprintNotFound {
@@ -168,9 +164,7 @@ fn cmd_blueprint_brief(ctx: CliContext, id: String) -> Result<String> {
             )
         }
         Err(e) => {
-            if let Some(RepositoryError::BlueprintNotFound { .. }) =
-                e.downcast_ref::<RepositoryError>()
-            {
+            if let Some(RepositoryError::BlueprintNotFound { .. }) = RepositoryError::find_in(&e) {
                 return Ok(output::repo_err(
                     "blueprint brief",
                     &RepositoryError::BlueprintNotFound {
@@ -250,9 +244,7 @@ fn cmd_blueprint_validate(ctx: CliContext, id: String) -> Result<String> {
     let result = match with_store(&ctx, |store| Ok(validate_blueprint_by_id(store, &id)?)) {
         Ok(r) => r,
         Err(e) => {
-            if let Some(RepositoryError::BlueprintNotFound { .. }) =
-                e.downcast_ref::<RepositoryError>()
-            {
+            if let Some(RepositoryError::BlueprintNotFound { .. }) = RepositoryError::find_in(&e) {
                 return Ok(output::repo_err(
                     "blueprint validate",
                     &RepositoryError::BlueprintNotFound {
@@ -278,9 +270,7 @@ fn cmd_blueprint_structure(ctx: CliContext, id: String) -> Result<String> {
     let specs = match with_store(&ctx, |store| Ok(list_blueprint_structure(store, &id)?)) {
         Ok(s) => s,
         Err(e) => {
-            if let Some(RepositoryError::BlueprintNotFound { .. }) =
-                e.downcast_ref::<RepositoryError>()
-            {
+            if let Some(RepositoryError::BlueprintNotFound { .. }) = RepositoryError::find_in(&e) {
                 return Ok(output::repo_err(
                     "blueprint structure",
                     &RepositoryError::BlueprintNotFound {
@@ -328,9 +318,7 @@ fn cmd_blueprint_schema(ctx: CliContext, id: String) -> Result<String> {
             },
         ),
         Err(e) => {
-            if let Some(RepositoryError::BlueprintNotFound { .. }) =
-                e.downcast_ref::<RepositoryError>()
-            {
+            if let Some(RepositoryError::BlueprintNotFound { .. }) = RepositoryError::find_in(&e) {
                 return Ok(output::repo_err(
                     "blueprint schema",
                     &RepositoryError::BlueprintNotFound {

@@ -316,6 +316,7 @@ fn cmd_validate(ctx: CliContext, container_id: String) -> Result<String> {
             },
         )
     } else {
+        // unclassified until validation diagnostics carry codes (#1264)
         Ok(output::err("container validate", report.errors))
     }
 }

@@ -96,7 +96,7 @@ fn cmd_vocabulary_promote(ctx: CliContext, id: String) -> Result<String> {
             if let Some(RepositoryError::VocabularyPromotionBlocked {
                 vocabulary_id,
                 unresolvable_keys,
-            }) = e.downcast_ref::<RepositoryError>()
+            }) = RepositoryError::find_in(&e)
             {
                 return Ok(output::err_with_payload(
                     output::OutputDTO::from_anyhow("vocabulary promote", &e),
@@ -130,7 +130,7 @@ fn cmd_vocabulary_derive_tag_set(ctx: CliContext, id: String) -> Result<String> 
         Err(e) => {
             // Unknown vocabulary id → command ran, ok:false (exit 0), per the CLI contract.
             if matches!(
-                e.downcast_ref::<RepositoryError>(),
+                RepositoryError::find_in(&e),
                 Some(RepositoryError::NotFound { .. })
             ) {
                 return Ok(output::any_err("vocabulary derive-tag-set", &e));

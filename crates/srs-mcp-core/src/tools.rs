@@ -1907,11 +1907,12 @@ pub fn call_tool(
             let input: ProtocolRunIdToolInput = parse_args(arguments)?;
             match protocol_run_service::get_run(store, &input.run_id) {
                 Ok(GetRunResult::Found(run)) => tool_ok(&*run),
-                Ok(GetRunResult::NotFound) => {
-                    Ok(tool_err(srs_repository::ErrorReport::unclassified(
-                        format!("Protocol run '{}' not found", input.run_id),
-                    )))
-                }
+                Ok(GetRunResult::NotFound) => Ok(tool_err(
+                    srs_repository::error::RepositoryError::RunNotFound {
+                        run_id: input.run_id,
+                    }
+                    .report(),
+                )),
                 Err(e) => Ok(tool_err(e.report())),
             }
         }

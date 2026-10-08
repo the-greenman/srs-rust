@@ -59,6 +59,7 @@ code into the prose instead (`SCREAMING_SNAKE:` prefixes, `"{code}: {message}"`)
 **Neutral:**
 - `ok:true` envelope diagnostics are out of scope (#1339).
 - Validation diagnostics are #1264.
+- `details` carries the variant's fields verbatim, including unbounded lists (`CatalogLoad.diagnostics`, `RecordHasInboundRelations.relations`) and file paths already present in the message; this is intentional, with no capping.
 
 ## Implementation charter (ADR-048)
 

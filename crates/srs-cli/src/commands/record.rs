@@ -187,6 +187,7 @@ fn cmd_record_validate(ctx: CliContext) -> Result<String> {
             },
         )
     } else {
+        // unclassified until validation diagnostics carry codes (#1264)
         Ok(output::err("record validate", report.errors))
     }
 }
