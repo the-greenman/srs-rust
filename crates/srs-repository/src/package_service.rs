@@ -985,10 +985,9 @@ pub fn delete_relation_type(
             let cp = crate::core_package::core_package();
             let core_ids: std::collections::HashSet<&str> =
                 cp.relation_types.iter().map(|rt| rt.id.as_str()).collect();
-            let other_local_source = package
-                .relation_type_definitions
-                .iter()
-                .find(|rt| rt.key == type_name && rt.id != id && !core_ids.contains(rt.id.as_str()));
+            let other_local_source = package.relation_type_definitions.iter().find(|rt| {
+                rt.key == type_name && rt.id != id && !core_ids.contains(rt.id.as_str())
+            });
             let core_has_key = cp.relation_types.iter().any(|rt| rt.key == type_name);
 
             match other_local_source {

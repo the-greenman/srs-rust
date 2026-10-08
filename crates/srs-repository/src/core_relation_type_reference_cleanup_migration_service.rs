@@ -105,7 +105,9 @@ pub fn migration_needed(store: &dyn RepositoryStore) -> Result<bool, RepositoryE
 /// its entry from `package/package.json`'s `relationTypes[]` (never an
 /// installed dependency's own package — RFC-048 [R14]). Idempotent — a
 /// repository with no such copies returns an empty result.
-pub fn migrate(store: &dyn RepositoryStore) -> Result<CoreRelationTypeCleanupResult, RepositoryError> {
+pub fn migrate(
+    store: &dyn RepositoryStore,
+) -> Result<CoreRelationTypeCleanupResult, RepositoryError> {
     let copies = find_identical_reference_copies(store);
     let mut result = CoreRelationTypeCleanupResult::default();
     if copies.is_empty() {
@@ -114,9 +116,11 @@ pub fn migrate(store: &dyn RepositoryStore) -> Result<CoreRelationTypeCleanupRes
 
     let manifest_rel = format!("{PRIMARY_PACKAGE_ROOT}/package.json");
     let mut manifest = store.load_instance_json(&manifest_rel)?;
-    let declared_to_remove: BTreeSet<&str> =
-        copies.iter().map(|(d, _, _)| d.as_str()).collect();
-    if let Some(arr) = manifest.get_mut("relationTypes").and_then(|v| v.as_array_mut()) {
+    let declared_to_remove: BTreeSet<&str> = copies.iter().map(|(d, _, _)| d.as_str()).collect();
+    if let Some(arr) = manifest
+        .get_mut("relationTypes")
+        .and_then(|v| v.as_array_mut())
+    {
         arr.retain(|v| {
             v.as_str()
                 .map(|s| !declared_to_remove.contains(s))
@@ -164,7 +168,10 @@ mod tests {
         // The merged package still resolves the key via core — only the
         // redundant local file is gone, not the key itself.
         let package = store.load_package().unwrap();
-        assert!(package.relation_type_definitions.iter().any(|rt| rt.key == key));
+        assert!(package
+            .relation_type_definitions
+            .iter()
+            .any(|rt| rt.key == key));
     }
 
     #[test]

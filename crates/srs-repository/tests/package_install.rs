@@ -157,9 +157,11 @@ fn install_into_empty_repo_installs_everything() {
     );
     let report = validate_repository(&store).expect("validate runs");
     assert!(
-        report.diagnostics.iter().any(|d| d.message.contains(
-            "relation-type-core-key-shadow"
-        ) && d.message.contains("precedes")),
+        report
+            .diagnostics
+            .iter()
+            .any(|d| d.message.contains("relation-type-core-key-shadow")
+                && d.message.contains("precedes")),
         "expected the installed package's own `precedes` copy to be reported as a \
          core-key shadow, got: {:?}",
         report.diagnostics
