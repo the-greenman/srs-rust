@@ -625,6 +625,7 @@ mod substrate_properties_to_meta_tests {
         .unwrap();
         let store = FileStore::new(temp.path());
         let err = migrate_substrate_properties_to_meta(&store).unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(
             err.to_string().contains("tier1-removal"),
             "must name the missing prerequisite migration, got: {err}"

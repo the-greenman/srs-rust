@@ -3046,10 +3046,7 @@ fn find_type_flag_is_alias_for_type_namespace_and_type_name() {
     // An invalid (non `namespace/name`) filter is rejected, mirroring `record list`.
     let invalid = run_srs_in_dir(temp.path(), &["find", "--type", "not-a-valid-filter"]);
     assert_eq!(invalid["ok"], false);
-    assert!(invalid["diagnostics"][0]
-        .as_str()
-        .unwrap()
-        .contains("Invalid type filter"));
+    assert_eq!(invalid["errors"][0]["code"], "invalid-input", "{invalid}");
 }
 
 #[test]
@@ -4847,6 +4844,8 @@ fn container_members_arrange_with_depth_move_and_promoting_removal() {
         &["container", "members", "move", cid, b, "--depth", "2"],
     );
     assert_eq!(rejected["ok"], false);
+    assert_eq!(rejected["errors"][0]["code"], "invalid-input", "{rejected}");
+    // generic bucket code: the message carries the arrangement rule token.
     assert!(
         rejected.to_string().contains("arrangement-depth"),
         "{rejected}"
@@ -7722,6 +7721,8 @@ fn vocabulary_promote_blocked_returns_structured_payload() {
         "vocabularyId in payload should match"
     );
 
+    // The CLI currently reports this refusal as `unclassified` rather than
+    // `vocabulary-promotion-blocked` (see #1338 report); keep the wording check.
     let diag = result["diagnostics"][0].as_str().unwrap_or("");
     assert!(
         diag.contains("promotion blocked"),
@@ -8002,12 +8003,9 @@ fn lifecycle_update_rejects_body_id_mismatching_argument() {
 
     let result = run_srs_stdin_in_dir(&repo, &["lifecycle", "update", &id], &body.to_string());
     assert_eq!(result["ok"], false);
-    assert!(
-        result["diagnostics"][0]
-            .as_str()
-            .unwrap()
-            .contains("does not match argument"),
-        "expected an id-mismatch diagnostic, got: {result:?}"
+    assert_eq!(
+        result["errors"][0]["code"], "lifecycle-id-mismatch",
+        "{result:?}"
     );
 }
 
@@ -8035,12 +8033,9 @@ fn lifecycle_update_returns_not_found_for_unknown_id() {
         &body.to_string(),
     );
     assert_eq!(result["ok"], false);
-    assert!(
-        result["diagnostics"][0]
-            .as_str()
-            .unwrap()
-            .contains("lifecycle not found"),
-        "expected a not-found diagnostic, got: {result:?}"
+    assert_eq!(
+        result["errors"][0]["code"], "lifecycle-not-found",
+        "{result:?}"
     );
 }
 

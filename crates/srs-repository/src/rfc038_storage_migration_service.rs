@@ -934,6 +934,7 @@ mod tests {
         doc["data"][format!("relations/{REL_A}.json")] = standalone;
 
         let err = migrate_srsj(&doc.to_string()).unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(err.to_string().contains("different content"), "got: {err}");
     }
 
@@ -945,6 +946,7 @@ mod tests {
         doc["data"]["relations/relations.json"]["relations"] =
             json!([relation(REL_A), conflicting]);
         let err = migrate_srsj(&doc.to_string()).unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(
             err.to_string().contains("duplicate relationId"),
             "got: {err}"
@@ -975,6 +977,7 @@ mod tests {
             },
         )
         .unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(
             err.to_string().contains("occupies the locator"),
             "got: {err}"
@@ -1038,6 +1041,7 @@ mod tests {
             },
         )
         .unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(
             err.to_string().contains("relations/broken.json"),
             "got: {err}"
@@ -1070,6 +1074,7 @@ mod tests {
             },
         )
         .unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(err.to_string().contains("not-a-uuid"), "got: {err}");
         assert!(
             store
@@ -1102,6 +1107,7 @@ mod tests {
             },
         )
         .unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(err.to_string().contains("fails to parse"), "got: {err}");
     }
 
@@ -1134,10 +1140,12 @@ mod tests {
             },
         )
         .unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(
             err.to_string().contains("relations/legacy.json"),
             "got: {err}"
         );
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(err.to_string().contains("cannot be read"), "got: {err}");
     }
 
@@ -1164,6 +1172,7 @@ mod tests {
             },
         )
         .unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(err.to_string().contains("would orphan it"), "got: {err}");
         assert!(store.load_instance_json("legacy/edges.json").is_ok());
     }
@@ -1185,7 +1194,9 @@ mod tests {
             },
         )
         .unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(err.to_string().contains("relations/"), "got: {err}");
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(err.to_string().contains("move anything"), "got: {err}");
     }
 
@@ -1197,10 +1208,12 @@ mod tests {
         let mut doc = legacy_srsj();
         doc["manifest"]["dataModelRevision"] = json!(1);
         let err = migrate_srsj(&doc.to_string()).unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(
             err.to_string().contains("dataModelRevision 1"),
             "got: {err}"
         );
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(err.to_string().contains("rfc039-carrier"), "got: {err}");
     }
 
@@ -1209,6 +1222,7 @@ mod tests {
         let mut doc = legacy_srsj();
         doc["data"]["relations/relations.json"]["relations"] = json!([{ "nope": true }]);
         let err = migrate_srsj(&doc.to_string()).unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(err.to_string().contains("fails to parse"), "got: {err}");
     }
 
@@ -1261,6 +1275,7 @@ mod tests {
         let mut doc = legacy_srsj();
         doc["srsj"] = json!("3");
         let err = migrate_srsj(&doc.to_string()).unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(
             err.to_string().contains("unsupported srsj version '3'"),
             "got: {err}"
@@ -1298,6 +1313,7 @@ mod tests {
         doc["data"]["legacy/edges.json"] = json!({ "relations": [relation(REL_A)] });
 
         let err = migrate_srsj(&doc.to_string()).unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(
             err.to_string().contains("shadow manifest disagrees"),
             "got: {err}"
@@ -1312,6 +1328,7 @@ mod tests {
         doc["data"]["manifest.json"] = shadow;
 
         let err = migrate_srsj(&doc.to_string()).unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(
             err.to_string().contains("shadow manifest disagrees"),
             "got: {err}"
@@ -1387,6 +1404,7 @@ mod tests {
             },
         )
         .unwrap_err();
+        assert_eq!(err.code(), "invalid-input"); // generic bucket code: the message check below is the discriminator
         assert!(err.to_string().contains("file-tree store"), "got: {err}");
     }
 

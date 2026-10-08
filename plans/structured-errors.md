@@ -203,13 +203,13 @@ Commit `feat(bindings,mcp): structured error code through WASM and MCP (#1338)`.
 
 #### Tasks
 
-- [ ] Grep `to_string().contains`, `msg.contains`, `err.contains`, and `diagnostics"][0]` in `crates/**`. For each assertion whose subject is a `RepositoryError` (or a CLI/MCP error envelope), assert on `code()` / `errors[0].code` / `structuredContent.code`, plus a structured field where the test cared about one. Leave assertions on non-RepositoryError text (migration reports, CoreError, validation diagnostics: #1264) untouched, and list them in the commit message.
-- [ ] Update tests that asserted on the removed `SCREAMING_SNAKE` / `{code}:` prefixes.
+- [x] Grep `to_string().contains`, `msg.contains`, `err.contains`, and `diagnostics"][0]` in `crates/**`. For each assertion whose subject is a `RepositoryError` (or a CLI/MCP error envelope), assert on `code()` / `errors[0].code` / `structuredContent.code`, plus a structured field where the test cared about one. Leave assertions on non-RepositoryError text (migration reports, CoreError, validation diagnostics: #1264) untouched, and list them in the commit message.
+- [x] Update tests that asserted on the removed `SCREAMING_SNAKE` / `{code}:` prefixes.
 
 #### Acceptance Criteria
 
-- [ ] `cargo test --workspace` has zero failures.
-- [ ] No remaining test asserts a removed prefix string.
+- [x] `cargo test --workspace` has zero failures.
+- [x] No remaining test asserts a removed prefix string.
 
 #### Milestone gate
 

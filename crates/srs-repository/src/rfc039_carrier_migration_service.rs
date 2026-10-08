@@ -1821,6 +1821,7 @@ mod tests {
 
         let session = crate::srsj::SrsjSession::open_for_migration(&path).unwrap();
         let err = migrate_carrier(session.store()).expect_err("unresolvable fieldId must abort");
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(
             err.to_string().contains("[R10]"),
             "diagnostic cites [R10]: {err}"

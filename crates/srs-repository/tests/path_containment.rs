@@ -44,10 +44,13 @@ fn srsj_refuses_a_data_key_outside_the_root() {
     ] {
         let err = open_srsj(&envelope(key))
             .expect_err("a data key outside the root must be refused: {key}");
-        assert!(
-            err.to_string().contains("does not resolve inside"),
+        assert_eq!(
+            err.code(),
+            "invalid-snapshot-data",
             "{key}: unexpected error {err}"
         );
+        // `invalid-snapshot-data` is shared by several refusals; the message token is the only discriminator.
+        assert!(err.to_string().contains("does not resolve inside"), "{err}");
     }
 }
 
@@ -57,6 +60,8 @@ fn open_tree_refuses_a_path_outside_the_root() {
     files.insert("manifest.json".to_string(), b"{}".to_vec());
     files.insert("../evil.json".to_string(), b"{}".to_vec());
     let err = srs_repository::open_tree(files).expect_err("must be refused");
+    assert_eq!(err.code(), "invalid-snapshot-data", "{err}");
+    // `invalid-snapshot-data` is shared by several refusals; the message token is the only discriminator.
     assert!(err.to_string().contains("does not resolve inside"), "{err}");
 }
 
@@ -91,6 +96,8 @@ fn archive_unpack_refuses_an_entry_outside_the_root() {
 
     let err = srs_repository::archive_unpack(std::io::Cursor::new(bytes), &target)
         .expect_err("an entry outside the root must be refused");
+    assert_eq!(err.code(), "invalid-snapshot-data", "{err}");
+    // `invalid-snapshot-data` is shared by several refusals; the message token is the only discriminator.
     assert!(err.to_string().contains("does not resolve inside"), "{err}");
     assert!(
         !outer.path().join("evil.json").exists(),
@@ -127,6 +134,8 @@ fn conflicting_aliases_are_refused() {
     files.insert("a/b.json".to_string(), b"{\"v\":1}".to_vec());
     files.insert("./a/b.json".to_string(), b"{\"v\":2}".to_vec());
     let err = srs_repository::open_tree(files).expect_err("must be refused");
+    assert_eq!(err.code(), "invalid-snapshot-data", "{err}");
+    // `invalid-snapshot-data` is shared by several refusals; the message token is the only discriminator.
     assert!(err.to_string().contains("resolve to 'a/b.json'"), "{err}");
 }
 
@@ -137,6 +146,8 @@ fn a_respelled_shadow_manifest_is_still_refused() {
     let mut doc: serde_json::Value = serde_json::from_str(&envelope("unused.json")).unwrap();
     doc["data"] = serde_json::json!({ "./manifest.json": {"repositoryId": "other"} });
     let err = open_srsj(&doc.to_string()).expect_err("must be refused");
+    assert_eq!(err.code(), "invalid-snapshot-data", "{err}");
+    // `invalid-snapshot-data` is shared by several refusals; the message token is the only discriminator.
     assert!(
         err.to_string().contains("shadowing the envelope manifest"),
         "{err}"

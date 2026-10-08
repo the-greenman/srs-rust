@@ -377,6 +377,13 @@ async fn tool_record_create_missing_required_is_error_no_write() {
     )
     .await;
     assert_eq!(result.is_error, Some(true));
+    assert_eq!(
+        result.structured_content.as_ref().unwrap()["code"],
+        "record-validation",
+        "{}",
+        text_of(&result)
+    );
+    // `record-validation` details carry only the free-text message; it names the field.
     let message = text_of(&result);
     assert!(
         message.contains("title") || message.to_lowercase().contains("required"),

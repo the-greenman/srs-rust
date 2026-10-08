@@ -186,7 +186,10 @@ fn package_upgrade_tool_uses_the_core_service() {
     // Not installed: a tool error, nothing written.
     let refused = tool(&mut d, "package_upgrade", json!({ "bundle": new }));
     assert_eq!(refused["result"]["isError"], true, "{refused}");
-    assert!(refused.to_string().contains("not installed"));
+    assert_eq!(
+        refused["result"]["structuredContent"]["code"], "invalid-repository-initialization",
+        "{refused}"
+    );
 
     srs_repository::package_install_service::install_package_bundle_bytes(
         &FileStore::new(dir.path()),
