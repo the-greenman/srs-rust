@@ -10,19 +10,15 @@ checkout — every operation hits the GitHub API, so nothing depends on a siblin
 Everything lives on **Project #5 "SRS"** (`https://github.com/users/the-greenman/projects/5`).
 User stories and implementation issues coexist on it.
 
-The [owner strategic map](strategy/roadmap.md) sits above this execution view. It is a
-versioned capability and release-boundary map: it proposes no GitHub mutations, keeps its
-live overlay out of committed files, and is regenerated with `gh-project strategy --write`.
-
 ## The priority model (top-down)
 
 ```
-EPIC  (muDemocracy.org, label `epic`)                    ← an epic IS a release (1:1)
+EPIC  (STORY_REPO, label `epic`)                    ← an epic IS a release (1:1)
    Title: "Epic NN: Name"                                ← identity + roadmap sequence (retitle to renumber)
-   Priority:      P0 / P1 / P2                            ← the epic's urgency tier (hand-set, its ONE board input)
+   Priority:      P0 / P1 / P2                            ← the epic's urgency tier (derived by srs-programme: roadmap.mjs --apply; a `parked` label excludes its descendants)
         │  native GitHub sub-issues
         ▼
-USER STORY  (muDemocracy.org, label `user-story`)        ← the human value layer, on board #5
+USER STORY  (STORY_REPO, label `user-story`)        ← the human value layer, on board #5
    MoSCoW field:  Must / Should / Could / Won't           ← value input, set by a human in the UI
         │  native GitHub sub-issues (cross-repo)
         ▼
@@ -37,7 +33,8 @@ IMPLEMENTATION ISSUE  (any ecosystem repo)
 The tool rolls that down to implementation issues:
 
 - An impl issue that **serves ≥1 story** → priority = **highest** served MoSCoW:
-  `Must→P0 · Should→P1 · Could→P2 · Won't→excluded`.
+  `Must→P0 · Should→P1 · Could→P2 · Won't→excluded`, **capped at the claiming epic's P**
+  (a Must story under a P2 epic → P2). Descendants of a `parked` epic are excluded like Won't (bug floor still applies).
 - **Blank means Could.** A story with **no MoSCoW set** counts as **Could (P2)** — a value nobody
   has assigned yet is *not* an exclusion. Same for an epic with no Priority: it counts as **P2**.
   A blank must never make work invisible to the feed; issues used to get lost exactly this way

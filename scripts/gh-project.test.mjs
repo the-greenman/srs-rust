@@ -13,8 +13,6 @@ import {
   planTopup, TOPUP_TARGET_DEFAULT,
   isWorkItem, isConsumableReady, countConsumableReady,
   hasOpenBlockers, isBlocked, blockedLabelWant,
-  validateStrategy, renderStrategy, collectStrategyStatus, renderStrategyStatus,
-  STRATEGY_MODEL_PATH, STRATEGY_MARKDOWN_PATH,
 } from "./gh-project.mjs";
 
 // Blocking via native blocked-by dependencies (#671). Ownership rule: edges present
@@ -584,76 +582,18 @@ test("stale default is aggressive (hours, not a day) — consumers are single-se
   assert.ok(STALE_CLAIM_HOURS_DEFAULT <= 4, "dead claims must recover same-afternoon");
 });
 
-// Strategic map: the committed model is strict about release contracts, while the
-// live overlay remains independent of Projects v2 and therefore testable as plain REST.
-const strategyModel = JSON.parse(readFileSync(STRATEGY_MODEL_PATH, "utf8"));
 
-test("strategy model maps the complete known epic inventory exactly once", () => {
-  const validation = validateStrategy(strategyModel);
-  assert.deepEqual(validation.errors, []);
-  assert.equal(strategyModel.knownEpicRefs.length, 15);
-  assert.equal(strategyModel.epics.length, 15);
-  assert.equal(new Set(strategyModel.epics.map((e) => e.ref)).size, 15);
+test("derivePriority: story P is capped at the claiming epic's P", () => {
+  const { p } = derivePriority(prow(), new Set([21]), stories, { num: 30, priority: "P2" });
+  assert.equal(p, "P2"); // Must story under a P2 epic
+  assert.equal(derivePriority(prow(), new Set([22]), stories, { num: 30, priority: "P0" }).p, "P2"); // cap never raises
 });
 
-test("strategy validation catches duplicate IDs, unknown references, boundary cycles and missing contracts", () => {
-  const bad = structuredClone(strategyModel);
-  bad.boundaries[1].id = "B1";
-  bad.boundaries[0].requires = ["not-a-boundary"];
-  bad.boundaries[0].walkthrough = "";
-  bad.boundaries[0].includedCapabilities = ["Unknown capability"];
-  bad.boundaries[0].rootIssues.push(bad.boundaries[1].rootIssues[0]);
-  const errors = validateStrategy(bad).errors.join("\n");
-  assert.match(errors, /duplicate boundary id/);
-  assert.match(errors, /requires unknown boundary/);
-  assert.match(errors, /missing walkthrough/);
-  assert.match(errors, /unknown capability/);
-  assert.match(errors, /duplicate boundary root ownership/);
-  const cyclic = structuredClone(strategyModel);
-  cyclic.boundaries[0].requires = ["B2"];
-  cyclic.boundaries[1].requires = ["B1"];
-  assert.match(validateStrategy(cyclic).errors.join("\n"), /boundary dependency cycle/);
-});
-
-test("strategy Markdown is deterministic and matches the checked-in snapshot", () => {
-  const rendered = renderStrategy(strategyModel);
-  assert.equal(renderStrategy(strategyModel), rendered);
-  assert.equal(readFileSync(STRATEGY_MARKDOWN_PATH, "utf8"), rendered);
-  assert.match(rendered, /flowchart LR/);
-  assert.match(rendered, /E_muDemocracy_org_36\["muDemocracy\.org#36: Decision Logger public release"\]/);
-  assert.match(rendered, /B2\["B2: Meaning You Can Take \/ SRS 2\.0"\]/);
-  assert.match(rendered, /B1: Coherent Semantic Kernel/);
-  assert.match(rendered, /Proposed disposition/);
-});
-
-test("strategy live overlay traverses only roots and transitive sub-issues, with shared work cached", () => {
-  const fixture = JSON.parse(readFileSync(new URL("./fixtures/strategy-status.json", import.meta.url), "utf8"));
-  const model = structuredClone(strategyModel);
-  model.epics = [{ ref: "muDemocracy.org#36", name: "Decision Logger", capabilities: ["Work With Meaning"], disposition: "keep release", role: "release", notes: "fixture" }];
-  model.knownEpicRefs = ["muDemocracy.org#36"];
-  model.boundaries = [structuredClone(model.boundaries[0]), structuredClone(model.boundaries[1])];
-  const calls = { issue: 0, children: 0, blockers: 0 };
-  const client = {
-    issue(ref) { calls.issue++; return fixture.issues[ref]; },
-    children(ref) { calls.children++; return fixture.children[ref] || []; },
-    blockers(ref) { calls.blockers++; return fixture.blockers[ref] || []; },
-  };
-  const live = collectStrategyStatus(model, client);
-  assert.deepEqual([...live.rows.keys()].sort(), ["muDemocracy.org#117", "muDemocracy.org#124", "muDemocracy.org#133", "muDemocracy.org#36", "srs#256", "srs#375", "srs-rust#1"]);
-  assert.deepEqual(live.edges, [["srs#256", "srs-rust#1"], ["muDemocracy.org#133", "srs-rust#1"]]);
-  assert.equal(calls.issue, 7, "the shared child is read once");
-  assert.equal(calls.children, 7);
-  assert.equal(calls.blockers, 7);
-  assert.match(renderStrategyStatus(model, live), /Fetched 7 mapped issue/);
-  assert.match(renderStrategyStatus(model, live), /srs#256/);
-});
-
-test("strategy live overlay reports API failures rather than silently inventing status", () => {
-  const model = structuredClone(strategyModel);
-  model.epics = [];
-  model.knownEpicRefs = [];
-  model.boundaries = [structuredClone(model.boundaries[0])];
-  assert.throws(() => collectStrategyStatus(model, {
-    issue() { throw new Error("HTTP 500"); }, children() { return []; }, blockers() { return []; },
-  }), /HTTP 500/);
+test("derivePriority: parked epic excludes descendants like Won't; bug floor holds", () => {
+  const epic = { num: 30, priority: "P0", parked: true };
+  const r = derivePriority(prow(), new Set([21]), stories, epic);
+  assert.equal(r.p, null);
+  assert.equal(r.stages.wontExcluded, true);
+  assert.equal(derivePriority(prow(), null, stories, epic).p, null); // no epic fallback either
+  assert.equal(derivePriority(prow(["bug"]), new Set([21]), stories, epic).p, "P1");
 });
