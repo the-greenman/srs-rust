@@ -462,8 +462,8 @@ pub fn export_container_slice(
     manifest["slice"] = slice;
     out.insert("manifest.json".to_string(), pretty(&manifest));
     out.insert(
-        format!("{}/.gitkeep", crate::vfs::SRS_MARKER_DIR),
-        Vec::new(),
+        crate::vfs::SRS_MARKER_README_PATH.to_string(),
+        crate::vfs::SRS_MARKER_README.as_bytes().to_vec(),
     );
 
     let mut buf = std::io::Cursor::new(Vec::new());

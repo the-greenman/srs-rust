@@ -95,8 +95,10 @@ fn export_tree_synthesizes_marker() {
     base.remove(".srs/.gitkeep");
     let store = open_tree(base.clone()).unwrap();
     let exported = export_tree(&store).unwrap();
-    assert_diff_is_exactly(&base, &exported, &[".srs/.gitkeep"]);
-    assert_eq!(exported[".srs/.gitkeep"], Vec::<u8>::new());
+    assert_diff_is_exactly(&base, &exported, &[".srs/README.md"]);
+    let readme = String::from_utf8(exported[".srs/README.md"].clone()).unwrap();
+    assert!(readme.starts_with("# About SRS"));
+    assert!(readme.contains("https://srs.semanticops.com"));
 }
 
 #[test]

@@ -287,14 +287,17 @@ fn read_entry(
     }
 }
 
-/// The marker ([R17]). Git cannot track an empty directory, so a tree whose
-/// `.srs/` holds nothing else carries the placeholder — the same one
+/// The marker ([R17]). A tree whose `.srs/` holds nothing else carries the
+/// default orientation README — the same one
 /// `export_tree` emits, applied on every enumeration path so a `.srsj` session
 /// and the same repository on disk pack identically.
 fn with_marker(mut entries: BTreeMap<String, Vec<u8>>) -> BTreeMap<String, Vec<u8>> {
     let marker_prefix = format!("{SRS_MARKER_DIR}/");
     if !entries.keys().any(|k| k.starts_with(&marker_prefix)) {
-        entries.insert(format!("{marker_prefix}.gitkeep"), Vec::new());
+        entries.insert(
+            crate::vfs::SRS_MARKER_README_PATH.to_string(),
+            crate::vfs::SRS_MARKER_README.as_bytes().to_vec(),
+        );
     }
     entries
 }

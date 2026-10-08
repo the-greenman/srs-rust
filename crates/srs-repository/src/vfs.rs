@@ -21,6 +21,13 @@ use std::path::{Path, PathBuf};
 /// by `FileStore::repository_exists`/`initialize_repository` and `tree_session`.
 pub(crate) const SRS_MARKER_DIR: &str = ".srs";
 
+/// Path of the default orientation file inside the marker directory.
+pub(crate) const SRS_MARKER_README_PATH: &str = ".srs/README.md";
+
+/// The default "About SRS" orientation text (srs-rust#1066). Non-normative:
+/// it points at the authoritative sources and never is one (RFC-038 [R5]).
+pub(crate) const SRS_MARKER_README: &str = include_str!("marker_readme.md");
+
 /// A direct child of a directory, as returned by [`Vfs::list_dir`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VfsEntry {
