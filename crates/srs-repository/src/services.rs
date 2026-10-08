@@ -27,7 +27,7 @@ use crate::relation_service::{self, ListRelationsFilter};
 use crate::store::{RecordTier, RepositoryStore};
 use crate::writer::new_instance_id;
 use serde::{Deserialize, Serialize};
-use srs_core::types::note::Note;
+use srs_core::types::note::{Note, NoteSection};
 use srs_core::types::record::Record;
 use srs_core::types::relation::Relation;
 use srs_core::validation::note::validate_note;
@@ -612,6 +612,36 @@ pub fn update_note(
     store.save_note(&note)?;
 
     Ok(UpdateNoteResult { note })
+}
+
+/// Authoring fields of a Note replaced by `update_note_content` (the whole
+/// authoring surface; provenance/lifecycle fields are service-managed).
+#[derive(Debug, Clone)]
+pub struct UpdateNoteContentInput {
+    pub title: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub sections: Vec<NoteSection>,
+}
+
+/// Service: replace a note's authoring fields (title, tags, sections) while
+/// preserving its stored `createdBy`, `createdAt`, `sourceRefs`, `meta` etc.
+/// Whole-object semantics over the authoring surface, like `record_update`.
+pub fn update_note_content(
+    store: &dyn RepositoryStore,
+    id: &str,
+    input: UpdateNoteContentInput,
+) -> Result<UpdateNoteResult, RepositoryError> {
+    if store.find_instance(id)?.is_none() {
+        return Err(RepositoryError::NoteNotFound {
+            path: std::path::PathBuf::from(store.record_tier_dir(RecordTier::Note)),
+            id: id.to_string(),
+        });
+    }
+    let mut note = store.load_note_by_id(id)?;
+    note.title = input.title;
+    note.tags = input.tags;
+    note.sections = input.sections;
+    update_note(store, note)
 }
 
 /// Service: Delete a note by ID
