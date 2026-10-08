@@ -115,3 +115,44 @@ mistake is caught only by review.
 **Neutral:** This ADR does not change any crate boundary, service, or CLI contract — it is
 process documentation, landing alongside its checklist per the-greenman/srs-rust#308/#311's
 lesson that a rule without a mechanism decays.
+
+## Amendment (2026-10-08, #1264) — rule 6: identifier over label in outputs
+
+Owner-approved 2026-10-08. The five rules above become six; the Decision heading's count is
+historical (it quotes #875 verbatim).
+
+6. **Identifier over label in outputs.** Any fact a consumer acts on in a machine-facing output
+   is a typed field carrying a stable identifier: grouping, filtering, suppressing, branching, or
+   linking to documentation. Machine-facing outputs are diagnostics, CLI payloads, WASM binding
+   results, and MCP tool results and errors. `message`, `notes` and other human-readable text are
+   presentation: free to change, never parsed. Concretely:
+   - (a) The core never interpolates a computed identifier (code, rule id, kind, reason) into
+     prose. If it has one, it emits it as a field.
+   - (b) Adapters carry the field unchanged (rule 2; see
+     [`capability-layering.md`](../architecture/capability-layering.md)).
+   - (c) Clients (srs-web, srs-vscode, scripts) never match on message text. A client that needs
+     to match is evidence of a missing field, and is filed against the emitting layer.
+   - (d) Tests assert on the field, not on message substrings.
+   - (e) Identifier spelling is kebab case. Where a spec RFC names the identifier, use it
+     verbatim (Description: one name over many).
+
+**Cites.** The spec charter's Identity cell preference "identifier over label"
+([`docs/charter/decision-compass.md`](https://github.com/the-greenman/srs/blob/master/docs/charter/decision-compass.md)),
+and the srs charter clarification `rfc-decision-b2ff7c91` "Identifier over label governs
+machine-facing outputs" (2026-10-08), which refines `rfc-decision-cce3c00e`. RFC-038 [R24].
+
+**Motivating case (srs#907 / srs-rust#1264).** Engine-computed `CatalogDiagnostic.code` and the
+srs-core `*DiagnosticCode` enums were flattened into message text via `format!`
+(`validation.rs` ~289, `catalog.rs` ~248, `relation_service.rs`), so srs-web's
+`groupDiagnostics` was forced to group on raw text. The owner ruled on 2026-10-08 that codes
+become a typed `code` field in kebab case, the legacy `SRS038-R*` / SCREAMING_SNAKE / `V*`/`E*`
+schemes are renamed, and the prefix is stripped from the message. srs-rust#1264 delivers it.
+
+**Scope.** Existing violations are tracked for remediation:
+
+- srs-rust#1264 covers `ValidationDiagnostic` and the bindings' `string[]` diagnostics.
+- srs-rust#1338 covers structured errors through the CLI envelope, WASM and MCP.
+- srs-rust#1339 covers the remaining `Vec<String>` payloads.
+- srs-web#512 and srs-vscode#131 are the client bugs caused by matching on prose.
+
+This amendment does not itself change code.
