@@ -150,8 +150,11 @@ fn srsj_from_tree(tree: &BTreeMap<String, Vec<u8>>) -> Result<String, Repository
         if path == MANIFEST_KEY {
             continue;
         }
-        if path == crate::vfs::SRS_MARKER_README_PATH
-            && bytes.as_slice() == crate::vfs::SRS_MARKER_README.as_bytes()
+        // Legacy `.srs/.gitkeep` placeholders are omitted too, so output stays
+        // stable for existing repos.
+        if path == ".srs/.gitkeep"
+            || (path == crate::vfs::SRS_MARKER_README_PATH
+                && bytes.as_slice() == crate::vfs::SRS_MARKER_README.as_bytes())
         {
             continue;
         }
@@ -427,6 +430,16 @@ mod tests {
             err.to_string().contains("shadowing the envelope manifest"),
             "got: {err}"
         );
+    }
+
+    #[test]
+    fn a_customised_marker_readme_travels() {
+        let mut doc: serde_json::Value = serde_json::from_str(&minimal_srsj("2")).unwrap();
+        doc["data"][".srs/README.md"] = serde_json::json!("custom orientation\n");
+        let store = open_srsj(&doc.to_string()).unwrap();
+        let out: serde_json::Value =
+            serde_json::from_str(&to_srsj_string(&store).unwrap()).unwrap();
+        assert_eq!(out["data"][".srs/README.md"], "custom orientation\n");
     }
 
     #[test]

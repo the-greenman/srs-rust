@@ -491,7 +491,10 @@ pub fn archive_unpack(
                 target.save_binary_file(path, bytes)?;
             }
             if !has_marker {
-                target.save_binary_file(&format!("{SRS_MARKER_DIR}/.gitkeep"), &[])?;
+                target.save_binary_file(
+                    crate::vfs::SRS_MARKER_README_PATH,
+                    crate::vfs::SRS_MARKER_README.as_bytes(),
+                )?;
             }
         } else {
             let session = open_tree(tree)?;

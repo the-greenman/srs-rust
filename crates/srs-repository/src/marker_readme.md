@@ -12,8 +12,8 @@ projections of them, never the source.
 - `records/`, `relations/`, `package/`: the authoritative data and its definitions
 
 The file tree is authoritative; there is no separate index to consult.
-Nothing inside `.srs/` is authoritative. It is implementation-private and
-this file is only orientation.
+This file is not authoritative: it is only orientation, and `.srs/` is
+implementation-private.
 
 ## Use the tools, do not hand-edit
 
