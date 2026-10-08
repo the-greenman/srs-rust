@@ -5315,10 +5315,8 @@ mod tests {
     }
 
     #[test]
-    fn validate_flags_ineligible_title_field_id_for_fixed_instances() {
-        // srs-rust#795: FixedInstances declares no static candidate Type, so
-        // eligibility must be checked against each candidate instance's *actual*
-        // Type. Post-#242 (Change-I condition 4) cardinality is the sole
+    fn validate_flags_ineligible_title_field_id_for_container_subset_type_filter() {
+        // srs-rust#795: eligibility is checked against the section's candidate Types. Post-#242 (Change-I condition 4) cardinality is the sole
         // mechanism: the field is ineligible via `cardinality: "list"` — the
         // fixture still discriminates the resolve-the-instance's-Type branch.
         //
@@ -5429,7 +5427,7 @@ mod tests {
                 .any(|d| d.message.contains("[N+1]")
                     && d.message.contains("test-type")
                     && d.severity == DiagnosticSeverity::Warning),
-            "expected an [N+1] warning for a FixedInstances section whose only \
+            "expected an [N+1] warning for a container-subset section whose only \
              candidate instance resolves to a repeatable-only-ineligible \
              titleFieldId, got {:?}",
             report.diagnostics
@@ -5464,8 +5462,8 @@ mod tests {
     }
 
     #[test]
-    fn validate_flags_ineligible_title_field_id_for_relation_query() {
-        // srs-rust#795: same coverage gap as the FixedInstances fixture above, for
+    fn validate_flags_ineligible_title_field_id_for_container_subset_type_filter_with_relation() {
+        // srs-rust#795: same coverage as the fixture above, formerly for
         // RelationQuery — its candidate instances are only known by resolving the
         // relations graph, which the validator did not do before this fix.
         //
@@ -5605,7 +5603,7 @@ mod tests {
                 .any(|d| d.message.contains("[N+1]")
                     && d.message.contains("test-type")
                     && d.severity == DiagnosticSeverity::Warning),
-            "expected an [N+1] warning for a RelationQuery section whose resolved \
+            "expected an [N+1] warning for a container-subset section whose resolved \
              target instance has a list-cardinality-ineligible titleFieldId, got {:?}",
             report.diagnostics
         );
