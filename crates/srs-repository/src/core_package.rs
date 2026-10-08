@@ -145,22 +145,97 @@ pub(crate) fn merge_core_into_package(
         record_types.push(core_type.clone());
     }
 
-    // Relation types resolve by bare `key` (`resolve_definition` in srs-core), not by id —
-    // two definitions sharing a key but differing in id/namespace/content produce an E1Conflict
-    // at relation-validation time, regardless of which package they came from. So unlike fields
-    // and types (whose reserved-namespace conflict is an id collision), the safe merge rule here
-    // is: skip a canonical relation type whenever the repo already has *any* definition — its
-    // own, or the same canonical one carried over by a prior merge — using that key. A repo's
-    // own definition always wins; this also covers repos that pre-date this fix and worked
-    // around the missing canonical types by declaring their own (srs-rust#685).
+    // RFC-048 ruling 8 / [R11] (srs-rust#1341): for every relation-type key the embedded
+    // core package defines, the *core* definition governs — never a repo's local one. A
+    // local definition identical to core (full JSON-value equality, which `PartialEq`
+    // covers field-for-field including `createdAt`/`updatedAt`/`meta`) is a reference copy:
+    // left in place, no diagnostic. Any other local definition of a core key is replaced by
+    // core's — it never governs resolution or validation — and draws the warning
+    // `relation-type-core-key-shadow` (never an error, never a load failure, never reported
+    // as an installation conflict). That diagnostic is computed separately, by
+    // `relation_type_shadow_diagnostics`, from the on-disk definition *before* this
+    // replacement overwrites it — this function only needs to make core win.
+    //
+    // This corrects PR #738 (2026-07-24), which skipped the core definition whenever the
+    // repo had *any* definition with the same key, letting a repo's own (possibly stale or
+    // weaker — e.g. missing `irreflexive`) copy silently shadow core with no diagnostic.
     for core_rt in &cp.relation_types {
-        if relation_types.iter().any(|rt| rt.key == core_rt.key) {
-            continue;
+        match relation_types.iter().position(|rt| rt.key == core_rt.key) {
+            Some(idx) if &relation_types[idx] != core_rt => {
+                relation_types[idx] = core_rt.clone();
+            }
+            Some(_) => {
+                // Identical reference copy — already in place, nothing to do.
+            }
+            None => relation_types.push(core_rt.clone()),
         }
-        relation_types.push(core_rt.clone());
     }
 
     Ok(())
+}
+
+/// One local relation-type definition that shares a key with the embedded core package but
+/// is not identical to it (RFC-048 [R11], `relation-type-core-key-shadow`). Re-derived from
+/// the on-disk definition directly — by the time `merge_core_into_package` has run, the
+/// local copy's own id/version is gone (overwritten by core's), so this reads the repo's own
+/// relation-type files again rather than the merged `Package`.
+pub(crate) struct RelationTypeShadowFinding {
+    /// Repo-relative path to the local definition file that shadows a core key.
+    pub path: String,
+    pub message: String,
+}
+
+/// Scans every package root's own `relationTypes[]` entries for a local definition that
+/// shares a key with the embedded core package but differs from it (RFC-048 [R11]). Never
+/// fails — an unreadable or unparsable definition is skipped, since catalog/package-load
+/// validation already reports that separately.
+pub(crate) fn relation_type_shadow_diagnostics(
+    store: &dyn crate::store::RepositoryStore,
+    package_roots: &[String],
+) -> Vec<RelationTypeShadowFinding> {
+    let cp = core_package();
+    let mut out = Vec::new();
+    for root in package_roots {
+        let manifest_rel = if root.is_empty() {
+            "package.json".to_string()
+        } else {
+            format!("{}/package.json", root.trim_end_matches('/'))
+        };
+        let Ok(manifest) = store.load_instance_json(&manifest_rel) else {
+            continue;
+        };
+        let Some(rt_paths) = manifest.get("relationTypes").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for p in rt_paths.iter().filter_map(|v| v.as_str()) {
+            let rel = if root.is_empty() {
+                p.to_string()
+            } else {
+                format!("{root}/{p}")
+            };
+            let Ok(def_json) = store.load_instance_json(&rel) else {
+                continue;
+            };
+            let Ok(def) = serde_json::from_value::<RelationTypeDefinition>(def_json) else {
+                continue;
+            };
+            if let Some(core_rt) = cp.relation_types.iter().find(|c| c.key == def.key) {
+                if core_rt != &def {
+                    out.push(RelationTypeShadowFinding {
+                        path: rel.clone(),
+                        message: format!(
+                            "RFC-048 [R11] relation-type-core-key-shadow: local definition \
+                             of core key '{}' ({} v{}) differs from the governing core \
+                             definition ({} v{}) — core governs resolution and validation; \
+                             this copy is a reference only",
+                            def.key, def.id, def.version, core_rt.id, core_rt.version
+                        ),
+                    });
+                }
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -304,13 +379,16 @@ mod tests {
     }
 
     #[test]
-    fn merge_core_skips_canonical_key_when_repo_has_its_own_conflicting_definition() {
-        // Relation types resolve by bare `key`, not by id (srs-core's resolve_definition) — two
-        // definitions sharing a key with different id/content is an E1Conflict at relation-
-        // validation time. Repos that pre-date this fix worked around the missing canonical
-        // types (srs-rust#685) by declaring their own "contains"/"depends-on"/etc under a
-        // different id and namespace. The merge must never introduce that conflict: the repo's
-        // own definition wins and the canonical one is skipped, not appended alongside it.
+    fn merge_core_governs_when_repo_has_its_own_conflicting_definition() {
+        // RFC-048 ruling 8 / [R11] (srs-rust#1341): relation types resolve by bare `key`, not
+        // by id (srs-core's `resolve_definition`), so two definitions sharing a key would be
+        // an E1Conflict at relation-validation time if both were kept. Repos that pre-date
+        // this fix worked around the missing canonical types (srs-rust#685) by declaring
+        // their own "contains"/"depends-on"/etc under a different id and namespace — PR #738
+        // then made that repo-local copy win silently. That is exactly what ruling 8
+        // reverses: the core definition governs, and the repo's differing copy never does,
+        // whatever its id/namespace. (The `relation-type-core-key-shadow` warning this draws
+        // is asserted separately in validation.rs, which has the on-disk fixture this needs.)
         let cp = core_package();
         let own_contains = make_relation_type(
             "00000000-0000-4000-8000-000000000999",
@@ -334,8 +412,12 @@ mod tests {
             "must not introduce a second definition under an already-declared key"
         );
         assert_eq!(
-            matching[0].id, own_contains.id,
-            "repo's own definition wins"
+            matching[0].id, cp.relation_types[0].id,
+            "core's definition governs — the repo's differing copy must not win"
+        );
+        assert_eq!(
+            matching[0].version, cp.relation_types[0].version,
+            "core's definition governs in full, including its version"
         );
     }
 

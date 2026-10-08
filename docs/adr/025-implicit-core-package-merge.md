@@ -3,7 +3,7 @@
 - **Status:** accepted
 - **Date:** 2026-07-09
 - **Supersedes:** —
-- **Superseded by:** —
+- **Superseded by:** srs-rust#1341 amends the srs-rust#685 relation-type amendment only (RFC-048 ruling 8 / [R11]); the rest of this ADR stands
 
 ## Context
 
@@ -53,7 +53,19 @@ A drift-check integration test (`tests/core_bundle_drift.rs`) compares the
 embedded artifact against the canonical copy in `srs/packages/com.semanticops.core/`
 when that repo is present, so CI catches staleness.
 
-### Amendment (srs-rust#685): the seven canonical relation types
+### Amendment (srs-rust#685): the seven canonical relation types — **superseded by srs-rust#1341**
+
+> **Superseded.** The paragraph below (PR #738, 2026-07-24) is no longer the
+> rule. RFC-048 ruling 8 / [R11] settles it for the standard: the **core**
+> definition governs every core relation-type key; a repo's local definition
+> of a core key is a reference copy only and never governs, whatever its id
+> or namespace. A local definition identical to core's (full value equality)
+> is kept as a silent reference copy; any other local definition of a core
+> key is replaced by core's and draws the warning
+> `relation-type-core-key-shadow` once — never a `CorePackageConflict`, never
+> a load failure. See `crates/srs-repository/src/core_package.rs`
+> (`merge_core_into_package`, `relation_type_shadow_diagnostics`) and
+> srs-rust#1341. Kept below for history.
 
 The bundle also carries `relationTypes[]` — the seven canonical relation types
 (`contains`, `depends-on`, `supersedes`, `refines`, `derived-from`, `evidences`,

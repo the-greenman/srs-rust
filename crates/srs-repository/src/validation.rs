@@ -304,6 +304,19 @@ pub fn validate_repository(
         }));
     }
 
+    // --- RFC-048 [R11] / ruling 8 (srs-rust#1341): a repo-local relation-type
+    // definition that shares a key with the embedded core package is a
+    // reference copy only — core always governs. A non-identical local copy
+    // never fails the load; it draws `relation-type-core-key-shadow` once.
+    for f in crate::core_package::relation_type_shadow_diagnostics(store, &cat.package_roots) {
+        diagnostics.push(ValidationDiagnostic {
+            severity: DiagnosticSeverity::Warning,
+            relative_path: f.path,
+            schema_id: None,
+            message: f.message,
+        });
+    }
+
     // --- RFC-026 slice block ([R3], [R4], [R10], [R12]; Change E 1) ---
     if let Some(slice) = manifest_value.get("slice") {
         diagnostics.extend(slice_block_diagnostics(&manifest_value, slice));
@@ -9127,6 +9140,102 @@ mod tests {
         write_json(temp.path(), "records/notes/a.json", &valid_note(&a));
         write_json(temp.path(), "records/notes/b.json", &valid_note(&b));
         (a, b)
+    }
+
+    #[test]
+    fn validate_reports_relation_type_core_key_shadow_and_core_governs() {
+        // RFC-048 [R11] / ruling 8 (srs-rust#1341): a repo-local relation-type
+        // definition sharing a core key ("depends-on" here) must never govern
+        // resolution or validation, even one that predates core's stricter
+        // facets. Core's "depends-on" is irreflexive; this local copy omits
+        // `irreflexive` entirely — mirroring the real-world bug (the governance
+        // package's `derived-from`/`evidences` copies lacking it). Before this
+        // fix the local copy would silently govern and a self-loop would pass
+        // unreported; after it, core's `irreflexive` facet governs (the
+        // self-loop is E3) and a `relation-type-core-key-shadow` warning names
+        // the shadowing file — never an installation conflict, never a load
+        // failure.
+        let temp = TempDir::new().unwrap();
+        let a = "00000000-0000-4000-8000-00000000000a".to_string();
+
+        write_json(
+            temp.path(),
+            "manifest.json",
+            &minimal_manifest(json!([
+                {"instanceId": a, "tier": 0, "path": "records/notes/a.json"},
+            ])),
+        );
+        write_json(temp.path(), "package/.srs", &json!({}));
+        write_json(
+            temp.path(),
+            "package/package.json",
+            &json!({
+                "$schema": srs_schema::PACKAGE_MANIFEST_SCHEMA_ID,
+                "id": "00000000-0000-4000-8000-000000000010",
+                "namespace": "com.test",
+                "name": "test-package",
+                "version": "1.0.0",
+                "title": "test-package",
+                "description": "",
+                "status": "active",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "fields": [],
+                "types": [],
+                "views": [],
+                "vocabularies": [],
+                "relationTypes": ["relation-types/local-depends-on.json"]
+            }),
+        );
+        write_json(
+            temp.path(),
+            "package/relation-types/local-depends-on.json",
+            &json!({
+                "id": "00000000-0000-4000-8000-00000000da01",
+                "version": 1,
+                "key": "depends-on",
+                "namespace": "com.test",
+                "label": "depends on",
+                "description": "a local copy predating core",
+                "category": "dependency",
+                "createdAt": "2026-01-01T00:00:00Z"
+            }),
+        );
+        write_json(temp.path(), "records/notes/a.json", &valid_note(&a));
+        write_relation_files(
+            temp.path(),
+            &relations_collection(vec![json!({
+                "relationId": "00000000-0000-4000-8000-000000000201",
+                "relationType": "depends-on",
+                "sourceInstanceId": a,
+                "targetInstanceId": a,
+                "createdAt": "2026-01-01T00:00:00Z"
+            })]),
+        );
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+
+        let shadow = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Warning
+                && d.message.contains("relation-type-core-key-shadow")
+        });
+        assert!(
+            shadow.is_some(),
+            "expected a relation-type-core-key-shadow warning, got: {:?}",
+            report.diagnostics
+        );
+        assert_eq!(
+            shadow.unwrap().relative_path,
+            "package/relation-types/local-depends-on.json"
+        );
+
+        let e3 = report.diagnostics.iter().find(|d| d.message.contains("E3"));
+        assert!(
+            e3.is_some(),
+            "core's irreflexive facet must govern despite the shadowing local \
+             copy (the self-loop must be reported as E3), got: {:?}",
+            report.diagnostics
+        );
     }
 
     fn bad_type_relation(rel_id: &str, src: &str, tgt: &str) -> Value {

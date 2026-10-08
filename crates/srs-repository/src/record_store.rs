@@ -3623,6 +3623,12 @@ pub(crate) mod tests {
 
     /// Creates a store identical to `make_store_with_lifecycle` but replaces the `supersedes`
     /// relation type definition with one carrying the given status override.
+    ///
+    /// Uses a non-core key (`test-supersedes-status`), not the real `supersedes`: RFC-048
+    /// ruling 8 / [R11] (srs-rust#1341) makes core govern every one of its seven canonical
+    /// keys, so a local definition keyed `supersedes` would be overwritten by core's own
+    /// (status-less, active) definition at merge time regardless of the `status` override
+    /// this fixture exists to test — exactly the silent-shadow bug that fix corrects.
     fn make_store_with_supersedes_status(
         status: Option<srs_core::types::relation_type_definition::RelationTypeStatus>,
     ) -> MemoryStore {
@@ -3728,8 +3734,8 @@ pub(crate) mod tests {
             schema: None,
             id: "rtd-supersedes-001".to_string(),
             version: 1,
-            key: "supersedes".to_string(),
-            namespace: "com.semanticops.srs".to_string(),
+            key: "test-supersedes-status".to_string(),
+            namespace: "com.test".to_string(),
             label: "Supersedes".to_string(),
             description: "The source record supersedes the target.".to_string(),
             category: RelationTypeCategory::Refinement,
@@ -3782,7 +3788,7 @@ pub(crate) mod tests {
             &store,
             &predecessor.instance_id,
             CreateRecordSuccessorInput {
-                relation_type: Some("supersedes".to_string()),
+                relation_type: Some("test-supersedes-status".to_string()),
                 field_values: fvs(vec![("title", json!("Retired Type"))]),
                 lifecycle_state: None,
                 type_version: None,
@@ -3813,7 +3819,7 @@ pub(crate) mod tests {
             &store,
             &predecessor.instance_id,
             CreateRecordSuccessorInput {
-                relation_type: Some("supersedes".to_string()),
+                relation_type: Some("test-supersedes-status".to_string()),
                 field_values: fvs(vec![("title", json!("Deprecated Type"))]),
                 lifecycle_state: None,
                 type_version: None,
@@ -3844,7 +3850,7 @@ pub(crate) mod tests {
             &store,
             &predecessor.instance_id,
             CreateRecordSuccessorInput {
-                relation_type: Some("supersedes".to_string()),
+                relation_type: Some("test-supersedes-status".to_string()),
                 field_values: fvs(vec![("title", json!("Tombstone Type"))]),
                 lifecycle_state: None,
                 type_version: None,

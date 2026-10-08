@@ -556,6 +556,43 @@ static MIGRATIONS: &[MigrationDefinition] = &[
             })
         },
     },
+    MigrationDefinition {
+        id: "core-relation-type-reference-cleanup",
+        title: "Remove redundant reference copies of core relation types",
+        description: "RFC-048 ruling 8 / [R11]/[R14] (srs-rust#1341): core governs every \
+                       relation-type key it defines. A repo's own local copy of a core key \
+                       that is byte-for-byte identical to the governing core definition is a \
+                       harmless but redundant reference copy — core already provides it \
+                       implicitly (ADR-025) in every repository. Removing it is safe because \
+                       relations reference relation types by bare key only, never by id, so \
+                       no relation's resolution changes. Only an identical copy is ever \
+                       removed; a copy that differs from core (the \
+                       relation-type-core-key-shadow warning `repo validate` now reports) is \
+                       left untouched, since replacing or deleting non-identical content is a \
+                       human decision, not an automated one. Structural, not revision-keyed — \
+                       this is not gated by dataModelRevision, so this migration stamps \
+                       nothing. Idempotent: a repository with no such copies reports nothing \
+                       to do.",
+        revision_step: None,
+        status_fn: |store| {
+            if crate::core_relation_type_reference_cleanup_migration_service::migration_needed(
+                store,
+            )? {
+                Ok(MigrationStatus::Needed)
+            } else {
+                Ok(MigrationStatus::AlreadyApplied)
+            }
+        },
+        apply_fn: |store| {
+            let result =
+                crate::core_relation_type_reference_cleanup_migration_service::migrate(store)?;
+            serde_json::to_value(&result).map_err(|e| RepositoryError::InvalidSnapshotData {
+                message: format!(
+                    "core-relation-type-reference-cleanup result serialisation failed: {e}"
+                ),
+            })
+        },
+    },
     // Last by rule, not by accident: this transform must see the final state
     // of everything the other migrations write.
     MigrationDefinition {
@@ -772,7 +809,7 @@ mod tests {
     fn list_migrations_returns_every_entry_for_store_with_no_identity_note() {
         let store = make_store_with_container_no_identity();
         let migrations = list_migrations(&store).unwrap();
-        assert_eq!(migrations.len(), 14);
+        assert_eq!(migrations.len(), 15);
         assert_eq!(migrations[0].id, "graduated-at-cleanup");
         assert_eq!(migrations[1].id, "revisions-sidecar-cleanup");
         assert_eq!(migrations[2].id, "field-type");
@@ -786,7 +823,8 @@ mod tests {
         assert_eq!(migrations[10].id, "rfc046-actor-provenance");
         assert_eq!(migrations[11].id, "migrate-identity");
         assert_eq!(migrations[12].id, "repo-upgrade");
-        assert_eq!(migrations[13].id, "rfc038-storage");
+        assert_eq!(migrations[13].id, "core-relation-type-reference-cleanup");
+        assert_eq!(migrations[14].id, "rfc038-storage");
         // No legacy graduatedAt Notes → AlreadyApplied
         assert_eq!(migrations[0].status, MigrationStatus::AlreadyApplied);
         // No .revisions.json sidecars → AlreadyApplied
@@ -813,8 +851,10 @@ mod tests {
         assert_eq!(migrations[11].status, MigrationStatus::Needed);
         // Zero instances → all paths canonical → AlreadyApplied
         assert_eq!(migrations[12].status, MigrationStatus::AlreadyApplied);
+        // No local relation-type definitions at all → nothing to clean up.
+        assert_eq!(migrations[13].status, MigrationStatus::AlreadyApplied);
         // MemoryStore is not a file tree — there is no storage layout to place.
-        assert_eq!(migrations[13].status, MigrationStatus::NotApplicable);
+        assert_eq!(migrations[14].status, MigrationStatus::NotApplicable);
     }
 
     fn indexed_srsj_store() -> crate::store::FileStore {
