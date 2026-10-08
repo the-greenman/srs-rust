@@ -931,7 +931,7 @@ impl SrsRepository {
     /// `input_json` is a JSON object:
     ///   `{ "relationType"?: "supersedes"|"refines", "fieldValues": {...}, "lifecycleState"?: "...", "typeVersion"?: N }`.
     /// `relationType` may be omitted: the core derives it from the predecessor's lifecycle
-    /// `requiresRelation` (RFC-022 R6) or errors with `SUCCESSOR_RELATION_TYPE_UNDETERMINED`.
+    /// `requiresRelation` (RFC-022 R6) or errors with code `successor-relation-type-undetermined`.
     /// Returns `{ "record": <Record>, "relation": <Relation> }` as a JS value.
     /// The relation runs from the successor (source) to the predecessor (target).
     pub fn create_record_successor(

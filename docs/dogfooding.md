@@ -156,7 +156,7 @@ This is the governance-profile workflow (`governance-profile.md` §6.3–6.4, §
 6. Add the durable records to the Container's membership; confirm the (session-scoped) exercise is *not* owned by the meeting.
 7. When the decision later changes, `record successor` it; do not edit the ratified record.
    - Omit `relationType`. A `closed` decision has no outgoing transitions, so the core derives `supersedes` from the lifecycle's hard `requiresRelation` on `superseded` (RFC-022 R6/I-99, #1238). An explicit `"relationType": "refines"` still wins.
-   - Against a Type whose lifecycle declares no relational state (e.g. the seed's `purpose`) the same call fails with `SUCCESSOR_RELATION_TYPE_UNDETERMINED` and writes nothing.
+   - Against a Type whose lifecycle declares no relational state (e.g. the seed's `purpose`) the same call fails with `errors[0].code == "successor-relation-type-undetermined"` (`details.candidates` lists the declared types; empty here) and writes nothing.
    - To try it: `srs-gov repo-create --output gov.srsj`, then `srs --repo gov.srsj ...` works on the `.srsj` directly.
 8. Render the decision log: `srs render document-view --view <decision-log-view>`.
 

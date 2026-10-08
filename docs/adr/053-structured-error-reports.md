@@ -1,6 +1,6 @@
 # ADR-053: Structured error reports — one `ErrorReport`, carried by every adapter
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-10-08
 - **Supersedes:** —
 - **Superseded by:** —
