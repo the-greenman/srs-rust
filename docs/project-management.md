@@ -7,7 +7,7 @@ checkout — every operation hits the GitHub API, so nothing depends on a siblin
 
 ## The one board
 
-Everything lives on **Project #5 "SRS"** (`https://github.com/users/the-greenman/projects/5`).
+Everything lives on **Project #6 "SemanticOps"** (`https://github.com/users/the-greenman/projects/6`; Project #5 is frozen history). Stories/epics live in `the-greenman/semanticops.com`.
 User stories and implementation issues coexist on it.
 
 The [owner strategic map](strategy/roadmap.md) sits above this execution view. It is a
@@ -22,7 +22,7 @@ EPIC  (muDemocracy.org, label `epic`)                    ← an epic IS a releas
    Priority:      P0 / P1 / P2                            ← the epic's urgency tier (hand-set, its ONE board input)
         │  native GitHub sub-issues
         ▼
-USER STORY  (muDemocracy.org, label `user-story`)        ← the human value layer, on board #5
+USER STORY  (semanticops.com, label `user-story`)        ← the human value layer, on board #6
    MoSCoW field:  Must / Should / Could / Won't           ← value input, set by a human in the UI
         │  native GitHub sub-issues (cross-repo)
         ▼

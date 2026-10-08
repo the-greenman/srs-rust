@@ -162,7 +162,7 @@ The hook runs `cargo test --test payload_contracts`. If it fails, regenerate sch
 
 ## Project & priority management
 
-Issues across the ecosystem are tracked on **Project #5 "SRS"** and prioritised **top-down from
+Issues across the ecosystem are tracked on **Project #6 "SemanticOps"** (#5 is frozen history) and prioritised **top-down from
 user stories**. The authoritative process — the priority model (story MoSCoW → derived
 `priority: Pn`), sub-issue linkage, the Status/iteration conventions, and the `gh-project` tool —
 is in **[docs/project-management.md](docs/project-management.md)**.
@@ -177,7 +177,7 @@ Quick rules:
   gets no priority.
 - **Bugs** are fixed ASAP — they floor at `priority: P1` even without a story.
 - **Unlinked non-bug** work is flagged ("could get lost"), never dropped — link it to a story.
-- **Epics are releases.** An `epic` (in muDemocracy.org) *is* a release: its **`Epic NN:` title**
+- **Epics are releases.** An `epic` (in semanticops.com; priority derived by srs-programme) *is* a release: its **`Epic NN:` title**
   is identity + roadmap sequence (retitle to renumber), its board **Priority** is the urgency tier.
   There is no Release field — membership is the sub-issue graph (`tree <epic#>`, `summary --epic N`).
   Every story should sit under an epic — `coverage` flags `orphan_stories_no_epic`.

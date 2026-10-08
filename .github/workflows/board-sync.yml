@@ -1,6 +1,6 @@
 name: Board sync
 
-# Reconciles Project #5 and promotes work onto the Ready queue. Runs on three triggers:
+# Reconciles Project #6 (SemanticOps; story repo semanticops.com; #5 is frozen history) and promotes work onto the Ready queue. Runs on three triggers:
 #   - push to master  — reconcile right after each merge (closed→Done, re-derive priorities)
 #   - schedule (hourly) — promote `promote:ready` intents even during quiet periods, so the
 #                         Ready queue refills at the same cadence the hourly consumer drains it;
@@ -65,3 +65,6 @@ jobs:
         env:
           # Accept either secret name; BOARD_SECRET is the one currently configured.
           GH_TOKEN: ${{ secrets.BOARD_SECRET || secrets.BOARD_TOKEN }}
+          GHP_PROJECT: "6"
+          GHP_STORY_REPO: semanticops.com
+          GHP_MIRROR_REPOS: "srs,srs-rust,srs-web,srs-vscode,srs-context,srs-programme,semanticops.com"
