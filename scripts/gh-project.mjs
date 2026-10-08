@@ -974,8 +974,9 @@ function derivePriority(row, served, storiesByNum, epicInfo = null) {
   // Won't-excluded: it serves stories, and every one is an explicit Won't. This is the
   // one deliberate "do not feed this" signal — neither the epic fallback nor the
   // default floor may resurrect it. (The bug floor still applies: bugs are never lost.)
-  // A `parked` epic excludes its descendants the same way (#1347).
-  const parked = !!epicInfo?.parked;
+  // A `parked` epic excludes its descendants the same way (#1347), and so does the
+  // issue's own `parked` label (#1352).
+  const parked = !!epicInfo?.parked || row.labels.includes("parked");
   // Story-derived P is capped at the claiming epic's P (a Must story under a P2 epic → P2).
   const epicCap = epicInfo ? (epicInfo.priority ?? EPIC_PRIORITY_DEFAULT) : null;
   if (base && epicCap && P_ORDER.indexOf(base) < P_ORDER.indexOf(epicCap)) base = epicCap;

@@ -301,6 +301,13 @@ test("derivePriority: no story, no epic — orphaned but P2-floored (flagged, ne
   assert.equal(stages.defaultFloor.applied, true);
 });
 
+test("derivePriority: an issue labelled parked gets no priority; a parked bug keeps the bug floor (#1352)", () => {
+  const stories = new Map();
+  assert.equal(derivePriority({ labels: ["parked"] }, null, stories, null).p, null);
+  assert.equal(derivePriority({ labels: ["parked"] }, null, stories, { num: 1, priority: "P0", parked: false }).p, null);
+  assert.equal(derivePriority({ labels: ["parked", "bug"] }, null, stories, null).p, "P1");
+});
+
 test("derivePriority: explicit Won't on every served story excludes — no fallback, no floor", () => {
   const wontStories = new Map([[50, { moscow: "Won't" }]]);
   // Even under a P0 epic, an explicit Won't is the one deliberate opt-out.
