@@ -62,8 +62,8 @@ pub fn new_tree_session() -> FileStore {
 
 /// Export a tree session as a path→bytes map — the raw `MemVfs` snapshot.
 ///
-/// Emits `.srs/.gitkeep` (0-byte) when no file under `.srs/` exists, so the
-/// exported tree stays clone-detectable on git hosts. Errors for disk-backed
+/// Emits the default `.srs/README.md` orientation file when no file under
+/// `.srs/` exists, so the exported tree keeps a populated marker directory. Errors for disk-backed
 /// stores: those export via the filesystem, not this API.
 pub fn export_tree(store: &FileStore) -> Result<BTreeMap<String, Vec<u8>>, RepositoryError> {
     let mut map =
@@ -77,7 +77,10 @@ pub fn export_tree(store: &FileStore) -> Result<BTreeMap<String, Vec<u8>>, Repos
             })?;
     let marker_prefix = format!("{SRS_MARKER_DIR}/");
     if !map.keys().any(|k| k.starts_with(&marker_prefix)) {
-        map.insert(format!("{SRS_MARKER_DIR}/.gitkeep"), Vec::new());
+        map.insert(
+            crate::vfs::SRS_MARKER_README_PATH.to_string(),
+            crate::vfs::SRS_MARKER_README.as_bytes().to_vec(),
+        );
     }
     Ok(map)
 }

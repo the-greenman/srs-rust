@@ -605,7 +605,7 @@ fn a_srsj_session_packs_the_same_tree_as_the_repository_on_disk() {
             .collect()
     };
     let disk_names = names(from_disk);
-    assert!(disk_names.contains(&".srs/.gitkeep".to_string()));
+    assert!(disk_names.contains(&".srs/README.md".to_string()));
     assert_eq!(disk_names, names(from_session));
 }
 

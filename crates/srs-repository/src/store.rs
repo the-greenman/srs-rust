@@ -1571,11 +1571,13 @@ impl RepositoryStore for FileStore {
         }
 
         self.ensure_dir(SRS_MARKER_DIR)?;
-        // Git does not track empty directories, so an unpopulated `.srs/`
-        // does not survive a repo's first commit and the marker vanishes
-        // (srs-rust#959). Same `.gitkeep` idiom `tree_session`/`archive`
-        // already use to keep the marker git-visible.
-        self.save_binary_file(&format!("{SRS_MARKER_DIR}/.gitkeep"), &[])?;
+        // A populated marker directory survives storage round-trips
+        // (srs-rust#959) and orients a reader landing in the tree
+        // (srs-rust#1066). Same file `tree_session`/`archive` synthesise.
+        self.save_binary_file(
+            crate::vfs::SRS_MARKER_README_PATH,
+            crate::vfs::SRS_MARKER_README.as_bytes(),
+        )?;
         self.ensure_dir("package")?;
 
         let title = input
