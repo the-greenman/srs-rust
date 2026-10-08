@@ -3410,6 +3410,66 @@ $SRS repo validate --repo $R                                         # 0 errors
 - `field delete` / `type delete` of an **in-use** definition succeed with no guard and leave a dangling reference (filed as the bug #1345; pre-existing, not caused by #1338).
 - Stdin parse failures were `unclassified` until `input.rs` kept the serde error as the anyhow source (fixed in this PR).
 
+### S59 — A repo's own relation-type definition can never outrank core's for a canonical key (`relation-type create`, `repo validate`, `repo apply-migration`, RFC-048 ruling 8 / [R11], #1341)
+
+**Intention.** *"I authored (or installed, or inherited from an old fixture) my own `precedes`/`depends-on`/etc. relation-type definition before I knew the engine already ships one. I want the engine's canonical definition to govern regardless — silently shadowing it with my own, weaker copy was the #738 bug — and I want to be told, not surprised, when my copy differs; and if it's just a stale identical copy, I want an easy way to clean it up."*
+
+**Capabilities exercised.** `core_package::merge_core_into_package` (RFC-048 ruling 8 / [R11]): the embedded core package's definition governs every one of the seven canonical relation-type keys (`contains`, `depends-on`, `supersedes`, `refines`, `derived-from`, `evidences`, `precedes`), never a repo's local one, whatever its id or namespace. `core_package::relation_type_shadow_diagnostics`, wired into `repo validate`: a local definition identical to core's is a silent reference copy; any other local definition of a core key draws exactly one `relation-type-core-key-shadow` warning, never an error, never an installation conflict. The new migration `core-relation-type-reference-cleanup`: removes an identical reference copy from the repository's own (primary) package only — an installed dependency's own identical copy is left alone (RFC-048 [R14]), the publisher's call, not this repository's.
+
+**CLI surface.** `relation-type create`, `relation-type list`, `repo validate`, `repo migrations`, `repo apply-migration`, `package create` (sub-package boundary).
+
+**Steps.**
+
+```bash
+SRS=target/debug/srs
+rm -rf /tmp/dogfood-s59 && $SRS repo create --repo /tmp/dogfood-s59 --namespace com.example.dogfood --pretty
+
+# 1. Declare a local "precedes" that differs from core (stale id, missing facets —
+#    the exact real-world shape RFC-048 found in gallery/governance seeds).
+echo '{"id":"11111111-1111-4111-8111-111111111111","version":1,"key":"precedes",
+       "namespace":"com.example.dogfood","label":"Precedes",
+       "description":"Stale local precedes predating core.","category":"sequence",
+       "createdAt":"2026-01-01T00:00:00Z"}' \
+  | $SRS relation-type create --repo /tmp/dogfood-s59 --pretty
+
+# 2. repo validate: exactly one warning, zero errors — never a load failure,
+#    never an installation conflict.
+$SRS repo validate --repo /tmp/dogfood-s59 --pretty
+
+# 3. relation-type list: "precedes" resolves to CORE's definition
+#    (namespace com.semanticops.srs, irreflexive: true), not the local shadow.
+$SRS relation-type list --repo /tmp/dogfood-s59 --pretty
+
+# 4. A byte-identical reference copy (no shadow warning) in a second repo —
+#    draws nothing, and `repo migrations` reports it Needed for cleanup.
+rm -rf /tmp/dogfood-s59b && $SRS repo create --repo /tmp/dogfood-s59b --namespace com.example.dogfood2 --pretty
+python3 -c "import json; d=json.load(open('crates/srs-repository/assets/core-bundle.srsj'));
+print(json.dumps([r for r in d['relationTypes'] if r['key']=='precedes'][0]))" \
+  | $SRS relation-type create --repo /tmp/dogfood-s59b --pretty
+$SRS repo validate --repo /tmp/dogfood-s59b --pretty   # 0 diagnostics
+$SRS repo migrations --repo /tmp/dogfood-s59b --pretty  # core-relation-type-reference-cleanup: needed
+$SRS repo apply-migration --id core-relation-type-reference-cleanup --repo /tmp/dogfood-s59b --pretty
+$SRS repo validate --repo /tmp/dogfood-s59b --pretty   # still 0 diagnostics; file + relationTypes[] entry gone
+
+# 5. The carve-out: an installed dependency's own identical copy is never touched.
+$SRS package create --repo /tmp/dogfood-s59b --id dep-pkg-001 --namespace com.dep --name dep --path packages/dep --pretty
+python3 -c "import json; d=json.load(open('crates/srs-repository/assets/core-bundle.srsj'));
+print(json.dumps([r for r in d['relationTypes'] if r['key']=='precedes'][0]))" \
+  | $SRS relation-type create --repo /tmp/dogfood-s59b --package packages/dep --pretty
+$SRS repo apply-migration --id core-relation-type-reference-cleanup --repo /tmp/dogfood-s59b --pretty
+# payload.removed must be [] — the dependency's file must still exist on disk.
+```
+
+**Negative case.** None needed beyond step 2/5 above: the shadow is a warning, not a refusal, by design (RFC-048 [R11] MUST NOT be an installation conflict).
+
+**Done when.**
+- Step 2: exactly one `warning` diagnostic, `message` contains `relation-type-core-key-shadow`, `path` names the local file; `summary.errors == 0`.
+- Step 3: the `precedes` entry has `namespace: "com.semanticops.srs"` and `irreflexive: true` (core's, not the local shadow's).
+- Step 4: first `repo validate` has 0 diagnostics; `repo migrations` shows `core-relation-type-reference-cleanup` as `needed`; after `apply-migration`, the file and `relationTypes[]` entry are gone, `relation-type list` still resolves `precedes` (via core), and `repo validate` stays 0 diagnostics.
+- Step 5: `payload.removed == []`; `packages/dep/relation-types/*.json` still exists.
+
+**Verified 2026-10-08 (#1341)** on the branch build. All five steps passed exactly as described (an earlier version of the migration iterated every package root, including installed-dependency sub-packages, which would have violated RFC-048 [R14] — caught in code review before this dogfood run, not after).
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
@@ -3440,7 +3500,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `record tag` | S6 |
 | `relation` (create/list/get/delete) | S1, S3, S5 |
 | `relation rebuild-precedes-chain` | CLI: _gap — no CLI command yet, tracked in #609_; WASM binding (`SrsRepository::rebuild_precedes_chain`) verified via 6 service unit tests in `crates/srs-repository/src/relation_service.rs` (creates n-1 edges, clears existing precedes, empty/single inputs, preserves non-precedes edges, cross-store roundtrip) and smoke test `test_rebuild_precedes_chain_binding_smoke` in `crates/srs-bindings/src/lib.rs` (#606) |
-| `relation-type` | CLI: _gap — no scenario yet_; WASM read binding (`list_relation_types`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#411) |
+| `relation-type` | S59; WASM read binding (`list_relation_types`) verified via integration tests in `crates/srs-bindings/tests/definition_browse.rs` (#411); **core always governs a canonical key (RFC-048 ruling 8 / [R11], #1341)**: a repo's local definition of `contains`/`depends-on`/`supersedes`/`refines`/`derived-from`/`evidences`/`precedes` never governs resolution or validation, whatever its id/namespace — see S59 |
 | `container` (create/members/roots/validate/…) | S4; container CRUD on `.srsj` (create/list/delete) verified end-to-end on branch (#466); slug-named container path resolution (`.srsj` packed from FileStore with `manifest.containerIndex.path` entries) covered by `srs-repository` unit tests (`json_store_container_slug_path_resolution`, `json_store_save_container_writes_manifest_index`, etc.); **pre-#466 shadow containerIndex migration** (open-time derivation of missing `path` in `from_srsj`, #490) — dogfooded on branch: `container list` on a hand-crafted pre-#466 `.srsj` returns the container; `repo validate` produces no `[/containerIndex/N] "path" is a required property` error (the regressed behaviour); covered by unit tests `from_srsj_shadow_migration_derives_path_for_pathless_entry` and `from_srsj_shadow_migration_skips_entry_with_no_matching_data_key`; **embed-only root container visibility (#698)**: fixed `container list`, `container get`, `container members add/remove`, and `container update` for repos where `manifest.container` exists without a matching `containerIndex` entry (the RFC-013 native init shape, `FileStore::initialize_repository` without `create_container`); `add_member`/`remove_member`/`add_root`/`remove_root` write through to `manifest.container` only (no `save_container` call, no nested batch conflict); `update_container` syncs both `save_container` and `manifest.container` atomically when root is file-backed; embed-only roots excluded from `export_repository_snapshot_with_options` snapshot.containers (already present in `snapshot.root_container`) preventing double-import during `repo copy`/archive roundtrips; verified 2026-07-23 (#698): stripped `containerIndex` + container file from a fresh repo → `container list` (root returned ✅), `container get <root-id>` (full container returned ✅), note create + `container members add` (manifest.container.memberInstanceIds updated ✅), `container update` (title written to manifest.container ✅), `container members remove` (member removed from manifest.container ✅), `container get <unknown-id>` (ok: false, ContainerNotFound ✅), `repo validate` (ok: true, 0 errors ✅) |
 | `container members add` / `container roots add` — write-boundary guard (#841): the instance id must resolve to a real instance; blank, whitespace-only and well-formed-but-non-existent UUIDs all return `ok: false` with no write. One guard in `container_service`, so the CLI, MCP and WASM adapters inherit it (ADR-010) | S25 |
 | `container members remove` / `container roots remove` — repair path (ADR-045, #841): reads and writes through the unchecked catalog, so an already-bricked repository is recoverable through the CLI. Paired with `repo validate`'s [R24] reporting exemption as the discovery half | S25 |
@@ -3468,7 +3528,7 @@ Maps each CLI command group to the scenario(s) that exercise it. A command group
 | `ext:import-tracking` (`ImportRecord`, `ImportSummary`, `UpstreamPackage`) | S29 (#246); CLI: `srs package install`, `srs package import --mode`, `srs package imports`; core types (`ImportMode`, `DefinitionType`, `ConflictState`, `ImportRecord`, `ImportSummary`, `UpstreamPackage`) verified via 11 unit tests in `crates/srs-core/src/extensions/import_tracking.rs` (#245, #246); WASM binding (`list_package_imports_json` on `SrsRepository`) exposes the same service via WASM |
 | `repo extensions` (list/enable/disable/conformance) | S22; WASM read binding (`declared_extensions_conformance`) verified via smoke test `declared_extensions_conformance_report_serialises` in `crates/srs-bindings/src/lib.rs` (#442) |
 | `repo migrate-identity` (graduate Tier-0 identity note to purpose record, #426; bootstrap identity for pre-#424 repos with no `identityInstanceId`, #432) | S21 (Tier-0 note branch), S21b (None-branch: absent pointer); WASM binding (`migrate_identity`) verified via integration tests in `crates/srs-bindings/tests/migrate_identity.rs` (#434); `build_purpose_record` now uses `core_package::core_package()` lookups instead of hardcoded UUID constants (ADR-025, #434) |
-| `repo migrations` / `repo apply-migration` (enumerable migration registry with per-repo status, #461) | S30; service `migration_registry_service` verified in `crates/srs-repository/src/migration_registry_service.rs` (unit + cross-store roundtrip tests); WASM bindings (`available_migrations`, `apply_migration` on `SrsRepository`) verified in `crates/srs-bindings/tests/migration_registry.rs` (#461) |
+| `repo migrations` / `repo apply-migration` (enumerable migration registry with per-repo status, #461) | S30; service `migration_registry_service` verified in `crates/srs-repository/src/migration_registry_service.rs` (unit + cross-store roundtrip tests); WASM bindings (`available_migrations`, `apply_migration` on `SrsRepository`) verified in `crates/srs-bindings/tests/migration_registry.rs` (#461); **`core-relation-type-reference-cleanup` (#1341)** removes an identical reference copy of a core relation type from the repository's own (primary) package only, never an installed dependency's — see S59 |
 | `type` `validationRules` (ext:cross-field-validation — conditional-required / field-ordering / mutual-exclusion, #242); **CFR violations are now hard errors at `record create`/`record update` write time (#437)** — `repo validate` still enforces for any pre-existing records | S23 |
 | `tag` (definition) | _gap — being deprecated; see open issues_ |
 | `registry` (ext:registry — `registry list`, `registry get`) | S25; WASM free functions (`parse_registry`, `list_registry_entries`) verified via `cargo build --target wasm32-unknown-unknown -p srs-bindings` (#244) |

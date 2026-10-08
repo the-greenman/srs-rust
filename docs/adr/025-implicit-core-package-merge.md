@@ -3,7 +3,7 @@
 - **Status:** accepted
 - **Date:** 2026-07-09
 - **Supersedes:** —
-- **Superseded by:** srs-rust#1341 amends the srs-rust#685 relation-type amendment only (RFC-048 ruling 8 / [R11]); the rest of this ADR stands
+- **Superseded by:** — (this ADR's core decision stands; only its srs-rust#685 relation-type amendment, below, is corrected by an owner ruling — RFC-048 ruling 8 / [R11], executed in srs-rust#1341 — rather than by a new ADR, since no new architectural constraint is introduced)
 
 ## Context
 
