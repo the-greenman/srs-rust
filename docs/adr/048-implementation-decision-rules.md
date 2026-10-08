@@ -138,8 +138,8 @@ historical (it quotes #875 verbatim).
 
 **Cites.** The spec charter's Identity cell preference "identifier over label"
 ([`docs/charter/decision-compass.md`](https://github.com/the-greenman/srs/blob/master/docs/charter/decision-compass.md)),
-and the srs charter clarification "Identifier over label governs machine-facing outputs"
-(2026-10-08). RFC-038 [R24].
+and the srs charter clarification `rfc-decision-b2ff7c91` "Identifier over label governs
+machine-facing outputs" (2026-10-08), which refines `rfc-decision-cce3c00e`. RFC-038 [R24].
 
 **Motivating case (srs#907 / srs-rust#1264).** Engine-computed `CatalogDiagnostic.code` and the
 srs-core `*DiagnosticCode` enums were flattened into message text via `format!`
@@ -148,5 +148,11 @@ srs-core `*DiagnosticCode` enums were flattened into message text via `format!`
 become a typed `code` field in kebab case, the legacy `SRS038-R*` / SCREAMING_SNAKE / `V*`/`E*`
 schemes are renamed, and the prefix is stripped from the message. srs-rust#1264 delivers it.
 
-**Scope.** Existing violations are tracked for remediation (srs-rust#1264 for diagnostics; a
-broader scan is in progress). This amendment does not itself change code.
+**Scope.** Existing violations are tracked for remediation:
+
+- srs-rust#1264 covers `ValidationDiagnostic` and the bindings' `string[]` diagnostics.
+- srs-rust#1338 covers structured errors through the CLI envelope, WASM and MCP.
+- srs-rust#1339 covers the remaining `Vec<String>` payloads.
+- srs-web#512 and srs-vscode#131 are the client bugs caused by matching on prose.
+
+This amendment does not itself change code.
