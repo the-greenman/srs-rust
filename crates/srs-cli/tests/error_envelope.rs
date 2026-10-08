@@ -144,3 +144,12 @@ fn error_envelope_handler_path_survives_reparse() {
     );
     assert_eq!(first_error(&r)["code"], "relation-not-found", "{r}");
 }
+
+#[test]
+fn error_envelope_malformed_stdin_is_invalid_input() {
+    let temp = new_repo();
+    let r = srs(temp.path(), &["note", "create"], "{nope");
+    assert_eq!(r["ok"], false, "{r}");
+    assert_eq!(r["errors"][0]["code"], "invalid-input", "{r}");
+    assert_eq!(r["errors"][0]["message"], r["diagnostics"][0]);
+}

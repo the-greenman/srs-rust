@@ -119,6 +119,15 @@ impl OutputDTO {
                     ..re.report()
                 }],
             ),
+            // A stdin parse failure (input.rs keeps the serde error as the source).
+            None if e.chain().any(|c| c.is::<serde_json::Error>()) => Self::from_reports(
+                command,
+                vec![ErrorReport {
+                    code: "invalid-input".into(),
+                    message,
+                    details: None,
+                }],
+            ),
             None => Self::err(command, vec![message]),
         }
     }
