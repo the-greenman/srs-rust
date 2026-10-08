@@ -18,7 +18,7 @@
 //!   `#[schemars(with = "serde_json::Value")]` so the outer wrapper schema is still generated.
 
 use schemars::JsonSchema;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use srs_core::types::view::RecordProperty as SvcRecordProperty;
 use srs_core::types::{
     container::Container,
@@ -3360,4 +3360,21 @@ mod tests {
             "protocol should be absent, got: {json}"
         );
     }
+}
+
+// ── Error envelope ────────────────────────────────────────────────────────────
+
+/// One entry of the top-level `errors[]` on an `ok:false` envelope (ADR-053).
+/// Deliberate mirror of `srs_repository::ErrorReport`: schemars is not a
+/// dependency of srs-repository (ADR-011).
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorReportPayload {
+    /// Stable kebab-case error code (ADR-048 rule 6).
+    pub code: String,
+    /// Human-readable message; equals the aligned `diagnostics[i]`.
+    pub message: String,
+    /// Open object of variant-specific fields, when the error has any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
 }

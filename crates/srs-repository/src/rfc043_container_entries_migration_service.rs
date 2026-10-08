@@ -1144,6 +1144,7 @@ mod tests {
             matches!(err, RepositoryError::Rfc043MigrationNeeded),
             "{err:?}"
         );
+        assert_eq!(err.code(), "rfc043-migration-needed"); // wording test: the message must name the migration
         assert!(err.to_string().contains("rfc043-container-entries"));
         let exempt = FileStore::new(tmp.path()).with_rfc038_exemption();
         let listed = crate::migration_registry_service::list_migrations(&exempt).unwrap();

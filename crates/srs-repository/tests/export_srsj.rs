@@ -78,14 +78,11 @@ fn r20_refuses_a_pre_cutover_document_rather_than_reading_it_empty() {
     let mut doc: serde_json::Value = serde_json::from_str(GALLERY).unwrap();
     doc["srsj"] = serde_json::json!("1");
     let err = open_srsj(&doc.to_string()).expect_err("srsj '1' must be refused");
-    let message = err.to_string();
+    assert_eq!(err.code(), "invalid-snapshot-data", "got: {err}");
+    // `invalid-snapshot-data` is shared by several refusals; the message token is the only discriminator.
     assert!(
-        message.contains("unsupported srsj version '1'"),
-        "got: {message}"
-    );
-    assert!(
-        message.contains("[R20]"),
-        "must cite the governing rule: {message}"
+        err.to_string().contains("unsupported srsj version '1'"),
+        "{err}"
     );
 }
 

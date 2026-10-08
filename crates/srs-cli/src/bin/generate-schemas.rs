@@ -270,5 +270,8 @@ fn main() {
     write_schema!("archive-unpack", ArchiveUnpackPayload);
     write_schema!("slice-export", SliceExportPayload);
 
+    // Error envelope (ADR-053)
+    write_schema!("error-report", ErrorReportPayload);
+
     println!("done.");
 }

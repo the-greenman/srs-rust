@@ -3,6 +3,7 @@ use crate::output;
 use crate::payload::{ThemeDeletePayload, ThemeListPayload, ThemePayload};
 use anyhow::Result;
 use srs_core::types::theme::Theme;
+use srs_repository::error::RepositoryError;
 use srs_repository::theme_service::{
     create_theme_normalized, delete_theme, get_theme_by_id, list_themes_summary, update_theme,
     CreateThemeResult, DeleteThemeResult, GetThemeResult,
@@ -26,7 +27,7 @@ fn cmd_theme_list(ctx: CliContext, namespace: Option<String>) -> Result<String> 
             }
             output::serialize("theme list", ThemeListPayload { themes })
         }
-        Err(e) => Ok(output::err("theme list", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("theme list", &e)),
     }
 }
 
@@ -35,9 +36,11 @@ fn cmd_theme_get(ctx: CliContext, id: String) -> Result<String> {
         GetThemeResult::Found(theme) => {
             output::serialize("theme get", ThemePayload { theme: *theme })
         }
-        GetThemeResult::NotFound => Ok(output::err(
+        GetThemeResult::NotFound => Ok(output::repo_err(
             "theme get",
-            vec![format!("theme not found: {id}")],
+            &RepositoryError::ThemeNotFound {
+                theme_id: id.clone(),
+            },
         )),
     }
 }
@@ -50,7 +53,7 @@ fn cmd_theme_create(ctx: CliContext, package: Option<String>) -> Result<String> 
         Ok(CreateThemeResult { theme }) => {
             output::serialize("theme create", ThemePayload { theme })
         }
-        Err(e) => Ok(output::err("theme create", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("theme create", &e)),
     }
 }
 
@@ -63,7 +66,7 @@ fn cmd_theme_update(ctx: CliContext, id: String) -> Result<String> {
                 theme: result.theme,
             },
         ),
-        Err(e) => Ok(output::err("theme update", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("theme update", &e)),
     }
 }
 
@@ -72,6 +75,6 @@ fn cmd_theme_delete(ctx: CliContext, id: String) -> Result<String> {
         Ok(DeleteThemeResult { id }) => {
             output::serialize("theme delete", ThemeDeletePayload { id })
         }
-        Err(e) => Ok(output::err("theme delete", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("theme delete", &e)),
     }
 }

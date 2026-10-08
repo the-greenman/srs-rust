@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ErrorReportPayload",
+  "description": "One entry of the top-level `errors[]` on an `ok:false` envelope (ADR-053). Deliberate mirror of `srs_repository::ErrorReport`: schemars is not a dependency of srs-repository (ADR-011).",
+  "type": "object",
+  "required": [
+    "code",
+    "message"
+  ],
+  "properties": {
+    "code": {
+      "description": "Stable kebab-case error code (ADR-048 rule 6).",
+      "type": "string"
+    },
+    "details": {
+      "description": "Open object of variant-specific fields, when the error has any."
+    },
+    "message": {
+      "description": "Human-readable message; equals the aligned `diagnostics[i]`.",
+      "type": "string"
+    }
+  }
+}

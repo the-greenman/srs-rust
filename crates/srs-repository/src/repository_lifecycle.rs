@@ -548,6 +548,7 @@ mod tests {
                 ..Default::default()
             };
             let err = create_blank_repository(&MemoryStore::uninitialized(), input).unwrap_err();
+            assert_eq!(err.code(), "invalid-input"); // generic bucket code: the message check below is the discriminator
             assert!(err.to_string().contains("namespace or title is required"));
         }
     }

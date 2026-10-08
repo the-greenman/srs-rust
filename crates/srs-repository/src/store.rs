@@ -5133,9 +5133,16 @@ mod tests {
             matches!(err, RepositoryError::RelationFilenameMismatch { .. }),
             "expected RelationFilenameMismatch, got {err:?}"
         );
-        let msg = err.to_string();
-        assert!(msg.contains("d0000001-0000-4000-a000-00000000000a"));
-        assert!(msg.contains("d0000001-0000-4000-a000-00000000000b"));
+        assert_eq!(err.code(), "relation-filename-mismatch");
+        let details = err.report().details.expect("structured details");
+        assert!(details["path"]
+            .as_str()
+            .unwrap()
+            .contains("d0000001-0000-4000-a000-00000000000a"));
+        assert_eq!(
+            details["fileRelationId"],
+            "d0000001-0000-4000-a000-00000000000b"
+        );
 
         let list_err = store.list_relations().unwrap_err();
         assert!(matches!(

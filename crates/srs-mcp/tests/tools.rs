@@ -377,6 +377,13 @@ async fn tool_record_create_missing_required_is_error_no_write() {
     )
     .await;
     assert_eq!(result.is_error, Some(true));
+    assert_eq!(
+        result.structured_content.as_ref().unwrap()["code"],
+        "record-validation",
+        "{}",
+        text_of(&result)
+    );
+    // `record-validation` details carry only the free-text message; it names the field.
     let message = text_of(&result);
     assert!(
         message.contains("title") || message.to_lowercase().contains("required"),
@@ -1003,8 +1010,8 @@ async fn tool_record_successor_omitted_relation_type_is_core_error() {
     .await;
     assert_eq!(r.is_error, Some(true), "expected core error: {r:?}");
     assert!(
-        format!("{r:?}").contains("SUCCESSOR_RELATION_TYPE_UNDETERMINED"),
-        "expected the structured code, got: {r:?}"
+        format!("{r:?}").contains("pass relationType explicitly"),
+        "expected the undetermined message, got: {r:?}"
     );
     client.cancel().await.unwrap();
 }
@@ -1379,6 +1386,37 @@ async fn tool_protocol_run_create_then_get() {
         run_id
     );
 
+    client.cancel().await.unwrap();
+}
+
+/// ADR-053: a tool error carries the stable `code` in `structuredContent`, through rmcp.
+#[tokio::test]
+async fn tool_error_carries_structured_code() {
+    let fx = make_lifecycle_fixture();
+    let client = connect(&fx.base).await;
+    let create = call(
+        &client,
+        "record_create",
+        serde_json::json!({
+            "type": format!("{NS}/decision"),
+            "fieldValues": { "title": "No lifecycle" }
+        }),
+    )
+    .await;
+    let id = create.structured_content.as_ref().unwrap()["instanceId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let r = call(
+        &client,
+        "record_transition",
+        serde_json::json!({ "instanceId": id, "byTransition": "close" }),
+    )
+    .await;
+    assert_eq!(r.is_error, Some(true), "{r:?}");
+    let sc = r.structured_content.as_ref().unwrap();
+    assert_eq!(sc["code"], "lifecycle-not-defined", "{sc}");
+    assert_eq!(sc["message"].as_str().unwrap(), text_of(&r));
     client.cancel().await.unwrap();
 }
 

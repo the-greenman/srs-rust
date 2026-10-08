@@ -1340,6 +1340,7 @@ mod tests {
             matches!(err, RepositoryError::InvalidInput { .. }),
             "expected InvalidInput, got {err:?}"
         );
+        assert_eq!(err.code(), "invalid-input"); // generic bucket code: the message check below is the discriminator
         assert!(err.to_string().contains("$schema"));
     }
 
@@ -1628,6 +1629,8 @@ mod tests {
             "com.test/links",
         );
         let err = create_relation(&store, rel, &[def]).unwrap_err();
+        assert_eq!(err.code(), "relation-validation");
+        // generic bucket code: the E4 rule token is only in the message.
         let msg = format!("{err:?}");
         assert!(
             msg.contains("E4"),
@@ -1715,6 +1718,7 @@ mod tests {
         // Post-flip: a declared relationsPath collection is denied for a
         // normal reader ([R11]); only the exempt migration surface reads it.
         let err = load_relations(&store).unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(
             err.to_string().contains("[R11]"),
             "declared-path collection denied: {err}"
@@ -1887,6 +1891,7 @@ mod tests {
         let normal =
             crate::srsj::open_srsj(&crate::srsj::to_srsj_string(&exempt).unwrap()).unwrap();
         let err = load_relations(&normal).unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(
             err.to_string().contains("[R11]"),
             "normal reader is denied at the collection: {err}"
@@ -2050,6 +2055,7 @@ mod tests {
         // delete fails on the collection rather than rewriting the retired
         // form.
         let err = delete_relation(&store, "r-custom").unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(
             err.to_string().contains("[R11]"),
             "collection delete path denied: {err}"
