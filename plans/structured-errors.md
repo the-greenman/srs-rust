@@ -36,7 +36,7 @@ Owner decisions taken at the Stage 2 pause (2026-10-08). All four recommended op
 
 Owner rulings recorded:
 1. **Envelope:** a top-level `errors: [{code, message, details?}]` beside `diagnostics: string[]`, aligned 1:1 with the strings. `diagnostics` is unchanged.
-2. **Details:** an open `details` object from `#[derive(Serialize)]` on `RepositoryError` (`#[serde(untagged, rename_all_fields = "camelCase")]`, with `#[serde(skip)]` on non-serializable sources). The schema types it as `object`. A per-code typed union is deferred to a follow-up.
+2. **Details:** an open `details` object from `#[derive(Serialize)]` on `RepositoryError` (`#[serde(untagged, rename_all_fields = "camelCase")]`, with `#[serde(skip)]` on non-serializable sources). The schema types it as `object`. A per-code typed union is deferred to #1342.
 3. **Non-repository failures:** route through an existing variant where one fits (`InvalidInput`, `FieldNotFound`, `RelationNotFound`, `CompositionNotFound`, …). Everything else carries code `unclassified`. A follow-up drives `unclassified` to zero.
 4. **Sub-coded variants:** `ActorProvenance`, `InvalidPackageBundle` and `SliceRefused` keep their inner `code: &'static str`. `code()` returns it verbatim, Display drops the `{code}: ` prefix, and the inner field is `#[serde(skip)]` in details.
 
@@ -63,7 +63,7 @@ The envelope gains one optional top-level field on `ok:false`:
 
 ### WASM and MCP wire change
 
-- WASM: functions that threw a **string** now throw a JS `Error` with `.message` (same text), `.code`, and `.details?`. Clients using `typeof e === 'string'` or `String(e)` see an `Error` (`String(e)` gains an `Error: ` prefix). Coordination issues are filed in srs-web and srs-vscode.
+- WASM: functions that threw a **string** now throw a JS `Error` with `.message` (same text), `.code`, and `.details?`. Clients using `typeof e === 'string'` or `String(e)` see an `Error` (`String(e)` gains an `Error: ` prefix). Coordination: srs-web#513 (srs-vscode consumes the CLI, unaffected).
 - MCP: error results add `structuredContent: {code, message, details?}`; `content[0].text` is unchanged.
 
 ### Entity schema sync
@@ -139,7 +139,7 @@ Then update the checkboxes and commit `feat(repository): RepositoryError codes a
 
 - [ ] `crates/srs-cli/src/output.rs`: add `#[serde(skip_serializing_if = "Option::is_none")] pub errors: Option<Vec<ErrorReport>>` to `OutputDTO`. `OutputDTO::err(cmd, diagnostics)` fills `errors` with `ErrorReport::unclassified` per string. Add `OutputDTO::from_reports(cmd, Vec<ErrorReport>)` (diagnostics = messages) and `pub fn repo_err(command, &RepositoryError) -> String`. `err_with_payload` fills `errors` too. `ok`/`serialize_with_diagnostics` leave `errors: None`.
 - [ ] `crates/srs-cli/src/main.rs`: for `Err(e)`, find the first `RepositoryError` in `e.chain()` (`downcast_ref`). If found, render `OutputDTO::from_reports("srs", vec![ErrorReport { message: format!("{e:#}"), ..re.report() }])` (message keeps the anyhow context); else `OutputDTO::err("srs", vec![format!("{e:#}")])` (→ `unclassified`). `OutputDTO` derives Deserialize, so `errors` set by a handler's `repo_err` survives the `Ok(result)` reparse in main.rs; the reparse-failure fallback yields `unclassified`.
-- [ ] Convert every `output::err(cmd, vec![e.to_string()])` where `e: RepositoryError` to `output::repo_err(cmd, &e)`. Convert handler-invented not-found / invalid-input sites in `crates/srs-cli/src/commands/*.rs` (find with `grep -n 'NotFound =>\|None =>' crates/srs-cli/src/commands`; e.g. `GetFieldResult::NotFound`, `GetRelationResult::NotFound`, `GetCompositionResult::NotFound`, relation-type `None`, `find` arg check, …) to construct the matching `RepositoryError` variant and call `repo_err`. Leave the remainder on `output::err` (→ `unclassified`) and list them in the commit message. Acceptance grep: `grep -rn 'output::err(.*e.to_string' crates/srs-cli/src` returns only sites whose `e` is not a `RepositoryError`.
+- [ ] Convert every `output::err(cmd, vec![e.to_string()])` where `e: RepositoryError` to `output::repo_err(cmd, &e)`. Convert handler-invented not-found / invalid-input sites in `crates/srs-cli/src/commands/*.rs` (find with `grep -n 'NotFound =>\|None =>' crates/srs-cli/src/commands`; e.g. `GetFieldResult::NotFound`, `GetRelationResult::NotFound`, `GetCompositionResult::NotFound`, relation-type `None`, `find` arg check, …) to construct the matching `RepositoryError` variant and call `repo_err`. Leave the remainder on `output::err` (→ `unclassified`, tracked by #1343) and list them in the commit message. Acceptance grep: `grep -rn 'output::err(.*e.to_string' crates/srs-cli/src` returns only sites whose `e` is not a `RepositoryError`.
 - [ ] `payload.rs`: add `ErrorReportPayload` (JsonSchema mirror: `code: String`, `message: String`, `details: Option<serde_json::Value>`), register `write_schema!("error-report", ErrorReportPayload)` in `bin/generate-schemas.rs`, and run `cargo run --bin generate-schemas`. The mirror is deliberate (schemars is forbidden in srs-repository's default build, ADR-011); add `payload_contracts::error_report_mirror_roundtrip` that serializes an `ErrorReport` and deserializes it as `ErrorReportPayload` and back, unchanged.
 
 #### Acceptance Criteria
@@ -229,7 +229,7 @@ Commit `test: assert on error code, not message text (#1338)`.
 - [ ] Entity schemas unchanged (no `check-schema-sync` action)
 - [ ] ADR-053 committed; Status flipped proposed → accepted at Stage 7.5
 - [ ] srs-vscode payload-contract sync: none needed in this PR (new golden only; srs-vscode consumes via its own sync) — noted in the PR body
-- [ ] Client coordination issues filed in srs-web and srs-vscode: WASM now throws an `Error` (not a string); catch sites doing `typeof e === 'string'` / `String(e)` must read `.message` / `.code`
+- [ ] Client coordination issue filed in srs-web (the only WASM consumer; srs-vscode uses the CLI, where `errors[]` is additive): WASM now throws an `Error` (not a string); catch sites doing `typeof e === 'string'` / `String(e)` must read `.message` / `.code`
 - [ ] The three adapters each carry `code` for `LifecycleNotDefined` and `CannotDeleteInUse` (the srs-web#512 / srs-vscode#131 root causes)
 
 ## Coordination Rules
