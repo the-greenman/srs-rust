@@ -56,7 +56,7 @@ fn cmd_resolve_view(
             "container resolve-view",
             ContainerViewPayload { container_view },
         ),
-        Err(e) => Ok(output::err("container resolve-view", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("container resolve-view", &e)),
     }
 }
 
@@ -78,11 +78,11 @@ fn cmd_list(
 fn cmd_create(ctx: CliContext) -> Result<String> {
     let input: ContainerCreateInput = match crate::input::from_stdin("container") {
         Ok(v) => v,
-        Err(e) => return Ok(output::err("container create", vec![e.to_string()])),
+        Err(e) => return Ok(output::any_err("container create", &e)),
     };
     match with_store(&ctx, |store| Ok(create_container(store, input.into())?)) {
         Ok(container) => output::serialize("container create", ContainerPayload { container }),
-        Err(e) => Ok(output::err("container create", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("container create", &e)),
     }
 }
 
@@ -107,21 +107,21 @@ fn cmd_copy(
                 relations: r.relations,
             },
         ),
-        Err(e) => Ok(output::err("container copy", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("container copy", &e)),
     }
 }
 
 fn cmd_get(ctx: CliContext, container_id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(get_container(store, &container_id)?)) {
         Ok(container) => output::serialize("container get", ContainerPayload { container }),
-        Err(e) => Ok(output::err("container get", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("container get", &e)),
     }
 }
 
 fn cmd_update(ctx: CliContext, container_id: String) -> Result<String> {
     let patch: ContainerPatch = match crate::input::from_stdin("container patch") {
         Ok(v) => v,
-        Err(e) => return Ok(output::err("container update", vec![e.to_string()])),
+        Err(e) => return Ok(output::any_err("container update", &e)),
     };
     match with_store(&ctx, |store| {
         Ok(update_container(store, &container_id, patch)?)
@@ -133,7 +133,7 @@ fn cmd_update(ctx: CliContext, container_id: String) -> Result<String> {
             },
             result.diagnostics,
         ),
-        Err(e) => Ok(output::err("container update", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("container update", &e)),
     }
 }
 
@@ -143,7 +143,7 @@ fn cmd_delete(ctx: CliContext, container_id: String) -> Result<String> {
             "container delete",
             ContainerDeletePayload { container_id: id },
         ),
-        Err(e) => Ok(output::err("container delete", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("container delete", &e)),
     }
 }
 

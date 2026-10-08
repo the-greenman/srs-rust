@@ -3,6 +3,7 @@ use crate::output;
 use crate::payload::{ViewDeletePayload, ViewListPayload, ViewPayload};
 use anyhow::Result;
 use srs_core::types::view::View;
+use srs_repository::error::RepositoryError;
 use srs_repository::view_service::{
     create_view_normalized, delete_view, get_view_by_id, list_views_summary, update_view,
     CreateViewResult, DeleteViewResult, GetViewResult,
@@ -37,16 +38,18 @@ fn cmd_view_list(
             }
             output::serialize("view list", ViewListPayload { views })
         }
-        Err(e) => Ok(output::err("view list", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("view list", &e)),
     }
 }
 
 fn cmd_view_get(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(get_view_by_id(store, &id)?))? {
         GetViewResult::Found(view) => output::serialize("view get", ViewPayload { view: *view }),
-        GetViewResult::NotFound => Ok(output::err(
+        GetViewResult::NotFound => Ok(output::repo_err(
             "view get",
-            vec![format!("view not found: {id}")],
+            &RepositoryError::ViewNotFound {
+                view_id: id.clone(),
+            },
         )),
     }
 }
@@ -57,7 +60,7 @@ fn cmd_view_create(ctx: CliContext, package: Option<String>) -> Result<String> {
         Ok(create_view_normalized(store, raw, package.clone())?)
     }) {
         Ok(CreateViewResult { view }) => output::serialize("view create", ViewPayload { view }),
-        Err(e) => Ok(output::err("view create", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("view create", &e)),
     }
 }
 
@@ -65,13 +68,13 @@ fn cmd_view_update(ctx: CliContext, id: String) -> Result<String> {
     let view: View = crate::input::from_stdin("View")?;
     match with_store(&ctx, |store| Ok(update_view(store, &id, view)?)) {
         Ok(result) => output::serialize("view update", ViewPayload { view: result.view }),
-        Err(e) => Ok(output::err("view update", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("view update", &e)),
     }
 }
 
 fn cmd_view_delete(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(delete_view(store, &id)?)) {
         Ok(DeleteViewResult { id }) => output::serialize("view delete", ViewDeletePayload { id }),
-        Err(e) => Ok(output::err("view delete", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("view delete", &e)),
     }
 }

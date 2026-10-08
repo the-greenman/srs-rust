@@ -92,10 +92,7 @@ fn cmd_protocol_stages(ctx: CliContext, id: String) -> Result<String> {
         Ok(stages) => stages,
         Err(e) => {
             if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
-                return Ok(output::err(
-                    "protocol stages",
-                    vec![format!("Protocol '{}' not found", id)],
-                ));
+                return Ok(output::any_err("protocol stages", &e));
             }
             return Err(e);
         }
@@ -132,10 +129,7 @@ fn cmd_protocol_validate(ctx: CliContext, id: String) -> Result<String> {
         Ok(result) => result,
         Err(e) => {
             if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
-                return Ok(output::err(
-                    "protocol validate",
-                    vec![format!("Protocol '{}' not found", id)],
-                ));
+                return Ok(output::any_err("protocol validate", &e));
             }
             return Err(e);
         }
@@ -201,10 +195,7 @@ fn cmd_protocol_update(ctx: CliContext, id: String) -> Result<String> {
         Ok(r) => r,
         Err(e) => {
             if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
-                return Ok(output::err(
-                    "protocol update",
-                    vec![format!("Protocol '{}' not found", id)],
-                ));
+                return Ok(output::any_err("protocol update", &e));
             }
             return Err(e);
         }
@@ -228,10 +219,7 @@ fn cmd_protocol_delete(ctx: CliContext, id: String) -> Result<String> {
         ),
         Err(e) => {
             if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
-                return Ok(output::err(
-                    "protocol delete",
-                    vec![format!("Protocol '{}' not found", id)],
-                ));
+                return Ok(output::any_err("protocol delete", &e));
             }
             Err(e)
         }
@@ -301,21 +289,12 @@ fn cmd_run_advance(ctx: CliContext) -> Result<String> {
         }
         Err(e) => {
             if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
-                return Ok(output::err(
-                    "protocol run advance",
-                    vec!["Protocol run not found".to_string()],
-                ));
+                return Ok(output::any_err("protocol run advance", &e));
             }
-            if let Some(RepositoryError::RunInvalidState { run_id, message }) =
+            if let Some(RepositoryError::RunInvalidState { .. }) =
                 e.downcast_ref::<RepositoryError>()
             {
-                return Ok(output::err(
-                    "protocol run advance",
-                    vec![format!(
-                        "Protocol run '{}' cannot be advanced: {}",
-                        run_id, message
-                    )],
-                ));
+                return Ok(output::any_err("protocol run advance", &e));
             }
             Err(e)
         }
@@ -361,21 +340,12 @@ fn cmd_run_complete(ctx: CliContext, run_id: String) -> Result<String> {
         }
         Err(e) => {
             if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
-                return Ok(output::err(
-                    "protocol run complete",
-                    vec![format!("Protocol run '{}' not found", run_id)],
-                ));
+                return Ok(output::any_err("protocol run complete", &e));
             }
-            if let Some(RepositoryError::RunInvalidState { message, .. }) =
+            if let Some(RepositoryError::RunInvalidState { .. }) =
                 e.downcast_ref::<RepositoryError>()
             {
-                return Ok(output::err(
-                    "protocol run complete",
-                    vec![format!(
-                        "Protocol run '{}' cannot be completed: {}",
-                        run_id, message
-                    )],
-                ));
+                return Ok(output::any_err("protocol run complete", &e));
             }
             Err(e)
         }
@@ -390,21 +360,12 @@ fn cmd_run_abandon(ctx: CliContext, run_id: String) -> Result<String> {
         }
         Err(e) => {
             if let Some(RepositoryError::NotFound { .. }) = e.downcast_ref::<RepositoryError>() {
-                return Ok(output::err(
-                    "protocol run abandon",
-                    vec![format!("Protocol run '{}' not found", run_id)],
-                ));
+                return Ok(output::any_err("protocol run abandon", &e));
             }
-            if let Some(RepositoryError::RunInvalidState { message, .. }) =
+            if let Some(RepositoryError::RunInvalidState { .. }) =
                 e.downcast_ref::<RepositoryError>()
             {
-                return Ok(output::err(
-                    "protocol run abandon",
-                    vec![format!(
-                        "Protocol run '{}' cannot be abandoned: {}",
-                        run_id, message
-                    )],
-                ));
+                return Ok(output::any_err("protocol run abandon", &e));
             }
             Err(e)
         }

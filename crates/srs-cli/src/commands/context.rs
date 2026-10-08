@@ -80,7 +80,7 @@ fn cmd_context_field(ctx: CliContext, record_id: String, field_id: String) -> Re
                     tagged_chunks: result.tagged_chunks,
                 },
             ),
-            Err(e) => Ok(output::err("context field", vec![e.to_string()])),
+            Err(e) => Ok(output::repo_err("context field", &e)),
         },
     )
 }
@@ -119,7 +119,7 @@ fn cmd_context_record(
                     protocol_run_history: result.protocol_run_history,
                 },
             ),
-            Err(e) => Ok(output::err("context record", vec![e.to_string()])),
+            Err(e) => Ok(output::repo_err("context record", &e)),
         },
     )
 }
@@ -148,7 +148,7 @@ fn cmd_context_record_markdown(
                     rendered,
                 },
             ),
-            Err(e) => Ok(output::err("context record", vec![e.to_string()])),
+            Err(e) => Ok(output::repo_err("context record", &e)),
         },
     )
 }

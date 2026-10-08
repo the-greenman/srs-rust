@@ -68,7 +68,7 @@ fn cmd_lifecycle_update(ctx: CliContext, id: String) -> Result<String> {
             Err(RepositoryError::LifecycleValidation { violations }) => {
                 Ok(output::err("lifecycle update", violations))
             }
-            Err(e) => Ok(output::err("lifecycle update", vec![e.to_string()])),
+            Err(e) => Ok(output::repo_err("lifecycle update", &e)),
         }
     })
 }

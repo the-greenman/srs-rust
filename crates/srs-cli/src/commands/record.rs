@@ -8,6 +8,7 @@ use crate::payload::{
 };
 use anyhow::Result;
 use srs_repository::attachment_service::{get_record_attachments, GetRecordAttachmentsInput};
+use srs_repository::error::RepositoryError;
 use srs_repository::record_store::{
     add_record_tag, create_record_in_context, create_record_successor, delete_record_in_context,
     get_allowed_lifecycle_transitions, get_record_summary_by_id, list_record_summaries,
@@ -65,12 +66,14 @@ fn cmd_record_list(
         Some(ref filter) => match parse_type_filter(filter) {
             Some((namespace, name)) => (Some(namespace), Some(name)),
             None => {
-                return Ok(output::err(
+                return Ok(output::repo_err(
                     "record list",
-                    vec![format!(
-                        "Invalid type filter '{}'. Expected format: namespace/name",
-                        filter
-                    )],
+                    &RepositoryError::InvalidInput {
+                        message: format!(
+                            "Invalid type filter '{}'. Expected format: namespace/name",
+                            filter
+                        ),
+                    },
                 ))
             }
         },
@@ -97,9 +100,9 @@ fn cmd_record_tag_add(ctx: CliContext, id: String, tag: String) -> Result<String
         | AddRecordTagResult::AlreadyPresent { record, .. } => {
             output::serialize("record tag add", RecordTagAddPayload { record, tag })
         }
-        AddRecordTagResult::NotFound => Ok(output::err(
+        AddRecordTagResult::NotFound => Ok(output::repo_err(
             "record tag add",
-            vec![format!("No tier-2 record with id '{}' found", id)],
+            &RepositoryError::InstanceNotFound { id: id.clone() },
         )),
     }
 }
@@ -112,9 +115,9 @@ fn cmd_record_tag_remove(ctx: CliContext, id: String, tag: String) -> Result<Str
         RemoveRecordTagResult::NotPresent { record, .. } => {
             output::serialize("record tag remove", RecordTagAddPayload { record, tag })
         }
-        RemoveRecordTagResult::NotFound => Ok(output::err(
+        RemoveRecordTagResult::NotFound => Ok(output::repo_err(
             "record tag remove",
-            vec![format!("No tier-2 record with id '{}' found", id)],
+            &RepositoryError::InstanceNotFound { id: id.clone() },
         )),
     }
 }
@@ -129,9 +132,9 @@ fn cmd_record_tag_list(ctx: CliContext) -> Result<String> {
 fn cmd_record_get(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(get_record_summary_by_id(store, &id)?))? {
         Some(summary) => output::serialize("record get", RecordGetPayload::from(summary)),
-        None => Ok(output::err(
+        None => Ok(output::repo_err(
             "record get",
-            vec![format!("Record with id '{}' not found", id)],
+            &RepositoryError::InstanceNotFound { id: id.clone() },
         )),
     }
 }
@@ -144,7 +147,7 @@ fn cmd_record_create(
 ) -> Result<String> {
     let input: CreateRecordInput = match crate::input::from_stdin("record") {
         Ok(v) => v,
-        Err(e) => return Ok(output::err("record create", vec![e.to_string()])),
+        Err(e) => return Ok(output::any_err("record create", &e)),
     };
 
     let container_id = ctx.container_id.clone();
@@ -164,14 +167,14 @@ fn cmd_record_create(
                 record: result.record,
             },
         ),
-        Err(e) => Ok(output::err("record create", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("record create", &e)),
     }
 }
 
 fn cmd_record_validate(ctx: CliContext) -> Result<String> {
     let input: ValidateRecordInput = match crate::input::from_stdin("record") {
         Ok(v) => v,
-        Err(e) => return Ok(output::err("record validate", vec![e.to_string()])),
+        Err(e) => return Ok(output::any_err("record validate", &e)),
     };
 
     let report = with_store(&ctx, |store| Ok(validate_record_input(store, input)?))?;
@@ -192,7 +195,7 @@ fn cmd_record_update(ctx: CliContext, id: String) -> Result<String> {
     let input: UpdateRecordInput = crate::input::from_stdin("record")?;
     match with_store(&ctx, |store| Ok(update_record(store, &id, input)?)) {
         Ok(record) => output::serialize("record update", RecordPayload { record }),
-        Err(e) => Ok(output::err("record update", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("record update", &e)),
     }
 }
 
@@ -208,14 +211,14 @@ fn cmd_record_delete(ctx: CliContext, id: String, cascade: bool) -> Result<Strin
                 cascaded_relations: result.cascaded_relations,
             },
         ),
-        Err(e) => Ok(output::err("record delete", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("record delete", &e)),
     }
 }
 
 fn cmd_record_transition(ctx: CliContext, id: String) -> Result<String> {
     let input: TransitionLifecycleInput = match crate::input::from_stdin("transition") {
         Ok(v) => v,
-        Err(e) => return Ok(output::err("record transition", vec![e.to_string()])),
+        Err(e) => return Ok(output::any_err("record transition", &e)),
     };
     match with_store(&ctx, |store| {
         Ok(transition_record_lifecycle(store, &id, input)?)
@@ -229,14 +232,14 @@ fn cmd_record_transition(ctx: CliContext, id: String) -> Result<String> {
                 relation: result.relation,
             },
         ),
-        Err(e) => Ok(output::err("record transition", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("record transition", &e)),
     }
 }
 
 fn cmd_record_successor(ctx: CliContext, id: String) -> Result<String> {
     let input: CreateRecordSuccessorInput = match crate::input::from_stdin("successor") {
         Ok(v) => v,
-        Err(e) => return Ok(output::err("record successor", vec![e.to_string()])),
+        Err(e) => return Ok(output::any_err("record successor", &e)),
     };
 
     match with_store(&ctx, |store| {
@@ -249,15 +252,18 @@ fn cmd_record_successor(ctx: CliContext, id: String) -> Result<String> {
                 relation: result.relation,
             },
         ),
-        Err(e) => Ok(output::err("record successor", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("record successor", &e)),
     }
 }
 
 fn cmd_record_fork(ctx: CliContext, id: String) -> Result<String> {
     let Some(container) = ctx.container_id.clone() else {
-        return Ok(output::err(
+        return Ok(output::repo_err(
             "record fork",
-            vec!["--container <ID> is required: the container the fork is swapped into".into()],
+            &RepositoryError::InvalidInput {
+                message: "--container <ID> is required: the container the fork is swapped into"
+                    .into(),
+            },
         ));
     };
     match with_store(&ctx, |store| {
@@ -273,7 +279,7 @@ fn cmd_record_fork(ctx: CliContext, id: String) -> Result<String> {
                 relations: r.relations,
             },
         ),
-        Err(e) => Ok(output::err("record fork", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("record fork", &e)),
     }
 }
 
@@ -285,10 +291,7 @@ fn cmd_record_allowed_transitions(ctx: CliContext, id: String) -> Result<String>
             "record allowed-transitions",
             RecordAllowedTransitionsPayload::from(result),
         ),
-        Err(e) => Ok(output::err(
-            "record allowed-transitions",
-            vec![e.to_string()],
-        )),
+        Err(e) => Ok(output::any_err("record allowed-transitions", &e)),
     }
 }
 
@@ -305,9 +308,9 @@ fn cmd_record_attachments(ctx: CliContext, id: String) -> Result<String> {
             "record attachments",
             RecordGetAttachmentsPayload::from(result),
         ),
-        None => Ok(output::err(
+        None => Ok(output::repo_err(
             "record attachments",
-            vec![format!("Record '{id}' not found")],
+            &RepositoryError::InstanceNotFound { id: id.clone() },
         )),
     }
 }

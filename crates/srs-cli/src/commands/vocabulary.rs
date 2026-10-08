@@ -134,10 +134,7 @@ fn cmd_vocabulary_derive_tag_set(ctx: CliContext, id: String) -> Result<String> 
                 e.downcast_ref::<RepositoryError>(),
                 Some(RepositoryError::NotFound { .. })
             ) {
-                return Ok(output::err(
-                    "vocabulary derive-tag-set",
-                    vec![e.to_string()],
-                ));
+                return Ok(output::any_err("vocabulary derive-tag-set", &e));
             }
             Err(e)
         }

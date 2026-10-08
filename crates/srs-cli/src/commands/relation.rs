@@ -6,6 +6,7 @@ use crate::payload::{
 };
 use anyhow::Result;
 use srs_repository::context_query_service::{list_neighbours, NeighboursPage, NeighboursQuery};
+use srs_repository::error::RepositoryError;
 use srs_repository::relation_service::{
     create_relation_auto, delete_relation, get_relation_by_id, insert_into_precedes_chain,
     list_relations, move_in_precedes_chain, parse_relation_input, remove_from_precedes_chain,
@@ -73,7 +74,7 @@ fn cmd_relation_neighbours(
                 result: result.into(),
             },
         ),
-        Err(e) => Ok(output::err("relation neighbours", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("relation neighbours", &e)),
     }
 }
 
@@ -85,9 +86,11 @@ fn cmd_relation_get(ctx: CliContext, id: String) -> Result<String> {
                 relation: *relation,
             },
         ),
-        GetRelationResult::NotFound => Ok(output::err(
+        GetRelationResult::NotFound => Ok(output::repo_err(
             "relation get",
-            vec![format!("Relation with id '{}' not found", id)],
+            &RepositoryError::RelationNotFound {
+                relation_id: id.clone(),
+            },
         )),
     }
 }
@@ -95,7 +98,7 @@ fn cmd_relation_get(ctx: CliContext, id: String) -> Result<String> {
 fn cmd_relation_create(ctx: CliContext) -> Result<String> {
     let raw = match crate::input::value_from_stdin("relation") {
         Ok(raw) => raw,
-        Err(e) => return Ok(output::err("relation create", vec![e.to_string()])),
+        Err(e) => return Ok(output::any_err("relation create", &e)),
     };
     match with_store(&ctx, |store| {
         if let Some(obj) = raw.as_object() {
@@ -110,7 +113,7 @@ fn cmd_relation_create(ctx: CliContext) -> Result<String> {
                 relation: result.relation,
             },
         ),
-        Err(e) => Ok(output::err("relation create", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("relation create", &e)),
     }
 }
 
@@ -123,7 +126,7 @@ fn cmd_relation_delete(ctx: CliContext, id: String) -> Result<String> {
                 path: result.path,
             },
         ),
-        Err(e) => Ok(output::err("relation delete", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("relation delete", &e)),
     }
 }
 
@@ -137,7 +140,7 @@ fn cmd_relation_chain_insert(ctx: CliContext) -> Result<String> {
                 removed: result.removed,
             },
         ),
-        Err(e) => Ok(output::err("relation chain-insert", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("relation chain-insert", &e)),
     }
 }
 
@@ -151,7 +154,7 @@ fn cmd_relation_chain_remove(ctx: CliContext) -> Result<String> {
                 removed: result.removed,
             },
         ),
-        Err(e) => Ok(output::err("relation chain-remove", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("relation chain-remove", &e)),
     }
 }
 
@@ -165,6 +168,6 @@ fn cmd_relation_chain_move(ctx: CliContext) -> Result<String> {
                 removed: result.removed,
             },
         ),
-        Err(e) => Ok(output::err("relation chain-move", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("relation chain-move", &e)),
     }
 }

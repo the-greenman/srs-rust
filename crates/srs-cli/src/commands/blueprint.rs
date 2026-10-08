@@ -68,9 +68,11 @@ fn cmd_blueprint_get(ctx: CliContext, id: String) -> Result<String> {
                 .map_err(|e| anyhow::anyhow!("Failed to serialize blueprint: {e}"))?;
             output::serialize("blueprint get", BlueprintPayload { blueprint })
         }
-        GetBlueprintResult::NotFound => Ok(output::err(
+        GetBlueprintResult::NotFound => Ok(output::repo_err(
             "blueprint get",
-            vec![format!("Blueprint '{id}' not found")],
+            &RepositoryError::BlueprintNotFound {
+                blueprint_id: id.clone(),
+            },
         )),
     }
 }
@@ -96,9 +98,11 @@ fn cmd_blueprint_update(ctx: CliContext, id: String) -> Result<String> {
             if let Some(RepositoryError::BlueprintNotFound { .. }) =
                 e.downcast_ref::<RepositoryError>()
             {
-                return Ok(output::err(
+                return Ok(output::repo_err(
                     "blueprint update",
-                    vec![format!("Blueprint '{id}' not found")],
+                    &RepositoryError::BlueprintNotFound {
+                        blueprint_id: id.clone(),
+                    },
                 ));
             }
             return Err(e);
@@ -119,9 +123,11 @@ fn cmd_blueprint_delete(ctx: CliContext, id: String) -> Result<String> {
             if let Some(RepositoryError::BlueprintNotFound { .. }) =
                 e.downcast_ref::<RepositoryError>()
             {
-                return Ok(output::err(
+                return Ok(output::repo_err(
                     "blueprint delete",
-                    vec![format!("Blueprint '{id}' not found")],
+                    &RepositoryError::BlueprintNotFound {
+                        blueprint_id: id.clone(),
+                    },
                 ));
             }
             Err(e)
@@ -165,9 +171,11 @@ fn cmd_blueprint_brief(ctx: CliContext, id: String) -> Result<String> {
             if let Some(RepositoryError::BlueprintNotFound { .. }) =
                 e.downcast_ref::<RepositoryError>()
             {
-                return Ok(output::err(
+                return Ok(output::repo_err(
                     "blueprint brief",
-                    vec![format!("Blueprint '{id}' not found")],
+                    &RepositoryError::BlueprintNotFound {
+                        blueprint_id: id.clone(),
+                    },
                 ));
             }
             Err(e)
@@ -245,9 +253,11 @@ fn cmd_blueprint_validate(ctx: CliContext, id: String) -> Result<String> {
             if let Some(RepositoryError::BlueprintNotFound { .. }) =
                 e.downcast_ref::<RepositoryError>()
             {
-                return Ok(output::err(
+                return Ok(output::repo_err(
                     "blueprint validate",
-                    vec![format!("Blueprint '{id}' not found")],
+                    &RepositoryError::BlueprintNotFound {
+                        blueprint_id: id.clone(),
+                    },
                 ));
             }
             return Err(e);
@@ -271,9 +281,11 @@ fn cmd_blueprint_structure(ctx: CliContext, id: String) -> Result<String> {
             if let Some(RepositoryError::BlueprintNotFound { .. }) =
                 e.downcast_ref::<RepositoryError>()
             {
-                return Ok(output::err(
+                return Ok(output::repo_err(
                     "blueprint structure",
-                    vec![format!("Blueprint '{id}' not found")],
+                    &RepositoryError::BlueprintNotFound {
+                        blueprint_id: id.clone(),
+                    },
                 ));
             }
             return Err(e);
@@ -319,9 +331,11 @@ fn cmd_blueprint_schema(ctx: CliContext, id: String) -> Result<String> {
             if let Some(RepositoryError::BlueprintNotFound { .. }) =
                 e.downcast_ref::<RepositoryError>()
             {
-                return Ok(output::err(
+                return Ok(output::repo_err(
                     "blueprint schema",
-                    vec![format!("Blueprint '{id}' not found")],
+                    &RepositoryError::BlueprintNotFound {
+                        blueprint_id: id.clone(),
+                    },
                 ));
             }
             Err(e)
