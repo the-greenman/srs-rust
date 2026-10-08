@@ -14,6 +14,7 @@ pub mod container_view_service;
 pub mod context_query_service;
 pub(crate) mod core_package;
 pub(crate) mod core_purpose;
+pub mod core_relation_type_reference_cleanup_migration_service;
 pub mod detect;
 pub mod diff;
 pub mod discovery_index;

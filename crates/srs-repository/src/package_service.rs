@@ -969,20 +969,26 @@ pub fn delete_relation_type(
         if !refs.is_empty() {
             // The key may still resolve after this definition is gone — via another
             // installed definition sharing the same key, or via the embedded core
-            // package's canonical definition (ADR-025), which `merge_core_into_package`
-            // only skips *because* this local shadow currently blocks it. In either
-            // case deleting is safe by construction: relations reference types by key,
-            // not by definition id, so nothing re-resolves to a different meaning
+            // package's canonical definition (ADR-025). RFC-048 ruling 8 / [R11]
+            // (srs-rust#1341): core governs every key it defines, so
+            // `merge_core_into_package` already substitutes core's own definition
+            // into `package.relation_type_definitions` for a core key even while
+            // this local shadow still exists on disk — the merged entry under a
+            // different id can therefore be core's substitution, not a second
+            // local definition. Exclude core's own ids from "another installed
+            // definition" so that case still reports "via the embedded core
+            // package", not a misattributed local source. Either way, deleting is
+            // safe by construction: relations reference types by key, not by
+            // definition id, so nothing re-resolves to a different meaning
             // (srs-rust#995).
             let package = store.load_package()?;
-            let other_local_source = package
-                .relation_type_definitions
-                .iter()
-                .find(|rt| rt.key == type_name && rt.id != id);
-            let core_has_key = crate::core_package::core_package()
-                .relation_types
-                .iter()
-                .any(|rt| rt.key == type_name);
+            let cp = crate::core_package::core_package();
+            let core_ids: std::collections::HashSet<&str> =
+                cp.relation_types.iter().map(|rt| rt.id.as_str()).collect();
+            let other_local_source = package.relation_type_definitions.iter().find(|rt| {
+                rt.key == type_name && rt.id != id && !core_ids.contains(rt.id.as_str())
+            });
+            let core_has_key = cp.relation_types.iter().any(|rt| rt.key == type_name);
 
             match other_local_source {
                 Some(other) => {

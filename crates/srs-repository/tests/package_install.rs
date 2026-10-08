@@ -139,10 +139,33 @@ fn install_into_empty_repo_installs_everything() {
         .record_types
         .iter()
         .any(|t| t.namespace == "com.example.install" && t.name == "entry"));
-    assert!(package
-        .relation_type_definitions
-        .iter()
-        .any(|rt| rt.key == "precedes" && rt.namespace == "com.example.install"));
+    // `precedes` is a core relation-type key: RFC-048 ruling 8 / [R11]
+    // (srs-rust#1341) means core always governs its resolution, so the
+    // merged `relation_type_definitions` reflect core's own `precedes` here,
+    // not the just-installed package's differing copy (different id,
+    // namespace and description from core's). Verify the install still
+    // wrote that copy faithfully by checking `repo validate` reports it as
+    // the shadow it now is — proof the file landed, never an error.
+    assert_eq!(
+        package
+            .relation_type_definitions
+            .iter()
+            .filter(|rt| rt.key == "precedes")
+            .count(),
+        1,
+        "core's precedes governs; the installed copy must not also appear"
+    );
+    let report = validate_repository(&store).expect("validate runs");
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .any(|d| d.message.contains("relation-type-core-key-shadow")
+                && d.message.contains("precedes")),
+        "expected the installed package's own `precedes` copy to be reported as a \
+         core-key shadow, got: {:?}",
+        report.diagnostics
+    );
     assert!(package.views.iter().any(|v| v.name == "entry-view"));
     assert!(package.compositions.iter().any(|dv| dv.name == "entry-log"));
     assert!(package
@@ -272,6 +295,12 @@ fn install_flags_same_key_different_uuid_relation_type_as_conflict() {
 
     // Not duplicated: exactly one `precedes` definition; load_package still works
     // (a same-key duplicate would hard-error as RelationTypeDefinitionConflict).
+    // The package-install conflict above is between the repo's pre-existing
+    // local copy and the *installed package's* copy — a different question
+    // from which definition governs resolution. RFC-048 ruling 8 / [R11]
+    // (srs-rust#1341): core governs every relation-type key it defines, so
+    // the merged list resolves to core's `precedes`, not either local
+    // candidate the install conflict was about.
     let package = store.load_package().unwrap();
     let precedes: Vec<_> = package
         .relation_type_definitions
@@ -279,7 +308,17 @@ fn install_flags_same_key_different_uuid_relation_type_as_conflict() {
         .filter(|rt| rt.key == "precedes")
         .collect();
     assert_eq!(precedes.len(), 1);
-    assert_eq!(precedes[0].id, "00000000-aaaa-4bbb-8ccc-000000000099");
+    let (_core_temp, core_store) = fresh_file_repo();
+    let core_precedes_id = core_store
+        .load_package()
+        .unwrap()
+        .relation_type_definitions
+        .iter()
+        .find(|rt| rt.key == "precedes")
+        .expect("core must provide precedes with zero repo configuration")
+        .id
+        .clone();
+    assert_eq!(precedes[0].id, core_precedes_id);
 
     assert_zero_errors(&store);
 }

@@ -8,9 +8,7 @@ use srs_core::types::container::Container;
 use srs_mcp::SrsMcpServer;
 use srs_repository::container_service;
 use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage};
-use srs_repository::package_service::{
-    create_field_normalized, create_relation_type_normalized, create_type_normalized,
-};
+use srs_repository::package_service::{create_field_normalized, create_type_normalized};
 use srs_repository::record_store::list_records_by_type;
 use srs_repository::repository_lifecycle::{
     create_repository_with_intent, InitializeRepositoryInput, PrimaryPackageMetadata,
@@ -89,24 +87,14 @@ fn make_fixture() -> Fixture {
     )
     .unwrap();
 
-    // Install `depends-on` explicitly: the implicit core merge (ADR-025)
-    // currently carries fields + record types only, not relation types, so a
-    // fresh repo resolves no canonical relation vocabulary (R3/RFC-005 gap —
-    // affects the CLI identically; tracked as a filed issue from this plan).
-    create_relation_type_normalized(
-        &store,
-        serde_json::json!({
-            "id": uuid::Uuid::new_v4().to_string(),
-            "version": 1,
-            "key": "depends-on",
-            "namespace": NS,
-            "label": "Depends on",
-            "description": "Source depends on target",
-            "category": "dependency"
-        }),
-        None,
-    )
-    .unwrap();
+    // `depends-on` is no longer created explicitly here: the implicit core
+    // merge (ADR-025) has carried the seven canonical relation types,
+    // `depends-on` included, since srs-rust#685. A local redeclaration under
+    // this fixture's own test namespace would differ from the governing
+    // core definition (different id/namespace/content) and now draws the
+    // `relation-type-core-key-shadow` warning (RFC-048 [R11] / ruling 8,
+    // srs-rust#1341) — exactly the silent-shadow bug that fix exists to
+    // surface. Core's `depends-on` resolves with zero repo configuration.
 
     Fixture {
         dir,
@@ -186,26 +174,13 @@ fn make_lifecycle_fixture() -> LifecycleFixture {
     )
     .unwrap();
 
-    // Install supersedes and refines relation types (required by record_successor)
-    for (key, label, category) in [
-        ("supersedes", "Supersedes", "refinement"),
-        ("refines", "Refines", "refinement"),
-    ] {
-        create_relation_type_normalized(
-            &store,
-            serde_json::json!({
-                "id": uuid::Uuid::new_v4().to_string(),
-                "version": 1,
-                "key": key,
-                "namespace": NS,
-                "label": label,
-                "description": "",
-                "category": category
-            }),
-            None,
-        )
-        .unwrap();
-    }
+    // `supersedes`/`refines` are not declared locally for the same reason
+    // `depends-on` no longer is in `make_fixture` (above): the implicit core
+    // merge (ADR-025) already provides all seven canonical relation types,
+    // and a local redeclaration under this fixture's test namespace would
+    // now draw `relation-type-core-key-shadow` (RFC-048 [R11], srs-rust#1341)
+    // instead of the silent shadow this fixture used to rely on. Core's
+    // `supersedes`/`refines` resolve with zero repo configuration.
 
     // Create a container for membership tests
     let container_id = uuid::Uuid::new_v4().to_string();

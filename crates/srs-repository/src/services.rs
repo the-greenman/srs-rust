@@ -1520,16 +1520,20 @@ mod tests {
     }
 
     #[test]
-    fn graduate_note_retired_derived_from_definition_returns_clear_diagnostic() {
-        // Acceptance criterion (#779): graduating in a repo where `derived-from`
-        // does not resolve for new writes must produce a clear diagnostic, not a
-        // silent skip and not a crash — and must not leave a Record with no
-        // lineage edge. The core relation-type bundle merges a `derived-from`
-        // definition into every package unconditionally (a repo's own
-        // declaration always wins by key — see `merge_core_into_package`), so an
-        // outright "missing" definition can't occur; a repo-declared Retired
-        // status is the reachable equivalent, and is rejected the same way
-        // `create_record_successor` rejects a retired `supersedes` (E1).
+    fn graduate_note_succeeds_despite_locally_retired_derived_from_because_core_governs() {
+        // Originally (#779): a repo-declared Retired `derived-from` was the
+        // reachable equivalent of "derived-from does not resolve for new
+        // writes", because the pre-ruling-8 merge let a repo's own
+        // declaration win by key outright (`merge_core_into_package`), so an
+        // outright "missing" core-key definition could never occur but a
+        // locally retired one could. RFC-048 ruling 8 / [R11] (srs-rust#1341)
+        // forecloses that path too: core governs every key it defines, so a
+        // local definition's `status` override — retired or otherwise — on a
+        // core key no longer takes effect at all. Core's own `derived-from`
+        // (active, no status) governs instead, and graduation succeeds. The
+        // local Retired copy still exists on disk; `repo validate` reports it
+        // as a `relation-type-core-key-shadow` (RFC-048 [R11]) rather than
+        // honouring its status.
         let note = make_note("dddddddd-dddd-4ddd-8ddd-dddddddddddd", "No Relation Type");
         let mut retired_derived_from = derived_from_def();
         retired_derived_from.status =
@@ -1540,7 +1544,7 @@ mod tests {
             vec![retired_derived_from],
         );
 
-        let err = graduate_note(
+        let result = graduate_note(
             &store,
             GraduateNoteInput {
                 note_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd".to_string(),
@@ -1556,24 +1560,36 @@ mod tests {
                 container_id: None,
             },
         )
-        .unwrap_err();
+        .expect("core's active derived-from governs; the local Retired shadow must not block it");
 
-        match &err {
-            RepositoryError::RelationValidation { message, .. } => {
-                assert!(
-                    message.contains("derived-from"),
-                    "diagnostic must name the missing relation type, got: {message}"
-                );
-            }
-            other => panic!("expected RelationValidation diagnostic, got {other:?}"),
-        }
+        // The derived-from edge must exist: record --derived-from--> note.
+        let relations = relation_service::list_relations(
+            &store,
+            ListRelationsFilter {
+                source: Some(result.record.instance_id.clone()),
+                target: Some(result.note.instance_id.clone()),
+                relation_type: Some("derived-from".to_string()),
+                container_id: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            relations.len(),
+            1,
+            "graduate_note must assert exactly one derived-from edge (record -> note)"
+        );
 
-        // No Record must have been left behind — the pre-write validation must
-        // fire before create_record_in_context runs.
-        let cat = store.catalog().unwrap();
-        assert!(
-            cat.instances.iter().all(|i| i.tier != Some(2)),
-            "no orphan Record may be created when derived-from is not installed"
+        // The merged package resolves `derived-from` to core's own definition
+        // (no status), never the local Retired shadow.
+        let package = store.load_package().unwrap();
+        let resolved = package
+            .relation_type_definitions
+            .iter()
+            .find(|rt| rt.key == "derived-from")
+            .expect("derived-from must resolve");
+        assert_eq!(
+            resolved.status, None,
+            "core's active derived-from must govern, not the local Retired shadow"
         );
     }
 

@@ -8239,7 +8239,7 @@ fn repo_migrations_lists_the_registered_migrations() {
     let migrations = result["payload"]["migrations"]
         .as_array()
         .expect("migrations must be an array");
-    assert_eq!(migrations.len(), 14, "expected exactly fourteen migrations");
+    assert_eq!(migrations.len(), 15, "expected exactly fifteen migrations");
 
     let ids: Vec<&str> = migrations
         .iter()
@@ -8261,6 +8261,7 @@ fn repo_migrations_lists_the_registered_migrations() {
             "rfc046-actor-provenance",
             "migrate-identity",
             "repo-upgrade",
+            "core-relation-type-reference-cleanup",
             "rfc038-storage"
         ]
     );
