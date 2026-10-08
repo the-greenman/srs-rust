@@ -1888,10 +1888,7 @@ mod tests {
             .id
             .clone();
 
-        let mut rt = make_type(
-            "00000000-0000-0000-0000-000000000024",
-            "update-core-probe",
-        );
+        let mut rt = make_type("00000000-0000-0000-0000-000000000024", "update-core-probe");
         rt.fields = vec![srs_core::types::record_type::FieldAssignment {
             field_id: core_field_id.clone(),
             order: 0,
