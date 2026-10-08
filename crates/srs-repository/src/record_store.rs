@@ -109,6 +109,30 @@ fn reject_reserved_envelope_keys(
     Ok(())
 }
 
+/// Update-only: drop envelope identity keys whose value equals the stored
+/// record's, so the record shape `record get` returns can be fed straight back
+/// to `record update` (srs-rust#1175). A key carrying a *different* value is
+/// left in `extra` for `reject_reserved_envelope_keys` to refuse — identity is
+/// verified, never changed. Mirrors the `createdBy` handling in
+/// `actor_service::reconcile_update_extra` (RFC-046 [R5]).
+fn drop_matching_identity_keys(extra: &mut BTreeMap<String, serde_json::Value>, stored: &Record) {
+    let current = [
+        ("instanceId", Some(stored.instance_id.as_str())),
+        ("typeId", Some(stored.type_id.as_str())),
+        ("typeNamespace", Some(stored.type_namespace.as_str())),
+        ("typeName", Some(stored.type_name.as_str())),
+        ("createdAt", stored.created_at.as_deref()),
+        ("updatedAt", stored.updated_at.as_deref()),
+    ];
+    for (key, value) in current {
+        if let (Some(sent), Some(value)) = (extra.get(key), value) {
+            if sent.as_str() == Some(value) {
+                extra.remove(key);
+            }
+        }
+    }
+}
+
 /// List all Tier 2 records in the repository, regardless of type.
 pub fn list_all_records(store: &dyn RepositoryStore) -> Result<Vec<Record>, RepositoryError> {
     let refs = store.list_instances(&InstanceQuery {
@@ -432,6 +456,11 @@ pub fn update_record(
             version: effective_type_version,
         })?;
 
+    let mut input_extra = input.extra;
+    crate::actor_service::reconcile_update_extra(&mut input_extra, &record.created_by)?;
+    drop_matching_identity_keys(&mut input_extra, &record);
+    reject_reserved_envelope_keys(&input_extra)?;
+
     // Three-way tag semantics:
     //   None        → preserve existing tags (caller did not supply the field)
     //   Some([])    → clear all tags
@@ -456,9 +485,6 @@ pub fn update_record(
     // whatever the caller sent).
     // RFC-046 [R5]: an identical createdBy is allowed (whole-object round trips),
     // a different/new one is `actor-changed`; the stored value is always kept.
-    let mut input_extra = input.extra;
-    crate::actor_service::reconcile_update_extra(&mut input_extra, &record.created_by)?;
-    reject_reserved_envelope_keys(&input_extra)?;
     let mut updated_extra = record.extra;
     updated_extra.extend(input_extra);
 
@@ -4324,6 +4350,59 @@ pub(crate) mod tests {
                 if message.contains("instanceId") && !message.contains("set it through the input's own field")),
             "error should not claim a settable field exists for instanceId: {err:?}"
         );
+    }
+
+    /// srs-rust#1175: the record `record get` returns round-trips through
+    /// update — identity keys equal to the stored values are accepted and
+    /// ignored; a differing value is still refused.
+    #[test]
+    fn update_record_accepts_matching_identity_envelope_keys() {
+        let store = make_store_with_package();
+        let fv = fvs(vec![("test-name", json!("Initial"))]);
+        let record = create_record(&store, "type-test-001", 1, fv, None, None).expect("create");
+        let id = record.instance_id.clone();
+
+        let mut extra = std::collections::BTreeMap::new();
+        extra.insert("instanceId".to_string(), json!(record.instance_id));
+        extra.insert("typeId".to_string(), json!(record.type_id));
+        extra.insert("typeNamespace".to_string(), json!(record.type_namespace));
+        extra.insert("typeName".to_string(), json!(record.type_name));
+        if let Some(c) = &record.created_at {
+            extra.insert("createdAt".to_string(), json!(c));
+        }
+        if let Some(u) = &record.updated_at {
+            extra.insert("updatedAt".to_string(), json!(u));
+        }
+        let updated = update_record(
+            &store,
+            &id,
+            UpdateRecordInput {
+                field_values: fvs(vec![("test-name", json!("Changed"))]),
+                field_meta: None,
+                tags: None,
+                type_version: None,
+                extra,
+            },
+        )
+        .expect("matching identity keys round-trip");
+        assert_eq!(updated.value("test-name"), Some(&json!("Changed")));
+        assert_eq!(updated.created_at, record.created_at);
+        assert!(!updated.extra.contains_key("createdAt"));
+
+        let mut bad = std::collections::BTreeMap::new();
+        bad.insert("createdAt".to_string(), json!("1999-01-01T00:00:00Z"));
+        update_record(
+            &store,
+            &id,
+            UpdateRecordInput {
+                field_values: fvs(vec![("test-name", json!("X"))]),
+                field_meta: None,
+                tags: None,
+                type_version: None,
+                extra: bad,
+            },
+        )
+        .expect_err("differing createdAt is still refused");
     }
 
     #[test]
