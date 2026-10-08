@@ -222,10 +222,13 @@ fn export_tree_disk_store_errors() {
     let store = FileStore::new(FIXTURE);
     assert!(store.repository_exists().unwrap());
     let err = export_tree(&store).unwrap_err();
-    assert!(
-        err.to_string().contains("memory-backed"),
+    assert_eq!(
+        err.code(),
+        "invalid-snapshot-data",
         "disk stores must be rejected: {err}"
     );
+    // `invalid-snapshot-data` is shared by several refusals; the message token is the only discriminator.
+    assert!(err.to_string().contains("memory-backed"), "{err}");
 }
 
 #[test]

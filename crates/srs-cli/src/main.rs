@@ -39,7 +39,7 @@ fn main() {
             // `{:#}` renders the whole chain. Handlers add context ("Failed to
             // open .srsj session at …"); the diagnostic that actually explains
             // the failure is the source underneath it.
-            let dto = OutputDTO::err("srs", vec![format!("{e:#}")]);
+            let dto = OutputDTO::from_anyhow("srs", &e);
             println!("{}", dto.render(format, pretty));
             process::exit(1);
         }

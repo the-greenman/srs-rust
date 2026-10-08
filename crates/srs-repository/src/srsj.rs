@@ -398,6 +398,7 @@ mod tests {
     #[test]
     fn r20_refuses_an_unrecognised_future_version() {
         let err = tree_from_srsj(&minimal_srsj("3")).unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(err.to_string().contains("unsupported srsj version '3'"));
     }
 
@@ -426,6 +427,7 @@ mod tests {
         let mut doc: serde_json::Value = serde_json::from_str(&minimal_srsj("2")).unwrap();
         doc["data"]["manifest.json"] = serde_json::json!({ "repositoryId": "other" });
         let err = tree_from_srsj(&doc.to_string()).unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(
             err.to_string().contains("shadowing the envelope manifest"),
             "got: {err}"
@@ -535,6 +537,8 @@ mod tests {
             vec![0x89, 0x50, 0x4e, 0x47, 0xff, 0xfe],
         );
         let err = srsj_from_tree(&tree).unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data");
+        // generic bucket code: the message names the dropped path and the remedy.
         let message = err.to_string();
         assert!(message.contains("source-documents/photo.png"), "{message}");
         assert!(message.contains("`.srs` archive format"), "{message}");

@@ -189,6 +189,8 @@ fn migrate_identity_already_migrated_returns_error() {
     let err = migrate_identity_service::migrate_identity(&store)
         .expect_err("second migration on already-migrated store must fail");
 
+    assert_eq!(err.code(), "invalid-input");
+    // generic bucket code: the message distinguishes this refusal.
     let msg = err.to_string();
     assert!(
         msg.contains("already"),

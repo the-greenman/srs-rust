@@ -7,7 +7,7 @@ checkout — every operation hits the GitHub API, so nothing depends on a siblin
 
 ## The one board
 
-Everything lives on **Project #5 "SRS"** (`https://github.com/users/the-greenman/projects/5`).
+Everything lives on **Project #6 "SemanticOps"** (`https://github.com/users/the-greenman/projects/6`; Project #5 is frozen history). Stories/epics live in `the-greenman/semanticops.com`.
 User stories and implementation issues coexist on it.
 
 ## The priority model (top-down)
@@ -18,7 +18,7 @@ EPIC  (STORY_REPO, label `epic`)                    ← an epic IS a release (1:
    Priority:      P0 / P1 / P2                            ← the epic's urgency tier (derived by srs-programme: roadmap.mjs --apply; a `parked` label excludes its descendants)
         │  native GitHub sub-issues
         ▼
-USER STORY  (STORY_REPO, label `user-story`)        ← the human value layer, on board #5
+USER STORY  (STORY_REPO, label `user-story`)        ← the human value layer, on board #6 (SemanticOps)
    MoSCoW field:  Must / Should / Could / Won't           ← value input, set by a human in the UI
         │  native GitHub sub-issues (cross-repo)
         ▼

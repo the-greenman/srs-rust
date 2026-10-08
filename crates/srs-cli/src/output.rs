@@ -1,6 +1,7 @@
 use crate::commands::OutputFormat;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use srs_repository::error::{ErrorReport, RepositoryError};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -14,6 +15,9 @@ pub struct OutputDTO {
     pub payload: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diagnostics: Option<Vec<String>>,
+    /// Structured errors aligned 1:1 with `diagnostics` on `ok:false` (ADR-053).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub errors: Option<Vec<ErrorReport>>,
 }
 
 impl OutputDTO {
@@ -25,17 +29,30 @@ impl OutputDTO {
             version: VERSION.to_string(),
             payload: Some(payload),
             diagnostics: None,
+            errors: None,
         }
     }
 
-    /// Create an error output DTO
+    /// Create an error output DTO; every string is an `unclassified` error.
     pub fn err(command: &str, diagnostics: Vec<String>) -> Self {
+        let reports = diagnostics.iter().map(ErrorReport::unclassified).collect();
+        Self::from_parts(command, diagnostics, reports)
+    }
+
+    /// Create an error output DTO from structured reports (diagnostics = messages).
+    pub fn from_reports(command: &str, reports: Vec<ErrorReport>) -> Self {
+        let diagnostics = reports.iter().map(|r| r.message.clone()).collect();
+        Self::from_parts(command, diagnostics, reports)
+    }
+
+    fn from_parts(command: &str, diagnostics: Vec<String>, errors: Vec<ErrorReport>) -> Self {
         Self {
             ok: false,
             command: command.to_string(),
             version: VERSION.to_string(),
             payload: None,
             diagnostics: Some(diagnostics),
+            errors: Some(errors),
         }
     }
 
@@ -89,6 +106,31 @@ impl OutputDTO {
         };
         diag
     }
+
+    /// Error DTO from an anyhow chain: a `RepositoryError` anywhere in the chain
+    /// supplies the code/details; the message keeps the whole chain (`{e:#}`).
+    pub fn from_anyhow(command: &str, e: &anyhow::Error) -> Self {
+        let message = format!("{e:#}");
+        match RepositoryError::find_in(e) {
+            Some(re) => Self::from_reports(
+                command,
+                vec![ErrorReport {
+                    message,
+                    ..re.report()
+                }],
+            ),
+            // A stdin parse failure (input.rs keeps the serde error as the source).
+            None if e.chain().any(|c| c.is::<serde_json::Error>()) => Self::from_reports(
+                command,
+                vec![ErrorReport {
+                    code: "invalid-input".into(),
+                    message,
+                    details: None,
+                }],
+            ),
+            None => Self::err(command, vec![message]),
+        }
+    }
 }
 
 /// Serialize a typed payload struct and return a compact JSON ok response.
@@ -120,6 +162,7 @@ pub fn serialize_with_diagnostics<T: serde::Serialize>(
         } else {
             Some(diagnostics)
         },
+        errors: None,
     };
     Ok(dto.render(OutputFormat::Json, false))
 }
@@ -134,21 +177,20 @@ pub fn err(command: &str, diagnostics: Vec<String>) -> String {
     OutputDTO::err(command, diagnostics).render(OutputFormat::Json, false)
 }
 
+/// Emit an `ok: false` envelope carrying the structured report of a `RepositoryError`.
+pub fn repo_err(command: &str, e: &RepositoryError) -> String {
+    OutputDTO::from_reports(command, vec![e.report()]).render(OutputFormat::Json, false)
+}
+
+/// `repo_err` for handlers whose error is an `anyhow::Error` (e.g. from `with_store`).
+pub fn any_err(command: &str, e: &anyhow::Error) -> String {
+    OutputDTO::from_anyhow(command, e).render(OutputFormat::Json, false)
+}
+
 /// Emit an `ok: false` envelope with a typed payload (for structured error responses).
 /// Returns compact JSON; `main.rs` re-renders with `--format`/`--pretty` like all other handlers.
 /// Returns `String` (infallible) to match the `output::err` convention; callers use `Ok(...)`.
-pub fn err_with_payload<T: serde::Serialize>(
-    command: &str,
-    diagnostics: Vec<String>,
-    payload: T,
-) -> String {
-    let value = serde_json::to_value(payload).unwrap_or(serde_json::json!(null));
-    let dto = OutputDTO {
-        ok: false,
-        command: command.to_string(),
-        version: VERSION.to_string(),
-        payload: Some(value),
-        diagnostics: Some(diagnostics),
-    };
+pub fn err_with_payload<T: serde::Serialize>(mut dto: OutputDTO, payload: T) -> String {
+    dto.payload = Some(serde_json::to_value(payload).unwrap_or(serde_json::json!(null)));
     dto.render(OutputFormat::Json, false)
 }

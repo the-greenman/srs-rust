@@ -2078,6 +2078,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let target = FileStore::new(temp.path());
         let err = import_repository_snapshot(&target, &snapshot).unwrap_err();
+        assert_eq!(err.code(), "invalid-snapshot-data"); // generic bucket code: the message check below is the discriminator
         assert!(
             err.to_string().contains("unknown tier 1"),
             "expected an unknown-tier refusal naming tier 1, got: {err}"

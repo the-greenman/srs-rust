@@ -377,7 +377,7 @@ fn package_install_cli_bundle_newer_revision_is_error_envelope() {
     );
     let env = env.expect("an error envelope on stdout");
     assert_eq!(env["ok"], false, "{env}");
-    assert!(env.to_string().contains("bundle-revision-too-new"), "{env}");
+    assert_eq!(env["errors"][0]["code"], "bundle-revision-too-new", "{env}");
 }
 
 /// `srs package export` with extra flags, against repo `repo`.
@@ -474,8 +474,8 @@ fn package_install_cli_bundle_below_floor_is_error_envelope() {
     );
     let env = env.expect("an error envelope on stdout");
     assert_eq!(env["ok"], false, "{env}");
-    assert!(
-        env.to_string().contains("bundle-migration-step-missing"),
+    assert_eq!(
+        env["errors"][0]["code"], "bundle-migration-step-missing",
         "{env}"
     );
 }
@@ -554,7 +554,13 @@ fn package_upgrade_cli_dry_run_then_real_run() {
         &["--repo", &b, "package", "upgrade", "--bundle", &out],
     );
     assert!(!ok);
-    assert!(env.unwrap()["diagnostics"][0]
+    let env = env.unwrap();
+    assert_eq!(
+        env["errors"][0]["code"], "invalid-repository-initialization",
+        "{env}"
+    );
+    // generic bucket code: the message says which refusal.
+    assert!(env["errors"][0]["message"]
         .as_str()
         .unwrap()
         .contains("downgrade refused"));

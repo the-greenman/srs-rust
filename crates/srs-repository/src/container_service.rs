@@ -2011,6 +2011,7 @@ mod tests {
         assert_eq!(ids(&r), vec![(A.into(), 0), (B.into(), 1)]);
         // a depth jump is rejected whole and changes nothing
         let err = move_member(&store, &c.container_id, B, None, Some(2)).unwrap_err();
+        assert_eq!(err.code(), "invalid-input"); // generic bucket code: the message check below is the discriminator
         assert!(err.to_string().contains("arrangement-depth"), "{err}");
         assert_eq!(get_arrangement(&store, &c.container_id).unwrap().len(), 2);
         // outdent B to 0, move it first
@@ -2053,6 +2054,7 @@ mod tests {
             placement: p,
         };
         let err = move_member_relative(&store, id, A, &place(A, Placement::Into)).unwrap_err();
+        assert_eq!(err.code(), "invalid-input"); // generic bucket code: the message check below is the discriminator
         assert!(err.to_string().contains("arrangement-target"), "{err}");
         let r = move_member_relative(&store, id, B, &place(A, Placement::Before)).unwrap();
         assert_eq!(ids(&r), vec![(B.into(), 0), (A.into(), 0)]);
@@ -2071,6 +2073,7 @@ mod tests {
         c.anchor_instance_id = Some(A.to_string());
         let c = create_container(&store, c).unwrap();
         let err = remove_member(&store, &c.container_id, A).unwrap_err();
+        assert_eq!(err.code(), "invalid-input"); // generic bucket code: the message check below is the discriminator
         assert!(err.to_string().contains("arrangement-pointer"), "{err}");
         remove_member(&store, &c.container_id, B).unwrap();
     }

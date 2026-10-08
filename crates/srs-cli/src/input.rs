@@ -5,7 +5,7 @@
 //! (e.g. `sections[0]: missing field \`name\``) instead of only serde's
 //! line/column, which is useless on single-line stdin JSON.
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde::de::DeserializeOwned;
 use std::io::Read;
 
@@ -34,14 +34,17 @@ pub fn from_str<T: DeserializeOwned>(what: &str, raw: &str) -> Result<T> {
         let inner = e.into_inner();
         // "." is the document root; "?" means the path is unknown (e.g. a
         // syntax error before any structure was entered). Neither adds signal.
+        // Kept as the source (not formatted in) so `output::OutputDTO::from_anyhow`
+        // can classify the failure as `invalid-input` (ADR-053); `{e:#}` reads the same.
         if path == "." || path == "?" {
-            anyhow!("Failed to parse {what} JSON: {inner}")
+            anyhow::Error::new(inner).context(format!("Failed to parse {what} JSON"))
         } else {
-            anyhow!("Failed to parse {what} JSON at {path}: {inner}")
+            anyhow::Error::new(inner).context(format!("Failed to parse {what} JSON at {path}"))
         }
     })?;
-    de.end()
-        .map_err(|e| anyhow!("Failed to parse {what} JSON: trailing characters: {e}"))?;
+    de.end().map_err(|e| {
+        anyhow::Error::new(e).context(format!("Failed to parse {what} JSON: trailing characters"))
+    })?;
     Ok(value)
 }
 
@@ -67,14 +70,16 @@ mod tests {
     #[test]
     fn from_str_reports_json_path_for_nested_missing_field() {
         let raw = r#"{"title":"t","sections":[{"heading":"h","body":"b"}]}"#;
-        let err = from_str::<NoteShape>("note", raw).unwrap_err().to_string();
+        let err = from_str::<NoteShape>("note", raw).unwrap_err();
+        let err = format!("{err:#}");
         assert!(err.contains("sections[0]"), "error was: {err}");
         assert!(err.contains("missing field"), "error was: {err}");
     }
 
     #[test]
     fn from_str_reports_plain_error_at_top_level() {
-        let err = from_str::<NoteShape>("note", "{").unwrap_err().to_string();
+        let err = from_str::<NoteShape>("note", "{").unwrap_err();
+        let err = format!("{err:#}");
         assert!(
             err.starts_with("Failed to parse note JSON:"),
             "error was: {err}"
@@ -84,7 +89,8 @@ mod tests {
     #[test]
     fn from_str_rejects_trailing_garbage() {
         let raw = r#"{"title":"t","sections":[]} extra"#;
-        let err = from_str::<NoteShape>("note", raw).unwrap_err().to_string();
+        let err = from_str::<NoteShape>("note", raw).unwrap_err();
+        let err = format!("{err:#}");
         assert!(err.contains("trailing"), "error was: {err}");
     }
 }

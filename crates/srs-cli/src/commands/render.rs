@@ -96,7 +96,7 @@ fn cmd_render_composition(
                 },
             )
         }
-        Err(e) => Ok(output::err("render composition", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("render composition", &e)),
     }
 }
 
@@ -128,7 +128,7 @@ fn cmd_render_export_bundle(
                 diagnostics: meta.diagnostics,
             },
         ),
-        Err(e) => Ok(output::err("render export-bundle", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("render export-bundle", &e)),
     }
 }
 
@@ -159,7 +159,7 @@ fn cmd_render_okf_bundle(
                 },
             )
         }
-        Err(e) => Ok(output::err("render okf-bundle", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("render okf-bundle", &e)),
     }
 }
 

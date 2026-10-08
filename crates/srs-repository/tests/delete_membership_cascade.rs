@@ -217,6 +217,8 @@ fn run_pointer_guard_suite(store: &dyn RepositoryStore) {
     store.save_container(&section).unwrap();
 
     let err = record_store::delete_record(store, RECORD_ID, true).unwrap_err();
+    assert_eq!(err.code(), "invalid-input", "{err}");
+    // `invalid-input` is shared by several refusals; the message token is the only discriminator.
     assert!(err.to_string().contains("arrangement-pointer"), "{err}");
     assert!(
         store.find_instance(RECORD_ID).unwrap().is_some(),
@@ -296,6 +298,8 @@ fn deleting_a_container_identity_record_is_rejected_and_changes_nothing() {
         .expect("repo create scaffolds a purpose record");
 
     let err = record_store::delete_record(&store, &identity, true).unwrap_err();
+    assert_eq!(err.code(), "invalid-input", "{err}");
+    // `invalid-input` is shared by several refusals; the message token is the only discriminator.
     assert!(err.to_string().contains("arrangement-pointer"), "{err}");
 
     assert_loads_clean(&store, "after a rejected identity delete");

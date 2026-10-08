@@ -123,6 +123,8 @@ fn apply_migration_unknown_id_returns_error() {
     let err = migration_registry_service::apply_migration(&store, "nonexistent-migration")
         .expect_err("unknown migration ID must return an error");
 
+    assert_eq!(err.code(), "invalid-input");
+    // generic bucket code: the message names the unknown id.
     let msg = err.to_string();
     assert!(
         msg.contains("nonexistent-migration"),

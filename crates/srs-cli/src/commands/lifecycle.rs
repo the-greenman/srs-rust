@@ -66,9 +66,10 @@ fn cmd_lifecycle_update(ctx: CliContext, id: String) -> Result<String> {
             // diagnostic per violation, rather than folded into a single
             // message string.
             Err(RepositoryError::LifecycleValidation { violations }) => {
+                // unclassified until validation diagnostics carry codes (#1264)
                 Ok(output::err("lifecycle update", violations))
             }
-            Err(e) => Ok(output::err("lifecycle update", vec![e.to_string()])),
+            Err(e) => Ok(output::repo_err("lifecycle update", &e)),
         }
     })
 }

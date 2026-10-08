@@ -3,6 +3,7 @@ use crate::output;
 use crate::payload::FindPayload;
 use anyhow::Result;
 use srs_repository::discovery_service::{self, DiscoveryQuery, FindPage};
+use srs_repository::error::RepositoryError;
 
 pub fn dispatch(ctx: CliContext, args: FindArgs) -> Result<String> {
     let (type_namespace, type_name) = match args.type_filter {
@@ -10,12 +11,14 @@ pub fn dispatch(ctx: CliContext, args: FindArgs) -> Result<String> {
         Some(ref filter) => match parse_type_filter(filter) {
             Some((namespace, name)) => (Some(namespace), Some(name)),
             None => {
-                return Ok(output::err(
+                return Ok(output::repo_err(
                     "find",
-                    vec![format!(
-                        "Invalid type filter '{}'. Expected format: namespace/name",
-                        filter
-                    )],
+                    &RepositoryError::InvalidInput {
+                        message: format!(
+                            "Invalid type filter '{}'. Expected format: namespace/name",
+                            filter
+                        ),
+                    },
                 ))
             }
         },
@@ -56,6 +59,6 @@ pub fn dispatch(ctx: CliContext, args: FindArgs) -> Result<String> {
                 result: result.into(),
             },
         ),
-        Err(e) => Ok(output::err("find", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("find", &e)),
     }
 }

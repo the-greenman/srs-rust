@@ -130,7 +130,7 @@ fn relation(src: &str, dst: &str) -> Relation {
 }
 
 fn code_of<T: std::fmt::Debug>(r: Result<T, srs_repository::error::RepositoryError>) -> String {
-    r.unwrap_err().to_string()
+    r.unwrap_err().code().to_string()
 }
 
 fn snapshot(store: &dyn RepositoryStore) -> Vec<Value> {
@@ -698,6 +698,7 @@ fn malformed_created_by_on_raw_create_input_is_actor_supplied_not_a_parse_error(
     let e =
         srs_repository::actor_service::reject_supplied_created_by(&store, raw.as_object().unwrap())
             .unwrap_err()
+            .code()
             .to_string();
     assert!(e.starts_with("actor-supplied"), "{e}");
     // absent key: no-op
@@ -713,7 +714,7 @@ fn malformed_created_by_on_raw_create_input_is_actor_supplied_not_a_parse_error(
         raw.as_object().unwrap()
     )
     .unwrap_err()
-    .to_string()
+    .code()
     .starts_with("actor-invalid"));
     store.set_session_actor(Some(agent()));
     stamp_data_model_revision(&store, 8).unwrap();
@@ -722,6 +723,6 @@ fn malformed_created_by_on_raw_create_input_is_actor_supplied_not_a_parse_error(
         raw.as_object().unwrap()
     )
     .unwrap_err()
-    .to_string()
+    .code()
     .starts_with("actor-supplied"));
 }

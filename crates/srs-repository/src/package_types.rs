@@ -189,7 +189,10 @@ mod tests {
     fn validate_package_selector_rejects_absolute_path() {
         let result = validate_package_selector(&Some("/abs/path".to_string()));
         assert!(result.is_err());
-        let msg = result.unwrap_err().to_string();
+        let err = result.unwrap_err();
+        assert_eq!(err.code(), "invalid-package-selector");
+        // Both selector refusals share the code; the message names which rule fired.
+        let msg = err.to_string();
         assert!(
             msg.contains("absolute path"),
             "expected 'absolute path' in: {msg}"
@@ -200,7 +203,10 @@ mod tests {
     fn validate_package_selector_rejects_path_traversal() {
         let result = validate_package_selector(&Some("package/../evil".to_string()));
         assert!(result.is_err());
-        let msg = result.unwrap_err().to_string();
+        let err = result.unwrap_err();
+        assert_eq!(err.code(), "invalid-package-selector");
+        // Both selector refusals share the code; the message names which rule fired.
+        let msg = err.to_string();
         assert!(msg.contains(".."), "expected '..' in: {msg}");
     }
 

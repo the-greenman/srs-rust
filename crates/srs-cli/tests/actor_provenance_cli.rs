@@ -51,7 +51,11 @@ const AGENT: &str = r#"{"kind":"ai","id":"agent-1","name":"Scribe"}"#;
 
 fn refusal(v: &Value) -> String {
     assert_eq!(v["ok"], false, "{v}");
-    v["diagnostics"].to_string()
+    assert_eq!(
+        v["errors"].as_array().unwrap().len(),
+        v["diagnostics"].as_array().unwrap().len()
+    );
+    v["errors"][0]["code"].as_str().unwrap().to_string()
 }
 
 #[test]
@@ -84,7 +88,7 @@ fn supplied_invalid_and_too_old_are_refused_with_their_codes() {
         None,
         r#"{"title":"T","sections":[{"name":"i","content":"x"}],"createdBy":{"kind":"human","id":"u"}}"#,
     );
-    assert!(refusal(&supplied).contains("actor-supplied"));
+    assert!(refusal(&supplied) == "actor-supplied");
 
     let invalid = srs(
         repo.path(),
@@ -92,14 +96,14 @@ fn supplied_invalid_and_too_old_are_refused_with_their_codes() {
         None,
         NOTE,
     );
-    assert!(refusal(&invalid).contains("actor-invalid"));
+    assert!(refusal(&invalid) == "actor-invalid");
     let not_json = srs(
         repo.path(),
         &["--actor", "alice", "note", "create"],
         None,
         NOTE,
     );
-    assert!(refusal(&not_json).contains("actor-invalid"));
+    assert!(refusal(&not_json) == "actor-invalid");
 
     // Pre-9 corpus: actor session refused, unattributed session fine.
     let manifest_path = repo.path().join("manifest.json");
@@ -112,7 +116,7 @@ fn supplied_invalid_and_too_old_are_refused_with_their_codes() {
         None,
         NOTE,
     );
-    assert!(refusal(&old).contains("revision-too-old"));
+    assert!(refusal(&old) == "revision-too-old");
     assert_eq!(
         srs(repo.path(), &["note", "create"], None, NOTE)["ok"],
         true
@@ -126,13 +130,10 @@ fn malformed_created_by_is_actor_supplied_and_precedence_holds() {
     let rel = r#"{"relationType":"evidences","sourceInstanceId":"a","targetInstanceId":"b","createdBy":"x"}"#;
     for (cmd, body) in [("note", note), ("relation", rel)] {
         let r = srs(repo.path(), &["--actor", AGENT, cmd, "create"], None, body);
-        assert!(refusal(&r).contains("actor-supplied"), "{cmd}: {r}");
+        assert!(refusal(&r) == "actor-supplied", "{cmd}: {r}");
         let r = srs(repo.path(), &[cmd, "create"], None, body);
-        assert!(
-            refusal(&r).contains("actor-supplied"),
-            "{cmd} (no actor): {r}"
-        );
+        assert!(refusal(&r) == "actor-supplied", "{cmd} (no actor): {r}");
         let r = srs(repo.path(), &["--actor", "bad", cmd, "create"], None, body);
-        assert!(refusal(&r).contains("actor-invalid"), "{cmd}: {r}");
+        assert!(refusal(&r) == "actor-invalid", "{cmd}: {r}");
     }
 }

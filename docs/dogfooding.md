@@ -156,7 +156,7 @@ This is the governance-profile workflow (`governance-profile.md` §6.3–6.4, §
 6. Add the durable records to the Container's membership; confirm the (session-scoped) exercise is *not* owned by the meeting.
 7. When the decision later changes, `record successor` it; do not edit the ratified record.
    - Omit `relationType`. A `closed` decision has no outgoing transitions, so the core derives `supersedes` from the lifecycle's hard `requiresRelation` on `superseded` (RFC-022 R6/I-99, #1238). An explicit `"relationType": "refines"` still wins.
-   - Against a Type whose lifecycle declares no relational state (e.g. the seed's `purpose`) the same call fails with `SUCCESSOR_RELATION_TYPE_UNDETERMINED` and writes nothing.
+   - Against a Type whose lifecycle declares no relational state (e.g. the seed's `purpose`) the same call fails with `errors[0].code == "successor-relation-type-undetermined"` (`details.candidates` lists the declared types; empty here) and writes nothing.
    - To try it: `srs-gov repo-create --output gov.srsj`, then `srs --repo gov.srsj ...` works on the `.srsj` directly.
 8. Render the decision log: `srs render document-view --view <decision-log-view>`.
 
@@ -3384,12 +3384,39 @@ $SRS repo validate --repo $R                                         # 0 errors
 
 **Verified 2026-10-07 (#1327):** steps 1-5 run against a debug build over stdio.
 
+### S58 — A client acts on a refused write by its code, not its message (`errors[]` / WASM `Error.code` / MCP `structuredContent`, #1338, ADR-053)
+
+**Intention:** an editor or agent hears "no" from the engine and must decide what to do next. Examples: hide the lifecycle controls when a record has no lifecycle, or show "in use by …" before a delete. It should branch on a stable identifier and read the facts it needs from structured fields, never by matching human text (ADR-048 rule 6). The same refusal reads the same through the CLI, WASM and MCP.
+
+**CLI surface.** Every `ok:false` envelope carries `errors: [{code, message, details?}]`, aligned 1:1 with `diagnostics`. WASM throws an `Error` with `.code` and `.details`. MCP tool errors carry the same object as `structuredContent`; resource and prompt failures carry it in JSON-RPC `error.data`.
+
+**Steps.**
+1. `srs repo create --repo /tmp/dogfood-errors --namespace com.example.dogfood`. Note the seeded purpose record id (`srs record list`).
+2. `echo '{"targetState":"active"}' | srs record transition --id <purpose-id>` → `errors[0].code == "lifecycle-not-defined"`, `details.id == <purpose-id>`.
+3. `srs relation-type create` (key `blocks`, category `dependency`), two `note create`, then a `blocks` relation between them. `srs relation-type delete <rt-id>` → `errors[0].code == "cannot-delete-in-use"`, `details.usedBy == [<relation-id>]`, `details.entityType == "relation-type"`.
+4. `echo '{nope' | srs note create` → `errors[0].code == "invalid-input"`, with the message unchanged ("Failed to parse note JSON: …").
+5. Run `srs mcp serve --repo /tmp/dogfood-errors`. Call `initialize`, then `tools/call record_transition {"instanceId": <purpose-id>, "to": "active"}` → `result.isError == true`, `structuredContent.code == "lifecycle-not-defined"`, and `content[0].text == structuredContent.message`.
+6. `srs repo validate` → 0 errors (no refusal wrote anything).
+
+**Negative case.** A successful command (`srs record get <purpose-id>`) has **no** `errors` key.
+
+**Done when.**
+- Every refusal above is branched on by `code` alone.
+- `errors.len() == diagnostics.len()` and `errors[i].message == diagnostics[i]`.
+- The MCP `structuredContent` equals the CLI's report for the same refusal.
+- `repo validate` is clean.
+
+**Verified 2026-10-08 (#1338)** on the branch build. All six steps passed. Findings:
+- `field delete` / `type delete` of an **in-use** definition succeed with no guard and leave a dangling reference (filed as the bug #1345; pre-existing, not caused by #1338).
+- Stdin parse failures were `unclassified` until `input.rs` kept the serde error as the anyhow source (fixed in this PR).
+
 ## Coverage matrix
 
 Maps each CLI command group to the scenario(s) that exercise it. A command group with **no scenario** is a dogfooding gap — adding or changing such a surface in a PR means extending a scenario or adding one (see below).
 
 | Command group | Exercised by |
 |---|---|
+| Error envelope (`errors[]` on every `ok:false`; WASM `Error.code`; MCP `structuredContent` / `error.data`), ADR-053 | S58 |
 | `repo` (map, validate, init) | S1–S6 (orientation + validation in every scenario); `repo validate` now includes manifest.json schema validation — see S1 negative case; RFC-013 I-79/I-80/I-81/I-82 root-container invariants — see S1 negative case (I-79) and S15 step 10 (full happy path); **I-82 union fix (#699)**: I-82 now fires for non-identity members declared via `rootInstanceIds` only (not just `memberInstanceIds`); deduplication ensures exactly one diagnostic when an ID is in both arrays; verified by `i82_fires_for_root_instance_ids_member`, `i82_fires_for_both_arrays_no_duplicates`, and `i82_no_warning_for_root_instance_ids_member_that_roots_a_section_container` unit tests; blueprint semantic validation + protocol stage-dependency validation — see S13 (`repo validate` on a repo with a protocol); **RFC-018 I-81** identity type check (Warning when `identityInstanceId` resolves to a Tier-0 Note or wrong Tier-2 type) — see S20; **RFC-009 I-145** `anchorInstanceId` (srs#446): Error when declared but not a member of the container, Warning naming the Continuity-flip expiry when absent and `rootInstanceIds` is non-empty (transitional fallback) — see S47; **`repo create` always scaffolds a `com.semanticops.core/purpose` Tier-2 record and sets `identityInstanceId` unconditionally (#424)** — happy path covered by S17 step 3 (navigation reads back the purpose record); **`repo create` now also registers the root container in `containerIndex` so `FileStore::load_container` succeeds on the root container (#518)** — `scaffold_purpose_record` was missing the `save_container` call; fixed with ADR-024 rollback; verified by `create_repository_with_intent_container_loadable_from_file_store` and `create_repository_with_intent_container_in_container_index` unit tests; dogfooded on branch: `repo create` → `repo validate` → `migrate-identity` returns `ok: false` with `"already a purpose record; no migration needed"` (no crash, no ContainerNotFound); **ext:lifecycle V7/V8/V9 invariants now enforced at validate time (#239)**: V7 (type declares both `lifecycle` and `lifecycleRef`), V8 (lifecycleRef UUID does not resolve), V9 (inline TypeLifecycle structural errors + `initialState`/`isInitial` key mismatch) — see S6 negative case; **RFC-020 Rule [N+33]** identityFieldId effective-field-set check (a Type's `identityFieldId`, own or inherited, must resolve to a `fieldId` in that Type's effective field set; runs independent of whether any record of that Type exists, and one Type's resolution error does not block others) — see S1 negative case (#376); **`repo map` now includes `payload.corePackage` summary** (id, name, version, types, fields) from the embedded `com.semanticops.core` package (#423) — see S24; **`com.semanticops.spec/invariant` number uniqueness (#555)**: duplicate `invariant-number` field values across spec-invariant records produce `"duplicate invariant number"` errors at validate time (one error per offending record, symmetric) — see S1 negative case |
 | `implicit core type availability` (`srs type list` shows `com.semanticops.core/*`; `srs repo map` shows `corePackage`; zero-config `com.semanticops.core/purpose` resolution, #423) | S24 |
 | `repo init-new` (re-stamp seed identity) | S16 |

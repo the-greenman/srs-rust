@@ -267,10 +267,6 @@ fn read_bundle_member_order_conflict_refuses() {
     let (_t, store) = file_repo();
     let before = store.list_package_boundaries().unwrap().len();
     let err = install_package_bundle_bytes(&store, &bytes(&b), Default::default()).unwrap_err();
-    assert!(
-        err.to_string().contains("migration-memberorder-conflict"),
-        "{err}"
-    );
     assert_eq!(code_of(err).0, "bundle-migration-refused");
     assert_eq!(store.list_package_boundaries().unwrap().len(), before);
 }

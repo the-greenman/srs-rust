@@ -3,6 +3,7 @@ use crate::output;
 use crate::payload::{FieldDeletePayload, FieldListEntry, FieldListPayload, FieldPayload};
 use anyhow::Result;
 use srs_core::types::field::Field;
+use srs_repository::error::RepositoryError;
 use srs_repository::package_service::{
     create_field_normalized, delete_field, get_field_by_id, list_fields_filtered, update_field,
     FieldListFilter, GetFieldResult,
@@ -57,9 +58,11 @@ fn cmd_field_get(ctx: CliContext, id: String) -> Result<String> {
         GetFieldResult::Found(field) => {
             output::serialize("field get", FieldPayload { field: *field })
         }
-        GetFieldResult::NotFound => Ok(output::err(
+        GetFieldResult::NotFound => Ok(output::repo_err(
             "field get",
-            vec![format!("Field with id '{}' not found", id)],
+            &RepositoryError::FieldNotFound {
+                field_id: id.clone(),
+            },
         )),
     }
 }
@@ -83,12 +86,14 @@ fn cmd_field_update(ctx: CliContext, id: String) -> Result<String> {
     let field: Field = crate::input::from_stdin("field")?;
 
     if field.id != id {
-        return Ok(output::err(
+        return Ok(output::repo_err(
             "field update",
-            vec![format!(
-                "Field ID in body ('{}') does not match --id argument ('{}')",
-                field.id, id
-            )],
+            &RepositoryError::InvalidInput {
+                message: format!(
+                    "Field ID in body ('{}') does not match --id argument ('{}')",
+                    field.id, id
+                ),
+            },
         ));
     }
 
@@ -99,13 +104,13 @@ fn cmd_field_update(ctx: CliContext, id: String) -> Result<String> {
                 field: result.field,
             },
         ),
-        Err(e) => Ok(output::err("field update", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("field update", &e)),
     }
 }
 
 fn cmd_field_delete(ctx: CliContext, id: String) -> Result<String> {
     match with_store(&ctx, |store| Ok(delete_field(store, &id)?)) {
         Ok(result) => output::serialize("field delete", FieldDeletePayload { id: result.id }),
-        Err(e) => Ok(output::err("field delete", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("field delete", &e)),
     }
 }

@@ -8,6 +8,7 @@ use anyhow::Result;
 use srs_core::types::record_type::RecordType;
 use srs_projection::json_schema::to_canonical_json;
 use srs_projection::{type_to_json_schema, TypeToJsonSchemaInput};
+use srs_repository::error::RepositoryError;
 use srs_repository::package_service::{
     create_type_normalized, delete_type, get_type_by_id_latest, list_types_filtered, update_type,
     GetTypeResult, TypeListFilter,
@@ -67,9 +68,9 @@ fn cmd_type_get(ctx: CliContext, id: String) -> Result<String> {
         GetTypeResult::Found(record_type) => {
             output::serialize("type get", TypePayload { record_type })
         }
-        GetTypeResult::NotFound => Ok(output::err(
+        GetTypeResult::NotFound => Ok(output::repo_err(
             "type get",
-            vec![format!("Type with id '{}' not found", id)],
+            &RepositoryError::DefinitionNotFound { id: id.clone() },
         )),
     }
 }
@@ -93,12 +94,14 @@ fn cmd_type_update(ctx: CliContext, id: String) -> Result<String> {
     let record_type: RecordType = crate::input::from_stdin("type")?;
 
     if record_type.id != id {
-        return Ok(output::err(
+        return Ok(output::repo_err(
             "type update",
-            vec![format!(
-                "Type ID in body ('{}') does not match --id argument ('{}')",
-                record_type.id, id
-            )],
+            &RepositoryError::InvalidInput {
+                message: format!(
+                    "Type ID in body ('{}') does not match --id argument ('{}')",
+                    record_type.id, id
+                ),
+            },
         ));
     }
 
@@ -109,7 +112,7 @@ fn cmd_type_update(ctx: CliContext, id: String) -> Result<String> {
                 record_type: result.record_type,
             },
         ),
-        Err(e) => Ok(output::err("type update", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("type update", &e)),
     }
 }
 
@@ -120,9 +123,9 @@ fn cmd_type_delete(ctx: CliContext, id: String, version: Option<u32>) -> Result<
         None => match with_store(&ctx, |store| Ok(get_type_by_id_latest(store, &id)?))? {
             GetTypeResult::Found(rt) => rt.version,
             GetTypeResult::NotFound => {
-                return Ok(output::err(
+                return Ok(output::repo_err(
                     "type delete",
-                    vec![format!("Type with id '{}' not found", id)],
+                    &RepositoryError::DefinitionNotFound { id: id.clone() },
                 ))
             }
         },
@@ -130,7 +133,7 @@ fn cmd_type_delete(ctx: CliContext, id: String, version: Option<u32>) -> Result<
 
     match with_store(&ctx, |store| Ok(delete_type(store, &id, resolved_version)?)) {
         Ok(result) => output::serialize("type delete", TypeDeletePayload { id: result.id }),
-        Err(e) => Ok(output::err("type delete", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("type delete", &e)),
     }
 }
 
@@ -158,10 +161,11 @@ fn cmd_type_schema(ctx: CliContext, id: String, type_version: Option<u32>) -> Re
                 } else {
                     Some(result.diagnostics)
                 },
+                errors: None,
             };
             Ok(dto.render(ctx.format, ctx.pretty))
         }
-        Err(e) => Ok(output::err("type schema", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("type schema", &e)),
     }
 }
 
@@ -190,6 +194,6 @@ fn cmd_type_json_schema(ctx: CliContext, id: String, type_version: Option<u32>) 
                 result.inexpressible,
             )
         }
-        Err(e) => Ok(output::err("type json-schema", vec![e.to_string()])),
+        Err(e) => Ok(output::any_err("type json-schema", &e)),
     }
 }

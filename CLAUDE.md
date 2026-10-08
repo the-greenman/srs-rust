@@ -29,8 +29,8 @@ cargo run --bin generate-schemas          # regenerate payload JSON Schema golde
 | Crate | Owns | Hard constraints |
 |---|---|---|
 | `srs-core` | Canonical Rust types, serde shapes, in-memory validation | No file I/O. No async. No `schemars`. |
-| `srs-repository` | Repository loading, writing, package resolution, service functions, Vfs seam (`DiskVfs`/`MemVfs`) + tree sessions (ADR-038), archive pack/unpack, RFC-026 container slice export (`slice_service`, one filter over the archive tree and the shared ZIP writer — ADR-051), export bundle, the `.srspkg` Package Bundle codec (one reader, one deterministic writer — ADR-050, amended for RFC-003 Rev 10), the RFC-003 reference-site table (`reference_sites.rs`, schema-guarded), and the migration registry's per-revision bundle forms (ADR-032) | Depends on `srs-core`. All business logic lives here, not in the CLI. |
-| `srs-cli` | Arg parsing, stdin handling, JSON envelope output | One service call per handler. No business logic. No direct filesystem access in handlers. |
+| `srs-repository` | Repository loading, writing, package resolution, service functions, Vfs seam (`DiskVfs`/`MemVfs`) + tree sessions (ADR-038), archive pack/unpack, RFC-026 container slice export (`slice_service`, one filter over the archive tree and the shared ZIP writer — ADR-051), export bundle, the `.srspkg` Package Bundle codec (one reader, one deterministic writer — ADR-050, amended for RFC-003 Rev 10), the RFC-003 reference-site table (`reference_sites.rs`, schema-guarded), the migration registry's per-revision bundle forms (ADR-032), and the error-code contract: `RepositoryError::code()` + `ErrorReport` that every adapter carries unchanged (ADR-053) | Depends on `srs-core`. All business logic lives here, not in the CLI. |
+| `srs-cli` | Arg parsing, stdin handling, JSON envelope output (`ok:false` envelopes carry `errors: [ErrorReport]` beside `diagnostics`, ADR-053) | One service call per handler. No business logic. No direct filesystem access in handlers. |
 | `srs-bindings` | JSON-first binding surface over repository services; `McpSession` (browser MCP over an open store, via `srs-mcp-core`) | Calls the same services as the CLI. No duplicated logic. |
 | `srs-mcp` | Native rmcp/stdio adapter (`srs mcp serve`, ADR-037): opens the repo path, translates rmcp models to/from `srs-mcp-core` JSON | Sole owner of `rmcp`/`tokio`. No tool, resource or prompt semantics — those live in `srs-mcp-core`. |
 | `srs-mcp-core` | Transport-agnostic MCP application core shared by `srs-mcp` and the WASM adapter (ADR-037): initialization/capability metadata, URI routing, JSON-native resources (catalogue and reads), prompts, the tool catalogue (single owner of tool names, descriptions, schemars schemas, shadow inputs with mandatory `From` conversions, and the tool dispatch paths; `read` is routed from `SrsMcpApplication`, which owns the repository id), and JSON-RPC dispatch (`McpDispatcher`/`SrsMcpApplication`), and the per-request `WriteSummary` the store recorded (ADR-049; exposed by `McpSession.take_write_summary`) | No `rmcp`, Tokio, stdio, file paths, or `FileStore`. Carries `wasm32-unknown-unknown`-only dependencies gated under `cfg(target_arch = "wasm32")`, reflecting the intent that it must compile for that target. |
@@ -162,7 +162,7 @@ The hook runs `cargo test --test payload_contracts`. If it fails, regenerate sch
 
 ## Project & priority management
 
-Issues across the ecosystem are tracked on **Project #5 "SRS"** and prioritised **top-down from
+Issues across the ecosystem are tracked on **Project #6 "SemanticOps"** (#5 is frozen history) and prioritised **top-down from
 user stories**. The authoritative process — the priority model (story MoSCoW → derived
 `priority: Pn`), sub-issue linkage, the Status/iteration conventions, and the `gh-project` tool —
 is in **[docs/project-management.md](docs/project-management.md)**.
@@ -177,7 +177,7 @@ Quick rules:
   gets no priority.
 - **Bugs** are fixed ASAP — they floor at `priority: P1` even without a story.
 - **Unlinked non-bug** work is flagged ("could get lost"), never dropped — link it to a story.
-- **Epics are releases.** An `epic` (in muDemocracy.org) *is* a release: its **`Epic NN:` title**
+- **Epics are releases.** An `epic` (in semanticops.com; priority derived by srs-programme) *is* a release: its **`Epic NN:` title**
   is identity + roadmap sequence (retitle to renumber), its board **Priority** is the urgency tier.
   There is no Release field — membership is the sub-issue graph (`tree <epic#>`, `summary --epic N`).
   Every story should sit under an epic — `coverage` flags `orphan_stories_no_epic`.
