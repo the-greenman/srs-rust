@@ -685,8 +685,7 @@ fn cmd_repo_validate(ctx: CliContext) -> Result<String> {
             .map(|d| format!("[{}] {}", d.relative_path, d.message))
             .collect();
         Ok(output::err_with_payload(
-            "repo validate",
-            diagnostics,
+            output::OutputDTO::err("repo validate", diagnostics),
             RepoValidatePayload::from(report),
         ))
     }

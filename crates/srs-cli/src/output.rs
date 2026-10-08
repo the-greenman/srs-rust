@@ -183,13 +183,7 @@ pub fn any_err(command: &str, e: &anyhow::Error) -> String {
 /// Emit an `ok: false` envelope with a typed payload (for structured error responses).
 /// Returns compact JSON; `main.rs` re-renders with `--format`/`--pretty` like all other handlers.
 /// Returns `String` (infallible) to match the `output::err` convention; callers use `Ok(...)`.
-pub fn err_with_payload<T: serde::Serialize>(
-    command: &str,
-    diagnostics: Vec<String>,
-    payload: T,
-) -> String {
-    let value = serde_json::to_value(payload).unwrap_or(serde_json::json!(null));
-    let mut dto = OutputDTO::err(command, diagnostics);
-    dto.payload = Some(value);
+pub fn err_with_payload<T: serde::Serialize>(mut dto: OutputDTO, payload: T) -> String {
+    dto.payload = Some(serde_json::to_value(payload).unwrap_or(serde_json::json!(null)));
     dto.render(OutputFormat::Json, false)
 }

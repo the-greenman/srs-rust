@@ -99,8 +99,7 @@ fn cmd_vocabulary_promote(ctx: CliContext, id: String) -> Result<String> {
             }) = e.downcast_ref::<RepositoryError>()
             {
                 return Ok(output::err_with_payload(
-                    "vocabulary promote",
-                    vec![e.to_string()],
+                    output::OutputDTO::from_anyhow("vocabulary promote", &e),
                     PromoteVocabularyBlockedPayload {
                         vocabulary_id: vocabulary_id.clone(),
                         unresolvable_keys: unresolvable_keys.clone(),

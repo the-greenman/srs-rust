@@ -7721,13 +7721,10 @@ fn vocabulary_promote_blocked_returns_structured_payload() {
         "vocabularyId in payload should match"
     );
 
-    // The CLI currently reports this refusal as `unclassified` rather than
-    // `vocabulary-promotion-blocked` (see #1338 report); keep the wording check.
-    let diag = result["diagnostics"][0].as_str().unwrap_or("");
-    assert!(
-        diag.contains("promotion blocked"),
-        "diagnostic should contain 'promotion blocked', got: {:?}",
-        diag
+    assert_eq!(result["errors"][0]["code"], "vocabulary-promotion-blocked");
+    assert_eq!(
+        result["errors"][0]["details"]["unresolvableKeys"][0],
+        "beta"
     );
 }
 
