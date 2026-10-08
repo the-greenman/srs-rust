@@ -1037,7 +1037,7 @@ impl SrsRepository {
 
     /// List container summaries. `filter_json` is a JSON string matching
     /// `{ "containerType"?: string, "memberInstanceId"?: string, "anchorInstanceId"?: string }`
-    /// (matches the container's `anchorInstanceId`, RFC-043 [R4]; `rootInstanceId` is accepted as an alias);
+    /// (matches the container's `anchorInstanceId`, RFC-043 [R4]; the pre-RFC-043 `rootInstanceId` key is rejected);
     /// pass `"{}"` for all containers. Returns a JS array of `ContainerSummary` objects.
     pub fn list_containers(&self, filter_json: &str) -> Result<JsValue, JsValue> {
         let parsed: ContainerListBindingFilter = serde_json::from_str(filter_json)
@@ -2041,14 +2041,16 @@ fn copy_container_from_json(
 }
 
 /// Input shape for `list_containers` — parsed from caller-supplied JSON.
+/// Unknown keys are rejected so a stale caller (e.g. `rootInstanceId`) fails loudly rather than
+/// silently receiving an unfiltered list.
 #[derive(Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ContainerListBindingFilter {
     #[serde(default)]
     container_type: Option<String>,
     #[serde(default)]
     member_instance_id: Option<String>,
-    #[serde(default, alias = "rootInstanceId")]
+    #[serde(default)]
     anchor_instance_id: Option<String>,
 }
 
@@ -2123,6 +2125,16 @@ struct LinkAttachmentBindingInput {
 mod tests {
     use super::SrsRepository;
     use srs_repository::RepositoryStore;
+
+    #[test]
+    fn container_list_filter_rejects_pre_rfc043_root_key() {
+        let ok: super::ContainerListBindingFilter =
+            serde_json::from_str(r#"{"anchorInstanceId":"a"}"#).unwrap();
+        assert_eq!(ok.anchor_instance_id.as_deref(), Some("a"));
+        let err =
+            serde_json::from_str::<super::ContainerListBindingFilter>(r#"{"rootInstanceId":"a"}"#);
+        assert!(err.is_err(), "stale rootInstanceId key must be rejected");
+    }
 
     /// Native coverage of the non-JS half of `js_invalid_input`; the `Error`
     /// construction itself is covered by the wasm32 build only.
