@@ -144,26 +144,20 @@ fn field_to_property(
         prop.extend(value_shape);
     }
 
-    // title: displayLabel wins, else the field's description.
-    let title = assignment
+    // title: the authored displayLabel only — never the description (ADR-026
+    // amendment, #1382). Absent means no label was authored.
+    if let Some(label) = assignment
         .display_label
-        .clone()
+        .as_deref()
         .filter(|s| !s.is_empty())
-        .or_else(|| {
-            if field.description.is_empty() {
-                None
-            } else {
-                Some(field.description.clone())
-            }
-        });
-    if let Some(title) = title {
-        prop.insert("title".into(), json!(title));
+    {
+        prop.insert("title".into(), json!(label));
     }
 
     // Field help text: `description` (short caption) and `instructions` (fuller
-    // human guidance) each get a dedicated vendor key so neither collides with
-    // `title` (label) or `description` (already occupied by string aiGuidance
-    // below). See ADR-026.
+    // human guidance) each get a dedicated vendor key. `title` is the label
+    // only and `description` is string aiGuidance (below), so help text lives
+    // nowhere else. See ADR-026.
     if !field.description.is_empty() {
         prop.insert("x-srs-description".into(), json!(field.description));
     }
@@ -1008,11 +1002,12 @@ mod tests {
     }
 
     #[test]
-    fn type_schema_title_prefers_display_label() {
-        // display_label set -> wins.
+    fn type_schema_title_only_from_display_label() {
+        // display_label set -> it is the title.
         let mut a = assignment(&fid(1), 0, false);
         a.display_label = Some("Custom Label".into());
-        // display_label absent -> falls back to field.description.
+        // display_label absent -> no title; the description stays in
+        // x-srs-description and never becomes the label (#1382).
         let b = assignment(&fid(2), 1, false);
         let store = store_with(
             vec![
@@ -1033,10 +1028,33 @@ mod tests {
             result.schema["properties"]["a"]["title"],
             json!("Custom Label")
         );
-        assert_eq!(
-            result.schema["properties"]["b"]["title"],
-            json!("b description")
+        let b = &result.schema["properties"]["b"];
+        assert!(b.get("title").is_none(), "no displayLabel → no title");
+        assert_eq!(b["x-srs-description"], json!("b description"));
+    }
+
+    #[test]
+    fn type_schema_empty_display_label_emits_no_title() {
+        let mut a = assignment(&fid(1), 0, false);
+        a.display_label = Some(String::new());
+        let store = store_with(
+            vec![field(&fid(1), "a", FieldType::string())],
+            make_type(TID, vec![a]),
         );
+        let result = type_schema(
+            &store,
+            TypeSchemaInput {
+                type_id: TID.to_string(),
+                type_version: None,
+            },
+        )
+        .unwrap();
+        let a = &result.schema["properties"]["a"];
+        assert!(
+            a.get("title").is_none(),
+            "empty displayLabel counts as absent"
+        );
+        assert_eq!(a["x-srs-description"], json!("a description"));
     }
 
     #[test]
@@ -1233,6 +1251,13 @@ mod tests {
         let item_props = items["properties"].as_object().unwrap();
         assert!(item_props.contains_key("columns"));
         assert!(item_props.contains_key("cells"));
+        // Unlabelled sub-fields carry no title; the description is help text only (#1382).
+        assert!(item_props["columns"].get("title").is_none());
+        assert!(item_props["cells"].get("title").is_none());
+        assert_eq!(
+            item_props["columns"]["x-srs-description"],
+            json!("columns description")
+        );
 
         // Required sub-field surfaces in the item object's `required`.
         let item_required = items["required"].as_array().unwrap();
