@@ -234,7 +234,13 @@ impl RepositoryCatalog {
 /// reserved location fails the load as a whole — no partial catalog is
 /// reported as complete. The full diagnostic list travels in the error.
 pub fn build_checked(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, RepositoryError> {
-    let catalog = build(store)?;
+    check_fatal(build(store)?)
+}
+
+/// Apply [R24] fatality to an already-built catalog.
+pub(crate) fn check_fatal(
+    catalog: RepositoryCatalog,
+) -> Result<RepositoryCatalog, RepositoryError> {
     if catalog.has_fatal() {
         let fatal = catalog
             .diagnostics
@@ -390,7 +396,7 @@ struct Builder<'a> {
     definition_dup_keys: Vec<(String, Option<u64>, String)>,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default, Clone)]
 struct Sets {
     instances: Vec<CatalogEntry>,
     relations: Vec<CatalogEntry>,
@@ -404,189 +410,290 @@ struct Sets {
 /// fatality applied — `validate`-style consumers need the complete picture).
 /// `Err` is reserved for infrastructure failures (I/O other than not-found).
 pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, RepositoryError> {
-    let mut b = Builder {
-        store,
-        entries: Sets::default(),
-        diagnostics: Vec::new(),
-        type_field_refs: Vec::new(),
-        relation_endpoints: Vec::new(),
-        container_refs: Vec::new(),
-        definition_dup_keys: Vec::new(),
-    };
+    Ok(CatalogState::build(store)?.assemble(store))
+}
 
-    // [R8] standing check: the instance-schema discriminators must hold before
-    // shape classification is trusted.
-    if let Some(err) = instance_discriminator_error() {
-        b.error(
-            codes::SHAPE_DISCRIMINATOR_BROKEN,
-            vec!["schema:instance-candidate-set".to_string()],
-            err.clone(),
-        );
-    }
+/// What one classified file (or the repository-level anchors) contributed:
+/// its entries and diagnostics plus the unresolved references the set-level
+/// checks ([R12]/[R13]) consume. Classification of a file reads only that
+/// file, so a contribution is a pure function of its bytes (srs-rust#1196).
+#[derive(Debug, Default, Clone)]
+struct Contribution {
+    entries: Sets,
+    diagnostics: Vec<CatalogDiagnostic>,
+    type_field_refs: Vec<(String, Vec<String>)>,
+    relation_endpoints: Vec<(String, String, String, String)>,
+    container_refs: Vec<(String, &'static str, Vec<String>)>,
+    definition_dup_keys: Vec<(String, Option<u64>, String)>,
+}
 
-    // The manifest remains required ([R2]); it is read for configuration only.
-    let manifest = match store.load_manifest() {
-        Ok(m) => m,
-        Err(e) => {
+/// The catalog held as per-file contributions, so a single-file write can
+/// replace one contribution and re-run only the set-level checks instead of
+/// re-walking, re-parsing and re-validating the whole corpus (srs-rust#1196).
+/// `assemble` over a patched state is identical to a fresh [`build`]: both go
+/// through the same classifiers, merge, and set-level code.
+#[derive(Debug)]
+pub(crate) struct CatalogState {
+    /// Manifest unreadable: the whole catalog is that one diagnostic and the
+    /// state is not patchable.
+    fixed: Option<RepositoryCatalog>,
+    sd_path: String,
+    extension_paths: BTreeSet<String>,
+    root_instance_roots: BTreeSet<String>,
+    declared_defs: BTreeMap<String, (CatalogKind, &'static str)>,
+    package_roots: Vec<String>,
+    file_set: BTreeSet<String>,
+    /// Discriminator check, package-manifest diagnostics, inline root
+    /// container, extension aggregate — anything not owned by one file.
+    global: Contribution,
+    per_file: BTreeMap<String, Contribution>,
+}
+
+impl CatalogState {
+    pub(crate) fn build(store: &dyn RepositoryStore) -> Result<Self, RepositoryError> {
+        let mut b = Builder::new(store);
+
+        // [R8] standing check: the instance-schema discriminators must hold before
+        // shape classification is trusted.
+        if let Some(err) = instance_discriminator_error() {
             b.error(
-                codes::MANIFEST_INVALID,
-                vec!["manifest.json".to_string()],
-                format!("manifest.json missing or unparseable: {e}"),
+                codes::SHAPE_DISCRIMINATOR_BROKEN,
+                vec!["schema:instance-candidate-set".to_string()],
+                err.clone(),
             );
-            return Ok(b.finish(Vec::new()));
         }
-    };
-    let manifest_value =
-        serde_json::to_value(&manifest).map_err(|source| RepositoryError::Serialize {
-            path: std::path::PathBuf::from("manifest.json"),
-            source,
-        })?;
 
-    let sd_path = declared_location(manifest.source_documents_path.as_deref())
-        .unwrap_or_else(|| "source-documents".to_string());
-
-    let declared_extensions: BTreeSet<String> = manifest_value
-        .get("declaredExtensions")
-        .and_then(|v| v.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default();
-    let changelog_path = manifest_value
-        .get("changelogPath")
-        .and_then(|v| v.as_str())
-        .map(str::to_string);
-    let repository_id = manifest_value
-        .get("repositoryId")
-        .and_then(|v| v.as_str())
-        .map(str::to_string);
-
-    // Enumerate the tree once, deterministically ([R14]: never expose
-    // filesystem iteration order).
-    let mut files: Vec<String> = store
-        .list_files_recursive("")
-        .into_iter()
-        .filter(|p| !p.split('/').any(|seg| SKIPPED_SEGMENTS.contains(&seg)))
-        .collect();
-    files.sort();
-    let file_set: BTreeSet<String> = files.iter().cloned().collect();
-
-    // Extension-set locations are handled out of the main dispatch.
-    let extension_paths: BTreeSet<String> =
-        [changelog_path.clone()].into_iter().flatten().collect();
-
-    // --- Anchor discovery (Changes B/D; [R3]/[R4]) ---
-
-    let root_instance_roots: BTreeSet<String> = INSTANCE_ROOT_NAMES
-        .iter()
-        .filter(|d| dir_exists(&file_set, d))
-        .map(|d| d.to_string())
-        .collect();
-
-    // Candidate package.json paths, shallow-first so a parent package root is
-    // known before a nested candidate is considered.
-    let mut pkg_candidates: Vec<&String> = files
-        .iter()
-        .filter(|p| {
-            (p.as_str() == "package.json" || p.ends_with("/package.json"))
-                && !under_any(p, &root_instance_roots)
-                && !under(p, &sd_path)
-                && !under(p, "relations")
-                && !under(p, "containers")
-        })
-        .collect();
-    pkg_candidates.sort_by_key(|p| (p.split('/').count(), p.as_str().to_string()));
-
-    let mut package_roots: Vec<String> = Vec::new();
-    // Declared definition path → (kind, schema id, owning package root).
-    let mut declared_defs: BTreeMap<String, (CatalogKind, &'static str)> = BTreeMap::new();
-
-    for pkg_path in pkg_candidates {
-        let root = pkg_path
-            .strip_suffix("package.json")
-            .unwrap_or("")
-            .trim_end_matches('/')
-            .to_string();
-        let value = match store.load_instance_json(pkg_path) {
-            Ok(v) => v,
-            Err(e) if e.is_not_found() => continue,
-            Err(_) => {
-                // Unparseable: SRS-ness cannot be determined, and an npm
-                // manifest with a syntax error must not fail the load.
-                b.warn(
-                    codes::PACKAGE_JSON_UNPARSEABLE,
-                    vec![pkg_path.clone()],
-                    "package.json is not valid JSON; cannot determine whether it is an SRS package manifest".to_string(),
+        // The manifest remains required ([R2]); it is read for configuration only.
+        let manifest = match store.load_manifest() {
+            Ok(m) => m,
+            Err(e) => {
+                b.error(
+                    codes::MANIFEST_INVALID,
+                    vec!["manifest.json".to_string()],
+                    format!("manifest.json missing or unparseable: {e}"),
                 );
-                continue;
+                return Ok(Self {
+                    fixed: Some(b.finish(Vec::new())),
+                    sd_path: String::new(),
+                    extension_paths: BTreeSet::new(),
+                    root_instance_roots: BTreeSet::new(),
+                    declared_defs: BTreeMap::new(),
+                    package_roots: Vec::new(),
+                    file_set: BTreeSet::new(),
+                    global: Contribution::default(),
+                    per_file: BTreeMap::new(),
+                });
             }
         };
-        let declares_srs_schema = value.get("$schema").and_then(|v| v.as_str())
-            == Some(srs_schema::PACKAGE_MANIFEST_SCHEMA_ID);
-        let srs_shaped = value.get("namespace").is_some()
-            && (value.get("fields").is_some() || value.get("types").is_some());
-        // RFC-044 [R9]/[R11]: a `DependencyRef` that fails schema validation
-        // MUST NOT fail the load. `packageDependencies` is therefore taken out
-        // of the [R4] anchor validation (whose failure is fatal under [R24])
-        // and checked by `repo validate` instead
-        // (`package_dependency_service::shape_diagnostics`), non-fatally. Both
-        // entry shapes — legacy (no `packageId`) and RFC-044 — read under
-        // either schema mirror; every other manifest property keeps its
-        // fatal check.
-        let anchor_value = crate::package_dependency_service::without_package_dependencies(&value);
-        match SchemaRegistry::global()
-            .validate_by_id(srs_schema::PACKAGE_MANIFEST_SCHEMA_ID, &anchor_value)
-        {
-            Ok(()) => {
-                // RFC-038 Revision 12 (srs#296, srs PR #538) retires [R3]'s
-                // package-root instance-anchor branch on an owner ruling
-                // (2026-09-02): "packages should be semantic not content" —
-                // a conforming local package manifest no longer anchors a
-                // nested `records`/`notes`/`typed-records` directory as an
-                // instance root. Content distribution is a slice (RFC-026)
-                // or a seed, never a nested instance root under a package.
-                // Return trigger (verbatim, from the amended revision
-                // history): "a package needing to ship records rather than
-                // slices or seeds re-opens this with the use case."
-                for (array_key, kind, schema) in DEFINITION_ARRAYS {
-                    if let Some(paths) = value.get(*array_key).and_then(|v| v.as_array()) {
-                        for p in paths.iter().filter_map(|v| v.as_str()) {
-                            declared_defs.insert(join(&root, p), (*kind, *schema));
+        let manifest_value =
+            serde_json::to_value(&manifest).map_err(|source| RepositoryError::Serialize {
+                path: std::path::PathBuf::from("manifest.json"),
+                source,
+            })?;
+
+        let sd_path = declared_location(manifest.source_documents_path.as_deref())
+            .unwrap_or_else(|| "source-documents".to_string());
+
+        let declared_extensions: BTreeSet<String> = manifest_value
+            .get("declaredExtensions")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let changelog_path = manifest_value
+            .get("changelogPath")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        let repository_id = manifest_value
+            .get("repositoryId")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+
+        // Enumerate the tree once, deterministically ([R14]: never expose
+        // filesystem iteration order).
+        let mut files: Vec<String> = store
+            .list_files_recursive("")
+            .into_iter()
+            .filter(|p| !p.split('/').any(|seg| SKIPPED_SEGMENTS.contains(&seg)))
+            .collect();
+        files.sort();
+        let file_set: BTreeSet<String> = files.iter().cloned().collect();
+
+        // Extension-set locations are handled out of the main dispatch.
+        let extension_paths: BTreeSet<String> =
+            [changelog_path.clone()].into_iter().flatten().collect();
+
+        // --- Anchor discovery (Changes B/D; [R3]/[R4]) ---
+
+        let root_instance_roots: BTreeSet<String> = INSTANCE_ROOT_NAMES
+            .iter()
+            .filter(|d| dir_exists(&file_set, d))
+            .map(|d| d.to_string())
+            .collect();
+
+        // Candidate package.json paths, shallow-first so a parent package root is
+        // known before a nested candidate is considered.
+        let mut pkg_candidates: Vec<&String> = files
+            .iter()
+            .filter(|p| {
+                (p.as_str() == "package.json" || p.ends_with("/package.json"))
+                    && !under_any(p, &root_instance_roots)
+                    && !under(p, &sd_path)
+                    && !under(p, "relations")
+                    && !under(p, "containers")
+            })
+            .collect();
+        pkg_candidates.sort_by_key(|p| (p.split('/').count(), p.as_str().to_string()));
+
+        let mut package_roots: Vec<String> = Vec::new();
+        // Declared definition path → (kind, schema id, owning package root).
+        let mut declared_defs: BTreeMap<String, (CatalogKind, &'static str)> = BTreeMap::new();
+
+        for pkg_path in pkg_candidates {
+            let root = pkg_path
+                .strip_suffix("package.json")
+                .unwrap_or("")
+                .trim_end_matches('/')
+                .to_string();
+            let value = match store.load_instance_json(pkg_path) {
+                Ok(v) => v,
+                Err(e) if e.is_not_found() => continue,
+                Err(_) => {
+                    // Unparseable: SRS-ness cannot be determined, and an npm
+                    // manifest with a syntax error must not fail the load.
+                    b.warn(
+                        codes::PACKAGE_JSON_UNPARSEABLE,
+                        vec![pkg_path.clone()],
+                        "package.json is not valid JSON; cannot determine whether it is an SRS package manifest".to_string(),
+                    );
+                    continue;
+                }
+            };
+            let declares_srs_schema = value.get("$schema").and_then(|v| v.as_str())
+                == Some(srs_schema::PACKAGE_MANIFEST_SCHEMA_ID);
+            let srs_shaped = value.get("namespace").is_some()
+                && (value.get("fields").is_some() || value.get("types").is_some());
+            // RFC-044 [R9]/[R11]: a `DependencyRef` that fails schema validation
+            // MUST NOT fail the load. `packageDependencies` is therefore taken out
+            // of the [R4] anchor validation (whose failure is fatal under [R24])
+            // and checked by `repo validate` instead
+            // (`package_dependency_service::shape_diagnostics`), non-fatally. Both
+            // entry shapes — legacy (no `packageId`) and RFC-044 — read under
+            // either schema mirror; every other manifest property keeps its
+            // fatal check.
+            let anchor_value =
+                crate::package_dependency_service::without_package_dependencies(&value);
+            match SchemaRegistry::global()
+                .validate_by_id(srs_schema::PACKAGE_MANIFEST_SCHEMA_ID, &anchor_value)
+            {
+                Ok(()) => {
+                    // RFC-038 Revision 12 (srs#296, srs PR #538) retires [R3]'s
+                    // package-root instance-anchor branch on an owner ruling
+                    // (2026-09-02): "packages should be semantic not content" —
+                    // a conforming local package manifest no longer anchors a
+                    // nested `records`/`notes`/`typed-records` directory as an
+                    // instance root. Content distribution is a slice (RFC-026)
+                    // or a seed, never a nested instance root under a package.
+                    // Return trigger (verbatim, from the amended revision
+                    // history): "a package needing to ship records rather than
+                    // slices or seeds re-opens this with the use case."
+                    for (array_key, kind, schema) in DEFINITION_ARRAYS {
+                        if let Some(paths) = value.get(*array_key).and_then(|v| v.as_array()) {
+                            for p in paths.iter().filter_map(|v| v.as_str()) {
+                                declared_defs.insert(join(&root, p), (*kind, *schema));
+                            }
                         }
                     }
-                }
-                package_roots.push(root);
-            }
-            Err(e) => {
-                if declares_srs_schema || srs_shaped {
-                    // [R4]: a near-miss package manifest is diagnosed, not
-                    // silently skipped — it does not anchor classification, but
-                    // it is still a package root that exists, and a snapshot
-                    // must carry it ([R17]).
-                    b.error(
-                        codes::PACKAGE_MANIFEST_INVALID,
-                        vec![pkg_path.clone()],
-                        format!("package.json fails package-manifest.json: {e}"),
-                    );
                     package_roots.push(root);
                 }
-                // else: an npm/application package.json — not an anchor, not
-                // an error ([R4]).
+                Err(e) => {
+                    if declares_srs_schema || srs_shaped {
+                        // [R4]: a near-miss package manifest is diagnosed, not
+                        // silently skipped — it does not anchor classification, but
+                        // it is still a package root that exists, and a snapshot
+                        // must carry it ([R17]).
+                        b.error(
+                            codes::PACKAGE_MANIFEST_INVALID,
+                            vec![pkg_path.clone()],
+                            format!("package.json fails package-manifest.json: {e}"),
+                        );
+                        package_roots.push(root);
+                    }
+                    // else: an npm/application package.json — not an anchor, not
+                    // an error ([R4]).
+                }
             }
         }
+
+        // --- The inline root container (Change A: manifest is authoritative) ---
+
+        if let Some(container) = &manifest.container {
+            let locator = ROOT_CONTAINER_LOCATOR.to_string();
+            if container.member_instance_ids.is_some() {
+                b.container_refs.push((
+                    locator.clone(),
+                    "memberInstanceIds",
+                    container.member_ids(),
+                ));
+            }
+            b.entries.containers.push(CatalogEntry {
+                id: container.container_id.clone(),
+                kind: CatalogKind::Container,
+                tier: None,
+                locator: Some(locator),
+            });
+        }
+
+        // --- Extension set (Change L; [R5] sixth location class) ---
+
+        if declared_extensions.contains("ext:changelog") {
+            if let Some(path) = &changelog_path {
+                b.extension_entry(
+                    path,
+                    CatalogKind::Changelog,
+                    repository_id.as_deref(),
+                    "manifest.repositoryId",
+                );
+            }
+        }
+
+        package_roots.sort();
+        package_roots.dedup();
+        let mut state = Self {
+            fixed: None,
+            sd_path,
+            extension_paths,
+            root_instance_roots,
+            declared_defs,
+            package_roots,
+            file_set,
+            global: b.into_contribution(),
+            per_file: BTreeMap::new(),
+        };
+
+        // --- Classification dispatch (Changes C/D; [R5] most-specific wins) ---
+
+        for path in &files {
+            if let Some(c) = state.classify_path(store, path) {
+                state.per_file.insert(path.clone(), c);
+            }
+        }
+        Ok(state)
     }
 
-    // --- Classification dispatch (Changes C/D; [R5] most-specific wins) ---
-
-    for path in &files {
-        if path == "manifest.json" || extension_paths.contains(path) {
-            continue;
+    /// Classify one file by location ([R5] most-specific wins). `None` for
+    /// application content: not discovered, not validated, not modified ([R10]).
+    fn classify_path(&self, store: &dyn RepositoryStore, path: &str) -> Option<Contribution> {
+        if path == "manifest.json" || self.extension_paths.contains(path) {
+            return None;
         }
-        if under(path, &sd_path) {
-            b.classify_source_document_candidate(path, &file_set);
-        } else if under_any(path, &root_instance_roots) {
+        let mut b = Builder::new(store);
+        if under(path, &self.sd_path) {
+            b.classify_source_document_candidate(path, &self.file_set);
+        } else if under_any(path, &self.root_instance_roots) {
             if path.ends_with(".json") {
                 // No recognised sidecar suffix remains (see the
                 // `SIDECAR_SUFFIX` doc comment above) — every `.json` file
@@ -596,7 +703,7 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
             } else {
                 b.error(
                     codes::CANDIDATE_UNRECOGNISED,
-                    vec![path.clone()],
+                    vec![path.to_string()],
                     "file under a reserved instance root is not a JSON candidate".to_string(),
                 );
             }
@@ -604,64 +711,144 @@ pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, Repositor
             b.classify_relations_file(path);
         } else if under(path, "containers") {
             b.classify_container_candidate(path);
-        } else if let Some((kind, schema)) = declared_defs.get(path) {
+        } else if let Some((kind, schema)) = self.declared_defs.get(path) {
             b.classify_definition_candidate(path, *kind, schema);
+        } else {
+            // Package-root files not declared as definitions, and files
+            // outside every reserved location.
+            return None;
         }
-        // Everything else — package-root files not declared as definitions,
-        // and files outside every reserved location — is application content:
-        // not discovered, not validated, not modified ([R10]).
+        Some(b.into_contribution())
     }
 
-    // Declared definition paths that resolve to no file.
-    for (path, (kind, _)) in &declared_defs {
-        if !file_set.contains(path) {
-            b.error(
-                codes::DEFINITION_PATH_MISSING,
-                vec![path.clone()],
-                format!(
-                    "path declared in a package manifest's '{}' array resolves to no file",
-                    kind.as_str()
-                ),
-            );
+    /// Reflect one file write (`present`) or removal in the state. Returns
+    /// `false` when the change is not obviously a single-entity one, and the
+    /// caller must drop the state and rebuild in full: the manifest, package
+    /// manifests and the extension aggregate shape the anchors, and the first
+    /// or last file under a reserved instance root changes which directories
+    /// are roots.
+    pub(crate) fn patch(&mut self, store: &dyn RepositoryStore, path: &str, present: bool) -> bool {
+        if self.fixed.is_some() {
+            return false;
         }
+        if path.split('/').any(|seg| SKIPPED_SEGMENTS.contains(&seg)) {
+            // Never enumerated, so never part of the catalog.
+            return true;
+        }
+        if path == "manifest.json"
+            || self.extension_paths.contains(path)
+            || path.rsplit('/').next() == Some("package.json")
+        {
+            return false;
+        }
+        if let Some(first) = path.split('/').next() {
+            if INSTANCE_ROOT_NAMES.contains(&first)
+                && path != first
+                && !self.root_instance_roots.contains(first)
+            {
+                return false;
+            }
+        }
+        // `root_instance_roots` is only ever stale in the direction of a root
+        // that has lost its last file; that root has no files left to misclassify.
+        if present {
+            self.file_set.insert(path.to_string());
+        } else {
+            self.file_set.remove(path);
+        }
+        self.per_file.remove(path);
+        if present {
+            if let Some(c) = self.classify_path(store, path) {
+                self.per_file.insert(path.to_string(), c);
+            }
+        }
+        true
     }
 
-    // --- The inline root container (Change A: manifest is authoritative) ---
-
-    if let Some(container) = &manifest.container {
-        let locator = ROOT_CONTAINER_LOCATOR.to_string();
-        if container.member_instance_ids.is_some() {
-            b.container_refs
-                .push((locator.clone(), "memberInstanceIds", container.member_ids()));
+    /// Merge the contributions and run the set-level checks ([R12], [R13]) and
+    /// ordering ([R14]). Clones every entry: O(corpus) string copies, but no
+    /// I/O, parsing or schema validation.
+    pub(crate) fn assemble(&self, store: &dyn RepositoryStore) -> RepositoryCatalog {
+        if let Some(fixed) = &self.fixed {
+            return fixed.clone();
         }
-        b.entries.containers.push(CatalogEntry {
-            id: container.container_id.clone(),
-            kind: CatalogKind::Container,
-            tier: None,
-            locator: Some(locator),
-        });
-    }
-
-    // --- Extension set (Change L; [R5] sixth location class) ---
-
-    if declared_extensions.contains("ext:changelog") {
-        if let Some(path) = &changelog_path {
-            b.extension_entry(
-                path,
-                CatalogKind::Changelog,
-                repository_id.as_deref(),
-                "manifest.repositoryId",
-            );
+        let mut b = Builder::new(store);
+        b.absorb(&self.global);
+        for c in self.per_file.values() {
+            b.absorb(c);
         }
+        // Declared definition paths that resolve to no file.
+        for (path, (kind, _)) in &self.declared_defs {
+            if !self.file_set.contains(path) {
+                b.error(
+                    codes::DEFINITION_PATH_MISSING,
+                    vec![path.clone()],
+                    format!(
+                        "path declared in a package manifest's '{}' array resolves to no file",
+                        kind.as_str()
+                    ),
+                );
+            }
+        }
+        // --- Set-level checks ([R12], [R13]) and ordering ([R14]) ---
+        b.detect_duplicates();
+        b.resolve_references();
+        b.finish(self.package_roots.clone())
     }
-    // --- Set-level checks ([R12], [R13]) and ordering ([R14]) ---
-
-    b.detect_duplicates();
-    b.resolve_references();
-    Ok(b.finish(package_roots))
 }
 
-impl Builder<'_> {
+impl<'a> Builder<'a> {
+    fn new(store: &'a dyn RepositoryStore) -> Self {
+        Builder {
+            store,
+            entries: Sets::default(),
+            diagnostics: Vec::new(),
+            type_field_refs: Vec::new(),
+            relation_endpoints: Vec::new(),
+            container_refs: Vec::new(),
+            definition_dup_keys: Vec::new(),
+        }
+    }
+
+    fn into_contribution(self) -> Contribution {
+        Contribution {
+            entries: self.entries,
+            diagnostics: self.diagnostics,
+            type_field_refs: self.type_field_refs,
+            relation_endpoints: self.relation_endpoints,
+            container_refs: self.container_refs,
+            definition_dup_keys: self.definition_dup_keys,
+        }
+    }
+
+    fn absorb(&mut self, c: &Contribution) {
+        self.entries
+            .instances
+            .extend_from_slice(&c.entries.instances);
+        self.entries
+            .relations
+            .extend_from_slice(&c.entries.relations);
+        self.entries
+            .containers
+            .extend_from_slice(&c.entries.containers);
+        self.entries
+            .source_documents
+            .extend_from_slice(&c.entries.source_documents);
+        self.entries
+            .definitions
+            .extend_from_slice(&c.entries.definitions);
+        self.entries
+            .extensions
+            .extend_from_slice(&c.entries.extensions);
+        self.diagnostics.extend_from_slice(&c.diagnostics);
+        self.type_field_refs.extend_from_slice(&c.type_field_refs);
+        self.relation_endpoints
+            .extend_from_slice(&c.relation_endpoints);
+        self.container_refs.extend_from_slice(&c.container_refs);
+        self.definition_dup_keys
+            .extend_from_slice(&c.definition_dup_keys);
+    }
+
     fn error(&mut self, code: &'static str, locators: Vec<String>, message: String) {
         self.diagnostics.push(CatalogDiagnostic {
             code,

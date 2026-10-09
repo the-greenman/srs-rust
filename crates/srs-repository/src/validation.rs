@@ -1271,7 +1271,7 @@ pub fn validate_repository(
         validate_vocabulary_invariants(pkg, &mut diagnostics);
         validate_identity_field_invariants(pkg, &mut diagnostics);
         validate_field_type_conformance(pkg, &mut diagnostics);
-        validate_title_field_id_eligibility(store, pkg, &mut diagnostics);
+        validate_title_field_id_eligibility(pkg, &mut diagnostics);
         validate_cross_field_rule_configuration(pkg, &mut diagnostics);
     } else if package_for_tier2.is_none() {
         // Only fresh-load when no tier-2 records were processed (note-only repo).
@@ -1280,7 +1280,7 @@ pub fn validate_repository(
             validate_vocabulary_invariants(&pkg, &mut diagnostics);
             validate_identity_field_invariants(&pkg, &mut diagnostics);
             validate_field_type_conformance(&pkg, &mut diagnostics);
-            validate_title_field_id_eligibility(store, &pkg, &mut diagnostics);
+            validate_title_field_id_eligibility(&pkg, &mut diagnostics);
             validate_cross_field_rule_configuration(&pkg, &mut diagnostics);
         }
     }
@@ -1634,7 +1634,6 @@ pub fn validate_repository(
                             .iter()
                             .map(|s| s.as_str())
                             .collect(),
-                        _ => Vec::new(),
                     };
                     for cid in referenced {
                         if !resolves(cid) {
@@ -1997,44 +1996,13 @@ fn validate_cross_field_rule_configuration(
 /// it disappear silently into a missing heading.
 ///
 /// `DiscoveryQuery.query.typeNamespace`/`typeName` and `ContainerSubset.typeFilter` declare their
-/// candidate Types statically. `FixedInstances` and `RelationQuery` declare none —
-/// their members are only known by resolving actual instances, exactly as the
-/// render plane's `resolve_section_instances` does — so this reads those instances
-/// (and, for `RelationQuery`, the relations file) via `store` to recover the same
-/// per-record actual Type the render plane would use for `rt` in
-/// `resolve_heading_field_id`. When an instance can't be resolved (I/O error, dangling
-/// id, a Tier-0/1 instance with no Type), it contributes no candidate — referential
-/// integrity is a separate diagnostic's job, and a Tier-0/1 instance renders with no
-/// Type either, so there is nothing here to warn about for that instance.
+/// candidate Types statically; a section with neither declares none and falls through to the
+/// no-candidate eligibility check.
 fn validate_title_field_id_eligibility(
-    store: &dyn RepositoryStore,
     pkg: &crate::package::Package,
     diagnostics: &mut Vec<ValidationDiagnostic>,
 ) {
     use srs_core::types::view::SectionSource;
-
-    // Resolves the actual Type of a live instance, mirroring how the render plane
-    // derives `rt` for `resolve_heading_field_id` (`record.type_id`/`type_version`
-    // looked up in `pkg`). A plain fn, not a closure, so its return lifetime ties
-    // to `pkg` rather than to whatever transient `&str` is passed in.
-    fn resolve_instance_type<'p>(
-        store: &dyn RepositoryStore,
-        pkg: &'p crate::package::Package,
-        id: &str,
-    ) -> Option<&'p srs_core::types::record_type::RecordType> {
-        match crate::record_store::get_instance_by_id(store, id)
-            .ok()
-            .flatten()?
-        {
-            crate::record_store::LoadedInstance::Record(record) => {
-                pkg.resolve_type(&record.type_id, record.type_version)
-            }
-            crate::record_store::LoadedInstance::Note(_) => None,
-        }
-    }
-
-    // Loaded at most once, and only when a RelationQuery section actually needs it.
-    let mut relations: Option<Vec<srs_core::types::relation::Relation>> = None;
 
     for dv in &pkg.compositions {
         for section in &dv.sections {
@@ -2081,39 +2049,6 @@ fn validate_title_field_id_eligibility(
                                 .filter(move |t| t.namespace == namespace && t.name == name)
                         })
                         .collect(),
-                    SectionSource::FixedInstances { instance_ids } => instance_ids
-                        .iter()
-                        .filter_map(|id| resolve_instance_type(store, pkg, id))
-                        .collect(),
-                    SectionSource::RelationQuery {
-                        from_instance_id,
-                        relation_type,
-                        direction,
-                    } => {
-                        let rels = relations.get_or_insert_with(|| {
-                            crate::relation_service::load_relations(store).unwrap_or_default()
-                        });
-                        let dir = direction
-                            .as_ref()
-                            .unwrap_or(&srs_core::types::view::RelationDirection::Forward);
-                        rels.iter()
-                            .filter(|r| r.relation_type == *relation_type)
-                            .filter_map(|r| match dir {
-                                srs_core::types::view::RelationDirection::Forward
-                                    if r.source_instance_id == *from_instance_id =>
-                                {
-                                    Some(r.target_instance_id.as_str())
-                                }
-                                srs_core::types::view::RelationDirection::Inverse
-                                    if r.target_instance_id == *from_instance_id =>
-                                {
-                                    Some(r.source_instance_id.as_str())
-                                }
-                                _ => None,
-                            })
-                            .filter_map(|id| resolve_instance_type(store, pkg, id))
-                            .collect()
-                    }
                     _ => Vec::new(),
                 };
 
@@ -5380,10 +5315,8 @@ mod tests {
     }
 
     #[test]
-    fn validate_flags_ineligible_title_field_id_for_fixed_instances() {
-        // srs-rust#795: FixedInstances declares no static candidate Type, so
-        // eligibility must be checked against each candidate instance's *actual*
-        // Type. Post-#242 (Change-I condition 4) cardinality is the sole
+    fn validate_flags_ineligible_title_field_id_for_container_subset_type_filter() {
+        // srs-rust#795: eligibility is checked against the section's candidate Types. Post-#242 (Change-I condition 4) cardinality is the sole
         // mechanism: the field is ineligible via `cardinality: "list"` — the
         // fixture still discriminates the resolve-the-instance's-Type branch.
         //
@@ -5494,7 +5427,7 @@ mod tests {
                 .any(|d| d.message.contains("[N+1]")
                     && d.message.contains("test-type")
                     && d.severity == DiagnosticSeverity::Warning),
-            "expected an [N+1] warning for a FixedInstances section whose only \
+            "expected an [N+1] warning for a container-subset section whose only \
              candidate instance resolves to a repeatable-only-ineligible \
              titleFieldId, got {:?}",
             report.diagnostics
@@ -5529,8 +5462,8 @@ mod tests {
     }
 
     #[test]
-    fn validate_flags_ineligible_title_field_id_for_relation_query() {
-        // srs-rust#795: same coverage gap as the FixedInstances fixture above, for
+    fn validate_flags_ineligible_title_field_id_for_container_subset_type_filter_with_relation() {
+        // srs-rust#795: same coverage as the fixture above, formerly for
         // RelationQuery — its candidate instances are only known by resolving the
         // relations graph, which the validator did not do before this fix.
         //
@@ -5670,7 +5603,7 @@ mod tests {
                 .any(|d| d.message.contains("[N+1]")
                     && d.message.contains("test-type")
                     && d.severity == DiagnosticSeverity::Warning),
-            "expected an [N+1] warning for a RelationQuery section whose resolved \
+            "expected an [N+1] warning for a container-subset section whose resolved \
              target instance has a list-cardinality-ineligible titleFieldId, got {:?}",
             report.diagnostics
         );
