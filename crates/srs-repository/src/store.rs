@@ -972,6 +972,12 @@ pub struct FileStore {
     /// different (unchecked) snapshot than `catalog()` (build_checked) and
     /// must never serve the other's cached value.
     catalog_unchecked_cache: RefCell<Option<Rc<crate::catalog::RepositoryCatalog>>>,
+    /// Per-file catalog contributions (srs-rust#1196): a single-file write
+    /// patches this and drops only the assembled memos above, so the next
+    /// `catalog()` re-runs the set-level checks instead of re-parsing and
+    /// re-validating the whole corpus. Dropped (full rebuild) for anything
+    /// that is not obviously a single-entity change.
+    catalog_state: RefCell<Option<crate::catalog::CatalogState>>,
     /// Discovery index memo (srs-rust#1228); dropped with the catalogs on a write.
     discovery_index_cache: DiscoveryIndexCache,
     /// Write generation shared by every clone of this store (they share one
@@ -1005,6 +1011,7 @@ impl Clone for FileStore {
             rfc038_exempt: self.rfc038_exempt,
             catalog_cache: RefCell::new(None),
             catalog_unchecked_cache: RefCell::new(None),
+            catalog_state: RefCell::new(None),
             discovery_index_cache: RefCell::new(None),
             epoch: self.epoch.clone(),
             cache_epoch: Cell::new(self.epoch.get()),
@@ -1025,6 +1032,7 @@ impl FileStore {
             rfc038_exempt: false,
             catalog_cache: RefCell::new(None),
             catalog_unchecked_cache: RefCell::new(None),
+            catalog_state: RefCell::new(None),
             discovery_index_cache: RefCell::new(None),
             epoch: Rc::new(Cell::new(0)),
             cache_epoch: Cell::new(0),
@@ -1043,6 +1051,7 @@ impl FileStore {
             rfc038_exempt: false,
             catalog_cache: RefCell::new(None),
             catalog_unchecked_cache: RefCell::new(None),
+            catalog_state: RefCell::new(None),
             discovery_index_cache: RefCell::new(None),
             epoch: Rc::new(Cell::new(0)),
             cache_epoch: Cell::new(0),
@@ -1137,9 +1146,32 @@ impl FileStore {
         self.epoch.get()
     }
 
-    fn invalidate_catalog_cache(&self) {
+    /// Assemble the unchecked catalog from the per-file state, building the
+    /// state first if there is none (cold start, or dropped by a full
+    /// invalidation).
+    fn assemble_catalog(&self) -> Result<crate::catalog::RepositoryCatalog, RepositoryError> {
+        if self.catalog_state.borrow().is_none() {
+            let state = crate::catalog::CatalogState::build(self)?;
+            *self.catalog_state.borrow_mut() = Some(state);
+        }
+        let guard = self.catalog_state.borrow();
+        Ok(guard.as_ref().expect("state just built").assemble(self))
+    }
+
+    /// Advance the write epoch for a mutation that reached the VFS, then keep
+    /// this handle's catalog consistent with it: patch the per-file state for a
+    /// single-file change (`change` = path and whether it now exists), or drop
+    /// everything. Callers sync the epoch *before* mutating so the state being
+    /// patched is never stale.
+    fn after_mutation(&self, change: Option<(&str, bool)>) {
+        let state = self.catalog_state.borrow_mut().take();
         self.epoch.set(self.epoch.get() + 1);
         self.sync_cache_epoch();
+        if let (Some(mut state), Some((path, present))) = (state, change) {
+            if state.patch(self, path, present) {
+                *self.catalog_state.borrow_mut() = Some(state);
+            }
+        }
     }
 
     /// Drop memoized catalogs if any clone of this store has written since
@@ -1149,6 +1181,7 @@ impl FileStore {
             self.cache_epoch.set(self.epoch.get());
             self.catalog_cache.borrow_mut().take();
             self.catalog_unchecked_cache.borrow_mut().take();
+            self.catalog_state.borrow_mut().take();
             self.discovery_index_cache.borrow_mut().take();
         }
     }
@@ -1156,8 +1189,9 @@ impl FileStore {
     fn vfs_write(&self, rel: &str, content: &[u8]) -> Result<(), RepositoryError> {
         let target = ChangeTarget::from_path(rel).filter(|_| self.recording.get());
         let existed = target.is_some() && self.vfs.exists(rel);
+        self.sync_cache_epoch();
         self.vfs.write(rel, content)?;
-        self.invalidate_catalog_cache();
+        self.after_mutation(Some((rel, true)));
         if let Some(target) = target {
             let json = serde_json::from_slice::<serde_json::Value>(content).ok();
             let id = json
@@ -1186,8 +1220,9 @@ impl FileStore {
                     .and_then(relation_ends);
                 Some((t, v.get(t.id_key())?.as_str()?.to_string(), ends))
             });
+        self.sync_cache_epoch();
         self.vfs.remove(rel)?;
-        self.invalidate_catalog_cache();
+        self.after_mutation(Some((rel, false)));
         if let Some((target, id, ends)) = found {
             self.record_change(rel, target, id, true, true, ends);
         }
@@ -1258,8 +1293,13 @@ impl FileStore {
     }
 
     fn vfs_create_dir_all(&self, rel: &str) -> Result<(), RepositoryError> {
+        self.sync_cache_epoch();
         self.vfs.create_dir_all(rel)?;
-        self.invalidate_catalog_cache();
+        // The catalog enumerates files only: an (empty) directory changes
+        // nothing it holds. The epoch still advances (srs-rust#1139) so other
+        // handles keep their conservative drop; this handle keeps its caches.
+        self.epoch.set(self.epoch.get() + 1);
+        self.cache_epoch.set(self.epoch.get());
         Ok(())
     }
 }
@@ -2269,7 +2309,7 @@ impl RepositoryStore for FileStore {
         if let Some(cached) = self.catalog_cache.borrow().as_ref() {
             return Ok(cached.clone());
         }
-        let built = Rc::new(crate::catalog::build_checked(self)?);
+        let built = Rc::new(crate::catalog::check_fatal(self.assemble_catalog()?)?);
         *self.catalog_cache.borrow_mut() = Some(built.clone());
         Ok(built)
     }
@@ -2286,7 +2326,7 @@ impl RepositoryStore for FileStore {
         if let Some(cached) = self.catalog_unchecked_cache.borrow().as_ref() {
             return Ok(cached.clone());
         }
-        let built = Rc::new(crate::catalog::build(self)?);
+        let built = Rc::new(self.assemble_catalog()?);
         *self.catalog_unchecked_cache.borrow_mut() = Some(built.clone());
         Ok(built)
     }
@@ -2296,7 +2336,7 @@ impl RepositoryStore for FileStore {
         // now routes through the memoized `catalog_unchecked()` so it
         // benefits from the same cache rather than doubling the work. Not
         // itself the cache's invalidation signal — the Vfs mutator wrappers
-        // are (see `invalidate_catalog_cache`).
+        // are (see `after_mutation`).
         Ok(self.catalog_unchecked()?.validity_token())
     }
 
