@@ -237,21 +237,21 @@ cargo test -p srs-cli --test payload_contracts
 
 #### Tasks
 
-- [ ] In `field_to_property` (`type_schema_service.rs:147-161`), replace the `title` block with:
+- [x] In `field_to_property` (`type_schema_service.rs:147-161`), replace the `title` block with:
       `if let Some(label) = assignment.display_label.as_deref().filter(|s| !s.is_empty()) { prop.insert("title".into(), json!(label)); }`
       and change the comment to `// title: the authored displayLabel only — never the description (ADR-026 amendment, #1382).`
-- [ ] Update the comment at lines 163-166 so it no longer implies that `title` can carry help text.
-- [ ] Rename the test `type_schema_title_prefers_display_label` (line 1011) to `type_schema_title_only_from_display_label`, and change its assertions:
+- [x] Update the comment at lines 163-166 so it no longer implies that `title` can carry help text.
+- [x] Rename the test `type_schema_title_prefers_display_label` (line 1011) to `type_schema_title_only_from_display_label`, and change its assertions:
       `a.title == "Custom Label"`; `b.get("title").is_none()`; `b["x-srs-description"] == "b description"`.
-- [ ] Add the test `type_schema_empty_display_label_emits_no_title`: an assignment with `display_label = Some("")` → no `title` key, and `x-srs-description` is present.
-- [ ] In `type_schema_expands_inline_composite_range`, assert that the unlabelled sub-fields `columns` and `cells` have no `title`, and that `columns` has `x-srs-description == "columns description"`.
-- [ ] In `blueprint_schema_service::tests::blueprint_schema_single_root_and_two_relation_types`, assert that `definitions[ROOT_ID].properties.title` has no `title` and has `x-srs-description == "title description"` (the blueprint pass-through).
+- [x] Add the test `type_schema_empty_display_label_emits_no_title`: an assignment with `display_label = Some("")` → no `title` key, and `x-srs-description` is present.
+- [x] In `type_schema_expands_inline_composite_range`, assert that the unlabelled sub-fields `columns` and `cells` have no `title`, and that `columns` has `x-srs-description == "columns description"`.
+- [x] In `blueprint_schema_service::tests::blueprint_schema_single_root_and_two_relation_types`, assert that `definitions[ROOT_ID].properties.title` has no `title` and has `x-srs-description == "title description"` (the blueprint pass-through).
 
 #### Acceptance Criteria
 
-- [ ] A field with a description and no `displayLabel` has no `title` key and has `x-srs-description` == its description.
-- [ ] A field with a `displayLabel` keeps `title` == the label.
-- [ ] An empty `displayLabel` emits no `title`.
+- [x] A field with a description and no `displayLabel` has no `title` key and has `x-srs-description` == its description.
+- [x] A field with a `displayLabel` keeps `title` == the label.
+- [x] An empty `displayLabel` emits no `title`.
 
 #### Testing
 
