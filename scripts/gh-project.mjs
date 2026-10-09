@@ -1891,8 +1891,8 @@ function claimTimes(repo, num) {
 }
 
 // Number of an OPEN pull request that will close the issue (GraphQL closedByPullRequestsReferences,
-// closed/merged PRs filtered out by state), or null. Unreadable → null with a warning (falls back
-// to the age rule, like claimTimes).
+// closed/merged PRs filtered out by state), or null. Unreadable → undefined with a warning; the
+// caller then reports the row `unknown` rather than risk reclaiming finished work.
 function openClosingPr(repo, num) {
   try {
     const d = graphql(
@@ -1901,9 +1901,9 @@ function openClosingPr(repo, num) {
       { o: OWNER, r: repo, n: num });
     const nodes = d?.repository?.issue?.closedByPullRequestsReferences?.nodes ?? [];
     return nodes.find((p) => p.state === "OPEN")?.number ?? null;
-  } catch (e) {
+  } catch (e) { // fails closed: undefined, not null
     console.error(`gh-project: warning: could not read closing PRs for ${repo}#${num}: ${(e.stderr ? String(e.stderr) : e.message).trim()}`);
-    return null;
+    return undefined;
   }
 }
 
@@ -1926,8 +1926,12 @@ function cmdStaleClaims(argv) {
     (r) => r.state === "OPEN" && (r.status === "In progress" || r.labels.includes(inProgLabel))
   );
   // needs-input rows never reclaim, so skip their timeline read (one API call each).
-  const annotated = candidates.map((r) =>
-    r.labels.includes(NEEDS_INPUT_LABEL) ? r : { ...r, ...claimTimes(r.repo, r.num), openClosingPr: openClosingPr(r.repo, r.num) });
+  const annotated = candidates.map((r) => {
+    if (r.labels.includes(NEEDS_INPUT_LABEL)) return r;
+    const pr = openClosingPr(r.repo, r.num);
+    // PR lookup failed: force `unknown` (no reclaim) instead of guessing "no PR".
+    return { ...r, ...claimTimes(r.repo, r.num), ...(pr === undefined ? { claimedAtMs: null } : { openClosingPr: pr }) };
+  });
   const plan = planStaleClaims(annotated, Date.now(), thresholdMs);
   for (const p of plan) {
     const ageStr = p.ageMs != null ? `${(p.ageMs / 3600000).toFixed(1)}h` : "—";
@@ -1963,7 +1967,7 @@ function cmdStaleClaims(argv) {
   const gated = plan.filter((p) => p.action === "needs-input").length;
   const inReview = plan.filter((p) => p.action === "in-review").length;
   console.log(`${plan.length} in-progress · ${reclaimed} ${dryRun ? "would be " : ""}reclaimed · ${plan.length - reclaimed - unknown - gated - inReview} fresh${inReview ? ` · ${inReview} ${dryRun ? "would move to " : "moved to "}In review (open closing PR)` : ""}${gated ? ` · ${gated} needs-input (paused on a human)` : ""}${unknown ? ` · ${unknown} unknown (no labeled event found)` : ""}`);
-  if (dryRun && reclaimed) console.log("(dry-run; pass --fix to reclaim)");
+  if (dryRun && (reclaimed || inReview)) console.log("(dry-run; pass --fix to apply)");
 }
 
 // topup [--fix] [--target N] — keep the Ready queue at target depth by writing `promote:ready`
