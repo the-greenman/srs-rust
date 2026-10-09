@@ -582,8 +582,24 @@ pub fn update_field(
     Ok(UpdateFieldResult { field })
 }
 
+/// Returns the IDs of any Types whose `fields` carry a `FieldAssignment` for `field_id`.
+fn find_types_using_field(
+    store: &dyn RepositoryStore,
+    field_id: &str,
+) -> Result<Vec<String>, RepositoryError> {
+    let package = store.load_package()?;
+    let refs: Vec<String> = package
+        .record_types
+        .iter()
+        .filter(|t| t.fields.iter().any(|fa| fa.field_id == field_id))
+        .map(|t| t.id.clone())
+        .collect();
+    Ok(refs)
+}
+
 /// Delete a field definition.
 /// Removes the field JSON file and updates the boundary index.
+/// Returns `CannotDeleteInUse` if any Type assigns this field (srs-rust#1345).
 pub fn delete_field(
     store: &dyn RepositoryStore,
     id: &str,
@@ -592,6 +608,16 @@ pub fn delete_field(
         find_field_path(store, id)?.ok_or_else(|| RepositoryError::FieldNotFound {
             field_id: id.to_string(),
         })?;
+
+    let refs = find_types_using_field(store, id)?;
+    if !refs.is_empty() {
+        return Err(RepositoryError::CannotDeleteInUse {
+            entity_type: "field".to_string(),
+            id: id.to_string(),
+            used_by: refs,
+        });
+    }
+
     let boundary_prefix = owner.as_deref().unwrap_or("package");
     let rel_path = full_path
         .strip_prefix(&format!("{boundary_prefix}/"))
@@ -755,8 +781,22 @@ pub fn update_type(
     Ok(UpdateTypeResult { record_type })
 }
 
+/// Returns the IDs of any Records whose `typeId` is `type_id`.
+fn find_records_of_type(
+    store: &dyn RepositoryStore,
+    type_id: &str,
+) -> Result<Vec<String>, RepositoryError> {
+    let refs: Vec<String> = crate::record_store::list_all_records(store)?
+        .into_iter()
+        .filter(|r| r.type_id == type_id)
+        .map(|r| r.instance_id)
+        .collect();
+    Ok(refs)
+}
+
 /// Delete a type definition.
 /// Removes the type JSON file and updates the boundary index.
+/// Returns `CannotDeleteInUse` if any Record instantiates this type (srs-rust#1345).
 pub fn delete_type(
     store: &dyn RepositoryStore,
     id: &str,
@@ -767,6 +807,16 @@ pub fn delete_type(
             type_id: id.to_string(),
             version,
         })?;
+
+    let refs = find_records_of_type(store, id)?;
+    if !refs.is_empty() {
+        return Err(RepositoryError::CannotDeleteInUse {
+            entity_type: "type".to_string(),
+            id: id.to_string(),
+            used_by: refs,
+        });
+    }
+
     let boundary_prefix = owner.as_deref().unwrap_or("package");
     let rel_path = full_path
         .strip_prefix(&format!("{boundary_prefix}/"))
@@ -2233,6 +2283,40 @@ mod tests {
     }
 
     #[test]
+    fn delete_field_blocked_when_type_assigns_it() {
+        use srs_core::types::record_type::FieldAssignment;
+
+        let field = make_field("00000000-0000-0000-0000-000000000001", "test-field");
+        let mut record_type = make_type("00000000-0000-0000-0000-000000000002", "test-type");
+        record_type.fields = vec![FieldAssignment {
+            field_id: "00000000-0000-0000-0000-000000000001".to_string(),
+            order: 0,
+            required: false,
+            display_label: None,
+            description: None,
+        }];
+        let store = MemoryStore::with_field_and_type(field, record_type);
+
+        let result = delete_field(&store, "00000000-0000-0000-0000-000000000001");
+        match result {
+            Err(RepositoryError::CannotDeleteInUse {
+                entity_type,
+                id,
+                used_by,
+            }) => {
+                assert_eq!(entity_type, "field");
+                assert_eq!(id, "00000000-0000-0000-0000-000000000001");
+                assert!(used_by.contains(&"00000000-0000-0000-0000-000000000002".to_string()));
+            }
+            other => panic!("expected CannotDeleteInUse, got {:?}", other),
+        }
+
+        // Field unchanged (still resolvable via the boundary)
+        let boundary = store.load_package_boundary(&None).unwrap();
+        assert!(boundary.field_paths.iter().any(|p| p.contains("00000000")));
+    }
+
+    #[test]
     fn update_field_resolves_owner_package() {
         let store = MemoryStore::with_field(make_field(
             "00000000-0000-0000-0000-000000000001",
@@ -2260,6 +2344,51 @@ mod tests {
             !boundary.type_paths.iter().any(|p| p.contains("00000000")),
             "type path should be removed from boundary after delete"
         );
+    }
+
+    #[test]
+    fn delete_type_blocked_when_record_instantiates_it() {
+        use srs_core::types::record::{FieldValues, Record};
+
+        let store = MemoryStore::with_type(make_type(
+            "00000000-0000-0000-0000-000000000002",
+            "test-type",
+        ));
+
+        let record = Record {
+            instance_id: "00000000-0000-0000-0000-000000000003".to_string(),
+            type_id: "00000000-0000-0000-0000-000000000002".to_string(),
+            type_version: 1,
+            type_namespace: "com.test".to_string(),
+            type_name: "test-type".to_string(),
+            field_values: FieldValues(serde_json::Map::new()),
+            field_meta: None,
+            lifecycle_state: None,
+            tags: None,
+            created_at: None,
+            updated_at: None,
+            created_by: None,
+            extra: std::collections::BTreeMap::new(),
+        };
+        store.save_record(&record).unwrap();
+
+        let result = delete_type(&store, "00000000-0000-0000-0000-000000000002", 1);
+        match result {
+            Err(RepositoryError::CannotDeleteInUse {
+                entity_type,
+                id,
+                used_by,
+            }) => {
+                assert_eq!(entity_type, "type");
+                assert_eq!(id, "00000000-0000-0000-0000-000000000002");
+                assert!(used_by.contains(&"00000000-0000-0000-0000-000000000003".to_string()));
+            }
+            other => panic!("expected CannotDeleteInUse, got {:?}", other),
+        }
+
+        // Type unchanged (still resolvable via the boundary)
+        let boundary = store.load_package_boundary(&None).unwrap();
+        assert!(boundary.type_paths.iter().any(|p| p.contains("00000000")));
     }
 
     #[test]
