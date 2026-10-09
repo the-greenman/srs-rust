@@ -189,7 +189,7 @@ The "Plan review" comment on #1382 (6 should-fix, 5 nit) is resolved as follows:
 1. **Gallery check is a pass-through guard.** Every gallery field is labelled, so the bindings assertion cannot fail on revert. Phase 2 names it a *labelled pass-through guard*. The revert-sensitive proofs are the five tests listed under "Revert-sensitive tests" below.
 2. **Composite sub-field and blueprint pass-through are asserted.** Phase 1 adds a no-title assertion on the unlabelled composite sub-fields in `type_schema_expands_inline_composite_range`. Phase 1 also adds a blueprint pass-through assertion in `blueprint_schema_single_root_and_two_relation_types` (`crates/srs-repository/src/blueprint_schema_service.rs`): the unlabelled `title` field in `definitions[ROOT_ID]` has no `title` and has `x-srs-description == "title description"`.
 3. **The CLI fixture description is an explicit task.** Phase 2 adds `"description": "Current status of the decision"` to the status field in `type_schema_emits_draft07_for_record_field_values` and asserts `x-srs-description` equals it.
-4. **Gate commands are exact.** The payload test is `cargo test -p srs-cli --test payload_contracts`. The golden check runs `cargo run --bin generate-schemas && git diff --exit-code crates/srs-cli/schemas/payload/` only after `git status --porcelain` is empty, so the diff is the generator's alone.
+4. **Gate commands are exact.** The payload test is `cargo test -p srs --test payload_contracts` (the `srs-cli` crate's package name is `srs`; `-p srs-cli` matches no package). The golden check runs `cargo run --bin generate-schemas && git diff --exit-code crates/srs-cli/schemas/payload/` only after `git status --porcelain` is empty, so the diff is the generator's alone.
 5. **Three gates are added** to every milestone (see "Gates" below): `SRS_SPEC_DIR` set to a fresh srs `origin/master` worktree, the baseline-honesty rule, and `cargo build --target wasm32-unknown-unknown -p srs-bindings`.
 6. **ADR-026 gets an inline marker and a header line.** Context item 1 gains "*(fallback withdrawn, see Amendment)*", and the header gains `- **Amended:** 2026-10-09 (#1382)`.
 7. **Nit, amendment accuracy.** The Neutral bullet about group-level `title`/`description` refers to the retired field groups (ext:field-groups, retired at #242). The amendment says so, and does not reword the original bullet. The cross-repo consumer claim is stated as "checked 2026-10-09 outside this repo"; it cannot be verified by an in-repo test.
@@ -220,7 +220,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo build --target wasm32-unknown-unknown -p srs-bindings
 git status --porcelain                                          # must be empty before the golden check
 cargo run --bin generate-schemas && git diff --exit-code crates/srs-cli/schemas/payload/
-cargo test -p srs-cli --test payload_contracts
+cargo test -p srs --test payload_contracts
 ```
 
 **Baseline honesty:** a failure that looks pre-existing is proven against the last green master CI run (`gh run list --repo the-greenman/srs-rust --branch master --status success --limit 1`), never against current master. Otherwise it is fixed.
@@ -280,24 +280,24 @@ cargo test -p srs-repository type_schema
 
 #### Tasks
 
-- [ ] In `type_schema_emits_draft07_for_record_field_values` (`integration_tests.rs:6858`), remove `"displayLabel": "Status"` from the status assignment (the one at line ~6921). Add `"description": "Current status of the decision"` to the status field definition (the fixture has none today). Then add:
+- [x] In `type_schema_emits_draft07_for_record_field_values` (`integration_tests.rs:6858`), remove `"displayLabel": "Status"` from the status assignment (the one at line ~6921). Add `"description": "Current status of the decision"` to the status field definition (the fixture has none today). Then add:
       `assert!(schema["properties"]["status"].get("title").is_none(), "no displayLabel → no title (#1382)");`
       and `assert_eq!(schema["properties"]["status"]["x-srs-description"], "Current status of the decision");`.
       Keep the existing `title.title == "Title"` assertion.
-- [ ] In `crates/srs-bindings/tests/type_schema.rs::type_schema_resolves_latest_version`, add one **labelled pass-through guard** (it cannot fail on revert, because every gallery field is labelled; the revert-sensitive proofs are listed above) on the gallery decision type: the property for field `73cd845a-…` (displayLabel "Decision Question") has `title == "Decision Question"`. Its key is the field name `decision_question`. This proves the labelled path on a real corpus through the same call the WASM `type_schema` binding makes (the binding is a one-call adapter, ADR-013, so the service tests are the WASM proof for the unlabelled case).
+- [x] In `crates/srs-bindings/tests/type_schema.rs::type_schema_resolves_latest_version`, add one **labelled pass-through guard** (it cannot fail on revert, because every gallery field is labelled; the revert-sensitive proofs are listed above) on the gallery decision type: the property for field `73cd845a-…` (displayLabel "Decision Question") has `title == "Decision Question"`. Its key is the field name `decision_question`. This proves the labelled path on a real corpus through the same call the WASM `type_schema` binding makes (the binding is a one-call adapter, ADR-013, so the service tests are the WASM proof for the unlabelled case).
 
 #### Acceptance Criteria
 
-- [ ] `srs type schema <typeId>` returns no `title` for an unlabelled field and keeps `x-srs-description`.
-- [ ] Labelled fields keep their `title` on the gallery corpus.
+- [x] `srs type schema <typeId>` returns no `title` for an unlabelled field and keeps `x-srs-description`.
+- [x] Labelled fields keep their `title` on the gallery corpus.
 
 #### Testing
 
 ```bash
-cargo test -p srs-cli --test integration_tests type_schema_emits_draft07_for_record_field_values
+cargo test -p srs --test integration_tests type_schema_emits_draft07_for_record_field_values
 cargo test -p srs-bindings --test type_schema
 cargo run --bin generate-schemas && git diff --exit-code crates/srs-cli/schemas/payload/
-cargo test -p srs-cli --test payload_contracts
+cargo test -p srs --test payload_contracts
 ```
 
 #### Milestone gate
@@ -336,7 +336,7 @@ Run every command in "Gates" above. Mark the checkboxes and commit. If `origin/m
 - [ ] `cargo test --workspace` exits 0 (zero failures)
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` exits 0
 - [ ] `cargo build --target wasm32-unknown-unknown -p srs-bindings` exits 0
-- [ ] `cargo test -p srs-cli --test payload_contracts` passes, and `generate-schemas` on a clean tree leaves no diff
+- [ ] `cargo test -p srs --test payload_contracts` passes, and `generate-schemas` on a clean tree leaves no diff
 - [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed)
 - [ ] For a field with a description and no `displayLabel`, `srs type schema` and the service behind WASM `type_schema` return no `title`, and `x-srs-description` holds the description
 - [ ] ADR-026 amended (or ADR-055 written), per the owner's ruling
