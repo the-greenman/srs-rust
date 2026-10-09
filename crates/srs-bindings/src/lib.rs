@@ -2128,10 +2128,10 @@ mod tests {
         let ok: super::ContainerListBindingFilter =
             serde_json::from_str(r#"{"anchorInstanceId":"a"}"#).unwrap();
         assert_eq!(ok.anchor_instance_id.as_deref(), Some("a"));
-        assert!(
-            serde_json::from_str::<super::ContainerListBindingFilter>(r#"{"rootInstanceId":"a"}"#)
-                .is_err()
-        );
+        assert!(serde_json::from_str::<super::ContainerListBindingFilter>(
+            r#"{"rootInstanceId":"a"}"#
+        )
+        .is_err());
     }
 
     use super::SrsRepository;
