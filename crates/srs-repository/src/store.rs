@@ -3077,16 +3077,40 @@ pub mod memory {
         /// Build a store pre-populated with a single field.
         pub fn with_field(field: Field) -> Self {
             let store = Self::empty();
+            store.add_field(field);
+            store
+        }
+
+        /// Build a store pre-populated with a single type.
+        pub fn with_type(record_type: RecordType) -> Self {
+            let store = Self::empty();
+            store.add_type(record_type);
+            store
+        }
+
+        /// Build a store pre-populated with a field and a type that assigns it —
+        /// a consistent fixture for in-use guard tests (srs-rust#1345), since
+        /// `with_field`/`with_type` alone each start from a fresh empty store.
+        pub fn with_field_and_type(field: Field, record_type: RecordType) -> Self {
+            let store = Self::empty();
+            store.add_field(field);
+            store.add_type(record_type);
+            store
+        }
+
+        /// Register a field into this store's in-memory package, boundary index and
+        /// data map, as [`with_field`](Self::with_field) does. Shared so fixtures can
+        /// pre-populate more than one definition kind in a single store.
+        fn add_field(&self, field: Field) {
             let filename = format!(
                 "fields/{}-{}.json",
                 field.name.to_lowercase().replace(' ', "-"),
                 &field.id[..8]
             );
             // Update the in-memory package
-            store.package.borrow_mut().fields.push(field.clone());
+            self.package.borrow_mut().fields.push(field.clone());
             // Update package.json index (paths are package-relative, no "package/" prefix)
-            store
-                .data
+            self.data
                 .borrow_mut()
                 .get_mut("package/package.json")
                 .unwrap()
@@ -3099,36 +3123,31 @@ pub mod memory {
                 .push(serde_json::json!(filename.clone()));
             // Store the field data file at repo-root-relative key ("package/fields/...")
             let field_val = serde_json::to_value(&field).unwrap();
-            store
-                .data
+            self.data
                 .borrow_mut()
                 .insert(format!("package/{filename}"), field_val);
             // Update primary boundary field_paths for resolve_definition_owner
-            store
-                .boundaries
+            self.boundaries
                 .borrow_mut()
                 .get_mut(&None)
                 .unwrap()
                 .field_paths
                 .push(filename);
-            store
         }
 
-        /// Build a store pre-populated with a single type.
-        pub fn with_type(record_type: RecordType) -> Self {
-            let store = Self::empty();
+        /// Register a type into this store's in-memory package, boundary index and
+        /// data map, as [`with_type`](Self::with_type) does. See [`add_field`](Self::add_field).
+        fn add_type(&self, record_type: RecordType) {
             let filename = format!(
                 "types/{}-{}.json",
                 record_type.name.to_lowercase().replace(' ', "-"),
                 &record_type.id[..8]
             );
-            store
-                .package
+            self.package
                 .borrow_mut()
                 .record_types
                 .push(record_type.clone());
-            store
-                .data
+            self.data
                 .borrow_mut()
                 .get_mut("package/package.json")
                 .unwrap()
@@ -3140,19 +3159,16 @@ pub mod memory {
                 .unwrap()
                 .push(serde_json::json!(filename.clone()));
             let type_val = serde_json::to_value(&record_type).unwrap();
-            store
-                .data
+            self.data
                 .borrow_mut()
                 .insert(format!("package/{filename}"), type_val);
             // Update primary boundary type_paths for resolve_definition_owner
-            store
-                .boundaries
+            self.boundaries
                 .borrow_mut()
                 .get_mut(&None)
                 .unwrap()
                 .type_paths
                 .push(filename);
-            store
         }
 
         fn package_to_json(pkg: &Package) -> serde_json::Value {
