@@ -998,3 +998,49 @@ fn instance_schema_discriminators_hold() {
     // here rather than silently degrade classification.
     assert_eq!(catalog::instance_discriminator_error(), None);
 }
+
+/// srs-rust#1197: the parallel per-file phase must yield a catalog and
+/// diagnostics identical to the sequential build.
+#[test]
+fn parallel_and_sequential_builds_are_identical() {
+    let fixture = FileStore::new(fixture_repo());
+    assert_eq!(
+        catalog::build(&fixture).unwrap(),
+        catalog::build_sequential(&fixture).unwrap()
+    );
+
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    write(root, "manifest.json", MINIMAL_MANIFEST);
+    for i in 0..40 {
+        write(
+            root,
+            &format!("records/n{i:02}.json"),
+            &note_json(&format!("00000000-0000-4000-8000-0000000001{i:02}")),
+        );
+        write(
+            root,
+            &format!("records/r{i:02}.json"),
+            &record_json(&format!("00000000-0000-4000-8000-0000000002{i:02}")),
+        );
+    }
+    write(root, "records/broken.json", "{not json");
+    write(root, "records/shapeless.json", r#"{"instanceId": 3}"#);
+    write(
+        root,
+        "records/bad-schema.json",
+        r#"{"$schema": "https://example.invalid/x.json"}"#,
+    );
+    write(
+        root,
+        "records/dup.json",
+        &note_json("00000000-0000-4000-8000-000000000100"),
+    );
+    write(root, "records/readme.txt", "not json");
+    let store = FileStore::new(root);
+    let par = catalog::build(&store).unwrap();
+    let seq = catalog::build_sequential(&store).unwrap();
+    assert_eq!(par, seq);
+    assert!(!par.diagnostics.is_empty());
+    assert_eq!(par.instances.len(), 81, "{par:?}");
+}

@@ -34,3 +34,6 @@ mcp-schema = ["dep:schemars"]
 [dev-dependencies]
 tempfile = "3"
 jsonschema = { version = "0.29", default-features = false }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rayon = "1.12.0"
