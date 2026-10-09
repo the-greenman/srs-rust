@@ -1037,7 +1037,7 @@ impl SrsRepository {
 
     /// List container summaries. `filter_json` is a JSON string matching
     /// `{ "containerType"?: string, "memberInstanceId"?: string, "anchorInstanceId"?: string }`
-    /// (matches the container's `anchorInstanceId`, RFC-043 [R4]; `rootInstanceId` is accepted as an alias);
+    /// (matches the container's `anchorInstanceId`, RFC-043 [R4]; unknown keys, including the retired `rootInstanceId`, are rejected);
     /// pass `"{}"` for all containers. Returns a JS array of `ContainerSummary` objects.
     pub fn list_containers(&self, filter_json: &str) -> Result<JsValue, JsValue> {
         let parsed: ContainerListBindingFilter = serde_json::from_str(filter_json)
@@ -2041,14 +2041,16 @@ fn copy_container_from_json(
 }
 
 /// Input shape for `list_containers` — parsed from caller-supplied JSON.
+/// Unknown keys are rejected so a stale caller (e.g. the retired `rootInstanceId`) fails loudly
+/// instead of silently receiving an unfiltered list.
 #[derive(Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ContainerListBindingFilter {
     #[serde(default)]
     container_type: Option<String>,
     #[serde(default)]
     member_instance_id: Option<String>,
-    #[serde(default, alias = "rootInstanceId")]
+    #[serde(default)]
     anchor_instance_id: Option<String>,
 }
 
@@ -2121,6 +2123,17 @@ struct LinkAttachmentBindingInput {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn container_list_filter_rejects_retired_root_instance_id_key() {
+        let ok: super::ContainerListBindingFilter =
+            serde_json::from_str(r#"{"anchorInstanceId":"a"}"#).unwrap();
+        assert_eq!(ok.anchor_instance_id.as_deref(), Some("a"));
+        assert!(serde_json::from_str::<super::ContainerListBindingFilter>(
+            r#"{"rootInstanceId":"a"}"#
+        )
+        .is_err());
+    }
+
     use super::SrsRepository;
     use srs_repository::RepositoryStore;
 
