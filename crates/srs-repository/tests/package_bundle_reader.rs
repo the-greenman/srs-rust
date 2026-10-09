@@ -95,8 +95,7 @@ fn composition_with_member_order(scope: Option<&str>) -> Value {
     let source = match scope {
         Some(s) => json!({"type": "container-subset",
             "containerId": "11111111-0000-4000-8000-0000000000c1", "containerScope": s}),
-        None => json!({"type": "fixed-instances",
-            "instanceIds": ["22222222-0000-4000-8000-000000000011"]}),
+        None => json!({"type": "discovery-query", "query": {"typeName": "t"}}),
     };
     json!({"id": "9a1b0c70-0007-4aaa-8bbb-000000008001", "namespace": NS, "name": "entry-log",
         "version": 1, "description": "d", "createdAt": "2026-01-01T00:00:00Z",
