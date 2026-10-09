@@ -158,23 +158,21 @@ pub enum SchemaError {
 
 pub type SchemaResult<T> = Result<T, SchemaError>;
 
-/// One bundled schema, compiled on first use (srs-rust#1195). Compiling all
-/// 22 schemas up front cost ~113 ms per process, ~70% of a CLI command, while
-/// a command typically touches only a few of them.
+/// One bundled schema, compiled on first use. Compiling all schemas up front
+/// costs ~113 ms cold (srs-rust#1195); a command typically touches only a few.
 struct CompiledEntry {
     schema_id: &'static str,
-    source: &'static str,
+    src: &'static str,
     validator: OnceLock<Validator>,
 }
 
 impl CompiledEntry {
     fn validator(&self) -> &Validator {
         self.validator.get_or_init(|| {
-            let schema_id = self.schema_id;
-            let schema_value: Value = serde_json::from_str(self.source)
-                .unwrap_or_else(|e| panic!("srs-schema: failed to parse {schema_id}: {e}"));
+            let schema_value: Value = serde_json::from_str(self.src)
+                .unwrap_or_else(|e| panic!("srs-schema: failed to parse {}: {e}", self.schema_id));
             jsonschema::validator_for(&schema_value)
-                .unwrap_or_else(|e| panic!("srs-schema: failed to compile {schema_id}: {e}"))
+                .unwrap_or_else(|e| panic!("srs-schema: failed to compile {}: {e}", self.schema_id))
         })
     }
 }
@@ -187,9 +185,9 @@ impl SchemaRegistry {
     fn build() -> Self {
         let entries = SCHEMA_SOURCES
             .iter()
-            .map(|(schema_id, source)| CompiledEntry {
+            .map(|(schema_id, src)| CompiledEntry {
                 schema_id,
-                source,
+                src,
                 validator: OnceLock::new(),
             })
             .collect();
@@ -257,6 +255,13 @@ impl SchemaRegistry {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn every_bundled_schema_parses_and_compiles() {
+        for entry in &SchemaRegistry::global().entries {
+            entry.validator();
+        }
+    }
 
     #[test]
     fn registry_builds_and_has_all_schema_ids() {

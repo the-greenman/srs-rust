@@ -12,7 +12,7 @@ already guard against this — they call `SchemaRegistry::global().validate_by_i
 serialized value *before* their own semantic validator runs, and map a failure to
 `RepositoryError::SchemaValidation`. `create_composition`/`create_view`/`create_type_in_package`
 (and their `update_*` siblings) never do this. Root cause: some Rust definition types (e.g.
-`SectionSource`, which still carries the `FixedInstances`/`RelationQuery` variants removed from
+`SectionSource`, which at the time still carried the `FixedInstances`/`RelationQuery` variants removed from
 `composition.json` by rfc-decision-4f1e12e5 in srs#444) are a superset of their published JSON
 Schema, so a value that deserializes fine into the Rust struct can still fail the schema the
 loader enforces.
