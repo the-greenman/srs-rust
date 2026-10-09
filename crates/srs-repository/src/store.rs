@@ -233,6 +233,30 @@ fn relation_ends(v: &serde_json::Value) -> Option<(String, String)> {
     Some((get("sourceInstanceId")?, get("targetInstanceId")?))
 }
 
+/// A candidate file as read for the catalog build (srs-rust#1197).
+pub enum CandidateSource {
+    /// Already parsed (stores that hold structured values).
+    Parsed(serde_json::Value),
+    /// Raw text, parsed later (possibly on another thread). `display_path` is
+    /// for error reporting only.
+    Text { text: String, display_path: PathBuf },
+}
+
+impl CandidateSource {
+    /// Parse to a value; the error matches `FileStore::read_json`'s.
+    pub fn into_value(self) -> Result<serde_json::Value, RepositoryError> {
+        match self {
+            CandidateSource::Parsed(v) => Ok(v),
+            CandidateSource::Text { text, display_path } => {
+                serde_json::from_str(&text).map_err(|e| RepositoryError::Serialize {
+                    path: display_path,
+                    source: e,
+                })
+            }
+        }
+    }
+}
+
 /// Abstracts all I/O operations performed by service functions.
 ///
 /// Service functions accept `&dyn RepositoryStore` so the storage backend
@@ -437,6 +461,18 @@ pub trait RepositoryStore {
 
     fn load_instance_json(&self, relative_path: &str)
         -> Result<serde_json::Value, RepositoryError>;
+
+    /// Catalog-build read of a candidate (srs-rust#1197). Stores that hold raw
+    /// text return it unparsed so the catalog can parse and validate files in
+    /// parallel; the default parses in place. Parse failures must carry the
+    /// same `RepositoryError::Serialize` the serial path would produce.
+    fn read_candidate_source(
+        &self,
+        relative_path: &str,
+    ) -> Result<CandidateSource, RepositoryError> {
+        self.load_instance_json(relative_path)
+            .map(CandidateSource::Parsed)
+    }
     fn save_instance_json(
         &self,
         relative_path: &str,
@@ -2225,6 +2261,16 @@ impl RepositoryStore for FileStore {
         relative_path: &str,
     ) -> Result<serde_json::Value, RepositoryError> {
         self.read_json(relative_path)
+    }
+
+    fn read_candidate_source(
+        &self,
+        relative_path: &str,
+    ) -> Result<CandidateSource, RepositoryError> {
+        Ok(CandidateSource::Text {
+            text: self.vfs.read_to_string(relative_path)?,
+            display_path: self.abs(relative_path),
+        })
     }
 
     fn save_instance_json(
