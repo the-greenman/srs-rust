@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /// A reference to a source document, transcript chunk, or other external
 /// material that supports or produced a given entity.
 ///
-/// Used on `Note::source_refs`, `Relation::source_refs`, and `Revision::source_refs`.
+/// Used on `Note::source_refs` and `Relation::source_refs`.
 /// No `deny_unknown_fields` — forward-compatible with future schema additions.
 ///
 /// RFC-023: `source_role` is the sole provenance-role field (serialized as `sourceRole`).
