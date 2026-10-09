@@ -417,6 +417,26 @@ test("planStaleClaims carries itemId through so the caller can write the board f
   assert.equal(plan[0].itemId, "PVTI_abc");
 });
 
+test("planStaleClaims: an open closing PR is in-review, never reclaimed, however old", () => {
+  const rows = [srow({ num: 50, claimedAtMs: 0, openClosingPr: 77 })];
+  const plan = planStaleClaims(rows, 100 * HOUR, 3 * HOUR);
+  assert.deepEqual(plan.map((p) => [p.num, p.action, p.openClosingPr]), [[50, "in-review", 77]]);
+});
+
+test("planStaleClaims: a PR closed unmerged (openClosingPr null) reclaims as before", () => {
+  const rows = [srow({ num: 51, claimedAtMs: 0, openClosingPr: null })];
+  assert.equal(planStaleClaims(rows, 100 * HOUR, 3 * HOUR)[0].action, "reclaim");
+});
+
+test("planStaleClaims: needs-input and fresh are unaffected by the in-review rule", () => {
+  const now = 100 * HOUR;
+  const rows = [
+    srow({ num: 52, claimedAtMs: 0, labels: [NEEDS_INPUT_LABEL] }),
+    srow({ num: 53, claimedAtMs: now - HOUR }),
+  ];
+  assert.deepEqual(planStaleClaims(rows, now, 3 * HOUR).map((p) => [p.num, p.action]), [[52, "needs-input"], [53, "fresh"]]);
+});
+
 // Auto-topup: keeps the Ready queue at a target depth by writing `promote:ready` to the
 // highest-priority unblocked Backlog leaves. planTopup is the pure core — no filtering, no
 // side effects; the caller pre-filters and pre-sorts candidates before passing them in.

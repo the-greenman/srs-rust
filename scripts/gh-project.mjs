@@ -780,8 +780,12 @@ function planPromotions(rows) {
 // silent one reclaims within the (short) threshold. A row labeled `needs-input` is legitimately
 // paused on a human and is never reclaimed — re-feeding it would just hit the same gate. A row
 // with no resolvable claimedAtMs is reported as `unknown`, never silently skipped or reclaimed.
-// Returns [{ repo, num, key, itemId, claimedAtMs, action, ageMs }] —
-// action: reclaim|fresh|needs-input|unknown.
+// A row with `openClosingPr` (number of an OPEN pull request that closes it, annotated by
+// cmdStaleClaims) is finished work awaiting review, whose silence is expected: `in-review`,
+// never reclaimed, regardless of age (#1375). A PR closed unmerged is not annotated, so the
+// claim ages out as before.
+// Returns [{ repo, num, key, itemId, claimedAtMs, action, ageMs, openClosingPr? }] —
+// action: reclaim|fresh|needs-input|in-review|unknown.
 function planStaleClaims(rows, nowMs, thresholdMs) {
   const out = [];
   const inProgLabel = STATUS_LABEL_MAP["In progress"];
@@ -794,6 +798,7 @@ function planStaleClaims(rows, nowMs, thresholdMs) {
     if (row.status !== "In progress" && !row.labels?.includes(inProgLabel)) continue;
     const base = { repo: row.repo, num: row.num, key: row.key, itemId: row.itemId, claimedAtMs: row.claimedAtMs ?? null };
     if (row.labels?.includes(NEEDS_INPUT_LABEL)) { out.push({ ...base, action: "needs-input" }); continue; }
+    if (row.openClosingPr) { out.push({ ...base, action: "in-review", openClosingPr: row.openClosingPr }); continue; }
     if (row.claimedAtMs == null) { out.push({ ...base, action: "unknown" }); continue; }
     const freshAsOf = Math.max(row.claimedAtMs, row.lastActivityMs ?? 0);
     const ageMs = nowMs - freshAsOf;
@@ -1885,6 +1890,23 @@ function claimTimes(repo, num) {
   return { claimedAtMs, lastActivityMs };
 }
 
+// Number of an OPEN pull request that will close the issue (GraphQL closedByPullRequestsReferences,
+// closed/merged PRs filtered out by state), or null. Unreadable → undefined with a warning; the
+// caller then reports the row `unknown` rather than risk reclaiming finished work.
+function openClosingPr(repo, num) {
+  try {
+    const d = graphql(
+      `query($o:String!,$r:String!,$n:Int!){ repository(owner:$o,name:$r){ issue(number:$n){
+         closedByPullRequestsReferences(first:20, includeClosedPrs:true){ nodes{ number state } } } } }`,
+      { o: OWNER, r: repo, n: num });
+    const nodes = d?.repository?.issue?.closedByPullRequestsReferences?.nodes ?? [];
+    return nodes.find((p) => p.state === "OPEN")?.number ?? null;
+  } catch (e) { // fails closed: undefined, not null
+    console.error(`gh-project: warning: could not read closing PRs for ${repo}#${num}: ${(e.stderr ? String(e.stderr) : e.message).trim()}`);
+    return undefined;
+  }
+}
+
 // stale-claims [--hours N] [--fix] — detect (and with --fix, recover) `In progress` issues whose
 // claim has gone stale: whatever claimed it (the "SRS jobs routine" or any other consumer) wrote
 // `status: in progress` and never finished — crashed, timed out, or was interrupted. Nothing else
@@ -1904,13 +1926,33 @@ function cmdStaleClaims(argv) {
     (r) => r.state === "OPEN" && (r.status === "In progress" || r.labels.includes(inProgLabel))
   );
   // needs-input rows never reclaim, so skip their timeline read (one API call each).
-  const annotated = candidates.map((r) =>
-    r.labels.includes(NEEDS_INPUT_LABEL) ? r : { ...r, ...claimTimes(r.repo, r.num) });
+  const annotated = candidates.map((r) => {
+    if (r.labels.includes(NEEDS_INPUT_LABEL)) return r;
+    const pr = openClosingPr(r.repo, r.num);
+    // PR lookup failed: force `unknown` (no reclaim) instead of guessing "no PR".
+    return { ...r, ...claimTimes(r.repo, r.num), ...(pr === undefined ? { claimedAtMs: null } : { openClosingPr: pr }) };
+  });
   const plan = planStaleClaims(annotated, Date.now(), thresholdMs);
   for (const p of plan) {
     const ageStr = p.ageMs != null ? `${(p.ageMs / 3600000).toFixed(1)}h` : "—";
     console.log(`${dryRun ? "[dry-run] " : ""}${p.action}: ${p.key} (age ${ageStr})`);
-    if (dryRun || p.action !== "reclaim") continue;
+    if (p.action === "in-review") console.log(`  open closing PR #${p.openClosingPr}`);
+    if (dryRun) continue;
+    if (p.action === "in-review") {
+      setSingleSelect(p.itemId, "Status", "In review", false);
+      setStatusLabel(p.repo, p.num, STATUS_LABEL_MAP["In review"] || null, false); // clears the claim label
+      const marker = `<!-- stale-claims:in-review #${p.openClosingPr} -->`;
+      try {
+        const seen = ghJson(["issue", "view", String(p.num), "--repo", `${OWNER}/${p.repo}`, "--json", "comments"]);
+        if (!(seen?.comments || []).some((c) => c.body.includes(marker)))
+          gh(["issue", "comment", String(p.num), "--repo", `${OWNER}/${p.repo}`,
+            "--body", `${marker}\nMoved to **In review**: pull request #${p.openClosingPr} closes this issue and is awaiting review, so the claim is not reclaimed as stale.`]);
+      } catch (e) {
+        console.error(`gh-project: warning: could not comment on ${p.key}: ${(e.stderr ? String(e.stderr) : e.message).trim()}`);
+      }
+      continue;
+    }
+    if (p.action !== "reclaim") continue;
     setSingleSelect(p.itemId, "Status", "Ready", false);
     setStatusLabel(p.repo, p.num, "ready", false); // mirror immediately; reconcile also keeps it in sync
     try {
@@ -1923,8 +1965,9 @@ function cmdStaleClaims(argv) {
   const reclaimed = plan.filter((p) => p.action === "reclaim").length;
   const unknown = plan.filter((p) => p.action === "unknown").length;
   const gated = plan.filter((p) => p.action === "needs-input").length;
-  console.log(`${plan.length} in-progress · ${reclaimed} ${dryRun ? "would be " : ""}reclaimed · ${plan.length - reclaimed - unknown - gated} fresh${gated ? ` · ${gated} needs-input (paused on a human)` : ""}${unknown ? ` · ${unknown} unknown (no labeled event found)` : ""}`);
-  if (dryRun && reclaimed) console.log("(dry-run; pass --fix to reclaim)");
+  const inReview = plan.filter((p) => p.action === "in-review").length;
+  console.log(`${plan.length} in-progress · ${reclaimed} ${dryRun ? "would be " : ""}reclaimed · ${plan.length - reclaimed - unknown - gated - inReview} fresh${inReview ? ` · ${inReview} ${dryRun ? "would move to " : "moved to "}In review (open closing PR)` : ""}${gated ? ` · ${gated} needs-input (paused on a human)` : ""}${unknown ? ` · ${unknown} unknown (no labeled event found)` : ""}`);
+  if (dryRun && (reclaimed || inReview)) console.log("(dry-run; pass --fix to apply)");
 }
 
 // topup [--fix] [--target N] — keep the Ready queue at target depth by writing `promote:ready`
