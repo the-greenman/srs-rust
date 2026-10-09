@@ -182,6 +182,49 @@ No change to `srs/docs/schema/2.0/`. No action.
 
 ---
 
+## Plan review resolution (2026-10-09)
+
+The "Plan review" comment on #1382 (6 should-fix, 5 nit) is resolved as follows:
+
+1. **Gallery check is a pass-through guard.** Every gallery field is labelled, so the bindings assertion cannot fail on revert. Phase 2 names it a *labelled pass-through guard*. The revert-sensitive proofs are the five tests listed under "Revert-sensitive tests" below.
+2. **Composite sub-field and blueprint pass-through are asserted.** Phase 1 adds a no-title assertion on the unlabelled composite sub-fields in `type_schema_expands_inline_composite_range`. Phase 1 also adds a blueprint pass-through assertion in `blueprint_schema_single_root_and_two_relation_types` (`crates/srs-repository/src/blueprint_schema_service.rs`): the unlabelled `title` field in `definitions[ROOT_ID]` has no `title` and has `x-srs-description == "title description"`.
+3. **The CLI fixture description is an explicit task.** Phase 2 adds `"description": "Current status of the decision"` to the status field in `type_schema_emits_draft07_for_record_field_values` and asserts `x-srs-description` equals it.
+4. **Gate commands are exact.** The payload test is `cargo test -p srs-cli --test payload_contracts`. The golden check runs `cargo run --bin generate-schemas && git diff --exit-code crates/srs-cli/schemas/payload/` only after `git status --porcelain` is empty, so the diff is the generator's alone.
+5. **Three gates are added** to every milestone (see "Gates" below): `SRS_SPEC_DIR` set to a fresh srs `origin/master` worktree, the baseline-honesty rule, and `cargo build --target wasm32-unknown-unknown -p srs-bindings`.
+6. **ADR-026 gets an inline marker and a header line.** Context item 1 gains "*(fallback withdrawn, see Amendment)*", and the header gains `- **Amended:** 2026-10-09 (#1382)`.
+7. **Nit, amendment accuracy.** The Neutral bullet about group-level `title`/`description` refers to the retired field groups (ext:field-groups, retired at #242). The amendment says so, and does not reword the original bullet. The cross-repo consumer claim is stated as "checked 2026-10-09 outside this repo"; it cannot be verified by an in-repo test.
+8. **Nit, srs-gov `detail_rows`.** Declined. Its `title`-else-`name` fallback is unchanged, and this PR does not touch srs-gov.
+9. **Nit, MCP `contains("title")`.** Acknowledged. That test checks the resource is served, not this rule. It is not counted as a proof of this change.
+10. **Nit, dogfooding.** The step names its date (2026-10-09) and #1382. The stale `x-srs-field-id` mentions in S2 are out of scope.
+11. **Nit, scope wording.** No change.
+
+### Revert-sensitive tests
+
+Each of these fails if the description fallback is restored:
+
+- `type_schema_service::tests::type_schema_title_only_from_display_label`
+- `type_schema_service::tests::type_schema_empty_display_label_emits_no_title`
+- `type_schema_service::tests::type_schema_expands_inline_composite_range` (sub-field assertion)
+- `blueprint_schema_service::tests::blueprint_schema_single_root_and_two_relation_types` (pass-through assertion)
+- `srs-cli` `integration_tests::type_schema_emits_draft07_for_record_field_values`
+
+### Gates
+
+Every milestone runs all of these, each as its own command and judged by its exit code:
+
+```bash
+export SRS_SPEC_DIR=/home/greenman/dev/.wt/srs/1382-spec-dir   # scripts/wt new srs 1382-spec-dir, off origin/master (srs-rust#874)
+cargo build --workspace
+cargo test --workspace                                          # zero failures
+cargo clippy --workspace --all-targets -- -D warnings
+cargo build --target wasm32-unknown-unknown -p srs-bindings
+git status --porcelain                                          # must be empty before the golden check
+cargo run --bin generate-schemas && git diff --exit-code crates/srs-cli/schemas/payload/
+cargo test -p srs-cli --test payload_contracts
+```
+
+**Baseline honesty:** a failure that looks pre-existing is proven against the last green master CI run (`gh run list --repo the-greenman/srs-rust --branch master --status success --limit 1`), never against current master. Otherwise it is fixed.
+
 ## Phases
 
 ### Phase 1: Remove the description fallback from `title`
@@ -190,7 +233,7 @@ No change to `srs/docs/schema/2.0/`. No action.
 
 **Agent:** Repository Worker
 
-**Write scope:** `crates/srs-repository/src/type_schema_service.rs` only.
+**Write scope:** `crates/srs-repository/src/type_schema_service.rs` and the test module of `crates/srs-repository/src/blueprint_schema_service.rs`.
 
 #### Tasks
 
@@ -201,6 +244,8 @@ No change to `srs/docs/schema/2.0/`. No action.
 - [ ] Rename the test `type_schema_title_prefers_display_label` (line 1011) to `type_schema_title_only_from_display_label`, and change its assertions:
       `a.title == "Custom Label"`; `b.get("title").is_none()`; `b["x-srs-description"] == "b description"`.
 - [ ] Add the test `type_schema_empty_display_label_emits_no_title`: an assignment with `display_label = Some("")` → no `title` key, and `x-srs-description` is present.
+- [ ] In `type_schema_expands_inline_composite_range`, assert that the unlabelled sub-fields `columns` and `cells` have no `title`, and that `columns` has `x-srs-description == "columns description"`.
+- [ ] In `blueprint_schema_service::tests::blueprint_schema_single_root_and_two_relation_types`, assert that `definitions[ROOT_ID].properties.title` has no `title` and has `x-srs-description == "title description"` (the blueprint pass-through).
 
 #### Acceptance Criteria
 
@@ -216,11 +261,13 @@ cargo test -p srs-repository type_schema
 
 - `type_schema_title_only_from_display_label`: the label wins, and with no label there is no title and the description stays in `x-srs-description`.
 - `type_schema_empty_display_label_emits_no_title`: an empty label counts as absent.
+- `type_schema_expands_inline_composite_range`: unlabelled composite sub-fields have no title.
+- `blueprint_schema_single_root_and_two_relation_types`: the blueprint definitions pass the rule through.
 
 #### Milestone gate
 
 1. Check every acceptance criterion above.
-2. Run `cargo build --workspace && cargo test --workspace && cargo clippy --workspace --all-targets -- -D warnings`, each judged by its exit code.
+2. Run every command in "Gates" above, each judged by its exit code.
 3. Mark the checkboxes and commit (signed, plain `git commit`).
 
 ### Phase 2: Prove it at the adapters (CLI + WASM)
@@ -233,11 +280,11 @@ cargo test -p srs-repository type_schema
 
 #### Tasks
 
-- [ ] In `type_schema_emits_draft07_for_record_field_values` (`integration_tests.rs:6858`), remove `"displayLabel": "Status"` from the status assignment (the one at line ~6921). Make sure the status field definition carries a non-empty `description` (add `"description": "Current status of the decision"` if it is missing). Then add:
+- [ ] In `type_schema_emits_draft07_for_record_field_values` (`integration_tests.rs:6858`), remove `"displayLabel": "Status"` from the status assignment (the one at line ~6921). Add `"description": "Current status of the decision"` to the status field definition (the fixture has none today). Then add:
       `assert!(schema["properties"]["status"].get("title").is_none(), "no displayLabel → no title (#1382)");`
-      and `assert_eq!(schema["properties"]["status"]["x-srs-description"], "<that description>");`.
+      and `assert_eq!(schema["properties"]["status"]["x-srs-description"], "Current status of the decision");`.
       Keep the existing `title.title == "Title"` assertion.
-- [ ] In `crates/srs-bindings/tests/type_schema.rs::type_schema_resolves_latest_version`, add one regression assertion on the gallery decision type: the property for field `73cd845a-…` (displayLabel "Decision Question") has `title == "Decision Question"`. Resolve its key from the schema by `x-srs-order == 2` or by the field name in the gallery, whichever the test can do without a new helper. This proves the labelled path on a real corpus through the same call the WASM `type_schema` binding makes (the binding is a one-call adapter, ADR-013, so the service tests are the WASM proof for the unlabelled case).
+- [ ] In `crates/srs-bindings/tests/type_schema.rs::type_schema_resolves_latest_version`, add one **labelled pass-through guard** (it cannot fail on revert, because every gallery field is labelled; the revert-sensitive proofs are listed above) on the gallery decision type: the property for field `73cd845a-…` (displayLabel "Decision Question") has `title == "Decision Question"`. Its key is the field name `decision_question`. This proves the labelled path on a real corpus through the same call the WASM `type_schema` binding makes (the binding is a one-call adapter, ADR-013, so the service tests are the WASM proof for the unlabelled case).
 
 #### Acceptance Criteria
 
@@ -255,7 +302,7 @@ cargo test -p srs-cli --test payload_contracts
 
 #### Milestone gate
 
-Same as Phase 1 (`cargo build --workspace`, `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`), plus the golden diff check above exits 0. Mark the checkboxes and commit.
+Run every command in "Gates" above. Mark the checkboxes and commit.
 
 ### Phase 3: Record the decision and dogfood
 
@@ -267,9 +314,10 @@ Same as Phase 1 (`cargo build --workspace`, `cargo test --workspace`, `cargo cli
 
 #### Tasks
 
-- [ ] Append the amendment text from decision (b) to ADR-026 (or write ADR-055 if the owner picks B2).
+- [ ] Append the amendment text from decision (b) to ADR-026, with the stale group-level bullet noted (review item 7).
+- [ ] Add the inline marker "*(fallback withdrawn, see Amendment)*" to Context item 1, and the header line `- **Amended:** 2026-10-09 (#1382)`.
 - [ ] In `docs/dogfooding.md`, in the type-schema scenario (step 7 / the bullets near line 94), add: "A field assigned **without** `displayLabel` carries **no** `title` in its schema property; its `description` is only in `x-srs-description` (#1382)."
-- [ ] Dogfood: in a scratch repo, run `field create` (with a description) → `type create` (no displayLabel) → `srs type schema <typeId> --pretty`. Confirm there is no `title` and `x-srs-description` is present. Record "Verified 2026-10-…" under the scenario.
+- [ ] Dogfood with the branch binary (`cargo build --bin srs`, then `target/debug/srs`) in a scratch repo: `field create` ×2 (with descriptions) → `type create` (one field labelled, one not) → `srs type schema <typeId> --pretty`. Happy path: the labelled field keeps its `title`, the unlabelled one has none, and both carry `x-srs-description`. Edge case: a third field assigned with `"displayLabel": ""` has no `title`. Negative case: `type schema` on an unknown id returns `ok: false`. Record "Verified 2026-10-09 (#1382)" under the scenario.
 
 #### Acceptance Criteria
 
@@ -278,7 +326,7 @@ Same as Phase 1 (`cargo build --workspace`, `cargo test --workspace`, `cargo cli
 
 #### Milestone gate
 
-Run the full workspace gates again. Mark the checkboxes and commit.
+Run every command in "Gates" above. Mark the checkboxes and commit. If `origin/master` moved, rebase and run the gates again.
 
 ---
 
@@ -287,7 +335,8 @@ Run the full workspace gates again. Mark the checkboxes and commit.
 - [ ] `cargo build --workspace` exits 0
 - [ ] `cargo test --workspace` exits 0 (zero failures)
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` exits 0
-- [ ] `cargo test --test payload_contracts` passes, and `generate-schemas` leaves no diff
+- [ ] `cargo build --target wasm32-unknown-unknown -p srs-bindings` exits 0
+- [ ] `cargo test -p srs-cli --test payload_contracts` passes, and `generate-schemas` on a clean tree leaves no diff
 - [ ] `bash scripts/check-schema-sync.sh` exits 0 (no entity schemas changed)
 - [ ] For a field with a description and no `displayLabel`, `srs type schema` and the service behind WASM `type_schema` return no `title`, and `x-srs-description` holds the description
 - [ ] ADR-026 amended (or ADR-055 written), per the owner's ruling
