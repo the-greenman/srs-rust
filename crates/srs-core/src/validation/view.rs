@@ -168,7 +168,6 @@ mod tests {
             }
             .into()],
             compatible_types: None,
-            protection: None,
             export_config: None,
             tags: None,
             created_at: "2026-05-29T00:00:00Z".to_string(),
@@ -196,8 +195,11 @@ mod tests {
                 title: None,
                 description: None,
                 order: 0,
-                source: SectionSource::FixedInstances {
-                    instance_ids: vec!["a".to_string()],
+                source: SectionSource::ContainerSubset {
+                    container_id: Some("a".to_string()),
+                    container_type: None,
+                    type_filter: None,
+                    container_scope: None,
                 },
                 render_view_id: None,
                 type_dispatch: None,
@@ -236,8 +238,11 @@ mod tests {
             title: None,
             description: None,
             order: 1,
-            source: SectionSource::FixedInstances {
-                instance_ids: vec!["b".to_string()],
+            source: SectionSource::ContainerSubset {
+                container_id: Some("b".to_string()),
+                container_type: None,
+                type_filter: None,
+                container_scope: None,
             },
             render_view_id: None,
             type_dispatch: None,
@@ -370,6 +375,11 @@ mod tests {
         assert!(validate_composition(&subset(None, None, None, None)).is_err());
         // arranged on a non container-subset section: rejected
         let mut dv = minimal_composition();
+        dv.sections[0].source = SectionSource::DiscoveryQuery {
+            query: Default::default(),
+            container_ids: None,
+            container_scope: None,
+        };
         dv.sections[0].ordering = Some(crate::types::view::SectionOrdering {
             field_id: None,
             direction: None,
