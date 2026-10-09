@@ -314,15 +314,15 @@ Run every command in "Gates" above. Mark the checkboxes and commit.
 
 #### Tasks
 
-- [ ] Append the amendment text from decision (b) to ADR-026, with the stale group-level bullet noted (review item 7).
-- [ ] Add the inline marker "*(fallback withdrawn, see Amendment)*" to Context item 1, and the header line `- **Amended:** 2026-10-09 (#1382)`.
-- [ ] In `docs/dogfooding.md`, in the type-schema scenario (step 7 / the bullets near line 94), add: "A field assigned **without** `displayLabel` carries **no** `title` in its schema property; its `description` is only in `x-srs-description` (#1382)."
-- [ ] Dogfood with the branch binary (`cargo build --bin srs`, then `target/debug/srs`) in a scratch repo: `field create` ×2 (with descriptions) → `type create` (one field labelled, one not) → `srs type schema <typeId> --pretty`. Happy path: the labelled field keeps its `title`, the unlabelled one has none, and both carry `x-srs-description`. Edge case: a third field assigned with `"displayLabel": ""` has no `title`. Negative case: `type schema` on an unknown id returns `ok: false`. Record "Verified 2026-10-09 (#1382)" under the scenario.
+- [x] Append the amendment text from decision (b) to ADR-026, with the stale group-level bullet noted (review item 7).
+- [x] Add the inline marker "*(fallback withdrawn, see Amendment)*" to Context item 1, and the header line `- **Amended:** 2026-10-09 (#1382)`.
+- [x] In `docs/dogfooding.md`, in the type-schema scenario (step 7 / the bullets near line 94), add: "A field assigned **without** `displayLabel` carries **no** `title` in its schema property; its `description` is only in `x-srs-description` (#1382)."
+- [x] Dogfood with the branch binary (`cargo build --bin srs`, then `target/debug/srs`) in a scratch repo: `field create` ×2 (with descriptions) → `type create` (one field labelled, one not) → `srs type schema <typeId> --pretty`. Happy path: the labelled field keeps its `title`, the unlabelled one has none, and both carry `x-srs-description`. Edge case: a third field assigned with `"displayLabel": ""` has no `title`. Negative case: `type schema` on an unknown id returns `ok: false`. Record "Verified 2026-10-09 (#1382)" under the scenario.
 
 #### Acceptance Criteria
 
-- [ ] ADR-026 carries the amendment, and its Context no longer reads as current behaviour without that amendment.
-- [ ] The dogfood run is recorded.
+- [x] ADR-026 carries the amendment, and its Context no longer reads as current behaviour without that amendment.
+- [x] The dogfood run is recorded.
 
 #### Milestone gate
 

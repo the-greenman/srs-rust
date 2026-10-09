@@ -4,6 +4,7 @@
 - **Date:** 2026-07-09
 - **Supersedes:** —
 - **Superseded by:** —
+- **Amended:** 2026-10-09 (#1382)
 
 ## Context
 
@@ -13,7 +14,8 @@ field so a schema-driven editor (srs-web) can render an edit form. Each field ca
 prose texts, and the projection needs to convey them without collision:
 
 1. **Display label** — what the label reads. Already projected as `title` (the FieldAssignment
-   `displayLabel`, falling back to the field's `description` when no label is set).
+   `displayLabel`, falling back to the field's `description` when no label is set). *(Fallback
+   withdrawn, see Amendment.)*
 2. **`description`** — the field's own short caption ("Why this option over the alternatives.").
 3. **`aiGuidance`** — machine-facing extraction guidance. A *string* `aiGuidance` is already
    projected into the JSON Schema `description` keyword; a *structured* `aiGuidance` goes to
@@ -63,3 +65,31 @@ payload golden.
   selves everywhere else in the data model.
 - Group-level `title`/`description` (a field group's own label/description) are unchanged; this ADR
   concerns per-field help text.
+
+## Amendment (2026-10-09, #1382) — `title` is the authored label only
+
+The Context above records that `title` fell back to the field's `description` when no
+`displayLabel` was set. That fallback is withdrawn. A property's `title` is emitted **only** from a
+non-empty `FieldAssignment.displayLabel`. With no label authored, `title` is absent. The field's
+`description` lives only in `x-srs-description`, as the Decision above already provides.
+
+**Why.** The fallback made a description indistinguishable from a label. Every schema-driven form
+showed a sentence where a label belongs (srs-web#547). The only client-side defence was a
+length-and-word-count heuristic (srs-vscode `looksLikeShortLabel`), which also dropped legitimately
+long authored labels. A present `title` now means "a label was authored", the never-inferred rule of
+ADR-044. A client with no `title` renders its own presentation of `Field.name` (the property key), as
+the spec's label rule does ("use `displayLabel`; fall back to `Field.name`").
+
+**Consistency.** This matches the spec's JSON Schema emitter (RFC-035, `scripts/lib/schema-emitter.mjs`:
+`if (a.displayLabel) frag.title = a.displayLabel`) and this repo's validation projection
+(`srs-projection::json_schema`, `title` from `displayLabel` only). The editor-facing and validation
+projections now agree on `title`. Composite sub-fields and the blueprint schema's `definitions`
+resolve through the same `field_to_property`, so the rule applies to them too.
+
+**Contract.** `TypeSchemaPayload.schema` is opaque (ADR-011), so no payload golden changes. This is
+a behaviour change inside the projection: consumers that used `title` as a description lose it and
+must read `x-srs-description`. No first-party consumer does (checked 2026-10-09 outside this repo:
+srs-web, srs-vscode, srs-gov, muDemocracy.org).
+
+**Stale bullet.** The Neutral bullet on group-level `title`/`description` refers to field groups,
+which were retired at the #242 cutover (RFC-032 Change E). It is kept as written for history.
