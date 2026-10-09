@@ -358,9 +358,12 @@ pub enum SortDirection {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "kebab-case")]
 pub enum EmptyBehavior {
     Hide,
+    // Schema spelling is `show-placeholder` (composition.json); the camelCase
+    // form is a read-compat alias for the former camelCase spelling (srs-rust#1118).
+    #[serde(alias = "showPlaceholder")]
     ShowPlaceholder,
 }
 
@@ -543,6 +546,64 @@ pub struct Composition {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    // srs-rust#1118: serde must accept the schema's spelling, emit it, and
+    // keep reading the legacy camelCase form.
+    #[test]
+    fn empty_behavior_uses_schema_spelling_and_reads_legacy_alias() {
+        assert_eq!(
+            serde_json::from_value::<EmptyBehavior>(serde_json::json!("show-placeholder")).unwrap(),
+            EmptyBehavior::ShowPlaceholder
+        );
+        assert_eq!(
+            serde_json::from_value::<EmptyBehavior>(serde_json::json!("showPlaceholder")).unwrap(),
+            EmptyBehavior::ShowPlaceholder
+        );
+        assert_eq!(
+            serde_json::to_value(EmptyBehavior::ShowPlaceholder).unwrap(),
+            serde_json::json!("show-placeholder")
+        );
+        assert_eq!(
+            serde_json::to_value(EmptyBehavior::Hide).unwrap(),
+            serde_json::json!("hide")
+        );
+    }
+
+    #[test]
+    fn composition_with_show_placeholder_validates_against_schema_and_round_trips() {
+        let value = serde_json::json!({
+            "$schema": srs_schema::COMPOSITION_SCHEMA_ID,
+            "id": "00000000-0000-4000-8000-0000000000c1",
+            "namespace": "test",
+            "name": "placeholder-composition",
+            "version": 1,
+            "description": "emptyBehavior round trip",
+            "sections": [{
+                "sectionId": "s1",
+                "title": "Open questions",
+                "order": 0,
+                "source": {
+                    "type": "container-subset",
+                    "containerId": "00000000-0000-4000-8000-0000000000c2"
+                },
+                "emptyBehavior": "show-placeholder"
+            }],
+            "createdAt": "2026-01-01T00:00:00Z"
+        });
+        srs_schema::SchemaRegistry::global()
+            .validate_by_id(srs_schema::COMPOSITION_SCHEMA_ID, &value)
+            .expect("schema accepts show-placeholder");
+        let comp: Composition = serde_json::from_value(value.clone()).expect("serde accepts it");
+        assert_eq!(
+            comp.sections[0].empty_behavior,
+            Some(EmptyBehavior::ShowPlaceholder)
+        );
+        let out = serde_json::to_value(&comp).unwrap();
+        assert_eq!(out["sections"][0]["emptyBehavior"], "show-placeholder");
+        srs_schema::SchemaRegistry::global()
+            .validate_by_id(srs_schema::COMPOSITION_SCHEMA_ID, &out)
+            .expect("re-serialised composition still schema-valid");
+    }
 
     #[test]
     fn view_row_round_trips_both_kinds() {
