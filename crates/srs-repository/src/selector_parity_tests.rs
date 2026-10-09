@@ -111,7 +111,6 @@ fn make_view(name: &str) -> View {
         }
         .into()],
         compatible_types: None,
-        protection: None,
         export_config: None,
         tags: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),

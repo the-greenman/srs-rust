@@ -60,6 +60,25 @@ pub struct CreateNoteInput {
     pub container_id: Option<String>,
 }
 
+/// Pull the optional `containerId` off a raw note-create payload before the typed
+/// `Note` parse strips it (`Note` has no `containerId` field, and parsing through
+/// `CreateNoteInput`'s `#[serde(flatten)]` would lose the JSON-path-aware errors that
+/// parse keeps — issue #511). Every front end accepting this payload shape (CLI stdin,
+/// MCP tool arguments, WASM) shares this check rather than re-deriving it.
+pub fn extract_note_container_id(
+    raw: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Option<String>, RepositoryError> {
+    match raw.get("containerId") {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::String(s)) => Ok(Some(s.clone())),
+        Some(other) => Err(RepositoryError::InvalidInput {
+            message: format!(
+                "Failed to parse note JSON at containerId: expected a string, got {other}"
+            ),
+        }),
+    }
+}
+
 /// Explicit delete input with optional container scoping
 #[derive(Debug)]
 pub struct DeleteNoteInput {

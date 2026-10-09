@@ -345,7 +345,6 @@ fn rebind_compositions_to_scaffold(
                     }
                     _ => true,
                 },
-                _ => true,
             };
 
             if keep {
@@ -539,7 +538,6 @@ mod tests {
                         .iter()
                         .map(String::as_str)
                         .collect(),
-                    _ => Vec::new(),
                 };
                 for id in refs {
                     assert!(
