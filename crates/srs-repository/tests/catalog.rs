@@ -998,3 +998,168 @@ fn instance_schema_discriminators_hold() {
     // here rather than silently degrade classification.
     assert_eq!(catalog::instance_discriminator_error(), None);
 }
+
+// ---------------------------------------------------------------------------
+// srs-rust#1196: a write patches the memoized catalog; it must equal a fresh build
+// ---------------------------------------------------------------------------
+
+/// Deterministic xorshift: the test needs reproducible "random" sequences, not
+/// statistical quality, and the crate has no rand dependency.
+struct Xor(u64);
+impl Xor {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+    fn pick<'a, T>(&mut self, xs: &'a [T]) -> &'a T {
+        &xs[(self.next() % xs.len() as u64) as usize]
+    }
+}
+
+fn uuid(n: u64) -> String {
+    format!("{n:08x}-0000-4000-8000-000000000001")
+}
+
+fn relation_json(id: &str, src: &str, tgt: &str) -> String {
+    format!(
+        r#"{{"relationId": "{id}", "relationType": "depends-on", "sourceInstanceId": "{src}", "targetInstanceId": "{tgt}"}}"#
+    )
+}
+
+fn container_json(id: &str, members: &[String]) -> String {
+    let entries: Vec<String> = members
+        .iter()
+        .map(|m| format!(r#"{{"instanceId": "{m}"}}"#))
+        .collect();
+    format!(
+        r#"{{"containerId": "{id}", "title": "c", "memberInstanceIds": [{}]}}"#,
+        entries.join(",")
+    )
+}
+
+/// Compare the store's (possibly patched) catalog with a from-scratch build
+/// over the same tree, diagnostics included, for both the unchecked and the
+/// [R24]-checked views.
+fn assert_catalog_matches_fresh(store: &FileStore, vfs: &Rc<MemVfs>, step: usize, op: &str) {
+    let fresh_store = FileStore::from_vfs(vfs.clone());
+    let fresh = catalog::build(&fresh_store).unwrap();
+    let got = store.catalog_unchecked().unwrap();
+    assert_eq!(
+        *got, fresh,
+        "unchecked catalog diverged at step {step} after {op}"
+    );
+    match (store.catalog(), catalog::build_checked(&fresh_store)) {
+        (Ok(a), Ok(b)) => assert_eq!(*a, b, "checked catalog diverged at step {step} after {op}"),
+        (
+            Err(RepositoryError::CatalogLoad { diagnostics: a, .. }),
+            Err(RepositoryError::CatalogLoad { diagnostics: b, .. }),
+        ) => {
+            assert_eq!(a, b, "fatal diagnostics diverged at step {step} after {op}")
+        }
+        (a, b) => panic!("checked outcome diverged at step {step} after {op}: {a:?} vs {b:?}"),
+    }
+}
+
+#[test]
+fn patched_catalog_equals_fresh_build_over_random_writes() {
+    for seed in 1..=8u64 {
+        let mut rng = Xor(0x9e37_79b9_7f4a_7c15 ^ seed.wrapping_mul(0x1000_0000_01b3));
+        let mut files = BTreeMap::new();
+        files.insert(
+            "manifest.json".to_string(),
+            MINIMAL_MANIFEST.as_bytes().to_vec(),
+        );
+        let vfs = Rc::new(MemVfs::from_map(files));
+        let store = FileStore::from_vfs(vfs.clone());
+        // Warm the state so every following write exercises the patch path.
+        store.catalog_unchecked().unwrap();
+
+        let ids: Vec<String> = (1..=5).map(uuid).collect();
+        let mut live: Vec<String> = Vec::new();
+        for step in 0..120 {
+            let (path, body): (String, Option<Vec<u8>>) = match rng.next() % 12 {
+                0 | 1 => {
+                    let id = rng.pick(&ids).clone();
+                    (
+                        format!("records/{}.json", rng.next() % 6),
+                        Some(record_json(&id).into_bytes()),
+                    )
+                }
+                2 | 3 => {
+                    let id = rng.pick(&ids).clone();
+                    (
+                        format!("notes/{}.json", rng.next() % 6),
+                        Some(note_json(&id).into_bytes()),
+                    )
+                }
+                4 => {
+                    let r = uuid(100 + rng.next() % 4);
+                    let (s, t) = (rng.pick(&ids).clone(), rng.pick(&ids).clone());
+                    (
+                        format!("relations/{r}.json"),
+                        Some(relation_json(&r, &s, &t).into_bytes()),
+                    )
+                }
+                5 => {
+                    let c = uuid(200 + rng.next() % 3);
+                    let members = vec![rng.pick(&ids).clone(), rng.pick(&ids).clone()];
+                    (
+                        format!("containers/{c}.json"),
+                        Some(container_json(&c, &members).into_bytes()),
+                    )
+                }
+                6 => (
+                    format!("records/{}.json", rng.next() % 6),
+                    Some(b"{ not json".to_vec()),
+                ),
+                7 => (
+                    format!("records/{}.txt", rng.next() % 3),
+                    Some(b"stray".to_vec()),
+                ),
+                8 => (
+                    format!("docs/{}.md", rng.next() % 3),
+                    Some(b"app content".to_vec()),
+                ),
+                // Fallback paths: manifest and a package manifest force a full rebuild.
+                9 => (
+                    "manifest.json".to_string(),
+                    Some(MINIMAL_MANIFEST.as_bytes().to_vec()),
+                ),
+                10 => (
+                    format!("p{}/package.json", rng.next() % 2),
+                    Some(br#"{"name":"npm-thing"}"#.to_vec()),
+                ),
+                _ => {
+                    if live.is_empty() {
+                        continue;
+                    }
+                    let i = (rng.next() % live.len() as u64) as usize;
+                    (live.remove(i), None)
+                }
+            };
+            let op = match &body {
+                Some(_) => format!("write {path}"),
+                None => format!("remove {path}"),
+            };
+            match body {
+                Some(bytes) => {
+                    store
+                        .save_text_file(&path, std::str::from_utf8(&bytes).unwrap())
+                        .unwrap();
+                    if !live.contains(&path) {
+                        live.push(path);
+                    }
+                }
+                None => store.delete_instance_file(&path).unwrap(),
+            }
+            // Read after only some writes, so consecutive patches without an
+            // intervening assemble are covered too.
+            if !rng.next().is_multiple_of(3) {
+                assert_catalog_matches_fresh(&store, &vfs, step, &op);
+            }
+        }
+        assert_catalog_matches_fresh(&store, &vfs, usize::MAX, "final");
+    }
+}
