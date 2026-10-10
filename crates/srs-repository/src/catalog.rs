@@ -262,6 +262,31 @@ pub(crate) fn check_fatal(
     Ok(catalog)
 }
 
+/// The field-id set a `FieldAssignment.fieldId` resolves against for RFC-038
+/// [R13]: a repository's own on-disk field definitions, plus the embedded
+/// `com.semanticops.core` package (ADR-025) — the same merge `load_package()`
+/// performs implicitly on every load. Before this, [R13] (and the write-time
+/// mirror of it in `package_service::create_type_in_package`) checked only
+/// the on-disk set, so a Type assigning a core field by id (e.g. core
+/// `title`) was rejected at create time and, if written anyway (`type
+/// update` had no check at all), made the catalog fatally unloadable at the
+/// next `repo validate` (srs-rust#1039, srs-rust#1291 — owner ruling: core
+/// fields are always in the resolvable set, since `load_package()` already
+/// serves every repository as if they were locally declared).
+pub fn resolvable_field_ids(definitions: &[CatalogEntry]) -> BTreeSet<String> {
+    definitions
+        .iter()
+        .filter(|e| e.kind == CatalogKind::Field)
+        .map(|e| e.id.clone())
+        .chain(
+            crate::core_package::core_package()
+                .fields
+                .iter()
+                .map(|f| f.id.clone()),
+        )
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // The walker
 // ---------------------------------------------------------------------------
@@ -1468,13 +1493,7 @@ impl<'a> Builder<'a> {
             .iter()
             .map(|e| e.id.as_str())
             .collect();
-        let field_ids: BTreeSet<&str> = self
-            .entries
-            .definitions
-            .iter()
-            .filter(|e| e.kind == CatalogKind::Field)
-            .map(|e| e.id.as_str())
-            .collect();
+        let field_ids = resolvable_field_ids(&self.entries.definitions);
 
         let mut errors: Vec<(Vec<String>, String)> = Vec::new();
         for (relation_id, source, target, locator) in &self.relation_endpoints {
