@@ -141,7 +141,7 @@ Partial or behind the spec: `ext:addressability` (context queries exist, the ful
 - [`ARCHITECTURE.md`](ARCHITECTURE.md): crate boundaries and design overview.
 - [`docs/architecture/capability-layering.md`](docs/architecture/capability-layering.md): where functionality belongs (required reading before adding a capability).
 - [`docs/adr/`](docs/adr/): the architecture decision records.
-- [`docs/project-management.md`](docs/project-management.md): the canonical issue/priority process (Project #5).
+- [`docs/project-management.md`](docs/project-management.md): historical issue/priority process; programme and board tooling now live in the-greenman/clerk (`docs/tools.md`).
 - [`plans/`](plans/): active implementation and phase plans.
 - [`CLAUDE.md`](CLAUDE.md): contributor rules (crate authority, handler pattern, payload contract).
 

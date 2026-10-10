@@ -162,30 +162,12 @@ The hook runs `cargo test --test payload_contracts`. If it fails, regenerate sch
 
 ## Project & priority management
 
-Issues across the ecosystem are tracked on **Project #6 "SemanticOps"** (#5 is frozen history) and prioritised **top-down from
-user stories**. The authoritative process — the priority model (story MoSCoW → derived
-`priority: Pn`), sub-issue linkage, the Status/iteration conventions, and the `gh-project` tool —
-is in **[docs/project-management.md](docs/project-management.md)**.
+Programme, queue, board and priority tooling live in **the-greenman/clerk** (`docs/tools.md`; locally `~/dev/semanticops/clerk`): `clerk board` (story-driven priority on Project #6; stories and epics in `the-greenman/semanticops.com`), `clerk roadmap` (derives epic priority from the srs-programme period ranking; the only writer of epic priority), `clerk queue`. The slash commands `/triage`, `/stories`, `/roadmap` are canonical in clerk `.claude/commands/`. Programme data (roadmap, problems, sessions) is **the-greenman/srs-programme**.
 
-Quick rules:
-- **Never hand-set an implementation issue's priority.** It is derived from the user stories it
-  serves (as native GitHub sub-issues) by `gh-project rollup`. Humans set **MoSCoW** on stories.
-  Engineering work with no story inherits its **epic's Priority one tier down** (epic fallback).
-- **File issues linked.** When you file an implementation issue, immediately parent it under the
-  story or engineering epic it serves: `gh-project link <parent-repo>#<n> <child-repo>#<n>` (plain
-  REST — works in proxy-bound routines too). An issue under no story and no epic is orphaned and
-  gets no priority.
-- **Bugs** are fixed ASAP — they floor at `priority: P1` even without a story.
-- **Unlinked non-bug** work is flagged ("could get lost"), never dropped — link it to a story.
-- **Epics are releases.** An `epic` (in semanticops.com; priority derived by srs-programme) *is* a release: its **`Epic NN:` title**
-  is identity + roadmap sequence (retitle to renumber), its board **Priority** is the urgency tier.
-  There is no Release field — membership is the sub-issue graph (`tree <epic#>`, `summary --epic N`).
-  Every story should sit under an epic — `coverage` flags `orphan_stories_no_epic`.
-- The tool **self-discovers** the board IDs — never hardcode project/field IDs in a prompt.
-- **Explainable estimates:** `gh-project summary` shows all priority estimates with the six
-  calculation stages; `gh-project explain <repo> <#>` walks one issue through them.
-- Skills: `/triage`, `/stories`, `/roadmap`. Tool source: `scripts/gh-project.mjs`, released as a
-  GitHub asset (`gh release download --repo the-greenman/srs-rust --pattern gh-project.mjs`).
+Rules that still hold here:
+- **Never hand-set an implementation issue's priority**; it is derived from the stories it serves. Epic priority is never set by hand.
+- **File issues linked**: parent every new implementation issue under the story or epic it serves (`clerk board link <parent-repo>#<n> <child-repo>#<n>`).
+- **Bugs** floor at `priority: P1`; unlinked non-bug work is flagged, never dropped.
 
 ## Branch & PR hygiene
 
