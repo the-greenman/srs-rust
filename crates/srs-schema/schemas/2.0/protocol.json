@@ -27,6 +27,7 @@
     },
     "namespace": {
       "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$",
       "description": "The namespace this Protocol belongs to. Canonical form is namespace/name@version."
     },
     "name": {
