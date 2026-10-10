@@ -141,7 +141,6 @@ jobs:
             "${{ steps.package_wasm.outputs.archive }}.sha256" \
             "${{ steps.package_payload_schemas.outputs.archive }}" \
             "${{ steps.package_payload_schemas.outputs.archive }}.sha256" \
-            scripts/gh-project.mjs \
             skills/SKILL.md \
             --target "${{ github.sha }}" \
             --draft \
@@ -157,9 +156,6 @@ jobs:
           \`\`\`
 
           A matching \`${{ steps.package.outputs.archive }}.sha256\` is attached for verification.
-
-          The project/priority tool \`gh-project.mjs\` is also attached (stable URL
-          \`/releases/latest/download/gh-project.mjs\`); see \`docs/project-management.md\`.
 
           The \`srs-bindings\` WASM package (\`wasm-pack build crates/srs-bindings --target web\`
           output: \`.wasm\` + \`.js\` + \`.d.ts\`) is attached as \`${{ steps.package_wasm.outputs.archive }}\`
@@ -278,8 +274,7 @@ jobs:
       # Set a `CORPUS_TOKEN` secret on THIS repository to switch it on: a fine-grained PAT whose
       # repository access is muDemocracy.org alone, with `Contents: Read-only` and nothing else.
       # Named for the `BOARD_TOKEN` convention `srs` and `srs-web` already use — deliberately NOT a
-      # second name with a `secrets.A || secrets.B` fallback, which is what board-sync.yml has to do
-      # because this repo called the same thing BOARD_SECRET.
+      # second name with a `secrets.A || secrets.B` fallback.
       #
       # It will expire; fine-grained PATs always do. When it does, the checkout fails and this job
       # goes red naming itself, which is the intended behaviour — see the note on
