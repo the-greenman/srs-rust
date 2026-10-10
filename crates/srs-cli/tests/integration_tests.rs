@@ -6897,6 +6897,7 @@ fn type_schema_emits_draft07_for_record_field_values() {
             "namespace": "com.semanticops.schemademo",
             "name": "status",
             "version": 1,
+            "description": "Current status of the decision",
             "aiGuidance": {"purpose": "captures the title value"},
             "valueType": "select",
             "allowedValues": ["proposed", "accepted"]
@@ -6918,7 +6919,7 @@ fn type_schema_emits_draft07_for_record_field_values() {
         "description": "A decision record",
         "fields": [
             { "fieldId": title_field_id, "order": 0, "required": true, "displayLabel": "Title" },
-            { "fieldId": status_field_id, "order": 1, "required": false, "displayLabel": "Status" }
+            { "fieldId": status_field_id, "order": 1, "required": false }
         ],
         "createdAt": "2026-01-01T00:00:00Z"
     });
@@ -6949,6 +6950,15 @@ fn type_schema_emits_draft07_for_record_field_values() {
     assert_eq!(schema["properties"]["title"]["type"], "string");
     assert_eq!(schema["properties"]["title"]["title"], "Title");
     assert_eq!(schema["required"], serde_json::json!(["title"]));
+    // no displayLabel -> no title; the description is help text only (#1382)
+    assert!(
+        schema["properties"]["status"].get("title").is_none(),
+        "no displayLabel → no title (#1382)"
+    );
+    assert_eq!(
+        schema["properties"]["status"]["x-srs-description"],
+        "Current status of the decision"
+    );
     // select field -> enum from allowedValues
     assert_eq!(
         schema["properties"]["status"]["enum"],
