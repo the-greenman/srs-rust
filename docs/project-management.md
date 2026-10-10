@@ -1,7 +1,8 @@
 # Project & priority management
 
-How issues across the SRS ecosystem are prioritised and tracked. This is the **canonical**
-copy (lives in `srs-rust`); the other code repos carry a short pointer in their `CLAUDE.md`.
+> **Moved.** Programme, queue, board and priority tooling now live in **the-greenman/clerk** (`docs/tools.md`; `clerk board` is `gh-project.mjs`, `clerk roadmap` derives epic priority from the srs-programme period ranking, `clerk queue` shows the unattended queue). Programme data is **the-greenman/srs-programme**. This file is no longer canonical; it is kept only as the operational reference (promotion pipeline, label mirror, stale claims) for the `board-sync.yml` copy of `gh-project.mjs` still running here, and is removed with it. Historical note: the process was authored here in 2026-06/07.
+
+How issues across the SRS ecosystem are prioritised and tracked. Historical copy (see the banner above).
 The process is **story-driven**, **agent-runnable**, and works inside an **isolated single-repo**
 checkout — every operation hits the GitHub API, so nothing depends on a sibling repo on disk.
 

@@ -104,11 +104,11 @@ A spec change is required if the feature:
    ```
    If the deferred item would require a spec change, add `--label "requires-spec-rfc"` and note it in the body.
 
-   **Immediately link each filed issue under the epic or story it serves** — an issue under no epic and no story is orphaned and gets no derived priority (per `srs-rust/docs/project-management.md`). Fetch the tool once (`gh release download --repo the-greenman/srs-rust --pattern gh-project.mjs --output /tmp/gh-project.mjs --clobber`) and, for each follow-up, run:
+   **Immediately link each filed issue under the epic or story it serves** — an issue under no epic and no story is orphaned and gets no derived priority (see the-greenman/clerk `docs/tools.md`). Use the clerk copy of the tool (`clerk board`, or `node ~/dev/semanticops/clerk/scripts/gh-project.mjs`) and, for each follow-up, run:
    ```
-   node /tmp/gh-project.mjs link <parent-repo>#<epic-or-story-N> <child-repo>#<filed-N>
+   node ~/dev/semanticops/clerk/scripts/gh-project.mjs link <parent-repo>#<epic-or-story-N> <child-repo>#<filed-N>
    ```
-   The natural parent is the **same epic the current issue `N` sits under** (most deferred items serve the same epic as the work that spawned them; cross-repo parents are fine — e.g. an `srs`/`srs-web` follow-up parented under an `srs-rust` epic). If a follow-up genuinely belongs to no epic (e.g. unrelated CI/infra), leave it unparented and say so explicitly — it will surface in `gh-project coverage` as unlinked-non-bug, flagged not dropped. Post a comment on the current issue listing all newly filed deferred issues **and the epic each was linked under**.
+   The natural parent is the **same epic the current issue `N` sits under** (most deferred items serve the same epic as the work that spawned them; cross-repo parents are fine — e.g. an `srs`/`srs-web` follow-up parented under an `srs-rust` epic). If a follow-up genuinely belongs to no epic (e.g. unrelated CI/infra), leave it unparented and say so explicitly — it will surface in `clerk board coverage` as unlinked-non-bug, flagged not dropped. Post a comment on the current issue listing all newly filed deferred issues **and the epic each was linked under**.
 5. **Loop:** if the plan is large (≥ 3 phases or touches ≥ 2 crates) **and** the last review produced any `blocking` finding, re-run the review on the updated plan. Repeat until a review pass yields **zero** blocking findings.
 
 ## Stage 4 — Branch & worktree
@@ -242,7 +242,7 @@ Reference: `docs/dogfooding.md`. Read its principles first — dogfooding proves
 
 5. **Update `docs/dogfooding.md`** (part of this PR's diff): update scenario steps/"Done when" for changed surfaces; add a new scenario for new surfaces (must lead with a meaningful intention — if you can't state it, note it on the issue instead); update the Coverage matrix. Verify every touched command block still runs. Commit: `docs: update dogfood scenarios for <slug> (#N)`.
 
-6. **File issues:** `bug` for anything not working as designed (patch immediately if trivial); `enhancement` for workflow gaps that required workarounds. No cosmetic/hypothetical issues. **Parent every non-bug issue you file here under its epic/story** with `node /tmp/gh-project.mjs link <parent-repo>#<epic-N> <child-repo>#<filed-N>`, exactly as in Stage 3.4 — don't leave dogfood-surfaced follow-ups orphaned.
+6. **File issues:** `bug` for anything not working as designed (patch immediately if trivial); `enhancement` for workflow gaps that required workarounds. No cosmetic/hypothetical issues. **Parent every non-bug issue you file here under its epic/story** with `node ~/dev/semanticops/clerk/scripts/gh-project.mjs link <parent-repo>#<epic-N> <child-repo>#<filed-N>`, exactly as in Stage 3.4 — don't leave dogfood-surfaced follow-ups orphaned.
 
 7. **Summarise:** scenarios run, commands exercised, guide updates made, issues filed, bugs patched inline.
 
