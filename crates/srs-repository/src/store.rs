@@ -4121,6 +4121,24 @@ pub mod memory {
             entry.name = boundary.name.clone();
             entry.version = boundary.version.clone();
             entry.package_dependencies = boundary.package_dependencies.clone();
+            drop(boundaries);
+            // Mirror FileStore: persist identity into the boundary's package.json
+            // so it validates against package-manifest.json (srs-rust#1393).
+            let key = match &boundary.selector {
+                None => "package/package.json".to_string(),
+                Some(p) => format!("{p}/package.json"),
+            };
+            if let Some(obj) = self
+                .data
+                .borrow_mut()
+                .get_mut(&key)
+                .and_then(|v| v.as_object_mut())
+            {
+                obj.insert("id".into(), serde_json::json!(boundary.id));
+                obj.insert("namespace".into(), serde_json::json!(boundary.namespace));
+                obj.insert("name".into(), serde_json::json!(boundary.name));
+                obj.insert("version".into(), serde_json::json!(boundary.version));
+            }
             // field_paths and type_paths intentionally not updated — managed by
             // add_definition_to_boundary / remove_definition_from_boundary only.
             Ok(())
@@ -4163,7 +4181,11 @@ pub mod memory {
             self.data.borrow_mut().entry(data_key).or_insert_with(|| {
                 serde_json::json!({
                     "$schema": "https://srs.semanticops.com/schema/2.0/package-manifest.json",
-                    "id": "", "namespace": "", "name": "", "version": "",
+                    // package-manifest.json requires a reverse-DNS `namespace`
+                    // (pattern-checked), so a bare-registered boundary carries a
+                    // valid placeholder until `save_package_boundary_metadata`
+                    // writes the real identity (srs-rust#1393).
+                    "id": "", "namespace": "local", "name": "", "version": "",
                     "title": "", "description": "", "status": "active",
                     "createdAt": chrono::Utc::now().to_rfc3339(),
                     "fields": [], "types": [], "relationTypes": [],

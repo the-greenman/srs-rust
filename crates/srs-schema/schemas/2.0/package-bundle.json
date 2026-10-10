@@ -186,7 +186,8 @@
           "format": "uuid"
         },
         "namespace": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$"
         },
         "name": {
           "type": "string"
@@ -268,7 +269,8 @@
           "format": "uuid"
         },
         "namespace": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$"
         },
         "name": {
           "type": "string"
@@ -353,7 +355,8 @@
           "format": "uuid"
         },
         "namespace": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$"
         },
         "name": {
           "type": "string"
@@ -398,6 +401,7 @@
         },
         "namespace": {
           "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$",
           "description": "Display label: the required package's namespace. Never used to decide satisfaction."
         },
         "name": {
