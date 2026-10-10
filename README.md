@@ -30,7 +30,6 @@ muDemocracy is the first consumer of SRS, covering decision practice. See [seman
 | `srs-bindings` | JSON-first `wasm-bindgen` surface over the same repository services | No logic duplicated from the CLI |
 | `srs-mcp-core` | Transport-agnostic MCP application core: tool catalogue, resources, prompts, JSON-RPC dispatch | No `rmcp`, Tokio or file paths |
 | `srs-mcp` | The native stdio MCP adapter, shipped inside the binary as `srs mcp serve` | Sole owner of `rmcp`/`tokio`; no tool semantics |
-| `srs-gov` | The `srs-gov` binary: governance-flow CLI + ratatui TUI composing `srs` verbs | Exploratory client |
 | `srs-projection` | Placeholder for further projections | No work until a consumer exists |
 
 Additional binaries under `crates/srs-cli/src/bin/`: `generate-schemas` and `generate-governance-seed`.
@@ -97,7 +96,6 @@ Prebuilt `srs` binaries are attached to each [release](https://github.com/the-gr
 ```bash
 cargo install --path crates/srs-cli     # install the `srs` binary
 cargo run --bin srs -- --help           # or run without installing
-cargo run --bin srs-gov -- --help       # governance-flow TUI/CLI
 ```
 
 ## Development

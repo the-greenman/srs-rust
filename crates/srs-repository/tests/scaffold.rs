@@ -69,37 +69,6 @@ fn scaffold_from_raw_seed_produces_valid_repository() {
     );
 }
 
-/// The fixture must stay byte-identical to the asset `srs-gov` actually ships
-/// (ADR-046). The scaffold behaviour this file exercises — and the two repairs
-/// the fork exists for — are properties of `crates/srs-gov/assets/governance-seed.srsj`;
-/// they are only evidence about the shipped seed while the copy under test is
-/// that seed. Nothing else asserted this, so fixture drift would have left the
-/// asset unguarded while the tests stayed green.
-#[test]
-fn fixture_seed_is_byte_identical_to_the_shipped_asset() {
-    let fixture = std::fs::read(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/governance-seed.srsj"
-    ))
-    .expect("governance-seed.srsj fixture must exist");
-    let asset = std::fs::read(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../srs-gov/assets/governance-seed.srsj"
-    ))
-    .expect("srs-gov's governance-seed.srsj asset must exist");
-
-    // `assert!`, not `assert_eq!`: these are ~50 KB each, and a byte-vector dump would bury the
-    // instruction under 400 KB of decimals.
-    assert!(
-        fixture == asset,
-        "crates/srs-repository/tests/fixtures/governance-seed.srsj has drifted from \
-         crates/srs-gov/assets/governance-seed.srsj — re-copy the asset (ADR-046). \
-         fixture {} bytes, asset {} bytes",
-        fixture.len(),
-        asset.len()
-    );
-}
-
 /// srs-rust#1180: the bundled seed must carry the binary's current data-model
 /// revision at all times. A lagging seed is what made srs-bindings-web ship a
 /// revision-8 seed after the revision-9 (RFC-046) bump landed — a document
@@ -107,7 +76,7 @@ fn fixture_seed_is_byte_identical_to_the_shipped_asset() {
 /// re-import (the-greenman/srs-web#360). When `CURRENT_DATA_MODEL_REVISION`
 /// moves, this test goes red until the seed is re-stamped with
 /// `srs repo apply-migration --id <new-migration-id> --repo
-/// crates/srs-gov/assets/governance-seed.srsj` (and the fixture copy).
+/// crates/srs-repository/tests/fixtures/governance-seed.srsj` (the single copy; also the release asset).
 #[test]
 fn seed_is_stamped_at_the_current_data_model_revision() {
     let raw = std::fs::read_to_string(concat!(

@@ -1,3 +1,5 @@
+> **Historical:** srs-gov was retired on 2026-10-10; governance tooling now lives in the-greenman/clerk.
+
 # Plan: srs-gov dogfood — show a decision with its linked attachments (#285)
 
 > **Usage note:** The purpose of a plan file is to be reviewed and executed by agents. Write it with that reader in mind: unambiguous tasks, explicit file paths, named functions, checkable acceptance criteria. A plan that requires human interpretation at execution time is incomplete.

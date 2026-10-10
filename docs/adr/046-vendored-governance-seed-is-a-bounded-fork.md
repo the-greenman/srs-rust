@@ -160,3 +160,5 @@ narrows the fork. Rows 1a–3 and 5–8 are untouched.
   byte-identical to it and tracks it for the same reasons — now asserted by
   `scaffold::fixture_seed_is_byte_identical_to_the_shipped_asset`, since the scaffold tests that
   evidence the repairs run off the fixture and would have stayed green through fixture drift.
+
+**Addendum 2026-10-10:** `srs-gov` is retired (moved to the-greenman/clerk, clerk#7). The seed now lives only at `crates/srs-repository/tests/fixtures/governance-seed.srsj` (the former `crates/srs-gov/assets` copy and the byte-identity test are gone). Remaining consumers: `governance_scaffold_service`, the WASM `createGovernanceRepository` binding (release.yml ships it in `srs-bindings-web`), and srs-web.

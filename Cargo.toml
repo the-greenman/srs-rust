@@ -7,7 +7,6 @@ members = [
     "crates/srs-cli",
     "crates/srs-projection",
     "crates/srs-bindings",
-    "crates/srs-gov",
     "crates/srs-mcp-core",
     "crates/srs-mcp",
 ]
@@ -46,8 +45,6 @@ sha2 = { version = "0.10", default-features = false }
 hex = "0.4"
 # default-features = false is a wasm32 constraint (ADR-013); deflate uses flate2/miniz_oxide (pure Rust, wasm32-safe)
 zip = { version = "2", default-features = false, features = ["deflate"] }
-ratatui = "0.28"
-crossterm = "0.28"
 # MCP adapter surface (ADR-037): rmcp + tokio are referenced ONLY by srs-mcp.
 # rmcp's serde_json tree audited under ADR-037; preserve_order is now enabled workspace-wide
 # by ADR-043 (MCP JSON-RPC output is key-order-insensitive by protocol; snapshot tests verify).
