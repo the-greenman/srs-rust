@@ -1,3 +1,5 @@
+> **Historical:** srs-gov was retired on 2026-10-10; governance tooling now lives in the-greenman/clerk.
+
 # Plan: Regenerate governance fixtures + wire `srs-gov list` composition (#298)
 
 > Sections **3c** and **4** of [`plans/srs-gov-tui-foundation.md`](srs-gov-tui-foundation.md). Built on

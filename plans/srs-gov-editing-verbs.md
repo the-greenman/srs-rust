@@ -1,3 +1,5 @@
+> **Historical:** srs-gov was retired on 2026-10-10; governance tooling now lives in the-greenman/clerk.
+
 # Plan: srs-gov Editing Verbs — Real Create, Transition, Relate
 
 > **Issue:** the-greenman/srs-rust#378

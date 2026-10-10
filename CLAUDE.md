@@ -35,7 +35,6 @@ cargo run --bin generate-schemas          # regenerate payload JSON Schema golde
 | `srs-mcp` | Native rmcp/stdio adapter (`srs mcp serve`, ADR-037): opens the repo path, translates rmcp models to/from `srs-mcp-core` JSON | Sole owner of `rmcp`/`tokio`. No tool, resource or prompt semantics — those live in `srs-mcp-core`. |
 | `srs-mcp-core` | Transport-agnostic MCP application core shared by `srs-mcp` and the WASM adapter (ADR-037): initialization/capability metadata, URI routing, JSON-native resources (catalogue and reads), prompts, the tool catalogue (single owner of tool names, descriptions, schemars schemas, shadow inputs with mandatory `From` conversions, and the tool dispatch paths; `read` is routed from `SrsMcpApplication`, which owns the repository id), and JSON-RPC dispatch (`McpDispatcher`/`SrsMcpApplication`), and the per-request `WriteSummary` the store recorded (ADR-049; exposed by `McpSession.take_write_summary`) | No `rmcp`, Tokio, stdio, file paths, or `FileStore`. Carries `wasm32-unknown-unknown`-only dependencies gated under `cfg(target_arch = "wasm32")`, reflecting the intent that it must compile for that target. |
 | `srs-projection` | Rendering and export projections | Placeholder — no work until consumers exist. |
-| `srs-gov` | Governance TUI/workflow layer over repository services | Consumes services only; no schema or storage logic of its own. |
 
 When in doubt about where logic belongs: if it would also be needed by an HTTP API or Python binding, it belongs in `srs-repository`, not `srs-cli`.
 
