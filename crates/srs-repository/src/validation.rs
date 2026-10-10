@@ -1227,39 +1227,18 @@ pub fn validate_repository(
         // was emitted during the main loop; skip the policy check silently.
     }
 
-    // --- Inv 43: warn about cross-package base type references ---
-    if let Some(Some(pkg)) = &package_for_tier2 {
-        for rt in pkg.record_types() {
-            if let Some(base_id) = &rt.extends_type_id {
-                let base_version = rt.extends_type_version.unwrap_or(1);
-                if pkg.resolve_type(base_id, base_version).is_none() {
-                    // The base type is not local. Check whether the specializing type's
-                    // namespace (a proxy for its package) is covered by any package_dependencies entry.
-                    // Cross-package base type resolution is V2 work (RFC-003); for now we warn
-                    // only when no packageDependencies entry matches the specializing type's namespace,
-                    // which indicates the package has not declared its external dependency at all.
-                    let covered_by_dep = pkg.package_dependencies.iter().any(|dep| {
-                        dep.namespace == rt.namespace
-                            || pkg
-                                .record_types()
-                                .iter()
-                                .any(|t| &t.id == base_id && dep.namespace == t.namespace)
-                    });
-                    if !covered_by_dep {
-                        diagnostics.push(ValidationDiagnostic {
-                            severity: DiagnosticSeverity::Warning,
-                            relative_path: "package/package.json".to_string(),
-                            schema_id: None,
-                            message: format!(
-                                "ext:type-inheritance (Inv 43): type '{}' extends base type '{}@{}' which is not in this package; add a packageDependencies entry for the external package",
-                                rt.id, base_id, base_version
-                            ),
-                        });
-                    }
-                }
-            }
-        }
-    }
+    // --- Inv 43: cross-package base type references ---
+    // RFC-044 [R7]/[R10] (srs-rust#1173): this check used to approximate coverage by
+    // matching a `packageDependencies` entry's `namespace` against the specializing
+    // type's own namespace — exactly the "decided from namespace or name" [R10]
+    // forbids. The correct replacement — resolving the base type's actual owning
+    // package by `packageId` — needs cross-package type-catalogue resolution that
+    // does not exist yet (`installed_set()` returns package metadata only, not each
+    // installed package's type catalogue); building it is scoped to RFC-003 V2,
+    // pending a real package distribution process. Owner ruling (srs-rust#1173,
+    // 2026-10-10): report nothing here until that resolution exists rather than keep
+    // deciding by namespace. The stricter `packageId`-keyed check is tracked as a
+    // follow-up (srs-rust#1388) blocked on package distribution.
 
     // --- RFC-006 vocabulary invariants V2, V5, V7, V9; RFC-020 Rule [N+33] ---
     // Use the package already loaded for tier-2 validation if available; otherwise try a fresh
