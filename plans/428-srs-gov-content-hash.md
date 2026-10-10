@@ -1,3 +1,5 @@
+> **Historical:** srs-gov was retired on 2026-10-10; governance tooling now lives in the-greenman/clerk.
+
 # Plan: Close #428 — srs-gov repo-create manifest contentHash regression
 
 ## Summary

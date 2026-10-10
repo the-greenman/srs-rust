@@ -87,7 +87,7 @@ jobs:
       - name: Generate migrated governance seed
         run: |
           cargo run --release --bin generate-governance-seed -- \
-            crates/srs-gov/assets/governance-seed.srsj \
+            crates/srs-repository/tests/fixtures/governance-seed.srsj \
             dist/srs-bindings/governance-seed.srsj
 
       - name: Package WASM bindings

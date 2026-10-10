@@ -611,6 +611,8 @@ This is the issue-#254/#256 capability: a single `resolve_container_view` projec
 
 ### S15 — Interactive governance list: default-hidden states + show-all + search/tag (`srs-gov list`)
 
+> **Historical:** srs-gov was retired on 2026-10-10; governance tooling now lives in the-greenman/clerk. The `srs-gov` steps below no longer run here.
+
 **Intention.** *"I'm running a governance decision log. By default the list should hide decisions that are `superseded` or `closed` — but that 'what's hidden' rule is **authored in the view**, not coded in my client — with a one-flag show-all toggle, plus search and tag narrowing. My client should only compose two services, never re-express the filter."*
 
 This is issue #298 (parent plan §4): `srs-gov list` composes `container resolve-view` (authored columns + ordered members + authored `excludeLifecycleStates`, ADR-020) with `srs find` (the runtime discovery query, ADR-019). The default-hidden states come from the package's `type-query` DocumentView; `srs-gov` forwards them to `find` and intersects the hit set with the resolved members. No lifecycle/filter semantics live in the client.
