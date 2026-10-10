@@ -34,6 +34,7 @@
     },
     "namespace": {
       "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$",
       "description": "Reverse-DNS namespace for this repository, e.g. 'com.semanticops.srs'."
     },
     "title": {
@@ -153,6 +154,7 @@
         },
         "namespace": {
           "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$",
           "description": "Optional namespace grouping."
         },
         "name": {
@@ -297,6 +299,7 @@
         },
         "namespace": {
           "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$",
           "description": "Reverse-DNS namespace of the upstream Package, e.g. 'com.mudemocracy.governance'."
         },
         "name": {

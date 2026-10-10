@@ -18,6 +18,7 @@
     },
     "namespace": {
       "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$",
       "description": "Reverse-DNS namespace, e.g. com.semanticops.srs."
     },
     "name": {
@@ -130,6 +131,7 @@
         },
         "namespace": {
           "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$",
           "description": "Display label: the required package's namespace. Never used to decide satisfaction."
         },
         "name": {
