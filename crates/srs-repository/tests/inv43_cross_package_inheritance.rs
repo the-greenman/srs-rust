@@ -86,7 +86,10 @@ fn type_inheritance_diagnostics(store: &dyn srs_repository::store::RepositorySto
 fn no_dependency_declared_emits_no_inv43_diagnostic() {
     let store = repo(json!([]));
     let diags = type_inheritance_diagnostics(&store);
-    assert!(diags.is_empty(), "expected no Inv 43 diagnostics, got {diags:?}");
+    assert!(
+        diags.is_empty(),
+        "expected no Inv 43 diagnostics, got {diags:?}"
+    );
 }
 
 /// Reproduces the exact pre-fix bug condition: a `packageDependencies` entry whose
@@ -106,5 +109,8 @@ fn namespace_coincidence_in_package_dependencies_is_never_consulted() {
         }
     ]));
     let diags = type_inheritance_diagnostics(&store);
-    assert!(diags.is_empty(), "expected no Inv 43 diagnostics, got {diags:?}");
+    assert!(
+        diags.is_empty(),
+        "expected no Inv 43 diagnostics, got {diags:?}"
+    );
 }
