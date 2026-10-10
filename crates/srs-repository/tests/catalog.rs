@@ -682,13 +682,14 @@ fn dangling_field_assignment_diagnosed_per_target_set() {
     );
 }
 
-/// The implicit core package (ADR-025) is merged into `load_package()` results but is never
-/// written to disk, so it is not part of the R13 resolution set — a FieldAssignment referencing
-/// a core field by id must still dangle at catalog load. Locks in the exact behavior
-/// `package_service::create_type_in_package`'s write-time check (srs-rust#1039) relies on:
-/// whatever R13 accepts here is exactly what that check must accept too.
+/// The implicit core package (ADR-025) is merged into `load_package()` results on every load —
+/// a FieldAssignment referencing a core field by id (e.g. core `statement`) must resolve at
+/// catalog load exactly as it would if the field were declared locally (srs-rust#1291 owner
+/// ruling: core fields are always in the [R13] resolvable set). Formerly this dangled
+/// (srs-rust#1039's write-time check mirrored that, rejecting the same reference at
+/// `type create`); this test now locks in the corrected behavior both sides must agree on.
 #[test]
-fn dangling_field_assignment_against_implicit_core_field_is_still_an_error() {
+fn field_assignment_against_implicit_core_field_resolves_at_catalog_load() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
     write(root, "manifest.json", MINIMAL_MANIFEST);
@@ -721,10 +722,12 @@ fn dangling_field_assignment_against_implicit_core_field_is_still_an_error() {
         .iter()
         .filter(|d| d.code == codes::DANGLING_REFERENCE)
         .collect();
-    assert_eq!(dangling.len(), 1, "{:?}", cat.diagnostics);
-    assert!(dangling[0]
-        .message
-        .contains("3b000001-0000-4000-a000-000000000001"));
+    assert!(
+        dangling.is_empty(),
+        "core fieldId must resolve, not dangle: {:?}",
+        dangling
+    );
+    assert!(!cat.has_fatal(), "{:?}", cat.diagnostics);
 }
 
 #[test]
