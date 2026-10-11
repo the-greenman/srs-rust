@@ -25,7 +25,7 @@ Run **autonomously**. Track stages with TodoWrite. A run that finds nothing disp
 Proxy-restricted cloud session; all five ecosystem clones are on disk.
 
 - **Works:** `git`, `gh issue *`, `gh pr *`, `gh api repos/...`, `gh workflow run`.
-- **BLOCKED, never call:** `gh api graphql`, `gh-project.mjs`, any Projects v2 query.
+- **BLOCKED, never call:** `gh api graphql`, `clerk board` (gh-project.mjs), any Projects v2 query.
 - **Default branch is `master`.** Not `main`. PR against `master`.
 - Run `git` from the repo directory. **Never** from the `semanticops/` parent — it is not a git repo.
 
