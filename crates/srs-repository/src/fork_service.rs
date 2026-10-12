@@ -115,35 +115,76 @@ pub fn fork_records(
 /// Re-create the relations of the originals on their forks (srs-rust#1354). A relation is
 /// carried when its source is a forked original (or, for `All`, its target); an end that is
 /// itself forked in this call is re-pointed to that fork, so a relation between two forked
-/// records is created once, between both forks. `derived-from` is never carried and the
+/// records is created once, between both forks. An end that is not forked here but has a
+/// `derived-from` counterpart (counterpart -> end) among the members of `container_id` is
+/// re-pointed to it (srs-rust#1377), whichever was forked first; several counterparts refuse
+/// with `fork-ambiguous-counterpart`. An edge already present (same type, ends) is not
+/// duplicated. `derived-from` is never carried and the
 /// originals' relations are untouched. Created through the normal relation path, so type
 /// validation and session-actor stamping apply. `created` collects what was made (rollback).
 fn carry_relations(
     store: &dyn RepositoryStore,
     forks: &mut [ForkPair],
     mode: CarryRelations,
+    container_id: &str,
     created: &mut Vec<Relation>,
 ) -> Result<(), RepositoryError> {
     if mode == CarryRelations::None {
         return Ok(());
     }
+    let members: std::collections::BTreeSet<String> =
+        container_service::list_members(store, container_id)?
+            .into_iter()
+            .collect();
+    let all = crate::relation_service::load_relations(store)?;
+    // original -> its forks that are members of the target container (before this call's swap).
+    let mut counterparts: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for r in &all {
+        if r.relation_type == FORK_RELATION_TYPE && members.contains(&r.source_instance_id) {
+            counterparts
+                .entry(&r.target_instance_id)
+                .or_default()
+                .push(r.source_instance_id.clone());
+        }
+    }
+    let mut existing: std::collections::BTreeSet<(String, String, String)> = all
+        .iter()
+        .map(|r| {
+            (
+                r.relation_type.clone(),
+                r.source_instance_id.clone(),
+                r.target_instance_id.clone(),
+            )
+        })
+        .collect();
     let map: BTreeMap<String, usize> = forks
         .iter()
         .enumerate()
         .map(|(i, p)| (p.original_id.clone(), i))
         .collect();
     let fork_ids: Vec<String> = forks.iter().map(|p| p.fork_id.clone()).collect();
-    let sub = |id: &str| {
-        map.get(id)
-            .map_or_else(|| id.to_string(), |&i| fork_ids[i].clone())
+    let sub = |id: &str| -> Result<String, RepositoryError> {
+        if let Some(&i) = map.get(id) {
+            return Ok(fork_ids[i].clone());
+        }
+        match counterparts.get(id).map(Vec::as_slice) {
+            None | Some([]) => Ok(id.to_string()),
+            Some([one]) => Ok(one.clone()),
+            Some(many) => Err(RepositoryError::ForkAmbiguousCounterpart {
+                end_id: id.to_string(),
+                container_id: container_id.to_string(),
+                counterparts: many.to_vec(),
+            }),
+        }
     };
-    let todo: Vec<Relation> = crate::relation_service::load_relations(store)?
-        .into_iter()
+    let todo: Vec<Relation> = all
+        .iter()
         .filter(|r| {
             r.relation_type != FORK_RELATION_TYPE
                 && (map.contains_key(&r.source_instance_id)
                     || (mode == CarryRelations::All && map.contains_key(&r.target_instance_id)))
         })
+        .cloned()
         .collect();
     for r in todo {
         // The fork the relation hangs off (source side first) lists it.
@@ -155,8 +196,16 @@ fn carry_relations(
         c.relation_id = String::new();
         c.created_at = None;
         c.created_by = None;
-        c.source_instance_id = sub(&r.source_instance_id);
-        c.target_instance_id = sub(&r.target_instance_id);
+        c.source_instance_id = sub(&r.source_instance_id)?;
+        c.target_instance_id = sub(&r.target_instance_id)?;
+        let key = (
+            c.relation_type.clone(),
+            c.source_instance_id.clone(),
+            c.target_instance_id.clone(),
+        );
+        if !existing.insert(key) {
+            continue;
+        }
         let made = crate::relation_service::create_relation_auto(store, c)?.relation;
         if let Some(i) = owner {
             forks[i].carried_relation_ids.push(made.relation_id.clone());
@@ -257,8 +306,14 @@ pub fn fork_subtree(
         .iter()
         .map(|p| (p.original_id.clone(), p.fork_id.clone()))
         .collect();
-    let done = carry_relations(store, &mut forks, opts.carry_relations, &mut carried)
-        .and_then(|()| container_service::replace_members(store, container_id, &swaps).map(|_| ()));
+    let done = carry_relations(
+        store,
+        &mut forks,
+        opts.carry_relations,
+        container_id,
+        &mut carried,
+    )
+    .and_then(|()| container_service::replace_members(store, container_id, &swaps).map(|_| ()));
     if let Err(e) = done {
         for r in &carried {
             let _ = crate::relation_service::delete_relation(store, &r.relation_id);
@@ -608,5 +663,92 @@ mod tests {
         let after = rels(&store);
         assert!(after.contains(&("refines".into(), fp, fc)));
         assert_eq!(r.carried_relations.len(), 1);
+    }
+
+    // ── srs-rust#1377: re-point to derived-from counterparts already in the target ──
+
+    /// Programme shape: suggested cluster co -refines-> problem po -supersedes-> persona so;
+    /// affirm them (fork --into, carry all) in the given order. Returns the forks' edges
+    /// among affirmed records, as indices into [co, po, so] -> fork ids.
+    fn affirm(order: [usize; 3]) -> (Vec<(String, usize, usize)>, MemoryStore, [String; 3]) {
+        let store = make_store_with_lifecycle();
+        let o = [rec(&store), rec(&store), rec(&store)];
+        let cid = "c1c1c1c1-0000-4000-8000-000000000001".to_string();
+        container_service::create_container(&store, container(&cid, None, &[(&o[0], 0)])).unwrap();
+        link(&store, "refines", &o[0], &o[1]);
+        link(&store, "supersedes", &o[1], &o[2]);
+        let mut f: [String; 3] = Default::default();
+        for i in order {
+            let r = fork_subtree(
+                &store,
+                None,
+                &o[i],
+                &ForkOptions {
+                    target_container: Some(cid.clone()),
+                    carry_relations: CarryRelations::All,
+                },
+            );
+            f[i] = r.unwrap().forks[0].fork_id.clone();
+        }
+        let idx = |id: &str| f.iter().position(|x| x == id);
+        let edges = rels(&store)
+            .into_iter()
+            .filter_map(|(t, s, d)| Some((t, idx(&s)?, idx(&d)?)))
+            .collect();
+        (edges, store, f)
+    }
+
+    #[test]
+    fn affirmed_ends_are_linked_to_each_other_in_any_order() {
+        let want = vec![
+            ("refines".to_string(), 0, 1),
+            ("supersedes".to_string(), 1, 2),
+        ];
+        for order in [
+            [2, 0, 1],
+            [1, 0, 2],
+            [0, 1, 2],
+            [2, 1, 0],
+            [1, 2, 0],
+            [0, 2, 1],
+        ] {
+            let (mut e, store, _) = affirm(order);
+            e.sort();
+            assert_eq!(e, want, "order {order:?}");
+            // never a duplicate edge
+            let all = rels(&store);
+            let mut u = all.clone();
+            u.dedup();
+            assert_eq!(all, u, "order {order:?}");
+        }
+    }
+
+    #[test]
+    fn several_counterparts_refuse_without_writing() {
+        let store = make_store_with_lifecycle();
+        let (a, b) = (rec(&store), rec(&store));
+        let cid = "c1c1c1c1-0000-4000-8000-000000000001".to_string();
+        container_service::create_container(&store, container(&cid, None, &[(&a, 0), (&b, 0)]))
+            .unwrap();
+        link(&store, "refines", &a, &b);
+        // two forks of b, both members
+        for _ in 0..2 {
+            let f = fork_records(&store, std::slice::from_ref(&b)).unwrap().0;
+            container_service::add_member(&store, &cid, &f[0].fork_id, None, None).unwrap();
+        }
+        let before = rels(&store);
+        let err = fork_subtree(
+            &store,
+            Some(&cid),
+            &a,
+            &ForkOptions {
+                carry_relations: CarryRelations::All,
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "fork-ambiguous-counterpart");
+        // the two fork_records above added derived-from; the failed fork added none.
+        assert_eq!(rels(&store), before);
     }
 }

@@ -201,6 +201,15 @@ pub enum RepositoryError {
     #[error("container '{container_id}' already exists; use `container update` to replace it")]
     ContainerAlreadyExists { container_id: String },
 
+    /// srs-rust#1377: a carried relation end has several `derived-from` counterparts in the
+    /// target container, so `record fork` cannot choose where to re-point it. Never picks.
+    #[error("fork: {end_id} has several derived-from counterparts in container {container_id}: {counterparts:?}")]
+    ForkAmbiguousCounterpart {
+        end_id: String,
+        container_id: String,
+        counterparts: Vec<String>,
+    },
+
     /// Owner ruling srs-rust#742 (2026-09-08): identity is a very explicit modification.
     /// `container delete` must refuse the repository's root container (the RFC-013
     /// `manifest.container` embed) rather than making the repository rootless as a side
@@ -728,6 +737,18 @@ impl PartialEq for RepositoryError {
                 RepositoryError::ContainerIsRepositoryRoot { container_id: b },
             ) => a == b,
             (
+                RepositoryError::ForkAmbiguousCounterpart {
+                    end_id: a,
+                    container_id: b,
+                    counterparts: c,
+                },
+                RepositoryError::ForkAmbiguousCounterpart {
+                    end_id: x,
+                    container_id: y,
+                    counterparts: z,
+                },
+            ) => a == x && b == y && c == z,
+            (
                 RepositoryError::ContainerAlreadyExists { container_id: a },
                 RepositoryError::ContainerAlreadyExists { container_id: b },
             ) => a == b,
@@ -1137,6 +1158,7 @@ impl RepositoryError {
             Self::DuplicateRelationId { .. } => "duplicate-relation-id",
             Self::ContainerNotFound { .. } => "container-not-found",
             Self::ContainerAlreadyExists { .. } => "container-already-exists",
+            Self::ForkAmbiguousCounterpart { .. } => "fork-ambiguous-counterpart",
             Self::ContainerIsRepositoryRoot { .. } => "container-is-repository-root",
             Self::ContainerValidation { .. } => "container-validation",
             Self::InvalidValueType { .. } => "invalid-value-type",
@@ -1363,6 +1385,11 @@ mod tests {
             R::ContainerAlreadyExists {
                 container_id: "x".into(),
             },
+            R::ForkAmbiguousCounterpart {
+                end_id: "x".into(),
+                container_id: "x".into(),
+                counterparts: vec![],
+            },
             R::ContainerIsRepositoryRoot {
                 container_id: "x".into(),
             },
@@ -1565,7 +1592,7 @@ mod tests {
     #[test]
     fn codes_are_kebab_case() {
         let all = all_variants();
-        assert_eq!(all.len(), 95, "all_variants() is out of step with the enum");
+        assert_eq!(all.len(), 96, "all_variants() is out of step with the enum");
         let mut seen = std::collections::HashSet::new();
         for e in &all {
             let c = e.code();
