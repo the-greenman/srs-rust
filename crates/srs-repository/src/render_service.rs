@@ -14,8 +14,8 @@ use srs_core::types::record::Record;
 use srs_core::types::relation::Relation;
 use srs_core::types::theme::{AssetMode, Theme};
 use srs_core::types::view::{
-    Composition, ContainerScope, DocumentSection, LabelMode, PresentationDirection,
-    RelationDirection, SectionSource, ThemeMode, ViewRow,
+    Composition, ContainerScope, DocumentSection, LabelMode, PresentationDirection, SectionSource,
+    ThemeMode, ViewRow,
 };
 use std::collections::HashSet;
 
@@ -986,7 +986,6 @@ fn project_contains_children_json(
                 children,
                 section.ordering.as_ref(),
                 None,
-                false,
                 package,
                 relations,
                 &section.section_id,
@@ -2050,28 +2049,11 @@ fn list_direct_members_degraded(
 fn resolve_section_instances(
     store: &dyn RepositoryStore,
     section: &DocumentSection,
-    relations: &[srs_core::types::relation::Relation],
     cli_container_id: Option<&str>,
     instance_id_filter: Option<&str>,
     diagnostics: &mut Vec<String>,
 ) -> Result<Vec<LoadedInstance>, RepositoryError> {
     match &section.source {
-        SectionSource::FixedInstances { instance_ids } => {
-            let mut records = Vec::new();
-            for id in instance_ids {
-                match get_instance_by_id(store, id)? {
-                    Some(LoadedInstance::Note(_)) => {
-                        diagnostics.push(format!(
-                            "[section:{}] FixedInstances: skipping Tier-0 note {}; notes are not rendered in composition sections",
-                            section.section_id, id
-                        ));
-                    }
-                    Some(instance) => records.push(instance),
-                    None => {}
-                }
-            }
-            Ok(records)
-        }
         SectionSource::DiscoveryQuery {
             query,
             container_ids,
@@ -2169,45 +2151,6 @@ fn resolve_section_instances(
                 ));
             }
             Ok(result)
-        }
-        SectionSource::RelationQuery {
-            from_instance_id,
-            relation_type,
-            direction,
-        } => {
-            let mut ids = Vec::new();
-            let dir = direction.as_ref().unwrap_or(&RelationDirection::Forward);
-            for relation in relations {
-                if relation.relation_type != *relation_type {
-                    continue;
-                }
-                match dir {
-                    RelationDirection::Forward => {
-                        if relation.source_instance_id == *from_instance_id {
-                            ids.push(relation.target_instance_id.clone());
-                        }
-                    }
-                    RelationDirection::Inverse => {
-                        if relation.target_instance_id == *from_instance_id {
-                            ids.push(relation.source_instance_id.clone());
-                        }
-                    }
-                }
-            }
-            let mut records = Vec::new();
-            for id in ids {
-                match get_instance_by_id(store, &id)? {
-                    Some(LoadedInstance::Note(_)) => {
-                        diagnostics.push(format!(
-                            "[section:{}] RelationQuery: skipping Tier-0 note {}; notes are not rendered in composition sections",
-                            section.section_id, id
-                        ));
-                    }
-                    Some(instance) => records.push(instance),
-                    None => {}
-                }
-            }
-            Ok(records)
         }
         SectionSource::ContainerSubset {
             container_id,
@@ -2336,7 +2279,6 @@ fn ordered_direct_members(
     section_id: &str,
     ordering: Option<&srs_core::types::view::SectionOrdering>,
     type_filter: Option<&[String]>,
-    is_fixed_instances: bool,
     package: &Package,
     relations: &[Relation],
     dedupe_for_recursion: bool,
@@ -2361,7 +2303,6 @@ fn ordered_direct_members(
         records,
         ordering,
         type_filter,
-        is_fixed_instances,
         package,
         relations,
         section_id,
@@ -2543,7 +2484,6 @@ fn resolve_section_entries(
                 &section.section_id,
                 section.ordering.as_ref(),
                 type_filter_slice,
-                false,
                 package,
                 relations,
                 dedupe_for_recursion,
@@ -2563,18 +2503,15 @@ fn resolve_section_entries(
     let records = resolve_section_instances(
         store,
         section,
-        relations,
         cli_container_id,
         instance_id_filter,
         diagnostics,
     )?;
-    let (type_filter, is_fixed_instances) =
-        relation_graph::section_ordering_inputs(&section.source);
+    let type_filter = relation_graph::section_ordering_inputs(&section.source);
     let records = relation_graph::apply_section_ordering(
         records,
         section.ordering.as_ref(),
         type_filter,
-        is_fixed_instances,
         package,
         relations,
         &section.section_id,
@@ -2620,7 +2557,6 @@ fn build_container_subset_entries(
         section_id,
         ordering,
         type_filter,
-        false,
         package,
         relations,
         dedupe_for_recursion,
@@ -3312,7 +3248,6 @@ fn render_record_at_level(
                     subsections,
                     section.ordering.as_ref(),
                     None,
-                    false,
                     ctx.package,
                     relations,
                     &section.section_id,
@@ -4593,6 +4528,32 @@ mod tests {
     use srs_core::types::record::FieldValues;
     use srs_core::types::view::{ExportConfig, SortDirection};
 
+    /// Section source selecting every record of one Type id — the test fixtures'
+    /// way to pick a specific instance now that `fixed-instances` is retired
+    /// (rfc-decision-4f1e12e5).
+    fn discovery_by_type_id(type_id: &str) -> SectionSource {
+        SectionSource::DiscoveryQuery {
+            query: srs_core::types::discovery::DiscoveryQuery {
+                type_id: Some(type_id.to_string()),
+                ..Default::default()
+            },
+            container_ids: None,
+            container_scope: None,
+        }
+    }
+
+    /// Section source selecting every record carrying one tag.
+    fn discovery_by_tag(tag: &str) -> SectionSource {
+        SectionSource::DiscoveryQuery {
+            query: srs_core::types::discovery::DiscoveryQuery {
+                tag: vec![tag.to_string()],
+                ..Default::default()
+            },
+            container_ids: None,
+            container_scope: None,
+        }
+    }
+
     fn srs_spec_repo() -> std::path::PathBuf {
         if let Ok(p) = std::env::var("SRS_SPEC_REPO") {
             return std::path::PathBuf::from(p);
@@ -5715,7 +5676,6 @@ mod tests {
             }
             .into()],
             compatible_types: Some(vec!["com.test/section.text".to_string()]),
-            protection: None,
             export_config: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
@@ -6492,7 +6452,7 @@ mod tests {
         use srs_core::types::field::{AiGuidance, Field, FieldType};
         use srs_core::types::lifecycle::{Lifecycle, LifecycleState, LifecycleTransition};
         use srs_core::types::record_type::{FieldAssignment, RecordType};
-        use srs_core::types::view::{Composition, DocumentSection, SectionSource, View};
+        use srs_core::types::view::{Composition, DocumentSection, View};
 
         let title_field = Field {
             schema: None,
@@ -6608,7 +6568,6 @@ mod tests {
             description: "View over an rfc record".to_string(),
             field_views: view_field_views,
             compatible_types: None,
-            protection: None,
             export_config: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
@@ -6634,9 +6593,7 @@ mod tests {
                 title: None,
                 description: None,
                 order: 0,
-                source: SectionSource::FixedInstances {
-                    instance_ids: vec!["00000000-0000-4000-8000-0000000000f1".to_string()],
-                },
+                source: discovery_by_type_id("t-rfc"),
                 render_view_id: Some("v-rfc".to_string()),
                 type_dispatch: None,
                 title_field_id: None,
@@ -6689,8 +6646,7 @@ mod tests {
         fv.insert("title", serde_json::json!("Adopt the Widget Format"));
         let record_id = "00000000-0000-4000-8000-0000000000f1".to_string();
         // A deterministic instance id (rather than `create_record`'s generated
-        // one) lets the DocumentSection's FixedInstances list above be authored
-        // ahead of time. `lifecycle_state: "accepted"` mirrors what a real
+        // one) keeps the record's id stable. `lifecycle_state: "accepted"` mirrors what a real
         // rfc/rfc-decision record carries after `create_record` auto-assigns
         // the bound Lifecycle's `initial_state` (also "accepted" here).
         let record = srs_core::types::record::Record {
@@ -7151,55 +7107,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn fixed_instances_section_preserves_authored_order_via_sort_chain() {
-        // Verify that sort_by_precedes_chain, when applied to FixedInstances records
-        // with NO precedes relations (simulating the bug scenario), would change their
-        // order via created_at sorting — confirming the guard is necessary.
-        // This tests the guard logic indirectly by checking sort_by_precedes_chain
-        // behaviour on records without precedes edges.
-        use srs_core::types::record::Record;
-        use std::collections::BTreeMap as StdMap;
-
-        // Create two records with different created_at — "later" has more recent timestamp.
-        let make_record = |id: &str, created: &str| Record {
-            created_by: None,
-            field_meta: None,
-            instance_id: id.to_string(),
-            type_id: "t1".to_string(),
-            type_version: 1,
-            type_namespace: "com.test".to_string(),
-            type_name: "item".to_string(),
-            field_values: FieldValues::new(),
-            lifecycle_state: None,
-            tags: None,
-            created_at: Some(created.to_string()),
-            updated_at: None,
-            extra: StdMap::new(),
-        };
-
-        // "later" was created first in time (earlier timestamp), "earlier" was created after.
-        // Without the guard, sort_by_precedes_chain would sort by created_at (ascending),
-        // producing [earlier_ts, later_ts] regardless of the authored order.
-        let later_ts = make_record("b-later", "2026-06-01T10:00:00Z");
-        let earlier_ts = make_record("a-earlier", "2026-06-01T09:00:00Z");
-
-        // Authored order: [later_ts, earlier_ts] (b first, a second).
-        // sort_by_precedes_chain with no precedes relations falls back to created_at,
-        // which would produce [earlier_ts, later_ts] (a first, b second) — wrong.
-        let authored = vec![later_ts.clone(), earlier_ts.clone()];
-        let sorted = crate::relation_graph::sort_by_precedes_chain(authored, &[]);
-
-        // sort_by_precedes_chain DOES reorder (this is what the guard must prevent).
-        assert_eq!(
-            sorted[0].instance_id, "a-earlier",
-            "sort_by_precedes_chain with no relations sorts by created_at ascending"
-        );
-        assert_eq!(sorted[1].instance_id, "b-later");
-        // This confirms that WITHOUT the guard, FixedInstances would be reordered.
-        // The guard (matches! FixedInstances) in both render paths prevents this call.
-    }
-
     // ── RFC-007 composite renderer tests ──────────────────────────────────────
 
     #[test]
@@ -7497,7 +7404,6 @@ mod tests {
                 .into(),
             ],
             compatible_types: None,
-            protection: None,
             export_config: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
@@ -10168,7 +10074,6 @@ mod tests {
             }
             .into()],
             compatible_types: Some(vec!["com.test/section.text".to_string()]),
-            protection: None,
             export_config: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
@@ -12305,13 +12210,14 @@ mod tests {
         };
         let store = crate::store::memory::MemoryStore::new(manifest, package);
 
-        for (type_id, type_namespace, type_name, instance_id, heading) in [
+        for (type_id, type_namespace, type_name, instance_id, heading, tags) in [
             (
                 "t-h",
                 "com.test",
                 "h",
                 "00000000-0000-4000-8000-0000000000a1",
                 "Widget",
+                &["n38-a1", "n38-pair"][..],
             ),
             (
                 "t-h",
@@ -12319,6 +12225,7 @@ mod tests {
                 "h",
                 "00000000-0000-4000-8000-0000000000a2",
                 "Other",
+                &["n38-pair"][..],
             ),
             (
                 "t-h-identity",
@@ -12326,6 +12233,7 @@ mod tests {
                 "h-identity",
                 "00000000-0000-4000-8000-0000000000a3",
                 "Widget",
+                &["n38-a3"][..],
             ),
         ] {
             let mut fv = srs_core::types::record::FieldValues::new();
@@ -12340,7 +12248,7 @@ mod tests {
                 field_values: fv,
                 field_meta: None,
                 lifecycle_state: None,
-                tags: None,
+                tags: Some(tags.iter().map(|t| t.to_string()).collect()),
                 created_at: Some("2026-01-01T00:00:00Z".to_string()),
                 updated_at: Some("2026-01-01T00:00:00Z".to_string()),
                 extra: std::collections::BTreeMap::new(),
@@ -12351,19 +12259,14 @@ mod tests {
         (store, view_ids)
     }
 
-    fn n38_title_field_section(
-        section_title: Option<&str>,
-        instance_ids: Vec<&str>,
-    ) -> DocumentSection {
+    fn n38_title_field_section(section_title: Option<&str>, tag: &str) -> DocumentSection {
         DocumentSection {
             composite_renderers: None,
             section_id: "s1".to_string(),
             title: section_title.map(|t| t.to_string()),
             description: None,
             order: 0,
-            source: SectionSource::FixedInstances {
-                instance_ids: instance_ids.into_iter().map(|s| s.to_string()).collect(),
-            },
+            source: discovery_by_tag(tag),
             render_view_id: None,
             type_dispatch: None,
             title_field_id: Some("f-head".to_string()),
@@ -12392,7 +12295,7 @@ mod tests {
     fn n38_exact_match_suppresses_the_heading() {
         let (store, ids) = make_n38_store(vec![(
             "exact",
-            n38_title_field_section(Some("Widget"), vec!["00000000-0000-4000-8000-0000000000a1"]),
+            n38_title_field_section(Some("Widget"), "n38-a1"),
         )]);
         let out = render_n38(&store, &ids["exact"]);
         assert!(
@@ -12405,7 +12308,7 @@ mod tests {
     fn n38_case_difference_does_not_suppress() {
         let (store, ids) = make_n38_store(vec![(
             "case",
-            n38_title_field_section(Some("widget"), vec!["00000000-0000-4000-8000-0000000000a1"]),
+            n38_title_field_section(Some("widget"), "n38-a1"),
         )]);
         let out = render_n38(&store, &ids["case"]);
         assert!(
@@ -12418,10 +12321,7 @@ mod tests {
     fn n38_whitespace_only_difference_suppresses_trim_is_the_only_normalisation() {
         let (store, ids) = make_n38_store(vec![(
             "ws",
-            n38_title_field_section(
-                Some("  Widget  "),
-                vec!["00000000-0000-4000-8000-0000000000a1"],
-            ),
+            n38_title_field_section(Some("  Widget  "), "n38-a1"),
         )]);
         let out = render_n38(&store, &ids["ws"]);
         assert!(
@@ -12432,10 +12332,8 @@ mod tests {
 
     #[test]
     fn n38_no_section_title_never_suppresses() {
-        let (store, ids) = make_n38_store(vec![(
-            "notitle",
-            n38_title_field_section(None, vec!["00000000-0000-4000-8000-0000000000a1"]),
-        )]);
+        let (store, ids) =
+            make_n38_store(vec![("notitle", n38_title_field_section(None, "n38-a1"))]);
         let out = render_n38(&store, &ids["notitle"]);
         assert!(
             out.contains("### Widget"),
@@ -12447,13 +12345,7 @@ mod tests {
     fn n38_only_the_duplicating_record_is_suppressed() {
         let (store, ids) = make_n38_store(vec![(
             "partial",
-            n38_title_field_section(
-                Some("Widget"),
-                vec![
-                    "00000000-0000-4000-8000-0000000000a1",
-                    "00000000-0000-4000-8000-0000000000a2",
-                ],
-            ),
+            n38_title_field_section(Some("Widget"), "n38-pair"),
         )]);
         let out = render_n38(&store, &ids["partial"]);
         assert!(
@@ -12474,9 +12366,7 @@ mod tests {
             title: Some("Widget".to_string()),
             description: None,
             order: 0,
-            source: SectionSource::FixedInstances {
-                instance_ids: vec!["00000000-0000-4000-8000-0000000000a3".to_string()],
-            },
+            source: discovery_by_tag("n38-a3"),
             render_view_id: None,
             type_dispatch: None,
             title_field_id: None,
@@ -12498,7 +12388,7 @@ mod tests {
     fn n38_suppression_does_not_promote_or_shift_row_levels() {
         let (store, ids) = make_n38_store(vec![(
             "levels",
-            n38_title_field_section(Some("Widget"), vec!["00000000-0000-4000-8000-0000000000a1"]),
+            n38_title_field_section(Some("Widget"), "n38-a1"),
         )]);
         let out = render_n38(&store, &ids["levels"]);
         // The heading field is skipped from the body in structured mode
@@ -13677,338 +13567,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn fixed_instances_arm_skips_tier0_note_with_diagnostic() {
-        // #527: a FixedInstances section referencing a Tier-0 note must skip it with a
-        // diagnostic rather than pushing it into the records Vec.
-        use crate::record_store::create_record;
-        use srs_core::types::note::{Note, NoteSection};
-        use srs_core::types::view::{Composition, DocumentSection, EmptyBehavior, SectionSource};
-
-        const NOTE_ID: &str = "00000000-0000-4000-8000-0000000f1001";
-
-        let (heading_field, item_type) = simple_field_and_type();
-        let doc_view = Composition {
-            schema: None,
-            ai_guidance: None,
-            lineage: None,
-            provenance: None,
-            updated_at: None,
-            composite_renderers: None,
-            id: "dv-fixed-note".to_string(),
-            namespace: "com.test".to_string(),
-            name: "fixed-note-view".to_string(),
-            version: 1,
-            description: "FixedInstances note guard regression test".to_string(),
-            container_type: None,
-            root_type_refs: None,
-            sections: vec![
-                // Section under test: FixedInstances references a Tier-0 note
-                DocumentSection {
-                    composite_renderers: None,
-                    section_id: "fixed-sec".to_string(),
-                    title: Some("Fixed".to_string()),
-                    description: None,
-                    order: 0,
-                    source: SectionSource::FixedInstances {
-                        instance_ids: vec![NOTE_ID.to_string()],
-                    },
-                    render_view_id: None,
-                    type_dispatch: None,
-                    title_field_id: Some("f-heading".to_string()),
-                    ordering: None,
-                    required: None,
-                    empty_behavior: Some(EmptyBehavior::Hide),
-                    relations_presentation: None,
-                },
-                // DiscoveryQuery section: proves typed records still render (no regression)
-                DocumentSection {
-                    composite_renderers: None,
-                    section_id: "typed-sec".to_string(),
-                    title: Some("Items".to_string()),
-                    description: None,
-                    order: 1,
-                    source: SectionSource::DiscoveryQuery {
-                        query: srs_core::types::discovery::DiscoveryQuery {
-                            type_namespace: Some("com.test".to_string()),
-                            type_name: Some("item".to_string()),
-                            ..Default::default()
-                        },
-                        container_ids: None,
-                        container_scope: None,
-                    },
-                    render_view_id: None,
-                    type_dispatch: None,
-                    title_field_id: Some("f-heading".to_string()),
-                    ordering: None,
-                    required: None,
-                    empty_behavior: Some(EmptyBehavior::Hide),
-                    relations_presentation: None,
-                },
-            ],
-            navigation_links: None,
-            export_config: Some(ExportConfig {
-                preamble: None,
-                format: Some("markdown".to_string()),
-                omit_empty_fields: None,
-            }),
-            depth_offset: None,
-            theme_ref: None,
-            theme_variants: None,
-            tags: None,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-        };
-
-        let manifest = crate::manifest::Manifest {
-            container: None,
-            upstream_package: None,
-            extra: std::collections::BTreeMap::new(),
-            source_documents_path: None,
-            root: std::path::PathBuf::from("/memory"),
-        };
-        let package = crate::package::Package {
-            id: "pkg-fixed-note".to_string(),
-            namespace: "com.test".to_string(),
-            name: "fixed-note-package".to_string(),
-            version: "1.0.0".to_string(),
-            fields: vec![heading_field],
-            record_types: vec![item_type],
-            relation_type_definitions: vec![],
-            views: vec![],
-            compositions: vec![doc_view],
-            themes: vec![],
-            blueprints: vec![],
-            protocols: vec![],
-            root: std::path::PathBuf::from("/memory"),
-            package_dependencies: vec![],
-            vocabularies: vec![],
-            lifecycles: vec![],
-        };
-        let store = crate::store::memory::MemoryStore::new(manifest, package);
-
-        crate::services::create_note(
-            &store,
-            Note {
-                created_by: None,
-                instance_id: NOTE_ID.to_string(),
-                title: Some("Skipped Note Title".to_string()),
-                tags: None,
-                sections: vec![NoteSection {
-                    name: "body".to_string(),
-                    label: None,
-                    content: "This note must not appear in FixedInstances output.".to_string(),
-                    content_hint: None,
-                    tags: None,
-                }],
-                graduated_at: None,
-                source_refs: None,
-                created_at: Some("2026-01-01T00:00:00Z".to_string()),
-                updated_at: None,
-                meta: None,
-            },
-        )
-        .unwrap();
-
-        let fv = {
-            let mut fv = srs_core::types::record::FieldValues::new();
-            fv.insert("heading", serde_json::json!("Typed Item"));
-            fv
-        };
-        create_record(&store, "t-item", 1, fv, None, None).unwrap();
-
-        let result = render_composition(RenderCompositionOptions::new(&store, "dv-fixed-note"))
-            .expect("render must not fail when FixedInstances references a Tier-0 note");
-
-        assert!(
-            !result.rendered.contains("Skipped Note Title"),
-            "note title must NOT appear in FixedInstances output; got:\n{}",
-            result.rendered
-        );
-        assert!(
-            result.rendered.contains("Typed Item"),
-            "typed record must still render via DiscoveryQuery section; got:\n{}",
-            result.rendered
-        );
-        assert!(
-            result
-                .diagnostics
-                .iter()
-                .any(|d| d.contains("[section:fixed-sec]")
-                    && d.contains("FixedInstances:")
-                    && d.contains(NOTE_ID)
-                    && d.contains("notes are not rendered in composition sections")),
-            "expected FixedInstances note-skip diagnostic; got: {:?}",
-            result.diagnostics
-        );
-    }
-
-    #[test]
-    fn relation_query_arm_skips_tier0_note_with_diagnostic() {
-        // #527: a RelationQuery section whose relations resolve to a Tier-0 note must skip
-        // it with a diagnostic rather than pushing it into the records Vec.
-        use crate::relation_service;
-        use srs_core::types::note::{Note, NoteSection};
-        use srs_core::types::relation::Relation;
-        use srs_core::types::relation_type_definition::{
-            RelationTypeCategory, RelationTypeDefinition,
-        };
-        use srs_core::types::view::{Composition, DocumentSection, EmptyBehavior, SectionSource};
-
-        // Pre-specified IDs so they are known before the Composition is built.
-        const SOURCE_ID: &str = "00000000-0000-4000-8000-000000009001";
-        const NOTE_ID: &str = "00000000-0000-4000-8000-000000009002";
-        const SECTION_ID: &str = "rq-sec";
-
-        let (heading_field, item_type) = simple_field_and_type();
-        let doc_view = Composition {
-            schema: None,
-            ai_guidance: None,
-            lineage: None,
-            provenance: None,
-            updated_at: None,
-            composite_renderers: None,
-            id: "dv-rq-note".to_string(),
-            namespace: "com.test".to_string(),
-            name: "rq-note-view".to_string(),
-            version: 1,
-            description: "RelationQuery note guard regression test".to_string(),
-            container_type: None,
-            root_type_refs: None,
-            sections: vec![DocumentSection {
-                composite_renderers: None,
-                section_id: SECTION_ID.to_string(),
-                title: Some("Related".to_string()),
-                description: None,
-                order: 0,
-                source: SectionSource::RelationQuery {
-                    from_instance_id: SOURCE_ID.to_string(),
-                    relation_type: "refers-to".to_string(),
-                    direction: None,
-                },
-                render_view_id: None,
-                type_dispatch: None,
-                title_field_id: Some("f-heading".to_string()),
-                ordering: None,
-                required: None,
-                empty_behavior: Some(EmptyBehavior::Hide),
-                relations_presentation: None,
-            }],
-            navigation_links: None,
-            export_config: Some(ExportConfig {
-                preamble: None,
-                format: Some("markdown".to_string()),
-                omit_empty_fields: None,
-            }),
-            depth_offset: None,
-            theme_ref: None,
-            theme_variants: None,
-            tags: None,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-        };
-
-        let manifest = crate::manifest::Manifest {
-            container: None,
-            upstream_package: None,
-            extra: std::collections::BTreeMap::new(),
-            source_documents_path: None,
-            root: std::path::PathBuf::from("/memory"),
-        };
-        let package = crate::package::Package {
-            id: "pkg-rq-note".to_string(),
-            namespace: "com.test".to_string(),
-            name: "rq-note-package".to_string(),
-            version: "1.0.0".to_string(),
-            fields: vec![heading_field],
-            record_types: vec![item_type],
-            relation_type_definitions: vec![RelationTypeDefinition {
-                schema: None,
-                id: "00000000-0000-4000-8000-000000000rt3".to_string(),
-                namespace: "com.test".to_string(),
-                key: "refers-to".to_string(),
-                label: "Refers To".to_string(),
-                description: "Reference relation for tests".to_string(),
-                category: RelationTypeCategory::Association,
-                canonical_direction: None,
-                irreflexive: None,
-                inverse_type: None,
-                version: 1,
-                created_at: "2026-01-01T00:00:00Z".to_string(),
-                require_same_type: None,
-                status: None,
-                updated_at: None,
-                meta: None,
-            }],
-            views: vec![],
-            compositions: vec![doc_view],
-            themes: vec![],
-            blueprints: vec![],
-            protocols: vec![],
-            root: std::path::PathBuf::from("/memory"),
-            package_dependencies: vec![],
-            vocabularies: vec![],
-            lifecycles: vec![],
-        };
-        let store = crate::store::memory::MemoryStore::new(manifest, package);
-
-        let make_note = |id: &str, title: &str| Note {
-            created_by: None,
-            instance_id: id.to_string(),
-            title: Some(title.to_string()),
-            tags: None,
-            sections: vec![NoteSection {
-                name: "body".to_string(),
-                label: None,
-                content: format!("Content of {title}."),
-                content_hint: None,
-                tags: None,
-            }],
-            graduated_at: None,
-            source_refs: None,
-            created_at: Some("2026-01-01T00:00:00Z".to_string()),
-            updated_at: None,
-            meta: None,
-        };
-
-        crate::services::create_note(&store, make_note(SOURCE_ID, "Source Note")).unwrap();
-        crate::services::create_note(&store, make_note(NOTE_ID, "Skipped Target Note")).unwrap();
-
-        relation_service::create_relation_auto(
-            &store,
-            Relation {
-                created_by: None,
-                relation_id: String::new(),
-                relation_type: "refers-to".to_string(),
-                source_instance_id: SOURCE_ID.to_string(),
-                target_instance_id: NOTE_ID.to_string(),
-                created_at: Some("2026-01-01T00:00:00Z".to_string()),
-                notes: None,
-                source_refs: None,
-                meta: None,
-            },
-        )
-        .unwrap();
-
-        let result = render_composition(RenderCompositionOptions::new(&store, "dv-rq-note"))
-            .expect("render must not fail when RelationQuery resolves to a Tier-0 note");
-
-        assert!(
-            !result.rendered.contains("Skipped Target Note"),
-            "note title must NOT appear in RelationQuery output; got:\n{}",
-            result.rendered
-        );
-        assert!(
-            result
-                .diagnostics
-                .iter()
-                .any(|d| d.contains("[section:rq-sec]")
-                    && d.contains("RelationQuery:")
-                    && d.contains(NOTE_ID)
-                    && d.contains("notes are not rendered in composition sections")),
-            "expected RelationQuery note-skip diagnostic; got: {:?}",
-            result.diagnostics
-        );
-    }
-
     // ── relationsPresentation helpers (RFC-027, #668) ────────────────────────────
 
     use srs_core::types::relation::Relation;
@@ -14107,10 +13665,22 @@ mod tests {
         store
     }
 
+    /// Type id of the one "source"/root record a relations-presentation fixture's section selects.
+    const RP_SOURCE_TYPE: &str = "t-rp-source";
+
     fn add_rp_record(
         store: &crate::store::memory::MemoryStore,
         id: &str,
         label_field: Option<(&str, &str)>,
+    ) {
+        add_rp_record_of_type(store, id, label_field, "t-test");
+    }
+
+    fn add_rp_record_of_type(
+        store: &crate::store::memory::MemoryStore,
+        id: &str,
+        label_field: Option<(&str, &str)>,
+        type_id: &str,
     ) {
         use srs_core::types::record::{FieldValues, Record};
         let mut field_values = FieldValues::new();
@@ -14122,7 +13692,7 @@ mod tests {
             created_by: None,
             field_meta: None,
             instance_id: id.to_string(),
-            type_id: "t-test".to_string(),
+            type_id: type_id.to_string(),
             type_version: 1,
             type_namespace: "com.test".to_string(),
             type_name: "item".to_string(),
@@ -14151,9 +13721,7 @@ mod tests {
             title: None,
             description: None,
             order: 0,
-            source: srs_core::types::view::SectionSource::FixedInstances {
-                instance_ids: vec!["rec-src".to_string()],
-            },
+            source: discovery_by_type_id(RP_SOURCE_TYPE),
             render_view_id: None,
             type_dispatch: None,
             title_field_id: None,
@@ -14880,7 +14448,7 @@ mod tests {
         rp_entries: Vec<RelationPresentationEntry>,
         relations: &[Relation],
     ) -> crate::store::memory::MemoryStore {
-        use srs_core::types::view::{Composition, DocumentSection, SectionSource};
+        use srs_core::types::view::{Composition, DocumentSection};
 
         let dv = Composition {
             schema: None,
@@ -14902,9 +14470,7 @@ mod tests {
                 title: None,
                 description: None,
                 order: 0,
-                source: SectionSource::FixedInstances {
-                    instance_ids: vec![source_id.to_string()],
-                },
+                source: discovery_by_type_id(RP_SOURCE_TYPE),
                 render_view_id: None,
                 type_dispatch: None,
                 title_field_id: None,
@@ -14966,7 +14532,7 @@ mod tests {
             lifecycles: vec![],
         };
         let store = crate::store::memory::MemoryStore::new(manifest, package);
-        add_rp_record(&store, source_id, None);
+        add_rp_record_of_type(&store, source_id, None, RP_SOURCE_TYPE);
         if !relations.is_empty() {
             let coll = serde_json::json!({
                 "relations": relations.iter().map(|r| serde_json::to_value(r).unwrap()).collect::<Vec<_>>()
@@ -15268,7 +14834,7 @@ mod tests {
 
     #[test]
     fn relations_block_cross_store_roundtrip() {
-        use srs_core::types::view::{Composition, DocumentSection, SectionSource};
+        use srs_core::types::view::{Composition, DocumentSection};
 
         let dv_id = "dv-rp-roundtrip";
         let rtype = "links-to";
@@ -15301,9 +14867,7 @@ mod tests {
                 title: None,
                 description: None,
                 order: 0,
-                source: SectionSource::FixedInstances {
-                    instance_ids: vec![src_id.to_string()],
-                },
+                source: discovery_by_type_id(RP_SOURCE_TYPE),
                 render_view_id: None,
                 type_dispatch: None,
                 title_field_id: None,
@@ -15363,7 +14927,7 @@ mod tests {
             lifecycles: vec![],
         };
         let mem_store = crate::store::memory::MemoryStore::new(manifest, package);
-        add_rp_record(&mem_store, src_id, None);
+        add_rp_record_of_type(&mem_store, src_id, None, RP_SOURCE_TYPE);
         add_rp_record(&mem_store, tgt_id, None);
         let coll = serde_json::json!({
             "relations": [serde_json::to_value(&the_rel).unwrap()]
@@ -15397,7 +14961,11 @@ mod tests {
                 created_by: None,
                 field_meta: None,
                 instance_id: id.to_string(),
-                type_id: "t-test".to_string(),
+                type_id: if *id == src_id {
+                    RP_SOURCE_TYPE.to_string()
+                } else {
+                    "t-test".to_string()
+                },
                 type_version: 1,
                 type_namespace: "com.test".to_string(),
                 type_name: "item".to_string(),
@@ -16421,7 +15989,6 @@ mod tests {
                     .into(),
                 ],
                 compatible_types: None,
-                protection: None,
                 export_config: Some(ExportConfig {
                     format: None,
                     preamble: None,
@@ -16637,7 +16204,7 @@ mod tests {
     fn make_contains_children_json_store(
         title_field_id: Option<&str>,
     ) -> crate::store::memory::MemoryStore {
-        use srs_core::types::view::{Composition, DocumentSection, SectionSource};
+        use srs_core::types::view::{Composition, DocumentSection};
 
         let rtds = vec![
             test_rtd("contains", "Contains", None, false),
@@ -16664,9 +16231,7 @@ mod tests {
                 title: None,
                 description: None,
                 order: 0,
-                source: SectionSource::FixedInstances {
-                    instance_ids: vec!["rec-root".to_string()],
-                },
+                source: discovery_by_type_id(RP_SOURCE_TYPE),
                 render_view_id: None,
                 type_dispatch: None,
                 title_field_id: title_field_id.map(|s| s.to_string()),
@@ -16720,7 +16285,7 @@ mod tests {
         };
         let store = crate::store::memory::MemoryStore::new(manifest, package);
 
-        add_rp_record(&store, "rec-root", Some(("title", "Root")));
+        add_rp_record_of_type(&store, "rec-root", Some(("title", "Root")), RP_SOURCE_TYPE);
         add_rp_record(&store, "rec-child-a", Some(("title", "Child A")));
         add_rp_record(&store, "rec-child-b", Some(("title", "Child B")));
 

@@ -1,3 +1,5 @@
+> **Historical:** srs-gov was retired on 2026-10-10; governance tooling now lives in the-greenman/clerk.
+
 # Plan: srs-gov --json coverage for the 5 editing verbs
 
 > Issue: srs-rust#741

@@ -158,9 +158,23 @@ pub enum SchemaError {
 
 pub type SchemaResult<T> = Result<T, SchemaError>;
 
+/// One bundled schema, compiled on first use. Compiling all schemas up front
+/// costs ~113 ms cold (srs-rust#1195); a command typically touches only a few.
 struct CompiledEntry {
     schema_id: &'static str,
-    validator: Validator,
+    src: &'static str,
+    validator: OnceLock<Validator>,
+}
+
+impl CompiledEntry {
+    fn validator(&self) -> &Validator {
+        self.validator.get_or_init(|| {
+            let schema_value: Value = serde_json::from_str(self.src)
+                .unwrap_or_else(|e| panic!("srs-schema: failed to parse {}: {e}", self.schema_id));
+            jsonschema::validator_for(&schema_value)
+                .unwrap_or_else(|e| panic!("srs-schema: failed to compile {}: {e}", self.schema_id))
+        })
+    }
 }
 
 pub struct SchemaRegistry {
@@ -169,17 +183,14 @@ pub struct SchemaRegistry {
 
 impl SchemaRegistry {
     fn build() -> Self {
-        let mut entries = Vec::with_capacity(SCHEMA_SOURCES.len());
-        for (schema_id, src) in SCHEMA_SOURCES {
-            let schema_value: Value = serde_json::from_str(src)
-                .unwrap_or_else(|e| panic!("srs-schema: failed to parse {schema_id}: {e}"));
-            let validator = jsonschema::validator_for(&schema_value)
-                .unwrap_or_else(|e| panic!("srs-schema: failed to compile {schema_id}: {e}"));
-            entries.push(CompiledEntry {
+        let entries = SCHEMA_SOURCES
+            .iter()
+            .map(|(schema_id, src)| CompiledEntry {
                 schema_id,
-                validator,
-            });
-        }
+                src,
+                validator: OnceLock::new(),
+            })
+            .collect();
         SchemaRegistry { entries }
     }
 
@@ -200,7 +211,7 @@ impl SchemaRegistry {
             .ok_or_else(|| SchemaError::UnknownSchemaId(schema_id.to_string()))?;
 
         let errors: Vec<String> = entry
-            .validator
+            .validator()
             .iter_errors(value)
             .map(|e| format!("[{}] {}", e.instance_path, e))
             .collect();
@@ -226,7 +237,7 @@ impl SchemaRegistry {
             .ok_or_else(|| SchemaError::UnknownSchemaId(declared.to_string()))?;
 
         let errors: Vec<String> = entry
-            .validator
+            .validator()
             .iter_errors(value)
             .map(|e| format!("[{}] {}", e.instance_path, e))
             .collect();
@@ -244,6 +255,13 @@ impl SchemaRegistry {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn every_bundled_schema_parses_and_compiles() {
+        for entry in &SchemaRegistry::global().entries {
+            entry.validator();
+        }
+    }
 
     #[test]
     fn registry_builds_and_has_all_schema_ids() {

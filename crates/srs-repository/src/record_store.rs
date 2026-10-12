@@ -109,6 +109,33 @@ fn reject_reserved_envelope_keys(
     Ok(())
 }
 
+/// `record get` → `record update` round trip (srs-rust#1175): a body that echoes
+/// a read-only envelope key (`instanceId`, `typeId`, `createdAt`, `lifecycleState`,
+/// …) with exactly the stored value is a no-op, so it is dropped; a differing
+/// value stays in `extra` and is rejected by `reject_reserved_envelope_keys`.
+fn drop_unchanged_readonly_envelope_keys(
+    extra: &mut BTreeMap<String, serde_json::Value>,
+    stored: &Record,
+) {
+    use serde_json::Value;
+    let s = |v: &str| Value::String(v.to_string());
+    let opt = |v: &Option<String>| v.as_deref().map(s);
+    let checks: [(&str, Option<Value>); 7] = [
+        ("instanceId", Some(s(&stored.instance_id))),
+        ("typeId", Some(s(&stored.type_id))),
+        ("typeNamespace", Some(s(&stored.type_namespace))),
+        ("typeName", Some(s(&stored.type_name))),
+        ("createdAt", opt(&stored.created_at)),
+        ("updatedAt", opt(&stored.updated_at)),
+        ("lifecycleState", opt(&stored.lifecycle_state)),
+    ];
+    for (key, value) in checks {
+        if value.is_some() && extra.get(key) == value.as_ref() {
+            extra.remove(key);
+        }
+    }
+}
+
 /// List all Tier 2 records in the repository, regardless of type.
 pub fn list_all_records(store: &dyn RepositoryStore) -> Result<Vec<Record>, RepositoryError> {
     let refs = store.list_instances(&InstanceQuery {
@@ -432,6 +459,9 @@ pub fn update_record(
             version: effective_type_version,
         })?;
 
+    let mut input_extra = input.extra;
+    drop_unchanged_readonly_envelope_keys(&mut input_extra, &record);
+
     // Three-way tag semantics:
     //   None        → preserve existing tags (caller did not supply the field)
     //   Some([])    → clear all tags
@@ -456,7 +486,6 @@ pub fn update_record(
     // whatever the caller sent).
     // RFC-046 [R5]: an identical createdBy is allowed (whole-object round trips),
     // a different/new one is `actor-changed`; the stored value is always kept.
-    let mut input_extra = input.extra;
     crate::actor_service::reconcile_update_extra(&mut input_extra, &record.created_by)?;
     reject_reserved_envelope_keys(&input_extra)?;
     let mut updated_extra = record.extra;
@@ -4400,6 +4429,27 @@ pub(crate) mod tests {
         let loaded = get_record_by_id(&store, &id).unwrap().unwrap();
         assert_eq!(loaded.value("test-name"), Some(&json!("Initial")));
         assert_eq!(loaded.lifecycle_state, None);
+    }
+
+    /// srs-rust#1175: the shape `record get` returns round-trips through update
+    /// when its read-only envelope keys are unchanged; a changed one is rejected.
+    #[test]
+    fn update_record_accepts_get_shape_round_trip() {
+        let store = make_store_with_package();
+        let fv = fvs(vec![("test-name", json!("Initial"))]);
+        let record = create_record(&store, "type-test-001", 1, fv, None, None).expect("create");
+        let id = record.instance_id.clone();
+
+        let mut body = serde_json::to_value(&record).unwrap();
+        body["fieldValues"] = json!({"test-name": "Changed"});
+        let input: UpdateRecordInput = serde_json::from_value(body.clone()).expect("deserialize");
+        let updated = update_record(&store, &id, input).expect("round trip");
+        assert_eq!(updated.value("test-name"), Some(&json!("Changed")));
+        assert_eq!(updated.instance_id, id);
+
+        body["typeName"] = json!("other");
+        let input: UpdateRecordInput = serde_json::from_value(body).expect("deserialize");
+        assert!(update_record(&store, &id, input).is_err());
     }
 
     #[test]

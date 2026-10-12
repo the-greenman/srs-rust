@@ -574,6 +574,11 @@ mod tests {
         assert!(defs.contains_key(ROOT_ID));
         assert!(defs.contains_key(SECTION_ID));
         assert!(defs.contains_key(ATTACH_ID));
+        // Definitions pass the type-schema title rule through: the unlabelled
+        // field has no title, and its description is only help text (#1382).
+        let root_title = &defs[ROOT_ID]["properties"]["title"];
+        assert!(root_title.get("title").is_none());
+        assert_eq!(root_title["x-srs-description"], json!("title description"));
         // required includes sectionSequence (required: Some(true))
         assert!(schema["required"]
             .as_array()

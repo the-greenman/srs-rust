@@ -13,7 +13,6 @@ pub mod record;
 pub mod record_type;
 pub mod relation;
 pub mod relation_type_definition;
-pub mod revision;
 pub mod source_document;
 pub mod source_document_meta;
 pub mod source_reference;

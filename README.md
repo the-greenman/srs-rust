@@ -30,7 +30,6 @@ muDemocracy is the first consumer of SRS, covering decision practice. See [seman
 | `srs-bindings` | JSON-first `wasm-bindgen` surface over the same repository services | No logic duplicated from the CLI |
 | `srs-mcp-core` | Transport-agnostic MCP application core: tool catalogue, resources, prompts, JSON-RPC dispatch | No `rmcp`, Tokio or file paths |
 | `srs-mcp` | The native stdio MCP adapter, shipped inside the binary as `srs mcp serve` | Sole owner of `rmcp`/`tokio`; no tool semantics |
-| `srs-gov` | The `srs-gov` binary: governance-flow CLI + ratatui TUI composing `srs` verbs | Exploratory client |
 | `srs-projection` | Placeholder for further projections | No work until a consumer exists |
 
 Additional binaries under `crates/srs-cli/src/bin/`: `generate-schemas` and `generate-governance-seed`.
@@ -97,7 +96,6 @@ Prebuilt `srs` binaries are attached to each [release](https://github.com/the-gr
 ```bash
 cargo install --path crates/srs-cli     # install the `srs` binary
 cargo run --bin srs -- --help           # or run without installing
-cargo run --bin srs-gov -- --help       # governance-flow TUI/CLI
 ```
 
 ## Development
@@ -141,7 +139,7 @@ Partial or behind the spec: `ext:addressability` (context queries exist, the ful
 - [`ARCHITECTURE.md`](ARCHITECTURE.md): crate boundaries and design overview.
 - [`docs/architecture/capability-layering.md`](docs/architecture/capability-layering.md): where functionality belongs (required reading before adding a capability).
 - [`docs/adr/`](docs/adr/): the architecture decision records.
-- [`docs/project-management.md`](docs/project-management.md): the canonical issue/priority process (Project #5).
+- [`docs/project-management.md`](docs/project-management.md): historical issue/priority process; programme and board tooling now live in the-greenman/clerk (`docs/tools.md`).
 - [`plans/`](plans/): active implementation and phase plans.
 - [`CLAUDE.md`](CLAUDE.md): contributor rules (crate authority, handler pattern, payload contract).
 

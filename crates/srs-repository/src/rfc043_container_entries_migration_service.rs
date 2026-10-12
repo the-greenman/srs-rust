@@ -1109,7 +1109,7 @@ mod tests {
         let mo = json!({"memberOrder": [M1, M2]});
         let mut bundle = json!({"dataModelRevision": 7, "compositions": [comp(json!([
             {"sectionId": "a", "order": 0, "source": {"type": "container-subset", "containerId": PART}, "ordering": mo},
-            {"sectionId": "b", "order": 0, "source": {"type": "fixed-instances", "instanceIds": [M1]}, "ordering": mo}]))]});
+            {"sectionId": "b", "order": 0, "source": {"type": "discovery-query", "query": {"typeName": "t"}}, "ordering": mo}]))]});
         let r = migrate_package_bundle_value(&mut bundle).unwrap();
         assert_eq!(r.sections_flipped_to_arranged, 1);
         assert_eq!(r.member_order_stripped_not_container_subset, 1);

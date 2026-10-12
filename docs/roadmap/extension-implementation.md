@@ -7,7 +7,7 @@ document records, for each, the current state of the `srs-rust` implementation; 
 inconsistencies that have drifted between spec design, the ADRs, and the code; and lays out
 the epics that drive the remaining work to full spec conformance.
 
-It is the source of truth for the `Epic: …` issues in the `the-greenman/srs-rust` tracker.
+Historical (2026-06-27): epic priority and ordering are now derived by `clerk roadmap` from the srs-programme period ranking (the-greenman/clerk, `docs/tools.md`); this table records extension status only.
 When an extension's status changes, update the table here and the linked issues together.
 
 ## Status at a glance

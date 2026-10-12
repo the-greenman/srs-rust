@@ -1,3 +1,5 @@
+> **Historical:** srs-gov was retired on 2026-10-10; governance tooling now lives in the-greenman/clerk.
+
 # Governance Flow — Navigation-Driven Container Resolution
 
 ## How `srs-gov` Derives Structural Navigation

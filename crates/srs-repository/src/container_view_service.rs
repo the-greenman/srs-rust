@@ -260,7 +260,6 @@ pub fn resolve_container_view(
                 instances,
                 section.ordering.as_ref(),
                 None,
-                false,
                 &package,
                 &relations,
                 &section.section_id,
@@ -630,7 +629,6 @@ mod tests {
             description: "decision view".to_string(),
             field_views,
             compatible_types: None,
-            protection: None,
             export_config: None,
             tags: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
@@ -901,16 +899,22 @@ mod tests {
             section(
                 "s-late",
                 5,
-                SectionSource::FixedInstances {
-                    instance_ids: vec![],
+                SectionSource::ContainerSubset {
+                    container_id: Some("c1".to_string()),
+                    container_type: None,
+                    type_filter: None,
+                    container_scope: None,
                 },
                 Some(VIEW_ID),
             ),
             section(
                 "s-early-noview",
                 0,
-                SectionSource::FixedInstances {
-                    instance_ids: vec![],
+                SectionSource::ContainerSubset {
+                    container_id: Some("c1".to_string()),
+                    container_type: None,
+                    type_filter: None,
+                    container_scope: None,
                 },
                 None,
             ),
@@ -949,8 +953,11 @@ mod tests {
             vec![section(
                 "s1",
                 0,
-                SectionSource::FixedInstances {
-                    instance_ids: vec![],
+                SectionSource::ContainerSubset {
+                    container_id: Some("c1".to_string()),
+                    container_type: None,
+                    type_filter: None,
+                    container_scope: None,
                 },
                 None,
             )],
@@ -1420,8 +1427,11 @@ mod tests {
             vec![section(
                 "s1",
                 0,
-                SectionSource::FixedInstances {
-                    instance_ids: vec![],
+                SectionSource::ContainerSubset {
+                    container_id: Some("c1".to_string()),
+                    container_type: None,
+                    type_filter: None,
+                    container_scope: None,
                 },
                 Some(VIEW_ID),
             )],
@@ -2097,8 +2107,11 @@ mod tests {
             vec![section(
                 "s1",
                 0,
-                SectionSource::FixedInstances {
-                    instance_ids: vec![],
+                SectionSource::ContainerSubset {
+                    container_id: Some("c1".to_string()),
+                    container_type: None,
+                    type_filter: None,
+                    container_scope: None,
                 },
                 Some(VIEW_ID),
             )],

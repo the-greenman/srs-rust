@@ -41,6 +41,13 @@ fn type_schema_resolves_latest_version() {
         result.schema["properties"].is_object(),
         "schema carries field properties"
     );
+    // Labelled pass-through guard (#1382): an authored displayLabel is the title.
+    // Every gallery field is labelled, so the unlabelled case is proven by the
+    // srs-repository service tests behind this same call.
+    assert_eq!(
+        result.schema["properties"]["decision_question"]["title"],
+        serde_json::json!("Decision Question")
+    );
 }
 
 /// A pinned `type_version` resolves the same schema as the latest lookup (gallery has only v1).

@@ -71,25 +71,12 @@ fn cmd_note_create(ctx: CliContext) -> Result<String> {
     }) {
         return Ok(output::any_err("note create", &e));
     }
-    // `containerId` travels alongside the Note fields in the stdin payload
-    // (the same shape the MCP `note_create` tool accepts) — pull it off the
-    // raw value before parsing the rest as `Note`, so `Note`'s own fields
-    // keep producing JSON-path-aware errors (issue #511). Going through
-    // `CreateNoteInput`'s `#[serde(flatten)]` instead loses that path info,
-    // since `serde_path_to_error` can't see through a flattened struct.
-    let payload_container_id = match raw.as_object().and_then(|obj| obj.get("containerId")) {
-        None | Some(serde_json::Value::Null) => None,
-        Some(serde_json::Value::String(s)) => Some(s.clone()),
-        Some(other) => {
-            return Ok(output::repo_err(
-                "note create",
-                &RepositoryError::InvalidInput {
-                    message: format!(
-                        "Failed to parse note JSON at containerId: expected a string, got {other}"
-                    ),
-                },
-            ))
-        }
+    let payload_container_id = match raw.as_object() {
+        Some(obj) => match srs_repository::services::extract_note_container_id(obj) {
+            Ok(id) => id,
+            Err(e) => return Ok(output::repo_err("note create", &e)),
+        },
+        None => None,
     };
 
     let note: Note = crate::input::from_str("note", &raw.to_string())?;

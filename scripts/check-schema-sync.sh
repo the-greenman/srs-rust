@@ -13,8 +13,14 @@
 # --require-vscode to turn a skipped srs-vscode mirror into an error, for
 # environments (e.g. a release gate) that must have it present.
 #
+# The spec repo is resolved from $SRS_SPEC_DIR first, falling back to the
+# sibling path `../srs` (srs-rust#1385: a `scripts/wt` worktree lives outside
+# the semanticops parent directory, where the sibling guess doesn't exist even
+# though the mirrors are in sync) — same precedence as check-schema-drift.sh.
+#
 # Usage (from srs-rust/ workspace root):
 #   bash scripts/check-schema-sync.sh [--require-vscode]
+#   SRS_SPEC_DIR=/path/to/srs bash scripts/check-schema-sync.sh
 
 set -euo pipefail
 
@@ -31,11 +37,14 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="$(dirname "$SCRIPT_DIR")"
-SPEC_SCHEMA_DIR="$(dirname "$WORKSPACE_ROOT")/srs/docs/schema/2.0"
+SPEC_REPO_DIR="${SRS_SPEC_DIR:-$(dirname "$WORKSPACE_ROOT")/srs}"
+SPEC_SCHEMA_DIR="$SPEC_REPO_DIR/docs/schema/2.0"
 EMBEDDED_SCHEMA_DIR="$WORKSPACE_ROOT/crates/srs-schema/schemas/2.0"
 
 if [[ ! -d "$SPEC_SCHEMA_DIR" ]]; then
   echo "ERROR: spec schema directory not found: $SPEC_SCHEMA_DIR" >&2
+  echo "       Set SRS_SPEC_DIR to the path of the srs spec repo (e.g. in a" >&2
+  echo "       scripts/wt worktree, which lives outside the sibling-path guess)." >&2
   exit 1
 fi
 

@@ -1,3 +1,5 @@
+> **Historical:** srs-gov was retired on 2026-10-10; governance tooling now lives in the-greenman/clerk.
+
 # Plan: Fix srs-gov repo-create root container scaffolding (#297)
 
 ## Summary

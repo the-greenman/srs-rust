@@ -235,23 +235,21 @@ pub(crate) fn children_by_relation_type(
     Ok(sort_by_precedes_chain(children, all_relations))
 }
 
-/// Derive the RFC-008 `typeFilter` (when declared and non-empty) and the
-/// `FixedInstances` flag from a section's `source`, for an
+/// Derive the RFC-008 `typeFilter` (when declared and non-empty) from a
+/// section's `source`, for an
 /// [`apply_section_ordering`] caller whose contract is "this section's
 /// rendered subset" (render/project). A caller whose contract is "the full
 /// membership, reordered" (the container-view editor projection) passes
-/// `(None, false)` to `apply_section_ordering` directly instead of calling
+/// `None` to `apply_section_ordering` directly instead of calling
 /// this helper — see that function's `type_filter` doc.
-pub(crate) fn section_ordering_inputs(source: &SectionSource) -> (Option<&[String]>, bool) {
-    let type_filter = match source {
+pub(crate) fn section_ordering_inputs(source: &SectionSource) -> Option<&[String]> {
+    match source {
         SectionSource::ContainerSubset {
             type_filter: Some(f),
             ..
         } if !f.is_empty() => Some(f.as_slice()),
         _ => None,
-    };
-    let is_fixed_instances = matches!(source, SectionSource::FixedInstances { .. });
-    (type_filter, is_fixed_instances)
+    }
 }
 
 /// Apply a `DocumentSection`'s ordering ladder: authored `ordering.fieldId`+`direction`,
@@ -263,10 +261,7 @@ pub(crate) fn section_ordering_inputs(source: &SectionSource) -> (Option<&[Strin
 /// `type_filter` is the RFC-008 `typeFilter` to project onto the result
 /// (`None` to skip filtering entirely — a caller whose contract is "the full
 /// membership, reordered" rather than "this section's rendered subset", e.g.
-/// the container-view editor projection, passes `None`). `is_fixed_instances`
-/// suppresses the [N+12] fallback: a `FixedInstances` section's declared
-/// `instance_ids` order is the author's intent and must not be overridden
-/// when no explicit `ordering` is present.
+/// the container-view editor projection, passes `None`).
 ///
 /// One shared implementation for every ordering consumer (render, container
 /// view) — see `docs/architecture/capability-layering.md`: if two callers
@@ -276,7 +271,6 @@ pub(crate) fn apply_section_ordering(
     mut records: Vec<LoadedInstance>,
     ordering: Option<&SectionOrdering>,
     type_filter: Option<&[String]>,
-    is_fixed_instances: bool,
     package: &Package,
     relations: &[Relation],
     _section_id: &str,
@@ -307,11 +301,8 @@ pub(crate) fn apply_section_ordering(
         }
     }
 
-    // No explicit ordering: [N+12] fallback, unless the section's declared
-    // instance order (FixedInstances) must be preserved as authored.
-    if !is_fixed_instances {
-        records = sort_by_precedes_chain(records, relations);
-    }
+    // No explicit ordering: [N+12] fallback.
+    records = sort_by_precedes_chain(records, relations);
     apply_type_filter(&mut records, type_filter, package);
     records
 }
@@ -686,7 +677,6 @@ mod tests {
             records,
             None,
             None,
-            false,
             &package,
             &relations,
             "s1",
@@ -694,29 +684,6 @@ mod tests {
         );
         let ids: Vec<&str> = result.iter().map(|r| r.instance_id()).collect();
         assert_eq!(ids, vec!["m", "z"]);
-    }
-
-    /// A `FixedInstances` section's declared order is the author's intent and
-    /// must survive even though the [N+12] fallback would reorder it.
-    #[test]
-    fn apply_section_ordering_fixed_instances_preserves_declared_order_absent_ordering() {
-        let ts = "2026-01-01T00:00:00Z";
-        let records = vec![loaded("z", ts), loaded("m", ts)];
-        let relations = vec![make_precedes("m", "z")];
-        let package = minimal_package();
-        let mut diagnostics = Vec::new();
-        let result = apply_section_ordering(
-            records,
-            None,
-            None,
-            true,
-            &package,
-            &relations,
-            "s1",
-            &mut diagnostics,
-        );
-        let ids: Vec<&str> = result.iter().map(|r| r.instance_id()).collect();
-        assert_eq!(ids, vec!["z", "m"]);
     }
 
     /// The container-view editor projection passes `type_filter: None` even
@@ -742,7 +709,6 @@ mod tests {
             records,
             Some(&ordering),
             None,
-            false,
             &package,
             &[],
             "s1",
