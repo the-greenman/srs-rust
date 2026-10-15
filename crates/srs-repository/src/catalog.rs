@@ -23,7 +23,7 @@
 //!   transitional shim for a filed corpus defect (the-greenman/srs#369).
 
 use crate::error::RepositoryError;
-use crate::store::RepositoryStore;
+use crate::store::{CandidateSource, RepositoryStore};
 use crate::validation::DiagnosticSeverity;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -380,6 +380,136 @@ const DEFINITION_ARRAYS: &[(&str, CatalogKind, &str)] = &[
     ),
 ];
 
+/// Per-file result of reading and classifying one instance candidate. Pure of
+/// builder state so the prepass can compute it on any thread (srs-rust#1197).
+enum Prepared {
+    /// Enumerated then vanished — treated as absent.
+    Absent,
+    /// Read or parse failure; the message is the underlying error's display.
+    Malformed(String),
+    Classified(Result<(CatalogKind, u8, String), (&'static str, String)>),
+}
+
+/// Read raw candidates serially (the store is not `Sync`), then parse and
+/// classify them — in parallel on native targets, sequentially on wasm32.
+/// Results are keyed by path, so the merge order stays the caller's sorted
+/// order and diagnostics are identical to the fully sequential build.
+fn prepare_instance_candidates(
+    store: &dyn RepositoryStore,
+    paths: Vec<&String>,
+    parallel: bool,
+) -> BTreeMap<String, Prepared> {
+    let sources: Vec<(&String, Result<CandidateSource, RepositoryError>)> = paths
+        .into_iter()
+        .map(|p| (p, store.read_candidate_source(p)))
+        .collect();
+    let work = |(path, src): (&String, Result<CandidateSource, RepositoryError>)| {
+        (path.clone(), classify_source(src))
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use rayon::prelude::*;
+        if parallel {
+            return sources.into_par_iter().map(work).collect();
+        }
+    }
+    let _ = parallel;
+    sources.into_iter().map(work).collect()
+}
+
+fn classify_source(src: Result<CandidateSource, RepositoryError>) -> Prepared {
+    match src.and_then(CandidateSource::into_value) {
+        Ok(value) => Prepared::Classified(classify_instance_value(&value)),
+        Err(e) if e.is_not_found() => Prepared::Absent,
+        Err(e) => Prepared::Malformed(e.to_string()),
+    }
+}
+
+/// [R6]/[R7]/[R8] classification of one parsed candidate.
+fn classify_instance_value(
+    value: &Value,
+) -> Result<(CatalogKind, u8, String), (&'static str, String)> {
+    let admissible = [
+        (srs_schema::NOTE_SCHEMA_ID, CatalogKind::Note, 0u8),
+        (srs_schema::RECORD_SCHEMA_ID, CatalogKind::Record, 2),
+    ];
+    let registry = SchemaRegistry::global();
+    let (kind, tier) = if let Some(declared) = value.get("$schema").and_then(|v| v.as_str()) {
+        // [R7]: declared, then validated. Never reclassified by shape.
+        match admissible.iter().find(|(id, _, _)| *id == declared) {
+            Some((schema_id, kind, tier)) => match registry.validate_by_id(schema_id, value) {
+                Ok(()) => (*kind, *tier),
+                Err(e) => {
+                    return Err((
+                        codes::SCHEMA_VALIDATION,
+                        format!("object fails its declared schema {declared}: {e}"),
+                    ))
+                }
+            },
+            None => {
+                return Err(if registry.schema_ids().contains(&declared) {
+                    (
+                        codes::SCHEMA_INADMISSIBLE,
+                        format!(
+                            "declared schema {declared} is not admissible under a reserved instance root"
+                        ),
+                    )
+                } else {
+                    // [R7]'s allOf branch is not yet implemented: a
+                    // domain schema composing a core entity via `allOf`
+                    // would land here and error, not classify. No such
+                    // schema exists in any fixture; resolution is owed
+                    // to Phase 3 (first service consumption of the
+                    // catalog). See the module-header transitional notes.
+                    (
+                        codes::SCHEMA_UNRESOLVABLE,
+                        format!(
+                            "declared schema {declared} does not resolve to a known entity schema"
+                        ),
+                    )
+                });
+            }
+        }
+    } else {
+        // [R8]: shape classification over the closed candidate set. The
+        // discriminators are content-shape-based (`sections` / `fields` /
+        // `typeId`+`fieldValues`), enforced by the schemas themselves.
+        let matches: Vec<&(&str, CatalogKind, u8)> = admissible
+            .iter()
+            .filter(|(id, _, _)| registry.validate_by_id(id, value).is_ok())
+            .collect();
+        match matches.as_slice() {
+            [(_, kind, tier)] => (*kind, *tier),
+            [] => {
+                return Err((
+                    codes::SHAPE_NO_MATCH,
+                    "object declares no $schema and validates as none of note.json, record.json \
+                     (Tier 1 / TypedRecord is retired — srs#448, rfc-decision-53635966, \
+                     srs-rust#888 — and no longer an admissible shape)"
+                        .to_string(),
+                ))
+            }
+            _ => {
+                let names: Vec<&str> = matches.iter().map(|(id, _, _)| *id).collect();
+                return Err((
+                    codes::SHAPE_AMBIGUOUS,
+                    format!(
+                        "object declares no $schema and validates as more than one candidate: {}",
+                        names.join(", ")
+                    ),
+                ));
+            }
+        }
+    };
+    // Schema validation guarantees instanceId on success.
+    let id = value
+        .get("instanceId")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    Ok((kind, tier, id))
+}
+
 struct Builder<'a> {
     store: &'a dyn RepositoryStore,
     entries: Sets,
@@ -410,7 +540,14 @@ struct Sets {
 /// fatality applied — `validate`-style consumers need the complete picture).
 /// `Err` is reserved for infrastructure failures (I/O other than not-found).
 pub fn build(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, RepositoryError> {
-    Ok(CatalogState::build(store)?.assemble(store))
+    Ok(CatalogState::build(store, true)?.assemble(store))
+}
+
+/// `build` with the per-file parse + validate phase forced sequential. The
+/// result is identical to `build` (srs-rust#1197); it exists for the parity
+/// test and for diagnosing.
+pub fn build_sequential(store: &dyn RepositoryStore) -> Result<RepositoryCatalog, RepositoryError> {
+    Ok(CatalogState::build(store, false)?.assemble(store))
 }
 
 /// What one classified file (or the repository-level anchors) contributed:
@@ -450,7 +587,10 @@ pub(crate) struct CatalogState {
 }
 
 impl CatalogState {
-    pub(crate) fn build(store: &dyn RepositoryStore) -> Result<Self, RepositoryError> {
+    pub(crate) fn build(
+        store: &dyn RepositoryStore,
+        parallel: bool,
+    ) -> Result<Self, RepositoryError> {
         let mut b = Builder::new(store);
 
         // [R8] standing check: the instance-schema discriminators must hold before
@@ -676,8 +816,18 @@ impl CatalogState {
 
         // --- Classification dispatch (Changes C/D; [R5] most-specific wins) ---
 
+        // Prepass: parse + schema-validate instance candidates in parallel
+        // (srs-rust#1197); the dispatch below consumes them in sorted order.
+        let mut prepared = prepare_instance_candidates(
+            store,
+            files
+                .iter()
+                .filter(|p| state.is_instance_candidate(p))
+                .collect(),
+            parallel,
+        );
         for path in &files {
-            if let Some(c) = state.classify_path(store, path) {
+            if let Some(c) = state.classify_path(store, path, prepared.remove(path)) {
                 state.per_file.insert(path.clone(), c);
             }
         }
@@ -686,7 +836,21 @@ impl CatalogState {
 
     /// Classify one file by location ([R5] most-specific wins). `None` for
     /// application content: not discovered, not validated, not modified ([R10]).
-    fn classify_path(&self, store: &dyn RepositoryStore, path: &str) -> Option<Contribution> {
+    fn is_instance_candidate(&self, path: &str) -> bool {
+        path != "manifest.json"
+            && !self.extension_paths.contains(path)
+            && !under(path, &self.sd_path)
+            && under_any(path, &self.root_instance_roots)
+            && path.ends_with(".json")
+    }
+
+    /// `prepared` is the prepass result for an instance candidate, if any.
+    fn classify_path(
+        &self,
+        store: &dyn RepositoryStore,
+        path: &str,
+        prepared: Option<Prepared>,
+    ) -> Option<Contribution> {
         if path == "manifest.json" || self.extension_paths.contains(path) {
             return None;
         }
@@ -699,7 +863,7 @@ impl CatalogState {
                 // `SIDECAR_SUFFIX` doc comment above) — every `.json` file
                 // under a reserved instance root, `.revisions.json` included,
                 // is an ordinary instance candidate.
-                b.classify_instance_candidate(path);
+                b.classify_instance_candidate(path, prepared);
             } else {
                 b.error(
                     codes::CANDIDATE_UNRECOGNISED,
@@ -758,7 +922,7 @@ impl CatalogState {
         }
         self.per_file.remove(path);
         if present {
-            if let Some(c) = self.classify_path(store, path) {
+            if let Some(c) = self.classify_path(store, path, None) {
                 self.per_file.insert(path.to_string(), c);
             }
         }
@@ -888,104 +1052,36 @@ impl<'a> Builder<'a> {
 
     /// Classify one candidate under a reserved instance root (Changes B/C;
     /// [R6]/[R7]/[R8]). Returns true when an instance entry was produced.
-    fn classify_instance_candidate(&mut self, path: &str) -> bool {
-        let Some(value) = self.read_candidate(path) else {
-            return false;
-        };
-        let admissible = [
-            (srs_schema::NOTE_SCHEMA_ID, CatalogKind::Note, 0u8),
-            (srs_schema::RECORD_SCHEMA_ID, CatalogKind::Record, 2),
-        ];
-        let registry = SchemaRegistry::global();
-        let classified = if let Some(declared) = value.get("$schema").and_then(|v| v.as_str()) {
-            // [R7]: declared, then validated. Never reclassified by shape.
-            match admissible.iter().find(|(id, _, _)| *id == declared) {
-                Some((schema_id, kind, tier)) => match registry.validate_by_id(schema_id, &value) {
-                    Ok(()) => Some((*kind, *tier)),
-                    Err(e) => {
-                        self.error(
-                            codes::SCHEMA_VALIDATION,
-                            vec![path.to_string()],
-                            format!("object fails its declared schema {declared}: {e}"),
-                        );
-                        None
-                    }
-                },
-                None => {
-                    if registry.schema_ids().contains(&declared) {
-                        self.error(
-                            codes::SCHEMA_INADMISSIBLE,
-                            vec![path.to_string()],
-                            format!(
-                                "declared schema {declared} is not admissible under a reserved instance root"
-                            ),
-                        );
-                    } else {
-                        // [R7]'s allOf branch is not yet implemented: a
-                        // domain schema composing a core entity via `allOf`
-                        // would land here and error, not classify. No such
-                        // schema exists in any fixture; resolution is owed
-                        // to Phase 3 (first service consumption of the
-                        // catalog). See the module-header transitional notes.
-                        self.error(
-                            codes::SCHEMA_UNRESOLVABLE,
-                            vec![path.to_string()],
-                            format!("declared schema {declared} does not resolve to a known entity schema"),
-                        );
-                    }
-                    None
-                }
+    /// `prepared` comes from the build prepass (parallel on native,
+    /// srs-rust#1197); without it the file is read and classified here, through
+    /// the same `classify_source`.
+    fn classify_instance_candidate(&mut self, path: &str, prepared: Option<Prepared>) -> bool {
+        let prepared =
+            prepared.unwrap_or_else(|| classify_source(self.store.read_candidate_source(path)));
+        match prepared {
+            Prepared::Absent => false,
+            Prepared::Malformed(message) => {
+                self.error(
+                    codes::CANDIDATE_MALFORMED,
+                    vec![path.to_string()],
+                    format!("malformed candidate under a reserved location: {message}"),
+                );
+                false
             }
-        } else {
-            // [R8]: shape classification over the closed candidate set. The
-            // discriminators are content-shape-based (`sections` / `fields` /
-            // `typeId`+`fieldValues`), enforced by the schemas themselves.
-            let matches: Vec<&(&str, CatalogKind, u8)> = admissible
-                .iter()
-                .filter(|(id, _, _)| registry.validate_by_id(id, &value).is_ok())
-                .collect();
-            match matches.as_slice() {
-                [(_, kind, tier)] => Some((*kind, *tier)),
-                [] => {
-                    self.error(
-                        codes::SHAPE_NO_MATCH,
-                        vec![path.to_string()],
-                        "object declares no $schema and validates as none of note.json, record.json \
-                         (Tier 1 / TypedRecord is retired — srs#448, rfc-decision-53635966, \
-                         srs-rust#888 — and no longer an admissible shape)".to_string(),
-                    );
-                    None
-                }
-                _ => {
-                    let names: Vec<&str> = matches.iter().map(|(id, _, _)| *id).collect();
-                    self.error(
-                        codes::SHAPE_AMBIGUOUS,
-                        vec![path.to_string()],
-                        format!(
-                            "object declares no $schema and validates as more than one candidate: {}",
-                            names.join(", ")
-                        ),
-                    );
-                    None
-                }
+            Prepared::Classified(Err((code, message))) => {
+                self.error(code, vec![path.to_string()], message);
+                false
             }
-        };
-        let Some((kind, tier)) = classified else {
-            return false;
-        };
-        // Schema validation guarantees instanceId on success.
-        let id = value
-            .get("instanceId")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string();
-        self.entries.instances.push(CatalogEntry {
-            id,
-            kind,
-            tier: Some(tier),
-            locator: Some(path.to_string()),
-        });
-        true
+            Prepared::Classified(Ok((kind, tier, id))) => {
+                self.entries.instances.push(CatalogEntry {
+                    id,
+                    kind,
+                    tier: Some(tier),
+                    locator: Some(path.to_string()),
+                });
+                true
+            }
+        }
     }
 
     /// Classify a file under `relations/` (Change E; [R11]).
