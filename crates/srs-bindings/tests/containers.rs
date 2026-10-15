@@ -168,3 +168,41 @@ fn relative_move_and_outline_match_the_service() {
     // the binding's "neither given" case is parse's Ok(None)
     assert_eq!(RelativeMove::parse(None, None, None), Ok(None));
 }
+
+/// The WASM `fork_record` binding is `fork_subtree` with these options (srs-rust#1377): forking
+/// every member of a container in turn with `carryRelations: all` never duplicates an edge,
+/// whichever member goes first, and re-points edges between already-forked members.
+#[test]
+fn fork_carry_all_is_order_independent_and_dedups() {
+    use srs_repository::fork_service::{fork_subtree, CarryRelations, ForkOptions};
+    let store = gallery_store();
+    let cid = "138e2fac-0000-0000-0000-000000000000";
+    let cid = list_containers(&store, &ContainerListFilter::default())
+        .unwrap()
+        .into_iter()
+        .find(|c| c.container_id.starts_with(&cid[..8]))
+        .unwrap()
+        .container_id;
+    let members = container_service::list_members(&store, &cid).unwrap();
+    let opts = ForkOptions {
+        target_container: Some(cid.clone()),
+        carry_relations: CarryRelations::All,
+    };
+    let anchor = get_container(&store, &cid).unwrap().anchor_instance_id;
+    for m in members.iter().rev().filter(|m| Some(*m) != anchor.as_ref()) {
+        fork_subtree(&store, None, m, &opts).expect("fork with carry all");
+    }
+    let rels = srs_repository::relation_service::list_relations(
+        &store,
+        srs_repository::relation_service::ListRelationsFilter::default(),
+    )
+    .unwrap();
+    let mut keys: Vec<_> = rels
+        .iter()
+        .map(|r| (&r.relation_type, &r.source_id, &r.target_id))
+        .collect();
+    let n = keys.len();
+    keys.sort();
+    keys.dedup();
+    assert_eq!(keys.len(), n, "no duplicate edges");
+}
