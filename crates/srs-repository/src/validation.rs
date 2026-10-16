@@ -790,10 +790,17 @@ pub fn validate_repository(
                                                     severity: DiagnosticSeverity::Warning,
                                                     relative_path: rel_path.clone(),
                                                     schema_id: None,
-                                                    message: format!(
-                                                        "LIFECYCLE_RELATION_UNSATISFIED: record '{}' is in state '{}' which requires a '{}' relation of type {:?} and none satisfies it (RFC-022 R1)",
-                                                        record.instance_id, state_value, direction, declared
-                                                    ),
+                                                    message: if req.is_advisory() {
+                                                        format!(
+                                                            "lifecycle-advisory-relation-unsatisfied: record '{}' is in state '{}' which advises a '{}' relation of type {:?} and none satisfies it (RFC-022 Rev 4, I-100)",
+                                                            record.instance_id, state_value, direction, declared
+                                                        )
+                                                    } else {
+                                                        format!(
+                                                            "LIFECYCLE_RELATION_UNSATISFIED: record '{}' is in state '{}' which requires a '{}' relation of type {:?} and none satisfies it (RFC-022 R1)",
+                                                            record.instance_id, state_value, direction, declared
+                                                        )
+                                                    },
                                                 });
                                             }
                                         }
@@ -4874,6 +4881,35 @@ mod tests {
         assert!(
             warn.is_some(),
             "expected RFC-022 warning for orphan relational state, got: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn rfc022_advisory_relational_state_without_relation_produces_advisory_warning() {
+        let temp = TempDir::new().unwrap();
+        let mut lc = rfc022_lifecycle_json();
+        lc["states"][1]["requiresRelation"]["enforcement"] = json!("advisory");
+        setup_repo_with_inline_lifecycle_record(&temp, "superseded", lc);
+
+        let store = crate::store::FileStore::new(temp.path());
+        let report = validate_repository(&store).unwrap();
+        let warn = report.diagnostics.iter().find(|d| {
+            d.severity == DiagnosticSeverity::Warning
+                && d.message
+                    .contains("lifecycle-advisory-relation-unsatisfied")
+        });
+        assert!(
+            warn.is_some(),
+            "expected advisory warning at rest, got: {:?}",
+            report.diagnostics
+        );
+        assert!(
+            !report
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == DiagnosticSeverity::Error),
+            "an advisory obligation must never be an error: {:?}",
             report.diagnostics
         );
     }
