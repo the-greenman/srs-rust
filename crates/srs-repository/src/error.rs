@@ -551,6 +551,11 @@ pub enum RepositoryError {
     /// the crate-internal test activation until then.
     #[error("manifest.json declares dataModelRevision {declared}; this build requires storage generation >= 2 (RFC-038 [R21]) — run the rfc038-storage migration")]
     StorageGenerationUnsupported { declared: u64 },
+
+    /// I-108 (RFC-017): a gzip-compressed file presented as a `.srsj` JSON
+    /// Store. Detected by content (`0x1f 0x8b`), never by filename.
+    #[error("{path:?} is gzip-compressed (leading bytes 0x1f 0x8b); a .srsj JSON Store is plain JSON and gzip is a retired format (I-108, RFC-017) — decompress it first")]
+    GzipSrsj { path: PathBuf },
 }
 
 impl RepositoryError {
@@ -1228,6 +1233,7 @@ impl RepositoryError {
             Self::InvalidPackageBundle { code, .. } => code,
             Self::SliceRefused { code, .. } => code,
             Self::StorageGenerationUnsupported { .. } => "storage-generation-unsupported",
+            Self::GzipSrsj { .. } => "srsj-gzip-rejected",
         }
     }
 
@@ -1586,13 +1592,14 @@ mod tests {
                 message: "x".into(),
             },
             R::StorageGenerationUnsupported { declared: 1 },
+            R::GzipSrsj { path: "x".into() },
         ]
     }
 
     #[test]
     fn codes_are_kebab_case() {
         let all = all_variants();
-        assert_eq!(all.len(), 96, "all_variants() is out of step with the enum");
+        assert_eq!(all.len(), 97, "all_variants() is out of step with the enum");
         let mut seen = std::collections::HashSet::new();
         for e in &all {
             let c = e.code();
