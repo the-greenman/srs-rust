@@ -234,6 +234,8 @@ pub struct RepoValidateSummary {
     pub checked: usize,
     pub errors: usize,
     pub warnings: usize,
+    /// Advisory diagnostics (advice only), a subset of `warnings`.
+    pub advisories: usize,
 }
 
 impl From<ValidationSummary> for RepoValidateSummary {
@@ -242,6 +244,7 @@ impl From<ValidationSummary> for RepoValidateSummary {
             checked: s.checked,
             errors: s.errors,
             warnings: s.warnings,
+            advisories: s.advisories,
         }
     }
 }
@@ -2045,7 +2048,8 @@ pub struct RepoDiffPayload {
 pub struct RepoValidatePayload {
     /// Diagnostic entries serialized from `ValidationDiagnostic` objects.
     /// Each entry contains `severity` (`error`, `warning` or `info`; `info` is
-    /// counted in neither summary total), `path`, `schemaId?`, and `message`.
+    /// counted in neither summary total), `path`, `schemaId?`, and `message`, plus `advisory: true` on advice-only
+    /// diagnostics (the severity is unchanged).
     pub diagnostics: Vec<serde_json::Value>,
     pub summary: RepoValidateSummary,
 }

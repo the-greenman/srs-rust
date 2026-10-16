@@ -8,7 +8,7 @@
   ],
   "properties": {
     "diagnostics": {
-      "description": "Diagnostic entries serialized from `ValidationDiagnostic` objects. Each entry contains `severity` (`error`, `warning` or `info`; `info` is counted in neither summary total), `path`, `schemaId?`, and `message`.",
+      "description": "Diagnostic entries serialized from `ValidationDiagnostic` objects. Each entry contains `severity` (`error`, `warning` or `info`; `info` is counted in neither summary total), `path`, `schemaId?`, and `message`, plus `advisory: true` on advice-only diagnostics (the severity is unchanged).",
       "type": "array",
       "items": true
     },
@@ -21,11 +21,18 @@
       "description": "Summary row in a repo validate payload. Mirrors `ValidationSummary` from srs-repository with a local type for JsonSchema.",
       "type": "object",
       "required": [
+        "advisories",
         "checked",
         "errors",
         "warnings"
       ],
       "properties": {
+        "advisories": {
+          "description": "Advisory diagnostics (advice only), a subset of `warnings`.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
         "checked": {
           "type": "integer",
           "format": "uint",
