@@ -26,6 +26,16 @@ meaningful. Fork is implementation-level (in no RFC or decision record), so this
    `relationType` is created with the fork substituted, preserving `notes`, `sourceRefs` and `meta`.
    An end that is also forked in the same call is re-pointed to that fork, so a relation between two
    forked records is created once, between both forks.
+
+   **Update (srs-rust#1377, 2026-10-16):** an end that is *not* forked in the current call is also
+   re-pointed, if it has exactly one `derived-from` counterpart already a member of the target
+   container — whichever end was forked first, the result is the same (order-independent). Several
+   counterparts refuse the whole fork with `RepositoryError::ForkAmbiguousCounterpart` (code
+   `fork-ambiguous-counterpart`, naming the end, the container and the competing counterparts) rather
+   than guessing; nothing is written. An edge already present (same `relationType` and both ends) is
+   never created a second time, so forking a container's members one at a time with
+   `carry_relations: all` converges on the same edge set regardless of order. See
+   `fork_service::carry_relations` and srs-rust#1395.
 4. **Excluded.** `derived-from` is never carried (the fork already has its own to the original;
    copying would assert the fork derived from the original's sources). The original's relations are
    never modified or removed.
