@@ -45,6 +45,13 @@ pub struct RequiresRelation {
 }
 
 impl RequiresRelation {
+    /// RFC-022 Rev 4 / I-100: `enforcement: "advisory"` permits the transition
+    /// and surfaces an unsatisfied obligation as a warning; absent or `"hard"`
+    /// rejects it.
+    pub fn is_advisory(&self) -> bool {
+        self.enforcement.as_deref() == Some("advisory")
+    }
+
     pub fn effective_direction(&self) -> RelationDirection {
         self.direction.unwrap_or_default()
     }
