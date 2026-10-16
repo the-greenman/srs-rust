@@ -4896,7 +4896,8 @@ mod tests {
         let report = validate_repository(&store).unwrap();
         let warn = report.diagnostics.iter().find(|d| {
             d.severity == DiagnosticSeverity::Warning
-                && d.message.contains("lifecycle-advisory-relation-unsatisfied")
+                && d.message
+                    .contains("lifecycle-advisory-relation-unsatisfied")
         });
         assert!(
             warn.is_some(),
