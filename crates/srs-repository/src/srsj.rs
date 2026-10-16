@@ -286,9 +286,18 @@ impl SrsjSession {
     }
 
     fn open_inner(path: PathBuf, rfc038_exempt: bool) -> Result<Self, RepositoryError> {
-        let raw = std::fs::read_to_string(&path).map_err(|source| RepositoryError::Io {
+        let bytes = std::fs::read(&path).map_err(|source| RepositoryError::Io {
             path: path.clone(),
             source,
+        })?;
+        // I-108 (RFC-017): sniff the gzip magic by content, before any UTF-8
+        // or JSON decoding, regardless of the file's name.
+        if bytes.starts_with(&[0x1f, 0x8b]) {
+            return Err(RepositoryError::GzipSrsj { path });
+        }
+        let raw = String::from_utf8(bytes).map_err(|e| RepositoryError::Io {
+            path: path.clone(),
+            source: std::io::Error::new(std::io::ErrorKind::InvalidData, e),
         })?;
         let mut store = open_srsj(&raw)?.rooted_at(session_root(&path));
         if rfc038_exempt {
@@ -738,5 +747,24 @@ mod tests {
             SrsjSession::create(&path),
             Err(RepositoryError::RepositoryAlreadyExists { .. })
         ));
+    }
+
+    #[test]
+    fn open_rejects_gzip_by_magic_bytes_whatever_the_name() {
+        // I-108 (RFC-017): detection is by content, not filename.
+        let dir = tempfile::TempDir::new().unwrap();
+        for name in ["repo.srsj", "repo.json", "repo"] {
+            let path = dir.path().join(name);
+            std::fs::write(&path, [0x1f, 0x8b, 0x08, 0x00, 0x00]).unwrap();
+            let err = SrsjSession::open(&path)
+                .err()
+                .expect("gzip must be rejected");
+            assert!(
+                matches!(err, RepositoryError::GzipSrsj { .. }),
+                "{name}: {err}"
+            );
+            assert_eq!(err.code(), "srsj-gzip-rejected");
+            assert!(err.to_string().contains("gzip"));
+        }
     }
 }
