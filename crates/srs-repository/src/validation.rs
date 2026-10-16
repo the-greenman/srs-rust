@@ -19,16 +19,53 @@ use srs_core::validation::relation::{validate_relation, RelationValidationContex
 use srs_schema::{SchemaRegistry, NOTE_SCHEMA_ID, RECORD_SCHEMA_ID};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ValidationDiagnostic {
     pub severity: DiagnosticSeverity,
     /// Relative path within the repository that this diagnostic applies to.
     /// Serialized as "path" for JSON backward compatibility.
-    #[serde(rename = "path")]
     pub relative_path: String,
     pub schema_id: Option<String>,
     pub message: String,
+}
+
+/// Message prefixes of the diagnostics that are advice only (SHOULD-level),
+/// the one list of advisory checks (srs-rust#700, owner ruling 2026-10-10).
+/// Their `severity` is unchanged; the marker is additive. Review clause: after
+/// at least four weeks in use across the repos that run `repo validate` in CI,
+/// the owner reviews whether to make it a standard (an RFC for a real advisory
+/// severity) or withdraw it.
+pub const ADVISORY_DIAGNOSTIC_PREFIXES: &[&str] = &["RFC-013 I-82:"];
+
+impl ValidationDiagnostic {
+    /// True when this diagnostic is advice only (listed in
+    /// [`ADVISORY_DIAGNOSTIC_PREFIXES`]) and not an error.
+    pub fn is_advisory(&self) -> bool {
+        self.severity != DiagnosticSeverity::Error
+            && ADVISORY_DIAGNOSTIC_PREFIXES
+                .iter()
+                .any(|prefix| self.message.starts_with(prefix))
+    }
+}
+
+impl serde::Serialize for ValidationDiagnostic {
+    /// `{ severity, path, schemaId, message }` as before, plus `advisory: true`
+    /// only on advisory diagnostics (absent otherwise, so existing clients and
+    /// payloads are unchanged).
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let advisory = self.is_advisory();
+        let mut st =
+            serializer.serialize_struct("ValidationDiagnostic", 4 + usize::from(advisory))?;
+        st.serialize_field("severity", &self.severity)?;
+        st.serialize_field("path", &self.relative_path)?;
+        st.serialize_field("schemaId", &self.schema_id)?;
+        st.serialize_field("message", &self.message)?;
+        if advisory {
+            st.serialize_field("advisory", &true)?;
+        }
+        st.end()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
@@ -68,7 +105,12 @@ fn fmt_vocabulary_ref(pkg: &crate::package::Package, vocab_id: &str) -> String {
 pub struct ValidationSummary {
     pub checked: usize,
     pub errors: usize,
+    /// Counts every warning-severity diagnostic, advisory ones included (the
+    /// `severity` contract is unchanged).
     pub warnings: usize,
+    /// How many of the diagnostics are advisory (advice only, see
+    /// [`ADVISORY_DIAGNOSTIC_PREFIXES`]); a subset of `warnings`.
+    pub advisories: usize,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -1390,12 +1432,14 @@ pub fn validate_repository(
                     .iter()
                     .filter(|d| d.severity == DiagnosticSeverity::Warning)
                     .count();
+                let advisories = diagnostics.iter().filter(|d| d.is_advisory()).count();
                 return Ok(RepositoryValidationReport {
                     diagnostics,
                     summary: ValidationSummary {
                         checked,
                         errors,
                         warnings,
+                        advisories,
                     },
                 });
             }
@@ -1424,12 +1468,14 @@ pub fn validate_repository(
                     .iter()
                     .filter(|d| d.severity == DiagnosticSeverity::Warning)
                     .count();
+                let advisories = diagnostics.iter().filter(|d| d.is_advisory()).count();
                 return Ok(RepositoryValidationReport {
                     diagnostics,
                     summary: ValidationSummary {
                         checked,
                         errors,
                         warnings,
+                        advisories,
                     },
                 });
             }
@@ -1854,6 +1900,7 @@ pub fn validate_repository(
         .iter()
         .filter(|d| d.severity == DiagnosticSeverity::Warning)
         .count();
+    let advisories = diagnostics.iter().filter(|d| d.is_advisory()).count();
 
     Ok(RepositoryValidationReport {
         diagnostics,
@@ -1861,6 +1908,7 @@ pub fn validate_repository(
             checked,
             errors,
             warnings,
+            advisories,
         },
     })
 }
@@ -7446,6 +7494,36 @@ mod tests {
             "expected I-82 warning when member doesn't root any section container, got: {:?}",
             report.diagnostics
         );
+
+        // srs-rust#700: advisory marker is additive; severity and the warnings count are unchanged.
+        assert!(i82_warnings.iter().all(|d| d.is_advisory()));
+        assert!(i82_warnings
+            .iter()
+            .all(|d| d.severity == DiagnosticSeverity::Warning));
+        assert_eq!(report.summary.advisories, i82_warnings.len());
+        assert!(report.summary.warnings >= report.summary.advisories);
+        let json = serde_json::to_value(i82_warnings[0]).unwrap();
+        assert_eq!(json["advisory"], serde_json::json!(true));
+        assert_eq!(json["severity"], "warning");
+    }
+
+    #[test]
+    fn non_advisory_diagnostic_serializes_without_advisory_marker() {
+        let d = ValidationDiagnostic {
+            severity: DiagnosticSeverity::Warning,
+            relative_path: "x.json".to_string(),
+            schema_id: None,
+            message: "something else".to_string(),
+        };
+        assert!(!d.is_advisory());
+        assert!(serde_json::to_value(&d).unwrap().get("advisory").is_none());
+        let e = ValidationDiagnostic {
+            severity: DiagnosticSeverity::Error,
+            relative_path: "x.json".to_string(),
+            schema_id: None,
+            message: "RFC-013 I-82: forced".to_string(),
+        };
+        assert!(!e.is_advisory(), "an error is never advisory");
     }
 
     #[test]
